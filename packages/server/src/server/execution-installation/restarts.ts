@@ -67,6 +67,16 @@ export interface InstallUpdateOptions {
   serviceRestart: boolean;
 }
 
+/** A dispatched restart must verify readiness within this, or it fails without replay. */
+const DISPATCH_READINESS_DEADLINE_MS = 10 * 60_000;
+
+export interface RestartStartupOptions {
+  fenced: boolean;
+  /** Operator-visible progress for each dispatch step; never silent for hours. */
+  progress?: (message: string, fields: Record<string, unknown>) => void;
+  dispatchDeadlineMs?: number;
+}
+
 export interface RestartApprovalPolicy {
   serviceAuthority?: (
     job: MaintenanceServiceJob,
@@ -202,6 +212,8 @@ function requestPredatesPolicy(
 }
 
 export class InstallationRestarts {
+  private readonly progress: NonNullable<RestartStartupOptions["progress"]>;
+  private readonly dispatchDeadlineMs: number;
   private jobs: RestartJob[];
   private helpers: NativeHelperJob[];
   private monitors: PreviewMonitorJob[];
@@ -218,8 +230,10 @@ export class InstallationRestarts {
     private readonly executor: RestartExecutor,
     private readonly now: () => number = Date.now,
     private readonly approvalPolicy: RestartApprovalPolicy = {},
-    startup: { fenced: boolean } = { fenced: false },
+    startup: RestartStartupOptions = { fenced: false },
   ) {
+    this.progress = startup.progress ?? (() => {});
+    this.dispatchDeadlineMs = startup.dispatchDeadlineMs ?? DISPATCH_READINESS_DEADLINE_MS;
     this.snapshot = journal.read();
     this.jobs = this.snapshot.filter(
       (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
@@ -2416,9 +2430,27 @@ export class InstallationRestarts {
     // Persist uncertainty before executing any plan code. Coordinator recovery
     // keeps this fence even when the process never returned a phase receipt.
     this.replace(job);
+    await this.executeDispatched(job);
+  }
+
+  /** Execution must settle within the dispatch deadline; a later result is never applied. */
+  private async executeDispatched(job: RestartJob): Promise<void> {
+    const fields = { jobId: job.id, target: job.target, revision: job.revision };
+    this.progress("Restart dispatched; waiting for verified readiness", fields);
+    const execution = this.executeApproved(job);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<"expired">((resolve) => {
+      timer = setTimeout(() => resolve("expired"), this.dispatchDeadlineMs);
+    });
     try {
-      const detail = await this.executeApproved(job);
-      await this.finishRestartDispatch(job, detail);
+      const outcome = await Promise.race([execution.then((detail) => ({ detail })), expired]);
+      if (outcome === "expired") {
+        this.expireDispatch(job, execution);
+        return;
+      }
+      await this.finishRestartDispatch(job, outcome.detail);
+      const status = this.jobs.find((item) => item.id === job.id)?.status;
+      this.progress("Restart dispatch settled", { ...fields, status });
     } catch (error) {
       const detail = restartFailureDetail(job, error);
       this.replace({
@@ -2428,6 +2460,9 @@ export class InstallationRestarts {
           ? "Restart outcome is unverified. Checking the target without restarting it again."
           : detail,
       });
+      this.progress("Restart dispatch failed", { ...fields, detail });
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -2449,6 +2484,33 @@ export class InstallationRestarts {
       // preparation never upgrades an existing grant to a full service restart.
       job.automaticAuthority !== undefined &&
       job.automaticAuthority === this.approvalPolicy.authority?.(),
+    );
+  }
+
+  private expireDispatch(job: RestartJob, execution: Promise<string | null>): void {
+    const fields = { jobId: job.id, target: job.target, revision: job.revision };
+    const minutes = Math.round(this.dispatchDeadlineMs / 60_000);
+    const current = this.jobs.find((item) => item.id === job.id);
+    // Standing interruptions keep their own native observation of the outcome.
+    if (
+      current?.status === "running" &&
+      current.revision === job.revision &&
+      !job.standingInterruption
+    )
+      this.replace({
+        ...current,
+        status: "failed",
+        detail: `No verified readiness within ${minutes} minutes of dispatch. The restart was not replayed; inspect the target before requesting another.`,
+      });
+    this.progress("Restart readiness deadline expired", { ...fields, minutes });
+    void execution.then(
+      (detail) =>
+        this.progress("Restart outcome arrived after its deadline and was not applied", {
+          ...fields,
+          detail,
+        }),
+      (error: unknown) =>
+        this.progress("Restart failed after its deadline", { ...fields, error: String(error) }),
     );
   }
 

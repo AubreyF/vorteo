@@ -519,7 +519,8 @@ export interface PaseoDaemon {
   scriptRuntimeStore: WorkspaceScriptRuntimeStore;
   browserToolsBroker: BrowserToolsBroker;
   start(): Promise<void>;
-  stop(): Promise<void>;
+  /** onStep names each awaited shutdown stage. */
+  stop(options?: { onStep?: (step: string) => void }): Promise<void>;
   getListenTarget(): ListenTarget | null;
   getServerId(): string;
 }
@@ -2081,7 +2082,9 @@ export async function createPaseoDaemon(
     }
   };
 
-  const stop = async () => {
+  /** onStep names each awaited stage, so a stalled shutdown reports where it stopped. */
+  const stop = async (options?: { onStep?: (step: string) => void }) => {
+    const step = options?.onStep ?? (() => {});
     blockedTaskReviews.stop();
     factoryScheduleInspection.revoke();
     quotaPreflight.stop();
@@ -2089,10 +2092,13 @@ export async function createPaseoDaemon(
     wsServer?.prepareForShutdown();
     agentManager.prepareForShutdown();
     // Revoke remote execution authority before asynchronous fork teardown.
+    step("hub relationships");
     await hubRelationships.stop();
+    step("schedules");
     await scheduleService.stop().catch(() => undefined);
     const governedFailures: unknown[] = [];
     try {
+      step("governed runtime");
       await governedRuntime?.stop();
     } catch (failure) {
       governedFailures.push(failure);
@@ -2101,8 +2107,10 @@ export async function createPaseoDaemon(
         "Governed runtime settlement remains unresolved during shutdown",
       );
     }
+    step("governor observations");
     await governorObservations.stop();
     localCredential = null;
+    step("local credential");
     await deleteLocalCredential(config.paseoHome);
     // Stop tracking plugin provider registrations before anything tears plugins
     // down, so plugin shutdown cannot withdraw a provider from under an agent
@@ -2111,25 +2119,38 @@ export async function createPaseoDaemon(
     unsubscribePluginProviders();
     workspaceReconciliation.dispose();
     scriptHealthMonitor.stop();
+    step("quota reserve polling");
     await quotaReservePolling.stop();
+    step("close agents");
     await closeAllAgents(logger, agentManager);
+    step("plugin lifecycle events");
     await withTimeout({
       promise: pluginRuntime.drainEvents(),
       timeoutMs: AGENT_CLOSE_TIMEOUT_MS,
       label: "drain plugin lifecycle events",
     }).catch((error) => logger.warn({ err: error }, "Plugin lifecycle events did not finish"));
+    step("flush agents");
     await agentManager.flushForShutdown().catch(() => undefined);
     detachAgentStoragePersistence();
+    step("agent storage");
     await agentStorage.flush().catch(() => undefined);
+    step("provider runtime");
     await agentProviderRuntime.shutdown();
+    step("plugins");
     await pluginRuntime.stopAllPlugins();
+    step("terminals");
     terminalManager.killAll();
+    step("headless browser host");
     await embeddedHeadlessHost.stop().catch(() => undefined);
+    step("speech");
     await speechService.stop();
+    step("relay");
     await relayRuntime?.stop().catch(() => undefined);
     if (wsServer) {
+      step("websocket server");
       await wsServer.close();
     }
+    step("service proxy");
     await serviceProxy.stopStandalone();
     // Force-drop remaining sockets so httpServer.close() resolves promptly.
     // We've already closed wsServer (which sent ws-layer close frames) and
@@ -2138,6 +2159,7 @@ export async function createPaseoDaemon(
     // upgraded WS sockets in the closing handshake, or HTTP keep-alive
     // sockets in CLOSE_WAIT). closeIdleConnections() does not catch
     // upgraded sockets, so we use closeAllConnections() here.
+    step("http server");
     httpServer.closeAllConnections();
     await new Promise<void>((resolve) => {
       httpServer.close(() => resolve());

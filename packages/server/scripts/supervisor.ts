@@ -338,7 +338,8 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
         ? WORKER_TERMINATION_GRACE_MS
         : Math.max(0, terminateAt - Date.now()),
     );
-    forceKillTimer.unref();
+    // Keep the supervisor alive until this fires or the worker exits (which clears it).
+    // An unreferenced timer let a drained supervisor exit first and orphan the worker.
   };
 
   const spawnWorker = () => {

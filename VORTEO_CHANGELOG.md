@@ -6,6 +6,28 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 
 
+
+## 0.11.0-beta.3.vorteo.706 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.705 - 2026-10-19
+
+Restart-orphan fix for the 2026-10-19 Host outage, where a daemon worker froze during shutdown, outlived its supervisor and held the listen port for ten hours.
+
+### Fixed
+
+- Kill a daemon worker that outlives its supervisor or its shutdown deadline. A watchdog thread with its own event loop kills the worker 15 seconds after a shutdown request, or after the supervisor disappears, even when the main event loop is frozen, and logs the shutdown step it was waiting on. Every shutdown step, including the headless browser host, is named in the log.
+- Reclaim the listen address from a frozen predecessor. A starting worker identifies the holder; a previous daemon worker of this installation, run by the same user, gets SIGTERM and then SIGKILL, with its pid, uid, start time and arguments re-verified before each signal so a reused pid is never signalled. Any other holder is reported and retried with exponential backoff up to a minute.
+- Give each dispatched restart a 10-minute readiness deadline. After it the job fails without replay and releases any continuation hold, and a late outcome is logged but never applied. Readiness probes are bounded, and the coordinator logs each dispatch step.
+- Keep the supervisor alive until its worker force-kill timer fires, give the Host launchd job a 30-second `ExitTimeOut`, and make a terminal worker exit when its daemon worker is gone.
+
+### Validation
+
+- A real supervisor and worker pair reproduces the outage with a turn under a continuation hold whose teardown freezes the event loop. The old worker is killed at its deadline and a replacement binds the port; both tests fail without the fix.
+
 ## 0.11.0-beta.3.vorteo.705 - 2026-10-19
 
 ### Maintenance
