@@ -28,7 +28,8 @@ export type RunnerPhase =
   | "renewal-retained"
   | "renewal-generation"
   | "renewal-derive"
-  | "renewal-plan";
+  | "renewal-plan"
+  | "runtime-digest";
 type RequestIdentity = Pick<
   CoordinatorBootstrapRequest,
   "id" | "revision" | "planSha256" | "execution"

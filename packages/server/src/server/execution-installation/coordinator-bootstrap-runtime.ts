@@ -19,6 +19,7 @@ import {
   type BootstrapAdmissionHost,
 } from "./coordinator-bootstrap-host.js";
 import { InstallationConfigSchema } from "./config.js";
+import type { RequireRuntimeCustody } from "./coordinator-bootstrap-runtime-custody.js";
 
 /** Protected Host setup supplies every dependency here. The RPC boundary must
  * never accept these paths, descriptors or launch callbacks from a client. */
@@ -30,6 +31,8 @@ interface BootstrapNativeOperationsInput {
   lockFile: string;
   ownershipVerifier: { path: string; sha256: string };
   verifySetup(): Promise<void>;
+  /** Ordinary renewal executors only: full runtime digest before freeze, unload and start. */
+  requireRuntimeCustody?: RequireRuntimeCustody;
   armWatchdog(request: CoordinatorBootstrapRequest): Promise<void>;
   evidence?: ReturnType<typeof createBootstrapRunnerEvidence>;
 }
@@ -104,6 +107,7 @@ async function createNativeOperations(
     launcherFile: input.host.launcherFile,
     writableMountRoots,
     requireOwnership,
+    requireRuntimeCustody: input.requireRuntimeCustody,
     readHealth: () => readBootstrapHealth(config.listenPort),
   });
   const requireRequest = async (request: CoordinatorBootstrapRequest) => {

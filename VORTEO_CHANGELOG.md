@@ -4,6 +4,55 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.847 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.846 - 2026-10-25
+
+### Maintenance
+
+- Merge renewal runtime custody boundaries: coordinator renewals hash the runtime at admission, freeze, unload, start and release instead of before every step
+
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Changed
+
+- Coordinator renewal custody checks hash the coordinator's whole runtime five times instead of about thirty: at admission and immediately before freeze, unload, start and release. Each check compares against the hash admission accepted and fails closed. Every other step keeps its setup, pinned-file, journal and lock checks, and the renewal is re-derived once, at the claim, instead of six times. The separate candidate release checks are unchanged. Expected saving is 200 to 300 seconds per renewal. Watchdog and maintenance runners are unchanged.
+
+## 0.11.0-beta.3.vorteo.845 - 2026-10-25
+
+### Maintenance
+
+- Merge restart settings drift test: every reviewed restart operation's plan comes from a registered setting with the same name, supervisor maintenance excepted
+
+## 0.11.0-beta.3.vorteo.844 - 2026-10-25
+
+### Maintenance
+
+- Complete the shared Lucide fixture for common icons imported by the deferred plugin-icon adapter, restoring collection of four browser and project-screen test files without changing assertions or production behavior.
+
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Added
+
+- Add an explicit browser Data saver preference before optional font loading and in General settings; preserve saved fonts, diagram source, messages and attachment behavior.
+- Keep common plugin icons immediate and defer the remaining catalogue, with visible loading, failure and bounded retry controls.
+
+### Changed
+
+- Replace the startup bitmap with the existing V silhouette in inline SVG, retaining the minimal spinner and delayed diagnostics transition.
+- Resolve web icon imports and their original provider context without eagerly loading the catalogue; guard the package export layout and preserve native imports.
+- Cover provider defaults, icon aliases and optional download state alongside startup, font restoration and diagram consent regressions.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- A test keeps the reviewed restart operations and the reviewed coordinator settings in step. Each operation's plan must come from the registered setting of the same name, at that setting's configuration path, with supervisor maintenance as the one named exception.
+
 ## 0.11.0-beta.3.vorteo.842 - 2026-10-25
 
 ### Maintenance
