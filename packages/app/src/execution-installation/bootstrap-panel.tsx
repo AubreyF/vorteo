@@ -84,6 +84,7 @@ function BootstrapRequestCard({
   }, [model, request]);
   const reason = bootstrapDecisionDisabledReason(request, state);
   const deciding = !request.execution && request.status !== "canceled";
+  const checking = state.busy && deciding;
   return (
     <View
       style={[styles.card, settingsStyles.rowBorder]}
@@ -92,7 +93,7 @@ function BootstrapRequestCard({
       <View style={styles.row}>
         <Text style={settingsStyles.rowTitle}>Installation coordinator</Text>
         <StatusBadge
-          label={state.busy && deciding ? "Submitting decision" : bootstrapStatus(request)}
+          label={checking ? "Checking decision" : bootstrapStatus(request)}
           variant={request.execution?.stage === "recovery_required" ? "error" : "muted"}
         />
       </View>
@@ -103,6 +104,12 @@ function BootstrapRequestCard({
           ? "This also enables automatic approval for trusted Host requests."
           : "Review the exact source before approving."}
       </Text>
+      {checking ? (
+        <Text accessibilityLiveRegion="polite" style={styles.text}>
+          Host is processing your decision. Approval verifies the prepared release files and can
+          take several minutes. Do not submit it again. Host and Dev tasks keep running.
+        </Text>
+      ) : null}
       <Button variant="ghost" onPress={toggle} accessibilityState={details ? expanded : collapsed}>
         {details ? "Hide details" : "Details"}
       </Button>
@@ -228,8 +235,13 @@ export function BootstrapBanner({ model }: { model: BootstrapPanelModel }) {
   return (
     <View testID="coordinator-bootstrap-banner">
       <SidebarCallout
-        title={`Coordinator: ${bootstrapStatus(request)}`}
-        description={state.error ?? "Coordinator maintenance. Host and Dev tasks keep running."}
+        title={`Coordinator: ${state.busy ? "Checking decision" : bootstrapStatus(request)}`}
+        description={
+          state.error ??
+          (state.busy
+            ? "Host is processing your decision and checking the prepared update. This can take several minutes; do not submit it again."
+            : "Coordinator maintenance. Host and Dev tasks keep running.")
+        }
         actions={[{ label: "Review update", onPress: open }]}
       />
     </View>
