@@ -1,3 +1,5 @@
+import { CardHeaderStatus } from "@/components/ui/card-header-status";
+import { ActionFooter } from "@/components/ui/action-footer";
 import React, { memo, useCallback, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -136,19 +138,15 @@ function SummaryContent({ text, timestamp }: { text: string; timestamp: Date }) 
   const download = useCallback(() => void perform("exporting"), [perform]);
   return (
     <>
-      <View style={styles.actions}>
+      <ActionFooter style={styles.actions}>
+        <CardHeaderStatus text={action !== "idle" ? t(`message.compaction.${action}`) : null} />
         <Button variant="ghost" size="md" leftIcon={Copy} disabled={pending} onPress={copy}>
           {t("message.compaction.copy")}
         </Button>
         <Button variant="ghost" size="md" leftIcon={Download} disabled={pending} onPress={download}>
           {t("message.compaction.download")}
         </Button>
-      </View>
-      {action !== "idle" ? (
-        <Text accessibilityLiveRegion="polite" style={styles.metadata}>
-          {t(`message.compaction.${action}`)}
-        </Text>
-      ) : null}
+      </ActionFooter>
       <Text selectable style={styles.summary} testID="compaction-summary">
         {text}
       </Text>

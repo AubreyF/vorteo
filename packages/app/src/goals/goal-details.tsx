@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
@@ -111,7 +112,7 @@ export function GoalDetails({ control, draft, onClose, onCreated }: GoalDetailsP
         {!control.connected ? (
           <Text style={styles.hint}>Reconnect to the host to change this goal.</Text>
         ) : null}
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button
             variant="ghost"
             onPress={control.refresh}
@@ -128,7 +129,7 @@ export function GoalDetails({ control, draft, onClose, onCreated }: GoalDetailsP
           >
             {submitLabel}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

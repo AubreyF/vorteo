@@ -5,7 +5,6 @@ import {
   useHasExecutionEnvironment,
 } from "@/execution-installation/environment-icon";
 import { WorkspaceChecklistProgress } from "@/task-checklist/workspace-progress";
-import { WorkspaceGoalBadge } from "@/goals/workspace-goal-badge";
 import { WorkspaceQueueCount } from "@/message-queue/workspace-queue-count";
 import { WorkspaceSubagentCount } from "@/subagents/workspace-count";
 import { useVortonTouch } from "@/vorton-touch";
@@ -117,8 +116,6 @@ function WorkspaceActivityBadges({
     <>
       <WorkspaceQueueCount serverId={serverId} workspaceId={workspaceId} />
       <WorkspaceSubagentCount serverId={serverId} workspaceId={workspaceId} />
-      <WorkspaceGoalBadge serverId={serverId} workspaceId={workspaceId} />
-      <WorkspaceChecklistProgress serverId={serverId} workspaceId={workspaceId} />
     </>
   );
 }
@@ -196,7 +193,6 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
         )}
         <View style={styles.workspaceContentColumn}>
           <View style={[styles.workspaceTitleRow, styles.alignedRow]}>
-            <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />
             <Text style={workspaceBranchTextStyle} numberOfLines={1}>
               {workspaceLabel}
             </Text>
@@ -412,6 +408,7 @@ export function SidebarWorkspaceTrailingDetails({
   const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
   return (
     <View style={styles.trailingDetails}>
+      <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />
       {service ? <ServiceItem summary={service} iconOnly /> : null}
       <WorkspaceActivityBadges
         serverId={workspace.serverId}
@@ -426,6 +423,12 @@ export function SidebarWorkspaceTrailingDetails({
         </View>
       ) : null}
       <WorkspaceLifecycleIndicators workspace={workspace} />
+      {sidebarRowItems.activityBadges ? (
+        <WorkspaceChecklistProgress
+          serverId={workspace.serverId}
+          workspaceId={workspace.workspaceId}
+        />
+      ) : null}
     </View>
   );
 }

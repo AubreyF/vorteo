@@ -7,6 +7,8 @@ import DraggableFlatList, {
 import { useUnistyles } from "react-native-unistyles";
 import type { DraggableListProps, DraggableRenderItemInfo } from "./draggable-list.types";
 
+import { useOptimisticReorder } from "./drag-reorder/use-optimistic-reorder";
+
 export type { DraggableListProps, DraggableRenderItemInfo };
 
 const SCROLL_ENABLED_FLEX_STYLE = { flex: 1 };
@@ -38,6 +40,7 @@ export function DraggableList<T>({
 }: DraggableListProps<T>) {
   const { theme } = useUnistyles();
   const [isDragging, setIsDragging] = useState(false);
+  const { items, drop } = useOptimisticReorder(data, keyExtractor, onDragEnd);
 
   // Pass the ref directly to DraggableFlatList - it handles gesture
   // coordination internally for nestable lists.
@@ -68,9 +71,9 @@ export function DraggableList<T>({
   const handleDragEnd = useCallback(
     ({ data: newData }: { data: T[] }) => {
       setIsDragging(false);
-      onDragEnd(newData);
+      drop(newData);
     },
-    [onDragEnd],
+    [drop],
   );
 
   const handleDragBegin = useCallback(() => {
@@ -107,7 +110,7 @@ export function DraggableList<T>({
   return (
     <ListComponent
       testID={testID}
-      data={data}
+      data={items}
       keyExtractor={keyExtractor}
       renderItem={handleRenderItem}
       onDragEnd={handleDragEnd}

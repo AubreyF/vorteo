@@ -5,6 +5,433 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.253 - 2026-10-09
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.252 - 2026-10-09
+
+### Added
+
+- Prepare and inspect native helper installations through Host-scoped commands and exact owner review
+- Preserve helper installation, cancellation and recovery receipts in the shared lifecycle journal
+- Verify protected artifacts, signing identities, private state and replacement processes before reporting installation success
+- Bind helper configuration changes to reviewed coordinator plans while preserving the existing Host Docker pairing
+
+### Fixed
+
+- Retain helper recovery errors across interface refreshes and show maintenance status while controls are locked
+- Show signing identities and the correct retained release in helper rollback details
+
+### Maintenance
+
+- Cover lifecycle recovery, scoped HTTP and client commands, and desktop and phone review flows with isolated tests
+- Keep helper activation disabled until compatible coordinator rollback, signing and tracked installation acceptance are complete
+
+## 0.11.0-beta.3.vorteo.251 - 2026-10-09
+
+### Fixed
+
+- Allow complete native artifact verification before coordinator bootstrap acknowledgement times out
+- Keep owner review requests observable during long verification without replaying uncertain operations
+
+## 0.11.0-beta.3.vorteo.250 - 2026-10-08
+
+### Fixed
+
+- Verify npm executable hard links within sealed coordinator releases while rejecting external aliases
+- Bind internal link topology and recheck file identities before accepting the artifact digest
+
+## 0.11.0-beta.3.vorteo.249 - 2026-10-08
+
+### Maintenance
+
+- Discover protected coordinator bootstrap setup beside the private Host installation client without changing the loaded launcher
+- Reject non-Host clients and insecure setup; discovery does not approve or dispatch maintenance
+
+## 0.11.0-beta.3.vorteo.248 - 2026-10-08
+
+### Maintenance
+
+- Integrate the deployed interface and installed Host ancestry with coordinator bootstrap and Claude connection preparation
+- Preserve delivered queue recovery, conversation card geometry, task progress and sidebar refinements
+- Retain both branches' complete release histories; installation and live bootstrap acceptance remain pending
+
+## 0.11.0-beta.3.vorteo.225 - 2026-10-08
+
+### Fixed
+
+- Keep the profile selector open when switching Host and Dev container, without a Host confirmation dialog.
+- Keep active managed-worker workspaces visible in the sidebar, including workspaces with no terminals or running scripts. Preserve their project grouping and task relationships.
+
+## 0.11.0-beta.3.vorteo.247 - 2026-10-08
+
+### Maintenance
+
+- Connect protected Host bootstrap setup to the review capability and exact approved runner launch
+- Verify the prepared runtime before accepting requests, acknowledge durable dispatch, and refuse automatic launch retries
+- Preserve cancellation before dispatch and keep the capability disabled when Host setup is absent or invalid
+- Validate native replacement and crash recovery with disposable services; production installation and full client acceptance remain pending
+
+## 0.11.0-beta.3.vorteo.246 - 2026-10-08
+
+### Maintenance
+
+- Add capability-gated coordinator bootstrap review in Installation settings and a persistent sidebar callout
+- Bind owner decisions to the displayed request revision and plan digest, clear submitted passwords and preserve last known status on disconnect
+- Show concise maintenance copy, collapsed source details, cancellation before dispatch and disabled-action explanations
+- Cover stale reviews and delayed status races in model tests; browser acceptance and Host activation remain pending
+
+## 0.11.0-beta.3.vorteo.245 - 2026-10-08
+
+### Maintenance
+
+- Add a protected native bootstrap runner bound to approved candidate artifacts and immutable Host setup
+- Persist executor identity and require the watchdog launcher's readiness handshake before freezing the coordinator
+- Route abandoned executions through the existing generation-bound recovery policy without replaying installation
+- Keep full runner acceptance, Host launch admission, visible controls and live activation pending
+
+## 0.11.0-beta.3.vorteo.244 - 2026-10-08
+
+### Maintenance
+
+- Compose native coordinator handoff operations with protected setup, kernel ownership and exact approved-plan checks
+- Restrict readiness requests to the configured loopback listener, rejecting redirects, oversized responses and unavailable endpoints
+- Recheck readiness before the durable startup-fence release and bound repeated native observations
+- Keep watchdog launch, visible approval controls and live bootstrap acceptance pending
+
+## 0.11.0-beta.3.vorteo.243 - 2026-10-08
+
+### Maintenance
+
+- Verify inherited bootstrap ownership against the kernel lock and canonical private lock inode
+- Reject unlocked descriptors, descriptors owned by another process and changed verifier bytes
+- Extend disposable process tests for ownership across execution and release after process death
+- Keep executor launch wiring, visible review controls and live bootstrap acceptance pending
+
+## 0.11.0-beta.3.vorteo.242 - 2026-10-08
+
+### Maintenance
+
+- Preserve coordinator handoff state with a durable generation-bound hash receipt, without copying or restoring journals and owner sessions
+- Refuse transfer when requests are active, preparation children remain, state changes or files are not private and owned
+- Check preserved state again before unload and replacement readiness; retain absent initial stores without creating them
+- Keep native executor wiring, visible review controls and live activation pending
+
+## 0.11.0-beta.3.vorteo.241 - 2026-10-08
+
+### Maintenance
+
+- Verify replacement coordinator readiness against repeated native identity observations and the approved executable and arguments
+- Require matching installation, process and handoff generation in fenced health responses; reject process changes during verification
+- Recheck candidate artifacts, selected launcher and dispatch ownership before accepting readiness
+- Keep native runner wiring, visible review controls and live bootstrap acceptance pending
+
+## 0.11.0-beta.3.vorteo.240 - 2026-10-08
+
+### Maintenance
+
+- Bind native freeze, resume, unload, selection and startup adapters to exact bootstrap stages and ownership
+- Require explicit kernel process-exit and service-removal evidence before replacement startup
+- Atomically select verified launcher bytes without overwriting candidate or rollback artifacts; recheck release bytes before startup
+- Keep replacement readiness verification, native runner wiring and visible review controls pending before activation
+
+## 0.11.0-beta.3.vorteo.239 - 2026-10-08
+
+### Maintenance
+
+- Add generation-bound watchdog recovery that resumes only verified pre-transfer freezes and refuses ambiguous executor death
+- Preserve recovery-required state after unload intent without replaying service operations
+- Add a native ownership launcher whose kernel lock survives Node execution and releases on process death, verified with disposable fixtures
+- Keep native lifecycle adapters, watchdog launching and visible review controls pending before activation
+
+## 0.11.0-beta.3.vorteo.238 - 2026-10-08
+
+### Maintenance
+
+- Fence replacement coordinator startup by the exact bootstrap generation and approved installation paths
+- Keep the restart journal, queue dispatch and account synchronization inert while serving bounded readiness status
+- Refuse changed or missing handoff records and journal changes before release; retain ordinary startup behavior outside bootstrap
+- Resolve the Dev HTTP test helper from its source location so tests work from the server workspace
+- Keep native bootstrap execution, watchdog and owner review controls pending before activation
+
+## 0.11.0-beta.3.vorteo.237 - 2026-10-08
+
+### Maintenance
+
+- Bind bootstrap dispatch to one durable generation and record operation intent before each execution step
+- Reject active installation work and preparation children before coordinator transfer; verify stopped native process observations in disposable fixtures
+- Resume the verified previous process after pre-transfer failures and require observed recovery after unload begins
+- Keep native executor adapters, watchdog, visible approval controls and production activation pending
+
+## 0.11.0-beta.3.vorteo.236 - 2026-10-08
+
+### Maintenance
+
+- Construct bootstrap review services from private Host setup, with fixed daemon identity and protected collector paths
+- Reject exposed setup, changed collector configuration and changed state locations; verify that prepared requests remain pending
+- Integrate this setup with the accepted Claude source while leaving production capability wiring and lifecycle activation pending
+
+## 0.11.0-beta.3.vorteo.235 - 2026-10-08
+
+### Maintenance
+
+- Integrate Claude setup-token connections with the prepared coordinator bootstrap source, preserving both v227 histories and the browser icon test repairs
+- Keep coordinator activation and live Host/Dev subscription acceptance pending the tracked installation workflow
+
+## 0.11.0-beta.3.vorteo.234 - 2026-10-08
+
+### Maintenance
+
+- Combine bootstrap configuration, release, source receipt, launcher and process checks with repeated mount and artifact verification
+- Parse captured launcher bytes through the native plist parser without exposing configuration values in errors
+- Verify matching plans and reject runtime or mount changes during collection in isolated fixtures; production wiring and lifecycle activation remain unfinished
+
+## 0.11.0-beta.3.vorteo.233 - 2026-10-08
+
+### Maintenance
+
+- Restore missing task-card icon exports in the browser test stub so task-card imports do not block component validation
+- Add a native read-only service collector that verifies the process inspector's bytes and executes the captured source with fixed system tools
+- Reject guest-writable inspector paths, incorrect digests and foreign service owners; verify that a later helper-file replacement cannot change executed code
+- Preserve coordinator launcher environment, logging and lifetime settings while permitting only approved executable and configuration arguments; complete admission and lifecycle activation remain unfinished
+
+## 0.11.0-beta.3.vorteo.232 - 2026-10-08
+
+### Maintenance
+
+- Bind the loaded coordinator service PID to the prepared kernel process identity, Host ownership, launchd parent and exact executable arguments
+- Reject malformed or ambiguous service records and repeat service/process observations to catch replacement during verification
+- Cover changed PID at each read and changed process birth identity; trusted collector wiring and lifecycle admission remain unfinished
+
+## 0.11.0-beta.3.vorteo.231 - 2026-10-08
+
+### Maintenance
+
+- Add a read-only macOS process inspector for coordinator bootstrap, reporting kernel boot/start identity, owner, executable and argument digest without exposing arguments or environment values
+- Recheck executable and arguments as well as process birth identity during inspection; reject missing processes with a sanitized failure
+- Validate a disposable process and the installed coordinator without lifecycle changes; trusted helper admission and loaded-service integration remain unfinished
+
+## 0.11.0-beta.3.vorteo.230 - 2026-10-08
+
+### Maintenance
+
+- Verify prepared coordinator release files against approval digests, including the executable, entrypoint, configuration, launcher and complete runtime tree
+- Require candidate configuration to preserve installation credentials, service targets and state paths, allowing only the restart policy named in the plan
+- Recheck dependency identities and configuration observations before returning; loaded-service admission and lifecycle activation remain unfinished
+
+## 0.11.0-beta.3.vorteo.229 - 2026-10-08
+
+### Maintenance
+
+- Inspect bootstrap container mounts through an explicit local Docker socket, with bounded commands and exact container identity checks
+- Require named-volume evidence and reject driver options that could conceal Host bind mounts; reject incomplete inspection results
+- Verify Host configuration and state mount exclusion with read-only installation diagnostics; production bootstrap admission and activation remain unfinished
+
+## 0.11.0-beta.3.vorteo.228 - 2026-10-08
+
+### Maintenance
+
+- Add optional coordinator bootstrap review RPCs and client methods, with daemon-management permissions, capability gating and sanitized errors
+- Bind private coordinator configuration to the actual Host daemon and fixed installation service; reject exposed configuration and state directories
+- Verify that disconnected approval requests are not replayed and owner proof does not enter client logs; production admission, plan verification and lifecycle execution remain unfinished
+
+## 0.11.0-beta.3.vorteo.227 - 2026-10-08
+
+### Added
+
+- Connect Claude subscriptions once per managed installation through the official setup-token command, with private capture and authenticated delivery to Host and Dev
+- Persist credential generations and disconnect records, retry offline delivery, and honor explicit environment exclusions without copying refresh grants
+
+### Fixed
+
+- Isolate subscription credentials from native Claude grants while preserving existing account history and conversation IDs during renewal
+- Refuse incomplete or revoked credential delivery and environment-local sign-in on managed daemons
+- Keep usage and reset controls from reading another native account, and clear only inherited native-login warnings after setup-token transition
+
+### Maintenance
+
+- Add synthetic CLI/SDK compatibility evidence, focused authentication, recovery, HTTP and UI tests, and document token lifetime, identity and usage limitations
+- Installation delivery and live subscription acceptance remain pending; no private refresh endpoint or SDK callback is adopted
+
+## 0.11.0-beta.3.vorteo.227 - 2026-10-08
+
+### Maintenance
+
+- Add inert coordinator bootstrap request contracts, independent owner authentication, exact revision checks and durable private request storage
+- Validate complete prepared runtime artifacts, including dependencies, permissions and internal links, and reject paths overlapping writable container mounts
+- Cover stale approval, concurrent cancellation and preparation, credential changes and artifact integrity in isolated tests; Host API, interface and lifecycle activation remain unfinished
+
+## 0.11.0-beta.3.vorteo.226 - 2026-10-08
+
+### Maintenance
+
+- Integrate the coordinator bootstrap design with the published environment selector and worker workspace fixes, preserving both version 225 release entries
+
+## 0.11.0-beta.3.vorteo.225 - 2026-10-08
+
+### Maintenance
+
+- Specify the one-time tracked coordinator bootstrap, including independent owner authentication, exclusive journal ownership, cancellation, bounded recovery and live acceptance requirements
+- Record the verified distinction between a service-unload command returning and the previous process actually exiting; production activation remains pending
+
+## 0.11.0-beta.3.vorteo.225 - 2026-10-08
+
+## 0.11.0-beta.3.vorteo.242 - 2026-10-09
+
+### Fixed
+
+- Give conversation cards one shared inset, heading height, icon column, title typography and centered action row. Remove the sub-agent left offset and Goal action top margin; keep Clear finished equally inset from the top and right.
+- Put disclosure arrows after titles and before counts, including Plans. Keep question navigation and full prompts below a fixed Questions heading.
+- Prevent per-card content inset overrides. Document the layout contract in app instructions and the design guide, and check rendered alignment, visible titles, clearance, overflow and fixed headers at desktop and phone widths.
+
+## 0.11.0-beta.3.vorteo.241 - 2026-10-09
+
+### Fixed
+
+- Restore workspace three-dot menus to the far-right edge. Hover menus cover the task flower instead of appearing to its left; touch menus retain their reserved action space.
+- Update the sidebar flower browser check to verify menu alignment and pointer targeting.
+
+## 0.11.0-beta.3.vorteo.240 - 2026-10-09
+
+### Changed
+
+- Move the gold Host environment icon from beside workspace names to the trailing metadata group, after line-change counts and before the preview globe, badges, labels and task flower.
+
+## 0.11.0-beta.3.vorteo.239 - 2026-10-09
+
+### Fixed
+
+- Keep conversation card headings outside their scrolling bodies while capping the complete card at half the viewport height. Apply the shared heading slot to tasks, messages, goals, sub-agents, questions, permissions and plans.
+- Give managed and provider sub-agent groups separate bounded cards. Preserve collapsed body state and compact spacing.
+- Extend desktop and phone browser checks for fixed headings, body scrolling and viewport resizing.
+
+## 0.11.0-beta.3.vorteo.238 - 2026-10-09
+
+### Changed
+
+- Keep sub-agent names, status and profile/model/effort metadata on one line, with metadata immediately before right-edge actions. Remove row dividers and preserve action space on narrow screens.
+- Add desktop and phone checks for row alignment, single-line metadata and overflow.
+
+## 0.11.0-beta.3.vorteo.237 - 2026-10-09
+
+### Fixed
+
+- Preserve dropped task, message and provider order during asynchronous saves with a shared web/native handoff. Keep row content current and restore authoritative order on failure.
+- Remove routine message reorder status while preserving rejection and recovery controls. Detect retained queue operations instead of treating their flush as a confirmed reorder.
+- Add delayed-response, mouse rejection and desktop/phone frame checks for stable list positions; document the async drop contract.
+
+## 0.11.0-beta.3.vorteo.236 - 2026-10-09
+
+### Changed
+
+- Make Messages and Goals collapsible while preserving their mounted contents and header actions. Collapsing does not pause execution.
+- Share disclosure headings across managed and provider tasks, messages, goals and sub-agents, with the arrow after the title and before the count. Add desktop and phone collapse and ordering checks.
+
+## 0.11.0-beta.3.vorteo.235 - 2026-10-09
+
+### Fixed
+
+- Keep transient queue operations, settings saves and compaction action feedback in stable single-line heading slots before action buttons. Reordering no longer adds and removes a progress row beneath queued messages.
+- Preserve persistent errors and recovery controls. Add desktop and phone checks for unchanged queue card height, plus missing icon exports needed by browser test fixtures.
+
+## 0.11.0-beta.3.vorteo.234 - 2026-10-09
+
+### Maintenance
+
+- Integrate shared footer layouts with queue recovery containment, preserving both changes and their release history.
+
+## 0.11.0-beta.3.vorteo.233 - 2026-10-09
+
+### Changed
+
+- Standardize modal and card bottom actions with a shared right-aligned footer, spacing above and responsive wrapping. Keep task and label deletion and host removal red and on the far left, separated from ordinary actions.
+- Document footer conventions and check task editor alignment, spacing and delete color at desktop and phone widths. Keep Close and Save together when the task footer wraps, and update label/profile browser navigation to the current interface.
+
+## 0.11.0-beta.3.vorteo.233 - 2026-10-09
+
+### Fixed
+
+- Keep queue recovery controls inside the Messages card when the server queue is empty. Retained local copies no longer display active synchronization errors.
+- Retire rejected send-now controls whose target has left the queue, preserving message content, attachments and concurrent retries. Disable new immediate sends while delivery or local queue changes remain unresolved.
+- Cover reconnect cleanup, retained edits, empty-queue recovery and desktop/mobile card layout with focused tests and a browser regression.
+
+## 0.11.0-beta.3.vorteo.232 - 2026-10-09
+
+### Maintenance
+
+- Correct the sidebar activity badge browser check to inspect the accessible text inside the badge.
+
+## 0.11.0-beta.3.vorteo.231 - 2026-10-09
+
+### Changed
+
+- Remove the sidebar goal badge and show the sub-agent count only for active work. Managed workers count while their turn is open, including waiting for input; provider workers count while running. Finished unarchived workers no longer keep the badge visible.
+
+## 0.11.0-beta.3.vorteo.230 - 2026-10-09
+
+### Added
+
+- Add a Clear completed button to task headings when completed editable checklist items exist. Cleanup preserves unfinished and provider-owned tasks, removes dependency links, stops on concurrent-edit conflicts, and reports errors.
+
+## 0.11.0-beta.3.vorteo.229 - 2026-10-09
+
+### Changed
+
+- Remove outlines from active blue task petals. Make one-, two- and three-task petals wider and fuller, bringing radial tips closer to the center while keeping a single petal centered upright.
+
+## 0.11.0-beta.3.vorteo.228 - 2026-10-09
+
+### Changed
+
+- Add space around the slash in task heading count badges for managed and provider task cards.
+
+## 0.11.0-beta.3.vorteo.227 - 2026-10-09
+
+### Fixed
+
+- Show active task rows with a white foreground outline spinner, using the shared status-ring animation in managed and provider task lists. Keep the completion control clickable while a task is active.
+- Cover pending, active and completed row transitions at desktop and narrow widths.
+
+## 0.11.0-beta.3.vorteo.226 - 2026-10-09
+
+### Fixed
+
+- Keep task flowers to the right of sidebar row actions on hover and touch, so the action menu cannot cover the progress indicator.
+
+## 0.11.0-beta.3.vorteo.225 - 2026-10-09
+
+### Changed
+
+- Replace task-completion donuts with smaller rounded flower petals in sidebar rows and task-card headers. Show green completion, blue activity with an outline halo, and gray pending work; cap the display at twelve petals and summarize larger checklists proportionally.
+- Center a single upright petal within its icon slot and keep sidebar flowers after all labels and badges.
+- Hide empty task cards, move reorder handles to the left, and use the message edit pencil for task details.
+- Expose exact completion and active counts on hover and keyboard focus. The new active-count text uses English fallback in other locales.
+
+## 0.11.0-beta.3.vorteo.224 - 2026-10-08
+
+### Fixed
+
+- Keep the profile selector open when switching Host and Dev container, without a Host confirmation dialog.
+- Keep active managed-worker workspaces visible in the sidebar, including workspaces with no terminals or running scripts. Preserve their project grouping and task relationships.
+
+## 0.11.0-beta.3.vorteo.224 - 2026-10-08
+
+### Changed
+
+- Add an opt-in protected policy for automatic approval of authenticated Host restart requests, using the existing finish-turns hold, durable journal and cancellation controls
+- Keep Dev requests and mixed-origin source batches under manual review; identify Dev origin and its reason in installation controls
+- Bind automatic approval to the exact request revision and source digest, preserve legacy client responses, and test repeated recovery without replay
+
+## 0.11.0-beta.3.vorteo.223 - 2026-10-08
+
+### Changed
+
+- Let agents read and revise their own existing goals, including authorized resumption of blocked work, while preserving usage, budgets and restart holds
+- Reject stale goal edits, foreign-thread selection and indirect limit bypasses; document the goal-tool extension in the README
+
 ## 0.11.0-beta.3.vorteo.223 - 2026-10-09
 
 ### Maintenance

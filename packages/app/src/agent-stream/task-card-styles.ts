@@ -1,4 +1,3 @@
-import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { StyleSheet } from "react-native-unistyles";
 
 export const TASK_CARD_ROW_HEIGHT = 40;
@@ -12,16 +11,18 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     borderRadius: theme.borderRadius.lg,
   };
   const contentInsets = {
-    paddingVertical: theme.spacing[2],
-    paddingLeft: { xs: theme.spacing[3], md: theme.spacing[4] },
-    paddingRight: theme.spacing[2],
-    gap: theme.spacing[1],
+    padding: theme.spacing[3],
+    gap: theme.spacing[3],
   };
   return {
     surface,
     contentInsets,
     // Equal outer insets keep header-only and collapsed cards vertically centered.
     scrollContent: contentInsets,
+    bodyContent: { gap: theme.spacing[1] },
+    fixedHeader: { flexShrink: 0 },
+    scrollBody: { minHeight: 0, flexShrink: 1, flexGrow: 0 },
+    hiddenBody: { display: "none" },
     item: {
       minHeight: TASK_CARD_ROW_HEIGHT,
       paddingVertical: theme.spacing[1],
@@ -40,24 +41,25 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       paddingVertical: 0,
       borderRadius: theme.borderRadius.full,
     },
-    touchAction: { minWidth: 44, minHeight: 44 },
+    touchAction: { width: 44, height: 44, minWidth: 44, minHeight: 44 },
     header: {
       flexDirection: "row",
       alignItems: "center",
-      minHeight: TASK_CARD_ROW_HEIGHT,
+      height: 32,
       gap: theme.spacing[2],
+      flexShrink: 0,
     },
-    touchHeader: { minHeight: TASK_CARD_TOUCH_ROW_HEIGHT, height: TASK_CARD_TOUCH_ROW_HEIGHT },
-    touchAccordionTrigger: { minHeight: CONTROL_HEIGHTS.field, height: CONTROL_HEIGHTS.field },
+    touchHeader: { height: 44 },
+    touchAccordionTrigger: { height: 44 },
     accordionTrigger: {
       flex: 1,
       minWidth: 0,
-      minHeight: CONTROL_HEIGHTS.compact,
-      height: CONTROL_HEIGHTS.compact,
-      justifyContent: "flex-start",
-      paddingHorizontal: theme.spacing[2],
+      height: 32,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.spacing[2],
     },
-    headingRow: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
+    title: { flex: 1, minWidth: 0 },
     heading: {
       lineHeight: Math.max(16, Math.round(theme.fontSize.sm * 1.4)),
       color: theme.colors.foreground,

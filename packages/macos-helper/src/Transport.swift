@@ -35,6 +35,17 @@ func decodeRequest(_ data: Data) throws -> Request {
     guard Set(parameters.keys) == (fields[request.operation] ?? []) else { throw HelperError.invalid("invalid_request") }
     return request
 }
+struct HelperProcessIdentity: Codable {
+    let pid: Int32
+    let executable: String
+    let instanceId: String
+}
+private let helperInstanceId = UUID().uuidString
+func helperProcessIdentity() throws -> HelperProcessIdentity {
+    guard let executable = Bundle.main.executableURL?.resolvingSymlinksInPath().path,
+          executable.hasPrefix("/") else { throw HelperError.invalid("helper_identity_unavailable") }
+    return HelperProcessIdentity(pid: getpid(), executable: executable, instanceId: helperInstanceId)
+}
 struct Reply: Codable {
     let ok: Bool
     let code: String
@@ -42,6 +53,7 @@ struct Reply: Codable {
     var tabs: Int? = nil
     var protocolVersion: Int? = 2
     var data: String? = nil
+    var process: HelperProcessIdentity? = nil
 }
 enum HelperError: Error { case invalid(String) }
 

@@ -377,7 +377,11 @@ export function SharedPluginsPage() {
     return <Text style={settingsStyles.rowHint}>Reading existing plugin catalogs...</Text>;
   return (
     <View testID="shared-plugins-page">
-      <SettingsSection title="Plugins" trailing={addButton}>
+      <SettingsSection
+        title="Plugins"
+        trailing={addButton}
+        status={mutation.isPending ? "Saving..." : null}
+      >
         <SettingsCard>
           <SettingsRow label="Enable plugins">
             <Switch
@@ -388,7 +392,6 @@ export function SharedPluginsPage() {
             />
           </SettingsRow>
         </SettingsCard>
-        {mutation.isPending ? <Text style={settingsStyles.rowHint}>Saving...</Text> : null}
         {mutation.error ? <Alert variant="error" description={mutation.error.message} /> : null}
         {plugins.length === 0 ? (
           <Text style={settingsStyles.rowHint}>No plugins installed</Text>

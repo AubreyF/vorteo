@@ -1,3 +1,4 @@
+import { NativeHelperConfigurationSchema } from "@getpaseo/protocol/native-helper-maintenance";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
@@ -28,6 +29,8 @@ export type ContainerSourceUpdates = z.infer<typeof ContainerSourceUpdatesSchema
 
 export const InstallationConfigSchema = z.strictObject({
   public: ExecutionInstallationSchema,
+  nativeHelper: NativeHelperConfigurationSchema.optional(),
+  restartApprovalPolicy: z.strictObject({ hostRequestsAfter: z.string().datetime() }).optional(),
   containerSourceUpdates: ContainerSourceUpdatesSchema.optional(),
   sourceUpdates: z
     .strictObject({
@@ -79,6 +82,8 @@ export type InstallationConfig = z.infer<typeof InstallationConfigSchema>;
 export function readInstallationConfig(file: string): InstallationConfig {
   const config = InstallationConfigSchema.parse(JSON.parse(readFileSync(file, "utf8")));
   validateExecutionInstallation(config.public);
+  if (config.hostAgentTokenHash === config.containerAgentTokenHash)
+    throw new Error("Host and Dev installation request credentials must be distinct");
   if (config.sourceUpdates) {
     const update = config.sourceUpdates;
     const entrypoint = path.join(

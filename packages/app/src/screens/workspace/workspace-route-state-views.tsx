@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { StartupStatus } from "@/components/startup-status";
 
 import { Text, View } from "react-native";
@@ -152,7 +153,7 @@ function ArchivedWorkspaceRecovery({
           </Text>
         ) : null}
       </View>
-      <View style={styles.actions}>
+      <ActionFooter style={styles.actions}>
         <Button
           size="sm"
           variant="default"
@@ -163,7 +164,7 @@ function ArchivedWorkspaceRecovery({
         >
           {isRestoring ? t("workspace.route.recovery.restoringAction") : actionLabel}
         </Button>
-      </View>
+      </ActionFooter>
     </View>
   );
 }
@@ -184,14 +185,14 @@ function WorkspaceRecoveryInspectionFailed({
         <Text style={styles.title}>{t("workspace.route.recovery.checkFailedTitle")}</Text>
         <Text style={styles.error}>{state.error}</Text>
       </View>
-      <View style={styles.actions}>
+      <ActionFooter style={styles.actions}>
         <Button size="sm" variant="default" leftIcon={RotateCw} onPress={onRetry}>
           {t("common.actions.retry")}
         </Button>
         <Button size="sm" variant="outline" leftIcon={ArrowLeftToLine} onPress={onDismiss}>
           {t("common.actions.back")}
         </Button>
-      </View>
+      </ActionFooter>
     </View>
   );
 }
@@ -217,7 +218,7 @@ function WorkspaceUnreachable({
           {state.lastError}
         </Text>
       ) : null}
-      <View style={styles.actions}>
+      <ActionFooter style={styles.actions}>
         {canRetry ? (
           <Button size="md" variant="default" onPress={onRetry}>
             {t("common.actions.retry")}
@@ -226,7 +227,7 @@ function WorkspaceUnreachable({
         <Button size="md" variant="outline" onPress={onManageHost}>
           {t("workspace.route.manageHost")}
         </Button>
-      </View>
+      </ActionFooter>
     </View>
   );
 }
@@ -250,11 +251,11 @@ function WorkspaceEmptyState({
         <Text style={styles.title}>{t(titleKey)}</Text>
         <Text style={styles.description}>{description ?? hostName}</Text>
       </View>
-      <View style={styles.actions}>
+      <ActionFooter style={styles.actions}>
         <Button size="sm" variant="default" leftIcon={ArrowLeftToLine} onPress={onDismiss}>
           {t("common.actions.back")}
         </Button>
-      </View>
+      </ActionFooter>
     </View>
   );
 }

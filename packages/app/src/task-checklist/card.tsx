@@ -1,8 +1,8 @@
-import { TaskCardIcon } from "@/agent-stream/task-card-icon";
+import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { Check, Circle, ChevronDown, ChevronRight, Info, Plus } from "lucide-react-native";
+import { Check, Circle, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -11,16 +11,18 @@ import type { ChecklistMutation } from "@getpaseo/protocol/task-checklist";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
+import { StatusRing } from "@/components/status-ring";
 import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
 import { ListDragHandle } from "@/components/list-drag-handle";
 import { QueueDragScrollContext } from "@/message-queue/drag-scroll";
 import { AgentTaskList } from "@/composer/task-list";
-import { TaskCard } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
-import { ChecklistProgressRing } from "./progress-ring";
+import { ChecklistProgressFlower } from "./progress-flower";
 import { checklistProgress } from "./progress";
+import { canClearTask, clearCompletedTasks } from "./clear-completed";
 import { ChecklistEditor } from "./editor";
 
 interface ChecklistCardProps {
@@ -30,6 +32,7 @@ interface ChecklistCardProps {
 }
 type EditorState = { open: false } | { open: true; task: AgentTaskItem | null };
 const EMPTY_TASKS: AgentTaskItem[] = [];
+const TASK_RUNNING_ICON = <StatusRing variant="task" />;
 const taskKey = (task: AgentTaskItem, index: number) =>
   `${task.source ?? "provider"}:${task.id ?? index}`;
 
@@ -59,13 +62,26 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     },
     retry: false,
   });
+  const clearMutation = useMutation({
+    mutationFn: async (snapshot: AgentTaskItem[]) => {
+      if (!client || !connected || readOnly)
+        throw new Error("Reconnect to an active thread before editing its checklist.");
+      await clearCompletedTasks(snapshot, (input) => client.mutateAgentChecklist(agentId, input));
+    },
+    retry: false,
+  });
+  const { mutate: clearTasks, reset: resetClear } = clearMutation;
   const { mutate: sendMutation, reset: resetMutation } = mutation;
-  const canMutate = connected && !readOnly && !mutation.isPending;
+  const clearCompleted = useCallback(() => {
+    resetMutation();
+    clearTasks(tasks);
+  }, [clearTasks, resetMutation, tasks]);
+  const canMutate = connected && !readOnly && !mutation.isPending && !clearMutation.isPending;
   const progress = checklistProgress(tasks);
   const countBadge = useMemo(
     () => (
       <CountBadge
-        label={`${progress.completed}/${progress.total}`}
+        label={`${progress.completed} / ${progress.total}`}
         accessibilityLabel={t("message.todo.tasksProgress", {
           completed: progress.completed,
           total: progress.total,
@@ -75,42 +91,31 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     ),
     [progress.completed, progress.total, t],
   );
-  const expandedState = useMemo(() => ({ expanded }), [expanded]);
-  const error = mutation.error?.message ?? null;
+  const error = clearMutation.error?.message ?? mutation.error?.message ?? null;
   const open = useCallback(
     (task: AgentTaskItem | null) => {
       resetMutation();
+      resetClear();
       setEditor({ open: true, task });
     },
-    [resetMutation],
+    [resetMutation, resetClear],
   );
   const close = useCallback(() => setEditor({ open: false }), []);
   const add = useCallback(() => open(null), [open]);
+  if (tasks.length === 0) return null;
   if (!supported) return <AgentTaskList inline tasks={tasks} />;
   return (
     <>
-      <TaskCard testID="agent-task-progress-card">
-        <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-          {progress.total > 0 ? (
-            <ChecklistProgressRing {...progress} />
-          ) : (
-            <TaskCardIcon kind="tasks" />
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchAccordionTrigger]}
-            textStyle={taskCardStyles.heading}
+      <TaskCard testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
+        <TaskCardHeader>
+          <ChecklistProgressFlower {...progress} testID="checklist-progress" />
+          <CardDisclosure
+            title="Tasks"
+            expanded={expanded}
             onPress={toggleExpanded}
-            accessibilityLabel="Tasks"
-            aria-expanded={expanded}
-            accessibilityState={expandedState}
+            count={countBadge}
             testID="checklist-toggle"
-            leftIcon={expanded ? ChevronDown : ChevronRight}
-            trailing={countBadge}
-          >
-            Tasks
-          </Button>
+          />
           <Button
             size="sm"
             variant="ghost"
@@ -121,13 +126,21 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
             accessibilityLabel="Add task"
             leftIcon={Plus}
           />
-        </View>
+          <ClearCompletedButton
+            available={tasks.some(canClearTask)}
+            pending={clearMutation.isPending}
+            disabled={!canMutate}
+            onPress={clearCompleted}
+          />
+        </TaskCardHeader>
+
         {expanded && tasks.length > 0 ? (
           <ChecklistRows
             tasks={tasks}
             canMutate={canMutate}
             open={open}
             sendMutation={sendMutation}
+            reorder={mutation.mutateAsync}
           />
         ) : null}
         {error ? (
@@ -151,16 +164,47 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   );
 }
 
+function ClearCompletedButton({
+  available,
+  pending,
+  disabled,
+  onPress,
+}: {
+  available: boolean;
+  pending: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const touch = useVortonTouch();
+  if (!available && !pending) return null;
+  return (
+    <Button
+      variant="outline"
+      size={touch ? "md" : "sm"}
+      textStyle={taskCardStyles.rowText}
+      onPress={onPress}
+      disabled={disabled}
+      loading={pending}
+      testID="checklist-clear-completed"
+      accessibilityLabel="Clear completed tasks"
+    >
+      {pending ? "Clearing…" : "Clear completed"}
+    </Button>
+  );
+}
+
 function ChecklistRows({
   tasks,
   canMutate,
   open,
   sendMutation,
+  reorder,
 }: {
   tasks: AgentTaskItem[];
   canMutate: boolean;
   open: (task: AgentTaskItem) => void;
   sendMutation: (input: ChecklistMutation) => void;
+  reorder: (input: ChecklistMutation) => Promise<unknown>;
 }) {
   const managed = useMemo(
     () => tasks.filter((task) => task.source === "vorteo" && task.id),
@@ -190,10 +234,10 @@ function ChecklistRows({
         .filter((task) => task.source === "vorteo")
         .flatMap((task) => (task.id ? [task.id] : []));
       if (ids.join("\n") !== managed.map((task) => task.id).join("\n")) {
-        sendMutation({ operation: "reorder", ids });
+        return reorder({ operation: "reorder", ids });
       }
     },
-    [release, canMutate, tasks, managed, sendMutation],
+    [release, canMutate, tasks, managed, reorder],
   );
   const renderRow = useCallback(
     (info: DraggableRenderItemInfo<AgentTaskItem>) => (
@@ -260,34 +304,13 @@ function ChecklistRow({
   }, [task, completed, mutate]);
   const details = useCallback(() => open(task), [open, task]);
   const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
+  const incompleteIcon = running ? TASK_RUNNING_ICON : Circle;
   const checkboxState = useMemo(
     () => ({ checked: completed, disabled: !managed || !canMutate }),
     [completed, managed, canMutate],
   );
   return (
     <View style={[styles.row, info.isActive && styles.active]} testID={`checklist-row-${task.id}`}>
-      <Button
-        variant="ghost"
-        size="sm"
-        style={iconStyle}
-        accessibilityRole="checkbox"
-        accessibilityState={checkboxState}
-        accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
-        disabled={!managed || !canMutate}
-        onPress={toggle}
-        leftIcon={completed ? Check : Circle}
-      />
-      <Text
-        numberOfLines={1}
-        style={[
-          taskCardStyles.rowText,
-          styles.title,
-          running && styles.running,
-          completed && styles.completed,
-        ]}
-      >
-        {title}
-      </Text>
       {managed ? (
         <ListDragHandle
           info={info}
@@ -300,9 +323,31 @@ function ChecklistRow({
         variant="ghost"
         size="sm"
         style={iconStyle}
+        accessibilityRole="checkbox"
+        accessibilityState={checkboxState}
+        accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
+        disabled={!managed || !canMutate}
+        onPress={toggle}
+        leftIcon={completed ? Check : incompleteIcon}
+      />
+      <Text
+        numberOfLines={1}
+        style={[
+          taskCardStyles.rowText,
+          styles.title,
+          running && styles.running,
+          completed && styles.completed,
+        ]}
+      >
+        {title}
+      </Text>
+      <Button
+        variant="ghost"
+        size="sm"
+        style={iconStyle}
         accessibilityLabel={`Details for ${task.text}`}
         onPress={details}
-        leftIcon={Info}
+        leftIcon={Pencil}
       />
     </View>
   );

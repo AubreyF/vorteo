@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useHostFeature } from "@/runtime/host-features";
 import { useInstallationProfiles } from "@/execution-installation/profiles";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
@@ -556,7 +557,7 @@ function OpenAgentProfileEditModal({
             {state.submitError}
           </Text>
         ) : null}
-        <View style={[styles.actions, styles.fixedActions]} testID="agent-profile-actions">
+        <ActionFooter style={[styles.actions, styles.fixedActions]} testID="agent-profile-actions">
           <Button
             variant="secondary"
             style={styles.actionButton}
@@ -577,7 +578,7 @@ function OpenAgentProfileEditModal({
               ? t("settings.host.agentProfiles.saving")
               : t("settings.host.agentProfiles.save")}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     ),
     [state.submitError, state.isSubmitting, state.canSubmit, handleCancel, handleSavePress, t],
@@ -890,6 +891,6 @@ const styles = StyleSheet.create((theme) => ({
     marginTop: 0,
   },
   actionButton: {
-    flex: 1,
+    flexShrink: 0,
   },
 }));

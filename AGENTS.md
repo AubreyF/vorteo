@@ -21,6 +21,10 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 
 Before starting an authorized checklist item, call `update_checklist` with operation update, its returned id, and status `in_progress`. Set `activeForm` to a short description of the current activity. Normally keep one item `in_progress` per agent; multiple active items must reflect work actually running in parallel. Leave future and proposed work pending. Update status at work transitions, not only at the end of the turn: mark completed only after the stated acceptance checks pass, then mark the next item `in_progress` before working on it. If work stops because of a blocker or a switch to another item, return it to pending and record the blocker or remaining work in description; use `blockedBy` for actual prerequisite task IDs. An actively running build or worker may remain `in_progress` while it runs. On continuation or handoff, read the checklist and reconcile stale states with the actual work before proceeding. Use the equivalent native status updates for provider-owned tasks. Do not infer completion from a worker finishing, an agent becoming idle, or a successful tool call alone.
 
+## Goal ownership
+
+Use `get_thread_goal` and `update_thread_goal` to revise your existing goal within the owner’s authorized scope. Read first and pass the exact observed goal fields. Preserve usage and budgets; never falsely complete a goal to replace it. Resume blocked work once its blocker is resolved. An explicit owner pause requires a later owner request to resume. These tools cannot bypass restart holds, queue ownership, usage limits or completion. Native goal tools remain responsible for creating a goal when none exists.
+
 ## Boundaries
 
 - Deliver interface-only changes to the existing primary installation as each coherent, validated revision is ready, so the owner can reload while work continues. Use the guarded web build and publisher in [instance continuity](docs/instance-continuity.md). Preserve the deployed source ancestry, verify the served receipt and assets, and report when reloading will show the change. Do not restart or hold agents for static interface publication. A preview-only request still stops at preview delivery.
@@ -45,6 +49,8 @@ Before starting an authorized checklist item, call `update_checklist` with opera
 ## Work outside the container
 
 ### Required restart control path
+
+Where an owner has enabled the protected trusted Host approval policy and the installed coordinator advertises it, authenticated Host requests may receive automatic approval through this same tracked workflow. Inspect the recorded request decision rather than asking for a duplicate chat approval. Dev requests and mixed-origin batches still require the owner’s button approval. Do not enable the policy yourself, impersonate a Host requester, transfer Host credentials, or treat routine automatic approval as coordinator or supervisor maintenance authority. Until the updated coordinator and policy are installed, use the existing owner approval buttons.
 
 For authorized work, prepare and submit required restart or installation requests without asking permission in chat to create them. Present the exact request's review link and a short description of the target and interruption. The owner's click on the matching approval button in Installation controls is the approval; do not require a verbal reply before or after it. Observe the recorded decision and continue automatically when approved. Never click approval buttons on the owner's behalf. A changed source, plan or request revision requires its own button approval.
 

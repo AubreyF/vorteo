@@ -1,7 +1,6 @@
 import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { AgentProfile, SharedProviderPreferences } from "@getpaseo/protocol/messages";
-import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { gotoAppShell, openSettings } from "./app";
 import { connectDaemonClient } from "./daemon-client-loader";
 import { getServerId } from "./server-id";
@@ -187,7 +186,7 @@ export async function openAgentProfileSettings(page: Page): Promise<void> {
   await openSettings(page);
   await openSettingsHost(page, serverId);
   await page.getByRole("button", { name: "Agents", exact: true }).click();
-  await expectAppRoute(page, buildSettingsHostSectionRoute(serverId, "agents"));
+  await expectAppRoute(page, "/settings/agents");
   await expect(page.getByTestId("agent-profiles-card")).toBeVisible({ timeout: 30_000 });
 }
 

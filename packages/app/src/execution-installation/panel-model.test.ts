@@ -1,8 +1,10 @@
+import { helperReviewFixture } from "./helper-review.fixture";
 import { expect, test } from "vitest";
 import { OwnerAccessExpired } from "./client";
 import {
   InstallationPanelModel,
   restartExplanation,
+  restartRequestSummary,
   restartBannerTitle,
   restartBlockingReason,
   restartActionDisabledReason,
@@ -21,6 +23,10 @@ test("saved connections skip setup on reload without unlocking owner controls", 
       profileSharingStatus: async () => null,
       resolveProfileConflict: async () => {},
       unlock: async () => {},
+      listHelpers: async () => [],
+      decideHelper: async () => {
+        throw new Error("Unexpected helper decision");
+      },
       listRestarts: async () => {
         queries++;
         return [];
@@ -60,6 +66,10 @@ test("opening or observing a request never approves it", async () => {
     profileSharingStatus: async () => null,
     resolveProfileConflict: async () => {},
     unlock: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
     listRestarts: async () => [job],
     decide: async () => {
       approvals++;
@@ -90,6 +100,10 @@ test("failed unlock remains visible and can be retried without granting authorit
     resolveProfileConflict: async () => {},
     unlock: async () => {
       if (++attempts === 1) throw new Error("Incorrect installation password");
+    },
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
     },
     listRestarts: async () => [],
     decide: async () => {
@@ -129,6 +143,10 @@ test("restoring a browser session retains owner access and locking never approve
     unlock: async () => {},
     profileSharingStatus: async () => null,
     resolveProfileConflict: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
     listRestarts: async () => [],
     decide: async () => {
       approvals++;
@@ -176,6 +194,10 @@ test("the approval queue retains old requests, excludes completed requests and k
     profileSharingStatus: async () => null,
     resolveProfileConflict: async () => {},
     unlock: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
     listRestarts: async () => jobs,
     decide: async () => {},
   });
@@ -206,6 +228,10 @@ test("owner expiry during session restoration does not navigate away from an ope
     unlock: async () => {},
     profileSharingStatus: async () => null,
     resolveProfileConflict: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
     listRestarts: async () => [],
     decide: async () => {},
   });
@@ -287,6 +313,10 @@ test("pending supervisor repair remains visible alongside an active source updat
     profileSharingStatus: async () => null,
     resolveProfileConflict: async () => {},
     unlock: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
     listRestarts: async () => jobs,
     decide: async () => {},
   });
@@ -378,4 +408,80 @@ test("disabled restart actions explain their blocker and recovery without enabli
       false,
     ),
   ).toBeNull();
+});
+
+test("restart summaries identify Dev requests and durable Host automatic approval", () => {
+  const job: RestartJob = {
+    id: "request",
+    revision: "revision",
+    target: "host",
+    requestedBy: "container-agent",
+    reason: "Install checklist recovery.",
+    createdAt: new Date(0).toISOString(),
+    expiresAt: new Date(60_000).toISOString(),
+    status: "pending",
+    detail: "Approval required",
+  };
+  expect(restartRequestSummary(job)).toBe(
+    "Requested by a Dev container; your approval is required. Install checklist recovery.",
+  );
+  expect(restartRequestSummary({ ...job, status: "succeeded" })).not.toContain(
+    "approval is required",
+  );
+  expect(
+    restartRequestSummary({
+      ...job,
+      requestedBy: "host-agent",
+      status: "approved",
+      automaticApproval: {
+        policyActivatedAt: new Date(0).toISOString(),
+        requestRevision: "revision",
+      },
+    }),
+  ).toBe("Automatically approved for a trusted Host thread. Install checklist recovery.");
+});
+
+test("helper model observes without approving and refuses stale decisions", async () => {
+  let decisions = 0;
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => false,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: false,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    unlock: async () => {},
+    listRestarts: async () => [],
+    decide: async () => {
+      throw new Error("Unexpected restart");
+    },
+    listHelpers: async () => [helperReviewFixture],
+    decideHelper: async () => {
+      decisions++;
+      throw new Error("Decision unconfirmed; refresh before retrying");
+    },
+  });
+  await model.unlock();
+  expect(model.getState().helperJobs).toEqual([helperReviewFixture]);
+  expect(decisions).toBe(0);
+  await model.decideHelper({ ...helperReviewFixture, planSha256: "b".repeat(64) }, "approve");
+  expect(decisions).toBe(0);
+  expect(model.getState().helperError).toBe(
+    "Helper request changed. Refresh and review the current artifact.",
+  );
+  await model.decideHelper(helperReviewFixture, "approve");
+  expect(decisions).toBe(1);
+  expect(model.getState()).toMatchObject({
+    busy: false,
+    error: null,
+    helperError: "Decision unconfirmed; refresh before retrying",
+    helperJobs: [helperReviewFixture],
+  });
+  await model.refresh();
+  expect(model.getState().helperError).toBe("Decision unconfirmed; refresh before retrying");
+  model.dismissHelperError();
+  expect(model.getState().helperError).toBeNull();
+  await model.lock();
+  expect(model.getState().helperJobs).toEqual([]);
 });

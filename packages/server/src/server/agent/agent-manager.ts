@@ -1,3 +1,4 @@
+import { editThreadGoal, type ThreadGoalEdit } from "./agent-goal.js";
 import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
 import {
   mergeProviderChecklistEvent,
@@ -2984,6 +2985,25 @@ export class AgentManager {
     }
     await this.drainSessionEvents(agentId);
     return state;
+  }
+
+  async editOwnGoal(
+    agentId: string,
+    edit: ThreadGoalEdit,
+  ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
+    if (this.isRestartDraining())
+      throw new Error("Goal editing is held until the installation restart finishes");
+    return this.withQueueGoalMutation(agentId, () =>
+      editThreadGoal({
+        edit,
+        read: () => this.readAgentGoal(agentId),
+        set: (change) => {
+          if (this.isRestartDraining())
+            throw new Error("Goal editing is held until the installation restart finishes");
+          return this.setAgentGoalUnlocked(agentId, change);
+        },
+      }),
+    );
   }
 
   async clearAgentGoal(

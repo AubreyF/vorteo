@@ -373,6 +373,7 @@ export const en = {
       title: "Tasks",
       empty: "No tasks yet.",
       tasksProgress: "{{completed}}/{{total}} tasks",
+      activeCount: "{{count}} active",
       activity: {
         created: "Created {{count}} tasks",
         added: "Added",

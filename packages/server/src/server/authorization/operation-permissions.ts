@@ -32,6 +32,10 @@ const INBOUND_PERMISSION = {
   "agent.goal.get.request": "workspace.read",
   "agent.goal.set.request": "workspace.write",
   "agent.goal.clear.request": "workspace.write",
+  "installation.bootstrap.list_requests.request": "daemon.manage",
+  "installation.bootstrap.prepare.request": "daemon.manage",
+  "installation.bootstrap.decide.request": "daemon.manage",
+
   "browser.host.register.request": ["workspace.write"],
   "subscription.release.request": null,
   "session.events.set_subscription.request": ["workspace.read", "daemon.read", "hub.execute"],
@@ -254,6 +258,10 @@ const OUTBOUND_PERMISSION = {
   "agent.goal.get.response": "workspace.read",
   "agent.goal.set.response": "workspace.write",
   "agent.goal.clear.response": "workspace.write",
+  "installation.bootstrap.list_requests.response": "daemon.manage",
+  "installation.bootstrap.prepare.response": "daemon.manage",
+  "installation.bootstrap.decide.response": "daemon.manage",
+
   "agent.create.response": ["workspace.write", "hub.execute"],
   "agent.create.update": ["workspace.write", "hub.execute"],
   "workspace.create.update": "workspace.manage",

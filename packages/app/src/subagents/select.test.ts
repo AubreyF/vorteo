@@ -1,6 +1,10 @@
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { afterEach, describe, expect, it } from "vitest";
-import { selectProviderSubagentsForParent, selectSubagentsForParent } from "./select";
+import {
+  isActiveSubagent,
+  selectProviderSubagentsForParent,
+  selectSubagentsForParent,
+} from "./select";
 import { useProviderSubagentStore } from "./provider-store";
 import { useSessionStore, type Agent } from "@/stores/session-store";
 
@@ -466,4 +470,50 @@ describe("selectSubagentsForParent", () => {
       ),
     );
   });
+});
+
+it("counts managed activity from open turns rather than retained or stale running status", () => {
+  setAgents([
+    makeAgent({ id: "idle", parentAgentId: "parent" }),
+    makeAgent({ id: "failed", parentAgentId: "parent", status: "error" }),
+    makeAgent({ id: "stale", parentAgentId: "parent", status: "running" }),
+    makeAgent({
+      id: "working",
+      parentAgentId: "parent",
+      status: "running",
+      turn: { phase: "open", turnId: null, startedAt: null, cancellationRequestId: null },
+    }),
+    makeAgent({
+      id: "waiting",
+      parentAgentId: "parent",
+      status: "idle",
+      requiresAttention: true,
+      turn: { phase: "open", turnId: null, startedAt: null, cancellationRequestId: null },
+    }),
+  ]);
+  const rows = selectSubagentsForParent(
+    useSessionStore.getState(),
+    { serverId: SERVER_ID, parentAgentId: "parent" },
+    EMPTY_PENDING_ARCHIVE_IDS,
+  );
+  expect(rows.filter(isActiveSubagent).map((row) => row.id)).toEqual(["working", "waiting"]);
+});
+
+it("counts only running provider sub-agents", () => {
+  for (const status of ["running", "completed", "failed", "canceled"] as const) {
+    expect(
+      isActiveSubagent({
+        kind: "provider",
+        id: status,
+        parentAgentId: "parent",
+        provider: "codex",
+        title: null,
+        description: null,
+        subtitle: null,
+        status,
+        requiresAttention: false,
+        createdAt: AGENT_TIMESTAMP,
+      }),
+    ).toBe(status === "running");
+  }
 });

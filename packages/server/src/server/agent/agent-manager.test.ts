@@ -13084,6 +13084,13 @@ test("restart drain preserves a held goal and cancellation can resume it without
       fixture.manager.setAgentGoal(fixture.agentId, { objective: "New goal" }),
     ).rejects.toThrow("held");
     expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.phase).toBe("held");
+    const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = goal;
+    await expect(
+      fixture.manager.editOwnGoal(fixture.agentId, {
+        expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+        status: "active",
+      }),
+    ).rejects.toThrow("held");
     await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
     expect(goal.status).toBe("paused");
     expect(fixture.manager.cancelRestartDrain(id)).toBe(true);

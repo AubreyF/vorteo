@@ -1,3 +1,5 @@
+import { createConfiguredBootstrapReview } from "./execution-installation/coordinator-bootstrap-launch.js";
+import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
 import { ScheduleStore } from "./schedule/store.js";
 import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
@@ -666,6 +668,10 @@ export async function createPaseoDaemon(
   });
 
   const serverId = getOrCreateServerId(config.paseoHome, { logger });
+  const coordinatorBootstrap = await createConfiguredBootstrapReview(serverId).catch(() => {
+    logger.warn("Coordinator bootstrap setup is unavailable; maintenance capability disabled");
+    return undefined;
+  });
   const daemonKeyPair = await loadOrCreateDaemonKeyPair(config.paseoHome, logger);
   const managedProcesses = createBootstrapManagedProcessRegistry(config, logger);
   // Reconcile the helper-process ledger in the background so it never blocks the
@@ -825,6 +831,17 @@ export async function createPaseoDaemon(
   );
 
   app.use(express.json());
+  mountClaudeSetupConsumer(app, {
+    paseoHome: config.paseoHome,
+    store: daemonConfigStore,
+    onApplied: (providerId) => {
+      void providerSnapshotManager
+        .refreshSettingsSnapshot({ providers: [providerId] })
+        .catch(() => {
+          logger.warn({ providerId }, "Claude provider catalog refresh is pending");
+        });
+    },
+  });
 
   // Serve static files from public directory
   app.use("/public", express.static(staticDir));
@@ -1778,6 +1795,7 @@ export async function createPaseoDaemon(
               daemonConfigStore,
               mcpBaseUrl,
               {
+                coordinatorBootstrap,
                 getAllowedOrigins: () => allowedOrigins,
                 getHostnames: () => configuredHostnames,
                 daemonStatusRpc: dependencies.serverFeatureOverrides?.daemonStatusRpc,

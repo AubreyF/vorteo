@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { EnvironmentsSettingsPage } from "./settings/environments-page";
 import { SkillLibraryContent } from "@/agent-skills/library";
 import { InstallationControls, InstallationRestartBanner } from "@/execution-installation/panel";
@@ -725,7 +726,7 @@ function DesktopAppUpdateRow() {
           ) : null}
           {errorMessage ? <Text style={styles.aboutErrorText}>{errorMessage}</Text> : null}
         </View>
-        <View style={styles.aboutUpdateActions}>
+        <ActionFooter style={styles.aboutUpdateActions}>
           <Button
             variant="outline"
             size="sm"
@@ -742,7 +743,7 @@ function DesktopAppUpdateRow() {
           >
             {getUpdateButtonLabel(t, isInstalling, readyUpdateVersion)}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     </>
   );

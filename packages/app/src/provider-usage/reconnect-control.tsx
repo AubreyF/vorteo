@@ -1,3 +1,4 @@
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import { ProviderLoginPanel } from "./login-panel";
 import { useCallback, useMemo, useState } from "react";
 import { Text, View, type GestureResponderEvent } from "react-native";
@@ -41,6 +42,7 @@ export function ProviderReconnectControl({
   const { config } = useDaemonConfig(serverId);
   const { entries } = useProvidersSnapshot(serverId);
   const claude = accountProviderKind(providerId, config?.providers) === "claude";
+  const sharedClaude = isSharedClaude(claude, serverId);
   const action = providerConnectionAction({
     providerId,
     providers: config?.providers,
@@ -52,7 +54,7 @@ export function ProviderReconnectControl({
   const cache = useQueryClient();
   const [recovery, setRecovery] = useState<NonNullable<ProviderUsage["authRecovery"]> | null>(null);
   const [check, setCheck] = useState<CheckState>({ kind: "idle" });
-  const header = useMemo(() => ({ title: `${action ?? "Connect"} ${name}` }), [action, name]);
+  const header = useMemo(() => ({ title: `${action ?? "Connection"} ${name}` }), [action, name]);
   const pending = check.kind === "pending";
   const checkConnection = useCallback(async () => {
     if (!client || !connected || !usage || pending) return;
@@ -90,17 +92,13 @@ export function ProviderReconnectControl({
 
   return (
     <>
-      {action ? (
-        <CompactAccountButton
-          tone="danger"
-          leftIcon={action === "Reconnect" ? reconnectIcon : undefined}
-          accessibilityLabel={`${name}: ${action} account`}
-          testID={`provider-${action.toLowerCase()}-${providerId}`}
-          onPress={open}
-        >
-          {action}
-        </CompactAccountButton>
-      ) : null}
+      <ConnectionButton
+        action={action}
+        sharedClaude={sharedClaude}
+        name={name}
+        providerId={providerId}
+        onPress={open}
+      />
       {recovery !== null ? (
         <AdaptiveModalSheet
           visible
@@ -154,6 +152,43 @@ export function ProviderReconnectControl({
     </>
   );
 }
+function isSharedClaude(claude: boolean, serverId: string | null): boolean {
+  if (!claude) return false;
+  return Boolean(
+    readExecutionInstallation()?.environments.some(
+      (environment) => environment.serverId === serverId,
+    ),
+  );
+}
+
+function ConnectionButton({
+  action,
+  sharedClaude,
+  name,
+  providerId,
+  onPress,
+}: {
+  action: "Connect" | "Reconnect" | null;
+  sharedClaude: boolean;
+  name: string;
+  providerId: string;
+  onPress(event: GestureResponderEvent): void;
+}) {
+  if (!action && !sharedClaude) return null;
+  const label = action ?? "Connection";
+  return (
+    <CompactAccountButton
+      tone={action ? "danger" : "default"}
+      leftIcon={action === "Reconnect" ? reconnectIcon : undefined}
+      accessibilityLabel={`${name}: ${label} account`}
+      testID={`provider-${label.toLowerCase()}-${providerId}`}
+      onPress={onPress}
+    >
+      {label}
+    </CompactAccountButton>
+  );
+}
+
 const styles = StyleSheet.create((theme) => ({
   warning: { color: theme.colors.destructive, fontSize: theme.fontSize.base },
   text: { color: theme.colors.foreground, fontSize: theme.fontSize.base },

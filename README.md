@@ -17,13 +17,13 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 ## Power Tools to Manage Your Fleet
 
-- **Track a build across threads.** Each thread keeps its checklist below the conversation. The workspace donut combines completed items across its active threads, and planning instructions carry accepted checklist items into implementation. Updated daemons and clients also support agent tools and manual editing with dependencies and completion criteria. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
+- **Track a build across threads.** Each thread keeps its checklist below the conversation. The workspace flower combines task progress across its active threads, and planning instructions carry accepted checklist items into implementation. Updated daemons and clients also support agent tools and manual editing with dependencies and completion criteria. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
 
 - **Cross-device, server-managed message queuing.** Line up your task messages with files or images - then edit, reorder, pause, and send them from any connected device. The daemon in each environment will continue executing queued work even if your client is offline.
 
 <img width="400" alt="Server managed cross-device message queuing." src="https://github.com/user-attachments/assets/59dfdb03-e1ec-40d2-b66e-9683134e3811" />
 
-- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed; source installation requires separate approval. Host-prepared Dev supervisor repairs use the same visible review and cancellation controls. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
+- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed; Dev source installation requires your approval. An optional protected Host policy lets trusted Host threads approve their own routine updates through the same tracked controls; it requires an updated coordinator. Host-prepared Dev supervisor repairs use the same visible review and cancellation controls. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
 
 <img width="400" alt="Queued daemon upgrades" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
 
@@ -33,7 +33,7 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 - **Inspect what survives compaction.** Expand a compaction marker to read, copy or export the saved summary and inspect available token counts. Providers that do not expose readable summaries say so. New summary capture requires the updated daemon; older saved events may have no summary.
 
-- **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene.
+- **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene. Vorteo also adds thread-scoped tools for agents to revise their own objective and resume authorized work, even when the provider’s native agent tools cannot edit or resume an existing goal. Goal editing requires the updated daemon and preserves usage, budgets and restart holds.
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
 

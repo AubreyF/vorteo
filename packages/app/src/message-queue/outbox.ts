@@ -92,6 +92,25 @@ export class QueueOutbox {
     this.notifyLocalChange(key.serverId, true);
   }
 
+  async reconcile(serverId: string, snapshot: QueueSnapshot): Promise<void> {
+    for (const record of await this.list()) {
+      const operation = record.operation;
+      const obsolete =
+        record.serverId === serverId &&
+        record.agentId === snapshot.agentId &&
+        operation.kind === "send_now" &&
+        record.error !== null &&
+        ["missing", "delivery_conflict", "revision_conflict"].includes(record.error.code) &&
+        record.localAttachments.length === 0 &&
+        !snapshot.items.some((item) => item.id === operation.messageId);
+      if (!obsolete) continue;
+      // This command contains no user content and can no longer target a message.
+      // Compare revisions so another tab's retry cannot be removed underneath it.
+      if (await this.storage.exchange(outboxKey(record), record.revision, null))
+        this.notifyLocalChange(serverId, true);
+    }
+  }
+
   async flush(serverId: string): Promise<void> {
     const blocked = new Set<string>();
     for (const candidate of await this.list()) {

@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
@@ -22,8 +23,6 @@ import { PairingTargetTracker } from "./pair-link-credentials";
 import { hostedConnectionDefaults } from "@/utils/hosted-connection-defaults";
 import { isWeb } from "@/constants/platform";
 import { isElectronRuntime } from "@/desktop/host";
-
-const FLEX_ONE_STYLE = { flex: 1 } as const;
 
 interface DirectConnectionDraft {
   host: string;
@@ -705,17 +704,11 @@ function AddHostModalContent({ visible, onClose, onCancel, onSaved }: AddHostMod
         {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
       </View>
 
-      <View style={styles.actions}>
-        <Button
-          style={FLEX_ONE_STYLE}
-          variant="secondary"
-          onPress={handleCancel}
-          disabled={isSaving}
-        >
+      <ActionFooter style={styles.actions}>
+        <Button variant="secondary" onPress={handleCancel} disabled={isSaving}>
           {t("pairing.direct.actions.cancel")}
         </Button>
         <Button
-          style={FLEX_ONE_STYLE}
           variant="default"
           onPress={handleSavePress}
           disabled={isSaving}
@@ -724,7 +717,7 @@ function AddHostModalContent({ visible, onClose, onCancel, onSaved }: AddHostMod
         >
           {isSaving ? t("pairing.direct.actions.connecting") : t("pairing.direct.actions.connect")}
         </Button>
-      </View>
+      </ActionFooter>
     </AdaptiveModalSheet>
   );
 }

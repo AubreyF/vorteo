@@ -381,6 +381,7 @@ export const es: TranslationResources = {
       title: "Tareas",
       empty: "Aún no hay tareas.",
       tasksProgress: "{{completed}}/{{total}} tareas",
+      activeCount: en.message.todo.activeCount,
       activity: {
         created: "Se crearon {{count}} tareas",
         added: "Añadida",

@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -824,7 +825,7 @@ function ProjectConfigForm({
         </View>
       ) : null}
 
-      <View style={styles.footer}>
+      <ActionFooter style={styles.footer}>
         <Button
           testID="save-button"
           accessibilityLabel={t("settings.project.actions.save")}
@@ -838,7 +839,7 @@ function ProjectConfigForm({
             ? t("settings.project.actions.saving")
             : t("settings.project.actions.save")}
         </Button>
-      </View>
+      </ActionFooter>
 
       {editingScript ? (
         <ScriptEditModal
@@ -1105,14 +1106,14 @@ function ScriptEditModal({ script, onChange, onCancel, onSave }: ScriptEditModal
           />
         </View>
       </View>
-      <View style={styles.modalFooter}>
+      <ActionFooter style={styles.modalFooter}>
         <Button onPress={onCancel} variant="ghost" size="md" testID="script-edit-cancel">
           {t("settings.project.actions.cancel")}
         </Button>
         <Button onPress={handleSavePress} variant="default" size="md" testID="script-edit-save">
           {t("settings.project.actions.save")}
         </Button>
-      </View>
+      </ActionFooter>
     </AdaptiveModalSheet>
   );
 }

@@ -66,7 +66,9 @@ Header and toolbar controls use `interactionHighlight` for hovered, pressed, ope
 backgrounds. It is a translucent semantic fill so the same control works over the main surface and
 the sidebar. Apply it as `backgroundColor`; setting `opacity` on the control also fades its content.
 
-`destructive` is filled with `destructive`. It only appears inside a confirm. The button on the page is `outline`; the destructive button is the confirm button inside the dialog.
+`destructive` is filled with `destructive`. Delete buttons use this red treatment, including buttons that open a confirmation. Keep confirmation behavior for destructive operations.
+
+Modal and card bottom actions use `ActionFooter`: leave space above the row and right-align normal actions at their natural width. Place delete actions first inside `ActionFooterLeading`, at the far left, separated from Save and Close. On narrow layouts, actions may wrap while retaining their left or right alignment. Field choices, header controls and toolbars are not footers.
 
 Sizes: `xs` for ultra-tight inline triggers. `sm` for any button sitting in a row. `md` is the page default. `lg` is reserved for large standalone CTAs.
 
@@ -203,7 +205,7 @@ Inline errors are a single sentence in `palette.red[300]` `xs`, sitting under th
 
 Page-level alerts — informational notices, success confirmations, warnings, or recoverable errors that need a small visible block on the page — use `<Alert>` (`packages/app/src/components/ui/alert.tsx`). Variants: `default`, `info`, `success`, `warning`, `error`. The chrome is quiet by design: a 1px tinted border, transparent background, a small variant-tinted icon, the title in the variant accent, the description in `foregroundMuted`. Actions go in the `children` slot as `<Button variant="outline" size="sm">` — recovery actions are low-frequency and outline keeps them quiet alongside the alert's accent (`packages/app/src/screens/project-settings-screen.tsx`). One `<Alert>` at a time per region.
 
-Sidebar callouts — cross-cutting alerts that apply across the whole app, like worktree setup, Rosetta install, and desktop update available — register through `useSidebarCallouts()` and render in the left sidebar via `<SidebarCallout>` (`packages/app/src/components/sidebar-callout.tsx`). The chrome (top-border-only, full-width action buttons) is tuned for that ~280px column. Canonical sources: `packages/app/src/components/worktree-setup-callout-source.tsx`, `packages/app/src/desktop/updates/rosetta-callout-source.tsx`, `packages/app/src/desktop/updates/update-callout-source.tsx`. Never import `<SidebarCallout>` into a page — that's what `<Alert>` is for.
+Sidebar callouts — cross-cutting alerts that apply across the whole app, like worktree setup, Rosetta install, and desktop update available — register through `useSidebarCallouts()` and render in the left sidebar via `<SidebarCallout>` (`packages/app/src/components/sidebar-callout.tsx`). The chrome uses a top border in the narrow sidebar column; bottom actions use the shared right-aligned footer and may wrap. Canonical sources: `packages/app/src/components/worktree-setup-callout-source.tsx`, `packages/app/src/desktop/updates/rosetta-callout-source.tsx`, `packages/app/src/desktop/updates/update-callout-source.tsx`. Never import `<SidebarCallout>` into a page — that's what `<Alert>` is for.
 
 Imperative errors are `Alert.alert("Error", "Unable to ...")` (the React Native `Alert` API, not this component) for failures that interrupt the flow and have no place on the page.
 
@@ -300,3 +302,25 @@ Vorteo uses the centered hidden-turn V signature. The approved color and white r
 Run `node scripts/generate-vorteo-icons.mjs` with ImageMagick and Potrace installed to regenerate app, browser status, website, Apple touch, PWA, Android and desktop assets. On macOS, the script also uses the system `iconutil` to package the desktop icon. Desktop backgrounds have rounded corners; mobile and web app backgrounds let the operating system apply its mask.
 
 Installed web app icons and the manifest use content-addressed filenames. Keep older public assets for open clients and the guarded publisher. The HTML template owns the initial favicon and Apple touch icon; Expo's asset pipeline owns the status favicons. A source update requires a rebuilt installation before its icon changes. Existing Safari web apps may need their icon refreshed or the web app added again.
+
+### Transient card status
+
+Brief progress messages belong at the right edge of the heading, immediately before its action buttons. Use `CardHeaderStatus` as a mounted single-line slot, including while idle, so status changes cannot add a row or change card height. Truncate long text visually while preserving its accessible label. Keep persistent errors and recovery controls in the body where users can read and act on them. Settings sections expose the same slot through `status`.
+
+### Conversation card disclosures
+
+Tasks, Messages, Goals and sub-agent cards use `CardDisclosure`. The title comes first, followed by the collapse arrow and then any count badge. Header actions and transient status remain available while collapsed. Keep local draft state mounted when folding Messages or Goals; collapsing changes visibility, not queue delivery or goal execution.
+
+### Reorder persistence
+
+A dropped row stays at its destination while the order saves. Asynchronous `DraggableList` handlers return the save promise so the shared web/native handoff can preserve the order until authoritative data changes. Keep row content current during that interval, retire the preview on rejection, and show the existing error/recovery controls. Synchronous store owners update their data in the drop event. Tasks and Messages do not show routine reorder progress text or spinners.
+
+### Bounded card bodies
+
+Conversation cards stop growing at half the viewport height, including their heading and padding. Put the heading and its controls in `TaskCardHeader`, a direct child of `TaskCard`; only the remaining content scrolls. Preserve the heading when scrolling to the last row. Use `bodyVisible` when collapsed so hidden bodies keep their state without leaving a gap. Managed and provider sub-agent groups each own a card and fixed heading.
+
+### Shared heading geometry
+
+`TaskCard` owns a 12px inset on all four sides. `TaskCardHeader` owns a single centered row, 32px high on desktop and 44px on touch. A 20px icon footprint precedes the title by 8px. `CardDisclosure` keeps the title, arrow and optional count on one line; `TaskCardTitle` gives noncollapsible headings the same typography. Right-side buttons share that centerline. Clear finished therefore has equal top and right clearance. Do not add per-card inset, heading-height or action-margin overrides.
+
+Long question prompts and navigation belong in the body beneath the fixed Questions heading. Plan disclosures follow the same title, arrow order. Sub-agent rows have no dividers. Browser geometry checks compare icon and title columns, heading and action centers, disclosure order, equal button clearance, overflow and collapsed behavior at desktop and compact widths. Keep those checks and screenshot review part of any card change.

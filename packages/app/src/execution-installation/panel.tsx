@@ -1,3 +1,12 @@
+import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
+import {
+  helperActionDisabledReason,
+  helperReviewSummary,
+  lockedMaintenanceSummary,
+  helperRollbackSummary,
+  type HelperReviewAction,
+} from "./helper-review";
+import { ActionFooter } from "@/components/ui/action-footer";
 import {
   useCallback,
   useEffect,
@@ -24,11 +33,12 @@ import type { Theme } from "@/styles/theme";
 
 import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
+import { getBootstrapPanel, BootstrapReview, BootstrapBanner } from "./bootstrap-panel";
 import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
 import {
   InstallationPanelModel,
-  restartExplanation,
+  restartRequestSummary,
   restartBannerTitle,
   restartBlockingReason,
   restartActionDisabledReason,
@@ -87,8 +97,10 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
   const pathname = usePathname();
   useEffect(() => {
     void model.initialize();
+    void getBootstrapPanel()?.refresh();
     const timer = setInterval(() => {
       void model.refresh();
+      void getBootstrapPanel()?.refresh(true);
     }, 5000);
     return () => clearInterval(timer);
   }, [model]);
@@ -138,6 +150,7 @@ function InstallationPanel({
   model: InstallationPanelModel;
   requestId: string | null;
 }) {
+  const bootstrap = getBootstrapPanel();
   const controlSize = useVortonTouch() ? "md" : "sm";
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const [historyVisible, setHistoryVisible] = useState(false);
@@ -152,7 +165,9 @@ function InstallationPanel({
   const history = state.jobs.filter((job) => !activeIds.has(job.id)).toReversed();
   const selectedHistory = history.find((job) => job.id === requestId);
   const missingRequest =
-    requestId && state.lastUpdatedAt && !state.jobs.some((job) => job.id === requestId);
+    requestId &&
+    state.lastUpdatedAt &&
+    ![...state.jobs, ...state.helperJobs].some((job) => job.id === requestId);
   const conflicts = Object.values(state.profileSharing?.sources ?? {}).some(
     (source) => source.error || source.conflicts.length,
   );
@@ -168,6 +183,8 @@ function InstallationPanel({
     <SettingsSection title="Installation" testID="installation-panel">
       <View style={settingsStyles.card} testID="installation-card">
         <InstallationOwnerAccess model={model} state={state} />
+        {bootstrap ? <BootstrapReview model={bootstrap} /> : null}
+        <HelperActionError model={model} />
         {state.error ? (
           <Text accessibilityRole="alert" style={[styles.textInset, styles.error]}>
             {state.error}
@@ -175,6 +192,14 @@ function InstallationPanel({
         ) : null}
         {state.unlocked ? (
           <>
+            {state.helperJobs.map((job) => (
+              <HelperRequest
+                key={`${job.id}:${job.revision}`}
+                job={job}
+                model={model}
+                busy={state.busy}
+              />
+            ))}
             {active.map((job) => (
               <RestartRequest
                 key={`${job.id}:${job.revision}`}
@@ -358,7 +383,7 @@ function InstallationOwnerAccess({
       {state.unlocked ? (
         <Text style={styles.text}>
           {state.lastUpdatedAt
-            ? `Updated ${new Date(state.lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Each restart requires your approval.`
+            ? `Updated ${new Date(state.lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Dev requests require your approval.`
             : "Loading restart status..."}
         </Text>
       ) : null}
@@ -504,7 +529,7 @@ function RestartRequest({
           <StatusBadge {...status} />
         </View>
         <Text style={styles.text} testID={`restart-summary-${job.id}`}>
-          {restartExplanation(job.reason).summary}
+          {restartRequestSummary(job)}
           {restartBlockingReason(job) ? ` Needs correction: ${restartBlockingReason(job)}` : null}
           {source && job.status === "pending" && !restartBlockingReason(job)
             ? ` Approval lets the submitted code and build scripts run on ${job.target === "host" ? "Host" : "Dev"} and may interrupt its tasks and terminals.`
@@ -517,6 +542,112 @@ function RestartRequest({
         <RestartActions job={job} model={model} busy={busy} historical={historical} />
       </View>
     </View>
+  );
+}
+
+function HelperActionError({ model }: { model: InstallationPanelModel }) {
+  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const dismiss = useCallback(() => model.dismissHelperError(), [model]);
+  if (!state.helperError) return null;
+  return (
+    <View style={styles.cardBody}>
+      <Text accessibilityRole="alert" style={styles.error}>
+        {state.helperError}
+      </Text>
+      <Button variant="ghost" onPress={dismiss}>
+        Dismiss
+      </Button>
+    </View>
+  );
+}
+
+function HelperRequest({
+  job,
+  model,
+  busy,
+}: {
+  job: NativeHelperJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const controlSize = useVortonTouch() ? "md" : "sm";
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  let actions: HelperReviewAction[] = [];
+  if (job.stage === "recovery_required") actions = ["verify-installed"];
+  else if (job.status === "pending" || job.status === "approved") actions = ["approve", "cancel"];
+  return (
+    <View style={[styles.cardBody, settingsStyles.rowBorder]} testID={`helper-request-${job.id}`}>
+      <View style={styles.requestHeader}>
+        <Text style={settingsStyles.rowTitle}>Native helper</Text>
+        <StatusBadge
+          label={job.stage === "recovery_required" ? "Needs recovery" : job.status}
+          variant={job.stage === "recovery_required" ? "warning" : "muted"}
+        />
+      </View>
+      <Text style={styles.text}>{helperReviewSummary(job)}</Text>
+      <Button variant="ghost" size={controlSize} onPress={toggle} {...disclosureProps(expanded)}>
+        Details
+      </Button>
+      {expanded ? (
+        <View style={styles.details}>
+          <Text style={styles.text}>{job.reason}</Text>
+          <Text style={styles.text}>{job.detail}</Text>
+          <Text selectable style={styles.text}>
+            Source: {job.plan.candidate.sourceCommit}
+            {"\n"}Artifact: {job.plan.candidate.artifactSha256}
+            {"\n"}Plan: {job.planSha256}
+          </Text>
+          <Text selectable style={styles.text}>
+            Signing:{" "}
+            {job.plan.candidate.signingMode === "developer-id" ? "Developer ID" : "Local identity"}
+            {"\n"}Helper identity: {job.plan.candidate.helperRequirement}
+            {"\n"}Client identity: {job.plan.candidate.clientRequirement}
+          </Text>
+          <Text selectable style={styles.text}>
+            {helperRollbackSummary(job.plan)}
+          </Text>
+        </View>
+      ) : null}
+      <ActionFooter style={styles.actions}>
+        {actions.map((action) => (
+          <HelperActionButton key={action} job={job} model={model} busy={busy} action={action} />
+        ))}
+      </ActionFooter>
+    </View>
+  );
+}
+
+function HelperActionButton({
+  job,
+  model,
+  busy,
+  action,
+}: {
+  job: NativeHelperJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+  action: HelperReviewAction;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const onPress = useCallback(() => {
+    void model.decideHelper(job, action);
+  }, [model, job, action]);
+  const labels = {
+    approve: job.operation === "native-helper-rollback" ? "Restore helper" : "Install helper",
+    cancel: "Cancel",
+    "verify-installed": "Verify installed helper",
+  };
+  return (
+    <RestartActionButton
+      testID={`helper-${job.id}-${action}`}
+      size={size}
+      variant={action === "approve" ? "destructive" : "outline"}
+      disabledReason={helperActionDisabledReason(job, action, { busy, unlocked: true })}
+      onPress={onPress}
+    >
+      {labels[action]}
+    </RestartActionButton>
   );
 }
 
@@ -576,7 +707,7 @@ function RestartActions({
   return (
     <>
       {pending && source ? (
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <RestartActionButton
             variant="destructive"
             disabledReason={restartActionDisabledReason(job, "install", busy)}
@@ -588,10 +719,10 @@ function RestartActions({
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
-        </View>
+        </ActionFooter>
       ) : null}
       {pending && !source ? (
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           {!job.supervisorPlanSha256 ? (
             <RestartActionButton
               variant="outline"
@@ -623,15 +754,15 @@ function RestartActions({
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
-        </View>
+        </ActionFooter>
       ) : null}
       {queued ? (
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
           <RestartEscalation job={job} model={model} busy={busy} />
-        </View>
+        </ActionFooter>
       ) : null}
     </>
   );
@@ -836,7 +967,13 @@ function RestartActivity({ job }: { job: RestartJob }) {
 
 export function InstallationRestartBanner() {
   const model = getInstallationPanel(useHostRegistryLoaded());
-  return model ? <RestartBanner model={model} /> : null;
+  const bootstrap = getBootstrapPanel();
+  return (
+    <>
+      {bootstrap ? <BootstrapBanner model={bootstrap} /> : null}
+      {model ? <RestartBanner model={model} /> : null}
+    </>
+  );
 }
 
 function RestartBanner({ model }: { model: InstallationPanelModel }) {
@@ -849,20 +986,22 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
   );
   if (!state.unlocked && state.restartSummary) {
     const summary = state.restartSummary;
-    if (!summary.requested && !summary.queued && !summary.running) return null;
+    const description = lockedMaintenanceSummary(summary);
+    if (!description) return null;
     return (
       <View testID="installation-restart-banner">
-        <SidebarCallout
-          title="Installation restarts"
-          description={`${summary.requested} requested · ${summary.queued} queued · ${summary.running} restarting. Unlock controls to review details.`}
-        />
+        <SidebarCallout title="Installation maintenance" description={description} />
         <Button variant="outline" onPress={open}>
           Review restart
         </Button>
       </View>
     );
   }
-  if (!jobs.length) return null;
+  const helpers = state.helperJobs.filter(
+    (job) =>
+      ["pending", "approved", "running"].includes(job.status) || job.stage === "recovery_required",
+  );
+  if (!jobs.length && !helpers.length) return null;
   return (
     <ScrollView style={styles.banner} testID="installation-restart-banner">
       {state.error ? (
@@ -870,6 +1009,17 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
           {state.error}
         </Text>
       ) : null}
+      {helpers.map((job) => (
+        <View key={job.id}>
+          <SidebarCallout
+            title="Native helper maintenance"
+            description={helperReviewSummary(job)}
+          />
+          <Button variant="outline" onPress={open}>
+            Review helper
+          </Button>
+        </View>
+      ))}
       {jobs.map((job, index) => (
         <RestartBannerItem key={job.id} job={job} showTopBorder={index > 0} />
       ))}
@@ -890,17 +1040,15 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
   const description = useMemo(
     () => (
       <View style={styles.details}>
-        <Text style={styles.text}>
-          {restartBlockingReason(job) ?? restartExplanation(job.reason).summary}
-        </Text>
+        <Text style={styles.text}>{restartBlockingReason(job) ?? restartRequestSummary(job)}</Text>
         {job.status === "approved" || job.status === "running" ? (
           <RestartActivity job={job} />
         ) : null}
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button variant="outline" onPress={open}>
             Review restart
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     ),
     [job, open],

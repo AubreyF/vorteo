@@ -1,7 +1,7 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard } from "./task-card";
+import { TaskCard, TaskCardHeader, TaskCardTitle } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
-import { taskCardStyles } from "./task-card-styles";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
 import { AgentTaskCards } from "./task-cards";
 import { JumpToLatest } from "./jump-to-latest";
@@ -1628,7 +1628,7 @@ function PermissionRequestCard({
         {t("agentStream.permission.question")}
       </Text>
 
-      <View style={optionsContainerStyle}>
+      <ActionFooter style={optionsContainerStyle}>
         {resolvedActions.map((action) => {
           const isPrimary = action.variant === "primary";
           const isRespondingAction = respondingActionId === action.id;
@@ -1652,7 +1652,7 @@ function PermissionRequestCard({
             />
           );
         })}
-      </View>
+      </ActionFooter>
     </>
   );
 
@@ -1671,18 +1671,11 @@ function PermissionRequestCard({
   }
 
   return (
-    <TaskCard
-      contentContainerStyle={[
-        permissionStyles.container,
-        taskCardStyles.contentInsets,
-        permissionStyles.bottomCard,
-      ]}
-      testID="permission-request-card"
-    >
-      <View style={taskCardStyles.headingRow}>
+    <TaskCard testID="permission-request-card">
+      <TaskCardHeader>
         <TaskCardIcon kind="permission" />
-        <Text style={[permissionStyles.title, { flexShrink: 1 }]}>{title}</Text>
-      </View>
+        <TaskCardTitle>{title}</TaskCardTitle>
+      </TaskCardHeader>
 
       {description ? <Text style={permissionStyles.description}>{description}</Text> : null}
 
