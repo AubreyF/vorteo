@@ -502,15 +502,29 @@ async function returnTimelineToSettledHistoryStart(
   }
 }
 
+/**
+ * Scrolls to the newest loaded edge and repeats until the view rests there. One scroll can land
+ * short while older rows are still being measured and the content keeps growing.
+ */
 export async function scrollTimelineToNewestLoadedEdge(page: Page): Promise<void> {
   const scroll = page.locator('[data-testid="agent-chat-scroll"]:visible').first();
-  await scroll.evaluate((element) => {
-    if (!(element instanceof HTMLElement)) {
-      throw new Error("Agent chat scroll element is not an HTMLElement");
-    }
-    element.scrollTop = element.scrollHeight;
-    element.dispatchEvent(new Event("scroll", { bubbles: true }));
-  });
+  await expect(async () => {
+    const before = await scroll.evaluate((element) => {
+      if (!(element instanceof HTMLElement)) {
+        throw new Error("Agent chat scroll element is not an HTMLElement");
+      }
+      element.scrollTop = element.scrollHeight;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+      return element.scrollHeight;
+    });
+    await page.waitForTimeout(100);
+    const after = await scroll.evaluate((element) => ({
+      height: element.scrollHeight,
+      gap: element.scrollHeight - element.scrollTop - element.clientHeight,
+    }));
+    expect(after.height).toBe(before);
+    expect(after.gap).toBeLessThanOrEqual(2);
+  }).toPass({ timeout: 10_000 });
 }
 
 export async function scrollTimelineUntilOlderHistoryIsReachable(

@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
+import nodeOs from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { PermissionResult, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -1044,6 +1045,52 @@ describe("ClaudeAgentSession features", () => {
 
     await internalSession.close();
     await userSession.close();
+  });
+
+  test("checks the session's own Claude config folder before keeping built-in skills", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "claude-builtins-"));
+    try {
+      const userHome = path.join(root, "home");
+      const cwd = path.join(root, "project");
+      const configDir = path.join(root, "account");
+      await fs.mkdir(userHome, { recursive: true });
+      await fs.mkdir(path.join(cwd, ".git"), { recursive: true });
+      vi.spyOn(nodeOs, "homedir").mockReturnValue(userHome);
+      // A plugin under the account's config folder claims "simplify" after launch.
+      const plugin = path.join(configDir, "plugins/marketplaces/market/plugins/p/skills/s");
+      await fs.mkdir(plugin, { recursive: true });
+      await fs.writeFile(
+        path.join(plugin, "SKILL.md"),
+        "---\nname: simplify\ndescription: t\n---\nT",
+      );
+      const { queryFactory } = createQueryMock();
+      const client = new ClaudeAgentClient({
+        logger,
+        queryFactory,
+        resolveBinary: async () => "/test/claude/bin",
+      });
+      const session = await client.createSession(
+        {
+          provider: "claude",
+          cwd,
+          skillSnapshot: {
+            capturedAt: "now",
+            provider: "claude",
+            skills: [],
+            builtins: ["claude-api", "simplify"],
+          },
+        },
+        { env: { CLAUDE_CONFIG_DIR: configDir } },
+      );
+
+      await session.startTurn("hello");
+
+      expect(queryFactory.mock.calls[0]?.[0].options.skills).toEqual(["claude-api"]);
+      await session.close();
+    } finally {
+      vi.restoreAllMocks();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   test("turns Claude thinking off without retaining an effort level", async () => {

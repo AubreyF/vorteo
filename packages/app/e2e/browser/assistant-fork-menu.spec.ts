@@ -19,7 +19,8 @@ import {
 } from "../support/helpers/mock-agent";
 import { getServerId } from "../support/helpers/server-id";
 import { seedSavedSettingsHosts } from "../support/helpers/settings";
-import { submitNewWorkspaceEmpty } from "../support/helpers/new-workspace";
+import { startIsolatedHostDaemon } from "../support/helpers/isolated-host-daemon";
+import { selectNewWorkspaceHost, submitNewWorkspaceEmpty } from "../support/helpers/new-workspace";
 
 const test = base.extend<{
   seedForkWorkspace: (options: MockAgentOptions) => Promise<MockAgentWorkspace>;
@@ -156,43 +157,45 @@ test.describe("Assistant fork menu", () => {
     page,
     seedForkWorkspace,
   }) => {
-    await seedSavedSettingsHosts(page, [
-      {
-        serverId: getServerId(),
-        label: "localhost",
-        endpoint: `127.0.0.1:${getE2EDaemonPort()}`,
-      },
-      {
-        serverId: "secondary-assistant-fork-host",
-        label: "Secondary host",
-        // The host does not need to be reachable; this pins that the draft-scoped
-        // attachment survives changing the selected target host.
-        endpoint: "127.0.0.1:9",
-      },
-    ]);
+    // The Environment step only offers connected hosts, so the second host must be reachable.
+    const secondaryHost = await startIsolatedHostDaemon("secondary-assistant-fork-host");
+    try {
+      await seedSavedSettingsHosts(page, [
+        {
+          serverId: getServerId(),
+          label: "localhost",
+          endpoint: `127.0.0.1:${getE2EDaemonPort()}`,
+        },
+        {
+          serverId: secondaryHost.serverId,
+          label: "Secondary host",
+          endpoint: `127.0.0.1:${secondaryHost.port}`,
+        },
+      ]);
 
-    const session = await seedForkWorkspace({
-      repoPrefix: "assistant-fork-workspace-",
-      title: "Assistant fork workspace",
-      initialPrompt: "emit 1 coalesced agent stream updates for assistant fork new workspace.",
-      model: "ten-second-stream",
-    });
+      const session = await seedForkWorkspace({
+        repoPrefix: "assistant-fork-workspace-",
+        title: "Assistant fork workspace",
+        initialPrompt: "emit 1 coalesced agent stream updates for assistant fork new workspace.",
+        model: "ten-second-stream",
+      });
 
-    await openAgentRoute(page, session);
-    await expectComposerVisible(page);
-    await awaitAssistantMessage(page);
-    await session.client.waitForFinish(session.agentId, 45_000);
+      await openAgentRoute(page, session);
+      await expectComposerVisible(page);
+      await awaitAssistantMessage(page);
+      await session.client.waitForFinish(session.agentId, 45_000);
 
-    await forkMostRecentAssistantTurnToNewWorkspace(page);
+      await forkMostRecentAssistantTurnToNewWorkspace(page);
 
-    await expect(page).toHaveURL(/\/new\?.*draftId=/, { timeout: 30_000 });
-    await expectChatHistoryAttachment(page);
+      await expect(page).toHaveURL(/\/new\?.*draftId=/, { timeout: 30_000 });
+      await expectChatHistoryAttachment(page);
 
-    await page.getByTestId("host-picker-trigger").click();
-    await page
-      .getByTestId("new-workspace-host-picker-option-secondary-assistant-fork-host")
-      .click();
-    await expectChatHistoryAttachment(page);
+      // The draft-scoped attachment survives changing the selected target host.
+      await selectNewWorkspaceHost(page, "Secondary host");
+      await expectChatHistoryAttachment(page);
+    } finally {
+      await secondaryHost.close();
+    }
   });
 
   test("keeps the fork attachment after the new agent receives its user message", async ({

@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { openWorkspaceActionsMenu } from "./workspace-ui";
 
 export async function getWorkspaceTabTestIds(page: Page): Promise<string[]> {
   const tabs = page.locator('[data-testid^="workspace-tab-"]');
@@ -18,9 +19,7 @@ function setupTabTestId(workspaceId: string): string {
 }
 
 async function waitForSetupToReachWorkspace(page: Page): Promise<void> {
-  const actionsButton = page.getByTestId("workspace-header-menu-trigger");
-  await expect(actionsButton).toBeVisible({ timeout: 30_000 });
-  await actionsButton.click();
+  await openWorkspaceActionsMenu(page);
   await expect(page.getByTestId("workspace-header-show-setup")).toBeVisible({ timeout: 30_000 });
   await page.keyboard.press("Escape");
 }

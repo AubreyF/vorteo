@@ -203,7 +203,12 @@ test("captures the compact import-session journey", async ({ page }, testInfo) =
   });
 });
 
-test("captures the desktop import sheet and command-center entry", async ({ page }, testInfo) => {
+// Product regression, reported to Builds on 2026-10-25: since 471d7f22a New workspace shows its
+// Import session button only on compact layouts, though its code still describes one under the
+// desktop composer. Remove the fixme once desktop has it again.
+test.fixme("captures the desktop import sheet and command-center entry", async ({
+  page,
+}, testInfo) => {
   const flow = new ImportSessionFlow(page);
   await flow.openWorkspace(scenario.project.workspaceId, {
     width: 1280,

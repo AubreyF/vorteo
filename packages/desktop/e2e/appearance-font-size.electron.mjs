@@ -34,21 +34,20 @@ export async function runAppearanceFontSizeRegression(page) {
   await interfaceSizeInput.fill("12");
   await interfaceSizeInput.press("Tab");
 
+  // Watch the same Theme label measured above; the single settings page has other "Theme" text.
+  const themeLabel = await sectionTitle.elementHandle();
   await page.waitForFunction(
-    () => {
+    (label) => {
       const interfaceInput = document.querySelector('input[aria-label="Interface font size"]');
       const contentInput = document.querySelector('input[aria-label="Content font size"]');
-      const themeLabel = [...document.querySelectorAll("div")].find(
-        (element) => element.children.length === 0 && element.textContent?.trim() === "Theme",
-      );
       return (
         interfaceInput?.value === "12" &&
         contentInput?.value === "15" &&
-        themeLabel instanceof HTMLElement &&
-        getComputedStyle(themeLabel).fontSize === "10px"
+        label instanceof HTMLElement &&
+        getComputedStyle(label).fontSize === "10px"
       );
     },
-    undefined,
+    themeLabel,
     { timeout: SETTINGS_TIMEOUT_MS },
   );
 

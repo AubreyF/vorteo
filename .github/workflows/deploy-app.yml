@@ -11,6 +11,8 @@ on:
 
 jobs:
   deploy:
+    # Upstream's Cloudflare deployment: forks have no CLOUDFLARE_API_TOKEN.
+    if: ${{ github.repository == 'getpaseo/paseo' }}
     runs-on: ubuntu-latest
 
     steps:

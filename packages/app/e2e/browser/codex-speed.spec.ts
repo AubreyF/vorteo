@@ -1,9 +1,10 @@
 import path from "node:path";
 import { expect, test, type Page } from "../support/fixtures";
-import { seedWorkspace } from "../support/helpers/seed-client";
-import { openAgentRoute } from "../support/helpers/mock-agent";
-import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
+import {
+  draftAgentProfile,
+  draftModel,
+  openAgentProfileSettings,
+} from "../support/helpers/agent-profiles";
 
 // This fixture catalog advertises Ultrafast on Sol; another model offers Fast only.
 // The real daemon discovers both through the same Codex model/list boundary.
@@ -26,52 +27,50 @@ test.use({
   },
 });
 
-async function openSpeedSelector(page: Page): Promise<void> {
-  const speed = page.getByRole("button", { name: /^(Select speed|Speed: .+)$/ });
-  const features = page.getByRole("button", { name: "Open agent features", exact: true });
-  const modelSettings = page.getByRole("button", { name: /^Select model \(/ });
-  await expect(speed.or(features).or(modelSettings).filter({ visible: true }).first()).toBeVisible({
-    timeout: 30_000,
-  });
-  if (!(await speed.isVisible())) {
-    if (await features.isVisible()) await features.click();
-    else await modelSettings.click();
-  }
-  await expect(speed).toBeVisible({ timeout: 30_000 });
-  await speed.click();
-  await expect(page.getByText("Normal", { exact: true }).last()).toBeVisible();
+// The composer's speed control went with the Paseo mode in 471d7f22a; profiles carry speed, so
+// the Codex catalog's tiers are checked in the profile editor's Speed feature.
+const SPEED = "service_tier";
+
+/** A speed choice: a row in the desktop list, or a button in the phone sheet. */
+function speedOption(page: Page, label: string) {
+  return page
+    .locator(`[data-testid^="agent-profile-feature-option-${SPEED}-"]`)
+    .filter({ hasText: new RegExp(`^${label}`) })
+    .or(page.getByRole("button", { name: label, exact: true }))
+    .filter({ visible: true })
+    .last();
 }
 
-async function selectSpeed(page: Page, label: string): Promise<void> {
-  await page.getByRole("button", { name: label, exact: true }).last().click();
-  const toolbarTrigger = page.getByRole("button", { name: `Speed: ${label}`, exact: true });
-  const sheetTrigger = page.getByRole("button", { name: "Select speed", exact: true });
-  await expect(toolbarTrigger.or(sheetTrigger)).toBeVisible();
-  if (await toolbarTrigger.isVisible()) await expect(toolbarTrigger).toHaveText("");
-  else await expect(sheetTrigger).toContainText(label);
+function speedTrigger(page: Page) {
+  return page.getByTestId(`agent-profile-feature-trigger-${SPEED}`);
+}
+
+async function openSpeedChoices(page: Page): Promise<void> {
+  await speedTrigger(page).click();
+  await expect(page.getByText("Normal", { exact: true }).last()).toBeVisible();
 }
 
 async function expectSpeedChoices(page: Page, choices: string[]): Promise<void> {
   for (const choice of ["Normal", "Fast", "Ultrafast"]) {
-    const option = page.getByText(choice, { exact: true }).last();
+    const option = speedOption(page, choice);
     if (choices.includes(choice)) {
-      await expect(option).toBeVisible();
-      await expect(option).toBeInViewport({ ratio: 1 });
-    } else await expect(option).not.toBeVisible();
+      // The list can open low in the editor and scroll; each choice must be reachable.
+      await option.scrollIntoViewIfNeeded();
+      await expect(option).toBeInViewport();
+    } else
+      await expect(
+        page
+          .locator(`[data-testid^="agent-profile-feature-option-${SPEED}-"]`)
+          .or(page.getByRole("button", { name: choice, exact: true }))
+          .filter({ visible: true })
+          .filter({ hasText: new RegExp(`^${choice}`) }),
+      ).toHaveCount(0);
   }
 }
 
-async function switchAgentModel(agentId: string, modelId: string): Promise<void> {
-  const client = await connectDaemonClient<
-    Pick<DaemonClient, "setAgentModel" | "close" | "connect">
-  >({
-    clientIdPrefix: "codex-speed-model",
-  });
-  try {
-    await client.setAgentModel(agentId, modelId);
-  } finally {
-    await client.close();
-  }
+async function selectSpeed(page: Page, label: string): Promise<void> {
+  await speedOption(page, label).click();
+  await expect(speedTrigger(page)).toContainText(label);
 }
 
 for (const viewport of [
@@ -80,43 +79,28 @@ for (const viewport of [
 ]) {
   test(`Codex catalog drives speed choices on ${viewport.name}`, async ({ page }, testInfo) => {
     test.setTimeout(180_000);
+    // Settings opens from the desktop sidebar; the editor is then checked at this width.
+    await openAgentProfileSettings(page);
     await page.setViewportSize(viewport);
-    const workspace = await seedWorkspace({ repoPrefix: "codex-speed-" });
-    try {
-      const agent = await workspace.client.createAgent({
-        provider: "codex",
-        cwd: workspace.repoPath,
-        workspaceId: workspace.workspaceId,
-        title: "Speed settings",
-        model: "gpt-6.1-sol",
-        modeId: "full-access",
-        initialPrompt: "Get ready to work on this project.",
-      });
-      await openAgentRoute(page, { workspaceId: workspace.workspaceId, agentId: agent.id });
-      if (viewport.name === "desktop") {
-        const trigger = page.getByRole("button", { name: "Speed: Normal", exact: true });
-        await expect(trigger).toBeVisible({ timeout: 30_000 });
-        await expect(trigger).toHaveText("");
-        await page.screenshot({ path: testInfo.outputPath("desktop-normal-trigger.png") });
-      }
-      await openSpeedSelector(page);
-      await expectSpeedChoices(page, ["Normal", "Fast", "Ultrafast"]);
-      await page.screenshot({ path: testInfo.outputPath(`${viewport.name}-speed-options.png`) });
-      await selectSpeed(page, "Ultrafast");
-      await openSpeedSelector(page);
-      await expectSpeedChoices(page, ["Normal", "Fast", "Ultrafast"]);
-      await page.screenshot({
-        path: testInfo.outputPath(`${viewport.name}-ultrafast-selected.png`),
-      });
-      await selectSpeed(page, "Normal");
-      if (viewport.name === "desktop") {
-        await switchAgentModel(agent.id, "gpt-6-sol");
-        await openSpeedSelector(page);
-        await expectSpeedChoices(page, ["Normal", "Fast"]);
-        await page.screenshot({ path: testInfo.outputPath("desktop-fast-only.png") });
-      }
-    } finally {
-      await workspace.cleanup();
-    }
+    await draftAgentProfile(page, {
+      name: "Speed settings",
+      provider: "Codex",
+      model: "GPT-6.1 Sol",
+    });
+    await expect(speedTrigger(page)).toContainText("Normal", { timeout: 30_000 });
+
+    await openSpeedChoices(page);
+    await expectSpeedChoices(page, ["Normal", "Fast", "Ultrafast"]);
+    await page.screenshot({ path: testInfo.outputPath(`${viewport.name}-speed-options.png`) });
+    await selectSpeed(page, "Ultrafast");
+    await page.screenshot({ path: testInfo.outputPath(`${viewport.name}-ultrafast-selected.png`) });
+
+    await openSpeedChoices(page);
+    await selectSpeed(page, "Normal");
+    // A model without Ultrafast offers only Normal and Fast.
+    await draftModel(page, "GPT-6 Sol");
+    await openSpeedChoices(page);
+    await expectSpeedChoices(page, ["Normal", "Fast"]);
+    await page.screenshot({ path: testInfo.outputPath(`${viewport.name}-fast-only.png`) });
   });
 }

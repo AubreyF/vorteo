@@ -1,5 +1,5 @@
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { daemonWsRoutePattern } from "./daemon-port";
 import type { SeededWorkspace } from "./seed-client";
 
@@ -129,8 +129,10 @@ export async function seedParentWithCrossWorkspaceSubagent(
 }
 
 /** Expand each available group without closing one that is already open. */
-export async function openSubagentsTrack(page: Page): Promise<void> {
-  const card = page.getByTestId("subagents-card");
+export async function openSubagentsTrack(page: Page, scope?: Locator): Promise<void> {
+  // Each group's body reuses the card's test ID, so the outer card is the first match. A pane
+  // scope picks that pane's own card when another copy is on screen.
+  const card = (scope ?? page).getByTestId("subagents-card").filter({ visible: true }).first();
   await expect(card).toBeVisible({ timeout: 30_000 });
   const toggles = card.getByTestId(/^subagents-group-(paseo|provider)-toggle$/);
   for (const toggle of await toggles.all()) {
@@ -140,13 +142,18 @@ export async function openSubagentsTrack(page: Page): Promise<void> {
 }
 
 export async function expectSubagentRowVisible(page: Page, childId: string): Promise<void> {
-  await expect(page.getByTestId(`subagents-track-row-${childId}`)).toBeVisible({
+  await expect(
+    page.getByTestId(`subagents-track-row-${childId}`).filter({ visible: true }).first(),
+  ).toBeVisible({
     timeout: 30_000,
   });
 }
 
 export async function expectSubagentRowGone(page: Page, childId: string): Promise<void> {
-  await expect(page.getByTestId(`subagents-track-row-${childId}`)).toHaveCount(0, {
+  // A retained pane can keep a hidden copy of the card, so check what is shown.
+  await expect(
+    page.getByTestId(`subagents-track-row-${childId}`).filter({ visible: true }),
+  ).toHaveCount(0, {
     timeout: 30_000,
   });
 }
@@ -181,15 +188,19 @@ export async function expectArchiveFinishedInProgress(
   completed: number,
   total: number,
 ): Promise<void> {
-  await expect(
-    page.getByTestId("subagents-group-paseo").getByTestId("subagents-track-archive-finished"),
-  ).toBeDisabled();
-  await expect(
-    page
-      .getByTestId("subagents-group-paseo")
-      .getByTestId("subagents-track-archive-finished")
-      .getByText(`Clearing ${completed}/${total}`, { exact: true }),
-  ).toBeVisible();
+  const action = page
+    .getByTestId("subagents-group-paseo")
+    .getByTestId("subagents-track-archive-finished");
+  await expect(action).toBeDisabled();
+  // In a card the action is an icon, and its progress shows in the tooltip (2cf5e0cbb); the
+  // composer track row still shows it as text.
+  const label = `Clearing ${completed}/${total}`;
+  if ((await action.getByText(label, { exact: true }).count()) > 0) {
+    await expect(action.getByText(label, { exact: true })).toBeVisible();
+    return;
+  }
+  await action.hover();
+  await expect(page.getByRole("tooltip").filter({ hasText: label })).toBeVisible();
 }
 
 export async function expectArchiveFinishedRetry(page: Page): Promise<void> {

@@ -6,7 +6,7 @@ import {
   verifyExistingAgentModelIcon,
 } from "../support/helpers/plugin-provider-icons";
 
-test("plugin provider icons follow the model through settings and wide and compact composers", async ({
+test("plugin provider icons follow the provider through settings and the wide and compact profile pickers", async ({
   providerIcons,
 }) => {
   await verifyProviderSettings(providerIcons);

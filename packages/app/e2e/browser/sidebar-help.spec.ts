@@ -5,6 +5,7 @@ import { expect, test, type Page } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
 import { openSettingsSection } from "../support/helpers/settings";
 import { release, serveChangelog } from "../support/helpers/changelog";
+import { openSidebarHelpMenu } from "../support/helpers/sidebar";
 
 const customReleases = parseChangelog(
   readFileSync(path.resolve(__dirname, "../../../../VORTEO_CHANGELOG.md"), "utf8"),
@@ -20,11 +21,6 @@ const CHANGELOG_DESTINATION =
 // The name and the version are separate cells of a key/value row, so they meet with no space
 // between them in the row's text content.
 const APP_VERSION = /^Vorteo\s*v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-
-async function openHelpMenu(page: Page): Promise<void> {
-  await page.getByTestId("sidebar-help").click();
-  await expect(page.getByTestId("sidebar-help-menu")).toBeVisible();
-}
 
 async function expectDiagnosticReport(page: Page): Promise<void> {
   const sheet = page.getByTestId("app-diagnostic-sheet");
@@ -53,10 +49,10 @@ async function expectExternalPage(
 
 test("opens troubleshooting and support destinations", async ({ page }) => {
   await gotoAppShell(page);
-  await expect(page.getByTestId("sidebar-help")).toBeVisible();
+  await expect(page.getByTestId("sidebar-footer-overflow").first()).toBeVisible();
 
   await test.step("opens diagnostics and keyboard shortcuts", async () => {
-    await openHelpMenu(page);
+    await openSidebarHelpMenu(page);
     await expect(page.getByText("Help", { exact: true })).toBeVisible();
     await expect(page.getByText("Report an issue", { exact: true })).toBeVisible();
     await expect(page.getByText("What's new", { exact: true })).toBeVisible();
@@ -66,17 +62,17 @@ test("opens troubleshooting and support destinations", async ({ page }) => {
     await expectDiagnosticReport(page);
     await closeSheet(page, "app-diagnostic-sheet");
 
-    await openHelpMenu(page);
+    await openSidebarHelpMenu(page);
     await page.getByTestId("sidebar-help-shortcuts").click();
     await expect(page.getByTestId("keyboard-shortcuts-dialog")).toBeVisible();
     await closeSheet(page, "keyboard-shortcuts-dialog");
   });
 
   await test.step("opens support pages", async () => {
-    await openHelpMenu(page);
+    await openSidebarHelpMenu(page);
     await expectExternalPage(page, "sidebar-help-discord", DISCORD_DESTINATION);
 
-    await openHelpMenu(page);
+    await openSidebarHelpMenu(page);
     await expectExternalPage(page, "sidebar-help-github", GITHUB_ISSUE_DESTINATION);
   });
 });
@@ -135,7 +131,7 @@ test("searches keyboard shortcuts from the sidebar help menu", async ({ page }) 
     Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
   });
   await gotoAppShell(page);
-  await openHelpMenu(page);
+  await openSidebarHelpMenu(page);
   await page.getByTestId("sidebar-help-shortcuts").click();
 
   const dialog = page.getByTestId("keyboard-shortcuts-dialog");
@@ -168,13 +164,14 @@ test("keeps diagnostics available from Settings after globalizing the sheet", as
 test.describe("compact sidebar help", () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
-  test("footer buttons provide finger-sized targets and accept taps beyond the glyph", async ({
+  test("toolbar buttons provide finger-sized targets and accept taps beyond the glyph", async ({
     page,
   }) => {
     await gotoAppShell(page);
     await openCompactSidebar(page);
-    await expectFingerSizedFooterTargets(page);
-    await tapHelpNearTargetEdge(page);
+    await expectFingerSizedToolbarTargets(page);
+    await tapMoreNearTargetEdge(page);
+    await page.getByTestId("sidebar-help-action").click();
     await expect(page.getByTestId("sidebar-help-menu")).toBeVisible();
     await page.getByTestId("sidebar-help-diagnostics").click();
     await expectDiagnosticReport(page);
@@ -184,31 +181,43 @@ test.describe("compact sidebar help", () => {
     await gotoAppShell(page);
     await page.getByRole("button", { name: "Open menu", exact: true }).click();
 
-    await openHelpMenu(page);
+    await openSidebarHelpMenu(page);
     await expect(page.getByTestId("sidebar-help-shortcuts")).toHaveCount(0);
     await page.getByTestId("sidebar-help-diagnostics").click();
     await expectDiagnosticReport(page);
   });
 });
 
-async function openCompactSidebar(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Open menu", exact: true }).click();
-  await expect(page.getByTestId("sidebar-footer-bottom-line")).toBeVisible();
+function compactToolbar(page: Page) {
+  return page.locator('[data-testid="sidebar-toolbar"]:visible').first();
 }
 
-async function expectFingerSizedFooterTargets(page: Page): Promise<void> {
-  const buttons = page.getByTestId("sidebar-footer-bottom-line").getByRole("button");
-  await expect(buttons).toHaveCount(5);
+async function openCompactSidebar(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Open menu", exact: true }).click();
+  await expect(compactToolbar(page)).toBeVisible();
+}
+
+// Collapse, Search, History, Schedules, Settings and More share the toolbar line.
+const TOOLBAR_BUTTON_TEST_IDS =
+  /^sidebar-(collapse|search|sessions|schedules|settings|footer-overflow)$/;
+
+async function expectFingerSizedToolbarTargets(page: Page): Promise<void> {
+  const buttons = compactToolbar(page).getByTestId(TOOLBAR_BUTTON_TEST_IDS);
+  await expect(buttons).toHaveCount(6);
   for (const button of await buttons.all()) {
-    const bounds = await button.boundingBox();
-    expect(bounds?.width).toBeGreaterThanOrEqual(44);
-    expect(bounds?.height).toBeGreaterThanOrEqual(44);
+    const bounds = (await button.boundingBox())!;
+    // Flex layout can report a 44px box as 43.99999px; round to a hundredth before comparing.
+    expect(Math.round(bounds.width * 100) / 100).toBeGreaterThanOrEqual(44);
+    expect(Math.round(bounds.height * 100) / 100).toBeGreaterThanOrEqual(44);
   }
 }
 
-async function tapHelpNearTargetEdge(page: Page): Promise<void> {
-  const button = page.getByRole("button", { name: "Help and support", exact: true });
-  await button.tap({ position: { x: 40, y: 40 } });
+/** Help and support opens from More; a tap near the target's corner still lands. */
+async function tapMoreNearTargetEdge(page: Page): Promise<void> {
+  const more = compactToolbar(page).getByTestId("sidebar-footer-overflow");
+  const bounds = await more.boundingBox();
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await more.tap({ position: { x: 4, y: 4 } });
 }
 
 test("automatically reveals older interleaved release notes while scrolling", async ({ page }) => {
@@ -270,7 +279,8 @@ test("keeps Vorteo notes readable when Paseo fails and retries upstream", async 
   await expect(release(sheet, latestCustomRelease.version)).toBeVisible();
   await expect(sheet.getByTestId("changelog-error")).toBeVisible();
   await page.unroute(url);
-  await serveChangelog(page, ["## 9.1.0 - 2026-10-06", "", "- Upstream recovered"]);
+  // Date the fixture ahead of every real release so it sorts first and is rendered.
+  await serveChangelog(page, ["## 9.1.0 - 2030-01-01", "", "- Upstream recovered"]);
   await sheet.getByTestId("changelog-retry").click();
   await expect(sheet.getByText("Upstream recovered")).toBeVisible();
   await expect(release(sheet, latestCustomRelease.version)).toBeVisible();

@@ -4,6 +4,554 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.863 - 2026-10-26
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.862 - 2026-10-26
+
+### Maintenance
+
+- Merge browser test repair after the redesigns: about 70 failing Playwright cases repaired or retired with named commits, and product regressions marked fixme
+
+## 0.11.0-beta.3.vorteo.861 - 2026-10-25
+
+### Maintenance
+
+- Remove five screenshots that app browser unit tests wrote and an earlier commit included by mistake, and restore the tracked phone connection-check screenshot to main's version. Git now ignores those generated screenshot names.
+
+## 0.11.0-beta.3.vorteo.860 - 2026-10-25
+
+### Maintenance
+
+- Make three appearance browser tests reliable on CI without loosening their checks:
+  - The compact font layout test measures the label and input after the settings page stops scrolling to Appearance.
+  - The 1133px interface zoom drag is measured and made again if late-loading settings panes move the slider first.
+  - The palette button test gets a 300-second budget; it takes about 90 seconds locally and reached 180 seconds on CI.
+
+## 0.11.0-beta.3.vorteo.859 - 2026-10-25
+
+### Maintenance
+
+- Merge main at b08980d36 into the browser test repair branch, taking main's manifests.
+
+## 0.11.0-beta.3.vorteo.858 - 2026-10-25
+
+### Maintenance
+
+- Repair the composer and agent stream browser tests:
+  - The first prompt test runs with reduced motion, since the prompt's rise is deliberate (ab83bcdea).
+  - The jump button is found by its test ID, since host-connected chats label it "Jump to latest" (5ccf27a5b).
+  - The compact Plus menu check follows the 8px menu inset (6ee6bfd23).
+  - The blank-line composer probe starts from the key press, since Shift+Enter fires no input event (1167acf35).
+  - Queued prompts are confirmed through the host's history (29d3f5111).
+  - The stopped-thread queue test pauses the queue itself, since Stop no longer pauses it (614c0e44f).
+  - Connection failures appear as "Reconnecting host" toasts (471d7f22a), and the workspace restart test seeds a profile.
+- Retire the overlapping queued-send recovery test: the host owns the queue since 29d3f5111, and a2a7c4937 blocks a second immediate send.
+- Mark two known regressions: retrying a failed first agent in a new workspace fails with a request key conflict, and hosts without profile launch cannot create anything since 471d7f22a.
+- Repair the remaining card tests:
+  - Full-width collapsed headers keep their count chip fill (bd1db0362), compact goal badges round to hours (0153f4c69), and the context window card joins the card checks (7723a55f6).
+  - Task conflicts report through a toast (68faa7a52), and queue checks look in the conversation (b5ee41fb8).
+  - The terminal theme test reads the font from xterm's options, since the WebGL renderer has no text rows.
+  - The phone scripts test confirms the script's output, and checks the exit badge only under zsh, which is the only shell that reports exit codes.
+- Two layout differences go to owner review.
+- Shared helpers: scrolling to the newest history retries until the view settles, and the pagination test no longer opts out of the worktree notice handler.
+
+## 0.11.0-beta.3.vorteo.857 - 2026-10-25
+
+### Maintenance
+
+- The browser test notice handler gives up after two seconds when the worktree setup notice disappears before its dismiss click, instead of holding the test until it times out.
+- The local plugin journey test gets a 120-second budget; its five Settings phases take about 37 seconds locally and overran 60 seconds on CI.
+
+## 0.11.0-beta.3.vorteo.856 - 2026-10-25
+
+### Maintenance
+
+- Merge main at 67375bccd into the browser test repair branch, taking main's manifests.
+- Re-enable two browser tests whose product fixes are now on main. Legacy favourites saved beside the old mode setting migrate again (a6a91bc4a). Reloading a saved layout with thousands of empty Explorer drafts no longer freezes the page (9711e1710).
+
+## 0.11.0-beta.3.vorteo.855 - 2026-10-25
+
+### Maintenance
+
+- Repair the layout and appearance browser tests:
+  - Demo cards follow the "2 / 4" count (6717047e5), 44px headings (0fd42877e), the softer sidebar divider (6ee6bfd23), the demo subagents (ce0345cfc), edge-to-edge toolbar buttons (87db69fbd) and Settings staying in the toolbar (7a4c33777).
+  - Desktop task rows are 32px tall (2cf5e0cbb), and the display font check reads its CSS variable, since desktop has no title header (195e1c044).
+  - Branded loader tests block development bundles too, so the app cannot boot before the logo check. Settings and theme picker tests wait for scrolling and sliders to settle.
+- Mark known regressions: phone navigation starts below 500px instead of 720px (94087127e), and subagent rows nest buttons inside a button. Three geometry differences go to owner review.
+- Repair other browser tests:
+  - The chat outline split test uses a width where a split pane is narrower than the rail's minimum.
+  - Startup diagnostics show the connection advice from 24e167c54.
+  - The sidebar toolbar target check rounds 43.99999px boxes.
+  - Workspace task flowers report percentages (fc8b28074).
+  - Task dependency errors arrive as toasts (68faa7a52).
+  - The queue sits in the conversation (b5ee41fb8).
+  - Closed sidebar cards stack as full-width headers (bd1db0362).
+
+## 0.11.0-beta.3.vorteo.854 - 2026-10-25
+
+### Maintenance
+
+- Repair the settings, provider and sidebar browser tests:
+  - Claude sign-in tests follow `claude setup-token` and the "Claude is not connected" wording (7c8e78ac7). The fake login CLI gains a setup-token mode.
+  - Metadata settings use the "Metadata generation" section (537b619e2).
+  - Provider outlines sit on the control itself (0153f4c69).
+  - Startup status replaces the old connecting headings (471d7f22a).
+  - The crash check uses the Vorteo wording (e0f82d126), which the old check could never see.
+  - Root error recovery reports Metro's error body when its fixture fails to compile.
+- Retire the Standard-mode halves of the Claude authentication and provider management tests, citing 471d7f22a.
+- Mark the legacy favourites migration as a known regression. Since 471d7f22a the strict preferences schema rejects the old `vortonMode` field, so upgraded installs lose their favourites and the migration is marked done.
+
+## 0.11.0-beta.3.vorteo.853 - 2026-10-25
+
+### Maintenance
+
+- Repair the files, Explorer and plugin browser tests:
+  - Count only visible tree matches, since a hidden Files card can stay mounted (60f4899a6).
+  - Expect toasts for failed actions (68faa7a52).
+  - Follow the Dark Star default colors (60f4899a6) and the host line in tab tooltips (d9b7a2d60).
+  - Expect the single-script play button (fa9a1859d) and the checklist count badge label (9883656f9).
+  - Read workspace titles from the sidebar row (195e1c044).
+  - Re-home the Explorer upgrade tests onto the supporting cards and the icon rail (ab60c1e39).
+- Retire explorer-plugin-menu.spec.ts and its helper, citing 60f4899a6: supporting cards replaced the Explorer tab dock and its + menu.
+- Mark the canvas diff thumb drag as a known regression: at 1400px the supporting cards' resize handle covers the overlay scrollbar's grab area.
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- CI Playwright runs drop the temporary `--reporter=line --retries=0` diagnostics. They keep artifact uploads for cancelled shards and the five-minute Metro warm-up limit.
+- Queue tests no longer expect 44px status targets in a narrow mouse-driven window. Since 2cf5e0cbb, rows take 44px targets on touch devices, and touch is detected independently of width.
+- The queue orbit test drops its phone-width tooltip press, a known regression where a press no longer opens explanations, and keeps its other checks.
+
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Maintenance
+
+- Merge main through 71925c85e: interrupted startup scripts recover, and connection errors are classified. This branch keeps its own version line; main only changed version numbers in the manifests.
+
+## 0.11.0-beta.3.vorteo.850 - 2026-10-25
+
+### Maintenance
+
+- Retired, citing 471d7f22a, which moved model, mode and permissions into profiles:
+  - new-workspace-codex-mode-preferences.spec.ts, which tested remembering a composer mode in drafts.
+  - bottom-sheet-reopen.spec.ts, which tested the composer's model sheets. The provider settings stack on the schedule picker covers phone sheet reopening.
+  - The draft-tab case of the composer density test.
+  - The model and mode assertions of the slash clear test.
+- Tests reach the app-wide New workspace entry through the sidebar's More menu (ab60c1e39).
+
+## 0.11.0-beta.3.vorteo.849 - 2026-10-25
+
+### Maintenance
+
+- Retire composer-diff-stat.spec.ts, citing 471d7f22a: the composer diff pill showed only in the Standard mode it removed.
+- The diff counter test checks the toolbar counter with the supporting cards open.
+  - Its height alignment with the scripts button awaits owner review: 26px against 44px.
+  - Its phone placement is a known regression: phones show no counter since 195e1c044.
+- The Cmd+E test expects the Changes card, which keeps its saved collapse state.
+- The New tab no-flash test waits for the tab count to settle before sampling.
+
+## 0.11.0-beta.3.vorteo.848 - 2026-10-25
+
+### Maintenance
+
+- Merge main through 24e167c54, which shows connection diagnostics during startup. This branch keeps its own version line; main only changed version numbers in the manifests.
+- Tests for the Changes shortcut, Cmd+E, the new tab Explorer shortcut and composer Explorer navigation look for the supporting cards. Files and Changes became supporting cards in 60f4899a6, 2e2921f79 and 73be0edc5.
+
+## 0.11.0-beta.3.vorteo.847 - 2026-10-25
+
+### Maintenance
+
+- Mark two New workspace regressions as known failures: choosing another host clears the selected project (99eca19a7 behaviour), and plain /new with stale offline hosts no longer preselects a project.
+- The pasted pull request helper uses the platform paste shortcut, so the tests also paste on macOS.
+
+## 0.11.0-beta.3.vorteo.846 - 2026-10-25
+
+### Maintenance
+
+- Each browser test starts from the default sidebar: project grouping, no filters and nothing collapsed. That state now syncs through the host, so one test's choices carried into the next.
+- The workspace header helper finds the open workspace's sidebar row from the route, since status-grouped rows expose no selected state, and skips the project name that status rows do not show.
+- The cross-workspace subagent test expects the parent's workspace to show its running child, since delegated agents stay under their originating task (471d7f22a).
+
+## 0.11.0-beta.3.vorteo.845 - 2026-10-25
+
+### Maintenance
+
+- Sidebar helpers wait for a visible project row and accept the display preferences sheet on touch layouts, since the shell keeps a hidden copy of the other layout's sidebar.
+- Sidebar reorder tests:
+  - Open the phone sidebar through the shared helper.
+  - Expect a refused move as a toast (68faa7a52).
+- The pin shortcut tests restore project grouping and expand a Pinned section left collapsed. Sidebar grouping and section collapse now sync through the host, so they carried between tests.
+- Mark the touch title width test for owner review: diff stats now take 52px of title space on touch rows.
+- The question pagination test now records its 2px input-to-actions gap as a regression against 9b6263e7c; its insets still await owner review.
+
+## 0.11.0-beta.3.vorteo.844 - 2026-10-25
+
+### Maintenance
+
+- Subagent tests follow 2cf5e0cbb and 0d18398e7. Rows show only status, title and actions, with profile, model and status in the row's tooltip; groups are titled Subagents and System sub-agents; the card's cleanup action shows progress in its tooltip. Duplicate row copies are narrowed to the visible one.
+- The title suggestions test opens rename from the row's context menu when touch rows have no overflow button (2415534c8).
+- Mark two product regressions as known failures:
+  - Subagents opened from a right-pane parent now open in the main pane.
+  - Card explanations no longer open on keyboard focus or on a press at phone width; hover still works.
+
+## 0.11.0-beta.3.vorteo.843 - 2026-10-25
+
+### Maintenance
+
+- Retire workspace-draft-thinking-preferences.spec.ts, citing 471d7f22a. Per-model thinking and per-provider mode memory belonged to the draft composer's controls; profiles now carry model, thinking and mode, and remembered profiles are covered by the New workspace model memory test.
+- The upstream settings test accepts the About address, which the single settings page keeps while showing General.
+- Remove a duplicated changelog entry for 0.11.0-beta.3.vorteo.835, which made the Help changelog test find two releases with one version.
+
+## 0.11.0-beta.3.vorteo.842 - 2026-10-25
+
+### Maintenance
+
+- The plan card test expects the fixed 44px card heading from 0fd42877e with width-adaptive insets: 48px on desktop and 50px on phones. Its desktop scrolling check uses a shorter window, since the sidebar column now gives the card enough room for the whole plan; it also waits out re-renders after resizing.
+- Mark two geometry drifts for owner review, with measured values: question card action insets and gaps, and the sidebar project row's unbalanced padding.
+
+## 0.11.0-beta.3.vorteo.841 - 2026-10-25
+
+### Maintenance
+
+- Queue tests:
+  - Expect the card title Queue (0d18398e7).
+  - Read the visible copy of the card.
+  - Retire the Vorton-off reload, citing 471d7f22a.
+- Mark the queue heading height test for owner review: the card grows from 90.5px to 128px while a held status shows, and the phone drag handle exposes no pressed state.
+- The open questions sidebar test seeds a usage report, so the Quota card no longer depends on the machine's accounts.
+
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Maintenance
+
+- Provider settings stacking tests open provider settings from a new schedule's model picker, since the composer's model selector went with the Paseo mode in 471d7f22a. Closing provider settings in the schedule form returns focus to the picker's Back button rather than the settings button; the test checks that focus stays in the selector and the gap is reported.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- Codex speed tests check the profile editor's Speed feature on desktop and phones; the composer speed control went with the Paseo mode in 471d7f22a.
+- Profile editor helpers follow the phone sheet, whose header carries the editor's test ID while its form and buttons sit in its scroll and footer parts. Select options are found in the phone sheet as well as the desktop popover.
+
+## 0.11.0-beta.3.vorteo.838 - 2026-10-25
+
+### Maintenance
+
+- Retire the Standard mode queue test and the Standard half of the title suggestions test, citing 471d7f22a.
+- Skill library tests open Skills as a pane of the single settings page.
+- Locators narrowed to one element:
+  - The outer subagents card, since group bodies reuse its test ID.
+  - The visible journal card, which also appears among the history cards.
+  - The plugin source Docs link, since metadata generation has its own.
+
+## 0.11.0-beta.3.vorteo.837 - 2026-10-25
+
+### Maintenance
+
+- Workspace actions open from the pane menu on desktop or the title menu's sheet on phones in import session tests; the shared helper recognises the sheet's content.
+- Mark the desktop import session test as a known failure: since 471d7f22a New workspace shows Import session only on compact layouts.
+
+## 0.11.0-beta.3.vorteo.836 - 2026-10-25
+
+### Maintenance
+
+- Usage tests read the context window sheet and the usage card. Since b7e249fef the sidebar Quota card also names accounts and loads usage with the app shell.
+- Provider removal uses the Delete button on a custom provider's row and its credentials message; 471d7f22a removed the provider actions menu.
+- Retire the Standard mode check in the Claude CLI warning test, citing 471d7f22a.
+- The Model B sidebar test finds New workspace in the More menu (ab60c1e39).
+
+## 0.11.0-beta.3.vorteo.835 - 2026-10-25
+
+### Maintenance
+
+- The worktree-notice dismissal no longer waits for every notice to disappear, so a second project's notice no longer stalls a test.
+- Plugin settings tests expect the single settings page's plugins address.
+- Plugin tests read the open workspace's title from the header on phones or the selected sidebar row on desktop, where 195e1c044 removed the title header.
+- Mark three product regressions as known failures:
+  - Plugin header buttons on phones (195e1c044); the phone checks split into their own tests.
+  - Empty workspaces on a host without profiles; a new test covers this.
+  - The per-host project rename (537b619e2).
+
+## 0.11.0-beta.3.vorteo.834 - 2026-10-25
+
+### Maintenance
+
+- Settings tests follow the single settings page:
+  - Each host's section appears under several panes, a hidden earlier settings screen can stay mounted, and a host's connection error shows twice, so tests use the visible or first match.
+  - Host details are checked under Environments.
+- Sidebar project grouping tests:
+  - Choose a host in New workspace's Environment step.
+  - Create an empty workspace with the composer's Create button.
+  - Seed the mock profile on the secondary test host, since New workspace creates only with a profile.
+- Mark the per-host project rename test for owner review: Settings lists only the first host's projects since 537b619e2.
+
+## 0.11.0-beta.3.vorteo.833 - 2026-10-25
+
+### Maintenance
+
+- Profile recreation tests go through the switch sheet's new task choice to the handoff modal. 70639f19a added in-place switching first.
+- Retired with their UI, citing the removing commit:
+  - The profile picker's per-account reasoning choice and unavailable-reasoning message (d6cbd181c).
+  - The compact picker's accounts page and back button (58a0cbbc9); collapsible sections replace them.
+  - The composer's mode button (471d7f22a).
+- The shared scope label is checked in the defaults editor, and preferred reasoning is reached through its collapsed row.
+- The remembered-account draft test uses a selectable mock model, since the picker offers only profiles whose model is selectable.
+
+## 0.11.0-beta.3.vorteo.832 - 2026-10-25
+
+### Maintenance
+
+- The desktop plugin links check expects the old `window.open` workaround to open no window. Since cd90c8f78 the application renderer denies new windows so none inherits its preload; plugins open links through the external opener bridge, which the check still covers.
+
+## 0.11.0-beta.3.vorteo.831 - 2026-10-25
+
+### Maintenance
+
+- Re-home the composer model picker tests. The draft and running-agent composers lost their model picker with the Paseo mode in 471d7f22a; profiles now carry the model.
+  - Profile picker tests choose and confirm a profile on a running agent.
+  - Cross-provider model search and virtualization run on the schedule form's model picker.
+  - Model memory, recovery and the modeless preference repair choose profiles on New workspace.
+  - Plugin provider icons are checked on the Account card.
+- Retired, citing 471d7f22a: provider-usage-model-selector.spec.ts, which asserted the removed Paseo picker; pinned profile rows inside the model picker; the composer naming the model; and the model row's create-profile action, which has no profile-picker equivalent.
+- Mark two possible product regressions as known failures: an empty host cannot reach profile settings from the picker, and profiles cannot be chosen while the host catalog reports their provider unavailable.
+- The fake Claude CLI answers `auth status` as a first-party login, including when a setup token adds `--settings`, matching the authentication check from 7c8e78ac7.
+
+## 0.11.0-beta.3.vorteo.830 - 2026-10-24
+
+### Maintenance
+
+- The test setup's worktree-setup notice dismissal dispatches its click directly, so an open overlay such as the command center no longer blocks it and times the test out.
+- Sidebar display-preference tests open View preferences from the More menu, where the sidebar toolbar redesign (ab60c1e39) moved it.
+- The label creation failure test expects the toast that replaced inline errors in 68faa7a52.
+
+## 0.11.0-beta.3.vorteo.829 - 2026-10-24
+
+### Maintenance
+
+- Retire the Explorer tab dock tests: explorer-sidebar.spec.ts and the Explorer pane tab placement test. Files and Changes became supporting cards beside the conversation in 60f4899a6, 2e2921f79 and 73be0edc5. The split pane tests now use the primary pane menu's Split right item.
+- Mark the saved Explorer layout recovery test as a known failure: reloading a workspace whose saved layout has a hidden Explorer and 2,250 saved drafts now freezes the page. The product fix follows separately.
+
+## 0.11.0-beta.3.vorteo.828 - 2026-10-24
+
+### Maintenance
+
+- Context window tests wait on the single loading pulse that replaced separate usage loading lines in 662ea77a7, and hover the composer's meter rather than the details donut with the same name.
+- Workspace setup tests open Show setup from the shared workspace actions menu and start a workspace's only script from its single play button (fa9a1859d), opening the Explorer first where that button lives on desktop.
+- Launcher tests accept the single settings page's Terminal profiles address.
+
+## 0.11.0-beta.3.vorteo.827 - 2026-10-24
+
+### Maintenance
+
+- Appearance theme tests look for the theme save error among the page's alerts, since Settings also shows plugin trust notices, and give the palette walk three minutes.
+- Mark two theme picker geometry tests for owner review: sidebar theme bubble centres measure up to 8.7px apart instead of within 1px, and the touch swatch measures 44.3px wide instead of 48px, with no recorded design change since 1d041fbea.
+
+## 0.11.0-beta.3.vorteo.826 - 2026-10-24
+
+### Maintenance
+
+- Sidebar tests close the phone sidebar from its toolbar's collapse toggle, open a row's actions from its context menu when no overflow button shows, toggle the desktop sidebar between its collapse button and the icon rail's Expand button (ab60c1e39), and check the Files card and sidebar instead of the New workspace row, which moved to the More menu.
+- Mark the sidebar scroll test as a known failure: since the icon rail (ab60c1e39) collapsing and expanding the sidebar resets its project list scroll. The product fix follows separately.
+
+## 0.11.0-beta.3.vorteo.825 - 2026-10-24
+
+### Maintenance
+
+- Browser tests open workspace actions from the title menu on phones and from the primary pane menu on desktop, where 195e1c044 combined them with pane splitting. The workspace menu parity, wide touch menu and wide touch Standing tests pass again; the earlier wide touch known-failure mark is removed.
+
+## 0.11.0-beta.3.vorteo.824 - 2026-10-24
+
+### Maintenance
+
+- Agent skills tests save their sandbox daemon as the first host, because Agent behavior settings manage the installation's first host since 471d7f22a, and expect a failed save to show the daemon's own error in the sheet, as 68faa7a52 made it.
+
+## 0.11.0-beta.3.vorteo.823 - 2026-10-24
+
+### Maintenance
+
+- Open question tests expect a refused answer as a toast, which 68faa7a52 made the way failed actions are reported, and check that the question stays for a retry.
+
+## 0.11.0-beta.3.vorteo.822 - 2026-10-24
+
+### Maintenance
+
+- Mark five command center agent control tests as known failures: since 471d7f22a the command center offers no Mode commands for an agent. The product fix follows separately.
+- Retire the test for the composer's own thinking selector, which 471d7f22a replaced with the profile picker; the command center keeps its Thinking commands.
+
+## 0.11.0-beta.3.vorteo.821 - 2026-10-24
+
+### Maintenance
+
+- Mark two more workspace standing tests as known failures: the Standing section's disclosure arrow sits 14px off the workspace status dot column with no recorded design change (geometry drift, owner review), and wide touchscreens may have no way into workspace actions since 2415534c8, pending an owner check on a device.
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-24
+
+### Maintenance
+
+- Workspace standing tests close a menu with as many Escape presses as its open tooltip needs, use the labels submenu's copy of each toggle, read the icon-only Scheduled badge from its accessible name, align custom label chips with status icons by centre, and open workspace actions from the title menu on phones, where rows have no overflow button since 2415534c8.
+- Mark two workspace standing tests as known failures: the phone Git Archive test needs the Explorer's Changes view, which phones cannot open since 56b01ba3a, and archiving a protected, scheduled workspace reports only the protection blocker since 84f489a59. Product fixes follow separately.
+
+### Known limitations
+
+- The first workspace standing test still fails on a disclosure arrow alignment check, and the wide touchscreen test cannot yet open the workspace menu by long press.
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-24
+
+### Maintenance
+
+- The desktop appearance font size check watches the same Theme label it measured first, since the single settings page has other "Theme" text.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Maintenance
+
+- Plugin sidebar item tests place footer rows above the footer separator, since the footer icon line moved to the toolbar, and compare grouped row spacing with the separator gap instead of a fixed limit.
+- Retire the plugin sidebar steps that used removed features: the built-in New workspace header row and its shortcut hint, ordering against that row, and hiding or listing plugin rows in the Sidebar settings pane (9332fbd2d, 471d7f22a). Remove the now unused sidebar settings test helpers.
+
+## 0.11.0-beta.3.vorteo.817 - 2026-10-24
+
+### Maintenance
+
+- Usage screen tests open Usage by its address, since the sidebar Usage row and icon are gone, and check report windows, provider window durations and source logos on the screen itself.
+- Retire the tests for the sidebar Usage summary, its pins and the sidebar footer rows: usage-sidebar-item.spec.ts, sidebar-nav-settings.spec.ts, and the pin, pin glyph and sidebar-host tests in usage-screen.spec.ts. 9332fbd2d hid the sidebar Usage item and 471d7f22a removed its switch, icon and the Sidebar settings pane.
+
+## 0.11.0-beta.3.vorteo.816 - 2026-10-24
+
+### Maintenance
+
+- The desktop shortcut unassign test allows two minutes, since its Settings and Help round trips ran past one minute on a shared Linux runner.
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Maintenance
+
+- Merge main f15d7a549 into the browser test repair branch. Only release notes conflicted; every entry from both sides is kept.
+
+## 0.11.0-beta.3.vorteo.814 - 2026-10-24
+
+### Maintenance
+
+- The demo compact theme tests open README.md from the inline Files card that phones show since 56b01ba3a, instead of the removed phone Explorer toggle.
+- Mark three phone Changes tests as known failures: since 56b01ba3a phones have no way to open the Explorer's Changes view. The product fix follows separately.
+
+## 0.11.0-beta.3.vorteo.813 - 2026-10-23
+
+### Maintenance
+
+- The desktop Settings memory check rotates through every section the Settings sidebar lists on the single settings page, instead of 24 separate pages that 537b619e2 merged.
+
+## 0.11.0-beta.3.vorteo.812 - 2026-10-23
+
+### Maintenance
+
+- Browser tests open Projects through the Workspaces & projects section and accept its current addresses, on desktop and phone widths.
+- Chat outline tests use a 2400-pixel viewport, because the workspace card column now narrows the conversation below the rail's minimum at 1440, and look for task cards in the workspace card column.
+
+## 0.11.0-beta.3.vorteo.811 - 2026-10-23
+
+### Maintenance
+
+- Desktop renderer tests open Help from the sidebar More menu, open the Explorer before using Open in editor, and find App updates in General's About pane.
+- The workspace title check reads the phone header, or on desktop, which has no workspace header since 60f4899a6, the selected sidebar row under its project.
+- Mark two desktop update tests as known failures: since 72919fc59 the App updates row squeezes its title when Check and Update both show. The product fix follows separately.
+- CI gives Metro's first bundle up to five minutes to warm up, since a shared runner hit the two-minute limit.
+
+## 0.11.0-beta.3.vorteo.810 - 2026-10-23
+
+### Maintenance
+
+- Browser tests choose a model by applying a mock profile that pins it, because the composer no longer has a model control.
+- Browser test setup dismisses the "Set up worktree scripts" notice whenever it appears, since it covers the composer's bottom-right actions; specs about the notice opt out.
+- The queueing test helper follows the composer's current default action.
+- Mark four message submission tests that choose steer or interrupt in Settings as known failures: since 471d7f22a the composer ignores the Default send setting. The product fix follows separately.
+
+## 0.11.0-beta.3.vorteo.809 - 2026-10-23
+
+### Maintenance
+
+- Browser tests open Changes through the Explorer's Changes card instead of the removed Explorer sidebar, reach a host's settings by choosing its Environments tab without reloading the page, and open the phone sidebar from the header's menu button.
+
+### Known limitations
+
+- Three compact Changes tests still use the phone Explorer toggle that the mobile toolbar simplification removed, and two desktop Changes tests still fail.
+
+## 0.11.0-beta.3.vorteo.808 - 2026-10-23
+
+### Maintenance
+
+- Browser tests give every test daemon one shared mock profile, because New workspace no longer starts a chat without a profile. Profile settings and picker tests opt out to keep their empty starting state.
+- Browser tests choose the New workspace host in the Environment step instead of the removed host picker. Tests that switch hosts start a reachable second daemon, since unreachable hosts are shown disabled.
+- Browser tests open Help from the sidebar More menu, check the toolbar icon line instead of the removed footer icons, and date the changelog retry fixture ahead of real releases.
+- Retire three sidebar settings tests for reordering and hiding sidebar items and footer rows. That customization was removed in 9332fbd2d, and the pane stopped rendering in 471d7f22a.
+- Mark the New workspace Ctrl+P project picker test as a known failure: the shortcut no longer opens the picker. The product fix follows separately.
+
+### Known limitations
+
+- The sidebar footer usage test, three profile picker tests, the legacy favourites migration test and the host version test still fail. The New workspace preselect and host project preservation suites each have one failing case left.
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Maintenance
+
+- Temporary diagnostic: browser test shards in CI run without retries and print each failure as it happens, so a shard that hits its time limit still reports why its tests failed. A later commit restores retries and the list output.
+- Browser test shards upload their results when they hit the time limit, not only when they fail.
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.861 - 2026-10-26
+
+### Maintenance
+
+- Merge Claude command-name checks on resume: commands named like built-in skills turn those built-ins off, as skills already did
+
+## 0.11.0-beta.3.vorteo.855 - 2026-10-25
+
+### Fixed
+
+- A custom command named like one of Claude's bundled skills can no longer take its place in a restricted session. Claude lists commands as skills and its allowlist matches them by name, so a resumed session now reads project, home, account and plugin command folders and turns off any bundled name a command uses. This is conservative: a plugin that is present but not loaded for an account can still turn a name off, which on the Host currently drops code-review for account sessions.
+
+### Maintenance
+
+- Skill policy tests use an empty home folder and stop the project folder walk at the test folder, so the developer's own skills, plugins and commands no longer affect them. New tests cover the synced skill layout, unreadable folders inside plugin roots, command claims, and the Claude session passing its own config folder to the resume check.
+
+## 0.11.0-beta.3.vorteo.860 - 2026-10-26
+
+### Maintenance
+
+- Merge container web build heap and fork deploy guards: the server pack's web export gets the 8 GB export heap, and upstream Cloudflare deploys skip this fork
+
+## 0.11.0-beta.3.vorteo.859 - 2026-10-25
+
+### Maintenance
+
+- The app and relay deploy workflows run only in the upstream repository, like the website deploy. They need upstream's Cloudflare token and would fail here whenever their paths changed.
+
+## 0.11.0-beta.3.vorteo.858 - 2026-10-25
+
+### Fixed
+
+- The container image build's web export now runs with the same 8 GB worker heap as Host installs. The server package's web UI build ran out of memory at about 4 GB in the container smoke builds on several main commits.
+
+### Maintenance
+
+- The Deploy Website workflow runs only in the upstream repository. This fork has no Cloudflare token, so the job failed on every main push.
+
+## 0.11.0-beta.3.vorteo.858 - 2026-10-26
+
+### Maintenance
+
+- Merge registry-only reviewed settings: a reviewed coordinator setting no longer needs a legacy plan field
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- Reviewed coordinator settings no longer need a legacy plan field. A setting added after the registry, such as the coordinator telemetry opt-in, changes only through `configurationChanges`. Existing settings keep their legacy fields unchanged, and tests cover a registry-only setting.
+
 ## 0.11.0-beta.3.vorteo.857 - 2026-10-25
 
 ### Maintenance
@@ -27,30 +575,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Merge restricted Claude launch fix: restricted selections leave unpackaged provider defaults out instead of refusing the launch, and restricted Claude sessions keep Claude's built-in skills
-
-## 0.11.0-beta.3.vorteo.854 - 2026-10-25
-
-### Fixed
-
-- A skill the inventory cannot fully read, for example one with a symlinked file or too many files, can no longer borrow a bundled skill's name on resume. Its frontmatter name is read directly, and if that also fails the session keeps no bundled skills. The skill library notes that resume compares package contents only in the standard skill folders.
-
-## 0.11.0-beta.3.vorteo.853 - 2026-10-25
-
-### Fixed
-
-- A restricted Claude session that resumes now also checks the account's own Claude configuration folder, including installed, marketplace and synced plugins, before keeping a bundled skill's name. Same-named copies of shared skills in that folder do not refuse the resume. A plugin skill or a skill with a different folder name that claims the name after launch turns it off. If a skill folder cannot be read, the session keeps no bundled skills and still launches.
-
-## 0.11.0-beta.3.vorteo.852 - 2026-10-25
-
-### Fixed
-
-- Restricted Claude sessions keep Claude's bundled skills, such as claude-api, dataviz, simplify, loop and keybindings-help, instead of losing them. Only skills Claude itself labels as built in are kept, by name, and a name is turned off when a plugin, account or personal skill also uses it. Checked against Claude 2.1.285 on the Host: a restricted session kept every bundled skill except code-review, whose name an installed plugin shares. If Claude's skill report is partial, slow or fails, the session launches without bundled skills rather than failing. Older daemons ignore the new snapshot field and leave these skills out.
-
-## 0.11.0-beta.3.vorteo.851 - 2026-10-25
-
-### Fixed
-
-- Claude tasks no longer fail to launch when a personal skill is missing from the shared library or a skill is excluded. Those launches restrict skills, and Claude's own built-in commands and bundled skills have no files to verify, so every one was refused. Restricted sessions now leave those unverifiable defaults out instead.
 
 ## 0.11.0-beta.3.vorteo.854 - 2026-10-25
 
@@ -95,6 +619,30 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Show expanded startup diagnostics and begin automatic checks after ten seconds using one shared delay.
 - Move and shrink the original V mark while the diagnostic content fades and slides into place on the same timeline. Reduced motion settles immediately, with no new downloaded assets or dependencies.
+
+## 0.11.0-beta.3.vorteo.854 - 2026-10-25
+
+### Fixed
+
+- A skill the inventory cannot fully read, for example one with a symlinked file or too many files, can no longer borrow a bundled skill's name on resume. Its frontmatter name is read directly, and if that also fails the session keeps no bundled skills. The skill library notes that resume compares package contents only in the standard skill folders.
+
+## 0.11.0-beta.3.vorteo.853 - 2026-10-25
+
+### Fixed
+
+- A restricted Claude session that resumes now also checks the account's own Claude configuration folder, including installed, marketplace and synced plugins, before keeping a bundled skill's name. Same-named copies of shared skills in that folder do not refuse the resume. A plugin skill or a skill with a different folder name that claims the name after launch turns it off. If a skill folder cannot be read, the session keeps no bundled skills and still launches.
+
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Fixed
+
+- Restricted Claude sessions keep Claude's bundled skills, such as claude-api, dataviz, simplify, loop and keybindings-help, instead of losing them. Only skills Claude itself labels as built in are kept, by name, and a name is turned off when a plugin, account or personal skill also uses it. Checked against Claude 2.1.285 on the Host: a restricted session kept every bundled skill except code-review, whose name an installed plugin shares. If Claude's skill report is partial, slow or fails, the session launches without bundled skills rather than failing. Older daemons ignore the new snapshot field and leave these skills out.
+
+## 0.11.0-beta.3.vorteo.851 - 2026-10-25
+
+### Fixed
+
+- Claude tasks no longer fail to launch when a personal skill is missing from the shared library or a skill is excluded. Those launches restrict skills, and Claude's own built-in commands and bundled skills have no files to verify, so every one was refused. Restricted sessions now leave those unverifiable defaults out instead.
 
 ## 0.11.0-beta.3.vorteo.850 - 2026-10-25
 

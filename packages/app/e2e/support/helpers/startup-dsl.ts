@@ -175,9 +175,10 @@ class StartupAssertions {
     await this.page.getByTestId("sidebar-settings").click();
     await expect(this.page.getByTestId("settings-sidebar")).toBeVisible();
     await openSettingsHost(this.page, input.serverId);
-    await expect(this.page.getByTestId(`settings-environment-${input.serverId}`)).toContainText(
-      input.label,
-    );
+    // Several settings panes repeat the host's section; the first is its Environments entry.
+    await expect(
+      this.page.getByTestId(`settings-environment-${input.serverId}`).first(),
+    ).toContainText(input.label);
     await goBackInSettings(this.page);
     await goBackInSettings(this.page);
     await expect(this.page).toHaveURL(startupUrl);

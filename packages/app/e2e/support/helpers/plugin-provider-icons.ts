@@ -3,15 +3,19 @@ import path from "node:path";
 import type { Locator, TestInfo } from "@playwright/test";
 import { expect, test as base, type Page } from "../fixtures";
 import { gotoAppShell, openSettings } from "./app";
-import { openModelPicker } from "./agent-profiles";
+import { seedAgentProfiles } from "./agent-profiles";
 import { openAgentRoute } from "./mock-agent";
 import { connectNewWorkspaceDaemonClient, openGlobalNewWorkspaceComposer } from "./new-workspace";
 import { copyPluginExample } from "./plugin-fixture";
 import { seedWorkspace, type SeededWorkspace } from "./seed-client";
 import { getServerId } from "./server-id";
+import { openProfilePicker } from "./model-profile";
 import { openSettingsHostSection } from "./settings";
 
-const MODEL_LABEL = "Select model (Example 1)";
+// The composer's model picker went with the Paseo mode in 471d7f22a, so the provider icon now
+// shows on the profile picker's Account card. An account lists only with a profile to run.
+const PROVIDER = "direct-example";
+const PROFILE = { id: "agent_profile_plugin_icon", name: "Plugin icon", provider: PROVIDER };
 const WIDE = { width: 1400, height: 950 };
 const COMPACT = { width: 390, height: 844 };
 
@@ -42,12 +46,8 @@ async function expectProviderIcon(surface: Locator, paths: string[]): Promise<vo
     .toContainEqual(paths);
 }
 
-async function selectPluginModel(page: Page): Promise<void> {
-  await openModelPicker(page);
-  await page.getByRole("button", { name: "Back", exact: true }).click();
-  await page.getByText("Direct provider example", { exact: true }).click();
-  await page.getByText("Example 1", { exact: true }).click();
-  await expect(page.getByRole("button", { name: MODEL_LABEL, exact: true })).toBeVisible();
+function accountCard(page: Page): Locator {
+  return page.getByTestId(`preset-account-${PROVIDER}`).filter({ visible: true }).first();
 }
 
 async function capture(page: Page, testInfo: TestInfo, name: string): Promise<void> {
@@ -74,12 +74,14 @@ export const test = base.extend<{ providerIcons: ProviderIconJourney }>({
           await client.patchDaemonConfig({ pluginsEnabled: true });
           await client.installDirectoryPlugin(plugin.directory);
           const workspace = await seedWorkspace({ repoPrefix: "plugin-provider-icons-" });
+          const profiles = await seedAgentProfiles([{ ...PROFILE, model: "example-1" }], true);
           try {
             await page.setViewportSize(WIDE);
             await gotoAppShell(page);
             const iconPaths = await readIconPaths(page, plugin.directory);
             await provide({ page, testInfo, iconPaths, workspace });
           } finally {
+            await profiles.restore();
             await workspace.cleanup();
           }
         } finally {
@@ -120,18 +122,10 @@ export async function verifyNewWorkspaceModelIcon({
   iconPaths,
   testInfo,
 }: ProviderIconJourney): Promise<void> {
-  await test.step("new workspace keeps the picker icon on its selected model button", async () => {
+  await test.step("new workspace shows the icon on the provider's account", async () => {
     await openGlobalNewWorkspaceComposer(page);
-    await selectPluginModel(page);
-    await openModelPicker(page);
-    await expectProviderIcon(page.getByTestId("model-row-direct-example-example-1"), iconPaths);
-    await capture(page, testInfo, "new-workspace-picker");
-    await page.keyboard.press("Escape");
-    await expectProviderIcon(
-      page.getByRole("button", { name: MODEL_LABEL, exact: true }),
-      iconPaths,
-    );
-    await capture(page, testInfo, "new-workspace-selected-model");
+    await expectProviderIcon(accountCard(page), iconPaths);
+    await capture(page, testInfo, "new-workspace-account");
   });
 }
 
@@ -140,13 +134,12 @@ export async function verifyCompactModelIcon({
   iconPaths,
   testInfo,
 }: ProviderIconJourney): Promise<void> {
-  await test.step("compact composer preserves the same provider icon", async () => {
+  await test.step("compact New workspace preserves the same provider icon", async () => {
     await page.setViewportSize(COMPACT);
-    await expectProviderIcon(
-      page.getByRole("button", { name: MODEL_LABEL, exact: true }),
-      iconPaths,
-    );
-    await capture(page, testInfo, "compact-selected-model");
+    // Compact layouts collapse each step to a summary row; expand Account to list its cards.
+    await page.getByRole("button", { name: /^2\. Account/ }).click();
+    await expectProviderIcon(accountCard(page), iconPaths);
+    await capture(page, testInfo, "compact-account");
   });
 }
 
@@ -156,9 +149,9 @@ export async function verifyExistingAgentModelIcon({
   testInfo,
   workspace,
 }: ProviderIconJourney): Promise<void> {
-  await test.step("existing agent composer uses the same icon", async () => {
+  await test.step("an existing agent's profile picker uses the same icon", async () => {
     const agent = await workspace.client.createAgent({
-      provider: "direct-example",
+      provider: PROVIDER,
       model: "example-1",
       cwd: workspace.repoPath,
       workspaceId: workspace.workspaceId,
@@ -166,10 +159,8 @@ export async function verifyExistingAgentModelIcon({
     });
     await page.setViewportSize(WIDE);
     await openAgentRoute(page, { workspaceId: workspace.workspaceId, agentId: agent.id });
-    await expectProviderIcon(
-      page.getByRole("button", { name: MODEL_LABEL, exact: true }),
-      iconPaths,
-    );
-    await capture(page, testInfo, "agent-selected-model");
+    await openProfilePicker(page);
+    await expectProviderIcon(accountCard(page), iconPaths);
+    await capture(page, testInfo, "agent-profile-picker-account");
   });
 }

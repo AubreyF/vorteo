@@ -3,6 +3,7 @@ import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import type { Locator, WebSocketRoute } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
+import { openMobileAgentSidebar } from "../support/helpers/sidebar";
 import { projectEquivalenceViewKey } from "../support/helpers/project-view-key";
 import { getE2EDaemonPort } from "../support/helpers/daemon-port";
 import { getServerId } from "../support/helpers/server-id";
@@ -350,9 +351,9 @@ test("a failed move stays open with a visible error", async ({ page }) => {
     await expect(page.getByTestId("project-move-modal")).toBeVisible();
     await source.client.archiveWorkspace(source.workspaceId);
     await page.getByTestId("project-move-confirm").click();
-    await expect(page.getByTestId("project-move-modal")).toContainText(
-      "Restore this workspace before moving it.",
-    );
+    // A refused move shows as a toast since 68faa7a52; the modal stays open for a retry.
+    await expect(page.getByText("Restore this workspace before moving it.").first()).toBeVisible();
+    await expect(page.getByTestId("project-move-modal")).toBeVisible();
     await page
       .getByTestId("project-move-modal")
       .getByRole("button", { name: "Cancel", exact: true })
@@ -375,8 +376,8 @@ for (const width of [1400, 390]) {
       });
       await page.setViewportSize({ width, height: 900 });
       await gotoAppShell(page);
-      const menu = page.getByRole("button", { name: "Open menu", exact: true });
-      if (await menu.isVisible()) await menu.click();
+      // Phones open the sidebar from the visible menu button; the shell keeps hidden copies.
+      if (width < 768) await openMobileAgentSidebar(page);
       await waitForSidebarHydration(page);
       const row = page.getByTestId(`sidebar-workspace-row-${getServerId()}:${source.workspaceId}`);
       const target = page.getByTestId(

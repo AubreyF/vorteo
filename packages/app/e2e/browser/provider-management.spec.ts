@@ -35,9 +35,6 @@ for (const width of [1280, 402]) {
       await page.setViewportSize({ width, height: 1000 });
       await gotoAppShell(page);
       await page.evaluate(() => {
-        const key = "@paseo:create-agent-preferences";
-        const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
-        localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: true }));
         const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
         if (!nonce) throw new Error("Missing isolated browser seed nonce");
         localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
@@ -97,8 +94,9 @@ for (const width of [1280, 402]) {
           .map((box, index) => box.x - boxes[index].x - boxes[index].width);
         expect(gaps[0]).toBeGreaterThan(0);
         for (const gap of gaps) expect(gap).toBeCloseTo(gaps[0], 0);
+        // 0153f4c69 paints the outline on the control itself, not a separate outline view.
         for (const action of ["rename", "remove", "connect"]) {
-          await expect(page.getByTestId(`provider-${action}-${id}-outline`)).toHaveCSS(
+          await expect(page.getByTestId(`provider-${action}-${id}`)).toHaveCSS(
             "border-top-style",
             "solid",
           );
@@ -128,18 +126,8 @@ for (const width of [1280, 402]) {
         await expect(page.getByTestId(`provider-rename-${id}`)).toHaveCount(0);
         expect((await client.getDaemonConfig()).config.providers[id]).toBeUndefined();
       }
-      await page.evaluate(() => {
-        const key = "@paseo:create-agent-preferences";
-        const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
-        localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: false }));
-        const seedNonce = localStorage.getItem("@paseo:e2e-seed-nonce");
-        if (!seedNonce) throw new Error("Missing test seed nonce");
-        localStorage.setItem("@paseo:e2e-disable-default-seed-once", seedNonce);
-      });
-      await page.reload();
-      await expect(page.getByTestId("host-page-providers-card")).toBeVisible();
-      await expect(page.getByTestId("catalog-provider-codex")).toHaveCount(0);
-      await expect(page.getByTestId("provider-rename-codex")).toHaveCount(0);
+      // Retired 2026-10-25: the Standard-mode check that hid account catalog rows.
+      // 471d7f22a removed Paseo/Standard mode, so the Codex account row always shows.
     } finally {
       await client.patchDaemonConfig({ removeProviders: createdIds });
       await client.close();
@@ -158,9 +146,6 @@ test("provider drag order persists, reports save failures, and plugin deletion s
     });
     await gotoAppShell(page);
     await page.evaluate(() => {
-      const key = "@paseo:create-agent-preferences";
-      const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
-      localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: true }));
       const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
       if (!nonce) throw new Error("Missing isolated browser seed nonce");
       localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);

@@ -16,13 +16,14 @@ async function expectLauncherSelection(launcher: Locator, name: string): Promise
 async function openExplorerWithKeyboard(page: Page): Promise<Locator> {
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   await page.keyboard.press(`${modifier}+E`);
-  const explorer = page.getByTestId("workspace-explorer-sidebar").filter({ visible: true });
+  // Files and Changes are supporting cards since 60f4899a6, 2e2921f79 and 73be0edc5.
+  const explorer = page.getByTestId("workspace-supporting-cards").filter({ visible: true });
   await expect(explorer).toBeVisible({ timeout: 30_000 });
   return explorer;
 }
 
 test.describe("New tab keyboard launcher", () => {
-  test("Cmd+E reveals the repository Changes tree", async ({ page }) => {
+  test("Cmd+E reveals the repository Changes card", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "explorer-keyboard-" });
 
     try {
@@ -30,8 +31,9 @@ test.describe("New tab keyboard launcher", () => {
       await waitForWorkspaceTabsVisible(page);
 
       const explorer = await openExplorerWithKeyboard(page);
-      await expect(explorer.getByTestId("workspace-tab-changes_tree")).toBeVisible();
-      await expect(explorer.getByTestId("changes-tree-panel")).toBeVisible();
+      // Cmd+E reveals the cards with their saved collapse state; only explicit Changes commands
+      // expand the Changes card itself.
+      await expect(explorer.getByTestId("supporting-card-changes_tree")).toBeVisible();
     } finally {
       await workspace.cleanup();
     }
