@@ -15,7 +15,7 @@ interface FlowerPalette {
   pending: string;
 }
 const palette = (theme: Theme): FlowerPalette => ({
-  completed: theme.colors.statusDotRunning,
+  completed: theme.colors.foregroundExtraMuted,
   active: theme.colors.foreground,
   pending: theme.colors.border,
 });

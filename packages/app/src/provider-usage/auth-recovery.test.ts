@@ -101,3 +101,37 @@ it("setup-token usage clears only the inherited native-login warning", () => {
     "Current rejection",
   );
 });
+
+it("explains unsupported setup-token quota without implying a disconnected account", () => {
+  const usage = {
+    ...healthy.providers[0]!,
+    status: "unavailable" as const,
+    windows: [],
+    details: [
+      {
+        id: "claude-setup-token",
+        label: "Subscription",
+        value: "Usage and resets are not provided.",
+      },
+    ],
+  };
+  const view: ProviderUsageView = {
+    kind: "ready",
+    payload: { ...healthy, providers: [usage] },
+    isRefreshing: false,
+  };
+  const reading = quotaReading(view, "account-one", 0);
+  expect(reading.statusLabel).toBe("Usage not provided");
+  expect(reading.remaining).toBeNull();
+  expect(reading.authRecovery).toBeUndefined();
+  const explicitRejection: ProviderUsageView = {
+    ...view,
+    payload: {
+      ...healthy,
+      providers: [{ ...usage, authRecovery: { instructions: "Sign in again" } }],
+    },
+  };
+  expect(quotaReading(explicitRejection, "account-one", 0).statusLabel).toBe(
+    "Account disconnected",
+  );
+});

@@ -1,3 +1,4 @@
+import { SidebarSpacingProvider } from "@/styles/sidebar-spacing";
 import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import "@/styles/unistyles";
 import { ScheduledWorkspaceProvider } from "@/workspace/lifecycle/scheduled";
@@ -131,11 +132,7 @@ import {
   WindowChromeRegion,
   WindowChromeSafeArea,
 } from "@/utils/desktop-window";
-import {
-  buildOpenProjectRoute,
-  parseHostWorkspaceRouteFromPathname,
-  parseServerIdFromPathname,
-} from "@/utils/host-routes";
+import { buildOpenProjectRoute, parseServerIdFromPathname } from "@/utils/host-routes";
 import { buildNotificationRoute, resolveNotificationTarget } from "@/utils/notification-routing";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { PluginCatalogSync } from "@/plugins";
@@ -471,8 +468,6 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const { settings, updateSettings } = useAppSettings();
   const toggleMobileAgentList = usePanelStore((state) => state.toggleMobileAgentList);
   const toggleDesktopAgentList = usePanelStore((state) => state.toggleDesktopAgentList);
-  const exitFocusMode = usePanelStore((state) => state.exitFocusMode);
-  const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
   const isDesktopAgentListOpen = usePanelStore((state) => state.desktop.agentListOpen);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const { sidebarCompact, sidebarNarrow } = useResponsiveSidebar();
@@ -494,8 +489,6 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const usesCompactExplorerHost = explorerSidebarPresentation !== "pane";
   useCompactWebViewportZoomLock();
   const pathname = usePathname();
-  const isWorkspaceRoute = parseHostWorkspaceRouteFromPathname(pathname) !== null;
-  const isWorkspaceFocusModeEnabled = isWorkspaceRoute && isFocusModeEnabled;
   const chromeEnabled = chromeEnabledOverride ?? daemons.length > 0;
   const hasMountedDesktopSidebar = useLatchedBoolean(chromeEnabled);
   const toggleAgentList = isCompactLayout ? toggleMobileAgentList : toggleDesktopAgentList;
@@ -519,10 +512,8 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   useKeyboardShortcuts({
     enabled: keyboardShortcutsEnabled,
     isMobile: isCompactLayout,
-    isWorkspaceFocusModeEnabled,
     toggleAgentList,
     toggleBothSidebars: toggleDesktopSidebars,
-    exitFocusMode,
     cycleTheme,
   });
 
@@ -554,7 +545,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const appChromeLayout = resolveDesktopAppChromeLayout({
     desktopSidebarRendered: desktopSidebarVisible,
     hasTopLeftWindowControls,
-    sidebarControlsEnabled: chromeEnabled && !isWorkspaceFocusModeEnabled,
+    sidebarControlsEnabled: chromeEnabled,
   });
   const sidebarChrome = (
     <SidebarChrome
@@ -644,7 +635,11 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
     surface
   );
 
-  return <CommandCenterProvider>{content}</CommandCenterProvider>;
+  return (
+    <SidebarSpacingProvider>
+      <CommandCenterProvider>{content}</CommandCenterProvider>
+    </SidebarSpacingProvider>
+  );
 }
 
 function SidebarChrome({
@@ -872,10 +867,15 @@ function OpenProjectListener() {
 function AppWithSidebar({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const hosts = useHosts();
+  const hostRegistryLoaded = useHostRegistryLoaded();
   const storeReady = useStoreReady();
   const routeServerId = useMemo(() => parseServerIdFromPathname(pathname), [pathname]);
-  const routeHasKnownHost =
-    routeServerId !== null && hosts.some((host) => host.serverId === routeServerId);
+  // Host routes already render while the registry loads. Reserve their sidebar
+  // immediately so registry hydration does not push visible content sideways.
+  // The host route still validates the ID and redirects unknown hosts once ready.
+  const routeHasHostShell =
+    routeServerId !== null &&
+    (!hostRegistryLoaded || hosts.some((host) => host.serverId === routeServerId));
   const shouldShowAppChrome =
     storeReady &&
     (pathname === "/open-project" ||
@@ -883,7 +883,7 @@ function AppWithSidebar({ children }: { children: ReactNode }) {
       pathname === "/sessions" ||
       pathname === "/schedules" ||
       pathname === "/usage" ||
-      routeHasKnownHost);
+      routeHasHostShell);
 
   return <AppContainer chromeEnabled={shouldShowAppChrome}>{children}</AppContainer>;
 }

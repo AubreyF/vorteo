@@ -1,4 +1,5 @@
 import { tabShape } from "@/styles/tab-shape";
+import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "@/agent-stream/task-card";
@@ -86,7 +87,9 @@ function QuestionOptionRow({
   const optionLabelStyle = useMemo(
     () => [
       styles.optionLabel,
-      { color: isSelected ? theme.colors.foreground : theme.colors.foregroundMuted },
+      {
+        color: isSelected ? theme.colors.foreground : theme.colors.foregroundMuted,
+      },
     ],
     [isSelected, theme.colors.foreground, theme.colors.foregroundMuted],
   );
@@ -189,7 +192,9 @@ function QuestionNavButton({
   const textStyle = useMemo(
     () => [
       styles.questionNavText,
-      { color: isActive ? theme.colors.foreground : theme.colors.foregroundMuted },
+      {
+        color: isActive ? theme.colors.foreground : theme.colors.foregroundMuted,
+      },
     ],
     [isActive, theme.colors.foreground, theme.colors.foregroundMuted],
   );
@@ -297,7 +302,13 @@ function QuestionOtherInput({
           color: theme.colors.foreground,
           backgroundColor: theme.colors.surface2,
         },
-        IS_WEB ? { outlineStyle: "none", outlineWidth: 0, outlineColor: "transparent" } : null,
+        IS_WEB
+          ? {
+              outlineStyle: "none",
+              outlineWidth: 0,
+              outlineColor: "transparent",
+            }
+          : null,
       ] as const,
     [
       value.length,
@@ -523,7 +534,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
   const showTextInput = activeQuestion ? questionShowsTextInput(activeQuestion) : false;
 
   return (
-    <TaskCard testID="question-form-card">
+    <TaskCard testID="question-form-card" scrollBody={false}>
       <TaskCardHeader>
         <TaskCardIcon kind="question" />
         <TaskCardTitle>Questions</TaskCardTitle>
@@ -619,6 +630,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
 
 const styles = StyleSheet.create((theme) => ({
   questionBlock: {
+    marginTop: theme.spacing[3],
     gap: theme.spacing[2],
   },
   questionText: {
@@ -705,6 +717,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
   },
   actionsContainer: {
+    paddingBottom: theme.spacing[3],
     gap: theme.spacing[2],
     flexDirection: "row",
     flexWrap: "wrap",
@@ -712,9 +725,11 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
   },
   actionButton: {
-    paddingHorizontal: theme.spacing[3],
+    minHeight: CONTROL_HEIGHTS.field,
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[2],
-    borderRadius: theme.borderRadius.md,
+    borderRadius: theme.borderRadius.full,
     alignItems: "center",
     borderWidth: theme.borderWidth[1],
   },

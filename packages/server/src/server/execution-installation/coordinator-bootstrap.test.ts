@@ -1799,6 +1799,137 @@ function pickDecision(request: CoordinatorBootstrapRequest) {
   return { id: request.id, revision: request.revision, planSha256: request.planSha256 };
 }
 
+test("reviewed claim fencing preserves approval and prevents stale promotion", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const recovery = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    generation: randomUUID(),
+    planSha256: "e".repeat(64),
+  };
+  const fenced = f.journal.fenceUnpromotedClaim(claimed, recovery);
+  expect(fenced).toEqual({
+    ...claimed,
+    revision: fenced.revision,
+    execution: {
+      ...claimed.execution,
+      stage: "recovery_required",
+      updatedAt: fenced.execution?.updatedAt,
+    },
+  });
+  expect(fenced.revision).not.toBe(claimed.revision);
+  expect(f.journal.readPromoted()).toEqual([]);
+  expect(() => f.journal.promote(claimed)).toThrow("Exact protected bootstrap claim");
+  expect(f.journal.fenceUnpromotedClaim(claimed, recovery)).toEqual(fenced);
+  const record = JSON.parse(
+    readFileSync(path.join(f.root, `coordinator-claim-fence-${recovery.generation}.json`), "utf8"),
+  );
+  expect(record).toEqual({ version: 1, recovery, original: claimed, fenced });
+  expect(() =>
+    f.journal.fenceUnpromotedClaim(claimed, { ...recovery, revision: randomUUID() }),
+  ).toThrow("recovery binding");
+  expect(f.journal.read()).toEqual([fenced]);
+});
+
+async function claimFenceFixture() {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const recovery = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    generation: randomUUID(),
+    planSha256: "e".repeat(64),
+  };
+  return {
+    ...f,
+    claimed,
+    recovery,
+    evidence: path.join(f.root, `coordinator-claim-fence-${recovery.generation}.json`),
+    pendingFile: path.join(f.root, "coordinator-bootstrap-pending.json"),
+  };
+}
+
+test.each(["complete", "intent"])(
+  "reviewed claim fencing refuses %s promotion without altering history",
+  async (stage) => {
+    const f = await claimFenceFixture();
+    f.journal.promote(f.claimed);
+    if (stage === "intent") rmSync(path.join(f.root, "coordinator-bootstrap.json"));
+    const before = readFileSync(f.pendingFile);
+    expect(() => f.journal.fenceUnpromotedClaim(f.claimed, f.recovery)).toThrow(
+      "promotion already started",
+    );
+    expect(readFileSync(f.pendingFile)).toEqual(before);
+    expect(() => readFileSync(f.evidence)).toThrow();
+  },
+);
+
+test("reviewed claim fencing reconciles retention before an interrupted pending write", async () => {
+  const f = await claimFenceFixture();
+  const before = readFileSync(f.pendingFile);
+  const fenced = f.journal.fenceUnpromotedClaim(f.claimed, f.recovery);
+  // Reproduce the durable files left by a crash between the two atomic writes.
+  writeFileSync(f.pendingFile, before);
+  const reopened = new FileBootstrapRequestJournal(f.root);
+  expect(reopened.fenceUnpromotedClaim(f.claimed, f.recovery)).toEqual(fenced);
+  expect(reopened.read()).toEqual([fenced]);
+  expect(() => reopened.promote(f.claimed)).toThrow("Exact protected bootstrap claim");
+});
+
+test.each(["revision", "generation", "stage", "plan"])(
+  "reviewed claim fencing rejects changed original %s",
+  async (field) => {
+    const f = await claimFenceFixture();
+    const changed = structuredClone(f.claimed);
+    if (field === "revision") changed.revision = randomUUID();
+    if (field === "generation") changed.execution!.generation = randomUUID();
+    if (field === "stage") changed.execution!.stage = "recovery_required";
+    if (field === "plan") changed.plan.candidate.sourceCommit = "f".repeat(40);
+    const before = readFileSync(f.pendingFile);
+    expect(() => f.journal.fenceUnpromotedClaim(changed, f.recovery)).toThrow();
+    expect(readFileSync(f.pendingFile)).toEqual(before);
+    expect(() => readFileSync(f.evidence)).toThrow();
+  },
+);
+
+test("reviewed claim fencing rejects altered retained history before changing the claim", async () => {
+  const f = await claimFenceFixture();
+  const before = readFileSync(f.pendingFile);
+  f.journal.fenceUnpromotedClaim(f.claimed, f.recovery);
+  writeFileSync(f.pendingFile, before);
+  const record = JSON.parse(readFileSync(f.evidence, "utf8"));
+  record.fenced.execution.generation = randomUUID();
+  writeFileSync(f.evidence, JSON.stringify(record));
+  expect(() => f.journal.fenceUnpromotedClaim(f.claimed, f.recovery)).toThrow(
+    "Retained claim fence changed",
+  );
+  expect(readFileSync(f.pendingFile)).toEqual(before);
+});
+
+test("reviewed claim fencing refuses unsafe evidence storage before changing the claim", async () => {
+  const f = await claimFenceFixture();
+  const before = readFileSync(f.pendingFile);
+  const target = path.join(f.root, "unrelated");
+  writeFileSync(target, "preserve", { mode: 0o600 });
+  symlinkSync(target, f.evidence);
+  expect(() => f.journal.fenceUnpromotedClaim(f.claimed, f.recovery)).toThrow();
+  expect(readFileSync(f.pendingFile)).toEqual(before);
+  expect(readFileSync(target, "utf8")).toBe("preserve");
+});
+
 test("compatible recovery keeps review and claim out of legacy startup until protected promotion", async () => {
   const f = fixture();
   f.plan.automaticRecovery = "restore-compatible";
@@ -1960,6 +2091,93 @@ test("compatible executor promotes only after watchdog readiness and leaves earl
   });
   expect(effects).toEqual(["ownership", "watchdog ready", "freeze"]);
   expect(result.execution!.stage).toBe("recovery_required");
+});
+
+test("ownership failure after claim records recovery without promotion or lifecycle effects", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const effects: string[] = [];
+  const unexpected = async () => {
+    effects.push("unexpected lifecycle effect");
+    throw new Error("Unexpected lifecycle effect");
+  };
+  const operations: BootstrapExecutorOperations = {
+    withOwnership: async () => {
+      throw new Error("private ownership diagnostic");
+    },
+    armWatchdog: unexpected,
+    freeze: unexpected,
+    inspectFrozen: async () => {
+      effects.push("unexpected inspection");
+      throw new Error("Unexpected inspection");
+    },
+    preserveTransfer: unexpected,
+    unload: unexpected,
+    select: unexpected,
+    start: unexpected,
+    verifyReplacement: unexpected,
+    releaseReplacement: unexpected,
+    resumePrevious: unexpected,
+  };
+  const result = await executeCoordinatorBootstrap(f.service(), pickDecision(approved), operations);
+  expect(result.execution?.stage).toBe("recovery_required");
+  expect(result.status).toBe("approved");
+  expect(result.planSha256).toBe(approved.planSha256);
+  expect(result.decisionAt).toBe(approved.decisionAt);
+  expect(f.service().list()).toEqual([result]);
+  expect(f.journal.readPromoted()).toEqual([]);
+  expect(effects).toEqual([]);
+  expect(JSON.stringify(result)).not.toContain("private ownership diagnostic");
+  await expect(
+    executeCoordinatorBootstrap(f.service(), pickDecision(approved), operations),
+  ).rejects.toThrow("undispatched");
+});
+
+test("reviewed claim fencing stops an already running executor before coordinator effects", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  let fenced: CoordinatorBootstrapRequest | undefined;
+  const unexpected = vi.fn(async () => {
+    throw new Error("Unexpected native effect");
+  });
+  const operations: BootstrapExecutorOperations = {
+    withOwnership: async (_request, operation) => operation(),
+    // Model recovery winning while the old runner awaits its last pre-promotion step.
+    armWatchdog: async (claimed) => {
+      fenced = f.journal.fenceUnpromotedClaim(claimed, {
+        id: randomUUID(),
+        revision: randomUUID(),
+        generation: randomUUID(),
+        planSha256: "e".repeat(64),
+      });
+    },
+    freeze: unexpected,
+    inspectFrozen: unexpected,
+    preserveTransfer: unexpected,
+    unload: unexpected,
+    select: unexpected,
+    start: unexpected,
+    verifyReplacement: unexpected,
+    releaseReplacement: unexpected,
+    resumePrevious: unexpected,
+  };
+  await expect(
+    executeCoordinatorBootstrap(f.service(), pickDecision(approved), operations),
+  ).rejects.toThrow();
+  expect(unexpected).not.toHaveBeenCalled();
+  expect(f.journal.readPromoted()).toEqual([]);
+  expect(f.journal.read()).toEqual([fenced]);
+  expect(fenced?.execution?.stage).toBe("recovery_required");
 });
 
 test("legacy clients cannot approve a hidden compatible recovery executable", async () => {

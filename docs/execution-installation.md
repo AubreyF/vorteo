@@ -188,6 +188,22 @@ A trusted governed-runtime module can export `quotaGovernorDirectory` to select 
 
 ## Reviewed source updates
 
+### Recovery after a coordinator executor has claimed dispatch
+
+Claimed recovery is separate from ordinary cancellation and recovery of an unclaimed operation. Compatible Host releases expose a dedicated review containing the original approval, exact executor identity, unchanged selected coordinator and signal policy. The owner must approve that recovery revision. Legacy clients cannot supply approval implicitly.
+
+The recovery runner competes atomically with coordinator promotion. It refuses recovery after promotion and durably fences the original claim before reserving any process effect. Each effect has a single durable reservation and an independently audited target; uncertain results are not replayed. Status reads do not acquire the writer lock, but still validate protected storage. Observation of the same retained generation proves process exit, unchanged selection and release of execution ownership before recording success.
+
+Successful recovery preserves the original approval and failed execution history. A subsequent maintenance plan must name that exact recovered request. Renewal and its retained watchdog validate the recovery witness alongside the actual previous terminal transfer receipt. Maintenance readiness can refresh after verified recovery without an extra Host restart; readiness never approves another operation.
+
+Ordinary source delivery remains unsafe when an older queue cannot exclude a claimed executor. A separately provisioned repair runtime can establish that exclusion without first replacing the selected Host. Its owner-authenticated admission binds the existing installation record, exact original claim, recovery plan and complete immutable runtime. Provisioning preserves the installed runner setup and admission files and does not dispatch recovery. A protected proposal can expose an owner-password setup button in the existing Installation controls. That button admits only the pinned runtime and prepares a pending recovery review; it does not approve recovery or send process signals. The separate recovery decision remains visible and cancellable before dispatch.
+
+The provisioned controller verifies the genuine selected Host and the complete native process identity retained in the plan. It can therefore inspect a stalled installation without requiring the old daemon listener to answer an RPC. Recovery children must belong to that exact controller birth. The original approval, selected configuration and old Host runtime remain separate from the repair runtime.
+
+The controller serves a loopback-only repair endpoint. Existing Installation controls can discover it through a narrowly registered same-origin path and must verify the installation identity. Owner authentication, exact review revisions, cancellation before dispatch and retained observation use the existing recovery service. Starting or reopening the controller never replays approval. A previously supported endpoint disappearing is an error, not permission to clear known recovery status or use another lifecycle route.
+
+Provisioning, transport registration and installed acceptance are separate delivery steps. Disposable native, transport and browser tests do not establish live recovery or Factory activation.
+
 ### Bootstrap runner renewal
 
 A Host source update can install a new coordinator bootstrap runner without rewriting the installed runner setup or admission files. Renewal uses the existing coordinator preparation and exact owner decision controls. Installing the capability does not approve or dispatch coordinator maintenance.

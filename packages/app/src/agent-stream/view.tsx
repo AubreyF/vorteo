@@ -1,10 +1,12 @@
+import { PortalHost } from "@gorhom/portal";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { StreamColumns, StreamColumnWidthContext, useStreamColumns } from "./columns/layout";
 import {
   useWorkspaceCardHost,
+  useInlineQueueHost,
   WorkspaceCardsPortal,
 } from "@/screens/workspace/supporting-cards-context";
-import { COLUMN_FADE_HEIGHT } from "./columns/geometry";
+import { CARD_GAP, COLUMN_FADE_HEIGHT } from "./columns/geometry";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "./task-card";
@@ -1175,6 +1177,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           renderStreamItem,
         }),
     );
+    const inlineQueueHost = useInlineQueueHost(agentId);
+    const inlineQueue = useMemo(
+      () => (inlineQueueHost ? <PortalHost name={inlineQueueHost} /> : null),
+      [inlineQueueHost],
+    );
     const taskCards = useMemo(() => {
       if (trailingCards) return trailingCards;
       if (!shouldRenderTaskCards(showTaskCards, serverId)) return null;
@@ -1184,7 +1191,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           agentId={agentId}
           workspaceId={context.workspaceId}
           cwd={context.cwd}
-          queueHostName={workspaceCardHost ? `${workspaceCardHost}:queue` : undefined}
+          queueHostName={
+            inlineQueueHost ?? (workspaceCardHost ? `${workspaceCardHost}:queue` : undefined)
+          }
         />
       );
     }, [
@@ -1195,6 +1204,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       context.workspaceId,
       context.cwd,
       workspaceCardHost,
+      inlineQueueHost,
     ]);
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
@@ -1206,7 +1216,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       return renderLiveAuxiliaryNode({
         pendingPermissions: splitColumns ? pendingQuestionsNode : auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
-        taskCards: splitColumns ? null : taskCards,
+        taskCards: splitColumns ? inlineQueue : taskCards,
         bottomOverlayInset,
       });
     }, [
@@ -1215,6 +1225,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       pendingQuestionsNode,
       bottomOverlayTailClearance,
       splitColumns,
+      inlineQueue,
       taskCards,
     ]);
 
@@ -1831,7 +1842,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[12],
   },
   bottomCardStack: {
-    gap: theme.spacing[4],
+    gap: CARD_GAP,
   },
   syncingIndicator: {
     flexDirection: "row",

@@ -1,5 +1,9 @@
+import { smallIconButtonChromeFrameSize } from "@/components/ui/icon-button-chrome";
+import { TruncatedText } from "@/components/ui/truncated-text";
+import { ScrollDividerContext, type CardScrollHandler } from "./use-scroll-divider";
 import {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -360,7 +364,7 @@ function TreeRowItem({
               <MaterialFileIcon fileName={entry.name} size={WORKSPACE_TREE_ICON_SIZE} />
             )}
           </View>
-          <Text
+          <TruncatedText
             style={[
               styles.entryName,
               workspaceTreeRowStyles.name,
@@ -370,7 +374,7 @@ function TreeRowItem({
             testID={testID ? `${testID}-name` : undefined}
           >
             {entry.name}
-          </Text>
+          </TruncatedText>
         </View>
       </ContextMenuTrigger>
       <FileActionsContextMenuContent
@@ -1152,6 +1156,7 @@ interface FileExplorerPaneContentProps {
 }
 
 function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
+  const reportScroll = useContext(ScrollDividerContext);
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const {
@@ -1173,6 +1178,14 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
     handleRetry,
     sortTriggerStyle: sortTriggerStyleProp,
   } = props;
+
+  const handleScroll = useCallback<CardScrollHandler>(
+    (event) => {
+      scrollbar.onScroll(event);
+      reportScroll(event.nativeEvent.contentOffset.y > 0);
+    },
+    [scrollbar, reportScroll],
+  );
 
   const showHiddenFiles = usePanelStore((state) => state.explorerShowHiddenFiles);
 
@@ -1222,7 +1235,10 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
       <PaneContentToolbar
         style={[
           styles.paneHeader,
-          { paddingRight: paneContentToolbarTrailingPadding(isCompact, "glyph") },
+          {
+            paddingRight: paneContentToolbarTrailingPadding(isCompact, "glyph"),
+            height: Math.max(24, smallIconButtonChromeFrameSize(isCompact)) + 1,
+          },
         ]}
         testID="files-pane-header"
       >
@@ -1329,7 +1345,7 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
               testID="file-explorer-tree-scroll"
               contentContainerStyle={styles.entriesContent}
               onLayout={scrollbar.onLayout}
-              onScroll={scrollbar.onScroll}
+              onScroll={handleScroll}
               onContentSizeChange={scrollbar.onContentSizeChange}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={!scrollbar.enabled}
@@ -1712,7 +1728,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   entriesContent: {
     flexGrow: 1,
-    paddingTop: theme.spacing[2],
+    paddingTop: theme.spacing[0.5],
     paddingBottom: theme.spacing[4],
   },
   rootContextTarget: {
@@ -1845,7 +1861,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[3],
     borderBottomWidth: theme.borderWidth[1],
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: theme.colors.divider,
   },
   sheetTitle: {
     fontSize: theme.fontSize.base,

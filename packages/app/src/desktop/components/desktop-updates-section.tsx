@@ -175,6 +175,19 @@ function DaemonCliStatusModal({
     [t],
   );
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.modalActions}>
+        <Button variant="outline" size="sm" onPress={onClose}>
+          {t("common.actions.close")}
+        </Button>
+        <Button size="sm" onPress={onCopy}>
+          {t("common.actions.copy")}
+        </Button>
+      </ActionFooter>
+    ),
+    [onClose, t, onCopy],
+  );
   return (
     <AdaptiveModalSheet
       visible={visible}
@@ -182,19 +195,12 @@ function DaemonCliStatusModal({
       header={header}
       testID="daemon-cli-status-dialog"
       snapPoints={CLI_STATUS_MODAL_SNAP_POINTS}
+      footer={modalFooter1}
     >
       <View style={styles.modalBody}>
         <Text style={styles.logOutput} selectable dataSet={CODE_SURFACE_DATASET}>
           {cliStatusOutput ?? ""}
         </Text>
-        <ActionFooter style={styles.modalActions}>
-          <Button variant="outline" size="sm" onPress={onClose}>
-            {t("common.actions.close")}
-          </Button>
-          <Button size="sm" onPress={onCopy}>
-            {t("common.actions.copy")}
-          </Button>
-        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

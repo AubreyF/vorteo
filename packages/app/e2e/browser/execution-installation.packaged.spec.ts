@@ -395,14 +395,18 @@ test("welcome signs in with the owner password and restores both environments", 
   await page.goto(origin);
   await expect(page.getByText("Welcome to Vorteo", { exact: true })).toBeVisible();
   await expect(page.getByTestId("welcome-demo")).toBeVisible();
-  if (testInfo.project.name === "phone") {
-    const updates = page.getByTestId("installation-update-toasts-toggle");
-    await expect(updates).toHaveAttribute("aria-expanded", "false");
-    await updates.click();
-    await expect(page.getByRole("button", { name: "Review restart", exact: true })).toBeVisible();
-    await updates.click();
-    await expect(updates).toHaveAttribute("aria-expanded", "false");
-  }
+  await expect(page.getByTestId("installation-update-toasts")).toHaveCount(0);
+  await expect(page.getByTestId("installation-update-toasts-toggle")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Review restart", exact: true })).toHaveCount(0);
+  const rain = page.getByTestId("welcome-rain");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(rain).toHaveAttribute("data-motion", "falling");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(rain).toHaveAttribute("data-motion", "still");
+  await page.screenshot({
+    path: testInfo.outputPath("welcome-without-notices.png"),
+    fullPage: true,
+  });
   await page.getByTestId("welcome-create-installation").click();
   await expect(page.getByTestId("installation-command")).toContainText(
     "docker/multiplex/install.sh",
@@ -424,15 +428,6 @@ test("welcome signs in with the owner password and restores both environments", 
         return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) !== node;
       });
       expect(covered).toBe(false);
-      const updatesCovered = await page
-        .getByTestId("installation-update-toasts-toggle")
-        .evaluate((node) => {
-          const box = node.getBoundingClientRect();
-          return !node.contains(
-            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
-          );
-        });
-      expect(updatesCovered).toBe(true);
     }).toPass();
   }
   await page.screenshot({
@@ -452,6 +447,7 @@ test("welcome signs in with the owner password and restores both environments", 
   await password.fill(ownerPassword);
   await password.press("Enter");
   await expect(page).not.toHaveURL(/welcome/);
+  await expect(page.getByTestId("installation-update-toasts")).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(
@@ -899,7 +895,9 @@ test("passive maintenance stays in the sidebar and actionable notices can be dis
     const banner = sidebar.getByTestId("installation-restart-banner");
     await expect(banner).toContainText("Dev daemon restart queued");
     await expect(banner).toContainText("Host daemon restart queued");
-    const cards = banner.locator('[data-testid^="restart-notice-"]').filter({ visible: true });
+    const cards = banner
+      .locator('[data-testid^="restart-notice-"][role="button"]')
+      .filter({ visible: true });
     await expect(cards).toHaveCount(2);
     for (const card of await cards.all()) {
       expect((await card.boundingBox())!.height).toBeLessThanOrEqual(56);
@@ -908,10 +906,12 @@ test("passive maintenance stays in the sidebar and actionable notices can be dis
     const stack = page.getByTestId("installation-update-toasts");
     await expect(stack.locator('[data-testid^="restart-notice-"]')).toHaveCount(0);
     await sidebar.screenshot({ path: testInfo.outputPath("compact-passive-maintenance.png") });
-    await cards
-      .filter({ hasText: "Host daemon restart queued" })
-      .getByRole("button", { name: "Review restart", exact: true })
-      .click();
+    const reviewRow = cards.filter({ hasText: "Host daemon restart queued" });
+    await expect(reviewRow).toHaveAttribute("role", "button");
+    await expect(reviewRow).not.toContainText("Review restart");
+    await expect(reviewRow.locator('[role="button"]')).toHaveCount(0);
+    await reviewRow.focus();
+    await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/installation=1.*restart=/);
     const reviewedId = new URL(page.url()).searchParams.get("restart");
     expect(reviewedId).toBe(jobs[1]);
@@ -1103,6 +1103,23 @@ test("restart links keep rejected and missing requests separate from a pending a
   );
   await expect(page.getByTestId(`restart-request-${pending.id}`)).toBeVisible();
   await expect(page.getByTestId(`restart-confirm-${historicalRestartId}`)).toHaveCount(0);
+  const historyRegion = page.getByTestId("restart-history-content");
+  await expect(historyRegion.getByTestId(`restart-request-${historicalRestartId}`)).toBeVisible();
+  await expect(historyRegion).toHaveCSS("border-top-width", "0px");
+  await expect(historyRegion.getByTestId(`restart-request-${historicalRestartId}`)).toHaveCSS(
+    "border-top-width",
+    "0px",
+  );
+  const historyColor = await historyRegion.evaluate(
+    (node) => getComputedStyle(node).backgroundColor,
+  );
+  expect(historyColor).not.toBe("rgba(0, 0, 0, 0)");
+  await page.getByTestId("installation-sharing-toggle").click();
+  const sharingRegion = page.getByTestId("installation-sharing-content");
+  await expect(sharingRegion).toBeVisible();
+  await expect(sharingRegion).toHaveCSS("background-color", historyColor);
+  await expect(sharingRegion).toHaveCSS("border-top-width", "0px");
+
   await page.goto(`${origin}/settings/general?installation=1&restart=${randomUUID()}`);
   await expect(
     page.getByText("This restart request is no longer available.", { exact: true }),
@@ -4073,6 +4090,7 @@ test("disabled restart explains the correction on hover, focus and touch without
   await page.getByTestId("installation-unlock").click();
   const card = page.getByTestId(`restart-request-${id}`);
   await expect(card).toContainText("Awaiting agent repair");
+  await expect(page.getByTestId(`restart-notice-${id}`)).toHaveCount(0);
   await expect(card).toContainText("The requesting agent must repair this update");
   await expect(card).toContainText("Leave it queued for repair");
   await expect(card.getByRole("button", { name: "Cancel update", exact: true })).toBeVisible();
@@ -4099,6 +4117,11 @@ test("disabled restart explains the correction on hover, focus and touch without
   }
   expect(decisions).toEqual([]);
   await expect(button).toBeDisabled();
+  job.sourceBatch.status = "ready";
+  job.revision = randomUUID();
+  await expect(page.getByTestId(`restart-notice-${id}`)).toBeVisible();
+  await expect(page.getByTestId(`restart-notice-${id}`)).toContainText("Review update");
+  expect(decisions).toEqual([]);
 });
 
 test("native helper review binds approval and cancellation through real owner routes", async ({

@@ -81,11 +81,14 @@ vi.mock("./workspace-pane-content", () => ({
 }));
 
 import { usePanelStore } from "@/stores/panel-store";
+import { CardColumnContext } from "@/agent-stream/columns/card-column";
 import { SupportingViewCards } from "./supporting-view-cards";
 import {
   requestSupportingCard,
   useSupportingCardRequests,
 } from "@/workspace-tabs/supporting-card-requests";
+
+const column = { heights: new Map<string, number>(), measure: () => {} };
 
 describe("supporting view cards", () => {
   let container: HTMLDivElement;
@@ -108,12 +111,19 @@ describe("supporting view cards", () => {
     onSelectTab: select,
     buildPaneContentModel: buildContent,
   };
-  const render = (value = props) => act(() => root.render(<SupportingViewCards {...value} />));
+  const render = (value = props) =>
+    act(() =>
+      root.render(
+        <CardColumnContext.Provider value={column}>
+          <SupportingViewCards {...value} />
+        </CardColumnContext.Provider>,
+      ),
+    );
   const disclosure = (title: string) =>
     [...container.querySelectorAll("button")].find((button) => button.textContent === title)!;
   beforeEach(() => {
     vi.clearAllMocks();
-    usePanelStore.setState({ supportingCardExpanded: { files: true } });
+    usePanelStore.setState({ supportingCardExpanded: { files: true }, inlineCardExpanded: {} });
     useSupportingCardRequests.setState({ requests: {} });
     container = document.createElement("div");
     document.body.append(container);
@@ -122,6 +132,30 @@ describe("supporting view cards", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+  });
+
+  it("keeps every card type independent between sidebar and inline layouts", () => {
+    for (const kind of [
+      "goal",
+      "tasks",
+      "journal",
+      "queue",
+      "subagents",
+      "providerSubagents",
+      "files",
+      "changes",
+    ] as const) {
+      const set = usePanelStore.getState().setSupportingCardExpanded;
+      set(kind, true, "sidebar");
+      set(kind, false, "inline");
+      expect(usePanelStore.getState().supportingCardExpanded[kind]).toBe(true);
+      expect(usePanelStore.getState().inlineCardExpanded[kind]).toBe(false);
+      set(kind, (current) => !current, "sidebar");
+      expect(usePanelStore.getState().inlineCardExpanded[kind]).toBe(false);
+      set(kind, (current) => !current, "inline");
+      expect(usePanelStore.getState().supportingCardExpanded[kind]).toBe(false);
+      expect(usePanelStore.getState().inlineCardExpanded[kind]).toBe(true);
+    }
   });
 
   it("keeps both designated cards and preserves panel state across folding", () => {

@@ -1,5 +1,6 @@
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCallback, useMemo, useState } from "react";
-import { View, Text, type LayoutChangeEvent, type PressableStateCallbackType } from "react-native";
+import { View, type LayoutChangeEvent, type PressableStateCallbackType } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { DiffStat } from "@/components/diff-stat";
 import {
@@ -154,7 +155,7 @@ export function DiffFolderRow({
             <View style={styles.chevronSlot}>
               <TreeChevron expanded={!collapsed} />
             </View>
-            <Text
+            <TruncatedText
               style={[
                 styles.folderName,
                 workspaceTreeRowStyles.name,
@@ -164,7 +165,7 @@ export function DiffFolderRow({
               testID={testID ? `${testID}-name` : undefined}
             >
               {displayName}
-            </Text>
+            </TruncatedText>
           </View>
           <View style={styles.right}>
             <DiffStat

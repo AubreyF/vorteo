@@ -1280,3 +1280,321 @@ test
     expect(new FileBootstrapRequestJournal(f.state).read()).toEqual([f.record, original]);
   },
 );
+
+test
+  .runIf(process.platform === "darwin")
+  .each([
+    "exact",
+    "pending",
+    "stale",
+    "canceled-during-read",
+    "changed-snapshot",
+    "attempted",
+    "changed-admission",
+    "cancel-before-spawn",
+    "snapshot-before-spawn",
+    "spawn-only",
+    "initialize",
+    "initialize-fenced",
+    "initialize-ambiguous",
+    "initialize-changed",
+    "initialize-anchor-changed",
+  ])(
+  "claimed snapshot requires its own exact approval and preserves installed anchors (%s)",
+  async (mode) => {
+    const {
+      persistClaimedLaunchSetup,
+      ClaimedRunnerSetupSchema,
+      prepareNativeClaimedLaunch,
+      createManagedClaimedRecoveryReview,
+    } = await import("./coordinator-bootstrap-claimed-launch.js");
+    const { claimedRecoveryPlanDigest } =
+      await import("./coordinator-bootstrap-claimed-recovery.js");
+    const { FileClaimedRecoveryReviewJournal } =
+      await import("./coordinator-bootstrap-claimed-journal.js");
+    const f = await fixture();
+    const original = structuredClone(f.record);
+    original.id = randomUUID();
+    original.revision = randomUUID();
+    original.execution = {
+      generation: randomUUID(),
+      stage: "claimed",
+      updatedAt: new Date().toISOString(),
+    };
+    original.plan.automaticRecovery = "restore-compatible";
+    original.plan.compatibleRecovery = f.host;
+    original.plan.previous = f.coordinator;
+    original.plan.candidate = f.host;
+    const coordinator = await f.ports.reader.inspectProcess(404);
+    original.plan.expectedProcess = {
+      pid: coordinator.pid,
+      bootId: coordinator.bootId,
+      startIdentity: coordinator.startIdentity,
+      argumentsSha256: coordinator.argumentsSha256,
+    };
+    original.planSha256 = coordinatorPlanDigest(original.plan);
+    f.save(path.join(f.state, "coordinator-bootstrap-pending.json"), {
+      version: 1,
+      requests: [original],
+      promotions: [],
+    });
+    const setup = f.save(path.join(f.root, "target-setup.json"), {});
+    const entry = {
+      path: path.join(f.host.directory, runnerRelative),
+      sha256: sha("export {}; // runner"),
+    };
+    const admission = JSON.parse(readFileSync(f.original.admissionSetupFile, "utf8"));
+    const plan = {
+      version: 1 as const,
+      operation: "bootstrap-claimed-recovery" as const,
+      original,
+      dispatchApprovalRevision: randomUUID(),
+      retainedObservation: setup,
+      executor: {
+        identity: {
+          ...f.hostProcess,
+          pid: 505,
+          parentPid: f.hostProcess.pid,
+          argumentsSha256: sha(
+            JSON.stringify([f.node.path, entry.path, setup.path, "executor", original.id]),
+          ),
+        },
+        auditToken: [0, process.getuid!(), 0, 0, 0, 505, 0, 1],
+      },
+      hostProcess: f.hostProcess,
+      coordinatorProcess: coordinator,
+      setup,
+      runner: f.host,
+      executorEntrypoint: entry,
+      ownerLauncher: {
+        path: path.join(f.host.directory, "scripts/run-coordinator-owner.py"),
+        sha256: sha("# disposable owner"),
+      },
+      selectedLauncher: { path: admission.launcherFile, sha256: f.coordinator.launcher.sha256 },
+      selectedConfiguration: f.configuration,
+      executionLock: {
+        path: path.join(f.state, "coordinator-bootstrap-execution.lock"),
+        device: "1",
+        inode: "1",
+      },
+      signalPolicy: { terminate: "SIGTERM" as const, escalation: "none" as const, graceSeconds: 1 },
+    };
+    const request = {
+      id: randomUUID(),
+      revision: randomUUID(),
+      requestedBy: "host-agent" as const,
+      reason: "fixture recovery",
+      createdAt: new Date().toISOString(),
+      decisionAt: new Date().toISOString(),
+      status: mode === "pending" ? ("pending" as const) : ("approved" as const),
+      plan,
+      planSha256: claimedRecoveryPlanDigest(plan),
+    };
+    const journal = new FileClaimedRecoveryReviewJournal(f.state);
+    journal.replaceReviews(
+      [],
+      [mode === "stale" ? { ...request, revision: randomUUID() } : request],
+    );
+    const file = path.join(
+      f.state,
+      `coordinator-claimed-launch-${request.id}-${request.revision}.json`,
+    );
+    if (mode === "changed-snapshot") f.save(file, { retained: "do not overwrite" });
+    if (mode === "attempted")
+      f.save(
+        path.join(f.state, `coordinator-claimed-attempt-${request.id}-${request.revision}.json`),
+        { uncertain: true },
+      );
+    let changed = false;
+    let mountReads = 0;
+    const input = {
+      setupFile: f.setupFile,
+      daemonId: f.original.daemonId,
+      request,
+      ports: {
+        ...f.ports,
+        moduleFile: path.join(f.host.directory, runnerRelative),
+        hostProcessId: f.hostProcess.pid,
+        writableMountRoots: async () => {
+          mountReads++;
+          if (mode === "changed-admission" && mountReads === 1)
+            f.save(f.original.admissionSetupFile, {
+              ...admission,
+              helperPath: "/untrusted/redirect.py",
+            });
+          if (mode === "canceled-during-read" && !changed) {
+            changed = true;
+            journal.replaceReviews(journal.readReviews(), [
+              { ...request, status: "canceled", revision: randomUUID() },
+            ]);
+          }
+          return [];
+        },
+      },
+    };
+    const verifyInitialization = async () => {
+      if (mode === "initialize-fenced") {
+        const claimed = {
+          ...request,
+          revision: randomUUID(),
+          execution: {
+            generation: randomUUID(),
+            stage: "claimed" as const,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+        journal.replaceReviews([request], [claimed]);
+        journal.fenceClaim(claimed);
+      }
+      if (mode === "initialize-ambiguous") {
+        f.save(path.join(f.state, "coordinator-bootstrap-pending.json"), {
+          version: 1,
+          requests: [original, { ...original, id: randomUUID() }],
+          promotions: [],
+        });
+      }
+      const beforeRecords = new FileBootstrapRequestJournal(f.state).read();
+      const beforeReviews = journal.readReviews();
+      const beforeSetup = readFileSync(f.setupFile);
+      const service = createManagedClaimedRecoveryReview(input.setupFile, input.daemonId, {
+        ...input.ports,
+        writableMountRoots: async () => {
+          if (mode === "initialize-anchor-changed" && !changed) {
+            changed = true;
+            f.save(f.original.admissionSetupFile, {
+              ...admission,
+              helperPath: "/untrusted/changed.py",
+            });
+          }
+          if (mode === "initialize-changed" && !changed) {
+            changed = true;
+            journal.replaceReviews(journal.readReviews(), [
+              { ...request, status: "canceled", revision: randomUUID() },
+            ]);
+          }
+          return [];
+        },
+      });
+      if (
+        ["initialize-ambiguous", "initialize-changed", "initialize-anchor-changed"].includes(mode)
+      )
+        await expect(service).rejects.toThrow();
+      else {
+        const ready = await service;
+        expect(ready?.available).toBe(true);
+        expect(ready?.reconcile).toBeTypeOf("function");
+        expect(ready?.list().map(({ dispatch: _dispatch, ...record }) => record)).toEqual(
+          beforeReviews,
+        );
+        expect(journal.readReviews()).toEqual(beforeReviews);
+      }
+      expect(new FileBootstrapRequestJournal(f.state).read()).toEqual(beforeRecords);
+      expect(readFileSync(f.setupFile)).toEqual(beforeSetup);
+      expect(() => readFileSync(file)).toThrow();
+    };
+    if (mode.startsWith("initialize")) {
+      await verifyInitialization();
+      return;
+    }
+    const before = readFileSync(f.setupFile, "utf8");
+    if (
+      mode === "cancel-before-spawn" ||
+      mode === "snapshot-before-spawn" ||
+      mode === "spawn-only"
+    ) {
+      const launch = await prepareNativeClaimedLaunch(input);
+      if (mode === "spawn-only") {
+        // This fixture's immutable Python helper contains only a comment. Real
+        // spawn acknowledgement must not invent a runner claim or success.
+        await expect(launch()).resolves.toBeUndefined();
+        expect(journal.readReviews()).toEqual([request]);
+        await expect(launch()).rejects.toThrow("already attempted");
+        expect(readFileSync(f.setupFile, "utf8")).toBe(before);
+        expect(new FileBootstrapRequestJournal(f.state).read()).toEqual([f.record, original]);
+        return;
+      }
+      if (mode === "cancel-before-spawn")
+        journal.replaceReviews(
+          [request],
+          [{ ...request, revision: randomUUID(), status: "canceled" }],
+        );
+      else f.save(file, { replaced: true });
+      await expect(launch()).rejects.toThrow(
+        mode === "cancel-before-spawn"
+          ? "Recovery decision changed before launch"
+          : "digest changed",
+      );
+      await expect(launch()).rejects.toThrow("already attempted");
+      expect(() =>
+        readFileSync(
+          path.join(f.state, `coordinator-claimed-attempt-${request.id}-${request.revision}.json`),
+        ),
+      ).toThrow();
+    } else if (mode === "exact") {
+      expect(await persistClaimedLaunchSetup(input)).toBe(file);
+      const bytes = readFileSync(file, "utf8");
+      const snapshot = ClaimedRunnerSetupSchema.parse(JSON.parse(bytes));
+      expect(snapshot.request.id).toBe(request.id);
+      expect(snapshot.original.id).toBe(original.id);
+      expect(snapshot.renewal.request).toEqual(snapshot.original);
+      expect(snapshot.runtimeDirectory).toBe(f.host.directory);
+      expect(snapshot.renewal.configuration).toEqual(f.configuration);
+      expect(await persistClaimedLaunchSetup(input)).toBe(file);
+      expect(readFileSync(file, "utf8")).toBe(bytes);
+      expect(journal.readReviews()).toEqual([request]);
+    } else {
+      await expect(persistClaimedLaunchSetup(input)).rejects.toThrow(
+        mode === "changed-admission" ? "anchor changed" : undefined,
+      );
+      if (mode === "changed-snapshot")
+        expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ retained: "do not overwrite" });
+      else expect(() => readFileSync(file)).toThrow();
+    }
+    expect(readFileSync(f.setupFile, "utf8")).toBe(before);
+    expect(new FileBootstrapRequestJournal(f.state).read()).toEqual([f.record, original]);
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "renewed successor requires the exact recovered claim reference",
+  async () => {
+    const f = await fixture();
+    const setup = (await f.derive())!;
+    const reference = {
+      id: randomUUID(),
+      revision: randomUUID(),
+      generation: randomUUID(),
+      planSha256: "a".repeat(64),
+    };
+    setup.renewal!.claimedRecovery = {
+      original: reference,
+      recovery: { ...reference, id: randomUUID() },
+      fence: f.configuration,
+      birth: f.configuration,
+      setup: f.configuration,
+    };
+    const plan = {
+      ...f.plan,
+      previous: f.coordinator,
+      candidate: f.host,
+      automaticRecovery: "restore-compatible" as const,
+      compatibleRecovery: f.host,
+      recoveredFrom: reference,
+    };
+    await expect(verifyRenewalPlan(setup, plan)).resolves.toBeUndefined();
+    await expect(verifyRenewalPlan(setup, { ...plan, recoveredFrom: undefined })).rejects.toThrow(
+      "exact recovered claim",
+    );
+    for (const field of ["id", "revision", "generation", "planSha256"] as const) {
+      await expect(
+        verifyRenewalPlan(setup, {
+          ...plan,
+          recoveredFrom: {
+            ...reference,
+            [field]: field === "planSha256" ? "b".repeat(64) : randomUUID(),
+          },
+        }),
+      ).rejects.toThrow("exact recovered claim");
+    }
+  },
+);

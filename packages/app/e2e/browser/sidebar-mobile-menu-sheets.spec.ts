@@ -39,6 +39,12 @@ test("touch workspace rows have no kebab and the title menu contains workspace a
     await expect(
       workspaceRow.getByTestId(`sidebar-workspace-kebab-${getServerId()}:${seeded.workspaceId}`),
     ).toHaveCount(0);
+    const rowGeometry = await workspaceRow.evaluate((row) => {
+      const rail = row.querySelector('[data-testid="sidebar-trailing-rail"]')!;
+      const details = rail.lastElementChild!;
+      return { gap: rail.getBoundingClientRect().right - details.getBoundingClientRect().right };
+    });
+    expect(rowGeometry.gap).toBeLessThanOrEqual(1);
     await workspaceRow.tap();
     await page.getByTestId("workspace-header-menu-trigger").tap();
 
@@ -46,6 +52,15 @@ test("touch workspace rows have no kebab and the title menu contains workspace a
       timeout: 10_000,
     });
     await expect(page.getByText("Workspace actions", { exact: true })).toBeVisible();
+    const rowInset = await page.getByTestId("workspace-header-copy-path").evaluate((row) => {
+      const menuPage = row.parentElement!;
+      return {
+        padding: getComputedStyle(menuPage).paddingLeft,
+        margin: getComputedStyle(row).marginLeft,
+      };
+    });
+    expect(rowInset.padding).toBe("8px");
+    expect(rowInset.margin).toBe("4px");
     // A mounted item can still be clipped while the content-sized sheet opens.
     await expect(page.getByTestId("workspace-header-copy-path")).toBeInViewport();
     for (const action of [

@@ -38,7 +38,7 @@ export function DownloadToast() {
       dismissTimeoutRef.current = null;
     }
 
-    if (activeDownload && activeDownload.status !== "downloading") {
+    if (activeDownload?.status === "complete") {
       dismissTimeoutRef.current = setTimeout(() => {
         dismissDownload(activeDownload.id);
       }, AUTO_DISMISS_DELAY);
@@ -68,7 +68,7 @@ export function DownloadToast() {
 
   return (
     <View style={containerStyle} pointerEvents="box-none">
-      <View style={styles.toast}>
+      <View style={styles.toast} testID="download-toast">
         {activeDownload.status === "downloading" ? (
           <LoadingSpinner size="small" color={theme.colors.foreground} />
         ) : null}

@@ -5,6 +5,963 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.494 - 2026-10-14
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.493 - 2026-10-14
+
+### Fixed
+
+- Keep repair setup available if pending-review verification fails after runtime admission. A retry reuses the same protected receipt without repeating recovery effects or hiding the unfinished setup.
+- Preserve the existing interface and repair review behavior. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.492 - 2026-10-14
+
+### Added
+
+- Enable protected coordinator repair setup from existing Installation controls, with a sidebar notice and exact source and artifact details. Owner authentication admits only the pinned proposal and prepares a pending recovery review without stopping processes.
+- Keep recovery approval separate from setup and refuse changed proposal bytes, stale claims and unauthenticated requests. Preserve retained admission and approval history on reconnection.
+- Validate setup authentication and desktop and compact controls. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.491 - 2026-10-14
+
+### Added
+
+- Add owner-authenticated provisioning for a protected coordinator repair runtime when the installed Host cannot recover a claimed executor. Bind repair review to the exact original approval, process identity and immutable artifact.
+- Show independently provisioned repair requests in existing Installation controls and the sidebar. Preserve cancellation before dispatch and observation-only reconciliation after uncertain completion.
+
+### Fixed
+
+- Fence an unpromoted coordinator claim under the existing journal lock before bounded recovery effects, preserving approval history, selected configuration and successor verification.
+- Integrate the current interface changes and both branches' release history. Native disposable recovery, retained-effect observation and successor checks pass; installation acceptance remains separate. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.490 - 2026-10-14
+
+### Fixed
+
+- Round question-card action buttons to match the top controls and center their icons and labels within a shared 44px minimum height.
+- Verify action geometry and submission at phone, iPad and desktop widths. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.489 - 2026-10-14
+
+### Fixed
+
+- Keep the inline queue controller active when the details sidebar is hidden so queued-message actions remain usable.
+- Check that Send stays enabled after moving the queue between locations. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.488 - 2026-10-14
+
+### Fixed
+
+- Remount the queue portal when its destination changes so opening and closing the details sidebar moves the queue to the correct location.
+- Packaged browser checks cover both directions. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.487 - 2026-10-14
+
+### Changed
+
+- Keep queued messages at the bottom of the conversation when the desktop details sidebar is closed, with other details remaining in their sidebar.
+- Show saving progress in the row and sending progress around its Send arrow. Preserve action positions and remove transient progress text from the heading and below rows.
+- Add queue visibility and stable-height progress coverage. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.486 - 2026-10-14
+
+### Fixed
+
+- Remove duplicate bottom safe-area padding from web thread and draft composers so their bottom edges align with the sidebar on iPad. Preserve native safe-area padding and the desktop 8px margin.
+- Reproduce the previous 20px offset using browser safe-area emulation and check tablet portrait, landscape and short desktop windows. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.486 - 2026-10-14
+
+### Added
+
+- Add separately reviewed recovery for a claimed coordinator executor, with exact native identity checks, atomic exclusion against promotion and durable one-shot effects.
+- Expose capability-gated recovery review and observation controls. Preserve original approval history and reject implicit approval from older clients.
+- Require the verified recovery witness in successor renewal and watchdog checks, and refresh maintenance readiness after recovery.
+
+### Fixed
+
+- Retain recovery-required status when coordinator ownership validation fails.
+- Keep status readers out of the executor's mutation lock while preserving protected-directory checks.
+- Resolve the browser provider beside the shared test runner on fresh workspace installs.
+
+### Validation and limits
+
+- Validate disposable native recovery and retained observation without replay, plus current-source owning, client and desktop/compact browser checks.
+- Safe managed installation and live Factory activation remain unfinished. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.485 - 2026-10-13
+
+### Fixed
+
+- Preserve the shared 8px composer bottom inset at narrow desktop widths, including short windows, while retaining the wider iPad layout.
+- Check the inset at narrow and wide desktop sizes across window heights. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.484 - 2026-10-13
+
+### Maintenance
+
+- Check the shared 44px touch minimum in the tablet Commit-button regression. The packaged tablet, wide-desktop and phone flow passes; application behavior is unchanged.
+- README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.483 - 2026-10-13
+
+### Fixed
+
+- Keep the outward sidebar grip above the adjacent scrolling pane so touch hits resize the sidebar.
+- Retain the tablet layout checks against the packaged interface. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.482 - 2026-10-13
+
+### Changed
+
+- Widen and lower the narrow-desktop composer, align it with the first tab, and show workspace context in taller selected tabs when navigation is collapsed.
+- Preserve the conversation fade behind taller tabs and increase icon-to-text spacing.
+- Support browser touch and pen resizing with handles centered in sidebar gutters.
+- Give the Commit split button sufficient content height, padding and rounded corners.
+
+### Maintenance
+
+- Add tablet touch, alignment, clipping and responsive regression coverage. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.481 - 2026-10-13
+
+### Maintenance
+
+- Reveal supporting cards after reload in the desktop checklist regression so it checks visible controls and persisted counts.
+
+## 0.11.0-beta.3.vorteo.480 - 2026-10-13
+
+### Fixed
+
+- Show completed / total task counts and read / total journal counts without visible status suffixes.
+- Preserve the fixed disclosure-button height on native platforms so card titles and count text render correctly.
+- Verify journal progress against read rows in desktop and phone browser checks.
+
+## 0.11.0-beta.3.vorteo.479 - 2026-10-13
+
+### Maintenance
+
+- Require early recommendations to split sprawling agent work into focused workspaces with explicit outcomes, preserved handoffs and coordinated delivery. Accept owner-confirmed daily use as acceptance for the reported behavior.
+
+## 0.11.0-beta.3.vorteo.478 - 2026-10-13
+
+### Validation
+
+- Correct the demo browser check to include the shared outer inset in the desktop tab-row height. The full navigation, theme selection and keyboard rail flow passes against the existing production interface; product behavior is unchanged.
+
+## 0.11.0-beta.3.vorteo.477 - 2026-10-13
+
+### Appearance
+
+- Add 12px above question answer controls and below the action row, keeping prompts, inputs and buttons clear of each other and the card edge. Verify desktop and phone spacing alongside question navigation and submission.
+
+## 0.11.0-beta.3.vorteo.476 - 2026-10-13
+
+### Appearance
+
+- Show the matching left-pointing open arrow on the right sidebar toggle while collapsed. Keep the plain panel icon while expanded.
+
+## 0.11.0-beta.3.vorteo.475 - 2026-10-13
+
+### Appearance and validation
+
+- Fit short project popups to their measured content while keeping long lists scrollable.
+- Update compact sidebar sizing and browser checks for the 56px rail, current navigation menu placement, and workspace action labels. Verify project popup indicators, tail alignment, nested Rename dialog and touch navigation.
+
+## 0.11.0-beta.3.vorteo.474 - 2026-10-13
+
+### Appearance
+
+- Widen the compact sidebar to 56px and give project popups an anchored tail. Reuse the complete sidebar project list, including workspace status, task flowers, metadata, managed groups and row actions. Clicked popups stay open while their menus and dialogs are used.
+
+## 0.11.0-beta.3.vorteo.473 - 2026-10-13
+
+### Validation
+
+- Refresh the column resize check for aligned composer and sidebar bottoms and the shared toolbar toggle location. The resize-handle interface change is unchanged.
+
+## 0.11.0-beta.3.vorteo.472 - 2026-10-13
+
+### Appearance
+
+- Anchor the right sidebar resize target and highlight to the card body, below its toolbar. Verify the handle stays aligned with the card stack during resizing.
+
+## 0.11.0-beta.3.vorteo.471 - 2026-10-13
+
+### Appearance
+
+- Give Journal prose the same right inset as Goal text. Share that clearance with task errors and queue status and recovery text while preserving timeline and control alignment.
+
+## 0.11.0-beta.3.vorteo.470 - 2026-10-13
+
+### Appearance
+
+- Let shared card drag columns retain their compact width on mobile web instead of inheriting the global 44px button minimum. Preserve their full height and drag gesture handling; other touch controls keep their existing minimum size.
+
+## 0.11.0-beta.3.vorteo.469 - 2026-10-13
+
+### Validation
+
+- Check mobile task handle spacing in the editable-checklist fixture, where drag handles exist, alongside its keyboard reorder exercise. Keep queue media spacing in the shared card fixture; interface behavior is unchanged from the preceding candidate.
+
+## 0.11.0-beta.3.vorteo.468 - 2026-10-13
+
+### Appearance
+
+- Bring mobile task checkboxes and queue attachment tiles 10px closer to their drag handles. Share the leading group and handle geometry, preserve heading centerlines and full-height controls, and cover both rows in the production browser layout check.
+
+## 0.11.0-beta.3.vorteo.467 - 2026-10-13
+
+### Appearance
+
+- Remove the visible loading caption and give the thin ring a bright leading edge with a fading radar sweep. Keep the stationary V, accessible loading label, reduced motion and delayed recovery help.
+
+## 0.11.0-beta.3.vorteo.466 - 2026-10-13
+
+### Appearance
+
+- Add 4px of clearance below the left sidebar toolbar buttons, moving the divider down without moving the controls.
+
+## 0.11.0-beta.3.vorteo.465 - 2026-10-13
+
+### Appearance
+
+- Tighten the Files sorting toolbar around its existing controls and reduce the file list top inset to 2px.
+
+## 0.11.0-beta.3.vorteo.464 - 2026-10-13
+
+### Validation
+
+- Check alignment of visible heading elements while allowing labels and chevrons to disappear in compact disclosures. Desktop and phone card interactions, narrow expansion and restored spacing pass.
+
+## 0.11.0-beta.3.vorteo.463 - 2026-10-13
+
+### Appearance
+
+- Restore the 8px gap between details cards. Shared disclosure headings hide labels and chevrons when space is tight, and retain trailing chips only when they fit beside the icon.
+- Check narrow heading expansion, overlap and restoration while resizing the actual sidebar.
+
+## 0.11.0-beta.3.vorteo.462 - 2026-10-13
+
+### Appearance
+
+- Give the early app loading screen a 160px hairline ring around the white Vorteo silhouette. Embed the mark so it appears before assets load, preserve delayed recovery help, and stop rotation for reduced motion.
+
+## 0.11.0-beta.3.vorteo.461 - 2026-10-13
+
+### Appearance
+
+- Thin shared small loading spinners to a 1px stroke, including the coordinator update row, while preserving their size and animation.
+
+## 0.11.0-beta.3.vorteo.460 - 2026-10-13
+
+### Appearance
+
+- Share row layout across task, queue and inline subagent cards. Give subagent and bulk-action icons a fixed leading column aligned with the heading, with consistent spacing before their labels.
+- Check subagent icon centerlines and label clearance in desktop and phone browser layouts.
+
+## 0.11.0-beta.3.vorteo.459 - 2026-10-13
+
+### Validation
+
+- Measure actual sidebar toolbar controls when checking adjacent targets; exclude hidden menu triggers.
+
+## 0.11.0-beta.3.vorteo.458 - 2026-10-13
+
+### Appearance
+
+- Place adjacent sidebar toolbar buttons edge to edge within each group, retaining the flexible space between the left and right groups.
+
+## 0.11.0-beta.3.vorteo.457 - 2026-10-13
+
+### Appearance
+
+- Keep truncated-text tooltip anchors passive so clicks reach their parent row. Verify subagent navigation as well as tooltip dismissal.
+
+## 0.11.0-beta.3.vorteo.456 - 2026-10-13
+
+### Appearance
+
+- Reveal truncated task titles, queued messages, subagent labels and metadata, card headings and file/folder names in non-interactive hover tooltips. Include available task context and preserve row actions and touch behavior.
+
+## 0.11.0-beta.3.vorteo.455 - 2026-10-13
+
+### Appearance
+
+- Use the four-task flower’s narrow petals and center gap for three-task flowers.
+
+## 0.11.0-beta.3.vorteo.454 - 2026-10-13
+
+### Appearance
+
+- Keep Queue status before its count so every heading chip occupies the trailing edge of the disclosure.
+- Update journal inset checks for the shared 44px geometry and wait for the visible goal notice before measuring it during viewport changes.
+
+## 0.11.0-beta.3.vorteo.453 - 2026-10-13
+
+### Appearance
+
+- Align static question-card heading icons with the shared 44px heading centerline.
+- Update the design guide to document fixed control heights, right-aligned heading chips and fully rounded hover corners.
+
+## 0.11.0-beta.3.vorteo.452 - 2026-10-13
+
+### Appearance
+
+- Give sidebar card heading buttons a fixed 44px height and the containing card's 16px radius on all four corners, whether expanded or collapsed.
+- Align count chips at the right inside each heading's hover target. Show goal elapsed time in the same chip on desktop and mobile.
+- Preserve the shared icon centerline for sidebar projects, journal markers and row handles; validate heading geometry and chip alignment in browser checks.
+
+## 0.11.0-beta.3.vorteo.451 - 2026-10-13
+
+### Appearance
+
+- Keep expanded General settings details, coordinator history, shared workflows and restart history inside shaded regions beneath their parent. Remove internal section dividers and use a second shade for nested details.
+- Keep linked historical restart requests inside expanded history while preserving their focus and approval boundaries. Add desktop and phone hierarchy checks.
+
+## 0.11.0-beta.3.vorteo.450 - 2026-10-13
+
+### Appearance
+
+- Remove extra vertical padding around queue row actions. Keep sidebar action tooltips hover-only so touch opens menus directly.
+- Update browser checks for the tighter body clearance and verify project and workspace menu tooltips alongside sidebar alignment, hover feedback and Settings placement.
+
+## 0.11.0-beta.3.vorteo.449 - 2026-10-13
+
+### Appearance
+
+- Equalize card heading insets at 2px, 3px and 4px, reduce heading-to-content and card gaps, and remove extra subagent row padding without shrinking touch targets.
+- Give sidebar toolbar controls matching sizes, align their first icon with project icons, and detach toolbar height from central tabs. Restore overflow and New workspace hover feedback, add row menu tooltips, and omit duplicate Settings entries and empty menu groups.
+
+## 0.11.0-beta.3.vorteo.448 - 2026-10-13
+
+### Tests
+
+- Supply the shared button opacity token in the script-toolbar test theme so the direct ghost control runs through the real button component.
+
+## 0.11.0-beta.3.vorteo.447 - 2026-10-13
+
+### Appearance
+
+- Keep workspace tabs at the Latest control's 44px height and pill radius. Use borderless run controls with hover feedback, and align the upper-right toolbar's top and right insets. Tab centers continue to follow sidebar spacing without stretching the buttons.
+
+## 0.11.0-beta.3.vorteo.446 - 2026-10-13
+
+### Security
+
+- Update node-forge to 1.4.0 with a scoped EAS override. Disposable certificate tests verify Expo signing against Node's verifier and EAS archive reading, including incorrect-password rejection. One upstream signature-verification advisory remains unresolved; this is not a complete certificate-security repair. Installed applications and services remain unchanged.
+
+## 0.11.0-beta.3.vorteo.445 - 2026-10-13
+
+### Security
+
+- Scope xmldom 0.8.15 to the older Expo property-list package. Validate EAS file reading and writing, synthetic provisioning metadata, malformed input rejection and identifier matching without network requests or credentials. The override removes the remaining older XML parser copy; installed applications and services remain unchanged.
+
+## 0.11.0-beta.3.vorteo.444 - 2026-10-13
+
+### Security
+
+- Update eight compatible XML parser copies to xmldom 0.8.15. Property-list round trips preserve values and escaping; parser checks reject the CDATA markup injection reproduced in the old dependency. The older Expo property-list parser remains under review. These source updates do not change installed applications or services.
+
+## 0.11.0-beta.3.vorteo.443 - 2026-10-13
+
+### Fixes
+
+- Preserve logging when optional pretty formatting rejects an entry. Write the already-serialized, redacted JSON as a fallback and continue formatting subsequent messages. Regression checks cover stdout and file destinations, retained entries and authorization redaction. JSON defaults are unchanged; installed daemon delivery remains pending.
+
+## 0.11.0-beta.3.vorteo.442 - 2026-10-13
+
+### Security
+
+- Refresh fast-copy to 4.1.2 for the optional pretty-log formatter. Nested values retain copy isolation; excessive depth produces the library's explicit limit error instead of stack exhaustion. Existing logger configuration and redaction tests pass. This does not add recovery from rejected log entries or update the installed daemon.
+
+## 0.11.0-beta.3.vorteo.441 - 2026-10-13
+
+### Security
+
+- Add a local Braces 3.0.3 patch that bounds parser nesting and recursive syntax-tree traversal. Excessively nested patterns now fail with a deliberate syntax error before exhausting the stack. Normal ranges, alternatives, escaping, quotes and file discovery pass regression checks. The standard postinstall workflow reapplies the patch; version-based audits still report the upstream dependency. Installed services are unchanged.
+
+## 0.11.0-beta.3.vorteo.440 - 2026-10-13
+
+### Security
+
+- Scope minimatch 5.1.9 to EAS while upstream retains its older exact pin. Provisioning-profile identifier validation preserves exact and wildcard matches and rejects mismatches. A bounded worker reproduces the old matcher stall and verifies the updated matcher returns; its brace-expansion dependency also passes allocation-limit checks. No installed services or credentials are changed.
+
+## 0.11.0-beta.3.vorteo.439 - 2026-10-13
+
+### Security
+
+- Refresh compatible file-pattern dependencies. Focused checks cover inherited POSIX class names, bounded brace expansion, file discovery, exclusions and hidden files. EAS's pinned matcher and the separate Braces dependency remain under review. These source changes do not update installed services.
+
+## 0.11.0-beta.3.vorteo.438 - 2026-10-13
+
+### Security
+
+- Refresh compatible js-yaml, smol-toml and compression dependencies. Bounded checks cover YAML merge budgets, desktop update metadata parsing, Knip's TOML loader and native compression cleanup after a client disconnect. The old compression version fails the cleanup regression. Source preparation does not update the installed desktop application or development services.
+
+## 0.11.0-beta.3.vorteo.437 - 2026-10-13
+
+### Security
+
+- Scope patched Undici 7.30.0 and Sharp 0.35.5 to Miniflare while its upstream releases retain affected pins. Validate all three Miniflare consumers through local requests, PNG inspection and resizing, SVG conversion and malformed metadata rejection. Website production build and invalid WebSocket handshake regression pass; other operating systems and installation remain unverified.
+
+## 0.11.0-beta.3.vorteo.436 - 2026-10-13
+
+### Security
+
+- Refresh Expo's compatible Undici dependency and wait-on's Axios dependency. A bounded worker regression reproduces the old invalid WebSocket handshake crash and verifies safe rejection after the update; normal JSON and readiness checks pass. Miniflare's separately pinned clients remain under review. No installed service is updated.
+
+## 0.11.0-beta.3.vorteo.435 - 2026-10-13
+
+### Fixes
+
+- Keep diagram controls visible on touch and compact layouts with 44-pixel targets. Empty toolbar overlays no longer intercept canvas input. Add a real-browser touch regression for fullscreen opening and closing without hover.
+
+## 0.11.0-beta.3.vorteo.434 - 2026-10-13
+
+### Maintenance
+
+- Reconcile the tested security candidate with the installed repair-notification fix, preserving both histories. Prepare compatible Markdown and diagram runtime changes for static publication; desktop and server fixes still require their separate supported installation workflows.
+
+## 0.11.0-beta.3.vorteo.433 - 2026-10-13
+
+### Security
+
+- Update the compatible fast-uri dependency to 3.1.8. Tests flag ambiguous authorities and preserve local schema references and validation. Reviewed schema consumers use synchronous compilation without remote loaders; no application SSRF path was established. Installation remains pending.
+
+## 0.11.0-beta.3.vorteo.432 - 2026-10-13
+
+### Security
+
+- Refresh compatible Express, body-parser and qs dependencies. Loopback checks preserve normal JSON requests, reject malformed and oversized bodies, and fail closed on an invalid configured limit. Query checks cover prototype keys and nullable comma arrays. No daemon was started or updated.
+
+## 0.11.0-beta.3.vorteo.431 - 2026-10-13
+
+### Security
+
+- Pin the server and Nova bridge MCP SDK to 1.32.1, which includes the OAuth authorization-server validation fix. Recheck the internal schema helpers and run MCP server, bridge and tool regressions. No current application OAuth-provider configuration was found; installation remains pending.
+
+## 0.11.0-beta.3.vorteo.430 - 2026-10-13
+
+### Security
+
+- Update DOMPurify to 3.4.17 and regenerate the embedded Mermaid runtime so diagrams use the updated sanitizer. Diagram policy, sizing, streaming and iframe checks pass. No application use of the advisories' in-place sanitization mode was established; installation remains pending.
+
+## 0.11.0-beta.3.vorteo.429 - 2026-10-13
+
+### Security
+
+- Update chat search and the default Markdown renderer to markdown-it 14.3.2 and linkify-it 5.0.2, matching the main message renderer. Search, parser and browser checks preserve formatting and reject active markup. Installation and the broader security review remain open.
+
+## 0.11.0-beta.3.vorteo.428 - 2026-10-13
+
+### Security
+
+- Scope EAS CLI's tar dependency to 7.5.22 and preserve its upload helper's CommonJS interop through the existing postinstall patch workflow. Test the actual archive creation and JavaScript extraction helpers with synthetic files and a stubbed upload transport. All tar consumers now resolve the patched version; deployment and broader security review remain open.
+
+## 0.11.0-beta.3.vorteo.427 - 2026-10-13
+
+### Security
+
+- Override only oxfmt's Tinypool dependency to 2.1.2, preserving the existing formatter version. A bounded worker test reproduces inherited filename selection before the update and rejects it afterward. TypeScript, Markdown, YAML, JSON and HTML formatting samples remain byte-identical.
+
+## 0.11.0-beta.3.vorteo.426 - 2026-10-13
+
+### Security
+
+- Require Vitest and its browser/UI companions at 4.1.11 or later within version 4. Keep usage-test screenshots inside the project because the patched browser runner now enforces file-access restrictions. Existing security-related unit tests and desktop/phone Chromium usage checks pass; this is development tooling and does not change the installed interface.
+
+## 0.11.0-beta.3.vorteo.425 - 2026-10-13
+
+### Security
+
+- Update electron-builder to 26.15.3 and resolve electron-updater to 6.8.9 with builder-util-runtime 9.7.0. Verify sensitive headers are removed across redirect origin changes while same-origin authentication remains intact. Desktop updater tests, compilation and an unsigned disposable packaging check pass; application installation and signed release validation remain separate.
+
+## 0.11.0-beta.3.vorteo.424 - 2026-10-13
+
+### Security
+
+- Backport image parser progress guards for Metro's image-size dependency through the existing postinstall patch workflow. Both Metro copies reject malformed ICNS, JXL and HEIF data disguised as PNG files, with ordinary image dimensions preserved. The bounded baseline reproduces an ICNS stall; this build-tool fix is prepared source and does not update the installed app.
+
+## 0.11.0-beta.3.vorteo.423 - 2026-10-13
+
+### Security
+
+- Update the compatible Concurrently dependency to 9.2.5, shell-quote to 1.12.0 and six tooling tar dependencies to 7.5.22. Add bounded argument-quoting and archive-extraction checks through their actual consumers. EAS CLI's separate tar dependency remains affected; this preparation does not update the installed application.
+
+## 0.11.0-beta.3.vorteo.421 - 2026-10-13
+
+### Security
+
+- Resolve Seroval to 1.6.9 and proxy-addr to 2.0.8 without changing unrelated dependencies. Add bounded regressions for malformed typed-array deserialization and IPv4 trust under short mapped IPv6 subnets, alongside valid serialization and proxy configuration checks. The website production build and focused server/website tests pass; deployment remains separate from source preparation.
+
+## 0.11.0-beta.3.vorteo.420 - 2026-10-13
+
+### Security
+
+- Prompt embedded desktop sites for camera, microphone, location and notification access, with an optional remembered Allow or Block choice. Isolate choices by permission and site context; discard responses after navigation or reset. Add a Settings reset control that retains sign-ins, atomic local persistence and unit and real Electron coverage using synthetic media devices. Desktop delivery remains pending; the installed web interface is unchanged.
+
+## 0.11.0-beta.3.vorteo.419 - 2026-10-13
+
+### Security
+
+- Validate every desktop command sender against the registered application window, its main frame and current document authority before invoking handlers. Keep embedded-browser keyboard messages on their existing registered-guest boundary. Add unit and real Electron checks for rejected senders without command side effects; desktop delivery remains pending.
+
+## 0.11.0-beta.3.vorteo.418 - 2026-10-13
+
+### Security
+
+- Restrict desktop application navigation and redirects to the application authority, and deny new windows from the privileged renderer. External links continue through the validated opener; embedded browser tabs retain their separate navigation policy. Add URL-policy tests and a disposable Electron regression. Desktop installation remains pending its supported delivery workflow.
+
+## 0.11.0-beta.3.vorteo.417 - 2026-10-13
+
+### Security
+
+- Raise direct WebSocket dependency requirements to the patched release line and resolve the shared transport to ws 8.22.0. Add a bounded loopback regression for excessive fragments and ordinary fragmented messages. Host and desktop installation remains subject to the tracked lifecycle workflow; static interface publication does not update their transports.
+
+## 0.11.0-beta.3.vorteo.417 - 2026-10-13
+
+### Fixed
+
+- Keep source updates awaiting agent repair or preparation out of maintenance notifications. Preserve their status and cancellation in Installation controls, and notify when an update becomes ready for approval.
+
+## 0.11.0-beta.3.vorteo.416 - 2026-10-13
+
+### Changed
+
+- Reuse assistant Markdown parser rules across virtualized message rows, avoiding repeated linkifier compilation during scrolling. Keep completed and streaming parsers separate, with document references isolated between parses.
+
+## 0.11.0-beta.3.vorteo.415 - 2026-10-13
+
+### Maintenance
+
+- Measure the bottom edge of a loaded image that shrinks across the timeline reading line. Keep detecting actual text jumps in either direction instead of reporting preserved text as a scroll failure.
+
+## 0.11.0-beta.3.vorteo.414 - 2026-10-13
+
+### Fixed
+
+- Reserve host-route sidebar space while saved hosts load, preventing the desktop content column from jumping sideways during startup. Preserve unknown-host redirects and mobile navigation.
+
+### Maintenance
+
+- Cover cold and warm startup column stability at desktop, tablet and phone widths. Verify saved hosts through Connections settings instead of the removed sidebar host picker.
+
+## 0.11.0-beta.3.vorteo.413 - 2026-10-13
+
+### Fixed
+
+- Prepare scrolled diff text without repeatedly rebuilding the React interface. Retain interactive headers, review controls and bounded canvas rendering.
+
+## 0.11.0-beta.3.vorteo.412 - 2026-10-12
+
+### Maintenance
+
+- Integrate the stopped-thread queue, image download and fallback icon changes with the final question-card test correction. Preserve the published usage message and all v410 behavior.
+
+## 0.11.0-beta.3.vorteo.411 - 2026-10-12
+
+### Fixed
+
+- Allow Command-to-queue and the compact Queue button while a thread is stopped, without starting it. Ordinary Send still resumes the thread.
+- Add a compact image Download button with pending feedback and persistent failure messages. Preserve Markdown copy controls.
+- Replace the four fallback browser icons with Vorteo artwork through an exact-byte migration. Retain previous icons for rollback and preserve versioned assets and open-client chunks.
+
+### Maintenance
+
+- Keep fixed-header scrolling checks limited to bounded cards; question cards are validated through page scrolling and answer submission instead.
+
+## 0.11.0-beta.3.vorteo.410 - 2026-10-12
+
+### Fixed
+
+- Show "Usage not provided" for setup-token connections without quota information while preserving authentication rejection and ordinary usage failure messages.
+
+### Maintenance
+
+- Verify oversized question cards scroll with the conversation and retain answer navigation and submission at desktop and mobile widths.
+
+## 0.11.0-beta.3.vorteo.409 - 2026-10-12
+
+### Fixed
+
+- Question cards grow with their contents and scroll with the conversation on all viewport widths, instead of trapping answers inside a nested scrolling body.
+
+## 0.11.0-beta.3.vorteo.408 - 2026-10-12
+
+### Maintenance
+
+- Update card browser checks for restrained vertical header spacing and the existing width-dependent row insets. The production checks pass without changing runtime behavior.
+
+## 0.11.0-beta.3.vorteo.407 - 2026-10-12
+
+### Fixed
+
+- Use the shared card action size for queued-message menus so their centers align with the heading controls and adjacent row actions.
+
+## 0.11.0-beta.3.vorteo.406 - 2026-10-12
+
+### Maintenance
+
+- Match the journal timestamp assertion to the larger desktop heading icon column. Runtime behavior is unchanged.
+
+## 0.11.0-beta.3.vorteo.405 - 2026-10-12
+
+### Fixed
+
+- Persist explicit tag-color intent even when the chosen hue matches the legacy default. Add a reload regression and update browser geometry assertions for 40px controls.
+
+## 0.11.0-beta.3.vorteo.404 - 2026-10-12
+
+### Changed
+
+- Use neutral sidebar tags, diff counts and completed task petals. Place text badges before trailing icons and mute automatically managed workspaces and secondary metadata.
+- Restore 40px desktop card and sidebar toolbar controls. Keep header vertical insets at 2px, 3px and 4px while horizontal spacing retains its three tiers and shared animation.
+- Prepare explicit tag-color persistence with a Host capability flag. Legacy catalogs display neutral without rewriting their stored colors; choosing custom colors requires the updated Host.
+
+## 0.11.0-beta.3.vorteo.403 - 2026-10-12
+
+### Fixed
+
+- Keep modal actions in a fixed footer while long forms scroll independently. Task, goal, account, host, plugin, skill and settings dialogs retain visible bottom actions at short desktop and compact viewport heights.
+- Prevent modal headers and footers from shrinking, preserve safe-area clearance, and avoid doubled action-row padding. Add browser checks for visible, clickable Save controls before and after scrolling a long task form.
+
+## 0.11.0-beta.3.vorteo.402 - 2026-10-12
+
+### Maintenance
+
+- Update plan-card browser checks to open the supporting sidebar after desktop resizing, target the visible card, and include shared header insets. Preserve failure screenshots before fixture cleanup.
+
+## 0.11.0-beta.3.vorteo.401 - 2026-10-12
+
+### Security
+
+- Update the application's Markdown parser and Mermaid renderer to patched releases, and regenerate the embedded diagram runtime. Existing HTML, resource and unsafe-link restrictions remain in place.
+- Reference-link destinations follow current Markdown syntax: wrap paths containing spaces in angle brackets. Invalid unbracketed definitions remain visible as text.
+
+## 0.11.0-beta.3.vorteo.400 - 2026-10-12
+
+### Maintenance
+
+- Open Files and Changes through their supporting cards in browser checks, and measure review editor latency through the desktop comment action.
+
+## 0.11.0-beta.3.vorteo.399 - 2026-10-12
+
+### Maintenance
+
+- Align Starship browser assertions with the existing selected-row palette. Theme, terminal and contributed-theme checks pass without changing interface colors.
+
+## 0.11.0-beta.3.vorteo.398 - 2026-10-12
+
+### Changed
+
+- Skip unchanged typography updates during theme previews and switching, avoiding repeated stylesheet rebuilds while retaining custom settings and contributed theme replacements.
+- Measure terminal throughput only after completed output reaches the terminal, and report cache writes by record type for performance diagnosis.
+
+## 0.11.0-beta.3.vorteo.397 - 2026-10-12
+
+### Fixed
+
+- Restore shared styles when a pending view attaches after its CSS rule was released, preventing labels from falling back to black. Preserve theme subscriptions and normal rule cleanup across the interface.
+
+## 0.11.0-beta.3.vorteo.396 - 2026-10-12
+
+### Fixed
+
+- Apply the larger target and single-script management controls to the shared split-pane toolbar menu.
+
+## 0.11.0-beta.3.vorteo.395 - 2026-10-12
+
+### Changed
+
+- Enlarge workspace menu and explorer hit targets and make the single-script toolbar button act directly; retain script management in the workspace menu.
+
+## 0.11.0-beta.3.vorteo.394 - 2026-10-12
+
+### Changed
+
+- Increase shared screen headings, including Schedules and History, from the base to the extra-large type size.
+
+## 0.11.0-beta.3.vorteo.393 - 2026-10-12
+
+### Changed
+
+- Add mobile menu page insets and soften internal card, sidebar and menu rules across all themes while preserving outer borders.
+
+## 0.11.0-beta.3.vorteo.392 - 2026-10-12
+
+### Tests
+
+- Include the inline Files card when validating mobile card spacing.
+
+## 0.11.0-beta.3.vorteo.391 - 2026-10-12
+
+### Changed
+
+- Keep the goal queue-priority notice beneath the heading while the objective scrolls, with the conditional divider below the notice. Remove the waiting-for-messages heading suffix.
+
+## 0.11.0-beta.3.vorteo.390 - 2026-10-12
+
+### Fixed
+
+- Keep narrow composer Queue controls above the text input hit area; preserve fixed Queue and Send click actions and highlight Queue while Command is held. Command+Enter queues in narrow web layouts.
+
+## 0.11.0-beta.3.vorteo.389 - 2026-10-12
+
+### Changed
+
+- Simplify the mobile workspace toolbar to navigation and workspace menus, move script controls into the menu, and show Files inline before Queue.
+
+## 0.11.0-beta.3.vorteo.388 - 2026-10-12
+
+### Fixed
+
+- Align the desktop message card with the sidebar bottom edges using the shared outer inset.
+
+## 0.11.0-beta.3.vorteo.387 - 2026-10-12
+
+### Changed
+
+- Move Host connection and sidebar sync notices into a neutral, clickable sidebar footer tile, including the compact rail and mobile overlay.
+
+## 0.11.0-beta.3.vorteo.386 - 2026-10-12
+
+### Fixed
+
+- Hide count chips for empty cards, including Journal, while retaining progress chips for nonempty task lists.
+
+## 0.11.0-beta.3.vorteo.385 - 2026-10-12
+
+### Fixed
+
+- Apply the trailing workspace inset through the shared desktop and touch row-density styles.
+
+## 0.11.0-beta.3.vorteo.384 - 2026-10-12
+
+### Fixed
+
+- Balance sidebar trailing controls by moving the top menu six pixels right and workspace indicators two pixels left.
+
+## 0.11.0-beta.3.vorteo.383 - 2026-10-12
+
+### Fixed
+
+- Match card title and toolbar hover radii to the outer 16px card radius while keeping joined expanded edges square.
+
+## 0.11.0-beta.3.vorteo.382 - 2026-10-12
+
+### Fixed
+
+- Synchronize workspace tab heights and toolbar centerlines with the left sidebar spacing animation across all three padding tiers.
+
+## 0.11.0-beta.3.vorteo.381 - 2026-10-12
+
+### Changed
+
+- Snap the left sidebar to its compact rail at 160px instead of 96px while dragging.
+
+## 0.11.0-beta.3.vorteo.380 - 2026-10-12
+
+### Fixed
+
+- Keep queued-message status indicators on the same centerline as their drag handles.
+
+## 0.11.0-beta.3.vorteo.379 - 2026-10-12
+
+### Fixed
+
+- Align task and queue grab handles and journal timelines beneath their heading icons across card spacing levels.
+
+## 0.11.0-beta.3.vorteo.378 - 2026-10-12
+
+### Tests
+
+- Check the retained top-corner radius and squared lower corners, with enough visible Files content to validate the single scroll divider.
+
+## 0.11.0-beta.3.vorteo.377 - 2026-10-12
+
+### Fixed
+
+- Square expanded card title hover backgrounds along their lower edge, retaining both top corners when the title fills the header.
+- Show one scroll-dependent separator below supporting pane controls instead of adding a second rule below the card title.
+
+## 0.11.0-beta.3.vorteo.376 - 2026-10-12
+
+### Fixed
+
+- Extend sidebar toolbar and footer separators through interior padding so rules meet the card border.
+
+## 0.11.0-beta.3.vorteo.375 - 2026-10-12
+
+### Changed
+
+- Make the entire sidebar maintenance footer open its review page, freeing space previously occupied by the separate review button.
+
+## 0.11.0-beta.3.vorteo.374 - 2026-10-12
+
+### Tests
+
+- Validate goal header spacing against the three fixed padding levels, including the new compact inset.
+
+## 0.11.0-beta.3.vorteo.373 - 2026-10-12
+
+### Changed
+
+- Give compact sidebar cards a little more interior space while preserving medium and spacious padding.
+
+## 0.11.0-beta.3.vorteo.372 - 2026-10-12
+
+### Changed
+
+- Use three shared interior spacing levels for sidebars and inline cards, with smooth transitions that settle exactly at compact, medium or spacious padding. Reduced-motion mode switches immediately.
+
+## 0.11.0-beta.3.vorteo.371 - 2026-10-12
+
+### Changed
+
+- Keep the divider beneath the left sidebar toolbar visible at every scroll position. Supporting cards retain their scroll-dependent dividers.
+
+## 0.11.0-beta.3.vorteo.370 - 2026-10-12
+
+### Changed
+
+- Match the pre-launch loading ring to the thinner small indicators used inside the application.
+
+## 0.11.0-beta.3.vorteo.369 - 2026-10-12
+
+### Changed
+
+- Refine loading indicators throughout Vorteo with lighter strokes and larger, thin-ring page loaders. Small status and queue rings keep their existing footprints; profile and project loading indicators share the same treatment.
+
+## 0.11.0-beta.3.vorteo.368 - 2026-10-12
+
+### Changed
+
+- Toggle directly between the normal sidebar and compact icon rail, retaining fluid drag sizing and snapping. Ignore the retired intermediate-width preference. Mobile-width windows keep the existing toolbar button and full overlay menu regardless of input device.
+
+## 0.11.0-beta.3.vorteo.367 - 2026-10-12
+
+### Fixed
+
+- Remove the extra fixed inset from left-sidebar project and status lists. Compact highlights reach the panel edges, and both sidebars use the same width-based spacing.
+
+## 0.11.0-beta.3.vorteo.366 - 2026-10-12
+
+### Changed
+
+- Order the collapsed sidebar as expand, search, schedules, history and project tiles. Keep only its overflow menu at the bottom, with Settings and Add project inside.
+
+## 0.11.0-beta.3.vorteo.365 - 2026-10-12
+
+### Changed
+
+- Let the left sidebar resize into a narrower icon rail and snap near its minimum. Reduce secondary row metadata as the sidebar narrows.
+- Keep compact navigation available, group sidebar actions and appearance controls, and increase shared menu row spacing.
+- Add interactive project workspace previews, missing rail tooltips and a reduced-motion-aware blur during theme transitions.
+
+## 0.11.0-beta.3.vorteo.364 - 2026-10-12
+
+### Changed
+
+- Tighten New workspace chooser gaps, match card corners to the composer, and increase both surfaces' height. Show environment, account and profile options in single rows.
+
+## 0.11.0-beta.3.vorteo.363 - 2026-10-12
+
+### Changed
+
+- Move workspace rows' trailing icons four pixels right in both project and status sidebar groupings.
+
+## 0.11.0-beta.3.vorteo.362 - 2026-10-12
+
+### Removed
+
+- Remove focus mode, its keyboard shortcut and command-menu entries. Discard legacy focus-mode preferences while preserving sidebar and card settings.
+
+## 0.11.0-beta.3.vorteo.361 - 2026-10-12
+
+### Changed
+
+- Move workspace environment context from the upper-right toolbar into the first position on each tab tooltip’s second line, before agent ID and activity.
+
+## 0.11.0-beta.3.vorteo.360 - 2026-10-12
+
+### Fixed
+
+- Keep floating tab borders visible beneath close-button hover shading and move the close icon slightly inward.
+
+## 0.11.0-beta.3.vorteo.359 - 2026-10-12
+
+### Changed
+
+- Square the top-right and bottom-left corners of expanded card toggle highlights throughout Vorteo; restore rounded corners when folded.
+
+## 0.11.0-beta.3.vorteo.358 - 2026-10-12
+
+### Maintenance
+
+- Preserve the installed Host release ancestry while delivering the accumulated interface updates.
+
+## 0.11.0-beta.3.vorteo.357 - 2026-10-12
+
+### Changed
+
+- Share the upper workspace toolbar across central content and right-hand cards. Keep the vertical menu leftmost and explorer toggle rightmost, and reserve tab-row space when controls extend left of a narrow card column. Constrained middle controls scroll without displacing the edge controls.
+
+## 0.11.0-beta.3.vorteo.356 - 2026-10-12
+
+### Changed
+
+- Give compact sidebar maintenance notices more interior padding and space after the spinner while retaining their two-line layout.
+
+## 0.11.0-beta.3.vorteo.355 - 2026-10-12
+
+### Changed
+
+- Remember separate device-local open and closed card states for the right-hand stack and inline primary-content layout. Resizing restores the destination layout's choices across workspaces and reloads; existing saved choices seed both layouts once on upgrade.
+
+## 0.11.0-beta.3.vorteo.354 - 2026-10-12
+
+### Changed
+
+- Use Dark Star typography across all six built-in Vorteo themes, including theme previews and font defaults. Preserve each palette, explicit font overrides and monospace code. Freed and Vorton are unchanged.
+
+## 0.11.0-beta.3.vorteo.353 - 2026-10-12
+
+### Changed
+
+- Show a matching border below sidebar and supporting-card headers only while their contents are scrolled away from the top. Divider visibility does not change layout or button positions.
+- Track nested file and diff scrolling as well as standard card lists, preserving collapsed card behavior.
+
+## 0.11.0-beta.3.vorteo.352 - 2026-10-12
+
+### Changed
+
+- Adapt both sidebar interiors and supporting card headers to available panel width. Spacious cards gain matching button clearance and body padding; narrow cards stay compact and preserve touch targets.
+- Apply the same spacing to cards displayed in the central column, retaining each hidden panel's last measured spacing during workspace changes.
+
+### Fixed
+
+- Reclaim the empty touch menu slot at the trailing edge of workspace rows when their menu is hidden.
+- Keep the web app shell within the visible keyboard viewport so workspace navigation remains accessible while composing. Release the adjustment for blur and pinch zoom.
+
+## 0.11.0-beta.3.vorteo.351 - 2026-10-12
+
+### Changed
+
+- Double the welcome screen's Matrix rain speed while preserving its subtle contrast and stationary characters.
+- Hide update, Host, sync and maintenance notices throughout welcome and connection setup. Operational screens retain their notices.
+
+## 0.11.0-beta.3.vorteo.350 - 2026-10-12
+
+### Fixed
+
+- Make journal star and circle marker frames transparent, with timeline segments ending at each marker instead of showing through it.
+- Lift Starship light's shared sidebar and card surface above the page background for clearer separation. Other theme palettes remain unchanged.
+
 ## 0.11.0-beta.3.vorteo.350 - 2026-10-12
 
 ### Maintenance

@@ -5,16 +5,24 @@ import { page } from "vitest/browser";
 import type {
   CoordinatorBootstrapRequest,
   CoordinatorBootstrapDecision,
+  BootstrapClaimedRecoveryRequestView,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
+import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
 import { BootstrapPanelModel } from "./bootstrap-model";
-import { BootstrapReview, PreclaimRecoveryReview } from "./bootstrap-panel";
+import { BootstrapReview, PreclaimRecoveryReview, ClaimedRecoveryReview } from "./bootstrap-panel";
 
 vi.mock("expo-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/runtime/host-runtime", () => ({
   getHostRuntimeStore: () => ({ getClient: () => null }),
 }));
-vi.mock("./policy", () => ({ readExecutionInstallation: () => null }));
+const repairInstallation = vi.hoisted(() => ({ enabled: false }));
+vi.mock("./policy", () => ({
+  readExecutionInstallation: () =>
+    repairInstallation.enabled
+      ? { installationId: "22222222-2222-4222-8222-222222222222", origin: window.location.origin }
+      : null,
+}));
 
 // Match the existing monitor review fixture: the shared Unistyles stub omits this native constant.
 vi.mock("react-native-unistyles", async (original) => {
@@ -287,66 +295,282 @@ test.each([1280, 390])(
   },
 );
 
-test("coordinator review separates history and counts active waiting without dispatch", async () => {
-  vi.stubGlobal("React", React);
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  await page.viewport(390, 1000);
-  const active = {
-    ...requestFixture(),
-    status: "approved" as const,
-    decisionAt: new Date(Date.now() - 65000).toISOString(),
-  };
-  const completed = {
-    ...requestFixture(),
-    id: "00000000-0000-4000-8000-000000000004",
-    execution: {
-      generation: "00000000-0000-4000-8000-000000000005",
-      stage: "succeeded" as const,
-      updatedAt: new Date().toISOString(),
-    },
-  };
-  const canceled = {
-    ...requestFixture(),
-    id: "00000000-0000-4000-8000-000000000006",
-    status: "canceled" as const,
-  };
-  const decide = vi.fn();
-  const model = new BootstrapPanelModel(() => ({
-    listCoordinatorBootstrapRequests: async () => [completed, active, canceled],
-    decideCoordinatorBootstrap: decide,
-  }));
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  try {
-    await act(() => model.refresh());
-    act(() => root.render(<BootstrapReview model={model} />));
-    expect(container.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')).toHaveLength(
-      1,
-    );
-    expect(page.getByTestId("coordinator-elapsed").element().textContent).toContain(
-      "Awaiting dispatch: 0h 1m",
-    );
-    const elapsed = page.getByTestId("coordinator-elapsed").element().textContent;
-    await expect
-      .poll(() => page.getByTestId("coordinator-elapsed").element().textContent)
-      .not.toBe(elapsed);
-    await act(async () => {
-      await page.getByRole("button", { name: "Show coordinator history (2)" }).click();
+test.each([390, 1280])(
+  "coordinator history stays nested without dispatch at %ipx",
+  async (width) => {
+    vi.stubGlobal("React", React);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    await page.viewport(width, 1000);
+    const active = {
+      ...requestFixture(),
+      status: "approved" as const,
+      decisionAt: new Date(Date.now() - 65000).toISOString(),
+    };
+    const completed = {
+      ...requestFixture(),
+      id: "00000000-0000-4000-8000-000000000004",
+      execution: {
+        generation: "00000000-0000-4000-8000-000000000005",
+        stage: "succeeded" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    const canceled = {
+      ...requestFixture(),
+      id: "00000000-0000-4000-8000-000000000006",
+      status: "canceled" as const,
+    };
+    const decide = vi.fn();
+    const model = new BootstrapPanelModel(() => ({
+      listCoordinatorBootstrapRequests: async () => [completed, active, canceled],
+      decideCoordinatorBootstrap: decide,
+    }));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(() => model.refresh());
+      act(() => root.render(<BootstrapReview model={model} />));
+      expect(container.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')).toHaveLength(
+        1,
+      );
+      expect(page.getByTestId("coordinator-elapsed").element().textContent).toContain(
+        "Awaiting dispatch: 0h 1m",
+      );
+      const elapsed = page.getByTestId("coordinator-elapsed").element().textContent;
+      await expect
+        .poll(() => page.getByTestId("coordinator-elapsed").element().textContent, {
+          timeout: 3000,
+        })
+        .not.toBe(elapsed);
+      await act(async () => {
+        await page.getByRole("button", { name: "Show coordinator history (2)" }).click();
+      });
+      expect(container.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')).toHaveLength(
+        3,
+      );
+      expect(container.querySelectorAll('[data-testid="coordinator-elapsed"]')).toHaveLength(1);
+      expect(container.querySelectorAll('[data-testid="bootstrap-cancel"]')).toHaveLength(1);
+      const history = page.getByTestId("coordinator-history-content").element();
+      expect(history.closest('[data-testid="coordinator-bootstrap-review"]')).not.toBeNull();
+      expect(getComputedStyle(history).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+      for (const item of history.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')) {
+        expect(getComputedStyle(item).borderTopWidth).toBe("0px");
+      }
+      expect(decide).not.toHaveBeenCalled();
+      await page.screenshot({
+        path: `../../../../output/playwright/coordinator-history-${width}.png`,
+        fullPage: true,
+      });
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+test.each([1280, 390])(
+  "claimed recovery owner controls preserve exact decisions at %ipx",
+  async (width) => {
+    vi.stubGlobal("React", React);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    await page.viewport(width, 1100);
+    const original = {
+      ...requestFixture(),
+      status: "approved" as const,
+      decisionAt: "2026-10-11T20:01:00.000Z",
+    };
+    const file = original.plan.candidate.configuration;
+    const identity = {
+      ...original.plan.expectedProcess,
+      parentPid: 1,
+      uid: 501,
+      executable: file.path,
+    };
+    let current: BootstrapClaimedRecoveryRequestView = {
+      ...requestFixture(),
+      id: "00000000-0000-4000-8000-000000000004",
+      execution: undefined,
+      dispatch: { state: "no_receipt" },
+      reason: "Recover the exact stalled preparation",
+      plan: {
+        version: 1,
+        operation: "bootstrap-claimed-recovery",
+        original,
+        dispatchApprovalRevision: "00000000-0000-4000-8000-000000000019",
+        retainedObservation: file,
+        executor: { identity, auditToken: [501, 501, 20, 501, 20, identity.pid, 1, 2] },
+        hostProcess: identity,
+        coordinatorProcess: identity,
+        setup: file,
+        ownerLauncher: file,
+        runner: original.plan.candidate,
+        executorEntrypoint: file,
+        selectedLauncher: file,
+        selectedConfiguration: file,
+        executionLock: { path: "/protected/state/lock", device: "1", inode: "2" },
+        signalPolicy: { terminate: "SIGTERM", escalation: "SIGKILL", graceSeconds: 10 },
+      },
+    };
+    const initial = current;
+    const sent: CoordinatorBootstrapDecision[] = [];
+    const model = new BootstrapPanelModel<BootstrapClaimedRecoveryRequestView>(() => ({
+      listCoordinatorBootstrapRequests: async () => [current],
+      decideCoordinatorBootstrap: async (input, password) => {
+        sent.push(input);
+        if (password !== "disposable-owner-proof")
+          throw new Error("fixture authentication refused");
+        current = {
+          ...current,
+          status: input.decision === "approve" ? "approved" : "canceled",
+          revision:
+            input.decision === "approve"
+              ? "00000000-0000-4000-8000-000000000007"
+              : "00000000-0000-4000-8000-000000000008",
+        };
+        return [current];
+      },
+    }));
+    const container = document.createElement("div");
+    container.style.cssText = "max-width:720px;margin:0 auto;padding:16px;box-sizing:border-box";
+    document.body.style.margin = "0";
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(() => model.refresh());
+      act(() => root.render(<ClaimedRecoveryReview model={model} />));
+      expect(sent).toEqual([]);
+      expect(
+        page.getByTestId("bootstrap-recovery-approve").element().getAttribute("aria-disabled"),
+      ).toBe("true");
+      await act(async () => {
+        await page.getByRole("button", { name: "Exact recovery details" }).click();
+      });
+      expect(container.textContent).toContain("This approval includes that escalation");
+      expect(container.textContent).toContain(
+        "Preserve its original approval and recovery history",
+      );
+      expect(container.textContent).not.toContain("Cancel original operation");
+      expect(container.textContent).toContain(initial.planSha256);
+      expect(container.textContent).toContain(initial.plan.executor.identity.startIdentity);
+      const card = container.querySelector<HTMLElement>(
+        `[data-testid="bootstrap-recovery-${initial.id}"]`,
+      )!;
+      expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+      expect(card.getBoundingClientRect().right).toBeLessThanOrEqual(width);
+      await page.screenshot({
+        path: `../../../../output/playwright/claimed-recovery-${width}-review.png`,
+        fullPage: true,
+      });
+      await act(async () => {
+        await page.getByLabelText("Recovery owner password").fill("incorrect");
+        page
+          .getByTestId("bootstrap-recovery-approve")
+          .element()
+          .scrollIntoView({ block: "center" });
+        await page.screenshot({
+          path: `../../../../output/playwright/claimed-recovery-${width}-controls.png`,
+          fullPage: true,
+        });
+        await page.getByTestId("bootstrap-recovery-approve").click();
+      });
+      expect(container.textContent).toContain("Decision unconfirmed");
+      expect(current).toEqual(initial);
+      expect(model.getState().hasPassword).toBe(false);
+      for (const action of ["approve", "cancel"] as const) {
+        const reviewed = current;
+        await act(async () => {
+          await page.getByLabelText("Recovery owner password").fill("disposable-owner-proof");
+          await page.getByTestId(`bootstrap-recovery-${action}`).click();
+        });
+        expect(sent.at(-1)).toEqual({
+          id: reviewed.id,
+          revision: reviewed.revision,
+          planSha256: reviewed.planSha256,
+          decision: action,
+        });
+      }
+      expect(container.textContent).toContain("Canceled");
+      expect(model.getState().hasPassword).toBe(false);
+      expect(container.querySelector('[data-testid="bootstrap-recovery-approve"]')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+test.each([1280, 390])(
+  "repair provisioning remains separate from recovery at %ipx",
+  async (width) => {
+    vi.stubGlobal("React", React);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    repairInstallation.enabled = true;
+    await page.viewport(width, 1100);
+    const sent: unknown[] = [];
+    let admitted = false;
+    const proposal = {
+      admissionSha256: "a".repeat(64),
+      sourceCommit: "b".repeat(40),
+      artifactSha256: "c".repeat(64),
+      originalId: "33333333-3333-4333-8333-333333333333",
+    };
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      if (url.endsWith("/status"))
+        return new Response(
+          JSON.stringify({
+            version: 1,
+            installationId: "22222222-2222-4222-8222-222222222222",
+            available: admitted,
+            requests: admitted ? 1 : 0,
+            ...(!admitted ? { provisioning: proposal } : {}),
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      sent.push(JSON.parse(String(init.body)));
+      expect(init.credentials).toBe("same-origin");
+      expect(init.redirect).toBe("error");
+      admitted = true;
+      return new Response(JSON.stringify({ provisioned: true }), {
+        headers: { "content-type": "application/json" },
+      });
     });
-    expect(container.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')).toHaveLength(
-      3,
-    );
-    expect(container.querySelectorAll('[data-testid="coordinator-elapsed"]')).toHaveLength(1);
-    expect(container.querySelectorAll('[data-testid="bootstrap-cancel"]')).toHaveLength(1);
-    expect(decide).not.toHaveBeenCalled();
-    await page.screenshot({
-      path: "../../../../output/playwright/coordinator-history-phone.png",
-      fullPage: true,
-    });
-  } finally {
-    act(() => root.unmount());
-    container.remove();
-    vi.unstubAllGlobals();
-  }
-});
+    const container = document.createElement("div");
+    container.style.cssText = "max-width:720px;margin:0 auto;padding:16px;box-sizing:border-box";
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<ClaimedRepairProvisioning />));
+      await expect
+        .element(page.getByRole("button", { name: "Enable repair controls" }))
+        .toBeVisible();
+      expect(sent).toEqual([]);
+      expect(
+        page
+          .getByRole("button", { name: "Enable repair controls" })
+          .element()
+          .getAttribute("aria-disabled"),
+      ).toBe("true");
+      await page.getByLabelText("Repair setup owner password").fill("fixture-owner");
+      await page.screenshot({
+        path: `../../../../output/playwright/repair-provision-${width}.png`,
+      });
+      await act(async () => page.getByRole("button", { name: "Enable repair controls" }).click());
+      expect(sent).toEqual([
+        {
+          type: "installation.claimed_repair.provision.request",
+          admissionSha256: proposal.admissionSha256,
+          ownerPassword: "fixture-owner",
+        },
+      ]);
+      await expect.element(page.getByTestId("claimed-repair-provisioning")).not.toBeInTheDocument();
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      repairInstallation.enabled = false;
+      vi.unstubAllGlobals();
+    }
+  },
+);

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  hasMultipleVisiblePanes,
-  resolveSplitContainerRoot,
-  splitNodeContainsPane,
-} from "@/components/split-container-focus";
+import { hasMultipleVisiblePanes, splitNodeContainsPane } from "@/components/split-container-panes";
 import type { SplitNode } from "@/stores/workspace-layout-store";
 
 const pane = (id: string): SplitNode => ({
@@ -24,31 +20,10 @@ const root: SplitNode = {
   },
 };
 
-describe("split focus root", () => {
-  it("renders only the valid focused pane in focus mode", () => {
-    expect(
-      resolveSplitContainerRoot({ root, focusedPaneId: "right", focusModeEnabled: true }),
-    ).toEqual({ root: pane("right"), usesFallbackStrip: false });
-  });
-
-  it("keeps the full tree and reserves the boundary strip when focus is missing", () => {
-    expect(
-      resolveSplitContainerRoot({ root, focusedPaneId: "missing", focusModeEnabled: true }),
-    ).toEqual({ root, usesFallbackStrip: true });
-  });
-
-  it("keeps normal splits unclaimed", () => {
-    expect(
-      resolveSplitContainerRoot({ root, focusedPaneId: "right", focusModeEnabled: false }),
-    ).toEqual({ root, usesFallbackStrip: false });
-  });
-
+describe("split pane geometry", () => {
   it("finds the maximized pane without replacing the rendered split tree", () => {
     expect(splitNodeContainsPane(root, "right")).toBe(true);
     expect(splitNodeContainsPane(root, "missing")).toBe(false);
-    expect(
-      resolveSplitContainerRoot({ root, focusedPaneId: "left", focusModeEnabled: false }),
-    ).toEqual({ root, usesFallbackStrip: false });
   });
 
   it("offers pane maximize only when another pane is visible", () => {

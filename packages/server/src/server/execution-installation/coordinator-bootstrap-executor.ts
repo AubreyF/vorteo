@@ -56,50 +56,58 @@ export async function executeCoordinatorBootstrap(
       stage,
     );
   };
-  return operations.withOwnership(request, async () => {
-    try {
-      await operations.armWatchdog(request);
-      requests.promoteDispatch(request);
-      advance("freeze_pending");
-      await operations.freeze(request);
-      const frozen = await operations.inspectFrozen(request);
-      advance("frozen");
-      assertFrozenCoordinatorIdle(frozen.restartJournal, frozen.childPids);
-      await operations.preserveTransfer(request);
-      // Durable intent precedes the first operation that prevents resuming the
-      // legacy writer. A failure from unload onward requires observed recovery.
-      advance("unload_pending");
-      await operations.unload(request);
-      advance("unloaded");
-      advance("selection_pending");
-      await operations.select(request);
-      advance("selected");
-      advance("start_pending");
-      await operations.start(request);
-      advance("started");
-      advance("verifying");
-      await operations.verifyReplacement(request);
-      await operations.releaseReplacement(request);
-      advance("succeeded");
-    } catch {
-      // Errors can contain private command/configuration data. Persist only the
-      // bounded state; native diagnostics belong in the private evidence store.
-      const stage = request.execution?.stage;
-      if (
-        request.plan.automaticRecovery !== "restore-compatible" &&
-        (stage === "freeze_pending" || stage === "frozen")
-      ) {
-        advance("resume_pending");
-        try {
-          await operations.resumePrevious(request);
-          advance("resumed");
-        } catch {
+  return operations
+    .withOwnership(request, async () => {
+      try {
+        await operations.armWatchdog(request);
+        requests.promoteDispatch(request);
+        advance("freeze_pending");
+        await operations.freeze(request);
+        const frozen = await operations.inspectFrozen(request);
+        advance("frozen");
+        assertFrozenCoordinatorIdle(frozen.restartJournal, frozen.childPids);
+        await operations.preserveTransfer(request);
+        // Durable intent precedes the first operation that prevents resuming the
+        // legacy writer. A failure from unload onward requires observed recovery.
+        advance("unload_pending");
+        await operations.unload(request);
+        advance("unloaded");
+        advance("selection_pending");
+        await operations.select(request);
+        advance("selected");
+        advance("start_pending");
+        await operations.start(request);
+        advance("started");
+        advance("verifying");
+        await operations.verifyReplacement(request);
+        await operations.releaseReplacement(request);
+        advance("succeeded");
+      } catch {
+        // Errors can contain private command/configuration data. Persist only the
+        // bounded state; native diagnostics belong in the private evidence store.
+        const stage = request.execution?.stage;
+        if (
+          request.plan.automaticRecovery !== "restore-compatible" &&
+          (stage === "freeze_pending" || stage === "frozen")
+        ) {
+          advance("resume_pending");
+          try {
+            await operations.resumePrevious(request);
+            advance("resumed");
+          } catch {
+            advance("recovery_required");
+          }
+        } else {
           advance("recovery_required");
         }
-      } else {
-        advance("recovery_required");
       }
-    }
-    return request;
-  });
+      return request;
+    })
+    .catch((error: unknown) => {
+      // Ownership admission runs after the durable claim but before the callback.
+      // Record that failure without promotion, native effects or a replayable approval.
+      if (request.execution?.stage !== "claimed") throw error;
+      advance("recovery_required");
+      return request;
+    });
 }

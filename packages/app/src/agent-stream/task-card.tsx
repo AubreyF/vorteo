@@ -1,3 +1,11 @@
+import { TruncatedText } from "@/components/ui/truncated-text";
+import {
+  CardPaneDividerContext,
+  ScrollDividerContext,
+  useScrollDivider,
+} from "@/components/use-scroll-divider";
+import { panelHeaderInset, usePanelSpacing } from "@/styles/use-panel-spacing";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   Children,
@@ -6,6 +14,7 @@ import {
   useContext,
   useId,
   useLayoutEffect,
+  useMemo,
   useState,
   type ReactNode,
   type ComponentProps,
@@ -14,7 +23,6 @@ import {
 import {
   ScrollView,
   View,
-  Text,
   useWindowDimensions,
   type StyleProp,
   type ViewStyle,
@@ -34,7 +42,7 @@ import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Button } from "@/components/ui/button";
 import { Info } from "lucide-react-native";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
-import { taskCardStyles } from "./task-card-styles";
+import { TASK_CARD_BODY_INSET, taskCardStyles } from "./task-card-styles";
 
 /** Bound the entire card, including its header, as the viewport resizes. */
 function TaskCardView({
@@ -60,6 +68,12 @@ function TaskCardView({
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }) {
+  const divider = useScrollDivider();
+  const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
+  const paneDivider = useMemo(
+    () => ({ scrolled: divider.scrolled, inset: spacingInset }),
+    [divider.scrolled, spacingInset],
+  );
   const column = useContext(CardColumnContext);
   const retainedActive = useRetainedPanelActive();
   const id = useId();
@@ -113,60 +127,143 @@ function TaskCardView({
     [onDragActive, parentDrag],
   );
   return (
-    <Animated.View entering={cardEnter} exiting={cardExit} style={animationStyle}>
-      <View
-        testID={testID}
-        style={[taskCardStyles.surface, style, { minHeight: 0, flex: 1, overflow: "hidden" }]}
-      >
-        <View style={taskCardStyles.scrollContent}>
-          <View
-            testID={testID ? `${testID}-header` : undefined}
-            style={taskCardStyles.fixedHeader}
-            onLayout={onHeaderLayout}
-          >
-            {header}
-            {notice}
-          </View>
-          {panelHeight !== undefined ? (
+    <ScrollDividerContext.Provider value={divider.report}>
+      <Animated.View entering={cardEnter} exiting={cardExit} style={animationStyle}>
+        <View
+          ref={divider.ref}
+          testID={testID}
+          onLayout={onPanelLayout}
+          style={[taskCardStyles.surface, style, { minHeight: 0, flex: 1, overflow: "hidden" }]}
+        >
+          <View style={taskCardStyles.scrollContent}>
             <View
+              testID={testID ? `${testID}-header` : undefined}
               style={[
-                {
-                  height: Math.max(0, maxHeight - headerHeight - insets),
-                  minHeight: 0,
-                },
-                !bodyVisible && taskCardStyles.hiddenBody,
+                taskCardStyles.fixedHeader,
+                inlineUnistylesStyle({
+                  paddingHorizontal: spacingInset,
+                  paddingVertical: panelHeaderInset(spacingInset),
+                }),
               ]}
+              onLayout={onHeaderLayout}
             >
-              <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+              {header}
+              {notice}
+              <View
+                pointerEvents="none"
+                testID={testID ? `${testID}-scroll-divider` : undefined}
+                style={[
+                  taskCardStyles.headerDivider,
+                  { opacity: panelHeight === undefined && bodyVisible && divider.scrolled ? 1 : 0 },
+                ]}
+              />
             </View>
-          ) : (
-            <ScrollView
-              ref={bodyRef}
-              onContentSizeChange={onBodySize}
-              testID={testID ? `${testID}-body-scroll` : undefined}
-              style={[taskCardStyles.scrollBody, !bodyVisible && taskCardStyles.hiddenBody]}
-              contentContainerStyle={[
-                taskCardStyles.bodyContent,
-                flushBody && taskCardStyles.flushBody,
-              ]}
-              nestedScrollEnabled
-              scrollEnabled={scrollEnabled}
-              keyboardShouldPersistTaps="handled"
-            >
-              <QueueDragScrollContext.Provider value={setDragging}>
-                <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
-              </QueueDragScrollContext.Provider>
-            </ScrollView>
-          )}
+            {panelHeight !== undefined ? (
+              <View
+                style={[
+                  inlineUnistylesStyle({
+                    height: Math.max(0, maxHeight - headerHeight - insets),
+                    minHeight: 0,
+                    paddingHorizontal: spacingInset,
+                    paddingBottom: spacingInset,
+                  }),
+                  !bodyVisible && taskCardStyles.hiddenBody,
+                ]}
+              >
+                <CardPaneDividerContext.Provider value={paneDivider}>
+                  <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+                </CardPaneDividerContext.Provider>
+              </View>
+            ) : (
+              <ScrollView
+                ref={bodyRef}
+                onContentSizeChange={onBodySize}
+                onScroll={divider.onScroll}
+                scrollEventThrottle={16}
+                testID={testID ? `${testID}-body-scroll` : undefined}
+                style={[taskCardStyles.scrollBody, !bodyVisible && taskCardStyles.hiddenBody]}
+                contentContainerStyle={[
+                  taskCardStyles.bodyContent,
+                  flushBody && taskCardStyles.flushBody,
+                  inlineUnistylesStyle({
+                    paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + spacingInset,
+                    paddingVertical: 2,
+                  }),
+                ]}
+                nestedScrollEnabled
+                scrollEnabled={scrollEnabled}
+                keyboardShouldPersistTaps="handled"
+              >
+                <QueueDragScrollContext.Provider value={setDragging}>
+                  <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+                </QueueDragScrollContext.Provider>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Animated.View>
+    </ScrollDividerContext.Provider>
+  );
+}
+
+const BoundedTaskCard = withUnistyles(TaskCardView, (theme) => ({
+  insets: theme.borderWidth[1] * 2,
+}));
+
+type TaskCardProps = ComponentProps<typeof BoundedTaskCard> & {
+  /** Question forms scroll with the conversation, without a nested viewport. */
+  scrollBody?: boolean;
+};
+
+export function TaskCard({ scrollBody = true, ...props }: TaskCardProps) {
+  return scrollBody ? <BoundedTaskCard {...props} /> : <ContentTaskCard {...props} />;
+}
+
+function ContentTaskCard({
+  children,
+  testID,
+  style,
+  flushBody,
+  bodyVisible = true,
+}: TaskCardProps) {
+  const { inset, onLayout } = usePanelSpacing();
+  const parts = Children.toArray(children);
+  const isHeader = (part: ReactNode) => isValidElement(part) && part.type === TaskCardHeader;
+  return (
+    <Animated.View entering={cardEnter} exiting={cardExit} style={contentCardStyle}>
+      <View testID={testID} onLayout={onLayout} style={[taskCardStyles.surface, style]}>
+        <View
+          testID={testID ? `${testID}-header` : undefined}
+          style={[
+            taskCardStyles.fixedHeader,
+            inlineUnistylesStyle({
+              paddingHorizontal: inset,
+              paddingVertical: panelHeaderInset(inset),
+            }),
+          ]}
+        >
+          {parts.filter(isHeader)}
+        </View>
+        <View
+          testID={testID ? `${testID}-body` : undefined}
+          style={[
+            taskCardStyles.bodyContent,
+            inlineUnistylesStyle({
+              paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + inset,
+              paddingVertical: 2,
+            }),
+            !bodyVisible && taskCardStyles.hiddenBody,
+          ]}
+        >
+          <CardColumnContext.Provider value={null}>
+            {parts.filter((part) => !isHeader(part))}
+          </CardColumnContext.Provider>
         </View>
       </View>
     </Animated.View>
   );
 }
-
-export const TaskCard = withUnistyles(TaskCardView, (theme) => ({
-  insets: theme.borderWidth[1] * 2,
-}));
+const contentCardStyle = { flexShrink: 0 } as const;
 
 /** Explicit heading slot, rendered outside the card's body scroll region. */
 export function TaskCardHeader({ children, testID }: { children: ReactNode; testID?: string }) {
@@ -189,9 +286,9 @@ export function TaskCardHeader({ children, testID }: { children: ReactNode; test
 
 export function TaskCardTitle({ children }: { children: string }) {
   return (
-    <Text style={[taskCardStyles.heading, taskCardStyles.title]} numberOfLines={1}>
+    <TruncatedText style={[taskCardStyles.heading, taskCardStyles.title]} numberOfLines={1}>
       {children}
-    </Text>
+    </TruncatedText>
   );
 }
 

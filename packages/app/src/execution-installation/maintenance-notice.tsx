@@ -2,9 +2,9 @@ import { createContext, useContext, useState, useCallback } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { SidebarCallout } from "@/components/sidebar-callout";
-import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { Theme } from "@/styles/theme";
+import { SidebarSeparator } from "@/components/sidebar/sidebar-separator";
 
 export const MaintenanceNoticePlacement = createContext<"floating" | "sidebar" | "rail">(
   "floating",
@@ -63,7 +63,15 @@ export function MaintenanceNotice({
     );
   }
   return (
-    <View style={styles.row} testID={testID}>
+    <Pressable
+      style={styles.row}
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${reviewLabel}`}
+      accessibilityHint={description}
+      onPress={onReview}
+    >
+      <SidebarSeparator edge="top" testID={testID ? `${testID}-divider` : undefined} />
       <Spinner uniProps={spinnerColor} size={16} />
       <View style={styles.copy}>
         <Text style={styles.title} numberOfLines={1}>
@@ -73,10 +81,7 @@ export function MaintenanceNotice({
           {description}
         </Text>
       </View>
-      <Button variant="ghost" size="sm" onPress={onReview}>
-        {reviewLabel}
-      </Button>
-    </View>
+    </Pressable>
   );
 }
 
@@ -91,11 +96,11 @@ const styles = StyleSheet.create((theme) => ({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    borderTopColor: "transparent",
   },
   copy: { flex: 1, minWidth: 0 },
   title: { fontSize: theme.fontSize.sm, lineHeight: 16, color: theme.colors.foreground },

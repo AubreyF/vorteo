@@ -50,7 +50,7 @@ export function isGoalContinuationEnabled(state: AgentGoalState | undefined): bo
 export function goalStatusLabel(state: AgentGoalState | undefined): string {
   if (state?.status !== "ready") return "Goal state unconfirmed";
   if (state.restartContinuationHeld) return "Goal blocked by restart";
-  if (state.queueContinuationHeld) return "Goal (waiting for messages)";
+  if (state.queueContinuationHeld) return "Goal";
   return state.goal ? GOAL_STATUS_LABELS[state.goal.status] : "No goal";
 }
 

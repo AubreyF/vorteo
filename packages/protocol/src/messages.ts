@@ -127,16 +127,22 @@ import {
 import {
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
+  BootstrapClaimedRecoveryListRequestSchema,
   CoordinatorBootstrapPrepareRequestSchema,
   BootstrapPreclaimRecoveryPrepareRequestSchema,
+  BootstrapClaimedRecoveryPrepareRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
   BootstrapPreclaimRecoveryDecideRequestSchema,
+  BootstrapClaimedRecoveryDecideRequestSchema,
   CoordinatorBootstrapListResponseSchema,
   BootstrapPreclaimRecoveryListResponseSchema,
+  BootstrapClaimedRecoveryListResponseSchema,
   CoordinatorBootstrapPrepareResponseSchema,
   BootstrapPreclaimRecoveryPrepareResponseSchema,
+  BootstrapClaimedRecoveryPrepareResponseSchema,
   CoordinatorBootstrapDecideResponseSchema,
   BootstrapPreclaimRecoveryDecideResponseSchema,
+  BootstrapClaimedRecoveryDecideResponseSchema,
 } from "./coordinator-bootstrap.js";
 import { QuotaReserveLaunchPolicySchema } from "./quota-reserve.js";
 import { QuotaObservationSchema } from "./quota-governor.js";
@@ -1250,6 +1256,7 @@ export const WorkspaceLabelColorSchema = z.enum(WORKSPACE_LABEL_COLORS);
 export const WorkspaceLabelDefinitionSchema = z.object({
   name: z.string(),
   color: WorkspaceLabelColorSchema,
+  explicitColor: z.boolean().optional(),
 });
 const WorkspaceLabelSyncCursorSchema = z.object({
   generation: z.string(),
@@ -1280,6 +1287,7 @@ export const WorkspaceLabelUpdateRequestSchema = z.object({
   name: z.string(),
   newName: z.string().optional(),
   color: WorkspaceLabelColorSchema.optional(),
+  explicitColor: z.boolean().optional(),
 });
 export const WorkspaceLabelDeleteRequestSchema = z.object({
   type: z.literal("workspace.label.delete.request"),
@@ -3541,10 +3549,13 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalClearRequestSchema,
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
+  BootstrapClaimedRecoveryListRequestSchema,
   CoordinatorBootstrapPrepareRequestSchema,
   BootstrapPreclaimRecoveryPrepareRequestSchema,
+  BootstrapClaimedRecoveryPrepareRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
   BootstrapPreclaimRecoveryDecideRequestSchema,
+  BootstrapClaimedRecoveryDecideRequestSchema,
   SetAgentFeatureRequestMessageSchema,
   AgentConfigApplyRequestMessageSchema,
   AgentDetachRequestMessageSchema,
@@ -3848,6 +3859,7 @@ export const ServerInfoStatusPayloadSchema = z
         directorySync: z.boolean().optional(),
         // COMPAT(workspaceLabels): added in v0.5.0, remove after 2027-08-14.
         workspaceLabels: z.boolean().optional(),
+        workspaceLabelNeutralColors: z.boolean().optional(),
         // COMPAT(workspaceSetupRun): added in v0.8.0, remove gate after 2027-09-02.
         workspaceSetupRun: z.boolean().optional(),
         // COMPAT(workspaceTerminals): added in v0.8.0, remove gate after 2027-09-05.
@@ -3959,6 +3971,9 @@ export const ServerInfoStatusPayloadSchema = z
         agentDetach: z.boolean().optional(),
         agentGoals: z.boolean().optional(),
         coordinatorBootstrapReview: z.boolean().optional(),
+        // COMPAT(claimedRecovery): added 2026-10-14; keep gates until the daemon floor includes claimed recovery after 2027-04-14.
+        coordinatorBootstrapClaimedRecovery: z.boolean().optional(),
+        coordinatorBootstrapClaimedObservation: z.boolean().optional(),
         coordinatorBootstrapPreclaimRecovery: z.boolean().optional(),
         coordinatorBootstrapPreclaimOwnerCancellation: z.boolean().optional(),
         coordinatorBootstrapPreclaimObservation: z.boolean().optional(),
@@ -7354,10 +7369,13 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalClearResponseSchema,
   CoordinatorBootstrapListResponseSchema,
   BootstrapPreclaimRecoveryListResponseSchema,
+  BootstrapClaimedRecoveryListResponseSchema,
   CoordinatorBootstrapPrepareResponseSchema,
   BootstrapPreclaimRecoveryPrepareResponseSchema,
+  BootstrapClaimedRecoveryPrepareResponseSchema,
   CoordinatorBootstrapDecideResponseSchema,
   BootstrapPreclaimRecoveryDecideResponseSchema,
+  BootstrapClaimedRecoveryDecideResponseSchema,
   SetAgentFeatureResponseMessageSchema,
   AgentConfigApplyResponseMessageSchema,
   AgentDetachResponseMessageSchema,

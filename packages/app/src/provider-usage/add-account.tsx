@@ -1,7 +1,15 @@
 import { createSharedAccountDefinition } from "@/execution-installation/account-creation";
 import { requestInstallationSettings } from "@/execution-installation/settings";
 import { readExecutionInstallation } from "@/execution-installation/policy";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useQueryClient } from "@tanstack/react-query";
@@ -74,31 +82,36 @@ function AccountSheet({ onClose, ...props }: AddAccountProps & { onClose: () => 
     (state) => state.sessions[props.serverId]?.serverInfo?.permissions,
   );
   const canManage = permissions?.includes("daemon.manage") !== false;
+  const renderSheet = useCallback(
+    (body: ReactNode, footer: ReactNode) => (
+      <AdaptiveModalSheet
+        visible
+        header={header}
+        onClose={onClose}
+        desktopMaxWidth={520}
+        testID={`add-${props.provider}-account-dialog`}
+        footer={footer}
+      >
+        <View style={styles.body}>{body}</View>
+      </AdaptiveModalSheet>
+    ),
+    [header, onClose, props.provider],
+  );
   let message: string | null = null;
   if (!supported) message = "Update this host to add accounts here.";
   else if (!canManage)
     message = "This connection needs permission to manage the host before it can add an account.";
-  let content = <Text style={styles.text}>{message ?? "Loading accounts..."}</Text>;
   if (!message && config) {
-    content = (
+    return (
       <AccountForm
         {...props}
         initialName={suggestedAccountName(config.providers, props.provider)}
         onClose={onClose}
+        renderSheet={renderSheet}
       />
     );
   }
-  return (
-    <AdaptiveModalSheet
-      visible
-      header={header}
-      onClose={onClose}
-      desktopMaxWidth={520}
-      testID={`add-${props.provider}-account-dialog`}
-    >
-      <View style={styles.body}>{content}</View>
-    </AdaptiveModalSheet>
-  );
+  return renderSheet(<Text style={styles.text}>{message ?? "Loading accounts..."}</Text>, null);
 }
 
 function useAccountForm({
@@ -158,13 +171,18 @@ function useAccountForm({
 
 function AccountForm({
   onClose,
+  renderSheet,
   ...props
-}: AddAccountProps & { onClose: () => void; initialName: string }) {
+}: AddAccountProps & {
+  onClose: () => void;
+  initialName: string;
+  renderSheet: (body: ReactNode, footer: ReactNode) => ReactNode;
+}) {
   const { model, state } = useAccountForm(props);
   const connected = useHostRuntimeIsConnected(props.serverId);
   const size = useIsCompactFormFactor() ? "md" : "sm";
   if (state.phase === "created")
-    return (
+    return renderSheet(
       <>
         <Text style={styles.text}>{state.account.name} added.</Text>
         {readExecutionInstallation() ? (
@@ -180,13 +198,13 @@ function AccountForm({
           name={state.account.name}
           provider={props.provider}
         />
-        <Button variant="outline" onPress={onClose} testID={`${props.provider}-account-done`}>
-          Done
-        </Button>
-      </>
+      </>,
+      <Button variant="outline" onPress={onClose} testID={`${props.provider}-account-done`}>
+        Done
+      </Button>,
     );
   const creating = state.phase === "creating";
-  return (
+  return renderSheet(
     <>
       <Field label="Account name">
         <FormTextInput
@@ -206,15 +224,15 @@ function AccountForm({
       {!connected ? (
         <Text style={styles.error}>Reconnect to the host to add this account.</Text>
       ) : null}
-      <Button
-        onPress={model.submit}
-        disabled={creating || !connected}
-        loading={creating}
-        testID={`${props.provider}-account-create`}
-      >
-        Create account
-      </Button>
-    </>
+    </>,
+    <Button
+      onPress={model.submit}
+      disabled={creating || !connected}
+      loading={creating}
+      testID={`${props.provider}-account-create`}
+    >
+      Create account
+    </Button>,
   );
 }
 

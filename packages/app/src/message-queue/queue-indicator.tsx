@@ -17,9 +17,11 @@ import { scheduleOnRN, scheduleOnUI } from "react-native-worklets";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
 import type { OutboxRecord } from "./outbox-record";
 
+const rowHandleData = { vortonRowHandle: "true" };
 const rotation = makeMutable(0);
 const subscribers = makeMutable(0);
 let nextListenerId = 1;
@@ -56,8 +58,16 @@ function Orbit({ spinning, color }: { spinning: boolean; color: string }) {
   return (
     <Animated.View style={[animationStyles.glyph, rotationStyle]} testID="queue-orbit-rotation">
       <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-        <Circle cx={12} cy={12} r={8} stroke={color} strokeWidth={1.7} opacity={0.22} />
-        <Circle cx={12} cy={4} r={2} fill={color} />
+        <Circle cx={12} cy={12} r={8} stroke={color} strokeWidth={1.5} opacity={0.22} />
+        <Circle
+          cx={12}
+          cy={12}
+          r={8}
+          stroke={color}
+          strokeWidth={1.5}
+          strokeDasharray="13 38"
+          strokeLinecap="round"
+        />
       </Svg>
     </Animated.View>
   );
@@ -79,7 +89,10 @@ export function QueueMessageIndicator({
   const orbitOpacity = useSharedValue(0);
   const initialHandleOpacity = !local && reduceMotion ? 1 : 0;
   const handleOpacity = useSharedValue(initialHandleOpacity);
-  const status = record?.dismissed ? "Kept on this device" : "Queued on this device";
+  let status = "Queued on this device";
+  if (record?.operation.kind === "edit") status = "Saving queued message";
+  if (record?.error) status = "Could not save queued message";
+  if (record?.dismissed) status = "Kept on this device";
   const spinning = active && !reduceMotion && !record?.dismissed && !record?.error;
 
   useLayoutEffect(() => {
@@ -113,7 +126,7 @@ export function QueueMessageIndicator({
   const orbitStyle = useAnimatedStyle(() => ({ opacity: orbitOpacity.value }));
   const handleStyle = useAnimatedStyle(() => ({ opacity: handleOpacity.value }));
   return (
-    <View style={[styles.slot, touch && styles.touch]}>
+    <View style={[styles.slot, taskCardStyles.rowHandle, touch && taskCardStyles.touchRowHandle]}>
       {showOrbit ? (
         <Animated.View
           style={[animationStyles.overlay, orbitStyle]}
@@ -126,7 +139,13 @@ export function QueueMessageIndicator({
             <TooltipTrigger
               accessibilityRole="button"
               accessibilityLabel={status}
-              style={[styles.slot, touch && styles.touch]}
+              dataSet={rowHandleData}
+              style={[
+                styles.slot,
+                taskCardStyles.rowHandle,
+                touch && taskCardStyles.touchRowHandle,
+                styles.innerSlot,
+              ]}
             >
               <ThemedOrbit spinning={spinning} />
             </TooltipTrigger>
@@ -148,7 +167,10 @@ const animationStyles = NativeStyleSheet.create({
   overlay: { position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" },
 });
 const styles = StyleSheet.create((theme) => ({
-  slot: { width: 24, minHeight: 32, alignItems: "center", justifyContent: "center" },
-  touch: { minWidth: 44, minHeight: 44 },
+  slot: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  innerSlot: { marginLeft: 0 },
   tooltipText: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
 }));

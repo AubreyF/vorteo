@@ -1,8 +1,10 @@
+import { TaskCardRow, TaskCardRowLeading } from "@/agent-stream/task-card-row";
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Text, View } from "react-native";
+import { Text } from "react-native";
 import { BrushCleaning, Check, Circle, CircleAlert, Eye, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
@@ -106,7 +108,8 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   const countBadge = useMemo(
     () => (
       <CountBadge
-        label={`${progress.completed} / ${progress.total} open`}
+        count={progress.total}
+        label={`${progress.completed} / ${progress.total}`}
         accessibilityLabel={t("message.todo.tasksProgress", {
           completed: progress.completed,
           total: progress.total,
@@ -169,7 +172,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
           />
         ) : null}
         {error ? (
-          <Text accessibilityRole="alert" style={styles.error}>
+          <Text accessibilityRole="alert" style={[styles.error, taskCardStyles.proseInset]}>
             {error}
           </Text>
         ) : null}
@@ -290,7 +293,7 @@ function ChecklistRows({
         touchActivation="movement"
       />
       {reorderError ? (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <Text accessibilityRole="alert" style={[styles.error, taskCardStyles.proseInset]}>
           {reorderError}
         </Text>
       ) : null}
@@ -337,29 +340,35 @@ function ChecklistRow({
     [completed, managed, canMutate],
   );
   return (
-    <View style={[styles.row, info.isActive && styles.active]} testID={`checklist-row-${task.id}`}>
-      {managed ? (
-        <ListDragHandle
-          info={info}
-          disabled={!canReorder}
-          label={`Reorder ${task.text}`}
-          testID={`checklist-drag-${task.id}`}
+    <TaskCardRow style={info.isActive && styles.active} testID={`checklist-row-${task.id}`}>
+      <TaskCardRowLeading>
+        {managed ? (
+          <ListDragHandle
+            info={info}
+            disabled={!canReorder}
+            label={`Reorder ${task.text}`}
+            testID={`checklist-drag-${task.id}`}
+          />
+        ) : null}
+        <Button
+          variant="ghost"
+          size="sm"
+          style={iconStyle}
+          accessibilityRole="checkbox"
+          aria-checked={completed}
+          accessibilityState={checkboxState}
+          accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
+          disabled={!managed || !canMutate}
+          onPress={toggle}
+          leftIcon={completed ? Check : incompleteIcon}
         />
-      ) : null}
-      <Button
-        variant="ghost"
-        size="sm"
-        style={iconStyle}
-        accessibilityRole="checkbox"
-        aria-checked={completed}
-        accessibilityState={checkboxState}
-        accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
-        disabled={!managed || !canMutate}
-        onPress={toggle}
-        leftIcon={completed ? Check : incompleteIcon}
-      />
-      <Text
+      </TaskCardRowLeading>
+      <TruncatedText
         numberOfLines={1}
+        tooltipLabel={task.text}
+        tooltipDescription={[title !== task.text ? title : undefined, task.description, task.owner]
+          .filter(Boolean)
+          .join("\n\n")}
         style={[
           taskCardStyles.rowText,
           styles.title,
@@ -368,7 +377,7 @@ function ChecklistRow({
         ]}
       >
         {title}
-      </Text>
+      </TruncatedText>
       {blocked ? <BlockedTaskBadge task={task} /> : null}
       {review ? <ReviewTaskBadge task={task} /> : null}
       <Button
@@ -379,12 +388,11 @@ function ChecklistRow({
         onPress={details}
         leftIcon={Pencil}
       />
-    </View>
+    </TaskCardRow>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  row: { flexDirection: "row", alignItems: "center", minHeight: 40, gap: theme.spacing[1] },
   title: { flex: 1, minWidth: 0 },
   running: { color: theme.colors.foreground },
   completed: { color: theme.colors.foregroundExtraMuted, textDecorationLine: "line-through" },

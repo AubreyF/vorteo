@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { useVortonTouch } from "@/vorton-touch";
 import {
   FIT_TRANSFORM,
   fitContentSize,
@@ -67,6 +68,7 @@ export function ZoomableViewport({
   const [isHovered, setIsHovered] = useState(false);
   const [isFocusWithin, setIsFocusWithin] = useState(false);
   const [hasTouchInput, setHasTouchInput] = useState(false);
+  const touchControls = useVortonTouch();
   const fittedContent = useMemo(
     () => (viewport ? fitContentSize(contentSize, viewport, fit) : null),
     [contentSize, fit, viewport],
@@ -273,7 +275,7 @@ export function ZoomableViewport({
     }),
     [fittedContent, transform],
   );
-  const controlsVisible = isHovered || isFocusWithin || hasTouchInput;
+  const controlsVisible = isHovered || isFocusWithin || hasTouchInput || touchControls;
   const handleFocus = useCallback(() => setIsFocusWithin(true), []);
   const handleBlur = useCallback(() => setIsFocusWithin(false), []);
   const handleMouseEnter = useCallback(() => setIsHovered(true), []);
@@ -341,6 +343,8 @@ const contentDomStyle: React.CSSProperties = {
   transformOrigin: "center center",
 };
 const toolbarDomStyle: React.CSSProperties = {
+  // Only visible buttons intercept input, never the empty toolbar overlay.
+  pointerEvents: "none",
   position: "absolute",
   top: 0,
   right: 0,

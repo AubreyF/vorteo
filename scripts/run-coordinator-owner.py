@@ -157,7 +157,7 @@ def preclaim_group_members(group):
     return sorted(result)
 
 
-def preclaim_terminal_ownership(state, request_id, revision, generation, digest):
+def preclaim_terminal_ownership(state, request_id, revision, generation, digest, claimed=False):
     """Acquire only the reviewed inode through inherited descriptor 4.
 
     The caller retains that same open file description after this verifier exits.
@@ -172,7 +172,13 @@ def preclaim_terminal_ownership(state, request_id, revision, generation, digest)
     verify_owned_descriptor(os.path.join(state, "coordinator-preclaim-execution.lock"), 3)
 
     def reviewed():
-        return preclaim_review(state, request_id, revision, generation, digest, "verifying")
+        if not claimed:
+            return preclaim_review(state, request_id, revision, generation, digest, "verifying")
+        records = private_document(os.path.join(state, "coordinator-claimed-reviews.json"))
+        matches = [item for item in records["requests"] if item["id"] == request_id]
+        if len(matches) != 1 or matches[0].get("execution", {}).get("stage") not in ("verifying", "succeeded"):
+            raise PreclaimProofError("review_changed")
+        return claimed_review(state, request_id, revision, generation, digest, matches[0]["execution"]["stage"])
 
     request = reviewed()
     plan = request["plan"]
@@ -369,13 +375,196 @@ def preclaim_effect(state, request_id, revision, generation, digest, effect, ins
     preclaim_write_once(dispatch[:-5] + "-sent.json", dict(receipt, sentMonotonicNs=preclaim_boot_nanoseconds()))
 
 
-def preclaim_launch(setup_file, request_id, revision, digest, generation=None):
+def claimed_review(state, request_id, revision, generation, digest, stage):
+    journal = private_document(os.path.join(state, "coordinator-claimed-reviews.json"))
+    matches = [item for item in journal["requests"] if item["id"] == request_id]
+    if journal["version"] != 1 or len(matches) != 1:
+        raise PreclaimProofError("review_changed")
+    request = matches[0]
+    plan = request["plan"]
+    original = plan["original"]
+    encode_digest = lambda value: hashlib.sha256(json.dumps(value, ensure_ascii=False,
+        separators=(",", ":"), allow_nan=False).encode("utf-8")).hexdigest()
+    if (request["revision"] != revision or request["status"] != "approved"
+            or not request.get("decisionAt") or request["planSha256"] != digest
+            or encode_digest(plan) != digest or request["execution"]["generation"] != generation
+            or request["execution"]["stage"] != stage or plan["version"] != 1
+            or plan["operation"] != "bootstrap-claimed-recovery"
+            or original["status"] != "approved" or not original.get("decisionAt")
+            or original["execution"]["stage"] != "claimed"
+            or original["execution"].get("rollbackAttemptedAt") is not None
+            or original["plan"]["automaticRecovery"] != "restore-compatible"
+            or not original["plan"].get("compatibleRecovery")
+            or original["planSha256"] != encode_digest(original["plan"])
+            or original["plan"]["state"]["directory"] != state
+            or request_id == original["id"]):
+        raise PreclaimProofError("review_changed")
+    fence = private_document(os.path.join(state, "coordinator-claim-fence-" + generation + ".json"))
+    fenced = fence["fenced"]
+    expected = dict(original, revision=fenced["revision"], execution=dict(original["execution"],
+        stage="recovery_required", updatedAt=fenced["execution"]["updatedAt"]))
+    if (fence["version"] != 1 or fence["original"] != original or fenced != expected
+            or fenced["revision"] == original["revision"]
+            or fence["recovery"]["id"] != request_id
+            or fence["recovery"]["generation"] != generation
+            or fence["recovery"]["planSha256"] != digest):
+        raise PreclaimProofError("fence_unproven")
+    pending = private_document(os.path.join(state, "coordinator-bootstrap-pending.json"))
+    if (pending["version"] != 1
+            or [item for item in pending["requests"] if item["id"] == original["id"]] != [fenced]
+            or any(item["id"] == original["id"] for item in pending["promotions"])):
+        raise PreclaimProofError("fence_unproven")
+    try:
+        main = private_document(os.path.join(state, "coordinator-bootstrap.json"))
+    except FileNotFoundError:
+        main = {"version": 1, "requests": []}
+    if main["version"] != 1 or any(item["id"] == original["id"] for item in main["requests"]):
+        raise PreclaimProofError("fence_unproven")
+    return request
+
+
+def claimed_effect(state, request_id, revision, generation, digest, effect, inspector, inspector_digest):
+    """Exact claimed-recovery dispatch, separate from legacy cancellation.
+
+    Node reservations and native send slots use distinct namespaces.
+
+    The runner supplies its immutable inspector and holds descriptor 3. A durable
+    exclusive dispatch file consumes this attempt before the audit-token signal.
+    A lost result can only be reconciled by observation, never by replay.
+    """
+    info = private_path(state, directory=True)
+    if info.st_mode & 0o077 or effect not in ("terminate", "kill"):
+        raise ValueError("Invalid preclaim effect")
+    for value in (request_id, revision, generation):
+        if str(uuid.UUID(value)) != value:
+            raise ValueError("Invalid preclaim identity")
+    verify_owned_descriptor(os.path.join(state, "coordinator-preclaim-execution.lock"), 3)
+    request = claimed_review(state, request_id, revision, generation, digest, "effect_pending")
+    plan = request["plan"]
+    reservation_file = os.path.join(state, "coordinator-claimed-effect-" + generation + "-" + effect + ".json")
+    record = private_document(reservation_file)
+    if (record["version"] != 1 or record["effect"] != effect or record["request"] != request
+            or not isinstance(record.get("reservedAt"), str)
+            or plan["signalPolicy"]["terminate"] != "SIGTERM"
+            or type(plan["signalPolicy"]["graceSeconds"]) is not int
+            or not 1 <= plan["signalPolicy"]["graceSeconds"] <= 60
+            or (effect == "kill" and plan["signalPolicy"]["escalation"] != "SIGKILL")
+            or len({plan["executor"]["identity"]["pid"], plan["hostProcess"]["pid"], plan["coordinatorProcess"]["pid"]}) != 3):
+        raise PreclaimProofError("effect_unreserved")
+    if effect == "kill":
+        termination = private_document(os.path.join(state, "coordinator-claimed-effect-" + generation + "-terminate.json"))
+        if termination["version"] != 1 or termination["effect"] != "terminate" or termination["request"] != request:
+            raise PreclaimProofError("effect_unreserved")
+    scope = {"__name__": "preclaim_native_inspector"}
+    exec(compile(preclaim_protected_bytes(inspector, inspector_digest), inspector, "exec"), scope)
+    def inspect(*args):
+        try:
+            return scope["inspect"](*args)
+        except scope["InspectionError"]:
+            raise PreclaimProofError("process_changed")
+    library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+    library.proc_listchildpids.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    library.proc_listchildpids.restype = ctypes.c_int
+    library.proc_signal_with_audittoken.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    library.proc_signal_with_audittoken.restype = ctypes.c_int
+
+    def verify():
+        verify_owned_descriptor(os.path.join(state, "coordinator-preclaim-execution.lock"), 3)
+        if claimed_review(state, request_id, revision, generation, digest, "effect_pending") != request:
+            raise PreclaimProofError("review_changed")
+        lock = plan["executionLock"]
+        if lock["path"] != os.path.join(state, "coordinator-bootstrap-execution.lock"):
+            raise PreclaimProofError("execution_lock_changed")
+        selected = private_path(lock["path"])
+        if str(selected.st_dev) != lock["device"] or str(selected.st_ino) != lock["inode"]:
+            raise PreclaimProofError("execution_lock_changed")
+        for key in ("selectedLauncher", "selectedConfiguration", "setup", "executorEntrypoint"):
+            preclaim_protected_bytes(plan[key]["path"], plan[key]["sha256"])
+        original = plan["original"]
+        retained_file = plan["retainedObservation"]
+        retained = json.loads(preclaim_protected_bytes(retained_file["path"], retained_file["sha256"]))
+        binding = dict({key: original[key] for key in ("id", "revision", "planSha256")}, generation=original["execution"]["generation"])
+        if (retained.get("version") != 1 or retained.get("provenance") != "observed-after-claim"
+                or retained["claim"] != binding or retained["dispatchApprovalRevision"] != plan["dispatchApprovalRevision"]
+                or retained["setup"] != plan["setup"] or retained["inspector"] != {"path": inspector, "sha256": inspector_digest}
+                or retained["executor"] != plan["executor"] or retained["host"] != plan["hostProcess"]
+                or retained["coordinator"] != plan["coordinatorProcess"] or retained["executionLock"] != plan["executionLock"]):
+            raise PreclaimProofError("process_changed")
+        setup = json.loads(preclaim_protected_bytes(plan["setup"]["path"], plan["setup"]["sha256"]))
+        if (setup["node"] != plan["runner"]["node"] or setup["entrypoint"] != plan["executorEntrypoint"]
+                or setup["renewal"]["hostProcess"] != plan["hostProcess"]
+                or setup["renewal"]["request"] != {"id": original["id"], "revision": plan["dispatchApprovalRevision"], "planSha256": original["planSha256"]}):
+            raise PreclaimProofError("process_changed")
+        if inspect(plan["coordinatorProcess"]["pid"]) != plan["coordinatorProcess"]:
+            raise PreclaimProofError("process_changed")
+        observed = inspect(plan["executor"]["identity"]["pid"], "--audit-token")
+        expected = plan["executor"]
+        if observed["identity"]["parentPid"] == 1 and expected["identity"]["parentPid"] != 1:
+            retained_file = plan["retainedObservation"]
+            retained = json.loads(preclaim_protected_bytes(retained_file["path"], retained_file["sha256"]))
+            original = plan["original"]
+            binding = dict({key: original[key] for key in ("id", "revision", "planSha256")}, generation=original["execution"]["generation"])
+            if (retained.get("provenance") != "observed-after-claim" or retained["claim"] != binding
+                    or retained["dispatchApprovalRevision"] != plan["dispatchApprovalRevision"] or retained["executor"] != expected
+                    or retained["host"] != plan["hostProcess"]
+                    or retained["coordinator"] != plan["coordinatorProcess"]):
+                raise PreclaimProofError("process_changed")
+            inspect(plan["hostProcess"]["pid"], "--require-exited")
+            expected = dict(expected, identity=dict(expected["identity"], parentPid=1))
+        elif inspect(plan["hostProcess"]["pid"]) != plan["hostProcess"]:
+            raise PreclaimProofError("process_changed")
+        if observed != expected:
+            raise PreclaimProofError("process_changed")
+        pid = observed["identity"]["pid"]
+        # The fixed managed launcher starts a detached session. Refuse a target
+        # that no longer owns that group, or any extra member including orphans.
+        if os.getpgid(pid) != pid or os.getsid(pid) != pid or preclaim_group_members(pid) != [pid]:
+            raise PreclaimProofError("children_unproven")
+        children = (ctypes.c_int * 65536)()
+        ctypes.set_errno(0)
+        count = library.proc_listchildpids(observed["identity"]["pid"], children, ctypes.sizeof(children))
+        if count != 0 or ctypes.get_errno() != 0:
+            raise PreclaimProofError("children_unproven")
+        if inspect(observed["identity"]["pid"], "--audit-token") != expected:
+            raise PreclaimProofError("process_changed")
+        if private_document(reservation_file) != record:
+            raise PreclaimProofError("effect_unreserved")
+
+    verify()
+    if effect == "kill":
+        previous = private_document(os.path.join(state, "coordinator-claimed-send-" + generation + "-terminate-sent.json"))
+        elapsed = preclaim_boot_nanoseconds() - previous["sentMonotonicNs"]
+        if (previous["requestId"] != request_id or previous["revision"] != revision
+                or previous["generation"] != generation or previous["planSha256"] != digest
+                or previous["effect"] != "terminate" or previous["executor"] != plan["executor"]
+                or type(previous["sentMonotonicNs"]) is not int
+                or previous["sentMonotonicNs"] <= 0
+                or elapsed < plan["signalPolicy"]["graceSeconds"] * 1000000000):
+            raise PreclaimProofError("effect_unreserved")
+    dispatch = os.path.join(state, "coordinator-claimed-send-" + generation + "-" + effect + ".json")
+    receipt = {"requestId": request_id, "revision": revision, "generation": generation,
+               "planSha256": digest, "effect": effect, "executor": plan["executor"]}
+    preclaim_write_once(dispatch, dict(receipt, attemptMonotonicNs=preclaim_boot_nanoseconds()))
+    verify()
+    token = (ctypes.c_uint32 * 8)(*plan["executor"]["auditToken"])
+    requested_signal = signal.SIGTERM if effect == "terminate" else signal.SIGKILL
+    result = library.proc_signal_with_audittoken(ctypes.byref(token), requested_signal)
+    if result != 0:
+        # ESRCH does not prove that the full recovery completed.
+        raise PreclaimProofError("effect_outcome_uncertain")
+    preclaim_write_once(dispatch[:-5] + "-sent.json", dict(receipt, sentMonotonicNs=preclaim_boot_nanoseconds()))
+
+
+def preclaim_launch(setup_file, request_id, revision, digest, generation=None, claimed=False):
     """Launch one exact review under nonblocking, shared recovery exclusion.
 
     The selected Host writes the protected snapshot. The launch attempt is
     durable before exec and cannot be replayed after an uncertain exec outcome.
     This does not claim cancellation or authorize effects by itself.
     """
+    namespace = "claimed" if claimed else "preclaim"
+    kind = "bootstrap-" + namespace + "-recovery"
+    prefix = "coordinator-" + namespace
     for value in (request_id, revision) + ((generation,) if generation else ()):
         if str(uuid.UUID(value)) != value:
             raise ValueError("Invalid recovery launch identity")
@@ -383,10 +572,10 @@ def preclaim_launch(setup_file, request_id, revision, digest, generation=None):
         raise ValueError("Invalid recovery launch digest")
     setup = private_document(setup_file)
     state = setup["stateDirectory"]
-    if (setup["version"] != 1 or setup["kind"] != "bootstrap-preclaim-recovery"
+    if (setup["version"] != 1 or setup["kind"] != kind
             or setup["request"]["id"] != request_id or setup["request"]["planSha256"] != digest
             or (generation is None and setup["request"]["revision"] != revision)
-            or setup_file != os.path.join(state, "coordinator-preclaim-launch-" + request_id + "-" + setup["request"]["revision"] + ".json")
+            or setup_file != os.path.join(state, prefix + "-launch-" + request_id + "-" + setup["request"]["revision"] + ".json")
             or private_path(state, directory=True).st_mode & 0o077):
         raise ValueError("Recovery launch setup changed")
     node, entry = setup["node"], setup["entrypoint"]
@@ -414,7 +603,7 @@ def preclaim_launch(setup_file, request_id, revision, digest, generation=None):
             os.close(fd)
 
     def review():
-        journal = private_document(os.path.join(state, "coordinator-preclaim-reviews.json"))
+        journal = private_document(os.path.join(state, prefix + "-reviews.json"))
         matches = [r for r in journal["requests"] if r["id"] == request_id]
         if journal["version"] != 1 or len(matches) != 1:
             raise ValueError("Recovery launch review unavailable")
@@ -426,9 +615,15 @@ def preclaim_launch(setup_file, request_id, revision, digest, generation=None):
                 or (generation is None and request.get("execution") is not None)
                 or (generation is not None and (request.get("execution") or {}).get("generation") != generation)
                 or request["planSha256"] != digest or actual != digest
-                or request["plan"]["operation"] != "bootstrap-preclaim-recovery"
+                or request["plan"]["operation"] != kind
                 or request["plan"]["original"]["plan"]["state"]["directory"] != state):
             raise ValueError("Recovery launch review changed")
+        if claimed:
+            original = request["plan"]["original"]
+            reference = {key: original[key] for key in ("id", "revision", "planSha256")}
+            if (reference != setup["original"] or original["status"] != "approved"
+                    or not original.get("decisionAt") or original["execution"]["stage"] != "claimed"):
+                raise ValueError("Claimed recovery target changed")
         return request
 
     expected = review()
@@ -447,7 +642,7 @@ def preclaim_launch(setup_file, request_id, revision, digest, generation=None):
         if private_document(setup_file) != setup or review() != expected:
             raise ValueError("Recovery launch changed during validation")
         if generation is None:
-            preclaim_write_once(os.path.join(state, "coordinator-preclaim-attempt-" + request_id + "-" + revision + ".json"),
+            preclaim_write_once(os.path.join(state, prefix + "-attempt-" + request_id + "-" + revision + ".json"),
                                 {"version": 1, "request": setup["request"], "setup": setup_file,
                                  "launcherPid": os.getpid(), "attemptId": str(uuid.uuid4())})
         # Cancellation may win after the attempt is retained. Consuming that
@@ -456,9 +651,9 @@ def preclaim_launch(setup_file, request_id, revision, digest, generation=None):
             raise ValueError("Recovery launch canceled before exec")
         verify_owned_descriptor(lock, descriptor)
         os.set_inheritable(descriptor, True)
-        environment = {"PATH": "/usr/bin:/bin", "VORTEO_PRECLAIM_LOCK_FD": str(descriptor)}
+        environment = {"PATH": "/usr/bin:/bin", ("VORTEO_CLAIMED_LOCK_FD" if claimed else "VORTEO_PRECLAIM_LOCK_FD"): str(descriptor)}
         os.execve(node["path"], [node["path"], entry["path"], setup_file,
-                               "preclaim-observer" if generation else "preclaim-executor", request_id, revision, digest]
+                               namespace + ("-observer" if generation else "-executor"), request_id, revision, digest]
                   + ([generation] if generation else []), environment)
     finally:
         os.close(descriptor)
@@ -554,6 +749,12 @@ def main():
                 or preclaim_group_members(pid) != [pid]):
             raise PreclaimProofError("children_unproven")
         return
+    if sys.platform == "darwin" and len(sys.argv) == 7 and sys.argv[1] == "claimed-observe":
+        preclaim_launch(*sys.argv[2:], claimed=True)
+        return
+    if sys.platform == "darwin" and len(sys.argv) == 6 and sys.argv[1] == "claimed-launch":
+        preclaim_launch(*sys.argv[2:], claimed=True)
+        return
     if sys.platform == "darwin" and len(sys.argv) == 7 and sys.argv[1] == "preclaim-observe":
         preclaim_launch(*sys.argv[2:])
         return
@@ -566,8 +767,14 @@ def main():
             raise ValueError("Preclaim state must be private")
         verify_owned_descriptor(os.path.join(state, "coordinator-preclaim-execution.lock"), 3)
         return
+    if sys.platform == "darwin" and len(sys.argv) == 10 and sys.argv[1] == "claimed-effect":
+        claimed_effect(*sys.argv[2:])
+        return
     if sys.platform == "darwin" and len(sys.argv) == 10 and sys.argv[1] == "preclaim-effect":
         preclaim_effect(*sys.argv[2:])
+        return
+    if sys.platform == "darwin" and len(sys.argv) == 7 and sys.argv[1] == "claimed-verify":
+        preclaim_terminal_ownership(*sys.argv[2:], claimed=True)
         return
     if sys.platform == "darwin" and len(sys.argv) == 7 and sys.argv[1] == "preclaim-verify":
         preclaim_terminal_ownership(*sys.argv[2:])
@@ -619,7 +826,7 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, KeyError, TypeError) as error:
-        if len(sys.argv) > 1 and sys.argv[1] in ("preclaim-verify", "preclaim-effect"):
+        if len(sys.argv) > 1 and sys.argv[1] in ("preclaim-verify", "preclaim-effect", "claimed-effect", "claimed-verify"):
             code = error.code if isinstance(error, PreclaimProofError) else "verification_failed"
             print("preclaim:" + code, file=sys.stderr)
         else:

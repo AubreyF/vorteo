@@ -17,10 +17,29 @@ export function HostConfirmationSheet() {
   const connect = useCallback(() => answer(true), [answer]);
   const header = useMemo<SheetHeader>(() => ({ title: t("pairing.hostConfirmation.title") }), [t]);
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.confirmActions}>
+        <Button variant="secondary" size="sm" onPress={cancel} testID="host-confirmation-cancel">
+          {t("common.actions.cancel")}
+        </Button>
+        <Button variant="default" size="sm" onPress={connect} testID="host-confirmation-connect">
+          {t("pairing.hostConfirmation.connect")}
+        </Button>
+      </ActionFooter>
+    ),
+    [cancel, t, connect],
+  );
   if (!pending) return null;
 
   return (
-    <AdaptiveModalSheet header={header} visible onClose={cancel} testID="host-confirmation">
+    <AdaptiveModalSheet
+      header={header}
+      visible
+      onClose={cancel}
+      testID="host-confirmation"
+      footer={modalFooter1}
+    >
       <Text style={styles.confirmText}>
         {pending.kind === "changedConnection"
           ? t("pairing.hostConfirmation.descriptionChanged")
@@ -45,14 +64,6 @@ export function HostConfirmationSheet() {
           showBorder
         />
       </View>
-      <ActionFooter style={styles.confirmActions}>
-        <Button variant="secondary" size="sm" onPress={cancel} testID="host-confirmation-cancel">
-          {t("common.actions.cancel")}
-        </Button>
-        <Button variant="default" size="sm" onPress={connect} testID="host-confirmation-connect">
-          {t("pairing.hostConfirmation.connect")}
-        </Button>
-      </ActionFooter>
     </AdaptiveModalSheet>
   );
 }

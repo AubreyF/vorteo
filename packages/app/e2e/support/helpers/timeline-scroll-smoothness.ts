@@ -15,6 +15,7 @@ interface RowFrame {
   id: string;
   top: number;
   height: number;
+  image?: boolean;
 }
 export interface ScrollFrame {
   at: number;
@@ -221,7 +222,12 @@ export async function recordUpwardTraversal(
       }
       const rows = elements.map((row) => {
         const box = row.getBoundingClientRect();
-        return { id: row.dataset.historyRowId!, top: box.top - rect.top, height: box.height };
+        return {
+          id: row.dataset.historyRowId!,
+          top: box.top - rect.top,
+          height: box.height,
+          image: row.querySelector("img") !== null,
+        };
       });
       // Include rows mounted and removed in the same commit, before sampling.
       recordMutations(mutations.takeRecords());
@@ -289,6 +295,23 @@ export async function recordUpwardTraversal(
   });
 }
 
+function readingEdgeMovement(before: RowFrame, after: RowFrame, imageLoaded: boolean): number {
+  // When a loaded image shrinks across the reading line, its top is not a
+  // stable reference. If its bottom stays fixed, follow that preserved edge
+  // where the following text starts. Otherwise retain the original anchor.
+  const bottomMovement = after.top + after.height - (before.top + before.height);
+  const shrinkingImageAtReader =
+    before.image &&
+    imageLoaded &&
+    after.height < before.height &&
+    before.top < 8 &&
+    after.top < 8 &&
+    before.top + before.height > 8 &&
+    after.top + after.height > 8 &&
+    Math.abs(bottomMovement) <= 8;
+  return shrinkingImageAtReader ? bottomMovement : after.top - before.top;
+}
+
 export function findScrollJumps(frames: ScrollFrame[]) {
   return frames.flatMap((current, index) => {
     const previous = frames[index - 1];
@@ -312,7 +335,7 @@ export function findScrollJumps(frames: ScrollFrame[]) {
       throw new Error(`No shared reading geometry between frames ${index - 1} and ${index}`);
     }
     const after = currentRows.get(before.id)!;
-    const movement = after.top - before.top;
+    const movement = readingEdgeMovement(before, after, current.imageLoads > previous.imageLoads);
     // A busy main thread can deliver wheel movement hundreds of milliseconds
     // after its event. Only assert idle stability after the driver stops input.
     const idle = current.inputFinishedAt !== null && previous.at - current.inputFinishedAt > 250;

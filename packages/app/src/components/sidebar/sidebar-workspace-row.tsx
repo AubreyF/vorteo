@@ -496,7 +496,7 @@ const styles = StyleSheet.create((theme) => ({
     marginBottom: theme.spacing[1],
     paddingVertical: theme.spacing[2],
     paddingLeft: theme.spacing[2],
-    paddingRight: theme.spacing[3],
+    paddingRight: theme.spacing[1.5],
     borderRadius: theme.borderRadius.lg,
     flexDirection: "column",
     alignItems: "stretch",

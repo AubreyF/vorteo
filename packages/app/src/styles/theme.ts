@@ -8,6 +8,21 @@ import { Platform } from "react-native";
 import { resolveAppearanceFont } from "./appearance-font";
 import { darkHighlightColors, lightHighlightColors } from "@getpaseo/highlight";
 
+/** Internal rules retain the border hue at just over half its opacity. */
+function internalDividerColor(border: string): string {
+  if (border.startsWith("rgba(")) {
+    return border.replace(/,\s*([\d.]+)\)$/, (_, alpha: string) => `,${Number(alpha) * 0.55})`);
+  }
+  return hexColorWithAlpha(border, 0.55);
+}
+
+export const LOADING_INDICATOR = {
+  small: 20,
+  large: 48,
+  smallStroke: 1,
+  largeStroke: 1.5,
+} as const;
+
 export const EXECUTION_ENVIRONMENT_COLORS = {
   container: "#7CB68B",
   host: "#E6B566",
@@ -289,6 +304,7 @@ export function buildLightSemanticColors(tint: LightThemeConfig) {
     foregroundExtraMuted: tint.foregroundExtraMuted,
 
     border: tint.border,
+    divider: internalDividerColor(tint.border),
     borderAccent: tint.borderAccent,
 
     accent: tint.accent,
@@ -398,6 +414,7 @@ export function buildDarkSemanticColors(tint: DarkThemeConfig) {
     foregroundExtraMuted: tint.foregroundExtraMuted,
 
     border: tint.border,
+    divider: internalDividerColor(tint.border),
     borderAccent: tint.borderAccent,
 
     accent: tint.accent,
@@ -761,7 +778,7 @@ function buildAppearanceTheme(id: AppearanceId) {
     surface3: p.raised,
     surface4: p.strong,
     surfaceDiffEmpty: p.deep,
-    surfaceSidebar: p.root,
+    surfaceSidebar: id === "starship-light" ? p.surface : p.root,
     foreground: p.text,
     foregroundMuted: p.secondary,
     foregroundExtraMuted: p.muted,
@@ -784,6 +801,7 @@ function buildAppearanceTheme(id: AppearanceId) {
     ...base,
     colors: {
       ...base.colors,
+      surfaceSidebarSelected: id === "starship-light" ? p.root : base.colors.surfaceSidebarSelected,
       ...status,
       ...statusTints(status, light ? "1f" : "29"),
       success: status.statusSuccess,

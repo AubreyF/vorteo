@@ -1424,7 +1424,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   threadComment: {
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    borderTopColor: theme.colors.divider,
     paddingBottom: theme.spacing[2],
   },
   threadCommentHeader: {

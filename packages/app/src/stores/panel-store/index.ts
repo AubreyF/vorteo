@@ -11,7 +11,9 @@ import {
 import { type ExplorerCheckoutContext } from "../explorer-checkout-context";
 import {
   SUPPORTING_CARD_DEFAULTS,
+  SIDEBAR_COMPACT_SNAP_WIDTH,
   type SupportingCardKind,
+  type SupportingCardLayout,
   type SupportingCardUpdate,
   buildOpenFileExplorerPatch,
   buildToggleFileExplorerPatch,
@@ -64,7 +66,12 @@ export type ExpandedPathsUpdate = string[] | ((currentPaths: string[]) => string
 export interface PanelState {
   // Device-local card preferences are shared by all workspaces, never server-synced.
   supportingCardExpanded: Partial<Record<SupportingCardKind, boolean>>;
-  setSupportingCardExpanded: (kind: SupportingCardKind, update: SupportingCardUpdate) => void;
+  inlineCardExpanded: Partial<Record<SupportingCardKind, boolean>>;
+  setSupportingCardExpanded: (
+    kind: SupportingCardKind,
+    update: SupportingCardUpdate,
+    layout?: SupportingCardLayout,
+  ) => void;
 
   // Mobile: React's durable target plus the generation that owns it.
   mobilePanel: MobilePanelSelection;
@@ -94,8 +101,6 @@ export interface PanelState {
   fileTreeVisible: boolean;
 
   // Actions
-  toggleFocusMode: () => void;
-  exitFocusMode: () => void;
   showMobileAgent: () => void;
   showMobileAgentList: () => void;
   toggleMobileAgentList: () => void;
@@ -137,14 +142,16 @@ export const usePanelStore = create<PanelState>()(
   persist(
     (set) => ({
       supportingCardExpanded: {},
-      setSupportingCardExpanded: (kind, update) =>
+      inlineCardExpanded: {},
+      setSupportingCardExpanded: (kind, update, layout = "sidebar") =>
         set((state) => {
-          const current = state.supportingCardExpanded[kind] ?? SUPPORTING_CARD_DEFAULTS[kind];
+          const key = layout === "inline" ? "inlineCardExpanded" : "supportingCardExpanded";
+          const current = state[key][kind] ?? SUPPORTING_CARD_DEFAULTS[kind];
           const expanded = typeof update === "function" ? update(current) : update;
-          return state.supportingCardExpanded[kind] === expanded
+          return state[key][kind] === expanded
             ? state
             : {
-                supportingCardExpanded: { ...state.supportingCardExpanded, [kind]: expanded },
+                [key]: { ...state[key], [kind]: expanded },
               };
         }),
       // Mobile always starts at agent view
@@ -153,7 +160,6 @@ export const usePanelStore = create<PanelState>()(
       // Desktop defaults based on platform
       desktop: {
         agentListOpen: DEFAULT_DESKTOP_OPEN,
-        focusModeEnabled: false,
       },
 
       // File explorer defaults
@@ -170,23 +176,6 @@ export const usePanelStore = create<PanelState>()(
       explorerShowHiddenFiles: true,
       treeRailWidth: DEFAULT_TREE_RAIL_WIDTH,
       fileTreeVisible: true,
-
-      toggleFocusMode: () =>
-        set((state) => ({
-          desktop: {
-            ...state.desktop,
-            agentListOpen: true,
-            focusModeEnabled: !state.desktop.focusModeEnabled,
-          },
-          sidebarCompact: state.desktop.focusModeEnabled ? state.sidebarCompact : true,
-        })),
-
-      exitFocusMode: () =>
-        set((state) =>
-          state.desktop.focusModeEnabled
-            ? { desktop: { ...state.desktop, focusModeEnabled: false } }
-            : state,
-        ),
 
       showMobileAgent: () => set((state) => setMobilePanelTargetPatch(state, "agent")),
 
@@ -314,7 +303,14 @@ export const usePanelStore = create<PanelState>()(
             explorerTabByCheckout: state.explorerTabByCheckout,
           }),
         })),
-      setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
+      setSidebarWidth: (width) =>
+        set((state) => ({
+          sidebarWidth:
+            width <= SIDEBAR_COMPACT_SNAP_WIDTH ? state.sidebarWidth : clampSidebarWidth(width),
+          sidebarCompact: width <= SIDEBAR_COMPACT_SNAP_WIDTH,
+          sidebarNarrow: false,
+          sidebarViewportOverride: Dimensions.get("window").width,
+        })),
       setSidebarCompact: (sidebarCompact) =>
         set({
           sidebarCompact,
@@ -329,11 +325,12 @@ export const usePanelStore = create<PanelState>()(
     }),
     {
       name: "panel-state",
-      version: 18,
+      version: 20,
       storage: createValidatedPersistStorage(AsyncStorage, PanelPersistedStateSchema),
       migrate: (persistedState, version) => migratePanelState(persistedState, version),
       partialize: (state) => ({
         supportingCardExpanded: state.supportingCardExpanded,
+        inlineCardExpanded: state.inlineCardExpanded,
         desktop: state.desktop,
         explorerTab: state.explorerTab,
         explorerTabByCheckout: state.explorerTabByCheckout,

@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/nova-bridge",
-  "version": "0.11.0-beta.3.vorteo.350",
+  "version": "0.11.0-beta.3.vorteo.494",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,9 +12,9 @@
   "dependencies": {
     "@getpaseo/client": "*",
     "@getpaseo/protocol": "*",
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "ipaddr.js": "^2.3.0",
-    "ws": "^8.14.2",
+    "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

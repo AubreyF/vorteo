@@ -11,6 +11,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { UnistylesRuntime } from "react-native-unistyles";
@@ -31,6 +32,7 @@ import {
   THEME_TO_UNISTYLES,
   REGISTERED_THEMES,
 } from "@/styles/theme";
+import { isWeb } from "@/constants/platform";
 import { useColorScheme } from "react-native";
 import { applyShellAppearance } from "./apply-shell";
 import { applyAppearance } from "./apply";
@@ -93,6 +95,29 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => applyVortonWeb(touch), [touch]);
   const [hasAppliedAppearance, setHasAppliedAppearance] = useState(false);
+  const lastTransitionTheme = useRef<string | null>(null);
+  useEffect(() => {
+    if (isLoading || !isWeb) return;
+    const next = preview ?? settings.theme;
+    const previous = lastTransitionTheme.current;
+    lastTransitionTheme.current = next;
+    if (
+      previous === null ||
+      previous === next ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    )
+      return;
+    const root = document.getElementById("root");
+    const animation = root?.animate?.(
+      [
+        { filter: "blur(1.5px)", opacity: 0.94 },
+        { filter: "blur(0px)", opacity: 1 },
+      ],
+      { duration: 180, easing: "ease-out" },
+    );
+    return () => animation?.cancel();
+  }, [isLoading, preview, settings.theme]);
+
   const options = usePluginThemeCatalog();
   const selected = useMemo(() => {
     if (settings.theme !== PLUGIN_THEME_PREFERENCE) return null;

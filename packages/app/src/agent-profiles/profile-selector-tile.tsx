@@ -1,3 +1,4 @@
+import { useVortonTouch } from "@/vorton-touch";
 import { useMemo, type ReactNode } from "react";
 import { Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -20,6 +21,7 @@ export function ProfileLoading({ label }: { label: string }) {
 
 export function ProfileSelectorTile({
   label,
+  singleLine = false,
   subtitle,
   leading,
   badge,
@@ -30,6 +32,7 @@ export function ProfileSelectorTile({
   style,
 }: {
   label: string;
+  singleLine?: boolean;
   subtitle: ReactNode;
   leading?: ReactNode;
   badge?: ReactNode;
@@ -39,16 +42,15 @@ export function ProfileSelectorTile({
   testID: string;
   style?: StyleProp<ViewStyle>;
 }) {
+  const touch = useVortonTouch();
   const labelContent = useMemo(
-    () => (
-      <View style={profileTileStyles.lines}>
+    () =>
+      singleLine ? (
         <View style={profileTileStyles.line}>
-          <Text style={profileTileStyles.title} numberOfLines={1}>
+          <Text style={[profileTileStyles.title, profileTileStyles.inlineTitle]} numberOfLines={1}>
             {label}
           </Text>
           {badge}
-        </View>
-        <View style={profileTileStyles.line}>
           {typeof subtitle === "string" ? (
             <Text style={profileTileStyles.subtitle} numberOfLines={1}>
               {subtitle}
@@ -57,9 +59,26 @@ export function ProfileSelectorTile({
             subtitle
           )}
         </View>
-      </View>
-    ),
-    [label, badge, subtitle],
+      ) : (
+        <View style={profileTileStyles.lines}>
+          <View style={profileTileStyles.line}>
+            <Text style={profileTileStyles.title} numberOfLines={1}>
+              {label}
+            </Text>
+            {badge}
+          </View>
+          <View style={profileTileStyles.line}>
+            {typeof subtitle === "string" ? (
+              <Text style={profileTileStyles.subtitle} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            ) : (
+              subtitle
+            )}
+          </View>
+        </View>
+      ),
+    [label, badge, subtitle, singleLine],
   );
   return (
     <ComboboxItem
@@ -70,7 +89,13 @@ export function ProfileSelectorTile({
       testID={testID}
       selectionPlacement="none"
       leadingSlot={leading}
-      style={[profileTileStyles.tile, selected && profileTileStyles.selected, style]}
+      style={[
+        profileTileStyles.tile,
+        singleLine && profileTileStyles.singleLine,
+        singleLine && touch && profileTileStyles.touchRow,
+        selected && profileTileStyles.selected,
+        style,
+      ]}
       interactionStyle={
         selected ? profileTileStyles.selectedInteraction : profileTileStyles.interaction
       }
@@ -89,6 +114,9 @@ export const profileTileStyles = StyleSheet.create((theme) => ({
     borderWidth: 1,
     borderColor: "transparent",
   },
+  singleLine: { height: 36, paddingVertical: 0 },
+  touchRow: { height: 44 },
+  inlineTitle: { flex: 2 },
   selected: { borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSubtle },
   interaction: { backgroundColor: theme.colors.surface3 },
   selectedInteraction: { backgroundColor: theme.colors.accentSubtleHovered },

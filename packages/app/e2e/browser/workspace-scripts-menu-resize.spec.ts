@@ -12,81 +12,102 @@ import { waitForWorkspaceTabsVisible } from "../support/helpers/workspace-tabs";
 import { getServerId } from "../support/helpers/server-id";
 import { buildHostWorkspaceRoute } from "../../src/utils/host-routes";
 
-test("scripts menu resizes when a service row grows after launch", async ({ page }) => {
-  const client = await connectWorkspaceSetupClient();
-  const repo = await createTempGitRepo("script-menu-resize-", {
-    paseoConfig: {
-      worktree: {
-        setup: ["sh -c 'echo setup complete'"],
-      },
-      scripts: {
-        web: {
-          type: "service",
-          command:
-            "node -e \"const http = require('http'); const s = http.createServer((q,r) => r.end('ok')); s.listen(process.env.PORT || 3000, () => console.log('listening on ' + s.address().port))\"",
+for (const single of [true, false]) {
+  test(`scripts toolbar handles ${single ? "one direct option" : "multiple options"}`, async ({
+    page,
+  }, info) => {
+    const client = await connectWorkspaceSetupClient();
+    const repo = await createTempGitRepo("script-menu-resize-", {
+      paseoConfig: {
+        worktree: {
+          setup: ["sh -c 'echo setup complete'"],
+        },
+        scripts: {
+          ...(!single ? { build: { type: "script" as const, command: "echo built" } } : {}),
+          web: {
+            type: "service",
+            command:
+              "node -e \"const http = require('http'); const s = http.createServer((q,r) => r.end('ok')); s.listen(process.env.PORT || 3000, () => console.log('listening on ' + s.address().port))\"",
+          },
         },
       },
-    },
+    });
+
+    try {
+      await seedProjectForWorkspaceSetup(client, repo.path);
+      const completed = waitForWorkspaceSetupProgress(
+        client,
+        (payload) =>
+          payload.status === "completed" && payload.detail.log.includes("setup complete"),
+      );
+      const workspace = await createWorkspaceThroughDaemon(client, {
+        cwd: repo.path,
+        worktreeSlug: `script-menu-resize-${Date.now()}`,
+      });
+      await completed;
+
+      await page.goto(buildHostWorkspaceRoute(getServerId(), workspace.id));
+      await waitForWorkspaceTabsVisible(page);
+      const toolbar = page.getByTestId("workspace-shared-toolbar");
+      if (!(await page.getByTestId("workspace-supporting-cards").isVisible()))
+        await page.getByTestId("workspace-explorer-toggle").click();
+      await expect(toolbar.getByTestId("workspace-scripts-button")).toBeVisible();
+      const toggle = toolbar.getByTestId("workspace-explorer-toggle");
+      const menuTrigger = toolbar.getByTestId("workspace-split-pane-menu");
+      for (const target of [toggle, menuTrigger]) {
+        const bounds = (await target.boundingBox())!;
+        expect(bounds.width).toBeGreaterThanOrEqual(40);
+        expect(bounds.height).toBeGreaterThanOrEqual(40);
+      }
+      const toggleBounds = (await toggle.boundingBox())!;
+      const scriptsBounds = (await toolbar.getByTestId("workspace-scripts-button").boundingBox())!;
+      expect(scriptsBounds.x + scriptsBounds.width).toBeLessThanOrEqual(toggleBounds.x);
+      await toggle.click();
+      await expect(
+        page.getByTestId("workspace-scripts-button").filter({ visible: true }),
+      ).toHaveCount(0);
+      await page.getByTestId("workspace-explorer-toggle").click();
+      if (single) {
+        await page.getByTestId("workspace-scripts-button").click();
+        await menuTrigger.click();
+        await expect(page.getByTestId("workspace-scripts-stop-web")).toBeVisible();
+        await expect(page.getByTestId("workspace-scripts-open-web")).toBeVisible();
+        await page.screenshot({ path: info.outputPath("single-preview-management.png") });
+        return;
+      }
+      await openWorkspaceScriptsMenu(page);
+
+      const menu = page.getByTestId("workspace-scripts-menu");
+      const before = await menu.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          height: rect.height,
+          clientHeight: element.clientHeight,
+          scrollHeight: element.scrollHeight,
+        };
+      });
+
+      await startWorkspaceScriptFromMenu(page, "web");
+      await expect(menu).toContainText("localhost:", { timeout: 15_000 });
+
+      const after = await menu.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const firstChild = element.firstElementChild;
+        const childRect = firstChild?.getBoundingClientRect();
+        return {
+          height: rect.height,
+          clientHeight: element.clientHeight,
+          scrollHeight: element.scrollHeight,
+          childHeight: childRect?.height ?? 0,
+        };
+      });
+
+      expect(after.height).toBeGreaterThan(before.height);
+      expect(after.scrollHeight).toBeLessThanOrEqual(after.clientHeight + 1);
+      expect(after.childHeight).toBeGreaterThan(before.height);
+    } finally {
+      await client.close();
+      await repo.cleanup();
+    }
   });
-
-  try {
-    await seedProjectForWorkspaceSetup(client, repo.path);
-    const completed = waitForWorkspaceSetupProgress(
-      client,
-      (payload) => payload.status === "completed" && payload.detail.log.includes("setup complete"),
-    );
-    const workspace = await createWorkspaceThroughDaemon(client, {
-      cwd: repo.path,
-      worktreeSlug: `script-menu-resize-${Date.now()}`,
-    });
-    await completed;
-
-    await page.goto(buildHostWorkspaceRoute(getServerId(), workspace.id));
-    await waitForWorkspaceTabsVisible(page);
-    const toolbar = page.getByTestId("workspace-supporting-toolbar");
-    if (!(await toolbar.isVisible())) await page.getByTestId("workspace-explorer-toggle").click();
-    await expect(toolbar.getByTestId("workspace-scripts-button")).toBeVisible();
-    const toggle = toolbar.getByTestId("workspace-explorer-toggle");
-    const toggleBounds = (await toggle.boundingBox())!;
-    const scriptsBounds = (await toolbar.getByTestId("workspace-scripts-button").boundingBox())!;
-    expect(scriptsBounds.x).toBeGreaterThan(toggleBounds.x + toggleBounds.width);
-    await toggle.click();
-    await expect(
-      page.getByTestId("workspace-scripts-button").filter({ visible: true }),
-    ).toHaveCount(0);
-    await page.getByTestId("workspace-explorer-toggle").click();
-    await openWorkspaceScriptsMenu(page);
-
-    const menu = page.getByTestId("workspace-scripts-menu");
-    const before = await menu.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      return {
-        height: rect.height,
-        clientHeight: element.clientHeight,
-        scrollHeight: element.scrollHeight,
-      };
-    });
-
-    await startWorkspaceScriptFromMenu(page, "web");
-    await expect(menu).toContainText("localhost:", { timeout: 15_000 });
-
-    const after = await menu.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      const firstChild = element.firstElementChild;
-      const childRect = firstChild?.getBoundingClientRect();
-      return {
-        height: rect.height,
-        clientHeight: element.clientHeight,
-        scrollHeight: element.scrollHeight,
-        childHeight: childRect?.height ?? 0,
-      };
-    });
-
-    expect(after.height).toBeGreaterThan(before.height);
-    expect(after.scrollHeight).toBeLessThanOrEqual(after.clientHeight + 1);
-    expect(after.childHeight).toBeGreaterThan(before.height);
-  } finally {
-    await client.close();
-    await repo.cleanup();
-  }
-});
+}

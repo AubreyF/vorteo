@@ -1,3 +1,5 @@
+import { TaskCardRowIcon } from "@/agent-stream/task-card-row";
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CARD_GAP } from "@/agent-stream/columns/geometry";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
@@ -246,13 +248,25 @@ export function ArchiveFinishedRow({
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
       <>
-        <ThemedArchive
-          size={ROW_ICON_SIZE}
-          uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
-        />
-        <Text style={[styles.rowLabel, inline && taskCardStyles.rowText]} numberOfLines={1}>
+        {inline ? (
+          <TaskCardRowIcon>
+            <ThemedArchive
+              size={ROW_ICON_SIZE}
+              uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
+            />
+          </TaskCardRowIcon>
+        ) : (
+          <ThemedArchive
+            size={ROW_ICON_SIZE}
+            uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
+          />
+        )}
+        <TruncatedText
+          style={[styles.rowLabel, inline && taskCardStyles.rowText]}
+          numberOfLines={1}
+        >
           {t("subagents.archiveFinishedAction")}
-        </Text>
+        </TruncatedText>
         {status.kind === "archiving" ? (
           <Text style={styles.rowTrailing} testID="subagents-track-archive-progress">
             {status.completedCount}/{status.totalCount}
@@ -358,22 +372,32 @@ export function SubagentsTrackRow({
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
       <>
-        <WorkspaceTabIcon
-          presentation={presentation}
-          backdrop={active && !inline ? "surface2" : "surface1"}
-        />
-        <Text
+        {inline ? (
+          <TaskCardRowIcon testID={`subagents-track-icon-${row.id}`}>
+            <WorkspaceTabIcon
+              presentation={presentation}
+              backdrop={active && !inline ? "surface2" : "surface1"}
+            />
+          </TaskCardRowIcon>
+        ) : (
+          <WorkspaceTabIcon
+            presentation={presentation}
+            backdrop={active && !inline ? "surface2" : "surface1"}
+          />
+        )}
+        <TruncatedText
           style={[styles.rowLabel, inline && taskCardStyles.rowText]}
           numberOfLines={1}
           testID={`subagents-track-label-${row.id}`}
+          tooltipDescription={presentation.subtitle ?? undefined}
         >
           {displayLabel}
-        </Text>
+        </TruncatedText>
         {row.kind === "provider" ? (
           <StatusBadge label={t(`subagents.providerStatus.${row.status}`)} size="xs" />
         ) : null}
         {presentation.subtitle ? (
-          <Text
+          <TruncatedText
             style={[styles.rowTrailing, styles.rowMetadata]}
             numberOfLines={1}
             accessibilityLabel={presentation.subtitle}
@@ -381,7 +405,7 @@ export function SubagentsTrackRow({
             selectable
           >
             {presentation.subtitle}
-          </Text>
+          </TruncatedText>
         ) : null}
         {canArchive ? (
           <SubagentRowActions

@@ -16,7 +16,10 @@ import { expectAgentTabActive } from "../support/helpers/launcher";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 
 async function verifyGoalPauseHelp(page: Page, goalCard: Locator, width: number) {
-  const pauseGoal = goalCard.getByRole("button", { name: "Pause goal", exact: true });
+  const pauseGoal = goalCard.getByRole("button", {
+    name: "Pause goal",
+    exact: true,
+  });
   await expect(pauseGoal).toBeEnabled();
   if (width === 390) return;
   await pauseGoal.hover();
@@ -34,7 +37,7 @@ async function revealSupportingCards(page: Page, width: number) {
   if ((await explorer.getAttribute("aria-expanded")) === "false") await explorer.click();
 }
 
-async function expectJournalRowGeometry(row: Locator, width: number) {
+async function expectJournalRowGeometry(row: Locator, _width: number) {
   await expect(async () => {
     const rowGeometry = await row.evaluate((node) => {
       const timestamp = node
@@ -44,7 +47,29 @@ async function expectJournalRowGeometry(row: Locator, width: number) {
       const marker = node
         .querySelector('[data-testid^="journal-status-"]')!
         .getBoundingClientRect();
+      const markerBackground = getComputedStyle(
+        node.querySelector('[data-testid^="journal-status-"]')!,
+      ).backgroundColor;
+      const above = node
+        .querySelector('[data-testid="journal-line-above"]')
+        ?.getBoundingClientRect();
+      const below = node
+        .querySelector('[data-testid="journal-line-below"]')
+        ?.getBoundingClientRect();
       return {
+        markerBackground,
+        headingOffset:
+          marker.left +
+          marker.width / 2 -
+          (() => {
+            const icon = node
+              .closest('[data-testid="agent-journal-card"]')!
+              .querySelector("[aria-expanded]")!
+              .firstElementChild!.getBoundingClientRect();
+            return icon.left + icon.width / 2;
+          })(),
+        clearAbove: !above || above.bottom <= marker.top,
+        clearBelow: !below || below.top >= marker.bottom,
         markerInset: marker.left - node.getBoundingClientRect().left,
         markerRight: marker.right,
         markerCenter: marker.top + marker.height / 2,
@@ -59,14 +84,18 @@ async function expectJournalRowGeometry(row: Locator, width: number) {
         overflow: node.scrollWidth > node.clientWidth,
       };
     });
+    expect(rowGeometry.headingOffset).toBeCloseTo(0, 1);
     expect(rowGeometry.timestampLeft).toBe(rowGeometry.textLeft);
+    expect(rowGeometry.markerBackground).toBe("rgba(0, 0, 0, 0)");
+    expect(rowGeometry.clearAbove).toBe(true);
+    expect(rowGeometry.clearBelow).toBe(true);
     expect(rowGeometry.timestampBottom).toBeLessThanOrEqual(rowGeometry.textTop);
-    expect(rowGeometry.markerInset).toBe(width === 390 ? 12 : 2);
+    expect(rowGeometry.markerInset).toBe(12);
     expect(rowGeometry.markerCenter).toBeCloseTo(rowGeometry.timestampCenter, 0);
     expect(rowGeometry.textTop - rowGeometry.timestampBottom).toBe(2);
     expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
-    expect(rowGeometry.timestampInset).toBe(width === 390 ? 40 : 30);
-    expect(rowGeometry.textWidth).toBe(rowGeometry.rowWidth - rowGeometry.timestampInset);
+    expect(rowGeometry.timestampInset).toBe(40);
+    expect(rowGeometry.textWidth).toBe(rowGeometry.rowWidth - rowGeometry.timestampInset - 12);
     expect(rowGeometry.overflow).toBe(false);
   }).toPass({ timeout: 5000 });
 }
@@ -88,7 +117,10 @@ for (const width of [1400, 390]) {
       title: "Journal Spark visibility",
       initialPrompt: "emit 2 agent stream updates",
     });
-    const journal = new McpClient({ name: "journal-spark-test", version: "1.0.0" });
+    const journal = new McpClient({
+      name: "journal-spark-test",
+      version: "1.0.0",
+    });
     try {
       await journal.connect(
         new StreamableHTTPClientTransport(
@@ -131,12 +163,18 @@ for (const width of [1400, 390]) {
       await expect(status(0)).toHaveAttribute("aria-label", "Seen journal entry");
       await expect(status(11)).toHaveAttribute("aria-label", "Unread journal entry");
       await expect(card.getByTestId("journal-unread-count")).toBeVisible();
+      await expect(async () => {
+        const read = await card.getByLabel("Seen journal entry", { exact: true }).count();
+        await expect(card.getByTestId("journal-unread-count")).toHaveText(`${read} / 12`);
+      }).toPass();
       await expectJournalRowGeometry(page.getByTestId(`journal-entry-${ids[0]}`), width);
       await card.screenshot({ path: info.outputPath(`spark-${width}.png`) });
 
       // Keep the app in the background while exposing unread entries.
       const focusSession = await page.context().newCDPSession(page);
-      await focusSession.send("Emulation.setFocusEmulationEnabled", { enabled: false });
+      await focusSession.send("Emulation.setFocusEmulationEnabled", {
+        enabled: false,
+      });
       const { windowId } = await focusSession.send("Browser.getWindowForTarget");
       await focusSession.send("Browser.setWindowBounds", {
         windowId,
@@ -149,7 +187,9 @@ for (const width of [1400, 390]) {
       });
       await page.waitForTimeout(1100);
       await expect(status(11)).toHaveAttribute("aria-label", "Unread journal entry");
-      await card.screenshot({ path: info.outputPath(`spark-unread-${width}.png`) });
+      await card.screenshot({
+        path: info.outputPath(`spark-unread-${width}.png`),
+      });
       const transition = status(11).evaluate(
         (node) =>
           new Promise<boolean>((resolve) => {
@@ -183,12 +223,15 @@ for (const width of [1400, 390]) {
         bounds: { windowState: "normal" },
       });
       await page.bringToFront();
-      await focusSession.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+      await focusSession.send("Emulation.setFocusEmulationEnabled", {
+        enabled: true,
+      });
       await focusSession.detach();
       await expect(status(11)).toHaveAttribute("aria-label", "Seen journal entry");
       expect(await transition).toBe(width === 1400);
       await expect(status(5)).toHaveAttribute("aria-label", "Unread journal entry");
       await page.reload();
+      await revealSupportingCards(page, width);
       await expect(card).toBeVisible();
       await expect(status(11)).toHaveAttribute("aria-label", "Seen journal entry");
       await expect(status(5)).toHaveAttribute("aria-label", "Unread journal entry");
@@ -216,6 +259,7 @@ for (const width of [1400, 390]) {
 
       await card.getByTestId("journal-clear").click();
       await expect(card).toContainText("Journal cleared on this device");
+      await expect(card.getByLabel("0 journal entries", { exact: true })).toHaveCount(0);
       await card.getByTestId("journal-show-history").click();
       await expect(status(11)).toHaveAttribute("aria-label", "Seen journal entry");
       await expect(status(5)).toHaveAttribute("aria-label", "Unread journal entry");
@@ -277,10 +321,15 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     title: "Scrolling card parent",
     initialPrompt: "emit 2 agent stream updates",
   });
-  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "scrolling-cards" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "scrolling-cards",
+  });
   const pluginDirectory = await mkdtemp(path.join(tmpdir(), "scrolling-cards-plugin-"));
   const pluginId = "scrolling-cards-test";
-  const journal = new McpClient({ name: "journal-card-test", version: "1.0.0" });
+  const journal = new McpClient({
+    name: "journal-card-test",
+    version: "1.0.0",
+  });
   const previous = await client.getDaemonConfig();
   try {
     const childIds: string[] = [];
@@ -302,12 +351,22 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       expectedRevision: 0,
       operationId: "pause-cards",
     });
+    const uploaded = await client.uploadFile({
+      fileName: "card-layout.png",
+      mimeType: "image/png",
+      bytes: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    });
+    expect(uploaded.error).toBeNull();
+    expect(uploaded.file).not.toBeNull();
     await client.mutateMessageQueue(agent.agentId, {
       kind: "enqueue",
       operationId: "enqueue-cards",
       messageId: "card-message",
       text: "Queued after progress",
-      attachments: [],
+      attachments: [{ ...uploaded.file!, kind: "image" }],
     });
     // The mock provider has no goals. Supply only that provider-owned observation;
     // agents, todo events, plugin registration and queue operations use the real daemon.
@@ -373,16 +432,31 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         "Retained each saved entry in its original order. ".repeat(20),
     };
     expect(
-      (await journal.callTool({ name: "append_journal", arguments: firstEntry })).isError,
+      (
+        await journal.callTool({
+          name: "append_journal",
+          arguments: firstEntry,
+        })
+      ).isError,
     ).not.toBe(true);
     await expect(stack.getByTestId(`journal-entry-${firstEntry.entryId}`)).toContainText(
       firstEntry.text,
     );
     expect(
-      (await journal.callTool({ name: "append_journal", arguments: firstEntry })).isError,
+      (
+        await journal.callTool({
+          name: "append_journal",
+          arguments: firstEntry,
+        })
+      ).isError,
     ).not.toBe(true);
     expect(
-      (await journal.callTool({ name: "append_journal", arguments: secondEntry })).isError,
+      (
+        await journal.callTool({
+          name: "append_journal",
+          arguments: secondEntry,
+        })
+      ).isError,
     ).not.toBe(true);
     const entries = stack.getByTestId(/^journal-entry-/);
     await expect(entries).toHaveCount(2);
@@ -397,7 +471,10 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       "shared-message-queue",
     ];
     for (const id of ids) await expect(stack.getByTestId(id)).toBeAttached();
-    const pill = page.getByRole("button", { name: "Scrolling plugin action", exact: true });
+    const pill = page.getByRole("button", {
+      name: "Scrolling plugin action",
+      exact: true,
+    });
     await expect(stack.getByTestId("agent-history-plugin-pills")).toContainText("Plugin pill");
     await expect(page.getByTestId("subagents-track-header")).toHaveCount(0);
     await expect(page.getByTestId("agent-task-list-header")).toHaveCount(0);
@@ -417,16 +494,15 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await expect(rightColumn.getByTestId("question-form-card")).toHaveCount(0);
     await Promise.all(ids.map((id) => expect(rightColumn.getByTestId(id)).toBeAttached()));
     await leftColumn.getByTestId("question-form-card").scrollIntoViewIfNeeded();
-    await page.screenshot({ path: info.outputPath("questions-left-column.png") });
+    await page.screenshot({
+      path: info.outputPath("questions-left-column.png"),
+    });
 
     for (const width of [1200, 390]) {
       await page.setViewportSize({ width, height: 650 });
       await revealSupportingCards(page, width);
       const goalCard = stack.getByTestId("agent-goal-bar");
-      await expect(goalCard.getByTestId("agent-goal-toggle")).toHaveAttribute(
-        "aria-label",
-        "Goal (waiting for messages)",
-      );
+      await expect(goalCard.getByTestId("agent-goal-toggle")).toHaveAttribute("aria-label", "Goal");
       await expect(stack.getByTestId("message-queue-toggle")).toHaveAttribute(
         "aria-label",
         "Queue",
@@ -439,26 +515,28 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       await expect(goalCard).toContainText(
         "Pause goal prevents the goal from continuing automatically.",
       );
-      const statusSize = await goalCard
-        .getByTestId("agent-goal-toggle-status")
-        .evaluate((node) => ({
-          status: parseFloat(getComputedStyle(node).fontSize),
-          heading: parseFloat(
-            getComputedStyle(
-              node
-                .closest('[data-testid="agent-goal-toggle"]')!
-                .querySelector('[data-testid="agent-goal-toggle-title"]')!,
-            ).fontSize,
-          ),
-        }));
-      expect(statusSize.status).toBeLessThan(statusSize.heading);
-      await goalCard.screenshot({ path: info.outputPath(`goal-status-${width}.png`) });
-      // Long passive status is intentionally clipped in the compact heading;
-      // the disclosure's accessible name above retains the full explanation.
-      await expect(goalCard.getByTestId("agent-goal-toggle-title")).toHaveCSS(
-        "text-overflow",
-        "ellipsis",
-      );
+      await expect(goalCard.getByTestId("agent-goal-toggle-status")).toHaveCount(0);
+      const notice = goalCard.getByTestId("agent-goal-notice");
+      await expect(notice).toBeVisible();
+      const noticeTop = (await notice.boundingBox())!.y;
+      const scroll = goalCard.getByTestId("agent-goal-bar-body-scroll");
+      await scroll.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await expect(goalCard.getByTestId("agent-goal-bar-scroll-divider")).toHaveCSS("opacity", "1");
+      expect((await notice.boundingBox())!.y).toBeCloseTo(noticeTop, 0);
+      const noticeBox = (await notice.boundingBox())!;
+      const dividerBox = (await goalCard
+        .getByTestId("agent-goal-bar-scroll-divider")
+        .boundingBox())!;
+      expect(dividerBox.y).toBeGreaterThanOrEqual(noticeBox.y + noticeBox.height - 1);
+      await goalCard.screenshot({
+        path: info.outputPath(`goal-status-${width}.png`),
+      });
+      await scroll.evaluate((node) => {
+        node.scrollTop = 0;
+      });
+      await expect(goalCard.getByTestId("agent-goal-bar-scroll-divider")).toHaveCSS("opacity", "0");
 
       await verifyGoalPauseHelp(page, goalCard, width);
 
@@ -494,7 +572,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
             top: box.top,
             bottom: box.bottom,
             width: box.width,
-            padding: getComputedStyle(node.firstElementChild!).padding,
+            padding: style.padding,
             frame: [
               style.backgroundColor,
               style.borderColor,
@@ -504,7 +582,9 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
           };
         });
       }, ids);
-      for (const card of geometry) expect(card.bottom - card.top).toBeLessThanOrEqual(325);
+      geometry
+        .filter((card) => card.id !== "question-form-card")
+        .forEach((card) => expect(card.bottom - card.top).toBeLessThanOrEqual(325));
       await checkCardGaps(stack, geometry, width);
       // Cards and their header controls share the approved floating-panel corners.
       expect(geometry[0].frame[3]).toBe("16px");
@@ -513,6 +593,13 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         expect(card.frame).toEqual(geometry[0].frame);
       }
       await checkHeadingGeometry(stack, width);
+      if (width === 390) {
+        const queueHandle = (await stack.getByTestId("queue-drag-card-message").boundingBox())!;
+        const attachment = (await stack.getByTestId("queue-attachment-summary").boundingBox())!;
+        expect(queueHandle.width).toBe(32);
+        expect(queueHandle.height).toBe(44);
+        expect(attachment.x - queueHandle.x - queueHandle.width).toBeCloseTo(0, 1);
+      }
       await checkHeadingActions(stack, width);
       await checkHeadingHover(page, stack, width, info);
       const journalCard = stack.getByTestId("agent-journal-card");
@@ -527,6 +614,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const expandedHeight = (await journalCard.boundingBox())!.height;
       await toggleJournal.click();
       await expect(toggleJournal).toHaveAttribute("aria-expanded", "false");
+      await expect(toggleJournal).toHaveCSS("border-top-right-radius", "16px");
+      await expect(toggleJournal).toHaveCSS("border-bottom-left-radius", "16px");
       await expect(entries).toHaveCount(0);
       expect((await journalCard.boundingBox())!.height).toBeLessThan(expandedHeight);
       await toggleJournal.click();
@@ -547,13 +636,17 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const rowHeight = await stack.getByTestId("subagents-card").evaluate((card) => {
         const row = card.querySelector('[data-testid="subagents-card-header"]');
         if (!row) throw new Error("Subagent header row missing");
-        return row.getBoundingClientRect().height;
+        return (
+          row.getBoundingClientRect().height -
+          Number.parseFloat(getComputedStyle(row).paddingTop) -
+          Number.parseFloat(getComputedStyle(row).paddingBottom)
+        );
       });
       expect(headerHeight).toBe(rowHeight);
       const clearFinished = stack.getByTestId("subagents-track-archive-finished");
       await expect(clearFinished).toBeVisible();
       expect((await clearFinished.boundingBox())?.height).toBe(headerHeight);
-      expect(headerHeight).toBe(width === 390 ? 44 : 32);
+      expect(headerHeight).toBe(44);
       if (width === 1200) {
         await toggle.hover();
         expect((await toggle.boundingBox())?.height).toBe(headerHeight);
@@ -563,6 +656,28 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       expect((await toggle.boundingBox())?.height).toBe(headerHeight);
       await toggle.click();
       await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      const subagentColumns = await stack.getByTestId("subagents-card").evaluate((card) => {
+        const heading = card
+          .querySelector('[data-testid="subagents-group-paseo-toggle"]')!
+          .firstElementChild!.getBoundingClientRect();
+        return [...card.querySelectorAll('[data-testid^="subagents-track-row-"]')].map((row) => {
+          const slot = row.querySelector('[data-testid^="subagents-track-icon-"]')!;
+          const icon = slot.firstElementChild!.getBoundingClientRect();
+          const title = row
+            .querySelector('[data-testid^="subagents-track-label-"]')!
+            .getBoundingClientRect();
+          return {
+            headingCenter: heading.left + heading.width / 2,
+            iconCenter: icon.left + icon.width / 2,
+            textGap: title.left - icon.right,
+          };
+        });
+      });
+      expect(subagentColumns.length).toBeGreaterThan(0);
+      for (const columns of subagentColumns) {
+        expect(columns.iconCenter).toBeCloseTo(columns.headingCenter, 1);
+        expect(columns.textGap).toBeGreaterThanOrEqual(12);
+      }
       const subagentBottomInset = await stack.getByTestId("subagents-card").evaluate((card) => {
         const rows = card.querySelectorAll('[data-testid^="subagents-track-row-"]');
         const lastRow = rows.item(rows.length - 1);
@@ -575,7 +690,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const subagentScrolls = await page
         .getByTestId("subagents-card-body-scroll")
         .evaluate((node) => node.scrollHeight > node.clientHeight);
-      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(4, 0);
+      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(2, 0);
       if (width === 1200) {
         const composerFrame = await page.getByTestId("message-input-surface").evaluate((node) => {
           const style = getComputedStyle(node);
@@ -594,7 +709,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         if (!header || !action) throw new Error("Goal controls missing");
         return action.getBoundingClientRect().top - header.getBoundingClientRect().top;
       });
-      expect(goalActionInset).toBe(0);
+      const goalWidth = (await stack.getByTestId("agent-goal-bar").boundingBox())!.width;
+      expect(goalActionInset).toBe(expectedHeaderInset(goalWidth));
       await verifyQuestionScrollerSpacing(stack, page, width);
       await info.attach(`scrolling-cards-${width}`, {
         body: await page.screenshot(),
@@ -642,6 +758,45 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await page.setViewportSize({ width: 1400, height: 900 });
     await revealSupportingCards(page, 1400);
     await expect(stack.getByTestId("subagents-card")).toBeAttached();
+    const resizeHandle = page.getByTestId("workspace-explorer-sidebar-resize-handle");
+    const resizeCards = async (offset: number) => {
+      const handle = (await resizeHandle.boundingBox())!;
+      await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(handle.x + handle.width / 2 + offset, handle.y + handle.height / 2, {
+        steps: 12,
+      });
+      await page.mouse.up();
+    };
+    await resizeCards(1000);
+    const narrowGoal = stack.getByTestId("agent-goal-toggle");
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-title")).toBeHidden();
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-arrow")).toBeHidden();
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-metadata")).toBeHidden();
+    await narrowGoal.click();
+    await expect(narrowGoal).toHaveAttribute("aria-expanded", "false");
+    await narrowGoal.click();
+    await expect(narrowGoal).toHaveAttribute("aria-expanded", "true");
+    const overlaps = await stack.locator("[aria-expanded]").evaluateAll((buttons) => {
+      const collisions: boolean[] = [];
+      for (const button of buttons) {
+        const bounds = button.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) continue;
+        let previousRight = bounds.left;
+        for (const child of button.children) {
+          const rect = child.getBoundingClientRect();
+          if (!rect.width || !rect.height) continue;
+          collisions.push(rect.right > bounds.right + 1 || rect.left < previousRight - 1);
+          previousRight = rect.right;
+        }
+      }
+      return collisions;
+    });
+    expect(overlaps.some(Boolean)).toBe(false);
+    await page.screenshot({ path: info.outputPath("narrow-card-heading-icons.png") });
+    await resizeCards(-240);
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-title")).toBeVisible();
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-metadata")).toBeVisible();
     await pill.click();
     await expect(pill).toHaveCount(0);
     await stack.getByTestId(`subagents-track-row-${childIds[0]}`).click();
@@ -651,11 +806,15 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     ).toHaveCount(0);
   } catch (error) {
     console.error(String(error));
-    await page.screenshot({ path: info.outputPath("card-failure-before-cleanup.png") });
+    await page.screenshot({
+      path: info.outputPath("card-failure-before-cleanup.png"),
+    });
     throw error;
   } finally {
     await client.removePlugin(pluginId).catch(() => {});
-    await client.patchDaemonConfig({ pluginsEnabled: previous.config.pluginsEnabled ?? false });
+    await client.patchDaemonConfig({
+      pluginsEnabled: previous.config.pluginsEnabled ?? false,
+    });
     await client.close();
     await journal.close();
     await agent.cleanup();
@@ -663,7 +822,27 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
   }
 });
 
+function expectedPanelInset(width: number) {
+  if (width < 340) return 2;
+  if (width < 400) return 3;
+  return 4;
+}
+
+function expectedHeaderInset(width: number) {
+  return expectedPanelInset(width);
+}
+
 async function verifyQuestionScrollerSpacing(stack: Locator, page: Page, width: number) {
+  const question = stack.getByTestId("question-form-card");
+  await expect(question.getByTestId("question-form-card-body-scroll")).toHaveCount(0);
+  const overflow = await question.evaluate((element) =>
+    [...element.querySelectorAll("*")].some(
+      (node) =>
+        /auto|scroll/.test(getComputedStyle(node).overflowY) &&
+        node.scrollHeight > node.clientHeight + 1,
+    ),
+  );
+  expect(overflow).toBe(false);
   const movement = await stack.getByTestId("question-form-card").evaluate(async (element) => {
     let scroll = element.parentElement;
     while (
@@ -723,16 +902,29 @@ async function checkCardGaps(
                 item.checkVisibility(),
               );
               const box = node?.getBoundingClientRect();
-              return { id, top: box?.top ?? 0, bottom: box?.bottom ?? 0, width: box?.width ?? 0 };
+              return {
+                id,
+                top: box?.top ?? 0,
+                bottom: box?.bottom ?? 0,
+                width: box?.width ?? 0,
+              };
             })
             .filter((box) => box.width > 0),
         )
-      : geometry;
+      : await stack.evaluate((root, boxes) => {
+          const file = root
+            .querySelector('[data-testid="supporting-card-files"]')!
+            .getBoundingClientRect();
+          return [
+            ...boxes,
+            { id: "supporting-card-files", top: file.top, bottom: file.bottom },
+          ].sort((a, b) => a.top - b.top);
+        }, geometry);
   for (let index = 1; index < adjacent.length; index++) {
     expect(
       adjacent[index].top - adjacent[index - 1].bottom,
       `${adjacent[index - 1].id} to ${adjacent[index].id}`,
-    ).toBeCloseTo(width > 600 ? 8 : 16, 0);
+    ).toBeCloseTo(8, 0);
   }
 }
 
@@ -758,6 +950,7 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
       const next = wrapper.nextElementSibling;
       const card = header.parentElement!.parentElement!.parentElement!;
       return {
+        panelInset: Number.parseFloat(getComputedStyle(header.parentElement!).paddingLeft),
         leftInset: box.left - card.getBoundingClientRect().left,
         iconInset: icon.left - box.left,
         iconTopInset: icon.top - box.top,
@@ -768,11 +961,33 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
         height: box.height,
       };
     });
-    expect(geometry.height, id).toBe(width === 390 ? 44 : 32);
-    expect(geometry.leftInset, id).toBeCloseTo(1, 0);
+    expect(geometry.height, id).toBe(44);
+    expect(geometry.leftInset, id).toBeCloseTo(1 + geometry.panelInset, 0);
     expect(geometry.iconInset, id).toBeCloseTo((geometry.height - 20) / 2, 0);
     expect(geometry.iconInset, id).toBeCloseTo(geometry.iconTopInset, 0);
     expect(geometry.rightGap, id).toBeLessThanOrEqual(8);
+    const metadata = toggle.getByTestId(`${id}-metadata`);
+    await expect(metadata).toBeVisible();
+    const metadataGap = await metadata.evaluate((node) => {
+      const heading = node.parentElement!.getBoundingClientRect();
+      const chip = node.getBoundingClientRect();
+      return heading.right - chip.right;
+    });
+    expect(metadataGap, id).toBeCloseTo(8, 0);
+    if (id === "message-queue-toggle") {
+      const countGap = await toggle
+        .getByTestId("message-queue-card-count")
+        .evaluate(
+          (node) =>
+            node.parentElement!.getBoundingClientRect().right - node.getBoundingClientRect().right,
+        );
+      expect(countGap).toBeCloseTo(0, 0);
+    }
+
+    if (id === "agent-goal-toggle") {
+      await expect(toggle.getByTestId("agent-goal-elapsed")).toBeVisible();
+    }
+
     await toggle.hover({ position: { x: 4, y: geometry.height / 2 } });
     await expect
       .poll(() => toggle.evaluate((node) => getComputedStyle(node).backgroundColor))
@@ -780,23 +995,33 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
     const color = await toggle.evaluate((node) => getComputedStyle(node).backgroundColor);
     highlight ??= color;
     expect(color, id).toBe(highlight);
-    await toggle.hover({ position: { x: geometry.width - 4, y: geometry.height / 2 } });
+    await expect(toggle).toHaveCSS("border-top-right-radius", "16px");
+    await expect(toggle).toHaveCSS("border-bottom-left-radius", "16px");
+    await expect(toggle).toHaveCSS("border-top-left-radius", "16px");
+    await expect(toggle).toHaveCSS("border-bottom-right-radius", "16px");
+    await toggle.hover({
+      position: { x: geometry.width - 4, y: geometry.height / 2 },
+    });
     await expect
       .poll(() => toggle.evaluate((node) => getComputedStyle(node).backgroundColor))
       .toBe(highlight);
     await info.attach(`heading-hover-${id}-${width}`, {
-      body: await page.screenshot({ path: info.outputPath(`heading-hover-${id}-${width}.png`) }),
+      body: await page.screenshot({
+        path: info.outputPath(`heading-hover-${id}-${width}.png`),
+      }),
       contentType: "image/png",
     });
     await toggle.click({ position: { x: 4, y: geometry.height / 2 } });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await toggle.click({ position: { x: geometry.width - 4, y: geometry.height / 2 } });
+    await toggle.click({
+      position: { x: geometry.width - 4, y: geometry.height / 2 },
+    });
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
   }
 }
 
 // Check every action in each rendered header so newly added controls inherit the contract.
-async function checkHeadingActions(root: Locator, width: number) {
+async function checkHeadingActions(root: Locator, _width: number) {
   const actions = await root
     .getByTestId(
       /^(agent-goal-bar|agent-task-progress-card|agent-journal-card|subagents-card|message-queue)-header$/,
@@ -819,7 +1044,7 @@ async function checkHeadingActions(root: Locator, width: number) {
     );
   expect(actions.length).toBeGreaterThan(0);
   for (const action of actions) {
-    expect(action.height, action.id ?? "heading action").toBe(width === 390 ? 44 : 32);
+    expect(action.height, action.id ?? "heading action").toBe(44);
     expect(action.borderWidth).toBe("1px");
     expect(action.borderColor).toBe("rgba(0, 0, 0, 0)");
     expect(action.borderColor).toBe(actions[0].borderColor);
@@ -828,7 +1053,7 @@ async function checkHeadingActions(root: Locator, width: number) {
 }
 
 // Measure the rendered contract, not component-specific padding implementations.
-async function checkHeadingGeometry(stack: Locator, width: number) {
+async function checkHeadingGeometry(stack: Locator, _width: number) {
   const ids = [
     "subagents-card",
     "agent-task-progress-card",
@@ -837,6 +1062,7 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
     "agent-goal-bar",
     "question-form-card",
   ];
+  await checkHandleCenterlines(stack);
   const geometry = await stack.evaluate(
     (root, cardIds) =>
       cardIds.map((id) => {
@@ -863,10 +1089,13 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
         return {
           id,
           height: box.height,
+          panelInset: Number.parseFloat(getComputedStyle(header.parentElement!).paddingLeft),
           iconX: icon.getBoundingClientRect().x - cardBox.x,
           titleX: title.getBoundingClientRect().x - cardBox.x,
           titleWidth: title.getBoundingClientRect().width,
-          offsets: marks.map((node) => center(node) - center(header)),
+          offsets: marks
+            .filter((node) => node.getBoundingClientRect().width > 0)
+            .map((node) => center(node) - center(header)),
           topClearance: buttonBox && buttonBox.top - cardBox.top,
           rightClearance: buttonBox && cardBox.right - buttonBox.right,
           overflow: header.scrollWidth > header.clientWidth,
@@ -875,10 +1104,18 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
     ids,
   );
   for (const card of geometry) {
-    expect(card.height, card.id).toBe(width === 390 ? 44 : 32);
-    expect(card.titleWidth, card.id).toBeGreaterThan(10);
-    expect(card.iconX, card.id).toBeCloseTo(geometry[0].iconX, 1);
-    expect(card.titleX, card.id).toBeCloseTo(geometry[0].titleX, 1);
+    expect(card.height, card.id).toBe(44);
+    if (card.titleWidth > 0) expect(card.titleWidth, card.id).toBeGreaterThan(10);
+    expect(card.iconX - card.panelInset, card.id).toBeCloseTo(
+      geometry[0].iconX - geometry[0].panelInset,
+      1,
+    );
+    if (card.titleWidth > 0) {
+      expect(card.titleX - card.panelInset, card.id).toBeCloseTo(
+        geometry[0].titleX - geometry[0].panelInset,
+        1,
+      );
+    }
     for (const offset of card.offsets) expect(Math.abs(offset), card.id).toBeLessThanOrEqual(1);
     expect(card.overflow, card.id).toBe(false);
   }
@@ -941,9 +1178,9 @@ async function checkSubagentRows(stack: Locator, width: number, info: TestInfo) 
     expect(row.separator).toBe("0px");
     expect(row.overflow).toBe(false);
   }
-  await stack
-    .getByTestId("subagents-card")
-    .screenshot({ path: info.outputPath(`single-line-subagents-${width}.png`) });
+  await stack.getByTestId("subagents-card").screenshot({
+    path: info.outputPath(`single-line-subagents-${width}.png`),
+  });
 }
 
 async function cardHeaderOffset(card: Locator) {
@@ -988,7 +1225,6 @@ async function checkFixedHeaders(
       "agent-journal-card",
       "shared-message-queue",
       "agent-goal-bar",
-      "question-form-card",
     ]) {
       const card = page.getByTestId(id);
       await card.scrollIntoViewIfNeeded();
@@ -1006,14 +1242,23 @@ async function checkFixedHeaders(
       });
       expect((await card.boundingBox())!.height).toBeLessThanOrEqual(200);
       expect(result.offset).toBeGreaterThan(0);
+      const divider = card.getByTestId(`${id}-scroll-divider`);
+      await expect(divider).toHaveCSS("opacity", "1");
+      const borderColor = await card.evaluate((node) => getComputedStyle(node).borderTopColor);
+      const dividerColor = await divider.evaluate((node) => getComputedStyle(node).backgroundColor);
+      const alpha = (color: string) => Number(color.match(/,\s*([\d.]+)\)$/)?.[1] ?? 1);
+      expect(alpha(dividerColor)).toBeCloseTo(alpha(borderColor) * 0.55, 2);
       expect(result.movement).toBeGreaterThan(0);
       expect(await cardHeaderOffset(card)).toBeCloseTo(before, 0);
       await header.scrollIntoViewIfNeeded();
       await expect(header).toBeInViewport();
-      await card.screenshot({ path: info.outputPath(`fixed-header-${id}-${width}.png`) });
+      await card.screenshot({
+        path: info.outputPath(`fixed-header-${id}-${width}.png`),
+      });
       await page.getByTestId(`${id}-body-scroll`).evaluate((node) => {
         node.scrollTop = 0;
       });
+      await expect(divider).toHaveCSS("opacity", "0");
     }
   }
 }
@@ -1065,7 +1310,9 @@ test("workspace checklist flower combines unopened threads and survives reload",
     title: "Checklist parent",
     initialPrompt: "emit 2 agent stream updates",
   });
-  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "checklist-progress" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "checklist-progress",
+  });
   try {
     const sibling = await client.createAgent({
       provider: "mock",
@@ -1119,14 +1366,21 @@ for (const width of [1400, 390]) {
       repoPrefix: "manual-checklist-",
       title: "Manual checklist",
     });
-    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "manual-checklist" });
+    const client = await connectDaemonClient<DaemonClient>({
+      clientIdPrefix: "manual-checklist",
+    });
     try {
       await openAgentRoute(page, agent);
+      await page.getByTestId(/^worktree-setup-callout-.*-dismiss$/).click();
+      await revealSupportingCards(page, width);
       const expectCenteredHeader = async () => {
         const clearance = await page.getByTestId("agent-task-progress-card").evaluate((card) => {
           const box = card.getBoundingClientRect();
           const header = card.firstElementChild!.firstElementChild!.getBoundingClientRect();
-          return { top: header.top - box.top, bottom: box.bottom - header.bottom };
+          return {
+            top: header.top - box.top,
+            bottom: box.bottom - header.bottom,
+          };
         });
         expect(clearance.top).toBeCloseTo(clearance.bottom, 0);
       };
@@ -1159,7 +1413,9 @@ for (const width of [1400, 390]) {
         if (status === "in_progress") await expect(spinner).toBeVisible();
         else await expect(spinner).not.toBeAttached();
       }
-      await page.screenshot({ path: info.outputPath("active-task-spinner.png") });
+      await page.screenshot({
+        path: info.outputPath("active-task-spinner.png"),
+      });
       await firstRow.getByRole("button", { name: "Details for First agent-created task" }).click();
       await page
         .getByTestId("checklist-editor")
@@ -1170,6 +1426,7 @@ for (const width of [1400, 390]) {
       await expect(spinner).not.toBeAttached();
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 1");
       await page.reload();
+      await revealSupportingCards(page, width);
       await expect(firstRow.getByText("Blocked", { exact: true })).toBeVisible();
       const blockedControl = firstRow.getByRole("checkbox");
       const blockedIcon = blockedControl.locator("svg");
@@ -1213,7 +1470,10 @@ for (const width of [1400, 390]) {
       await page.getByTestId("checklist-description").fill("Updates survive reload");
       await page.getByTestId("checklist-save").click();
       await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
-      await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "seed" });
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "delete",
+        id: "seed",
+      });
       const tasks = await client.getAgentChecklist(agent.agentId);
       const api = tasks.find((task) => task.text === "Build API");
       expect(api).toMatchObject({
@@ -1245,9 +1505,15 @@ for (const width of [1400, 390]) {
       await expect(page.getByTestId("checklist-count")).toHaveText("2 / 2");
       await page.getByRole("button", { name: "Details for Build API", exact: true }).click();
       const footer = page.getByTestId("checklist-editor-actions");
-      await footer.scrollIntoViewIfNeeded();
-      const deleteButton = footer.getByRole("button", { name: "Delete task", exact: true });
-      const closeButton = footer.getByRole("button", { name: "Close", exact: true });
+      await expect(footer).toBeInViewport();
+      const deleteButton = footer.getByRole("button", {
+        name: "Delete task",
+        exact: true,
+      });
+      const closeButton = footer.getByRole("button", {
+        name: "Close",
+        exact: true,
+      });
       const saveButton = footer.getByTestId("checklist-save");
       const footerBox = (await footer.boundingBox())!;
       const deleteBox = (await deleteButton.boundingBox())!;
@@ -1262,14 +1528,16 @@ for (const width of [1400, 390]) {
       }
       expect(closeBox.y).toBeCloseTo(saveBox.y, 0);
       expect(saveBox.x).toBeGreaterThan(closeBox.x + closeBox.width);
-      await expect(footer).toHaveCSS("padding-top", "16px");
+      await expect(footer).toHaveCSS("padding-top", "0px");
       const deleteColor = await deleteButton.evaluate(
         (node) => getComputedStyle(node).backgroundColor,
       );
       const channels = deleteColor.match(/\d+/g)!.map(Number);
       expect(channels[0]).toBeGreaterThan(channels[1]);
       expect(channels[0]).toBeGreaterThan(channels[2]);
-      await page.screenshot({ path: info.outputPath("task-editor-footer.png") });
+      await page.screenshot({
+        path: info.outputPath("task-editor-footer.png"),
+      });
       await page.getByTestId("checklist-title").fill("My retained draft");
       await client.mutateAgentChecklist(agent.agentId, {
         operation: "update",
@@ -1288,10 +1556,12 @@ for (const width of [1400, 390]) {
         .click();
       await expect(page.getByTestId("checklist-count")).toHaveText("1 / 2");
       await page.reload();
+      await revealSupportingCards(page, width);
       await expect(
-        page
-          .getByTestId("agent-task-progress-card")
-          .getByRole("checkbox", { name: "Complete Agent revision", exact: true }),
+        page.getByTestId("agent-task-progress-card").getByRole("checkbox", {
+          name: "Complete Agent revision",
+          exact: true,
+        }),
       ).toBeVisible();
       await page.evaluate(() => {
         const send = WebSocket.prototype.send;
@@ -1312,6 +1582,14 @@ for (const width of [1400, 390]) {
       const handle = page.getByTestId("checklist-drag-dependent");
       const checkbox = page.getByTestId("checklist-row-dependent").getByRole("checkbox");
       expect((await handle.boundingBox())!.x).toBeLessThan((await checkbox.boundingBox())!.x);
+      if (width === 390) {
+        const grip = (await handle.boundingBox())!;
+        const check = (await checkbox.boundingBox())!;
+        expect(grip.width).toBe(32);
+        expect(grip.height).toBe(44);
+        expect(check.width).toBe(44);
+        expect(check.x - grip.x - grip.width).toBeCloseTo(0, 1);
+      }
       await handle.click();
       await expect(handle).toBeFocused();
       await handle.press("Space");
@@ -1369,7 +1647,9 @@ for (const width of [1400, 390]) {
         .getByRole("checkbox", { name: "Complete Build card", exact: true })
         .click();
       await info.attach(`manual-checklist-${width}`, {
-        body: await page.screenshot({ path: info.outputPath("manual-checklist.png") }),
+        body: await page.screenshot({
+          path: info.outputPath("manual-checklist.png"),
+        }),
         contentType: "image/png",
       });
       await page.getByRole("button", { name: "Details for Build card", exact: true }).click();
@@ -1402,7 +1682,9 @@ for (const width of [1400, 390]) {
       const clear = page.getByTestId("checklist-clear-completed");
       await expect(clear).toBeVisible();
       await checkHeadingActions(page.getByTestId("agent-task-progress-card"), width);
-      await page.screenshot({ path: info.outputPath("clear-completed-tasks.png") });
+      await page.screenshot({
+        path: info.outputPath("clear-completed-tasks.png"),
+      });
       await clear.click();
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
       await expect(clear).not.toBeAttached();
@@ -1411,8 +1693,12 @@ for (const width of [1400, 390]) {
       expect(remaining[0].blockedBy).toEqual([]);
       expect(remaining[1].status).toBe("in_progress");
       await page.reload();
+      await revealSupportingCards(page, width);
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
-      await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "active" });
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "delete",
+        id: "active",
+      });
       for (let index = 0; index < 32; index++) {
         await client.mutateAgentChecklist(agent.agentId, {
           operation: "create",
@@ -1442,7 +1728,10 @@ for (const width of [1400, 390]) {
         const scroll = await body.evaluate(async (node) => {
           node.scrollTop = node.scrollHeight;
           await new Promise(requestAnimationFrame);
-          return { top: node.scrollTop, overflow: node.scrollHeight > node.clientHeight };
+          return {
+            top: node.scrollTop,
+            overflow: node.scrollHeight > node.clientHeight,
+          };
         });
         const headerAfter = (await header.boundingBox())!;
         expect(headerAfter.y).toBeCloseTo(headerBefore.y, 0);
@@ -1472,13 +1761,113 @@ for (const width of [1400, 390]) {
   });
 }
 
+test("sidebar metadata defaults to neutral and text badges precede icons", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "neutral-sidebar-",
+    title: "Neutral sidebar",
+  });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "neutral-sidebar",
+  });
+  try {
+    await agent.client.setWorkspaceLabel({
+      workspaceId: agent.workspaceId,
+      label: { name: "Default", color: "red" },
+      assigned: true,
+    });
+    for (const [id, status] of [
+      ["done", "completed"],
+      ["active", "in_progress"],
+      ["next", "pending"],
+    ] as const) {
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id,
+        text: id,
+      });
+      if (status !== "pending")
+        await client.mutateAgentChecklist(agent.agentId, {
+          operation: "update",
+          id,
+          status,
+        });
+    }
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "pause",
+      paused: true,
+      expectedRevision: 0,
+      operationId: "neutral-pause",
+    });
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "enqueue",
+      operationId: "neutral-enqueue",
+      messageId: "neutral-message",
+      text: "Waiting",
+      attachments: [],
+    });
+    await openAgentRoute(page, agent);
+    const label = page.getByTestId("workspace-label-chip-Default");
+    const petals = page.getByTestId(/^workspace-task-progress-/).locator("svg path[fill]");
+    await expect(petals).toHaveCount(3);
+    const fills = await petals.evaluateAll((nodes) =>
+      nodes.map((node) => getComputedStyle(node).fill),
+    );
+    expect(new Set(fills).size).toBe(3);
+    for (const fill of fills) {
+      const channels = fill.match(/\d+/g)!.slice(0, 3).map(Number);
+      expect(Math.max(...channels) - Math.min(...channels)).toBeLessThan(12);
+    }
+    const labelColor = await label
+      .getByText("Default", { exact: true })
+      .evaluate((node) => getComputedStyle(node).color);
+    expect(labelColor).not.toMatch(/rgb\(2[0-5][0-9], [0-9]{1,2}, [0-9]{1,2}\)/);
+    const row = page.getByTestId(/^sidebar-workspace-row-/).filter({ has: label });
+    const queue = row.getByText("Q1", { exact: true });
+    await expect(queue).toBeVisible();
+    expect((await queue.boundingBox())!.x).toBeLessThan((await label.boundingBox())!.x);
+    expect((await label.boundingBox())!.x).toBeLessThan((await petals.first().boundingBox())!.x);
+    await page.screenshot({ path: info.outputPath("neutral-sidebar.png") });
+    await client.updateWorkspaceLabel({
+      name: "Default",
+      color: "red",
+      explicitColor: true,
+    });
+    await expect
+      .poll(() =>
+        label
+          .getByText("Default", { exact: true })
+          .evaluate((node) => getComputedStyle(node).color),
+      )
+      .not.toBe(labelColor);
+    await page.reload();
+    await expect
+      .poll(() =>
+        label
+          .getByText("Default", { exact: true })
+          .evaluate((node) => getComputedStyle(node).color),
+      )
+      .not.toBe(labelColor);
+  } finally {
+    await client.close();
+    await agent.cleanup();
+  }
+});
+
 test("task flowers stay bounded through 300 tasks and follow sidebar labels", async ({
   page,
 }, info) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1400, height: 900 });
-  const agent = await seedMockAgentWorkspace({ repoPrefix: "task-flower-", title: "Task flowers" });
-  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "task-flower" });
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "task-flower-",
+    title: "Task flowers",
+  });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "task-flower",
+  });
   try {
     await agent.client.setWorkspaceLabel({
       workspaceId: agent.workspaceId,
@@ -1526,7 +1915,9 @@ test("task flowers stay bounded through 300 tasks and follow sidebar labels", as
       expect(menuOwnsEdge).toBe(true);
       await page.mouse.move(600, 20);
       await info.attach(`flowers-${index + 1}`, {
-        body: await page.screenshot({ path: info.outputPath(`flowers-${index + 1}.png`) }),
+        body: await page.screenshot({
+          path: info.outputPath(`flowers-${index + 1}.png`),
+        }),
         contentType: "image/png",
       });
       if (index + 1 === 33) await page.goto("about:blank");
@@ -1549,6 +1940,10 @@ async function checkDisclosures(stack: Locator, width: number, info: TestInfo) {
     "agent-journal-toggle",
   ]) {
     const arrow = stack.getByTestId(`${id}-arrow`);
+    if (!(await arrow.isVisible())) {
+      await expect(stack.getByTestId(`${id}-title`)).toBeHidden();
+      continue;
+    }
     const order = await arrow.evaluate((node) => {
       const arrowBox = node.getBoundingClientRect();
       const titleBox = node.previousElementSibling!.getBoundingClientRect();
@@ -1581,7 +1976,9 @@ async function checkDisclosures(stack: Locator, width: number, info: TestInfo) {
     await expect(body).toBeHidden();
     await expect(stack.getByTestId(actionId)).toBeVisible();
     expect((await card.boundingBox())!.height).toBeLessThan(expandedHeight);
-    await card.screenshot({ path: info.outputPath(`${cardId}-collapsed-${width}.png`) });
+    await card.screenshot({
+      path: info.outputPath(`${cardId}-collapsed-${width}.png`),
+    });
     await disclosure.click();
     await expect(disclosure).toHaveAttribute("aria-expanded", "true");
     await expect(body).toBeVisible();
@@ -1598,7 +1995,9 @@ test("shared card group and thread resize independently and preserve saved width
     title: "Independent thread columns",
     initialPrompt: "emit 40 agent stream updates",
   });
-  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "thread-columns" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "thread-columns",
+  });
   try {
     await client.addProject(agent.cwd);
     await client.mutateMessageQueue(agent.agentId, {
@@ -1648,6 +2047,10 @@ test("shared card group and thread resize independently and preserve saved width
         expect(c.x).toBeGreaterThanOrEqual(all.x + all.width);
         const expectedLeft = all.x + (all.width - t.width) / 2;
         expect(t.x).toBeCloseTo(expectedLeft, 0);
+        const handle = await box(page.getByTestId("workspace-explorer-sidebar-resize-handle"));
+        const stack = await box(cards.getByTestId("thread-cards-stack"));
+        expect(handle.y).toBeCloseTo(stack.y, 0);
+        expect(handle.y + handle.height).toBeCloseTo(stack.y + stack.height, 0);
       }).toPass({ timeout: 5000 });
     };
     const drag = async (id: string, delta: number) => {
@@ -1657,12 +2060,16 @@ test("shared card group and thread resize independently and preserve saved width
       const h = await box(handle);
       await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
       await page.mouse.down();
-      await page.mouse.move(h.x + h.width / 2 + delta, h.y + h.height / 2, { steps: 12 });
+      await page.mouse.move(h.x + h.width / 2 + delta, h.y + h.height / 2, {
+        steps: 12,
+      });
       await page.mouse.up();
     };
     await centered();
     await info.attach("thread-columns-initial", {
-      body: await page.screenshot({ path: info.outputPath("columns-initial.png") }),
+      body: await page.screenshot({
+        path: info.outputPath("columns-initial.png"),
+      }),
       contentType: "image/png",
     });
     const composer = page.getByTestId("message-input-surface");
@@ -1676,7 +2083,7 @@ test("shared card group and thread resize independently and preserve saved width
         expect(input.width).toBeCloseTo(t.width - 16, 0);
         expect(input.y).toBeGreaterThanOrEqual(transcript.y + transcript.height - 1);
         expect(Math.abs(c.y + c.height - (page.viewportSize()!.height - 8))).toBeLessThanOrEqual(1);
-        expect(c.y + c.height).toBeGreaterThan(input.y + input.height);
+        expect(c.y + c.height).toBeCloseTo(input.y + input.height, 0);
       }).toPass({ timeout: 5000 });
     };
     await alignedComposer();
@@ -1736,7 +2143,9 @@ test("shared card group and thread resize independently and preserve saved width
     await page.setViewportSize({ width: 1900, height: 850 });
     await centered();
     await info.attach("thread-columns-wide", {
-      body: await page.screenshot({ path: info.outputPath("columns-wide.png") }),
+      body: await page.screenshot({
+        path: info.outputPath("columns-wide.png"),
+      }),
       contentType: "image/png",
     });
     await page.reload();
@@ -1766,7 +2175,7 @@ test("shared card group and thread resize independently and preserve saved width
         expect(panel.y + panel.height).toBeLessThanOrEqual(queue.y);
       }
     }).toPass();
-    await cards.getByTestId("workspace-explorer-toggle").click();
+    await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
     await expect(cards).toBeHidden();
     await page.getByTestId("workspace-explorer-toggle").first().click();
     await expect(cards).toBeVisible();
@@ -1782,7 +2191,9 @@ test("shared card group and thread resize independently and preserve saved width
     await expect(page.getByTestId("thread-text-resize")).toHaveCount(0);
     await expect(page.getByTestId("message-input-surface")).toBeVisible();
     await info.attach("thread-columns-narrow", {
-      body: await page.screenshot({ path: info.outputPath("columns-narrow.png") }),
+      body: await page.screenshot({
+        path: info.outputPath("columns-narrow.png"),
+      }),
       contentType: "image/png",
     });
   } catch (error) {
@@ -1810,7 +2221,9 @@ for (const { width, interaction } of [
       repoPrefix: "blocked-reason-",
       title: "Blocked explanation",
     });
-    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "blocked-reason" });
+    const client = await connectDaemonClient<DaemonClient>({
+      clientIdPrefix: "blocked-reason",
+    });
     try {
       await openAgentRoute(page, agent);
       await client.mutateAgentChecklist(agent.agentId, {
@@ -1889,7 +2302,9 @@ test("quiet queue and subagent rows align with header actions without hover fill
     title: "Quiet card rows",
     initialPrompt: "emit 2 agent stream updates",
   });
-  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "quiet-rows" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "quiet-rows",
+  });
   try {
     const child = await agent.client.createAgent({
       provider: "mock",
@@ -1931,8 +2346,14 @@ test("quiet queue and subagent rows align with header actions without hover fill
       }
       const cardBox = (await card.boundingBox())!;
       const rowBox = (await row.boundingBox())!;
-      expect(rowBox.x - cardBox.x).toBeCloseTo(1, 0);
-      expect(cardBox.x + cardBox.width - rowBox.x - rowBox.width).toBeCloseTo(1, 0);
+      expect(rowBox.height).toBe(44);
+      const headingBox = (await card.getByTestId("subagents-group-paseo-toggle").boundingBox())!;
+      expect(rowBox.y - headingBox.y - headingBox.height).toBeLessThanOrEqual(
+        expectedHeaderInset(cardBox.width) + 3,
+      );
+      const rowInset = 1 + expectedPanelInset(cardBox.width);
+      expect(rowBox.x - cardBox.x).toBeCloseTo(rowInset, 0);
+      expect(cardBox.x + cardBox.width - rowBox.x - rowBox.width).toBeCloseTo(rowInset, 0);
       const queue = page.getByTestId("shared-message-queue");
       await queue.scrollIntoViewIfNeeded();
       const menu = (await queue
@@ -1940,14 +2361,37 @@ test("quiet queue and subagent rows align with header actions without hover fill
         .boundingBox())!;
       const pause = (await queue.getByTestId("message-queue-pause-resume").boundingBox())!;
       expect(menu.x + menu.width / 2).toBeCloseTo(pause.x + pause.width / 2, 0);
-      await page.screenshot({ path: info.outputPath(`quiet-rows-${width}.png`) });
+      await page.screenshot({
+        path: info.outputPath(`quiet-rows-${width}.png`),
+      });
     }
   } catch (error) {
     console.error(String(error));
-    await page.screenshot({ path: info.outputPath("row-failure-before-cleanup.png") });
+    await page.screenshot({
+      path: info.outputPath("row-failure-before-cleanup.png"),
+    });
     throw error;
   } finally {
     await client.close();
     await agent.cleanup();
   }
 });
+
+async function checkHandleCenterlines(stack: Locator) {
+  const offsets = await stack.evaluate((root) =>
+    ["agent-task-progress-card", "shared-message-queue"].flatMap((id) => {
+      const card = root.querySelector(`[data-testid="${id}"]`)!;
+      const icon = card
+        .querySelector("[aria-expanded]")!
+        .firstElementChild!.getBoundingClientRect();
+      return [
+        ...card.querySelectorAll('[data-testid^="checklist-drag-"], [data-testid^="queue-drag-"]'),
+      ]
+        .map((handle) => handle.getBoundingClientRect())
+        .filter((box) => box.width > 0)
+        .map((box) => box.x + box.width / 2 - icon.x - icon.width / 2);
+    }),
+  );
+  expect(offsets.length).toBeGreaterThan(0);
+  for (const offset of offsets) expect(offset).toBeCloseTo(0, 1);
+}

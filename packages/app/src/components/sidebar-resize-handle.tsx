@@ -34,18 +34,25 @@ export function SidebarResizeHandle({
   const enter = useCallback(() => setHovered(true), []);
   const leave = useCallback(() => setHovered(false), []);
   const geometry = resolveSidebarResizeHandleGeometry(finePointer);
+  // Browser pointer capture supports fingers and pens as well as a mouse.
+  const usePointerEvents = isWeb && Boolean(onPointerDown);
   const targetStyle = useMemo(() => {
-    const offset = geometry.edgeOffset - (finePointer && floating ? FLOATING_PANEL_INSET / 2 : 0);
+    // Web hit testing can reach the gutter; native targets must stay inside their parent.
+    const edgeOffset = isWeb ? -geometry.width / 2 : geometry.edgeOffset;
+    const offset = edgeOffset - (isWeb && floating ? FLOATING_PANEL_INSET / 2 : 0);
     return [
       styles.layer,
       { width: geometry.width },
       edge === "left" ? { left: offset } : { right: offset },
     ];
-  }, [edge, finePointer, floating, geometry.edgeOffset, geometry.width]);
+  }, [edge, floating, geometry.edgeOffset, geometry.width]);
   const hitStyle = useMemo(
     () => [
       styles.target,
-      { width: geometry.width, height: geometry.height ?? "100%" },
+      {
+        width: geometry.width,
+        height: isWeb ? "100%" : (geometry.height ?? "100%"),
+      },
       isWeb ? ({ cursor: "col-resize", touchAction: "none" } as object) : null,
     ],
     [geometry.height, geometry.width],
@@ -64,7 +71,7 @@ export function SidebarResizeHandle({
       accessibilityLabel="Resize sidebar"
       collapsable={false}
       style={hitStyle}
-      onPointerDown={finePointer ? onPointerDown : undefined}
+      onPointerDown={usePointerEvents ? onPointerDown : undefined}
       onPointerEnter={enter}
       onPointerLeave={leave}
     >
@@ -77,11 +84,7 @@ export function SidebarResizeHandle({
   );
   return (
     <View pointerEvents="box-none" style={targetStyle}>
-      {finePointer && onPointerDown ? (
-        target
-      ) : (
-        <GestureDetector gesture={gesture}>{target}</GestureDetector>
-      )}
+      {usePointerEvents ? target : <GestureDetector gesture={gesture}>{target}</GestureDetector>}
     </View>
   );
 }

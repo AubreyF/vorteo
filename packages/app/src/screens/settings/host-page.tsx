@@ -480,6 +480,32 @@ function ConnectionsSection({ host }: { host: HostProfile }) {
       .finally(() => setIsRemovingConnection(false));
   }, [pendingRemoveConnection, removeConnection, host.serverId, t]);
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.confirmActions}>
+        <ActionFooterLeading>
+          <Button
+            variant="destructive"
+            size="sm"
+            onPress={handleConfirmRemove}
+            disabled={isRemovingConnection}
+            testID="remove-connection-confirm"
+          >
+            {t("settings.host.connections.removeAction")}
+          </Button>
+        </ActionFooterLeading>
+        <Button
+          variant="secondary"
+          size="sm"
+          onPress={handleCancelConfirm}
+          disabled={isRemovingConnection}
+        >
+          {t("common.actions.cancel")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleConfirmRemove, isRemovingConnection, t, handleCancelConfirm],
+  );
   return (
     <SettingsSection title={t("settings.host.connections.title")}>
       <View style={settingsStyles.card} testID="host-page-connections-card">
@@ -505,33 +531,13 @@ function ConnectionsSection({ host }: { host: HostProfile }) {
           visible
           onClose={handleCloseConfirm}
           testID="remove-connection-confirm-modal"
+          footer={modalFooter1}
         >
           <Text style={styles.confirmText}>
             {t("settings.host.connections.removeMessage", {
               name: pendingRemoveConnection.title,
             })}
           </Text>
-          <ActionFooter style={styles.confirmActions}>
-            <ActionFooterLeading>
-              <Button
-                variant="destructive"
-                size="sm"
-                onPress={handleConfirmRemove}
-                disabled={isRemovingConnection}
-                testID="remove-connection-confirm"
-              >
-                {t("settings.host.connections.removeAction")}
-              </Button>
-            </ActionFooterLeading>
-            <Button
-              variant="secondary"
-              size="sm"
-              onPress={handleCancelConfirm}
-              disabled={isRemovingConnection}
-            >
-              {t("common.actions.cancel")}
-            </Button>
-          </ActionFooter>
         </AdaptiveModalSheet>
       ) : null}
     </SettingsSection>
@@ -1091,6 +1097,33 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
     setDraft(persistedPrompt);
   }, [persistedPrompt]);
 
+  const modalFooter2 = useMemo(
+    () => (
+      <ActionFooter style={styles.appendPromptActions}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={handleReset}
+          disabled={!hasChanges || isSaving}
+          testID="host-page-append-system-prompt-reset"
+        >
+          {t("settings.host.orchestration.systemPrompt.reset")}
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          onPress={handleSave}
+          disabled={!hasChanges || isSaving}
+          testID="host-page-append-system-prompt-save"
+        >
+          {isSaving
+            ? t("settings.host.orchestration.systemPrompt.saving")
+            : t("settings.host.orchestration.systemPrompt.save")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleReset, hasChanges, isSaving, t, handleSave],
+  );
   if (!isConnected) return null;
 
   return (
@@ -1127,6 +1160,7 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
           onClose={handleClose}
           testID="host-page-append-system-prompt-sheet"
           desktopMaxWidth={560}
+          footer={modalFooter2}
         >
           <SettingsTextAreaCard
             testID="host-page-append-system-prompt-input"
@@ -1137,28 +1171,6 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
             placeholder={t("settings.host.orchestration.systemPrompt.placeholder")}
           />
           <SettingsSaveStatus error={mutation.error} />
-          <ActionFooter style={styles.appendPromptActions}>
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={handleReset}
-              disabled={!hasChanges || isSaving}
-              testID="host-page-append-system-prompt-reset"
-            >
-              {t("settings.host.orchestration.systemPrompt.reset")}
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onPress={handleSave}
-              disabled={!hasChanges || isSaving}
-              testID="host-page-append-system-prompt-save"
-            >
-              {isSaving
-                ? t("settings.host.orchestration.systemPrompt.saving")
-                : t("settings.host.orchestration.systemPrompt.save")}
-            </Button>
-          </ActionFooter>
         </AdaptiveModalSheet>
       ) : null}
     </>
@@ -1276,6 +1288,27 @@ function RemoveHostSection({
     [theme.iconSize.sm, theme.colors.destructive],
   );
 
+  const modalFooter3 = useMemo(
+    () => (
+      <ActionFooter style={styles.confirmActions}>
+        <ActionFooterLeading>
+          <Button
+            variant="destructive"
+            size="sm"
+            onPress={handleConfirmRemove}
+            disabled={isRemoving}
+            testID="remove-host-confirm"
+          >
+            {t("settings.host.connections.removeAction")}
+          </Button>
+        </ActionFooterLeading>
+        <Button variant="secondary" size="sm" onPress={handleCancel} disabled={isRemoving}>
+          {t("common.actions.cancel")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleConfirmRemove, isRemoving, t, handleCancel],
+  );
   return (
     <SettingsSection
       title={t("settings.host.daemon.dangerZone")}
@@ -1316,28 +1349,13 @@ function RemoveHostSection({
           visible
           onClose={handleCloseConfirm}
           testID="remove-host-confirm-modal"
+          footer={modalFooter3}
         >
           <Text style={styles.confirmText}>
             {stopsOwnedDaemon
               ? t("settings.host.daemon.remove.localConfirmMessage")
               : t("settings.host.daemon.remove.confirmMessage", { name: host.label })}
           </Text>
-          <ActionFooter style={styles.confirmActions}>
-            <ActionFooterLeading>
-              <Button
-                variant="destructive"
-                size="sm"
-                onPress={handleConfirmRemove}
-                disabled={isRemoving}
-                testID="remove-host-confirm"
-              >
-                {t("settings.host.connections.removeAction")}
-              </Button>
-            </ActionFooterLeading>
-            <Button variant="secondary" size="sm" onPress={handleCancel} disabled={isRemoving}>
-              {t("common.actions.cancel")}
-            </Button>
-          </ActionFooter>
         </AdaptiveModalSheet>
       ) : null}
     </SettingsSection>

@@ -90,6 +90,8 @@ The schedule form captures its configuration revision when opened, alongside the
 
 Use `ActionFooter` from `components/ui/action-footer` for dialog and card bottom actions. It supplies top spacing, wrapping and right alignment. Buttons keep their natural width. Put red delete buttons inside `ActionFooterLeading` before the other actions so deletion stays at the far left. Keep field choices and header controls outside the footer.
 
+Modal actions belong in `AdaptiveModalSheet.footer`, never inside its scrolling children. The header and footer remain visible while only the body scrolls, including at compact snap heights and with the keyboard open. The sheet supplies footer padding and safe-area clearance; nested `ActionFooter` rows omit their ordinary body spacing. Verify long content at short desktop and compact viewport heights, checking that Save, Cancel and destructive actions stay visible before and after scrolling.
+
 ## Settings rows
 
 Use the named components from `@/components/settings` for settings cards and controls.

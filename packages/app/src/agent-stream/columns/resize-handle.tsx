@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { usePointerResize } from "@/components/use-pointer-resize";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
@@ -27,6 +28,27 @@ export function ColumnResizeHandle({
 }: ColumnResizeHandleProps) {
   const initial = useRef({ widths, pointerX: 0 });
   const [pressed, setPressed] = useState(false);
+  const begin = useCallback(() => {
+    let next = widths;
+    return {
+      move: (translation: number) => {
+        next = resizeColumn({
+          column,
+          initial: widths,
+          translation,
+          containerWidth,
+          standaloneText,
+        });
+        onPreview(column, next[column]);
+      },
+      finish: () => onCommit(column, next[column]),
+    };
+  }, [column, widths, containerWidth, standaloneText, onPreview, onCommit]);
+  const onPointerDown = usePointerResize({
+    direction: "horizontal",
+    begin,
+    onDraggingChange: setPressed,
+  });
   const gesture = useMemo(
     () =>
       Gesture.Pan()
@@ -65,6 +87,7 @@ export function ColumnResizeHandle({
       <SidebarResizeHandle
         edge={column === "cards" ? "left" : "right"}
         gesture={gesture}
+        onPointerDown={onPointerDown}
         pressed={pressed}
         testID={`thread-${column}-resize`}
       />

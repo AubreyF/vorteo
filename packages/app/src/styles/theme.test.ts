@@ -12,14 +12,14 @@ describe("Theme catalog", () => {
         platform: "ios",
         systemFont: "system-ui",
       }),
-    ).toBe("Manrope");
+    ).toBe("Barlow");
     expect(
       resolveAppearanceFont({
         stack: theme.previewDisplayFont,
         platform: "ios",
         systemFont: "system-ui",
       }),
-    ).toBe("Baskerville");
+    ).toBe("BarlowCondensed-Regular");
     expect(
       resolveAppearanceFont({
         stack: theme.previewBodyFont,
@@ -186,4 +186,13 @@ describe("Typography scale", () => {
       "4xl": 26,
     });
   });
+});
+
+it("keeps internal dividers quieter than borders across every appearance", () => {
+  for (const option of THEME_OPTIONS) {
+    if (!("theme" in option)) continue;
+    const { theme } = option;
+    const alpha = (color: string) => Number(color.match(/,\s*([\d.]+)\)$/)?.[1] ?? 1);
+    expect(alpha(theme.colors.divider)).toBeCloseTo(alpha(theme.colors.border) * 0.55);
+  }
 });

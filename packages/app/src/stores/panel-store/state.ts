@@ -18,6 +18,7 @@ export const SUPPORTING_CARD_DEFAULTS = {
   files: false,
   changes: false,
 } as const;
+export type SupportingCardLayout = "sidebar" | "inline";
 export type SupportingCardKind = keyof typeof SUPPORTING_CARD_DEFAULTS;
 export type SupportingCardUpdate = boolean | ((expanded: boolean) => boolean);
 const SupportingCardStateSchema = z
@@ -42,15 +43,15 @@ export interface MobilePanelSelection {
 
 export interface DesktopSidebarState {
   agentListOpen: boolean;
-  focusModeEnabled: boolean;
 }
 
 export type SortOption = "name" | "modified" | "size";
 
 export const DEFAULT_SIDEBAR_WIDTH = 320;
-export const MIN_SIDEBAR_WIDTH = 200;
+export const MIN_SIDEBAR_WIDTH = 56;
 export const MAX_SIDEBAR_WIDTH = 600;
-export const COMPACT_SIDEBAR_WIDTH = 64;
+export const COMPACT_SIDEBAR_WIDTH = 56;
+export const SIDEBAR_COMPACT_SNAP_WIDTH = 160;
 export const COMPACT_LABELED_SIDEBAR_WIDTH = 240;
 export const SIDEBAR_OUTER_GAP = 8;
 
@@ -148,6 +149,7 @@ export function buildToggleFileExplorerPatch(
 const ExplorerTabSchema = z.enum(["changes", "files", "pr"]);
 const DesktopSidebarStorageSchema = z.strictObject({
   agentListOpen: z.boolean().optional(),
+  // Legacy focus-mode keys are accepted only to discard them during migration.
   focusModeEnabled: z.boolean().optional(),
   zoomed: z.boolean().optional(),
   focused: z.boolean().optional(),
@@ -159,6 +161,7 @@ const DesktopSidebarStorageSchema = z.strictObject({
 
 export const PanelPersistedStateSchema = z.strictObject({
   supportingCardExpanded: SupportingCardStateSchema.optional(),
+  inlineCardExpanded: SupportingCardStateSchema.optional(),
   mobileView: z.enum(["agent", "agent-list", "file-explorer"]).optional(),
   mobilePanel: z
     .strictObject({
@@ -208,24 +211,6 @@ function migratePanelExplorerTabByCheckout(state: MigratablePanelState, version:
   state.explorerTabByCheckout = next;
 }
 
-function migratePanelDesktopFocusMode(state: MigratablePanelState): void {
-  const desktop = state.desktop;
-  if (!desktop) {
-    return;
-  }
-  if ("zoomed" in desktop) {
-    desktop.focusModeEnabled = desktop.zoomed;
-    delete desktop.zoomed;
-  }
-  if ("focused" in desktop) {
-    desktop.focusModeEnabled = desktop.focused;
-    delete desktop.focused;
-  }
-  if (typeof desktop.focusModeEnabled !== "boolean") {
-    desktop.focusModeEnabled = false;
-  }
-}
-
 // v16 narrowed the rail. Existing installs almost all carry the old 320 default,
 // so the reset is what makes the narrower rail visible to anyone but a new user.
 function migrateTreeRailWidth(state: MigratablePanelState, version: number): void {
@@ -237,9 +222,18 @@ function migrateTreeRailWidth(state: MigratablePanelState, version: number): voi
   state.treeRailWidth = clampTreeRailWidth(state.treeRailWidth);
 }
 
+function migrateCardLayouts(state: MigratablePanelState, version: number) {
+  // Seed both layouts from the existing device choice once, then keep them independent.
+  if (version < 19 && state.inlineCardExpanded === undefined) {
+    state.inlineCardExpanded = { ...state.supportingCardExpanded };
+  }
+}
+
 export function migratePanelState(persistedState: unknown, version: number): MigratablePanelState {
   const result = PanelPersistedStateSchema.safeParse(persistedState);
   const state: MigratablePanelState = result.success ? result.data : {};
+
+  migrateCardLayouts(state, version);
 
   // The docked explorer sidebar is gone; wider layouts render the explorer as
   // workspace tabs. Left behind, `fileExplorerOpen` kept drawing a sidebar that
@@ -257,8 +251,10 @@ export function migratePanelState(persistedState: unknown, version: number): Mig
     state.desktop.agentListOpen = true;
   }
   migratePanelExplorerTabByCheckout(state, version);
-  if (version < 8) {
-    migratePanelDesktopFocusMode(state);
+  if (state.desktop) {
+    delete state.desktop.focusModeEnabled;
+    delete state.desktop.zoomed;
+    delete state.desktop.focused;
   }
   if (version < 6 || typeof state.sidebarWidth !== "number") {
     state.sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
@@ -306,9 +302,7 @@ export type { ExplorerTab, ExplorerCheckoutContext };
 
 // Keep the minimal rail visible and preserve the user's expanded resize width.
 export function cycleDesktopSidebar(state: { sidebarCompact: boolean; sidebarNarrow: boolean }) {
-  if (state.sidebarCompact) return { sidebarCompact: false, sidebarNarrow: false };
-  if (state.sidebarNarrow) return { sidebarCompact: true, sidebarNarrow: false };
-  return { sidebarCompact: false, sidebarNarrow: true };
+  return { sidebarCompact: !state.sidebarCompact, sidebarNarrow: false };
 }
 
 /** Resize constraints are presentation only; never replace the saved desktop choice. */
@@ -321,12 +315,13 @@ export function resolveResponsiveSidebar(
   },
   viewportWidth: number,
 ) {
-  const requestedWidth = state.sidebarNarrow ? COMPACT_LABELED_SIDEBAR_WIDTH : state.sidebarWidth;
+  // Ignore the retired intermediate mode in existing device preferences.
+  const requestedWidth = state.sidebarWidth;
   const autoCompact =
     viewportWidth < requestedWidth + MIN_TEXT_WIDTH + SIDEBAR_OUTER_GAP * 2 &&
     state.sidebarViewportOverride !== viewportWidth;
   return {
     sidebarCompact: state.sidebarCompact || autoCompact,
-    sidebarNarrow: state.sidebarNarrow && !autoCompact,
+    sidebarNarrow: false,
   };
 }

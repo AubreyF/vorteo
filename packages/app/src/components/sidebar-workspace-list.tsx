@@ -1,3 +1,5 @@
+import { useScrollReporter } from "./use-scroll-divider";
+import { NestableScrollDivider } from "./nestable-scroll-divider";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
 import { splitFactoryWorkspaces, factoryOverviewTargets } from "@/workspace/lifecycle/grouping";
 import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
@@ -136,7 +138,7 @@ import {
   useSidebarWorkspaceTrailing,
 } from "@/components/sidebar/workspace-trailing";
 import { PressHighlight } from "@/components/ui/press-highlight";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipText } from "@/components/ui/tooltip";
 import { Shortcut } from "@/components/ui/shortcut";
 import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
@@ -214,6 +216,9 @@ function activeWorkspaceSelectionKey(selection: ActiveWorkspaceSelection | null)
 }
 
 interface SidebarWorkspaceListProps {
+  /** Project flyouts fit short lists while retaining the shared scrolling list. */
+  onContentSizeChange?: (width: number, height: number) => void;
+  onScrolledChange?: (scrolled: boolean) => void;
   workspaceGroups: SidebarWorkspaceGroup[];
   /** What `useProjectIcons` is asked for, straight from the projection. See `SidebarProjection`. */
   projectIconTargets: SidebarProjectIconTarget[];
@@ -537,15 +542,22 @@ function ProjectKebabMenu({
   );
   return (
     <DropdownMenu compactMode="sheet">
-      <DropdownMenuTrigger
-        hitSlop={actionSize ? 0 : 8}
-        style={actionStyle}
-        accessibilityRole="button"
-        accessibilityLabel={t("sidebar.project.actions.menu")}
-        testID={`sidebar-project-kebab-${projectViewKey}`}
-      >
-        {renderKebabTriggerIcon}
-      </DropdownMenuTrigger>
+      <Tooltip enabledOnDesktop enabledOnMobile={false}>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger
+            hitSlop={actionSize ? 0 : 8}
+            style={actionStyle}
+            accessibilityRole="button"
+            accessibilityLabel={t("sidebar.project.actions.menu")}
+            testID={`sidebar-project-kebab-${projectViewKey}`}
+          >
+            {renderKebabTriggerIcon}
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          <TooltipText label={t("sidebar.project.actions.menu")} />
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="end" width={220} sheetTitle={t("sidebar.project.actions.menu")}>
         <ProjectMenuItems
           surface="dropdown"
@@ -1050,12 +1062,13 @@ function ProjectHeaderRow({
     ({ pressed }: PressableStateCallbackType) => [
       styles.projectRow,
       density,
+      touch && styles.projectTouchRow,
       isDragging && styles.projectRowDragging,
       selected && styles.sidebarRowSelected,
       isHovered && styles.projectRowHovered,
       pressed && styles.projectRowPressed,
     ],
-    [isDragging, selected, isHovered, density],
+    [isDragging, selected, isHovered, density, touch],
   );
 
   const rowChildren = (
@@ -2111,6 +2124,8 @@ function areProjectBlockSelectionsEqual(
 const MemoProjectBlock = memo(ProjectBlock, areProjectBlockPropsEqual);
 
 export function SidebarWorkspaceList({
+  onContentSizeChange,
+  onScrolledChange,
   workspaceGroups,
   projectIconTargets,
   pinnedGroups,
@@ -2195,6 +2210,7 @@ export function SidebarWorkspaceList({
   const content =
     groupMode !== "project" ? (
       <SidebarGroupedModeList
+        onScrolledChange={onScrolledChange}
         workspaceGroups={workspaceGroups}
         pinnedGroups={pinnedGroups}
         workspaceEntriesByKey={workspaceEntriesByKey}
@@ -2213,6 +2229,8 @@ export function SidebarWorkspaceList({
       />
     ) : (
       <ProjectModeList
+        onContentSizeChange={onContentSizeChange}
+        onScrolledChange={onScrolledChange}
         projects={projects}
         pinnedGroups={pinnedGroups}
         workspaceEntriesByKey={workspaceEntriesByKey}
@@ -2249,6 +2267,7 @@ export function SidebarWorkspaceList({
  * above it was status-only.
  */
 function SidebarGroupedModeList({
+  onScrolledChange,
   workspaceGroups,
   pinnedGroups,
   workspaceEntriesByKey,
@@ -2265,6 +2284,7 @@ function SidebarGroupedModeList({
   parentGestureRef,
   dragGestureHostActive,
 }: {
+  onScrolledChange?: (scrolled: boolean) => void;
   workspaceGroups: SidebarWorkspaceGroup[];
   pinnedGroups: PinnedSidebarGroups;
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
@@ -2293,6 +2313,7 @@ function SidebarGroupedModeList({
 
   return (
     <SidebarStatusWorkspaceList
+      onScrolledChange={onScrolledChange}
       groups={workspaceGroups}
       pinnedWorkspaces={pinnedWorkspaces}
       projectIconByProjectViewKey={projectIconByProjectViewKey}
@@ -2321,6 +2342,8 @@ function ProjectModeList(props: Parameters<typeof ProjectModeListContent>[0]) {
 }
 
 function ProjectModeListContent({
+  onContentSizeChange,
+  onScrolledChange,
   projects,
   pinnedGroups,
   workspaceEntriesByKey,
@@ -2363,6 +2386,7 @@ function ProjectModeListContent({
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
   onPinnedWorkspaceReorder: (workspaces: SidebarWorkspacePlacement[]) => void;
 }) {
+  const onScroll = useScrollReporter(onScrolledChange);
   const pinnedExternalDrop = useWorkspaceProjectDrop();
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const [creatingWorkspaceIds, setCreatingWorkspaceIds] = useState<Set<string>>(() => new Set());
@@ -2718,8 +2742,12 @@ function ProjectModeListContent({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          onContentSizeChange={onContentSizeChange}
           testID="sidebar-project-workspace-list-scroll"
         >
+          <NestableScrollDivider onChange={onScrolledChange} />
           {content}
         </NestableScrollContainer>
       ) : (
@@ -2727,6 +2755,9 @@ function ProjectModeListContent({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          onContentSizeChange={onContentSizeChange}
           testID="sidebar-project-workspace-list-scroll"
         >
           {content}
@@ -2744,7 +2775,7 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
   },
   listContent: {
-    paddingHorizontal: theme.spacing[2],
+    // The enclosing panel owns adaptive insets, as it does for right-hand cards.
     // Optical inset: aligns the visible Pinned/Workspaces glyph edge with the
     // Schedules icon across the divider; their layout boxes have different insets.
     paddingTop: 2,
@@ -2815,6 +2846,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 36,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[2],
+    paddingLeft: 14,
     borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing[1],
     flexDirection: "row",
@@ -2823,6 +2855,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     userSelect: "none",
   },
+  projectTouchRow: { paddingLeft: 14 },
   projectRowMain: {
     flex: 1,
     minWidth: 0,
@@ -2889,7 +2922,7 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   projectIconActionButtonHovered: {
-    backgroundColor: theme.colors.surfaceSidebarHover,
+    backgroundColor: theme.colors.interactionHighlight,
   },
   projectIconActionButtonHidden: {
     opacity: 0,

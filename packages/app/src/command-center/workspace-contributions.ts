@@ -47,7 +47,6 @@ export interface WorkspaceCommandCenterLabels {
   moveTabUp: string;
   moveTabDown: string;
   closePane: string;
-  toggleFocusMode: string;
   toggleExplorerSidebar: string;
   // Workspace management actions
   rename: string;
@@ -76,7 +75,6 @@ export interface WorkspaceCommandCenterIcons {
   copy?: CommandCenterIcon;
   focusPane?: CommandCenterIcon;
   moveTab?: CommandCenterIcon;
-  focusMode?: CommandCenterIcon;
   explorerSidebar?: CommandCenterIcon;
   // Workspace management action icons
   copyPath?: CommandCenterIcon;
@@ -84,7 +82,6 @@ export interface WorkspaceCommandCenterIcons {
   pin?: CommandCenterIcon;
   unpin?: CommandCenterIcon;
   showSetup?: CommandCenterIcon;
-  toggleFocusMode?: CommandCenterIcon;
   label?: CommandCenterIcon;
   git?(action: GitAction): CommandCenterIcon | undefined;
 }
@@ -99,7 +96,6 @@ export interface WorkspaceCommandCenterShortcuts {
   nextTab?: ShortcutKey[][];
   closeCurrentTab?: ShortcutKey[][];
   closePane?: ShortcutKey[][];
-  toggleFocusMode?: ShortcutKey[][];
   toggleExplorerSidebar?: ShortcutKey[][];
   pinWorkspace?: ShortcutKey[][];
 }
@@ -485,15 +481,6 @@ function buildPaneContributions(source: WorkspaceCommandCenterSource): CommandCe
       shortcutKeys: source.shortcuts.closePane,
       action: { id: "workspace.pane.close", scope: "workspace" },
     },
-    {
-      id: "pane:focus-mode-toggle",
-      rank: 62,
-      title: source.labels.toggleFocusMode,
-      keywords: ["pane", "focus", "mode", "toggle"],
-      icon: source.icons.focusMode,
-      shortcutKeys: source.shortcuts.toggleFocusMode,
-      action: { id: "workspace.focus.toggle", scope: "workspace" },
-    },
   ];
   return paneActions.map((action) => buildQueryAction(source, action));
 }
@@ -657,11 +644,9 @@ export function buildWorkspaceCommandCenterContributions(
     );
   }
 
-  // Toggle Explorer sidebar and Toggle focus mode belong here, NOT in root-registration.tsx:
-  // their handlers live in workspace-screen.tsx behind `enabled: isRouteFocused && ...`, so a
-  // global registration would list two entries that silently no-op on /settings, /sessions,
-  // /schedules and Home. Toggle sidebar (left) is global and stays in the root set — that is why
-  // the three toggles render in two non-adjacent sections. Don't "tidy" them back together.
+  // Explorer controls belong to the active workspace. Registering this globally
+  // would expose a command that cannot work on settings or other global routes.
+  // The left sidebar remains a global command because its controls work everywhere.
   contributions.push(
     buildWorkspaceAction({
       source,
@@ -675,25 +660,6 @@ export function buildWorkspaceCommandCenterContributions(
       visibility: "query",
     }),
   );
-
-  // `buildPaneContributions` already dispatches this same `workspace.focus.toggle` action as
-  // `pane:focus-mode-toggle` once split panes are available, so only add the standalone entry
-  // where that function is skipped — otherwise the palette lists "Toggle focus mode" twice.
-  if (!source.capabilities.canSplitPanes) {
-    contributions.push(
-      buildWorkspaceAction({
-        source,
-        id: "workspace:toggle-focus-mode",
-        rank: 26,
-        title: source.labels.toggleFocusMode,
-        keywords: ["toggle", "focus", "zen", "distraction", "fullscreen"],
-        icon: source.icons.toggleFocusMode,
-        shortcutKeys: source.shortcuts.toggleFocusMode,
-        action: { id: "workspace.focus.toggle", scope: "workspace" },
-        visibility: "query",
-      }),
-    );
-  }
 
   contributions.push(...buildLabelContributions(source));
 

@@ -8,7 +8,11 @@ import { applyAppearance, type AppearanceInput } from "./apply";
 const { runtime, updateTheme } = vi.hoisted(() => {
   const updateThemeSpy = vi.fn();
   return {
-    runtime: { themeName: undefined as string | undefined, updateTheme: updateThemeSpy },
+    runtime: {
+      themeName: undefined as string | undefined,
+      updateTheme: updateThemeSpy,
+      getTheme: vi.fn(),
+    },
     updateTheme: updateThemeSpy,
   };
 });
@@ -83,8 +87,10 @@ function runCapturedUpdater(call = 0): FakeTheme {
 
 describe("applyAppearance", () => {
   beforeEach(() => {
-    updateTheme.mockClear();
+    updateTheme.mockReset();
     runtime.themeName = undefined;
+    runtime.getTheme.mockReset();
+    runtime.getTheme.mockImplementation(() => makeFakeTheme());
   });
 
   it("patches every registered Unistyles theme exactly once", () => {
@@ -92,6 +98,28 @@ describe("applyAppearance", () => {
 
     expect(updateTheme).toHaveBeenCalledTimes(ALL_THEME_KEYS.length);
     expect(updateTheme.mock.calls.map((call) => call[0])).toEqual([...ALL_THEME_KEYS]);
+  });
+
+  it("does not republish unchanged appearance when switching or previewing themes", () => {
+    const themes = new Map(ALL_THEME_KEYS.map((key) => [key, makeFakeTheme()]));
+    runtime.getTheme.mockImplementation((key: string) => themes.get(key));
+    updateTheme.mockImplementation((key: string, updater: ThemeUpdater) => {
+      themes.set(key, updater(themes.get(key)!));
+    });
+    applyAppearance(makeInput());
+    updateTheme.mockClear();
+    runtime.themeName = "midas";
+    applyAppearance(makeInput());
+    expect(updateTheme).not.toHaveBeenCalled();
+
+    // A contributed theme can be replaced while the user's settings stay equal.
+    themes.set("midas", makeFakeTheme());
+    applyAppearance(makeInput());
+    expect(updateTheme.mock.calls.map((call) => call[0])).toEqual(["midas"]);
+    updateTheme.mockClear();
+    applyAppearance(makeInput({ uiBaseFontSize: 18 }));
+    expect(updateTheme).toHaveBeenCalledTimes(ALL_THEME_KEYS.length);
+    expect(themes.get("midas")?.fontSize.base).toBe(18);
   });
 
   it("patches the active theme before inactive registry entries", () => {

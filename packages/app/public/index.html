@@ -131,8 +131,30 @@
     <div id="root">
       <!-- React replaces this shell when it mounts, including its timeout UI. -->
       <div id="boot-status" hidden>
-        <div class="boot-spinner" aria-hidden="true"></div>
-        <p role="status">Loading app</p>
+        <div class="boot-emblem" role="progressbar" aria-label="Loading Vorteo">
+          <div class="boot-spinner" aria-hidden="true"></div>
+          <!-- Inline the approved brand silhouette so it paints before assets load. -->
+          <svg class="boot-mark" viewBox="0 0 640 640" focusable="false" aria-hidden="true">
+            <g
+              transform="translate(0.000000,640.000000) scale(0.100000,-0.100000)"
+              fill="#ffffff"
+              stroke="none"
+            >
+              <path
+                d="M4741 5040 c-161 -43 -330 -157 -521 -349 -382 -383 -703 -992 -1136
+-2155 l-89 -240 -7 155 c-13 307 -40 603 -79 889 -78 569 -258 942 -547 1134
+-150 99 -288 139 -477 138 -195 -1 -356 -54 -505 -166 -163 -123 -250 -289
+-250 -477 1 -343 302 -667 732 -788 153 -43 250 -55 399 -49 l127 6 12 -102
+c48 -418 115 -931 140 -1081 61 -365 124 -504 262 -581 45 -25 64 -29 128 -29
+64 0 82 4 122 28 57 33 111 87 145 144 30 52 96 216 158 393 346 994 485 1316
+693 1605 186 258 324 391 721 690 102 77 214 166 249 199 206 193 249 397 116
+545 -91 101 -235 134 -393 91z m-2737 -939 c116 -57 191 -165 262 -376 19 -56
+34 -108 34 -115 0 -17 -182 -7 -259 14 -206 56 -372 175 -418 299 -6 18 -12
+53 -12 78 -1 51 9 64 76 98 102 51 216 52 317 2z"
+              />
+            </g>
+          </svg>
+        </div>
         <div id="boot-help" hidden role="status">
           <p>Taking longer than expected.</p>
           <p>Check your internet connection and VPN, if required.</p>
@@ -150,9 +172,10 @@
         font:
           14px system-ui,
           sans-serif;
-        color: #647068;
+        color: #a9b5ad;
       }
       #boot-help {
+        margin-top: 24px;
         font-size: 13px;
         line-height: 1.5;
       }
@@ -166,14 +189,41 @@
         font: inherit;
         cursor: pointer;
       }
-      .boot-spinner {
-        margin: auto;
-        width: 20px;
-        height: 20px;
-        border: 2px solid #64706840;
-        border-top-color: currentColor;
+      .boot-emblem {
+        position: relative;
+        width: 160px;
+        height: 160px;
+        margin: 0 auto;
+      }
+      .boot-mark {
+        position: absolute;
+        inset: 8px;
+        width: 144px;
+        height: 144px;
+      }
+      .boot-emblem::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border: 1px solid #ffffff1a;
         border-radius: 50%;
-        animation: boot-spin 1s linear infinite;
+      }
+      .boot-spinner {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: conic-gradient(transparent 0deg 240deg, #ffffff12 250deg, #ffffff 360deg);
+        -webkit-mask-image: radial-gradient(
+          farthest-side,
+          transparent calc(100% - 1px),
+          #000 calc(100% - 0.5px)
+        );
+        mask-image: radial-gradient(
+          farthest-side,
+          transparent calc(100% - 1px),
+          #000 calc(100% - 0.5px)
+        );
+        animation: boot-spin 1.6s linear infinite;
       }
       @keyframes boot-spin {
         to {
@@ -183,11 +233,6 @@
       @media (prefers-reduced-motion: reduce) {
         .boot-spinner {
           animation: none;
-        }
-      }
-      @media (prefers-color-scheme: dark) {
-        #boot-status {
-          color: #a9b5ad;
         }
       }
     </style>

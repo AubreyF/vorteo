@@ -1,3 +1,10 @@
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
+import {
+  seedLongMockAgentTimeline,
+  openAgentTimeline,
+  scrollTimelineToOldestLoadedEdge,
+} from "../support/helpers/timeline-pagination";
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { seedWorkspace } from "../support/helpers/seed-client";
@@ -54,7 +61,7 @@ test("updates a running terminal across all six themes without replacing its ses
             page.getByTestId(`sidebar-workspace-row-${getServerId()}:${harness.workspaceId}`),
           ).toHaveCSS(
             "background-color",
-            theme === "starship-light" ? "rgb(240, 240, 248)" : "rgb(44, 44, 46)",
+            theme === "starship-light" ? "rgb(226, 226, 238)" : "rgb(44, 44, 46)",
           );
         }
         await expect
@@ -182,7 +189,7 @@ test("keeps the selected workspace visible in Starship", async ({ page }, testIn
     await row.click();
 
     await expect(row).toHaveAttribute("aria-selected", "true");
-    await expect(row).toHaveCSS("background-color", "rgb(240, 240, 248)");
+    await expect(row).toHaveCSS("background-color", "rgb(226, 226, 238)");
     await page.screenshot({
       path: testInfo.outputPath("starship-selected-workspace.png"),
       fullPage: true,
@@ -242,7 +249,7 @@ test("applies the interface font size to settings text", async ({ page }) => {
   await expect(sectionTitle).toHaveCSS("font-size", "10px");
 });
 
-test("restores each theme's typography when the interface override is cleared", async ({
+test("restores shared Dark Star typography when the interface override is cleared", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -255,21 +262,26 @@ test("restores each theme's typography when the interface override is cleared", 
   const input = page.getByLabel("Interface font family", { exact: true });
   const label = page.getByText("Interface font", { exact: true });
   await expect(input).toHaveValue("Georgia");
-  await expect(input).toHaveAttribute("placeholder", /Iowan Old Style/);
+  await expect(input).toHaveAttribute("placeholder", /Barlow/);
   await expect(label).toHaveCSS("font-family", /Georgia/);
   await page.getByTestId("theme-preview-scriptorium").click();
   await expect(input).toHaveValue("Georgia");
-  await expect(input).toHaveAttribute("placeholder", /Manrope/);
+  await expect(input).toHaveAttribute("placeholder", /Barlow/);
   await expect(label).toHaveCSS("font-family", /Georgia/);
   // Move the pointer off the swatches, as a user does when editing the field.
   // fill() alone leaves hover previews active while it focuses the input.
   await input.click();
   await input.fill("");
   await input.press("Tab");
-  await expect(label).toHaveCSS("font-family", /Manrope/);
+  await expect(label).toHaveCSS("font-family", /Barlow/);
   await page.getByTestId("theme-preview-starship-dark").click();
   await expect(input).toHaveAttribute("placeholder", /Barlow/);
   await expect(label).toHaveCSS("font-family", /Barlow/);
+  for (const id of ["starship-light", "midas", "ember", "neon", "scriptorium"]) {
+    await page.getByTestId(`theme-preview-${id}`).click();
+    await expect(input).toHaveAttribute("placeholder", /Barlow/);
+    await expect(label).toHaveCSS("font-family", /Barlow/);
+  }
 });
 
 test("previews compact theme swatches without saving and commits only on activation", async ({
@@ -388,4 +400,68 @@ test("keeps System appearance available without plugin themes", async ({ page })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.getByTestId("theme-preview-ember").click();
   await expect(page.getByRole("button", { name: "Theme: Ember", exact: true })).toBeVisible();
+});
+
+test("keeps shared button labels themed across palette changes", async ({ page }, info) => {
+  const agent = await seedLongMockAgentTimeline({ turns: 16 });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "button-colors" });
+  try {
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "pause",
+      paused: true,
+      expectedRevision: 0,
+      operationId: "pause-colors",
+    });
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "enqueue",
+      operationId: "enqueue-colors",
+      messageId: "color-message",
+      text: "Queued appearance check",
+      attachments: [],
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openAgentTimeline(page, agent);
+    const setupNotice = page
+      .getByTestId("installation-update-toasts")
+      .filter({ hasText: "Set up worktree scripts" });
+    if (await setupNotice.isVisible())
+      await setupNotice.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await scrollTimelineToOldestLoadedEdge(page);
+    const latest = page.getByTestId("scroll-to-bottom-button");
+    await expect(latest).toBeVisible();
+    for (const theme of [
+      "starship-dark",
+      "starship-light",
+      "scriptorium",
+      "midas",
+      "ember",
+      "neon",
+      "starship-dark",
+    ]) {
+      await page.getByTestId("sidebar-footer-overflow").click();
+      await page.getByTestId(`theme-preview-${theme}`).click();
+      await page.mouse.move(900, 400);
+      const backdrop = page.getByRole("button", { name: "Menu backdrop", exact: true });
+      if (await backdrop.isVisible()) await backdrop.click({ position: { x: 900, y: 400 } });
+      await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", theme);
+      for (const width of [1440, 390, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await scrollTimelineToOldestLoadedEdge(page);
+        await expect(latest).toBeVisible();
+        await latest.hover();
+        await page.mouse.move(900, 400);
+        const expectedColor = await latest
+          .locator("svg")
+          .evaluate((el) => getComputedStyle(el).stroke);
+        await expect(latest.getByText("Latest", { exact: true })).toHaveCSS("color", expectedColor);
+        await latest.click();
+        await expect(latest).toBeHidden();
+      }
+    }
+    await scrollTimelineToOldestLoadedEdge(page);
+    await page.screenshot({ path: info.outputPath("latest.png") });
+  } finally {
+    await client.close();
+    await agent.cleanup();
+  }
 });

@@ -3,6 +3,7 @@ import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from "@/stores/panel-store";
 import {
   COMPACT_LABELED_SIDEBAR_WIDTH,
   COMPACT_SIDEBAR_WIDTH,
+  SIDEBAR_COMPACT_SNAP_WIDTH,
   SIDEBAR_OUTER_GAP,
 } from "@/stores/panel-store/state";
 
@@ -70,6 +71,8 @@ export function resolveDesktopSidebarWidth(input: {
     return input.hasTopLeftWindowControls
       ? Math.max(COMPACT_SIDEBAR_WIDTH, DESKTOP_TRAFFIC_LIGHT_WIDTH)
       : COMPACT_SIDEBAR_WIDTH;
+  if (!input.narrow && input.requestedWidth <= SIDEBAR_COMPACT_SNAP_WIDTH)
+    return COMPACT_SIDEBAR_WIDTH;
   return resolveDesktopPanelWidth({
     ...input,
     requestedWidth: input.narrow ? COMPACT_LABELED_SIDEBAR_WIDTH : input.requestedWidth,

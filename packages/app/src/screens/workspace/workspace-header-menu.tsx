@@ -41,11 +41,13 @@ export const WorkspaceToolbarToggleContext = createContext<ReactNode>(null);
 
 export const WorkspaceOverflowItemsContext = createContext<{
   items: ReactNode;
+  extraItems?: ReactNode;
   pages: ReturnType<typeof useWorkspaceLabelMenuPages>;
 } | null>(null);
 
 interface WorkspaceMenuPresentation {
   children?: ReactNode;
+  extraItems?: ReactNode;
   overflow?: boolean;
   enabled?: boolean;
 }
@@ -91,6 +93,7 @@ function WorkspaceHeaderActionsMenu({
   normalizedServerId,
   normalizedWorkspaceId,
   children,
+  extraItems,
   overflow = false,
   enabled = true,
 }: WorkspaceHeaderWorkspaceActions & WorkspaceMenuPresentation) {
@@ -109,7 +112,12 @@ function WorkspaceHeaderActionsMenu({
       </WorkspaceOverflowItemsContext.Provider>
     ) : null;
   return (
-    <WorkspaceHeaderActionsMenuLoaded workspace={workspace} overflow={overflow} enabled={enabled}>
+    <WorkspaceHeaderActionsMenuLoaded
+      workspace={workspace}
+      overflow={overflow}
+      enabled={enabled}
+      extraItems={extraItems}
+    >
       {children}
     </WorkspaceHeaderActionsMenuLoaded>
   );
@@ -118,6 +126,7 @@ function WorkspaceHeaderActionsMenu({
 function WorkspaceHeaderActionsMenuLoaded({
   workspace,
   children,
+  extraItems,
   overflow,
   enabled,
 }: WorkspaceMenuPresentation & {
@@ -180,7 +189,10 @@ function WorkspaceHeaderActionsMenuLoaded({
       {sessionMenu.sheet}
     </>
   );
-  const overflowValue = useMemo(() => (enabled ? { items, pages } : null), [enabled, items, pages]);
+  const overflowValue = useMemo(
+    () => (enabled ? { items, pages, extraItems } : null),
+    [enabled, items, pages, extraItems],
+  );
   if (overflow) {
     return (
       <WorkspaceOverflowItemsContext.Provider value={overflowValue}>
@@ -217,6 +229,8 @@ function WorkspaceHeaderActionsMenuLoaded({
   );
 }
 
+const workspaceMenuTarget = { minWidth: 40, minHeight: 40 };
+
 function workspaceHeaderMenuButtonStyle({
   hovered,
   pressed,
@@ -226,13 +240,18 @@ function workspaceHeaderMenuButtonStyle({
   pressed: boolean;
   open: boolean;
 }) {
-  return iconButtonChromeStyle({ size: "large", state: { hovered, pressed, open } });
+  return [
+    iconButtonChromeStyle({ size: "large", state: { hovered, pressed, open } }),
+    workspaceMenuTarget,
+  ];
 }
 
 /**
  * Wide layouts make tabs from the tab strip's `+` menu, so this one carries workspace actions only.
  */
-export function WorkspaceHeaderMenuDesktop(props: WorkspaceHeaderWorkspaceActions) {
+export function WorkspaceHeaderMenuDesktop(
+  props: WorkspaceHeaderWorkspaceActions & { children?: ReactNode },
+) {
   return <WorkspaceHeaderActionsMenu {...props} />;
 }
 
@@ -268,6 +287,7 @@ function HeaderMenuProfileItem({
 }
 
 export interface WorkspaceHeaderMenuMobileProps extends WorkspaceHeaderWorkspaceActions {
+  children?: ReactNode;
   showCreateBrowserTab: boolean;
   createTerminalDisabled: boolean;
   onCreateDraftTab: () => void;
@@ -289,6 +309,7 @@ export function WorkspaceHeaderMenuMobile({
   onCreateTerminal,
   onCreateTerminalWithProfile,
   onCreateBrowser,
+  children,
 }: WorkspaceHeaderMenuMobileProps) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -307,6 +328,7 @@ export function WorkspaceHeaderMenuMobile({
       normalizedServerId={normalizedServerId}
       normalizedWorkspaceId={normalizedWorkspaceId}
     >
+      {children}
       <DropdownMenuSeparator />
       <DropdownMenuItem
         testID="workspace-header-new-agent"

@@ -5,11 +5,20 @@ import { createContext, useContext, type ReactNode } from "react";
 export const SupportingCardsContext = createContext<{
   agentId: string | null;
   hostName: string | null;
+  queueInline?: boolean;
 } | null>(null);
 
 export function useWorkspaceCardHost(agentId: string): string | null {
   const value = useContext(SupportingCardsContext);
   return value?.agentId === agentId ? value.hostName : null;
+}
+
+/** Desktop queues remain reachable when their details dock is collapsed. */
+export function useInlineQueueHost(agentId: string): string | null {
+  const value = useContext(SupportingCardsContext);
+  return value?.agentId === agentId && value.queueInline && value.hostName
+    ? `${value.hostName}:inline-queue`
+    : null;
 }
 
 export function WorkspaceCardsPortal({

@@ -4,7 +4,7 @@ import { isWeb } from "@/constants/platform";
 export const FOOTER_HEIGHT = 75;
 
 // Match the draft message surface to the desktop workspace selection cards.
-export const NEW_WORKSPACE_CARD_HEIGHT = 204;
+export const NEW_WORKSPACE_CARD_HEIGHT = 240;
 
 // Shared header inner height (excluding safe area insets and border)
 // Used by both agent header (ScreenHeader) and explorer sidebar header

@@ -241,9 +241,14 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   const renderBadge = useCallback(
     (row: AgentProfilePickerRow) =>
       row.localEndpoint ? null : (
-        <AccountUsageBadge view={view} providerId={row.provider} now={props.now} />
+        <AccountUsageBadge
+          view={view}
+          providerId={row.provider}
+          now={props.now}
+          compact={props.inline}
+        />
       ),
-    [view, props.now],
+    [view, props.now, props.inline],
   );
   const renderAccountDetails = useCallback(
     (row: AgentProfilePickerRow) => (

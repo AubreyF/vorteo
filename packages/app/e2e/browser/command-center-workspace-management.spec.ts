@@ -7,7 +7,7 @@ import { getServerId } from "../support/helpers/server-id";
 
 // These actions used to be reachable only from the sidebar workspace ⋯ menu, the workspace header
 // menu, or an unlisted keybind. Rename was the worst of them: its dialog lived inside the sidebar
-// row, so it vanished whenever that row was unmounted — a collapsed section, or focus mode.
+// row, so it vanished whenever that row was unmounted — a collapsed section.
 
 function workspaceRow(page: Page, workspaceId: string): Locator {
   return page.getByTestId(`sidebar-workspace-row-${getServerId()}:${workspaceId}`);
@@ -179,9 +179,9 @@ test.describe("Command center workspace management", () => {
     }
   });
 
-  // Regression guard for the registration split. Toggle Explorer sidebar and Toggle focus mode are
-  // handled only by workspace-screen.tsx behind `enabled: isRouteFocused && ...`, so listing them
-  // off a workspace route would give the user two entries that close the palette and do nothing.
+  // Regression guard for the registration split. Toggle Explorer sidebar is
+  // handled only by workspace-screen.tsx behind `enabled: isRouteFocused && ...`, so listing it
+  // off a workspace route would give the user an entry that closes the palette and does nothing.
   // Toggle left sidebar calls the panel store directly and works everywhere, so it stays listed.
   test("lists only the globally-handled toggle off a workspace route", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "cc-toggle-scope-" });
@@ -190,12 +190,12 @@ test.describe("Command center workspace management", () => {
       await gotoAppShell(page);
       await openWorkspace(page, workspace.workspaceId);
 
-      // All three are listed while a workspace route owns the handlers.
+      // Both sidebar toggles are listed while a workspace route owns the handlers.
       const workspacePanel = await openCommandCenter(page);
       await workspacePanel.getByTestId("command-center-input").fill("toggle");
       await expect(action(workspacePanel, "Toggle left sidebar")).toBeVisible({ timeout: 15_000 });
       await expect(action(workspacePanel, "Toggle Explorer sidebar")).toBeVisible();
-      await expect(action(workspacePanel, "Toggle focus mode")).toBeVisible();
+      await expect(action(workspacePanel, "Toggle focus mode")).toHaveCount(0);
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("command-center-panel")).toHaveCount(0);
 

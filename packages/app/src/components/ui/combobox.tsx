@@ -1749,7 +1749,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     backgroundColor: theme.colors.surface1,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: theme.colors.divider,
     ...(IS_WEB ? {} : { marginHorizontal: theme.spacing[1] }),
   },
   searchInput: {
@@ -1835,7 +1835,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   footer: {
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    borderTopColor: theme.colors.divider,
   },
   bottomSheetHeader: {
     paddingHorizontal: theme.spacing[6],

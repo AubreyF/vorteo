@@ -164,7 +164,7 @@ function ResetBrowse(props: ResetDialogProps) {
   );
 }
 
-function ResetActions(props: ResetDialogProps) {
+export function ResetDialogActions(props: ResetDialogProps) {
   const { flow } = props;
   const reviewing = flow.stage === "review";
   const result = flow.stage === "result";
@@ -253,7 +253,6 @@ export function ResetDialogContent(props: ResetDialogProps) {
           {flow.notice}
         </Text>
       ) : null}
-      <ResetActions {...props} />
     </View>
   );
 }

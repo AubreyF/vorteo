@@ -8737,6 +8737,131 @@ test.each([false, true])(
   },
 );
 
+test.each([false, true])(
+  "claimed recovery has its own capability and never replays owner proof (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const logger = createMockLogger();
+    const trace = createTraceRecorder();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "recovery-client",
+      logger,
+      trace: trace.trace,
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapClaimedRecovery: supported,
+      },
+    });
+    await connecting;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      planSha256: "a".repeat(64),
+      decision: "approve" as const,
+    };
+    if (!supported) {
+      await expect(client.listClaimedRecoveryRequests()).rejects.toThrow("unavailable");
+      await expect(client.decideClaimedRecovery(input, "recovery-owner-proof")).rejects.toThrow(
+        "unavailable",
+      );
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const listing = client.listClaimedRecoveryRequests();
+    const listed = parseSentFrame(mock.sent[0]);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.claimed_recovery.list_requests.response",
+        payload: { requestId: listed.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(listing).resolves.toEqual([]);
+    const deciding = client.decideClaimedRecovery(input, "recovery-owner-proof");
+    expect(parseSentFrame(mock.sent[1])).toEqual({
+      type: "installation.claimed_recovery.decide.request",
+      requestId: expect.any(String),
+      input,
+      ownerPassword: "recovery-owner-proof",
+      claimedRecovery: true,
+    });
+    const rejected = expect(deciding).rejects.toThrow();
+    mock.triggerClose({ code: 1006 });
+    await rejected;
+    const reconnecting = client.connect();
+    mock.triggerOpen({ features: { coordinatorBootstrapClaimedRecovery: true } });
+    await reconnecting;
+    expect(mock.sent).toEqual([]);
+    expect(
+      JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+        trace.records,
+      ]),
+    ).not.toContain("recovery-owner-proof");
+  },
+);
+
+test.each([false, true])(
+  "retained claimed recovery observation requires its capability (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "observer-client",
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapClaimedRecovery: true,
+        coordinatorBootstrapClaimedObservation: supported,
+      },
+    });
+    await connecting;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      generation: "00000000-0000-4000-8000-000000000003",
+      planSha256: "a".repeat(64),
+    };
+    const result = client.reconcileClaimedRecovery(input);
+    if (!supported) {
+      await expect(result).rejects.toThrow("Update the Host");
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const frame = parseSentFrame(mock.sent[0]);
+    expect(frame).toEqual({
+      type: "installation.claimed_recovery.list_requests.request",
+      requestId: expect.any(String),
+      reconcile: input,
+    });
+    const rejected = expect(result).rejects.toThrow();
+    mock.triggerClose({ code: 1006 });
+    await rejected;
+    const reconnecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapClaimedRecovery: true,
+        coordinatorBootstrapClaimedObservation: true,
+      },
+    });
+    await reconnecting;
+    expect(mock.sent).toEqual([]);
+  },
+);
+
 test("retained owner cancellation review acknowledgment follows the Host capability", async () => {
   const mock = createMockTransport();
   const client = new DaemonClient({

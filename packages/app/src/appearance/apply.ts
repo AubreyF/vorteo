@@ -11,6 +11,14 @@ import { applyRootUiFont } from "./apply-root-font";
 
 const ALL_THEME_KEYS = Object.keys(REGISTERED_THEMES) as (keyof typeof REGISTERED_THEMES)[];
 
+function equalValues(left: object, right: object): boolean {
+  const keys = Object.keys(right);
+  return (
+    Object.keys(left).length === keys.length &&
+    keys.every((key) => Object.is(Reflect.get(left, key), Reflect.get(right, key)))
+  );
+}
+
 export interface AppearanceInput {
   uiFontFamily: string; // "" -> default stack
   monoFontFamily: string; // "" -> default stack
@@ -73,20 +81,32 @@ export function applyAppearance(input: AppearanceInput): void {
     : ALL_THEME_KEYS;
 
   for (const key of themeKeys) {
+    const current = UnistylesRuntime.getTheme(key);
+    const authored = REGISTERED_THEMES[key].fontFamily;
+    const fontFamily = {
+      ui: uiOverride || authored.ui,
+      display: uiOverride || authored.display,
+      mono,
+    };
+    const fontSize = scaleFontSize(input.uiBaseFontSize, input.contentFontSize, input.codeFontSize);
+    // Even an unchanged updateTheme emits subscriptions and rebuilds web CSS.
+    // Compare the live theme, rather than cached inputs, so plugin replacements
+    // still receive the user's typography and syntax preferences.
+    if (
+      equalValues(current.fontFamily, fontFamily) &&
+      equalValues(current.fontSize, fontSize) &&
+      current.lineHeight.diff === diffLineHeight &&
+      current.contentMaxWidth === input.contentMaxWidth &&
+      equalValues(
+        current.colors.syntax,
+        resolveSyntaxColors(input.syntaxTheme, current.colorScheme),
+      )
+    ) {
+      continue;
+    }
     UnistylesRuntime.updateTheme(key, (t) => {
       // Read authored defaults, not the previously patched runtime theme, so
       // clearing a custom family restores this theme's own typography.
-      const authored = REGISTERED_THEMES[key].fontFamily;
-      const fontFamily = {
-        ui: uiOverride || authored.ui,
-        display: uiOverride || authored.display,
-        mono,
-      };
-      const fontSize = scaleFontSize(
-        input.uiBaseFontSize,
-        input.contentFontSize,
-        input.codeFontSize,
-      );
       const lineHeight = { ...t.lineHeight, diff: diffLineHeight };
       if (t.colorScheme === "light") {
         return {

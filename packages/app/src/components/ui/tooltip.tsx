@@ -305,11 +305,14 @@ export function TooltipTrigger({
   onPress,
   asChild = false,
   triggerRefProp = "ref",
+  passive = false,
   ...props
 }: PressableProps & {
   "aria-describedby"?: string;
   asChild?: boolean;
   triggerRefProp?: string;
+  /** Do not make plain text inside another control a separate press target. */
+  passive?: boolean;
 }): ReactElement {
   const ctx = useTooltipContext("TooltipTrigger");
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -437,7 +440,12 @@ export function TooltipTrigger({
       onHoverOut: composeEventHandlers(Reflect.get(rawProps, "onHoverOut"), handleHoverOut),
       onFocus: composeEventHandlers(Reflect.get(rawProps, "onFocus"), handleFocus),
       onBlur: composeEventHandlers(Reflect.get(rawProps, "onBlur"), handleBlur),
-      onPress: composeEventHandlers(Reflect.get(rawProps, "onPress"), handlePress),
+      onPress: passive
+        ? Reflect.get(rawProps, "onPress")
+        : composeEventHandlers(Reflect.get(rawProps, "onPress"), handlePress),
+      onPointerDown: passive
+        ? composeEventHandlers(Reflect.get(rawProps, "onPointerDown"), close)
+        : Reflect.get(rawProps, "onPointerDown"),
       onPointerEnter: composeEventHandlers(Reflect.get(rawProps, "onPointerEnter"), handleHoverIn),
       onPointerLeave: composeEventHandlers(Reflect.get(rawProps, "onPointerLeave"), handleHoverOut),
       onMouseEnter: composeEventHandlers(Reflect.get(rawProps, "onMouseEnter"), handleHoverIn),

@@ -36,6 +36,8 @@ function ThemePreviewCard({
   const preview = useThemePreview();
   const touch = useVortonTouch();
   const { width } = useWindowDimensions();
+  const hovered = useRef(false);
+  const focused = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearTimer = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -60,13 +62,23 @@ function ThemePreviewCard({
     preview((current) => (current === appearance.id ? null : current));
   }, [appearance.id, clearTimer, preview]);
   const enter = useCallback(() => {
+    hovered.current = true;
     if (touch || pending) return;
     clearTimer();
     timer.current = setTimeout(() => preview(appearance.id), 180);
   }, [appearance.id, clearTimer, pending, preview, touch]);
   const focus = useCallback(() => {
+    focused.current = true;
     if (!touch && !pending) preview(appearance.id);
   }, [appearance.id, pending, preview, touch]);
+  const leave = useCallback(() => {
+    hovered.current = false;
+    if (!focused.current) stopPreview();
+  }, [stopPreview]);
+  const blur = useCallback(() => {
+    focused.current = false;
+    if (!hovered.current) stopPreview();
+  }, [stopPreview]);
   const commit = useCallback(() => {
     clearTimer();
     onCommit(appearance.id);
@@ -114,7 +126,7 @@ function ThemePreviewCard({
     <View
       style={styles.hoverTarget}
       onPointerEnter={enter}
-      onPointerLeave={stopPreview}
+      onPointerLeave={leave}
       dataSet={previewDataset}
     >
       <Tooltip delayDuration={180} enabledOnMobile>
@@ -124,7 +136,7 @@ function ThemePreviewCard({
             style={cardStyle}
             onPress={commit}
             onFocus={focus}
-            onBlur={stopPreview}
+            onBlur={blur}
             disabled={pending}
             accessibilityLabel={`${appearance.name}. ${appearance.description}`}
             accessibilityState={accessibilityState}

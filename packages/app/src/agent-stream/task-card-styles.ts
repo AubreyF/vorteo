@@ -1,8 +1,13 @@
 import { StyleSheet } from "react-native-unistyles";
-import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
+import { FLOATING_PANEL_RADIUS, FLOATING_PANEL_CONTROL_HEIGHT } from "@/styles/floating-panel";
 
+// Shared leading centerline for heading icons, row handles and journal markers.
+export const TASK_CARD_ICON_CENTER = FLOATING_PANEL_CONTROL_HEIGHT / 2;
+export const TASK_CARD_TOUCH_ICON_CENTER = TASK_CARD_ICON_CENTER;
+
+export const TASK_CARD_BODY_INSET = 12;
 export const TASK_CARD_ROW_HEIGHT = 40;
-export const TASK_CARD_TOUCH_ROW_HEIGHT = 52;
+export const TASK_CARD_TOUCH_ROW_HEIGHT = 44;
 
 export const taskCardStyles = StyleSheet.create((theme) => {
   const surface = {
@@ -13,27 +18,47 @@ export const taskCardStyles = StyleSheet.create((theme) => {
   };
   return {
     surface,
-    // Headers meet the card boundary; only scrollable content owns an outer inset.
+    // TaskCard adds the shared width-adaptive inset around headers and body content.
     scrollContent: { minHeight: 0, flexShrink: 1 },
     bodyContent: {
-      paddingHorizontal: theme.spacing[3],
+      paddingHorizontal: TASK_CARD_BODY_INSET,
       paddingVertical: theme.spacing[1],
-      gap: theme.spacing[1],
+      gap: 2,
     },
+    // Secondary drag targets stay tall while reserving less horizontal space on touch.
+    rowHandle: { width: 24, marginLeft: TASK_CARD_ICON_CENTER - 12, minHeight: 32 },
+    touchRowHandle: { width: 32, marginLeft: TASK_CARD_ICON_CENTER - 16, minHeight: 44 },
     flushBody: { paddingHorizontal: 0 },
+    // Restore prose clearance inside flush list bodies without shifting their controls.
+    proseInset: { paddingHorizontal: TASK_CARD_BODY_INSET },
+    proseEndInset: { paddingRight: TASK_CARD_BODY_INSET },
     fixedHeader: { flexShrink: 0 },
+    headerDivider: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: theme.borderWidth[1],
+      backgroundColor: theme.colors.divider,
+    },
     scrollBody: { minHeight: 0, flexShrink: 1, flexGrow: 0 },
     hiddenBody: { display: "none" },
     item: {
       minHeight: TASK_CARD_ROW_HEIGHT,
-      paddingVertical: theme.spacing[1],
+      paddingVertical: 0,
       gap: theme.spacing[1],
       justifyContent: "center",
     },
-    separator: { borderTopWidth: theme.borderWidth[1], borderTopColor: theme.colors.border },
+    separator: { borderTopWidth: theme.borderWidth[1], borderTopColor: theme.colors.divider },
     rowText: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
     actions: { flexDirection: "row", alignItems: "center", gap: 0, flexShrink: 0 },
-    headingAction: { borderRadius: FLOATING_PANEL_RADIUS, flexShrink: 0 },
+    headingAction: {
+      borderRadius: FLOATING_PANEL_RADIUS,
+      height: FLOATING_PANEL_CONTROL_HEIGHT,
+      minHeight: FLOATING_PANEL_CONTROL_HEIGHT,
+      paddingVertical: 0,
+      flexShrink: 0,
+    },
     headingInfoText: {
       color: theme.colors.foreground,
       fontSize: theme.fontSize.base,
@@ -43,9 +68,9 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     headingActionText: { fontSize: theme.fontSize.sm },
     actionInset: { paddingRight: theme.spacing[1] },
     iconAction: {
-      width: 32,
-      height: 32,
-      minHeight: 32,
+      width: FLOATING_PANEL_CONTROL_HEIGHT,
+      height: FLOATING_PANEL_CONTROL_HEIGHT,
+      minHeight: FLOATING_PANEL_CONTROL_HEIGHT,
       paddingHorizontal: 0,
       paddingVertical: 0,
       borderRadius: FLOATING_PANEL_RADIUS,
@@ -54,18 +79,19 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     header: {
       flexDirection: "row",
       alignItems: "center",
-      height: 32,
+      height: FLOATING_PANEL_CONTROL_HEIGHT,
       gap: 0,
       flexShrink: 0,
     },
-    staticHeader: { paddingHorizontal: 6, gap: theme.spacing[2] },
+    staticHeader: { paddingHorizontal: TASK_CARD_ICON_CENTER - 10, gap: theme.spacing[2] },
     touchStaticHeader: { paddingHorizontal: 12 },
     touchHeader: { height: 44 },
     touchAccordionTrigger: { height: 44 },
     accordionTrigger: {
-      flex: 1,
+      // The enclosing disclosure owns horizontal flex; this button has a fixed height.
+      flexShrink: 0,
       minWidth: 0,
-      height: 32,
+      height: FLOATING_PANEL_CONTROL_HEIGHT,
       flexDirection: "row",
       alignItems: "center",
       gap: theme.spacing[2],

@@ -1,103 +1,75 @@
-import { expect, test, type Page } from "../support/fixtures";
+import { expect, test } from "../support/fixtures";
 
-const modifier = process.platform === "darwin" ? "Meta" : "Control";
-
-async function pressFocusModeShortcut(page: Page) {
-  await page.keyboard.press(`${modifier}+Shift+F`);
-}
-
-async function pressSettingsShortcut(page: Page) {
-  await page.keyboard.press(`${modifier}+Comma`);
-}
-
-async function pressRightSidebarShortcut(page: Page) {
-  await page.keyboard.press(`${modifier}+E`);
-}
-
-async function returnToWorkspace(page: Page, workspaceUrl: string) {
-  await page.goto(workspaceUrl);
-}
-
-async function blurActiveElement(page: Page) {
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-}
-
-function exitFocusModeButton(page: Page) {
-  return page.getByRole("button", { name: "Exit focus mode" });
-}
-
-async function enterFocusMode(page: Page) {
-  await blurActiveElement(page);
-  await pressFocusModeShortcut(page);
-  await expect(exitFocusModeButton(page)).toBeVisible();
-}
-
-test("sidebar shortcuts exit focus mode and execute their action", async ({
-  page,
-  withWorkspace,
-}) => {
-  const workspace = await withWorkspace({ prefix: "focus-mode-sidebar-shortcut-" });
-  await workspace.navigateTo();
-  await enterFocusMode(page);
-
-  await pressRightSidebarShortcut(page);
-
-  await expect(exitFocusModeButton(page)).toHaveCount(0);
-  await expect(
-    page.getByText("Changes", { exact: true }).filter({ visible: true }).first(),
-  ).toBeVisible();
-});
-
-test("sidebar shortcuts outside a workspace preserve its focus mode", async ({
-  page,
-  withWorkspace,
-}) => {
-  const workspace = await withWorkspace({ prefix: "focus-mode-sidebar-boundary-" });
-  await workspace.navigateTo();
-  await enterFocusMode(page);
-  const workspaceUrl = page.url();
-
-  await pressSettingsShortcut(page);
-  await expect(page.getByRole("navigation", { name: "Settings" })).toBeVisible();
-
-  await pressRightSidebarShortcut(page);
-  await returnToWorkspace(page, workspaceUrl);
-
-  await expect(exitFocusModeButton(page)).toBeVisible();
-});
-
-test("focus mode only applies to the active workspace screen", async ({ page, withWorkspace }) => {
-  const workspace = await withWorkspace({ prefix: "focus-mode-boundary-" });
-  await workspace.navigateTo();
-  const exitFocusMode = exitFocusModeButton(page);
-  const settingsButton = page.getByRole("button", { name: "Settings", exact: true });
-  const settingsSidebar = page.getByRole("navigation", { name: "Settings" });
-
-  await expect(settingsButton).toBeVisible();
-  await expect(exitFocusMode).toHaveCount(0);
-
-  await blurActiveElement(page);
-  await pressFocusModeShortcut(page);
-
-  await expect(exitFocusMode).toBeVisible();
-  await expect(settingsButton).toHaveCount(0);
-  const workspaceUrl = page.url();
-
-  await pressSettingsShortcut(page);
-
-  await expect(settingsSidebar).toBeVisible();
-  await expect(exitFocusMode).toHaveCount(0);
-
+test("retired focus mode cannot hide workspace controls or split panes", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem("focus-removal-seeded")) return;
+    sessionStorage.setItem(
+      "vorteo:demo:panel-state",
+      JSON.stringify({
+        version: 19,
+        state: {
+          desktop: { agentListOpen: true, focusModeEnabled: true },
+          sidebarWidth: 320,
+          sidebarCompact: false,
+          supportingCardExpanded: { journal: false },
+          inlineCardExpanded: { tasks: false },
+        },
+      }),
+    );
+    sessionStorage.setItem("focus-removal-seeded", "true");
+  });
+  await page.goto("/?demo=1");
+  const row = page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0");
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
+  const cards = page.getByTestId("workspace-supporting-cards");
+  const toolbar = page.getByTestId("workspace-shared-toolbar");
+  await expect(cards).toBeVisible();
+  await expect(toolbar).toBeVisible();
+  const menu = toolbar.getByTestId("workspace-split-pane-menu");
+  await menu.click();
+  await page.getByTestId("workspace-split-pane-right").click();
+  const panes = page.locator('[data-testid^="workspace-pane-"]').filter({ visible: true });
+  const paneCount = await panes.count();
+  expect(paneCount).toBeGreaterThanOrEqual(2);
+  // A new split opens an empty tab; select the agent before checking its cards.
+  await page.getByRole("button", { name: "Review accessible navigation", exact: true }).click();
+  await expect(cards).toBeVisible();
+  const before = await cards.boundingBox();
+  for (const shortcut of ["Meta+Shift+F", "Control+Shift+F"]) {
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press(shortcut);
+    await expect(row).toBeVisible();
+    await expect(cards).toBeVisible();
+    await expect(page.getByTestId("workspace-exit-focus-mode")).toHaveCount(0);
+    await expect(panes).toHaveCount(paneCount);
+    expect(await cards.boundingBox()).toEqual(before);
+  }
+  await page.keyboard.press("ControlOrMeta+K");
+  const palette = page.getByTestId("command-center-panel");
+  await expect(palette).toBeVisible();
+  await palette.getByTestId("command-center-input").fill("focus mode");
+  await expect(palette.getByRole("button", { name: /Toggle focus mode/ })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  const toggle = toolbar.getByTestId("workspace-explorer-toggle");
+  await toggle.click();
+  await expect(cards).toBeHidden();
+  await toggle.click();
+  await expect(cards).toBeVisible();
   await page.reload();
-  await expect(settingsSidebar).toBeVisible();
-  await expect(exitFocusMode).toHaveCount(0);
-
-  await pressFocusModeShortcut(page);
-  await returnToWorkspace(page, workspaceUrl);
-
-  await expect(exitFocusMode).toBeVisible();
-  await exitFocusMode.click();
-
-  await expect(exitFocusMode).toHaveCount(0);
-  await expect(settingsButton).toBeVisible();
+  await expect(row).toBeVisible();
+  await expect(cards).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => JSON.parse(sessionStorage.getItem("vorteo:demo:panel-state")!).version),
+    )
+    .toBe(20);
+  const stored = await page.evaluate(
+    () => JSON.parse(sessionStorage.getItem("vorteo:demo:panel-state")!).state,
+  );
+  expect(stored.desktop).not.toHaveProperty("focusModeEnabled");
+  expect(stored.supportingCardExpanded.journal).toBe(false);
+  expect(stored.inlineCardExpanded.tasks).toBe(false);
+  await page.screenshot({ path: info.outputPath("normal-layout-after-focus-removal.png") });
 });

@@ -43,7 +43,7 @@ const ThemedGlobe = withUnistyles(Globe);
 const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
 
 const foregroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
-const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 
 /**
  * The subtitle under a workspace title: which host it lives on, its change request, that
@@ -353,7 +353,7 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   identityText: {
-    color: theme.colors.foregroundMuted,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 1,
@@ -390,19 +390,19 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 1,
   },
   serviceName: {
-    color: theme.colors.statusSuccess,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 1,
   },
   serviceNameUnhealthy: {
-    color: theme.colors.statusDanger,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 1,
   },
   prText: {
-    color: theme.colors.foregroundMuted,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
@@ -415,19 +415,19 @@ const styles = StyleSheet.create((theme) => ({
   },
   // Matches the indicator — see COLOR_MAPPINGS in check-indicator.tsx.
   checksTextPassed: {
-    color: theme.colors.foregroundMuted,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
   },
   checksTextFailed: {
-    color: theme.colors.statusDanger,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
   },
   checksTextRunning: {
-    color: theme.colors.statusWarning,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,

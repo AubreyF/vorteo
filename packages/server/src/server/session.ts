@@ -2,6 +2,7 @@ import type { SidebarStateStore } from "./sidebar-state/store.js";
 import {
   handleBootstrapReview,
   handlePreclaimRecoveryReview,
+  handleClaimedRecoveryReview,
   type BootstrapReviewService,
 } from "./execution-installation/coordinator-bootstrap-session.js";
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
@@ -3370,6 +3371,15 @@ export class Session {
 
   private dispatchBootstrapMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
+      case "installation.claimed_recovery.list_requests.request":
+      case "installation.claimed_recovery.prepare.request":
+      case "installation.claimed_recovery.decide.request":
+        return handleClaimedRecoveryReview(msg, this.coordinatorBootstrap?.claimedRecovery).then(
+          (reply) => {
+            this.emit(reply);
+            return undefined;
+          },
+        );
       case "installation.bootstrap_recovery.list_requests.request":
       case "installation.bootstrap_recovery.prepare.request":
       case "installation.bootstrap_recovery.decide.request":

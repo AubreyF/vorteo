@@ -561,12 +561,32 @@ function AddHostModalContent({ visible, onClose, onCancel, onSaved }: AddHostMod
   const AdvancedIcon = isAdvancedOpen ? ChevronDown : ChevronRight;
   const PasswordIcon = isPasswordVisible ? EyeOff : Eye;
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions}>
+        <Button variant="secondary" onPress={handleCancel} disabled={isSaving}>
+          {t("pairing.direct.actions.cancel")}
+        </Button>
+        <Button
+          variant="default"
+          onPress={handleSavePress}
+          disabled={isSaving}
+          leftIcon={connectIcon}
+          testID="direct-host-submit"
+        >
+          {isSaving ? t("pairing.direct.actions.connecting") : t("pairing.direct.actions.connect")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleCancel, isSaving, t, handleSavePress, connectIcon],
+  );
   return (
     <AdaptiveModalSheet
       header={header}
       visible={visible}
       onClose={handleClose}
       testID="add-host-modal"
+      footer={modalFooter1}
     >
       <Text style={styles.helper}>{t("pairing.direct.helper")}</Text>
 
@@ -703,21 +723,6 @@ function AddHostModalContent({ visible, onClose, onCancel, onSaved }: AddHostMod
         ) : null}
         {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
       </View>
-
-      <ActionFooter style={styles.actions}>
-        <Button variant="secondary" onPress={handleCancel} disabled={isSaving}>
-          {t("pairing.direct.actions.cancel")}
-        </Button>
-        <Button
-          variant="default"
-          onPress={handleSavePress}
-          disabled={isSaving}
-          leftIcon={connectIcon}
-          testID="direct-host-submit"
-        >
-          {isSaving ? t("pairing.direct.actions.connecting") : t("pairing.direct.actions.connect")}
-        </Button>
-      </ActionFooter>
     </AdaptiveModalSheet>
   );
 }
