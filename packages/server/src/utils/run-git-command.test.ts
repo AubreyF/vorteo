@@ -213,6 +213,14 @@ vi.mock("node:child_process", async () => {
   };
 });
 
+// Fake children carry made-up pids, so a real tree walk could signal unrelated processes.
+// The POSIX suite proves the real tree kill.
+vi.mock("./tree-kill.js", () => ({
+  signalProcessTree: async (child: FakeChildProcess, signal: NodeJS.Signals) => {
+    child.kill(signal);
+  },
+}));
+
 function enqueueSpawnBehaviors(...behaviors: FakeSpawnBehavior[]): void {
   fakeSpawnController.queue.push(...behaviors);
 }

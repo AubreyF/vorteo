@@ -156,6 +156,7 @@ Provider accounts connect to the installation and synchronize to Host and Dev by
 
 - Run `npm run typecheck` and `npm run lint` after changes. Use npm scripts for linting and formatting; run `npm run format` before committing. For selected files, use `npm run format:files -- <paths>`.
 - Run only focused tests: `npx vitest run <file> --bail=1`. Never run the full suite locally or a workspace test suite without an explicit request. Use CI for broad coverage; redirect explicitly requested broad runs to a file.
+- Before a full or heavy test suite, wait while [Builds' gate marker](docs/development.md#builds-gate-marker) is live, and run heavy suites under `nice -n 10`.
 - Add tests to existing suites and reuse their npm scripts and CI jobs instead of creating feature-specific runners.
 - Reuse passing test evidence from another agent for unchanged code. Do not add provider-auth checks or auth-dependent skips to tests.
 - Before diagnosing cross-package type errors, rebuild declarations with `npm run build:client` or `npm run build:server` as appropriate. Do not patch types to hide stale declarations. See [development](docs/development.md).

@@ -27,6 +27,7 @@ import {
   recoveryTargetDescription,
   type BootstrapRecoveryRequest,
 } from "./bootstrap-model";
+import { describeConfigurationChanges } from "./configuration-change-descriptions";
 import type {
   CoordinatorBootstrapRequestView as CoordinatorBootstrapRequest,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
@@ -277,18 +278,6 @@ function CoordinatorElapsed({ request }: { request: CoordinatorBootstrapRequest 
   );
 }
 
-function FactoryAdoptionConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
-  const configuration = plan.factoryRuntimeAdoptionConfiguration;
-  if (configuration === undefined) return null;
-  return (
-    <Text selectable style={styles.text}>
-      {configuration === null
-        ? "Disable new Factory startup adoption requests. Existing recovery requirements remain."
-        : `Configure Factory startup adoption plan ${configuration.sha256}. Adopting startup still requires a separate approval.`}
-    </Text>
-  );
-}
-
 function CompatibleRecoveryConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
   const recovery = plan.compatibleRecovery;
   if (!recovery) return null;
@@ -320,64 +309,12 @@ function CompatibleRecoveryConfiguration({ plan }: { plan: CoordinatorBootstrapR
   );
 }
 
-function MonitorConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
-  const config = plan.previewMonitorConfiguration;
-  if (config === undefined) return null;
-  return (
-    <Text style={styles.text}>
-      {config === null
-        ? "Disable new preview monitor requests. Existing receipts remain in history."
-        : "Enable Dev preview monitor maintenance with compatible selected and recovery coordinators. Each replacement still requires its own approval."}
+function ConfigurationChanges({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  return describeConfigurationChanges(plan).map((line) => (
+    <Text key={line} selectable style={styles.text}>
+      {line}
     </Text>
-  );
-}
-
-function ClaudeRefreshConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
-  const config = plan.claudeHostRefreshConfiguration;
-  if (config === undefined) return null;
-  return (
-    <Text style={styles.text}>
-      {config === null
-        ? "Turn off Host-owned refresh for full sign-in Claude accounts. Dev loses those accounts when their current access expires, within about 8 hours, and new full sign-in accounts can no longer be added. Host use and setup-token accounts are unaffected."
-        : "Turn on Host-owned refresh for full sign-in Claude accounts. The Host keeps each account signed in and sends Dev short-lived access, so long Dev turns survive token expiry. Adding a full sign-in account becomes available once every environment supports it."}
-    </Text>
-  );
-}
-
-function EngineRestartConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
-  const config = plan.engineRestartConfiguration;
-  if (config === undefined) return null;
-  return (
-    <Text selectable style={styles.text}>
-      {config === null
-        ? "Remove the tracked Docker restart plan."
-        : `Allow a tracked Docker Desktop restart for Dev, which you approve each time. Pinned containers: Dev ${config.containers.dev.slice(0, 12)}, gateway Tailscale ${config.containers.gatewayTailscale.slice(0, 12)}, gateway Caddy ${config.containers.gatewayCaddy.slice(0, 12)}.${config.factoryVerify ? ` Factory lock check ${config.factoryVerify.sha256.slice(0, 12)}, owner mode ${config.factoryVerify.ownerMode}.` : ""}`}
-    </Text>
-  );
-}
-
-function FactoryGateConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
-  const config = plan.factoryGateConfiguration;
-  if (config === undefined) return null;
-  return (
-    <Text selectable style={styles.text}>
-      {config === null
-        ? "Stop running Factory's checks around Dev restarts."
-        : `Run Factory's read-only checks before and after every Dev restart. A restart is refused, or reported as failed, if Factory's lock, supervisor, pause state or custody records are wrong. Check ${config.verify.sha256.slice(0, 12)}, owner mode ${config.verify.ownerMode}, Dev ${config.container.slice(0, 12)}.`}
-    </Text>
-  );
-}
-
-function HostLauncherUpdateConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
-  const config = plan.hostLauncherUpdateConfiguration;
-  if (config === undefined) return null;
-  return (
-    <Text selectable style={styles.text}>
-      {config === null
-        ? "Remove the Host launcher update plan."
-        : `Allow a one-time Host launcher update that adds managed release selection, which you approve separately. Candidate launcher ${config.sha256.slice(0, 12)}.`}
-    </Text>
-  );
+  ));
 }
 
 function SourceUpdateToolingConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
@@ -516,12 +453,7 @@ function BootstrapRequestCard({
                 : "Enable native helper maintenance for Host requests. Each helper installation still requires its own approval."}
             </Text>
           ) : null}
-          <MonitorConfiguration plan={request.plan} />
-          <ClaudeRefreshConfiguration plan={request.plan} />
-          <EngineRestartConfiguration plan={request.plan} />
-          <FactoryGateConfiguration plan={request.plan} />
-          <HostLauncherUpdateConfiguration plan={request.plan} />
-          <FactoryAdoptionConfiguration plan={request.plan} />
+          <ConfigurationChanges plan={request.plan} />
           <Text selectable style={styles.text}>
             Source: {request.plan.candidate.sourceCommit}
           </Text>

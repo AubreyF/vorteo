@@ -4364,6 +4364,65 @@ test("old clients see a Host launcher update plan hidden and cannot approve it",
   expect(approved.payload.error).toBeNull();
 });
 
+test("clients that do not name a listed setting see it hidden and cannot approve it", async () => {
+  const f = fixture();
+  f.plan.configurationChanges = [
+    {
+      setting: "hostLauncherUpdate",
+      value: { candidate: "/fixture/candidate.plist", sha256: "c".repeat(64) },
+    },
+  ];
+  const pending = await f.prepare();
+  const decide = (requestId: string, configurationSettings?: string[]) =>
+    handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId,
+        ownerPassword,
+        ...(configurationSettings ? { configurationSettings } : {}),
+        input: { ...pickDecision(pending), decision: "approve" },
+      },
+      f.service(),
+    );
+  // A client from before configuration settings, and one that knows other settings only.
+  for (const configurationSettings of [undefined, ["claudeHostRefresh"]]) {
+    const listed = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.list_requests.request",
+        requestId: "list",
+        ...(configurationSettings ? { configurationSettings } : {}),
+      },
+      f.service(),
+    );
+    expect(listed.payload.requests![0]!.plan).not.toHaveProperty("configurationChanges");
+    expect(listed.payload.requests![0]!.reason).toContain("Reload the client");
+    expect((await decide("approve", configurationSettings)).payload.error).toContain(
+      "review this configuration change",
+    );
+  }
+  const current = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: "list",
+      configurationSettings: ["hostLauncherUpdate"],
+    },
+    f.service(),
+  );
+  expect(current.payload.requests![0]!.plan.configurationChanges).toHaveLength(1);
+  expect((await decide("decision", ["hostLauncherUpdate"])).payload.error).toBeNull();
+});
+
+test("automatic coordinator plans refuse listed configuration changes", async () => {
+  const f = await preFreezeFailureFixture();
+  const submitted = await f.submit({
+    ...f.plan,
+    configurationChanges: [{ setting: "claudeHostRefresh", value: true }],
+  });
+  await expect(
+    f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+  ).rejects.toThrow("require exact owner review");
+});
+
 test("old clients see a Factory check configuration hidden and cannot approve it", async () => {
   const f = fixture();
   f.plan.factoryGateConfiguration = {

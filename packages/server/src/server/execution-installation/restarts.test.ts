@@ -29,7 +29,18 @@ import {
   type RestartImpact,
   type RestartJob,
 } from "@getpaseo/protocol/execution-installation";
-import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
+import {
+  InstallationRestarts,
+  RestartRequestError,
+  type RestartJournal,
+  type RestartExecutor,
+} from "./restarts.js";
+import {
+  RESTART_OPERATIONS,
+  automaticPermitted,
+  automaticPolicy,
+  operationFor,
+} from "./restart-operations.js";
 import {
   createSessionHostReleaseGuard,
   setReleaseSelectionGuard,
@@ -2881,7 +2892,7 @@ test("supervisor repair preserves a pending source batch and serializes both app
   expect(queue.list().find((entry) => entry.id === job.id)?.status).toBe("succeeded");
 });
 
-test("release notes preserve interleaved history and reject edits or missing duplicates", async () => {
+test("release notes preserve interleaved history and reject edits or deleted notes", async () => {
   const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
   const prefix = "# Vorteo changelog\n\n";
   const old = "## 0.11.0-beta.3.vorteo.177 - 2026-10-07\n\n- Existing note";
@@ -2903,13 +2914,48 @@ test("release notes preserve interleaved history and reject edits or missing dup
   expect(() => reconcileReleaseNotes(base, accepted, `${prefix}${old}\n`)).toThrow(
     "Existing release notes were edited",
   );
-  const duplicate = `${prefix}${old}\n\n${old}\n`;
-  expect(() => reconcileReleaseNotes(duplicate, duplicate, `${prefix}${old}\n`)).toThrow(
+  const duplicate = `${prefix}${old}\n\n${old}\n\n${older}\n`;
+  expect(() => reconcileReleaseNotes(duplicate, duplicate, `${prefix}${old}\n\n${old}\n`)).toThrow(
     "Existing release notes were edited",
   );
   expect(() =>
     reconcileReleaseNotes(base, accepted, incoming.replace("# Vorteo changelog", "# Changed")),
   ).toThrow("introduction changed");
+});
+
+test("release notes combine a branch cut before duplicate copies were removed", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const note = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Drag the bottom edge";
+  const old = "## 0.11.0-beta.3.vorteo.757 - 2026-10-22\n\n- Existing note";
+  const added = "## 0.11.0-beta.3.vorteo.816 - 2026-10-24\n\n- New note";
+  // The branch's base still holds three copies; main kept one in a cleanup commit.
+  const base = `${prefix}${note}\n\n${note}\n\n${note}\n\n${old}\n`;
+  const cleaned = `${prefix}${note}\n\n${old}\n`;
+  const branch = `${prefix}${added}\n\n${note}\n\n${note}\n\n${note}\n\n${old}\n`;
+  expect(reconcileReleaseNotes(base, cleaned, branch)).toBe(
+    `${prefix}${added}\n\n${cleaned.slice(prefix.length)}`,
+  );
+  // Deleting the last copy is still an edit.
+  expect(() => reconcileReleaseNotes(base, `${prefix}${old}\n`, branch)).toThrow(
+    "Existing release notes were edited",
+  );
+});
+
+test("release notes skip incoming entries identical to accepted or repeated ones", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const old = "## 0.11.0-beta.3.vorteo.757 - 2026-10-22\n\n- Existing note";
+  const note = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Drag the bottom edge";
+  const sameVersion = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Show Vorteo System";
+  const base = `${prefix}${old}\n`;
+  const accepted = `${prefix}${note}\n\n${old}\n`;
+  // The contribution carries the accepted note three times, as vorteo.758 did on 2026-10-22.
+  const incoming = `${prefix}${sameVersion}\n\n${note}\n\n${note}\n\n${sameVersion}\n\n${note}\n\n${old}\n`;
+  const result = reconcileReleaseNotes(base, accepted, incoming);
+  // One new entry under the repeated heading; no copy of the accepted note.
+  expect(result).toBe(`${prefix}${sameVersion}\n\n${note}\n\n${old}\n`);
+  expect(reconcileReleaseNotes(base, result, incoming)).toBe(result);
 });
 
 test("release notes accept a heading-only entry and still refuse malformed headings or edits", async () => {
@@ -5441,4 +5487,87 @@ test("the Host launcher update needs a trusted Host request, the exact plan and 
   await queue.drain();
   expect(calls).toEqual(["launcher"]);
   expect(queue.list()[0]?.status).toBe("succeeded");
+});
+
+test("every reviewed restart operation enforces the shared request, decision and contribution rules", () => {
+  const plans = new Map(
+    RESTART_OPERATIONS.map((operation, position) => [
+      operation.field,
+      String(position + 1).repeat(64),
+    ]),
+  );
+  for (const operation of RESTART_OPERATIONS) {
+    const f = automaticFixture(() => new Date(1000).toISOString());
+    f.executor.supervisorPlan = () => plans.get("supervisorPlanSha256");
+    f.executor.restartSupervisor = async () => "supervisor";
+    f.executor.factoryRuntimePlan = () => plans.get("factoryRuntimePlanSha256");
+    f.executor.adoptFactoryRuntime = async () => "factory";
+    f.executor.engineRestartPlan = () => plans.get("engineRestartPlanSha256");
+    f.executor.restartEngine = async () => "engine";
+    f.executor.hostLauncherPlan = () => plans.get("hostLauncherPlanSha256");
+    f.executor.updateHostLauncher = async () => "launcher";
+    const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+    const input = {
+      target: operation.target,
+      reason: `${operation.label} fixture`,
+      [operation.field]: plans.get(operation.field),
+    };
+    expect(() => queue.request(input, "container-agent")).toThrow(
+      `${operation.label} requires a trusted Host request`,
+    );
+    const otherTarget = operation.target === "host" ? "container-daemon" : "host";
+    expect(() => queue.request({ ...input, target: otherTarget }, "host-agent")).toThrow(
+      `${operation.label} requires a trusted Host request`,
+    );
+    expect(() =>
+      queue.request({ ...input, [operation.field]: "f".repeat(64) }, "host-agent"),
+    ).toThrow(`${operation.planLabel} is unavailable or changed`);
+    // A request naming two operations is always refused; the earlier entry's own
+    // checks run first, so the message names whichever rule fails first, as before.
+    for (const other of RESTART_OPERATIONS.filter((candidate) => candidate !== operation))
+      expect(() =>
+        queue.request({ ...input, [other.field]: plans.get(other.field) }, "host-agent"),
+      ).toThrow(RestartRequestError);
+    expect(() =>
+      queue.contribute(
+        input,
+        "host-agent",
+        {
+          sourceCommit: "a".repeat(40),
+          baseCommit: "b".repeat(40),
+          sha256: "c".repeat(64),
+          bytes: 1,
+        },
+        randomUUID(),
+      ),
+    ).toThrow(`${operation.label} cannot be submitted as a source contribution`);
+    if (operation.refusesRedundantOwnerApproval)
+      expect(() => queue.request({ ...input, requireOwnerApproval: true }, "host-agent")).toThrow(
+        `${operation.label} already requires exact owner review`,
+      );
+    const job = queue.request(input, "host-agent");
+    expect(job[operation.field]).toBe(plans.get(operation.field));
+    expect(() => queue.decide(job.id, job.revision, "finish-current-turns")).toThrow(
+      operation.reviewMessage,
+    );
+  }
+});
+
+test("a reviewed restart operation without an explicit automatic policy is never automatic", () => {
+  const { automatic: _automatic, ...unset } = operationFor("engineRestartPlanSha256");
+  expect(automaticPolicy(unset)).toBe("never");
+  const job = { engineRestartPlanSha256: "e".repeat(64) };
+  expect(automaticPermitted(job, true, [unset])).toBe(false);
+  expect(automaticPermitted(job, false, [{ ...unset, automatic: "standing" }])).toBe(false);
+  expect(automaticPermitted(job, true, [{ ...unset, automatic: "standing" }])).toBe(true);
+  expect(automaticPermitted(job, false, [{ ...unset, automatic: "allowed" }])).toBe(true);
+  // The two operations that may be automatic keep their own rules; the others never are.
+  expect(
+    RESTART_OPERATIONS.map((operation) => [operation.field, automaticPolicy(operation)]),
+  ).toEqual([
+    ["supervisorPlanSha256", "allowed"],
+    ["factoryRuntimePlanSha256", "standing"],
+    ["engineRestartPlanSha256", "never"],
+    ["hostLauncherPlanSha256", "never"],
+  ]);
 });

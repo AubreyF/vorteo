@@ -1,3 +1,4 @@
+import { REVIEWED_CONFIGURATION_SETTINGS } from "@getpaseo/protocol/coordinator-configuration-settings";
 import { performance } from "node:perf_hooks";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -24,6 +25,7 @@ import {
   inspectBootstrapWritableMountRoots,
   readBootstrapHostBinding,
   readPrivateBootstrapConfiguration,
+  reviewedConfigurationChanges,
   verifyBootstrapConfiguration,
 } from "./coordinator-bootstrap-host.js";
 import {
@@ -1092,13 +1094,15 @@ export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBoo
       );
   }
 
-  // Like Factory adoption, the Claude refresh setting may change through an
-  // owner-reviewed renewal: every coordinator replacement now runs through this
-  // path. Automatic plans still refuse it (assertAutomaticCoordinatorPlan), and
-  // verifyBootstrapConfiguration below admits only that exact field.
+  // Registered settings marked for renewal may change through an owner-reviewed
+  // renewal: every coordinator replacement now runs through this path. Automatic
+  // plans still refuse them (assertAutomaticCoordinatorPlan), and
+  // verifyBootstrapConfiguration below admits only the exact listed changes.
   if (
     plan.nativeHelperConfiguration !== undefined ||
-    plan.previewMonitorConfiguration !== undefined ||
+    reviewedConfigurationChanges(plan).some(
+      (change) => !REVIEWED_CONFIGURATION_SETTINGS[change.setting].renewal,
+    ) ||
     plan.hostRequestsAfter !== null
   )
     throw new BootstrapRequestConflict(

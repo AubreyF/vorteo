@@ -4,6 +4,287 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.838 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.837 - 2026-10-25
+
+### Maintenance
+
+- Merge the published startup diagnostics and recovery interface into the combined Host batch
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Fixed
+
+- Startup diagnostics run automatically after 15 seconds, independently of the interface download and document load events. Bounded, deduplicated checks resume after offline or background delays, cancel after startup, and distinguish endpoint health from daemon authentication and session readiness.
+- The default V spinner transitions into a compact, scrollable diagnostic panel with reduced-motion support. Pending script downloads stay indeterminate because browsers do not expose live script byte progress; completed timings, observed script events, safe build provenance and existing public restart-request counts retain their limits and freshness.
+- Production exports preload the existing entry script without changing its execution order, integrity or cross-origin policy. Optional font CSS no longer blocks the inline diagnostic bootstrap.
+
+## 0.11.0-beta.3.vorteo.836 - 2026-10-25
+
+### Maintenance
+
+- Remove six extra byte-identical copies of four vorteo.758 release notes that branch merges carried onto main on 2026-10-22. One copy of each note remains.
+
+## 0.11.0-beta.3.vorteo.835 - 2026-10-25
+
+### Maintenance
+
+- Merge Host startup contract ancestor rule: folders above the release root are checked for replacement and permission changes but not timestamps, so ordinary writes in the home folder no longer refuse a bootstrap inspection; a node_modules lookup is still refused directly
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Fixed
+
+- The Host module contract check no longer refuses a coordinator update because an unrelated file changed in a folder above the release, such as the home folder, where agents rewrite dotfiles. Folders above the release are pinned by device, inode, owner, group and mode, the same as other service custody. Inside the release they keep their full identity. A module lookup appearing anywhere is still refused directly.
+
+## 0.11.0-beta.3.vorteo.834 - 2026-10-25
+
+### Maintenance
+
+- Merge atomic session host markers: the upgrade and restart markers are written to a temporary file and renamed, so a visible marker always has its full content, and the module contract tests no longer depend on changes above their fixtures
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Fixed
+
+- The session host writes its upgrade and restart markers through a temporary file and a rename, so anything that sees a marker also sees its whole content. A reader could previously find the upgrade marker empty while it was still being written.
+
+### Tests
+
+- Initial Host module contract tests freeze the stat of directories above their fixture. The contract pins every ancestor's identity, and other processes keep creating entries in the shared temp and home folders, which failed these tests on every retry.
+
+## 0.11.0-beta.3.vorteo.833 - 2026-10-25
+
+### Maintenance
+
+- Merge worker output drain: the supervisor keeps a worker's last stdout and stderr in daemon.log when the worker exits before its output is read, and two install-gate tests no longer depend on load or home directory changes
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-24
+
+### Tests
+
+- The supervisor test for output that arrives after the worker exits runs only on POSIX, like the existing descendant stdio test. On Windows CI the child's late write never reached the supervisor, so the scenario cannot be staged there; the log stayed intact.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- The supervisor no longer loses the end of daemon.log when it exits right after its worker. The worker's exit can be reported before its last output arrives; the supervisor then closed the log, and the late output wrote after the close, which discarded the exit lines still buffered with it. A crashing worker's stack trace could vanish this way. The supervisor now waits up to a second for the worker's output to close before closing the log, and ignores writes once closing begins. Restarts are unchanged.
+
+### Tests
+
+- The maximum-count activation test gets a timeout sized to its 96 locked journal transactions, about 7 seconds idle.
+- Dev selector custody tests freeze the stat of directories above their fixtures. The fixtures must live in the home directory, which other processes keep changing, and custody correctly fails when an ancestor changes mid-inspection.
+
+## 0.11.0-beta.3.vorteo.832 - 2026-10-25
+
+### Maintenance
+
+- Merge precompiled built-in plugins: releases compile built-in plugins at build time and the daemon uses them when their digests verify, instead of running esbuild at every start
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Changed
+
+- Built-in plugins are compiled when the release is built, so the daemon no longer runs esbuild for them at every start. Each release stores a prebuilt bundle beside every built-in plugin. The daemon uses it only when the bundle's digest and the plugin's source and daemon version still match, and otherwise compiles from source as before. On an idle Mac the plugin phase of a boot drops from about 1 second to about 0.3 seconds; under heavy load, compiling had stretched daemon starts to tens of seconds.
+
+## 0.11.0-beta.3.vorteo.831 - 2026-10-25
+
+### Maintenance
+
+- Merge git process-tree kill: a timed-out git command is killed with its whole process tree, and silent-remote tests ignore the resulting connection resets
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-24
+
+### Tests
+
+- Silent-remote test servers ignore connection resets. Now that a timed-out fetch's helper is killed, Windows resets its connection, and the unhandled reset failed the server test run even though every test passed.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- A git command that times out is killed with its whole process tree. Before, a timed-out fetch or clone over HTTP left its git-remote-http helper running until the remote gave up; on Windows it also kept the repository folder locked.
+
+## 0.11.0-beta.3.vorteo.830 - 2026-10-25
+
+### Maintenance
+
+- Merge batched source contribution git calls: combining a repository-sized batch runs about 430 git processes instead of 1,700, and two timing tests are repaired
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions runs a handful of batched git commands instead of several per file. A repository-sized batch spawned about 1,700 git processes and took 26 seconds even on an idle Mac, and over a minute under load; it now spawns about 430 and takes 8 seconds. Release metadata reads every manifest in one git process when the caller supports it.
+
+### Tests
+
+- The Claude zero-token result test no longer fails when the turn outlasts one timer tick. The extra timeline item was the echo of the submitted prompt, not a duplicated assistant reply.
+- Worktree manager tests retry temporary directory cleanup. On Windows, the git HTTP helper left by a timed-out fetch briefly keeps the repository open.
+
+## 0.11.0-beta.3.vorteo.829 - 2026-10-25
+
+### Maintenance
+
+- Merge legacy layout freeze fix: restoring an old layout drops empty Explorer drafts instead of mounting thousands of composers, and touch and zoom listeners are shared
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- Reloading a workspace whose saved Explorer pane collected thousands of empty drafts no longer freezes the page. Every Explorer tab now renders as a supporting card, so each draft mounted a full composer. Restore drops Explorer drafts that hold no saved text, attachments, setup or tab state, and keeps the ones that do. Drafts in ordinary panes are untouched, and when saved drafts cannot be read every Explorer draft is kept. Touch detection and interface zoom now share one window listener each instead of adding one per mounted component.
+
+## 0.11.0-beta.3.vorteo.828 - 2026-10-25
+
+### Maintenance
+
+- Merge macOS-only immutable flag clearing: release removal no longer runs chflags on Linux and Windows
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Fixed
+
+- Removing a release tree no longer needs macOS file-flag tooling on other systems. Clearing immutable flags ran `/usr/bin/chflags` everywhere, so on Linux and Windows every removal failed and Host release retention's test removed nothing. Only macOS can set those flags, so clearing them elsewhere now does nothing. The macOS Host was unaffected.
+
+## 0.11.0-beta.3.vorteo.827 - 2026-10-25
+
+### Maintenance
+
+- Merge Windows exclusions: the POSIX-only Docker restart and Factory check suites are skipped on Windows
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Maintenance
+
+- Windows server CI skips the Docker restart and Factory check suites. Both verify owner-controlled scripts by POSIX ownership, mode and inode, and run only on the macOS Host.
+
+## 0.11.0-beta.3.vorteo.826 - 2026-10-25
+
+### Maintenance
+
+- Merge symlinked script runs: scripts run through the current release symlink compare real module paths instead of exiting silently
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- Scripts run through a symlinked path, such as `~/.local/share/vorteo-host/current/scripts/install-execution-host.mjs`, run again instead of exiting silently with status 0. Node loads the entry module by its real path, so the main-module check now compares real paths on both sides. `install-execution-host.mjs` uses the shared `isMainModule` helper, which the other release scripts already use.
+
+## 0.11.0-beta.3.vorteo.825 - 2026-10-25
+
+### Maintenance
+
+- Merge shared restart operations table: supervisor maintenance, Factory adoption, the Docker restart and the Host launcher update share one rule table with unchanged refusal messages and wire fields
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Maintenance
+
+- The four reviewed restart operations (supervisor maintenance, Factory adoption, the Docker restart and the Host launcher update) now share one table in the coordinator instead of repeating about a dozen rules each in the restart queue, server, app and CLI. Requests, decisions, dispatch, contribution refusals, automatic approval and the older-client view are checked once per table entry. A new operation is never approved automatically unless its entry says so. Behaviour, wire fields and refusal messages are unchanged.
+- Fix a stale server test expectation: the Host CLI has sent the Docker restart and Host launcher review flags with restart and contribution requests since those operations were added.
+
+## 0.11.0-beta.3.vorteo.824 - 2026-10-25
+
+### Maintenance
+
+- Merge shared configuration change shape: reviewed coordinator plans change registered settings through one configurationChanges field checked against a protocol settings registry
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Changed
+
+- Reviewed coordinator updates change coordinator settings through one plan field, `configurationChanges`, checked against a shared registry of reviewable settings. Each new setting needs one registry entry, its review text and a test, instead of about fifteen edits across the protocol, server, client, app and owner script. The five places that must refuse configuration changes now share one check.
+- Clients negotiate review by setting name. A client that cannot describe a listed setting sees only cancellation and cannot approve it. The older per-setting plan fields keep working, verify identically, and stay accepted until their compatibility dates.
+
+## 0.11.0-beta.3.vorteo.823 - 2026-10-25
+
+### Maintenance
+
+- Merge four timing fixes: large validators and draft modules load outside test timeouts, built-in plugins start concurrently so daemons boot about twice as fast, and small artifact digests hash on the scan thread
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Changed
+
+- The daemon starts its built-in plugins concurrently instead of one after another. It accepts connections only once they have all started, so each daemon start or restart waited for every plugin's compile and launch in turn; a test daemon now boots in about 7 seconds instead of 16.
+- Artifact verification hashes small artifacts on its scan worker instead of starting a separate reader thread, halving the threads started per verification. Large release trees still use parallel readers.
+
+### Maintenance
+
+- Fix four tests that timed out in full runs. Two loaded large modules inside their timeout: the protocol snapshot test imported the 9.6 MB generated validator, and the composer draft test imported its hook in a setup hook. Both now import at module load. The native helper replacement and compiled held restart tests sped up from the two changes above.
+
+## 0.11.0-beta.3.vorteo.822 - 2026-10-25
+
+### Maintenance
+
+- Merge renewal step timing: the runner diagnostic file records count and duration per phase and executor operation
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Added
+
+- Coordinator runner diagnostics record how long each runner phase and each executor operation (freeze, unload, selection, start, verification and others) took, in a bounded `timings` map in the runner's diagnostic file. A renewal that takes minutes now shows where the time went. Logging only; nothing a renewal does changes.
+
+## 0.11.0-beta.3.vorteo.821 - 2026-10-25
+
+### Maintenance
+
+- Merge release-note dedupe: the combine step skips byte-identical incoming notes and accepts branches cut before duplicate copies were removed; AGENTS.md asks threads to wait for Builds' install checks before heavy suites
+
+## 0.11.0-beta.3.vorteo.817 - 2026-10-25
+
+### Documentation
+
+- Keep the agent guide within its 32 KiB budget: the Builds gate marker rule is now one line that links to a new development doc section with the marker's fields, the wait rule and the shell check.
+
+## 0.11.0-beta.3.vorteo.816 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions accepts a side that removed extra byte-identical copies of a release note, as long as one copy remains. A branch cut before a duplicate cleanup still combines, and deleting or editing any note is still refused.
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions no longer copies a release note that is byte-identical to one already accepted, or repeated within the contribution. Repeated version headings with different notes still combine. Six exact copies of two vorteo.758 notes reached `main` this way on 2026-10-22, carried in from branch merges.
+
+### Documentation
+
+- The agent guide tells threads to check Builds' install gate marker before a full or heavy test suite, with a one-line shell check.
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Maintenance
+
+- Merge commit-hook declaration freshness: protocol and client declarations rebuild before typecheck when their sources are newer
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Fixed
+
+- The pre-commit hook no longer fails typecheck on stale protocol or client declarations after a branch switch. It rebuilds them first, only when their sources are newer than the last successful build, which costs nothing on a clean commit.
+
+## 0.11.0-beta.3.vorteo.819 - 2026-10-25
+
+### Fixed
+
+- Startup health checks distinguish invalid responses, rejected network requests and actual eight-second timeouts. Script download errors and JavaScript execution errors have separate safe diagnostics, with hashed script paths, transfer timing, exception class and allowlisted engine messages instead of private exception text.
+- After a confirmed entry-script download failure, the loader can retry that exact script once without reloading the page. It preserves integrity, nonce, cross-origin and referrer restrictions, and does not offer download retry for execution errors. Reports include the current origin, expected-origin match and service-worker control state; unknown causes remain unknown.
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Added
+
+- The delayed startup screen now offers the existing connection checker, separating endpoint health, WebSocket transport, app authentication and thread-directory readiness. It includes elapsed time and reload; a connected directory does not claim a selected workspace is ready.
+- The initial HTML loader can check its installation endpoint and copy a sanitized report even when the app bundle has not started. Failed script loads remain visible, and clipboard denial leaves a selectable report. Unknown daemon and session states remain unknown.
+
 ## 0.11.0-beta.3.vorteo.817 - 2026-10-25
 
 ### Maintenance

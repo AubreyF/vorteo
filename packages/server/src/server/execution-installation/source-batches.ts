@@ -71,32 +71,55 @@ export async function prepareSourceBatch(
     GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
     GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
   };
-  const git = async (...args: string[]) =>
-    (
-      await execute(
-        "git",
-        [
-          "-c",
-          "core.hooksPath=/dev/null",
-          "-c",
-          "gc.auto=0",
-          "-c",
-          "maintenance.auto=false",
-          "-c",
-          "protocol.allow=never",
-          "-c",
-          "protocol.file.allow=always",
-          "-c",
-          "fetch.fsckObjects=true",
-          "-c",
-          "transfer.fsckObjects=true",
-          "--git-dir",
-          repository,
-          ...args,
-        ],
-        { env, cwd: temporary, timeout: 120_000, maxBuffer: 16 * 1024 * 1024 },
-      )
-    ).stdout.trim();
+  const gitArgs = (args: string[]) => [
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "gc.auto=0",
+    "-c",
+    "maintenance.auto=false",
+    "-c",
+    "protocol.allow=never",
+    "-c",
+    "protocol.file.allow=always",
+    "-c",
+    "fetch.fsckObjects=true",
+    "-c",
+    "transfer.fsckObjects=true",
+    "--git-dir",
+    repository,
+    ...args,
+  ];
+  const gitOptions = { env, cwd: temporary, timeout: 120_000, maxBuffer: 16 * 1024 * 1024 };
+  // Runs git with stdin. Per-file loops spawned hundreds of git processes per batch.
+  const gitInput = async (args: string[], stdin: string | Buffer) => {
+    const run = execute("git", gitArgs(args), { ...gitOptions, encoding: "buffer" });
+    run.child.stdin?.end(stdin);
+    return (await run).stdout;
+  };
+  const git = Object.assign(
+    async (...args: string[]) => (await execute("git", gitArgs(args), gitOptions)).stdout.trim(),
+    {
+      /** Reads blobs by `commit:path` in one `cat-file --batch`; a missing path fails. */
+      async readBlobs(specs: readonly string[]): Promise<string[]> {
+        if (specs.some((spec) => spec.includes("\n")))
+          throw new Error("Blob path contains a newline");
+        const output = await gitInput(["cat-file", "--batch"], specs.map((s) => s + "\n").join(""));
+        const blobs: string[] = [];
+        let offset = 0;
+        for (const spec of specs) {
+          const lineEnd = output.indexOf(10, offset);
+          const header = output.subarray(offset, lineEnd).toString("utf8").split(" ");
+          if (lineEnd < 0 || header[1] !== "blob" || !/^\d+$/.test(header[2] ?? ""))
+            throw new Error(`Release file is not a blob: ${spec}`);
+          const size = Number(header[2]);
+          blobs.push(output.subarray(lineEnd + 1, lineEnd + 1 + size).toString("utf8"));
+          offset = lineEnd + 1 + size + 1;
+        }
+        return blobs;
+      },
+    },
+  );
   const contributions = structuredClone(input.contributions);
   const integrationFailures = new Set<string>();
   try {
@@ -130,15 +153,35 @@ export async function prepareSourceBatch(
     const hasReleaseMetadata = Boolean(await git("ls-tree", "--name-only", head, "package.json"));
     const replaceFiles = async (commit: string, files: Map<string, string>) => {
       await git("read-tree", commit);
-      for (const [file, text] of files) {
-        const entry = await git("ls-tree", commit, "--", file);
-        if (!entry.startsWith("100644 blob "))
+      const names = [...files.keys()];
+      if (names.length === 0) return git("write-tree");
+      // One ls-tree, hash-object and update-index per commit instead of three per file.
+      const entries = new Map(
+        (await git("ls-tree", commit, "--", ...names))
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => [line.slice(line.indexOf("\t") + 1), line] as const),
+      );
+      for (const file of names) {
+        if (!entries.get(file)?.startsWith("100644 blob "))
           throw new Error(`Release metadata must be a regular tracked file: ${file}`);
-        const content = path.join(temporary, "metadata.json");
-        writeFileSync(content, text, { mode: 0o600 });
-        const blob = await git("hash-object", "-w", content);
-        await git("update-index", "--add", "--cacheinfo", `100644,${blob},${file}`);
       }
+      const contents = names.map((file, index) => {
+        const content = path.join(temporary, `metadata-${index}.json`);
+        writeFileSync(content, files.get(file)!, { mode: 0o600 });
+        return content;
+      });
+      const blobs = (
+        await gitInput(["hash-object", "-w", "--stdin-paths"], contents.join("\n") + "\n")
+      )
+        .toString("utf8")
+        .trim()
+        .split("\n");
+      if (blobs.length !== names.length) throw new Error("Release metadata hashing failed");
+      await gitInput(
+        ["update-index", "--add", "--index-info"],
+        names.map((file, index) => `100644 ${blobs[index]}\t${file}\n`).join(""),
+      );
       return git("write-tree");
     };
     const parents = new Set([input.baseCommit, webCommit]);

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { realpath, rm, writeFile } from "node:fs/promises";
+import { realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import pino, { type Logger } from "pino";
@@ -81,6 +81,16 @@ export interface SessionHostService {
  * The service log, capped like the audit log. Writes are synchronous so the last lines before an
  * exit or a watchdog kill survive.
  */
+/**
+ * Writes a host marker through a temporary file and a rename, so a reader that sees the marker
+ * also sees its whole content. A temporary left by a crash is overwritten by the next write.
+ */
+async function writeMarker(markerPath: string, value: Record<string, unknown>): Promise<void> {
+  const temporary = `${markerPath}.tmp`;
+  await writeFile(temporary, JSON.stringify(value), { mode: 0o600 });
+  await rename(temporary, markerPath);
+}
+
 function openPrivateLog(logPath: string): Logger {
   const append = createRotatingAppender({
     path: logPath,
@@ -213,11 +223,10 @@ export async function startSessionHostService(
       // launchd relaunches the host on the installed release; until it listens, workers must treat
       // the missing socket as a host that is returning, not one that was removed.
       if (reason === "upgrade_at_idle")
-        await writeFile(
-          paths.restartMarkerPath,
-          JSON.stringify({ requestedAt: new Date().toISOString(), reason }),
-          { mode: 0o600 },
-        ).catch((error: unknown) =>
+        await writeMarker(paths.restartMarkerPath, {
+          requestedAt: new Date().toISOString(),
+          reason,
+        }).catch((error: unknown) =>
           logger.warn({ err: error }, "Could not write the restart marker before the upgrade exit"),
         );
       let code = 0;
@@ -241,11 +250,10 @@ export async function startSessionHostService(
   function markUpgradePending(why: string, detail: Record<string, unknown>): void {
     if (!upgradePending) {
       logger.info(detail, why);
-      void writeFile(
-        paths.upgradeMarkerPath,
-        JSON.stringify({ ...detail, markedAt: new Date().toISOString() }),
-        { mode: 0o600 },
-      ).catch((error: unknown) =>
+      void writeMarker(paths.upgradeMarkerPath, {
+        ...detail,
+        markedAt: new Date().toISOString(),
+      }).catch((error: unknown) =>
         logger.warn({ err: error }, "Could not write the upgrade pending marker"),
       );
     }

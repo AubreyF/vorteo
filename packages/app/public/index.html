@@ -5,7 +5,13 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="robots" content="noindex,nofollow" />
     <meta name="theme-color" content="#222222" />
-    <link rel="stylesheet" href="/appearance-fonts/vorton-fonts-6e84901.css" />
+    <!-- Optional font faces must not block the diagnostic bootstrap or entry execution. -->
+    <link
+      rel="stylesheet"
+      href="/appearance-fonts/vorton-fonts-6e84901.css"
+      media="print"
+      onload="this.media = 'all'"
+    />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Vorteo" />
     <meta
@@ -165,10 +171,33 @@
           />
         </div>
         <div id="boot-help" hidden role="status">
-          <p>Taking longer than expected.</p>
-          <p>Check your internet connection and VPN, if required.</p>
-          <p>Make sure the host is awake and Vorteo is running, then reload.</p>
+          <h1>Let’s get you connected</h1>
+          <p id="boot-summary">The interface is still starting. Checking this connection…</p>
+          <progress
+            id="boot-progress"
+            aria-label="Interface download; total progress unavailable"
+          ></progress>
+          <p id="boot-progress-label">
+            Download progress is unavailable while the browser is receiving the script.
+          </p>
+          <p id="boot-elapsed"></p>
+          <div id="boot-diagnostics" aria-live="polite"></div>
+          <details>
+            <summary>Connection details</summary>
+            <div id="boot-connection-details"></div>
+          </details>
+          <p>The page may be cached. These results describe this device only.</p>
+          <button id="boot-check" type="button">Check endpoint</button>
+          <button id="boot-retry-script" type="button" hidden>Retry interface download</button>
           <button type="button" onclick="window.location.reload()">Reload</button>
+          <button id="boot-copy" type="button">Copy diagnostics</button>
+          <p id="boot-copy-feedback" role="status"></p>
+          <textarea
+            id="boot-report"
+            aria-label="Sanitized connection diagnostics"
+            readonly
+            hidden
+          ></textarea>
         </div>
       </div>
     </div>
@@ -185,7 +214,12 @@
       #boot-status {
         margin: auto;
         padding: 24px;
-        max-width: 360px;
+        width: min(100%, 600px);
+        max-height: 100%;
+        padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+          max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+        overflow-y: auto;
+        box-sizing: border-box;
         text-align: center;
         font:
           14px system-ui,
@@ -193,9 +227,77 @@
         color: var(--boot-ring-color, #a9b5ad);
       }
       #boot-help {
-        margin-top: 24px;
+        animation: boot-reveal 240ms ease-out;
+        margin-top: 20px;
         font-size: 13px;
         line-height: 1.5;
+      }
+      #boot-help h1 {
+        font-size: 20px;
+        font-weight: 550;
+        letter-spacing: -0.4px;
+      }
+      #boot-help details {
+        text-align: left;
+        margin: 14px 0;
+      }
+      #boot-help summary {
+        cursor: pointer;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+      }
+      #boot-help progress {
+        width: 100%;
+        height: 4px;
+        accent-color: var(--boot-ring-color, #a9b5ad);
+      }
+      #boot-progress-label,
+      #boot-elapsed {
+        font-size: 12px;
+        opacity: 0.8;
+      }
+      #boot-diagnostics p {
+        border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+        padding: 10px 0;
+        margin: 0;
+      }
+      #boot-diagnostics p::before {
+        content: "";
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #999;
+        margin-right: 8px;
+      }
+      #boot-diagnostics p[data-state="passed"]::before {
+        background: #52b788;
+      }
+      #boot-diagnostics p[data-state="failed"]::before {
+        background: #ed9d82;
+      }
+      #boot-diagnostics p[data-state="checking"]::before {
+        background: #d3b76b;
+      }
+      #boot-status[data-expanded="true"] .boot-emblem {
+        width: 80px;
+        height: 80px;
+      }
+      #boot-status[data-expanded="true"] .boot-mark {
+        inset: 4px;
+        width: 72px;
+        height: 72px;
+      }
+      @keyframes boot-reveal {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
       #boot-help button {
         min-height: 44px;
@@ -206,6 +308,20 @@
         color: inherit;
         font: inherit;
         cursor: pointer;
+      }
+      #boot-help button {
+        margin: 4px;
+      }
+      #boot-diagnostics {
+        text-align: left;
+        overflow-wrap: anywhere;
+      }
+      #boot-report {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 140px;
+        color: inherit;
+        background: transparent;
       }
       .boot-emblem {
         position: relative;
@@ -253,7 +369,8 @@
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        .boot-spinner {
+        .boot-spinner,
+        #boot-help {
           animation: none;
         }
       }
@@ -293,7 +410,504 @@
       } catch (_) {
         /* Storage may be unavailable; the neutral dark loader remains usable. */
       }
+      var bootStarted = Date.now();
+      var bootAssets = "Waiting for the interface to start";
+      var bootAssetError = null;
+      var bootFailedScript = null;
+      var bootScriptRetries = 0;
+      var bootPolicy = [];
+      var bootEndpoint = "Unknown — not checked";
+      var bootEndpointFailure = null;
+      var bootChecking = false;
+      var bootController = null;
+      var bootTimer = null;
+      var bootFinished = false;
+      var bootLoadedScripts = new WeakSet();
+      var bootEndpointProbe = {
+        state: "not_started",
+        attempts: 0,
+        trigger: null,
+        startedAt: null,
+        completedAt: null,
+      };
+      var bootMaintenance = { state: "not_checked", observedAt: null, counts: null };
+      function bootScriptElements() {
+        return Array.prototype.slice
+          .call(document.scripts)
+          .filter(function (script) {
+            return bootScriptPath(script.src) !== null;
+          })
+          .slice(-6)
+          .map(function (script) {
+            var timing = performance
+              .getEntriesByName(script.src)
+              .filter(function (entry) {
+                return entry.entryType === "resource";
+              })
+              .pop();
+            return {
+              path: bootScriptPath(script.src),
+              defer: script.defer,
+              async: script.async,
+              loadEventObserved: bootLoadedScripts.has(script),
+              timingEntryPresent: !!timing,
+              state: bootLoadedScripts.has(script)
+                ? "load_event_observed"
+                : timing
+                  ? "transfer_completed_execution_unverified"
+                  : "discovered_transfer_progress_unavailable",
+            };
+          });
+      }
+      function bootScriptPath(value) {
+        try {
+          var path = new URL(value, window.location.href).pathname;
+          return /^\/_expo\/static\/js\/[a-z0-9_./-]+\.js$/i.test(path) ? path : null;
+        } catch (_) {
+          return null;
+        }
+      }
+      function bootResourceTimings() {
+        return performance
+          .getEntriesByType("resource")
+          .filter(function (entry) {
+            return bootScriptPath(entry.name) !== null;
+          })
+          .slice(-6)
+          .map(function (entry) {
+            return {
+              path: bootScriptPath(entry.name),
+              durationMs: Math.round(entry.duration),
+              transferBytes: entry.transferSize,
+              encodedBytes: entry.encodedBodySize,
+              decodedBytes: entry.decodedBodySize,
+              responseComplete: entry.responseEnd > 0,
+              protocol: entry.nextHopProtocol || "unknown",
+              dnsMs: Math.round(entry.domainLookupEnd - entry.domainLookupStart),
+              connectMs: Math.round(entry.connectEnd - entry.connectStart),
+              tlsMs:
+                entry.secureConnectionStart > 0
+                  ? Math.round(entry.connectEnd - entry.secureConnectionStart)
+                  : null,
+              firstByteMs:
+                entry.requestStart > 0
+                  ? Math.round(entry.responseStart - entry.requestStart)
+                  : null,
+              transferMs:
+                entry.responseStart > 0
+                  ? Math.round(entry.responseEnd - entry.responseStart)
+                  : null,
+              timingCaveat:
+                "Completed-resource timings only; zero sizes can mean cache reuse or unavailable browser data",
+            };
+          });
+      }
+      function bootSafeExecutionMessage(message) {
+        if (typeof message !== "string") return "Browser did not expose an execution message";
+        var exact = [
+          "Script error.",
+          "Load failed",
+          "Failed to fetch",
+          "Importing a module script failed.",
+          "Cannot convert undefined or null to object",
+          "Maximum call stack size exceeded",
+          "Out of memory",
+        ];
+        if (exact.indexOf(message) >= 0) return message;
+        var prefixes = [
+          "Cannot read properties of undefined",
+          "Cannot read properties of null",
+          "undefined is not an object",
+          "null is not an object",
+          "Invalid regular expression",
+          "Unexpected identifier",
+          "Unexpected end of input",
+        ];
+        for (var index = 0; index < prefixes.length; index++) {
+          if (message.indexOf(prefixes[index]) === 0)
+            return prefixes[index] + " (expression omitted)";
+        }
+        var token = /^Unexpected token ['"]([<>;:(){}\[\]=?.!,])['"]$/.exec(message);
+        if (token) return "Unexpected token '" + token[1] + "'";
+        return "Unrecognized execution message omitted to protect private data";
+      }
+      function bootSummary() {
+        return JSON.stringify(
+          {
+            format: "vorteo-startup-diagnostics-v1",
+            diagnosticsRevision: 3,
+            build: document.querySelector('meta[name="vorteo-build"]')
+              ? document.querySelector('meta[name="vorteo-build"]').content
+              : "not embedded",
+            startupGate:
+              "Local settings and themed React shell must paint; daemon authentication is a separate app stage",
+            automaticChecksAfterSeconds: 15,
+            byteProgress: {
+              state: "unavailable_during_browser_script_transfer",
+              total: null,
+              received: null,
+            },
+            scriptElements: bootScriptElements(),
+            endpointProbe: bootEndpointProbe,
+            maintenance: {
+              state: bootMaintenance.state,
+              observedAt: bootMaintenance.observedAt,
+              stale: bootMaintenance.observedAt
+                ? Date.now() - bootMaintenance.observedAt > 60000
+                : null,
+              counts: bootMaintenance.counts,
+              caveat:
+                "Counts do not establish an active restart or the cause of this connection failure",
+            },
+            pageOrigin: window.location.origin,
+            expectedOriginMatches: window.__VORTEO_EXECUTION_INSTALLATION__
+              ? window.__VORTEO_EXECUTION_INSTALLATION__.origin === window.location.origin
+              : null,
+            browserOnlineHint: navigator.onLine,
+            serviceWorkerControlled: !!(
+              navigator.serviceWorker && navigator.serviceWorker.controller
+            ),
+            elapsedSeconds: Math.floor((Date.now() - bootStarted) / 1000),
+            page: "HTML and diagnostic script loaded; cache freshness unknown",
+            assets: bootAssets,
+            assetError: bootAssetError,
+            scriptResources: bootResourceTimings(),
+            interfaceDownloadRetries: bootScriptRetries,
+            enforcedContentPolicy: bootPolicy,
+            endpoint: bootEndpoint,
+            endpointFailure: bootEndpointFailure,
+            websocket: "Unknown — interface has not reported a connection",
+            authenticationAndHostRegistration: "Unknown — requires the app connection",
+            sessionReadiness: "Unknown — requires the app connection",
+          },
+          null,
+          2,
+        );
+      }
+      function renderBootDiagnostics() {
+        var panel = document.getElementById("boot-diagnostics");
+        if (!panel) return;
+        panel.replaceChildren();
+        var details = document.getElementById("boot-connection-details");
+        details.replaceChildren();
+        var report = JSON.parse(bootSummary());
+        [
+          "page",
+          "assets",
+          "endpoint",
+          "websocket",
+          "authenticationAndHostRegistration",
+          "sessionReadiness",
+        ].forEach(function (key) {
+          var row = document.createElement("p");
+          var labels = {
+            page: "Page",
+            assets: "Interface assets",
+            endpoint: "Endpoint reachability",
+            websocket: "WebSocket",
+            authenticationAndHostRegistration: "Authentication / host registration",
+            sessionReadiness: "Session readiness",
+          };
+          row.textContent = labels[key] + ": " + report[key];
+          row.dataset.state =
+            report[key].indexOf("Passed") === 0
+              ? "passed"
+              : /^(Failed|Timed out)/.test(report[key])
+                ? "failed"
+                : /^(Checking|Waiting|Interface)/.test(report[key])
+                  ? "checking"
+                  : "unknown";
+          (key === "page" || key === "assets" || key === "endpoint" ? panel : details).appendChild(
+            row,
+          );
+        });
+        document.getElementById("boot-elapsed").textContent =
+          report.elapsedSeconds +
+          " seconds elapsed" +
+          (document.hidden ? " · background timers may be delayed" : "");
+        var completed =
+          report.scriptElements.length > 0 &&
+          report.scriptElements.every(function (entry) {
+            return entry.loadEventObserved;
+          });
+        var progress = document.getElementById("boot-progress");
+        if (completed) {
+          progress.max = 1;
+          progress.value = 1;
+        } else progress.removeAttribute("value");
+        document.getElementById("boot-progress-label").textContent = completed
+          ? "Script load observed. Waiting for the themed interface to paint; this is not session readiness."
+          : "The browser does not expose live script byte progress. This indicator has no estimated percentage.";
+        document.getElementById("boot-summary").textContent = bootAssetError
+          ? "The browser reported an interface error. Review the stages below."
+          : bootChecking
+            ? "Checking the connection while the interface continues loading…"
+            : bootEndpointProbe.state === "complete" && !bootEndpointFailure
+              ? "The server answered. The interface is still starting on this device."
+              : "The interface is still starting. Slow downloads can remain pending without a browser error.";
+        if (bootMaintenance.state !== "not_checked") {
+          var maintenance = document.createElement("p");
+          maintenance.textContent =
+            "Upgrade / restart status: " +
+            (bootMaintenance.state === "complete"
+              ? "coordinator reported " +
+                bootMaintenance.counts.running +
+                " running and " +
+                bootMaintenance.counts.queued +
+                " queued requests; component, initiation time and cause are not exposed"
+              : bootMaintenance.state + "; restart activity cannot be established");
+          details.appendChild(maintenance);
+        }
+      }
+      function bootResourceError(event) {
+        if (event.target instanceof HTMLScriptElement) {
+          bootAssetError = { kind: "download_failed", path: bootScriptPath(event.target.src) };
+          bootAssets = "Failed — interface script download failed; its execution is unverified";
+          if (bootAssetError.path && bootScriptRetries === 0) {
+            bootFailedScript = event.target;
+            document.getElementById("boot-retry-script").hidden = false;
+          }
+        } else if (event.target === window) {
+          var name = event.error && event.error.name;
+          var allowed = [
+            "Error",
+            "TypeError",
+            "ReferenceError",
+            "SyntaxError",
+            "RangeError",
+            "URIError",
+            "EvalError",
+          ];
+          var safeName = allowed.indexOf(name) >= 0 ? name : "Error";
+          var path = bootScriptPath(event.filename);
+          bootAssetError = {
+            kind: "execution_error",
+            path: path,
+            errorName: safeName,
+            executionMessage: bootSafeExecutionMessage(
+              event.error ? event.error.message : event.message,
+            ),
+            line: Number.isFinite(event.lineno) ? event.lineno : null,
+            column: Number.isFinite(event.colno) ? event.colno : null,
+          };
+          bootAssets = path
+            ? "Failed — interface JavaScript raised " + safeName
+            : "Runtime error observed; interface source attribution is unknown";
+          document.getElementById("boot-retry-script").hidden = true;
+        }
+        renderBootDiagnostics();
+      }
+      function bootResourceLoaded(event) {
+        if (
+          event.target instanceof HTMLScriptElement &&
+          bootScriptPath(event.target.src) &&
+          !bootAssetError
+        ) {
+          bootLoadedScripts.add(event.target);
+          bootAssets = "Interface script downloaded; waiting for app startup";
+          renderBootDiagnostics();
+        }
+      }
+      function bootPolicyViolation(event) {
+        if (
+          event.disposition === "enforce" &&
+          ["script-src", "script-src-elem", "connect-src", "default-src"].indexOf(
+            event.effectiveDirective,
+          ) >= 0
+        ) {
+          if (bootPolicy.indexOf(event.effectiveDirective) < 0)
+            bootPolicy.push(event.effectiveDirective);
+          renderBootDiagnostics();
+        }
+      }
+      window.addEventListener("error", bootResourceError, true);
+      window.addEventListener("load", bootResourceLoaded, true);
+      window.addEventListener("securitypolicyviolation", bootPolicyViolation);
+      document.getElementById("boot-retry-script").addEventListener("click", function () {
+        if (
+          !bootFailedScript ||
+          bootScriptRetries > 0 ||
+          !bootAssetError ||
+          bootAssetError.kind !== "download_failed"
+        )
+          return;
+        bootScriptRetries++;
+        this.disabled = true;
+        bootAssetError = null;
+        bootAssets = "Retrying the failed interface download once; this does not reload the page";
+        // Keep integrity, nonce, cross-origin and referrer policy unchanged.
+        var retry = document.createElement("script");
+        Array.prototype.forEach.call(bootFailedScript.attributes, function (attribute) {
+          if (attribute.name !== "src") retry.setAttribute(attribute.name, attribute.value);
+        });
+        retry.nonce = bootFailedScript.nonce;
+        retry.async = bootFailedScript.async;
+        retry.src = bootFailedScript.src;
+        bootFailedScript.replaceWith(retry);
+        renderBootDiagnostics();
+      });
+      async function bootSmallJSON(response) {
+        if (!response.body || !response.body.getReader) return null;
+        var reader = response.body.getReader();
+        var decoder = new TextDecoder();
+        var text = "",
+          size = 0;
+        try {
+          while (true) {
+            var part = await reader.read();
+            if (part.done) break;
+            size += part.value.byteLength;
+            if (size > 4096) return null;
+            text += decoder.decode(part.value, { stream: true });
+          }
+          text += decoder.decode();
+          return JSON.parse(text);
+        } catch (_) {
+          return null;
+        } finally {
+          reader.cancel().catch(function () {});
+        }
+      }
+      async function bootCheckEndpoint(trigger) {
+        if (bootFinished || bootChecking || bootEndpointProbe.attempts >= 3) return;
+        if (bootEndpointProbe.completedAt && Date.now() - bootEndpointProbe.completedAt < 8000)
+          return;
+        if (navigator.onLine === false) {
+          bootEndpointProbe.state = "offline_deferred";
+          bootEndpoint =
+            "Deferred — browser reports offline; checking automatically when online resumes";
+          renderBootDiagnostics();
+          return;
+        }
+        bootChecking = true;
+        var button = document.getElementById("boot-check");
+        button.disabled = true;
+        bootEndpoint = "Checking this device's installation endpoint";
+        bootEndpointFailure = null;
+        bootEndpointProbe.state = "running";
+        bootEndpointProbe.attempts++;
+        bootEndpointProbe.trigger = trigger;
+        bootEndpointProbe.startedAt = Date.now();
+        bootEndpointProbe.completedAt = null;
+        renderBootDiagnostics();
+        bootController = new AbortController();
+        var controller = bootController;
+        var started = Date.now();
+        var timedOut = false;
+        bootTimer = setTimeout(function () {
+          timedOut = true;
+          controller.abort();
+        }, 8000);
+        var options = {
+          cache: "no-store",
+          credentials: "omit",
+          redirect: "error",
+          signal: controller.signal,
+        };
+        // This existing public route exposes counts only. Never request private maintenance receipts.
+        var maintenance = fetch("/api/installation/restart-summary", options)
+          .then(async function (response) {
+            var body = response.ok ? await bootSmallJSON(response) : null;
+            if (
+              body &&
+              [body.requested, body.queued, body.running].every(function (value) {
+                return Number.isSafeInteger(value) && value >= 0;
+              })
+            ) {
+              bootMaintenance = {
+                state: "complete",
+                observedAt: Date.now(),
+                counts: { requested: body.requested, queued: body.queued, running: body.running },
+              };
+            } else bootMaintenance.state = "unavailable";
+          })
+          .catch(function () {
+            bootMaintenance.state = "unavailable";
+          });
+        try {
+          var response = await fetch("/api/installation/health", options);
+          if (!response.ok) {
+            bootEndpoint = "Failed — HTTP " + response.status;
+            bootEndpointFailure = { kind: "http", httpStatus: response.status };
+          } else {
+            var body = await bootSmallJSON(response);
+            if (timedOut) throw new Error("deadline");
+            bootEndpoint =
+              body && typeof body.installationId === "string"
+                ? "Passed — installation endpoint responded; identity, daemon authentication and session remain unverified"
+                : "Failed — response was not valid installation health";
+            if (!body || typeof body.installationId !== "string")
+              bootEndpointFailure = { kind: "invalid_response", httpStatus: response.status };
+          }
+        } catch (_) {
+          bootEndpoint = timedOut
+            ? "Timed out — no complete health response after 8 seconds"
+            : "Failed — network request rejected; no timeout was observed";
+          bootEndpointFailure = { kind: timedOut ? "timeout" : "network_rejected" };
+        } finally {
+          await maintenance;
+          if (bootEndpointFailure) bootEndpointFailure.elapsedMs = Date.now() - started;
+          clearTimeout(bootTimer);
+          bootChecking = false;
+          bootEndpointProbe.state = "complete";
+          bootEndpointProbe.completedAt = Date.now();
+          button.disabled = bootEndpointProbe.attempts >= 3;
+          renderBootDiagnostics();
+        }
+      }
+      function bootCheckDelay() {
+        if (bootFinished || Date.now() - bootStarted < 15000) return;
+        document.getElementById("boot-help").hidden = false;
+        document.getElementById("boot-status").dataset.expanded = "true";
+        if (bootEndpointProbe.attempts === 0 || bootEndpointProbe.state === "offline_deferred")
+          bootCheckEndpoint("automatic");
+      }
+      function bootResumeChecks() {
+        if (!document.hidden) {
+          bootCheckDelay();
+          renderBootDiagnostics();
+        }
+      }
+      var bootClock = setInterval(function () {
+        bootCheckDelay();
+        renderBootDiagnostics();
+      }, 1000);
+      var bootDelayTimer = setTimeout(bootCheckDelay, 15000);
+      window.addEventListener("online", bootResumeChecks);
+      window.addEventListener("pageshow", bootResumeChecks);
+      document.addEventListener("visibilitychange", bootResumeChecks);
+      document.getElementById("boot-check").addEventListener("click", function () {
+        bootCheckEndpoint("manual");
+      });
+      document.getElementById("boot-copy").addEventListener("click", async function () {
+        var report = bootSummary();
+        var feedback = document.getElementById("boot-copy-feedback");
+        try {
+          await navigator.clipboard.writeText(report);
+          feedback.textContent =
+            "Diagnostics copied. Includes this page's origin and script timing, without credentials, query strings or private session data.";
+        } catch (_) {
+          var area = document.getElementById("boot-report");
+          area.value = report;
+          area.hidden = false;
+          area.focus();
+          area.select();
+          feedback.textContent = "Clipboard unavailable. Select and copy the report below.";
+        }
+      });
+      renderBootDiagnostics();
       window.__vorteoFinishBoot = function () {
+        bootFinished = true;
+        clearInterval(bootClock);
+        clearTimeout(bootDelayTimer);
+        window.removeEventListener("online", bootResumeChecks);
+        window.removeEventListener("pageshow", bootResumeChecks);
+        document.removeEventListener("visibilitychange", bootResumeChecks);
+        clearTimeout(bootTimer);
+        if (bootController) bootController.abort();
+        window.removeEventListener("error", bootResourceError, true);
+        window.removeEventListener("load", bootResourceLoaded, true);
+        window.removeEventListener("securitypolicyviolation", bootPolicyViolation);
         var overlay = document.getElementById("boot-overlay");
         if (!overlay || overlay.dataset.leaving) return;
         overlay.dataset.leaving = "true";
@@ -319,10 +933,6 @@
         );
       };
       document.getElementById("boot-status").hidden = false;
-      setTimeout(function () {
-        var help = document.getElementById("boot-help");
-        if (help) help.hidden = false;
-      }, 10000);
     </script>
   </body>
 </html>

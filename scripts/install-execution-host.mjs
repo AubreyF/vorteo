@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import { isMainModule } from "./is-main-module.mjs";
 import fs from "node:fs/promises";
 import {
   createPublicationBinding,
@@ -1336,7 +1337,7 @@ async function manage(command, root) {
   );
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+if (isMainModule(import.meta.url)) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {

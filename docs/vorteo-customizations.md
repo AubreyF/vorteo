@@ -1,5 +1,51 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): removed six duplicate vorteo.758 release-note copies; no feature changed. README overview and onboarding are unchanged.
+
+## Startup connection diagnostics
+
+The delayed startup screen exposes the existing device connection checker before the host is available. It separates health HTTP, WebSocket transport, saved app authentication and thread-directory readiness, with elapsed time, reload and a sanitized copyable report. The initial HTML loader distinguishes script transfer errors, JavaScript execution errors, invalid health responses, network rejection and actual timeouts even without the application bundle. A confirmed failed entry-script download can be retried once without reloading, preserving its integrity and browser security attributes. Reports include safe script timing, exception class and allowlisted engine messages, current origin and service-worker control, excluding query strings and private exception text. Clipboard failure exposes selectable text. A cached page, successful health response or loaded directory does not establish remote-client or selected-workspace readiness. This interface change does not restart daemons or change credentials, permissions or network settings. The README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the pre-commit hook rebuilds stale protocol and client declarations before typecheck. Tooling only. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): documentation only. The Builds gate marker check moved from the agent guide to the development doc to keep the guide within its size budget. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the release-note combine step accepts history whose extra byte-identical copies were removed, so branches cut before a duplicate cleanup still combine. Edits and deleted notes are still refused. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): combining source contributions skips release notes byte-identical to accepted or repeated ones; repeated version headings with different notes still combine. The agent guide adds the Builds gate marker check before heavy test suites. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): coordinator runner diagnostics record per-phase and per-operation wall time, so slow renewals can be profiled. Behavior is unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): built-in plugins start concurrently, small artifact verification skips a reader thread, and two tests import large modules outside their timeouts; four flaky gate timeouts were fixed at their cause. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): reviewed coordinator configuration changes share one plan field, `configurationChanges`, and a protocol registry of reviewable settings, negotiated by setting name. Older per-setting fields still work unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the four reviewed restart operations share one coordinator table for their request, decision, dispatch, contribution, automatic-approval and older-client rules, with matching app and CLI tables. Functionality, wire fields and messages are unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): scripts run through a symlinked installation path, such as `current`, no longer exit silently; the shared main-module check compares real paths. Functionality is otherwise unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): Windows server CI skips the POSIX-only Docker restart and Factory check suites; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): release-tree removal skips clearing macOS immutable flags on other systems, where none can exist, so retention works and tests pass on Linux and Windows. Host behaviour is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): restoring a saved Explorer pane drops drafts with no saved text, attachments, setup or tab state, so a layout holding thousands of empty generated drafts no longer mounts thousands of composer cards and freezes the page. Drafts with content and drafts in ordinary panes are kept. Touch detection and interface zoom share one window listener each. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): source contribution batches now read and write release files with batched git commands. Results are unchanged; a repository-sized batch takes 8 seconds instead of 26. Two timing-dependent tests were repaired. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): git timeout tests tolerate the connection reset caused by killing a fetch helper on Windows. Behavior is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): timed-out git commands now kill their whole process tree, so HTTP fetches and clones no longer leave helper processes behind. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): releases now ship prebuilt built-in plugin bundles, verified by content hash at daemon start, with compilation from source as the fallback. This shortens every Host and Dev daemon start. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the late worker output supervisor test is POSIX-only. Behavior is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-24): the supervisor keeps a worker's final output and its exit lines in daemon.log when it exits right after the worker; two timing-dependent installation tests were repaired. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): session host markers are written atomically, and the initial Host module contract tests no longer depend on shared folders staying unchanged. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the Host module contract pins folders above the release by directory identity rather than timestamps, so sibling writes in the home folder no longer refuse coordinator updates; absence is still proven directly. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): app installation client tests now expect the Docker restart and Host launcher query flags on restart routes. Behavior is unchanged. README overview and onboarding are unchanged.
@@ -1592,3 +1638,5 @@ October 14, 2026: Integrated the responsive card refinements with the reviewed m
 Maintenance review: Dev repair controls retain their validated implementation while incorporating the current published card layout and prepared capacity ancestry. This isolated integration does not change the pending Host request.
 
 Coordinator startup reads promoted requests plus only their exactly bound recovered ancestry. A fenced predecessor can remain in the pending journal without preventing its approved successor from starting. Unrelated pending claims retain no startup authority, and observation leaves both journals unchanged.
+
+Startup diagnostics operate before the interface bundle and automatically check installation reachability after 15 seconds. They use bounded requests, defer offline checks until resume, distinguish completed browser resource timings from unknown in-flight progress, and show only the coordinator's existing public restart-request counts. Counts cannot establish an active component restart, its initiation time, or the cause of a connection failure. The themed app shell dismisses the overlay after local settings load and two paint frames; daemon connection and session readiness remain separate stages. Production exports preload their original entry script with matching security attributes and embed validated source/version metadata. The compact diagnostic reveal uses inline CSS, system fonts and reduced-motion support.

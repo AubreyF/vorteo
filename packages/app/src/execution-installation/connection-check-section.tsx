@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { settingsStyles } from "@/styles/settings";
 import {
   connectionSessionDescription,
+  connectionReadinessDescription,
   installationConnectionTargets,
   type ConnectionSession,
   type ConnectionCheckTarget,
@@ -201,9 +202,14 @@ export function InstallationConnectionCheckSection({
                     </Text>
                   ) : null}
                   {target.serverId ? (
-                    <Text style={settingsStyles.rowHint}>
-                      {connectionSessionDescription(result.session)}
-                    </Text>
+                    <>
+                      <Text style={settingsStyles.rowHint}>
+                        {connectionSessionDescription(result.session)}
+                      </Text>
+                      <Text style={settingsStyles.rowHint}>
+                        {connectionReadinessDescription(result.session)}
+                      </Text>
+                    </>
                   ) : null}
                   {result.session?.endpoint ? (
                     <Text selectable style={styles.address}>

@@ -879,6 +879,7 @@ export async function runNativeBootstrap(
         await directory.close();
       }
     };
+    timeExecutorOperations(operations, runnerEvidence);
     const result = await trace("executor-dispatch", () =>
       executeCoordinatorBootstrap(
         requests,
@@ -889,6 +890,35 @@ export async function runNativeBootstrap(
     if (result.execution?.stage !== "succeeded")
       throw new BootstrapRequestConflict("Bootstrap did not activate the replacement");
   });
+}
+
+/** Executor operations whose wall time is recorded in the runner's diagnostic file. */
+const TIMED_OPERATIONS = [
+  "armWatchdog",
+  "armBootRecovery",
+  "freeze",
+  "inspectFrozen",
+  "preserveTransfer",
+  "unload",
+  "select",
+  "start",
+  "verifyReplacement",
+  "releaseReplacement",
+  "resumePrevious",
+] as const;
+
+/** Diagnostics only: each operation still runs exactly once with the same arguments. */
+export function timeExecutorOperations(
+  operations: BootstrapExecutorOperations,
+  evidence: Pick<ReturnType<typeof createBootstrapRunnerEvidence>, "timed"> | undefined,
+): void {
+  if (!evidence) return;
+  for (const name of TIMED_OPERATIONS) {
+    const original = operations[name] as ((...args: unknown[]) => Promise<unknown>) | undefined;
+    if (typeof original !== "function") continue;
+    (operations as unknown as Record<string, unknown>)[name] = (...args: unknown[]) =>
+      evidence.timed(name, () => original.apply(operations, args));
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -202,6 +202,31 @@ describe("supervisor durable logging", () => {
     expect(result.log).toContain("raw stderr line\n");
   });
 
+  // POSIX-only, like the descendant stdio test below: on Windows CI the child's late write never
+  // reached the supervisor through the inherited pipe, so the scenario cannot be staged there.
+  test.skipIf(isPlatform("win32"))(
+    "records output that arrives after the worker exits",
+    async () => {
+      // A child holding the worker's stdout writes after the worker has exited, as a worker's last
+      // output does when exit is reported before its pipes drain. Closing daemon.log right after
+      // the exit used to drop that output, and the late write destroyed the buffered exit lines.
+      const result = await runSupervisorFixture({
+        workerSource: `
+        import { spawn } from "node:child_process";
+        spawn(process.execPath, ["-e", "setTimeout(() => process.stdout.write('late stdout line\\n'), 300)"], {
+          stdio: ["ignore", "inherit", "inherit"],
+        }).unref();
+        process.exit(0);
+      `,
+      });
+
+      expect(result.code).toBe(0);
+      expect(result.log).toContain("late stdout line\n");
+      expect(result.log).toContain('"msg":"Worker exited"');
+      expect(result.log).toContain("Supervisor exiting");
+    },
+  );
+
   test("logs the worker shutdown reason before requesting graceful shutdown", async () => {
     const result = await runSupervisorFixture({
       workerSource: `

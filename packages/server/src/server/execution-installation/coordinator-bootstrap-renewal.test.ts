@@ -1271,6 +1271,13 @@ test.runIf(process.platform === "darwin")(
     await expect(
       verifyRenewalPlan(setup, { ...plan, nativeHelperConfiguration: null }),
     ).rejects.toThrow("cannot change policy, helper or monitor");
+    // The listed shape keeps renewal's per-setting rule: no preview monitor changes.
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        configurationChanges: [{ setting: "previewMonitor", value: null }],
+      }),
+    ).rejects.toThrow("cannot change policy, helper or monitor");
     // Claude refresh changes only with its exact reviewed field and candidate bytes.
     await expect(
       verifyRenewalPlan(setup, { ...plan, claudeHostRefreshConfiguration: true }),
@@ -1358,6 +1365,20 @@ test.runIf(process.platform === "darwin")(
         ...plan,
         candidate: { ...f.host, configuration: launcherPlanned },
         hostLauncherUpdateConfiguration: launcherUpdate,
+      }),
+    ).resolves.toBeUndefined();
+    // The same change, listed in configurationChanges, verifies identically.
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        configurationChanges: [{ setting: "hostLauncherUpdate", value: launcherUpdate }],
+      }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        candidate: { ...f.host, configuration: launcherPlanned },
+        configurationChanges: [{ setting: "hostLauncherUpdate", value: launcherUpdate }],
       }),
     ).resolves.toBeUndefined();
     const removed = f.save(path.join(f.root, "factory-disabled.json"), {

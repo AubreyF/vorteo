@@ -17,6 +17,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { installationWebEntry } from "./installation-web-entry.mjs";
 import { installDependencies } from "./lib/dependency-cache.mjs";
+import { preloadWebEntry } from "./preload-web-entry.mjs";
 import {
   claimBuild,
   pruneInstanceBuildsInBackground,
@@ -112,6 +113,14 @@ async function build() {
       path.join(root, "packages/app"),
     );
   }
+  const indexPath = path.join(exported, "index.html");
+  await fs.writeFile(
+    indexPath,
+    preloadWebEntry(await fs.readFile(indexPath, "utf8"), {
+      sourceCommit,
+      version: JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")).version,
+    }),
+  );
   await sealArtifact(exported, {
     buildId: path.basename(root),
     sourceCommit,
