@@ -174,7 +174,14 @@ export function AgentHistoryTracks({
   cwd: string;
 }) {
   const subagentRows = useSubagentsForParent({ serverId, parentAgentId: agentId });
-  const tasks = useSessionStore((state) => state.sessions[serverId]?.agentTasks.get(agentId));
+  const tasks = useSessionStore((state) => {
+    const session = state.sessions[serverId];
+    // The daemon snapshot includes the latest checklist even outside the loaded timeline window.
+    if (session?.serverInfo?.features?.agentTaskSnapshots)
+      return session.agents.get(agentId)?.tasks;
+    // COMPAT (2026-10): older daemons expose checklists only through loaded timeline events.
+    return session?.agentTasks.get(agentId);
+  });
   const archive = useArchiveFinishedSubagents({
     serverId,
     parentAgentId: agentId,

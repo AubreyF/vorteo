@@ -1,3 +1,4 @@
+import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
 import { installationProviderReference } from "@getpaseo/protocol/installation-settings";
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
 import {
@@ -444,6 +445,7 @@ interface HandleStreamEventOptions {
 }
 
 interface ManagedAgentBase {
+  tasks?: import("./agent-sdk-types.js").AgentTaskItem[];
   queueGoalHold?: import("../message-queue/goal-hold.js").QueueGoalHold;
   goalSubmissions?: import("./agent-storage.js").GoalSubmission[];
   goalState?: import("@getpaseo/protocol/agent-goals").AgentGoalState;
@@ -4717,6 +4719,10 @@ export class AgentManager {
 
   private async restoreGoalPersistence(managed: ActiveManagedAgent): Promise<void> {
     const record = await this.registry?.get(managed.id);
+    managed.tasks = record?.tasks;
+    for (const item of this.timelineStore.getItems(managed.id)) {
+      if (item.type === "todo") managed.tasks = item.items;
+    }
     managed.goalSubmissions = record?.goalSubmissions;
     managed.queueGoalHold = record?.queueGoalHold;
   }
@@ -5361,6 +5367,7 @@ export class AgentManager {
         this.dispatch({ type: "provider_subagent", event: update });
       }
     }
+    agent.tasks = [];
     for (const event of historyEvents) {
       const row = this.recordTimeline(
         agent.id,
@@ -5435,6 +5442,7 @@ export class AgentManager {
         this.dispatch(managerEvent);
       }
     }
+    agent.tasks = [];
     for (const event of historyEvents) {
       const row = this.recordTimeline(
         agent.id,
@@ -5452,6 +5460,7 @@ export class AgentManager {
       }
     }
     agent.historyPrimed = true;
+    if (agent.lifecycle !== "initializing") this.emitState(agent);
 
     if (typeof broadcast !== "function" || !broadcast()) {
       return;
@@ -5779,6 +5788,7 @@ export class AgentManager {
     }
 
     this.recordAndDispatchTimelineItem(agent.id, event.item, event.provider, event.turnId);
+    if (event.item.type === "todo") this.emitState(agent);
     if (event.item.type === "user_message") {
       agent.lastUserMessageAt = new Date();
       this.emitState(agent);
@@ -6201,6 +6211,10 @@ export class AgentManager {
     }
     item = limitAgentTimelineItemContent(item);
     const row = this.timelineStore.append(agentId, item, options);
+    if (item.type === "todo") {
+      const agent = this.agents.get(agentId);
+      if (agent) agent.tasks = item.items;
+    }
     this.enqueueDurableTimelineAppend(agentId, row);
     return row;
   }
@@ -6589,7 +6603,10 @@ export class AgentManager {
   }
 
   private applyDaemonAppendSystemPrompt(config: AgentSessionConfig): AgentSessionConfig {
-    const daemonAppendSystemPrompt = this.appendSystemPrompt.trim();
+    const daemonAppendSystemPrompt = composeSystemPromptParts(
+      config.internal ? undefined : TASK_CHECKLIST_GUIDANCE,
+      this.appendSystemPrompt,
+    );
     const next = { ...config };
     delete next.daemonAppendSystemPrompt;
 

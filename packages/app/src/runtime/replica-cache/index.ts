@@ -2,6 +2,7 @@ import { AgentGoalStateSchema } from "@getpaseo/protocol/agent-goals";
 import { z } from "zod";
 import {
   AgentStatusSchema,
+  AgentTaskItemSchema,
   CompactionInspectionSchema,
   AgentTimelineItemPayloadSchema,
   WorkspaceGitHubRuntimePayloadSchema,
@@ -228,6 +229,7 @@ const StoredProjectPlacementSchema = z.strictObject({
 });
 
 const StoredAgentSnapshotSchema = z.strictObject({
+  tasks: z.array(AgentTaskItemSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
   provider: AgentProviderSchema,
@@ -668,6 +670,7 @@ function serializeAgent(agent: Agent): StoredAgent {
     availableModes: [],
     pendingPermissions: [],
     goalState: cachedGoalState(agent.goalState),
+    tasks: agent.tasks,
     persistence: null,
     ...(agent.lastError ? { lastError: agent.lastError } : {}),
     profile: agent.profile,
