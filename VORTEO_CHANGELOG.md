@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+
+## 0.11.0-beta.3.vorteo.192 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.191 - 2026-10-08
+
+### Maintenance
+
+- Integrate managed Dev source updates with the installed release and accepted checklist contribution, preserving both source histories and prior release notes.
+
 ## 0.11.0-beta.3.vorteo.190 - 2026-10-08
 
 ### Fixed
@@ -49,12 +62,46 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
 
+## 0.11.0-beta.3.vorteo.190 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.189 - 2026-10-08
+
+### Fixed
+
+- Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
+
+### Maintenance
+
+- Integrate the restart escalation interface with the installed release, preserving restart recovery and source-update behavior.
+
+## 0.11.0-beta.3.vorteo.188 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.187 - 2026-10-07
+
+### Maintenance
+
+- Integrate restart recovery and compact review with the currently installed source, preserving both release histories.
+
 ## 0.11.0-beta.3.vorteo.186 - 2026-10-07
 
 ### Fixed
 
 - Keep restart review to a short paragraph with technical details collapsed, and label source installation Updating while builds are running.
 - Recover restart-held goals without queued messages and retain durable continuation for ordinary threads asked to finish. Preserve manual pauses, block new goal activation during a hold, and distinguish restart pauses in the interface.
+
+## 0.11.0-beta.3.vorteo.186 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.185 - 2026-10-07
 
@@ -183,6 +230,21 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Require agents to check supported installation-maintenance and preview operations before preparing host continuity prompts, while preserving owner restart approval
 - Cover queued daemon labels and the stationary banner divider in the installation browser suite
+
+## 0.11.0-beta.3.vorteo.176 - 2026-10-08
+
+### Added
+
+- Show workspace checklist completion across all unarchived threads, including unopened threads, with a donut beside the workspace row and progress on each thread's bottom card.
+- Persist native checklist snapshots in daemon records and the client cache so completion survives reloads.
+
+### Changed
+
+- Prepare implementation checklist items with completion criteria in plans and carry accepted plans into new threads through launch and handoff instructions.
+
+### Maintenance
+
+- Cover aggregation, native task persistence, client cache recovery and browser reload behavior. Older threads populate snapshots when their history loads or a provider updates its checklist.
 
 ## 0.11.0-beta.3.vorteo.175 - 2026-10-07
 
