@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 import type { EngineRestartConfiguration } from "@getpaseo/protocol/execution-installation";
 import {
   awaitEngineReadiness,
+  engineRecoveryPlanDigest,
+  engineRecoveryBudget,
+  engineRecoveryPreflight,
+  verifyFactoryAfterRecovery,
   engineRestartPlanDigest,
   engineRestartPreflight,
   restartDockerEngine,
@@ -174,4 +178,128 @@ test("Factory verification fails when the supervisor did not change", async () =
   await expect(
     verifyFactoryAfterRestart(configured, preflight, { run: docker.run }),
   ).rejects.toThrow("supervisor did not change");
+});
+
+function recoveryPlan() {
+  const base = plan(true);
+  return {
+    ...base,
+    deadlineSeconds: 60,
+    docker: realpathSync(base.docker),
+    dockerSha256: createHash("sha256").update(readFileSync(base.docker)).digest("hex"),
+    factoryVerify: { ...base.factoryVerify!, ownerMode: "paused" as const },
+    baseline: {
+      observedAt: "2026-10-23T01:00:00Z",
+      evidenceSha256: "d".repeat(64),
+      startedAt: {
+        dev: "2026-10-23T01:00:00Z",
+        gatewayTailscale: "2026-10-23T01:00:00Z",
+        gatewayCaddy: "2026-10-23T01:00:00Z",
+      },
+      factory: {
+        epoch: 40,
+        supervisorPid: 21,
+        ownerMode: "paused" as const,
+        ownerSequence: 14,
+        custodyCount: 454,
+        custodyDigest: "c".repeat(64),
+      },
+    },
+  };
+}
+
+test("degraded recovery requires its own executable and retained-evidence digest", () => {
+  const configured = recoveryPlan();
+  const digest = engineRecoveryPlanDigest(configured);
+  expect(digest).toMatch(/^[a-f0-9]{64}$/);
+  expect(digest).not.toBe(engineRestartPlanDigest(configured));
+  expect(engineRecoveryPlanDigest({ ...configured, dockerSha256: "0".repeat(64) })).toBeUndefined();
+  expect(
+    engineRecoveryPlanDigest({
+      ...configured,
+      baseline: { ...configured.baseline, evidenceSha256: "e".repeat(64) },
+    }),
+  ).not.toBe(digest);
+});
+
+test("degraded preflight admits an unavailable engine without Dev calls, but rejects a responsive engine", async () => {
+  const configured = recoveryPlan();
+  const digest = engineRecoveryPlanDigest(configured)!;
+  const commands: string[][] = [];
+  const run: EngineCommand = async (_file, args, timeout) => {
+    commands.push(args);
+    expect(timeout).toBe(30000);
+    throw new Error("engine timeout");
+  };
+  const preflight = await engineRecoveryPreflight(configured, digest, { run });
+  expect(preflight.startedAt).toEqual(configured.baseline.startedAt);
+  expect(commands).toEqual([
+    ["--host", "unix:///fixture/docker.sock", "info", "--format", "{{.ServerVersion}}"],
+  ]);
+  await expect(
+    engineRecoveryPreflight(configured, digest, { run: fakeDocker({}).run }),
+  ).rejects.toThrow("Docker answers");
+  await expect(engineRecoveryPreflight(configured, "f".repeat(64), { run })).rejects.toThrow(
+    "changed",
+  );
+  expect(commands).toHaveLength(1);
+});
+
+test("degraded preflight refuses changed script bytes even if the engine observation failed", async () => {
+  const configured = recoveryPlan();
+  const digest = engineRecoveryPlanDigest(configured)!;
+  await expect(
+    engineRecoveryPreflight(configured, digest, {
+      run: async () => {
+        writeFileSync(configured.factoryVerify.script, "changed");
+        throw new Error("timeout");
+      },
+    }),
+  ).rejects.toThrow("changed during preflight");
+});
+
+test.each(["valid", "custody", "owner", "epoch", "supervisor", "failed check"])(
+  "recovery independently verifies retained paused Factory evidence: %s",
+  async (kind) => {
+    const configured = recoveryPlan();
+    const after = {
+      ok: true,
+      check: "all",
+      ...configured.baseline.factory,
+      epoch: 41,
+      supervisorPid: 22,
+    };
+    if (kind === "custody") after.custodyDigest = "d".repeat(64);
+    if (kind === "owner") after.ownerSequence++;
+    if (kind === "epoch") after.epoch = 40;
+    if (kind === "supervisor") after.supervisorPid = 21;
+    if (kind === "failed check") after.ok = false;
+    const verify = verifyFactoryAfterRecovery(configured, {
+      run: async () => ({ stdout: JSON.stringify(after) }),
+    });
+    if (kind === "valid") await expect(verify).resolves.toContain("retained baseline");
+    else await expect(verify).rejects.toThrow();
+  },
+);
+
+test("recovery shares one monotonic budget and never starts a command after exhaustion", async () => {
+  const configured = recoveryPlan();
+  let now = 0;
+  const timeouts: number[] = [];
+  const bounded = engineRecoveryBudget(configured, {
+    now: () => now,
+    run: async (_file, _args, timeout) => {
+      timeouts.push(timeout);
+      now += timeout;
+      return { stdout: "" };
+    },
+    sleep: async (ms) => {
+      now += ms;
+    },
+  });
+  await bounded.run!(configured.docker, ["info"], 30000);
+  await bounded.run!(configured.docker, ["desktop", "restart"], 65000);
+  expect(timeouts).toEqual([30000, 30000]);
+  expect(() => bounded.run!(configured.docker, ["inspect"], 30000)).toThrow("budget exhausted");
+  expect(timeouts).toHaveLength(2);
 });

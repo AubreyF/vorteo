@@ -206,6 +206,7 @@ function restartReply(
   requireOwnerApproval?: boolean,
   engineRestart?: boolean,
   hostLauncherUpdate?: boolean,
+  engineRecovery?: boolean,
 ) {
   // Captures are retained in the protected journal, not sent to legacy strict clients.
   // COMPAT(workerLaunchReply): added in v674; remove after 2027-04-17 once requester floor >= v674.
@@ -229,7 +230,12 @@ function restartReply(
   } = job;
   job = ownerApprovalReply(publicJob, requireOwnerApproval);
   // COMPAT projections for reviewed plans; each entry in restart-operations.ts says when.
-  job = legacyOperationReplies(job, { factoryRuntimeAdoption, engineRestart, hostLauncherUpdate });
+  job = legacyOperationReplies(job, {
+    factoryRuntimeAdoption,
+    engineRestart,
+    hostLauncherUpdate,
+    engineRecovery,
+  });
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
     job = compatible;
@@ -605,12 +611,18 @@ export function createInstallationServer(
   app.disable("x-powered-by");
   app.set("trust proxy", "loopback");
   const canonicalHost = new URL(config.public.origin).host;
+  const recoveryHost = config.recoveryOrigin ? new URL(config.recoveryOrigin).host : null;
+  const isRecoveryRequest = (req: Request) =>
+    recoveryHost !== null && req.headers.host === recoveryHost;
+  const ownerOriginMatches = (req: Request) =>
+    req.header("origin") ===
+    (isRecoveryRequest(req) ? config.recoveryOrigin : config.public.origin);
   const redirectHosts = new Set(
     (config.redirectOrigins ?? []).map((origin) => new URL(origin).host),
   );
   app.use((req, res, next) => {
     const host = req.headers.host ?? "";
-    const legacyHost = host !== canonicalHost && redirectHosts.has(host);
+    const legacyHost = host !== canonicalHost && host !== recoveryHost && redirectHosts.has(host);
     if (legacyHost) {
       res.setHeader("Cache-Control", "no-store");
       const navigation = req.method === "GET" || req.method === "HEAD";
@@ -623,6 +635,7 @@ export function createInstallationServer(
     }
     const allowedHosts = new Set([
       canonicalHost,
+      ...(recoveryHost ? [recoveryHost] : []),
       `127.0.0.1:${config.listenPort}`,
       `localhost:${config.listenPort}`,
     ]);
@@ -1067,6 +1080,7 @@ export function createInstallationServer(
             req.query.requireOwnerApproval === "1",
             req.query.engineRestart === "1",
             req.query.hostLauncherUpdate === "1",
+            req.query.engineRecovery === "1",
           ),
         });
         void drainRestarts();
@@ -1087,6 +1101,7 @@ export function createInstallationServer(
               req.query.requireOwnerApproval === "1",
               req.query.engineRestart === "1",
               req.query.hostLauncherUpdate === "1",
+              req.query.engineRecovery === "1",
             ),
           );
     },
@@ -1113,6 +1128,7 @@ export function createInstallationServer(
         req.query.requireOwnerApproval === "1",
         req.query.engineRestart === "1",
         req.query.hostLauncherUpdate === "1",
+        req.query.engineRecovery === "1",
       ),
     });
   });
@@ -1536,6 +1552,7 @@ export function createInstallationServer(
           req.query.requireOwnerApproval === "1",
           req.query.engineRestart === "1",
           req.query.hostLauncherUpdate === "1",
+          req.query.engineRecovery === "1",
         ),
       );
   });
@@ -1579,6 +1596,7 @@ export function createInstallationServer(
         req.query.requireOwnerApproval === "1",
         req.query.engineRestart === "1",
         req.query.hostLauncherUpdate === "1",
+        req.query.engineRecovery === "1",
       ),
     );
   });
@@ -1620,7 +1638,7 @@ export function createInstallationServer(
     }),
   );
   app.post("/api/installation/owner/session", (req, res) => {
-    if (req.header("origin") !== config.public.origin) {
+    if (!ownerOriginMatches(req)) {
       res.sendStatus(403);
       return;
     }
@@ -1632,7 +1650,7 @@ export function createInstallationServer(
       try {
         // Origin checking is independent of bearer authentication. Agent request keys
         // are deliberately not accepted, even on loopback.
-        if (req.header("origin") !== config.public.origin) {
+        if (!ownerOriginMatches(req)) {
           res.sendStatus(403);
           return;
         }
@@ -1971,6 +1989,7 @@ export function createInstallationServer(
               req.query.requireOwnerApproval === "1",
               req.query.engineRestart === "1",
               req.query.hostLauncherUpdate === "1",
+              req.query.engineRecovery === "1",
             ),
             job,
             delegation,
@@ -2023,6 +2042,7 @@ export function createInstallationServer(
       decision.factoryRuntimePlanSha256,
       decision.engineRestartPlanSha256,
       decision.hostLauncherPlanSha256,
+      decision.engineRecoveryPlanSha256,
     );
     res.json(
       withDelegation(
@@ -2039,6 +2059,7 @@ export function createInstallationServer(
           req.query.requireOwnerApproval === "1",
           req.query.engineRestart === "1",
           req.query.hostLauncherUpdate === "1",
+          req.query.engineRecovery === "1",
         ),
         job,
         requestedDelegation(config.stateDir, req.query.delegatedRequests === "1"),
@@ -2048,7 +2069,7 @@ export function createInstallationServer(
       .drain()
       .catch((error) => logger.error({ err: error }, "Installation restart journal failed"));
   });
-  app.use(
+  const webUi = (origin: string) =>
     createWebUiMiddleware({
       enabled: true,
       distDir: config.webDistDir,
@@ -2056,11 +2077,16 @@ export function createInstallationServer(
       logger,
       installation: {
         ...config.public,
+        origin,
         profileSharing: true,
         idleRestarts: Boolean(executor.inspect && executor.restartWhenIdle),
         gracefulRestarts: Boolean(executor.holdCurrentTurns && executor.releaseCurrentTurns),
       },
-    }),
+    });
+  const canonicalWebUi = webUi(config.public.origin);
+  const recoveryWebUi = config.recoveryOrigin ? webUi(config.recoveryOrigin) : canonicalWebUi;
+  app.use((req, res, next) =>
+    (isRecoveryRequest(req) ? recoveryWebUi : canonicalWebUi)(req, res, next),
   );
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof z.ZodError) {
