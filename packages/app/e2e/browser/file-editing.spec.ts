@@ -382,9 +382,12 @@ test.describe("CodeMirror workspace file editing", () => {
 
     const fileTab = page.getByTestId(`workspace-tab-file_${relativePath}`).first();
     await fileTab.hover();
-    await expect(page.getByTestId(`workspace-tab-tooltip-file_${relativePath}`)).toHaveText(
-      relativePath,
-    );
+    // The tooltip also names the host since d9b7a2d60, so check the path line on its own.
+    await expect(
+      page
+        .getByTestId(`workspace-tab-tooltip-file_${relativePath}`)
+        .getByText(relativePath, { exact: true }),
+    ).toBeVisible();
     await expect(page.getByTestId("file-panel-bar")).not.toContainText("visuals.md");
     const modeControl = page.getByTestId("file-preview-mode");
     await expect(modeControl).toBeVisible();
@@ -398,7 +401,8 @@ test.describe("CodeMirror workspace file editing", () => {
     await content.click();
     const cursor = editorHost.locator(".cm-cursor-primary");
     await expect(cursor).toBeVisible();
-    await expect(cursor).toHaveCSS("border-left-color", "rgb(250, 250, 250)");
+    // Dark Star became the default dark appearance in 60f4899a6; its foreground is #f5f5f7.
+    await expect(cursor).toHaveCSS("border-left-color", "rgb(245, 245, 247)");
 
     const initialModeBox = await modeControl.boundingBox();
     expect(initialModeBox).not.toBeNull();

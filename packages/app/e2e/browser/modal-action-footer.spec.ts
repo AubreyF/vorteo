@@ -5,6 +5,9 @@ import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { ensureExplorerSidebar } from "../support/helpers/workspace-tabs";
 import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
+
 for (const width of [1440, 390]) {
   test(`long modal keeps its actions visible at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 600 });

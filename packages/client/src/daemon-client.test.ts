@@ -1,3 +1,4 @@
+import { REVIEWED_CONFIGURATION_SETTING_NAMES } from "@getpaseo/protocol/coordinator-configuration-settings";
 import { readFileSync } from "node:fs";
 import { afterEach, expect, expectTypeOf, test, vi } from "vitest";
 import { z } from "zod";
@@ -8884,6 +8885,48 @@ test.each([null, "Approved artifact changed"])(
     ).toHaveLength(1);
   },
 );
+
+test("listed configuration changes need a Host that negotiates settings by name", async () => {
+  for (const negotiates of [false, true]) {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "configuration-changes",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connected = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        ...(negotiates ? { coordinatorBootstrapConfigurationChanges: true } : {}),
+      },
+    });
+    await connected;
+    const input = bootstrapMonitorPreparation();
+    input.plan.configurationChanges = [{ setting: "claudeHostRefresh", value: true }];
+    if (!negotiates) {
+      await expect(client.prepareCoordinatorBootstrap(input)).rejects.toThrow(
+        "Update the Host before preparing this configuration change",
+      );
+      expect(mock.sent).toEqual([]);
+      continue;
+    }
+    const listing = client.listCoordinatorBootstrapRequests();
+    const [frame] = mock.sent.map(parseSentFrame);
+    // The client names every registered setting, because the app describes them all.
+    expect(frame.configurationSettings).toEqual(REVIEWED_CONFIGURATION_SETTING_NAMES);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.list_requests.response",
+        payload: { requestId: frame.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(listing).resolves.toEqual([]);
+  }
+});
 
 test("source tooling preparation refuses an older Host before sending", async () => {
   const mock = createMockTransport();

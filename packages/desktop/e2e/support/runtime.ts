@@ -7,7 +7,7 @@ import { escapeRegex } from "../../../app/e2e/support/helpers/regex";
 import {
   openSettingsHost,
   openSettingsHostSection,
-  openSettingsSection,
+  revealSettingsLocation,
 } from "../../../app/e2e/support/helpers/settings";
 
 interface DaemonApiStatus {
@@ -347,8 +347,11 @@ export async function openDesktopSettings(page: Page, serverId: string): Promise
 
 export async function openDesktopAboutSettings(page: Page): Promise<void> {
   await openSettings(page);
-  await openSettingsSection(page, "general");
-  await expect(page.getByText("App updates", { exact: true })).toBeVisible();
+  // About is a pane inside General on the single settings page; scroll it into view.
+  await revealSettingsLocation(page, "about");
+  const appUpdates = page.getByText("App updates", { exact: true });
+  await appUpdates.scrollIntoViewIfNeeded();
+  await expect(appUpdates).toBeVisible();
 }
 
 export async function expectUpdateBanner(page: Page, version: string): Promise<void> {

@@ -6,7 +6,7 @@ import { gotoAppShell } from "./app";
 import { connectDaemonClient } from "./daemon-client-loader";
 import { getServerId } from "./server-id";
 import { withProjectOwnership } from "./project-ownership";
-import { switchWorkspaceViaSidebar } from "./workspace-ui";
+import { openWorkspaceActionsMenu, switchWorkspaceViaSidebar } from "./workspace-ui";
 import type { SessionOutboundMessage } from "@getpaseo/protocol/messages";
 
 type WorkspaceSetupDaemonClient = Pick<
@@ -19,6 +19,7 @@ type WorkspaceSetupDaemonClient = Pick<
   | "fetchAgent"
   | "fetchAgents"
   | "fetchWorkspaces"
+  | "listProjects"
   | "listTerminals"
   | "observeEvents"
   | "removeProject"
@@ -179,12 +180,9 @@ export async function expectSetupPanel(page: Page): Promise<void> {
   if (await panel.isVisible().catch(() => false)) {
     return;
   }
-  // Otherwise open it manually via workspace header actions menu.
-  // Use the specific testID to avoid matching the sidebar kebab which shares
-  // the same "Workspace actions" accessibility label.
-  const actionsButton = page.getByTestId("workspace-header-menu-trigger");
-  await expect(actionsButton).toBeVisible({ timeout: 10_000 });
-  await actionsButton.click();
+  // Otherwise open it from the workspace's own actions menu: the title menu on phones, the
+  // primary pane menu on desktop.
+  await openWorkspaceActionsMenu(page);
   const showSetup = page.getByTestId("workspace-header-show-setup");
   await expect(showSetup).toBeVisible({ timeout: 5_000 });
   await showSetup.click();
@@ -289,8 +287,22 @@ export async function leaveWorkspaceViaHistory(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/sessions$/, { timeout: 30_000 });
 }
 
+/** On desktop the scripts button sits with the Explorer's toolbar actions, shown while it is open. */
+async function revealWorkspaceScriptsButton(page: Page) {
+  const button = page.getByTestId("workspace-scripts-button").filter({ visible: true });
+  const toggle = page.getByTestId("workspace-explorer-toggle").first();
+  await expect(button.or(toggle).first()).toBeVisible({ timeout: 30_000 });
+  if ((await button.count()) === 0) await toggle.click();
+  return button.first();
+}
+
+/** With one script the toolbar shows a single play button that starts it (fa9a1859d). */
+export async function startOnlyWorkspaceScript(page: Page): Promise<void> {
+  await (await revealWorkspaceScriptsButton(page)).click();
+}
+
 export async function openWorkspaceScriptsMenu(page: Page): Promise<void> {
-  await page.getByTestId("workspace-scripts-button").click();
+  await (await revealWorkspaceScriptsButton(page)).click();
   await expect(page.getByTestId("workspace-scripts-menu")).toBeVisible({ timeout: 10_000 });
 }
 

@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
-import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, stat, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compressFile } from "./compress-web-asset.mjs";
+import { preloadWebEntry } from "./preload-web-entry.mjs";
+import { webExportEnvironment } from "./lib/web-export.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -35,8 +37,11 @@ function run(command, args, options) {
 
 async function exportBrowserWebApp() {
   console.log("Exporting browser web app...");
+  // The same export heap as Host installs: the Docker image build runs this through the
+  // server's prepack, where Metro's workers hit V8's default ~4 GB limit.
   await run("npm", ["run", "build:web", "--workspace=@getpaseo/app"], {
     cwd: REPO_ROOT,
+    env: { ...process.env, ...webExportEnvironment() },
   });
 }
 
@@ -107,6 +112,8 @@ async function main() {
 
   await cleanTarget();
   await copyAssets();
+  const indexPath = path.join(TARGET_DIST, "index.html");
+  await writeFile(indexPath, preloadWebEntry(await readFile(indexPath, "utf8")));
   await precompressAssets(TARGET_DIST);
 
   const sizes = await measureBundle(TARGET_DIST);

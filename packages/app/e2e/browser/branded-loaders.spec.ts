@@ -117,7 +117,11 @@ for (const theme of ["starship-light", "starship-dark", "scriptorium", "midas", 
       if (theme === "starship-light") expectedMode = "rainbow";
       if (theme === "starship-dark") expectedMode = "white";
       expect(brand.mode).toBe(expectedMode);
-      await page.route("**/_expo/static/js/web/*.js", (route) => route.abort());
+      // Exported builds load _expo/static/js/web/*.js; the Metro dev server loads *.bundle. Block
+      // both so the app cannot boot and replace the startup logo before the checks below run.
+      await page.route(/\/_expo\/static\/js\/web\/[^/]+\.js(\?|$)|\.bundle(\?|$)/, (route) =>
+        route.abort(),
+      );
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page.locator("#boot-status")).toBeVisible();
       if (brand.mode === "gradient") {

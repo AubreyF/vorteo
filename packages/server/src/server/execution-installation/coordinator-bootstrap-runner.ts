@@ -72,6 +72,12 @@ import {
   verifyRenewalPlan,
   verifyRetainedRenewal,
 } from "./coordinator-bootstrap-renewal.js";
+import {
+  createRuntimeCustody,
+  digestRuntimeInChild,
+  guardReleaseWithRuntimeCustody,
+  type RequireRuntimeCustody,
+} from "./coordinator-bootstrap-runtime-custody.js";
 
 const ExitObservationSchema = z.object({
   attempts: z.number().int().min(0).max(3),
@@ -245,7 +251,8 @@ export function acknowledgeBootstrapDispatch(): void {
 }
 
 type RunnerSetup = z.infer<typeof BootstrapRunnerSetupSchema>;
-function runnerRenewal(
+/** Renewal fences for one runner process. Exported for the fence-count tests. */
+export function runnerRenewal(
   setup: RunnerSetup,
   setupFile: string,
   role: "executor" | "watchdog",
@@ -263,18 +270,31 @@ function runnerRenewal(
   }
   let armed = role === "watchdog";
   let dispatched: CoordinatorBootstrapRequest | undefined;
-  const verifyRenewal = async () => {
+  // An ordinary renewal executor digests its runtime tree only at the custody
+  // boundaries and derives the renewal once, at the claim. Watchdogs never digest
+  // the tree; maintenance runners keep the full checks at every fence.
+  const custodyBoundaries = role === "executor" && Boolean(setup.renewal) && !setup.maintenance;
+  const requireRuntimeCustody: RequireRuntimeCustody | undefined = custodyBoundaries
+    ? (() => {
+        const check = createRuntimeCustody({
+          custody: { runtimeDirectory: setup.runtimeDirectory, runtimeSha256: setup.runtimeSha256 },
+          digest: (directory) => digestRuntimeInChild(setup.node.path, directory),
+        });
+        return (boundary) => trace("runtime-digest", () => check(boundary));
+      })()
+    : undefined;
+  const verifyRenewal = async (fence: "setup" | "claim") => {
     const renewal = setup.renewal;
     if (!renewal) return;
     await trace("renewal-retained", () =>
-      verifyRetainedRenewal(setup, undefined, role === "watchdog"),
+      verifyRetainedRenewal(setup, undefined, role === "watchdog", !custodyBoundaries),
     );
     const retained = dispatched;
     if (retained)
       await trace("renewal-generation", () =>
         retainRenewalGeneration({ setup, setupFile, request: retained, watchdog: true }),
       );
-    if (!armed) {
+    if (!armed && (fence === "claim" || !custodyBoundaries)) {
       if (setup.maintenance) {
         const { verifyMaintenanceBeforeDispatch } =
           await import("./coordinator-bootstrap-maintenance-runtime.js");
@@ -302,7 +322,8 @@ function runnerRenewal(
   };
   return {
     admission: effectiveAdmission,
-    verify: verifyRenewal,
+    verify: () => verifyRenewal("setup"),
+    requireRuntimeCustody,
     markDispatched: (request: CoordinatorBootstrapRequest) => {
       dispatched = request;
       armed = true;
@@ -326,7 +347,7 @@ function runnerRenewal(
                   );
                 return;
               }
-              await verifyRenewal();
+              await verifyRenewal("claim");
               await trace("renewal-plan", () => verifyRenewalPlan(setup, plan));
             },
           }
@@ -334,8 +355,9 @@ function runnerRenewal(
     async verifyApproval(request: CoordinatorBootstrapRequest) {
       if (setup.supervision) return;
       await trace("renewal-retained", () =>
-        verifyRetainedRenewal(setup, request, role === "watchdog"),
+        verifyRetainedRenewal(setup, request, role === "watchdog", !custodyBoundaries),
       );
+      await requireRuntimeCustody?.("admission");
       if (!setup.renewal) return;
       if (role === "executor" && setup.renewal.request?.revision !== request.revision)
         throw new BootstrapRequestConflict(
@@ -787,6 +809,7 @@ export async function runNativeBootstrap(
         lockFile,
         ownershipVerifier: setup.ownershipVerifier,
         verifySetup,
+        requireRuntimeCustody: renewal.requireRuntimeCustody,
         armWatchdog,
         evidence: runnerEvidence,
       }),
@@ -879,6 +902,9 @@ export async function runNativeBootstrap(
         await directory.close();
       }
     };
+    if (renewal.requireRuntimeCustody)
+      guardReleaseWithRuntimeCustody(operations, renewal.requireRuntimeCustody);
+    timeExecutorOperations(operations, runnerEvidence);
     const result = await trace("executor-dispatch", () =>
       executeCoordinatorBootstrap(
         requests,
@@ -889,6 +915,35 @@ export async function runNativeBootstrap(
     if (result.execution?.stage !== "succeeded")
       throw new BootstrapRequestConflict("Bootstrap did not activate the replacement");
   });
+}
+
+/** Executor operations whose wall time is recorded in the runner's diagnostic file. */
+const TIMED_OPERATIONS = [
+  "armWatchdog",
+  "armBootRecovery",
+  "freeze",
+  "inspectFrozen",
+  "preserveTransfer",
+  "unload",
+  "select",
+  "start",
+  "verifyReplacement",
+  "releaseReplacement",
+  "resumePrevious",
+] as const;
+
+/** Diagnostics only: each operation still runs exactly once with the same arguments. */
+export function timeExecutorOperations(
+  operations: BootstrapExecutorOperations,
+  evidence: Pick<ReturnType<typeof createBootstrapRunnerEvidence>, "timed"> | undefined,
+): void {
+  if (!evidence) return;
+  for (const name of TIMED_OPERATIONS) {
+    const original = operations[name] as ((...args: unknown[]) => Promise<unknown>) | undefined;
+    if (typeof original !== "function") continue;
+    (operations as unknown as Record<string, unknown>)[name] = (...args: unknown[]) =>
+      evidence.timed(name, () => original.apply(operations, args));
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

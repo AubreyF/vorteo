@@ -39,6 +39,9 @@ export class SkillLibraryError extends Error {
 export function missing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
+function notDirectory(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOTDIR";
+}
 export function digest(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -131,6 +134,24 @@ export async function skillRoots(home: string, cwd?: string): Promise<SkillRoot[
   }
   return roots;
 }
+/**
+ * Claude loads skills and plugins from its config folder, which an account sets with
+ * CLAUDE_CONFIG_DIR. Plugins also load in place from marketplace and synced folders.
+ */
+export function claudeConfigRoots(configDir: string): SkillRoot[] {
+  const config = path.resolve(configDir);
+  return [
+    { path: path.join(config, "skills"), owner: "personal", providers: ["claude"], depth: 2 },
+    ...["cache", "marketplaces", "synced"].map(
+      (folder): SkillRoot => ({
+        path: path.join(config, "plugins", folder),
+        owner: "plugin",
+        providers: ["claude"],
+        depth: 7,
+      }),
+    ),
+  ];
+}
 export async function inspectSkill(directory: string, root: SkillRoot): Promise<SkillInstallation> {
   const result: SkillInstallation = {
     id: digest(directory),
@@ -192,9 +213,13 @@ export async function inspectSkill(directory: string, root: SkillRoot): Promise<
   return result;
 }
 export async function inventorySkills(
-  options: { home?: string; cwd?: string } = {},
+  options: { home?: string; cwd?: string; claudeConfigDir?: string } = {},
 ): Promise<SkillInventory> {
-  const roots = await skillRoots(options.home ?? os.homedir(), options.cwd);
+  const home = options.home ?? os.homedir();
+  const roots = await skillRoots(home, options.cwd);
+  if (options.claudeConfigDir)
+    for (const root of claudeConfigRoots(options.claudeConfigDir))
+      if (!roots.some((existing) => existing.path === root.path)) roots.push(root);
   const inventory: SkillInventory = {
     observedAt: new Date().toISOString(),
     skills: [],
@@ -233,6 +258,8 @@ export async function inventorySkills(
         try {
           await walk(full, depth - 1, root);
         } catch (error) {
+          // A symlink to a file (ENOTDIR) or a dangling one (ENOENT) holds no skill.
+          if (entry.isSymbolicLink() && (missing(error) || notDirectory(error))) continue;
           inventory.roots.push({ path: full, status: "error", error: String(error) });
         }
       }

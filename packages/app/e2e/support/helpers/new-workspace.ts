@@ -1,4 +1,4 @@
-import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import type { CreateAgentRequestMessage, SessionInboundMessage } from "@getpaseo/protocol/messages";
 import type { DaemonClient as InternalDaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { decodeWorkspaceIdFromPathSegment } from "@/utils/host-routes";
@@ -251,33 +251,6 @@ export async function expectNewWorkspaceProjectSelected(
   await expect(projectPicker).toContainText(projectDisplayName);
 }
 
-export async function expectNewWorkspaceTriggerLabelsAligned(
-  page: Page,
-  input: { projectLabel: string; hostLabel: string },
-): Promise<void> {
-  const projectTrigger = page.getByRole("button", { name: "Workspace project" });
-  const hostTrigger = page.getByRole("button", { name: "Host", exact: true });
-  const projectLabel = projectTrigger.getByText(input.projectLabel, { exact: true });
-  const hostLabel = hostTrigger.getByText(input.hostLabel, { exact: true });
-  await Promise.all([
-    expect(projectLabel).toBeVisible({ timeout: 30_000 }),
-    expect(hostLabel).toBeVisible({ timeout: 30_000 }),
-  ]);
-  const [projectTriggerBox, projectLabelBox, hostTriggerBox, hostLabelBox] = await Promise.all([
-    projectTrigger.boundingBox(),
-    projectLabel.boundingBox(),
-    hostTrigger.boundingBox(),
-    hostLabel.boundingBox(),
-  ]);
-  if (!projectTriggerBox || !projectLabelBox || !hostTriggerBox || !hostLabelBox) {
-    throw new Error("New Workspace trigger geometry could not be measured");
-  }
-
-  const projectLabelInset = projectLabelBox.x - projectTriggerBox.x;
-  const hostLabelInset = hostLabelBox.x - hostTriggerBox.x;
-  expect(hostLabelInset).toBeCloseTo(projectLabelInset, 0);
-}
-
 export async function fillNewWorkspaceDraft(page: Page, draft: string): Promise<void> {
   const composer = page.getByRole("textbox", { name: "Message agent..." });
   await expect(composer).toBeVisible({ timeout: 30_000 });
@@ -288,11 +261,35 @@ export async function expectNewWorkspaceDraft(page: Page, draft: string): Promis
   await expect(page.getByRole("textbox", { name: "Message agent..." })).toHaveValue(draft);
 }
 
+const TRANSPARENT = "rgba(0, 0, 0, 0)";
+
+/**
+ * The New Workspace screen chooses its host in the Environment step of the
+ * inline profile card. Each environment tile is named by its host label.
+ */
+export function newWorkspaceEnvironmentTile(page: Page, hostLabel: string): Locator {
+  return page
+    .getByTestId("new-workspace-profile-selector")
+    .getByRole("button", { name: hostLabel, exact: true });
+}
+
+export async function expectNewWorkspaceHost(
+  page: Page,
+  hostLabel: string,
+  options: { timeout?: number } = {},
+): Promise<void> {
+  // react-native-web drops the tile's accessibilityState, so selection shows only as styling:
+  // the selected tile gets an accent border, the others keep a transparent one.
+  await expect(newWorkspaceEnvironmentTile(page, hostLabel)).not.toHaveCSS(
+    "border-top-color",
+    TRANSPARENT,
+    { timeout: options.timeout ?? 30_000 },
+  );
+}
+
 export async function selectNewWorkspaceHost(page: Page, hostLabel: string): Promise<void> {
-  const trigger = page.getByTestId("host-picker-trigger");
-  await trigger.click();
-  await page.getByRole("button", { name: hostLabel, exact: true }).click();
-  await expect(trigger).toContainText(hostLabel);
+  await newWorkspaceEnvironmentTile(page, hostLabel).click();
+  await expectNewWorkspaceHost(page, hostLabel);
 }
 
 export async function submitNewWorkspacePrompt(
@@ -478,7 +475,7 @@ export async function pasteGithubPrUrl(
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.evaluate((value) => navigator.clipboard.writeText(value), url);
   await composer.focus();
-  await page.keyboard.press("Control+V");
+  await page.keyboard.press("ControlOrMeta+V");
 }
 
 export async function assertNewWorkspaceSidebarAndHeader(

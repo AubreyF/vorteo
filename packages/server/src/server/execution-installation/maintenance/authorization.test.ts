@@ -1635,7 +1635,9 @@ test("maximum repository, step and recovery counts remain readable through activ
     ),
   ).toBe(true);
   expect(enrolled(f.journal.read()).activation.recoveries).toHaveLength(32);
-}, 15_000);
+  // 96 journal transactions, each taking the cross-process flock through a python3 helper (about
+  // 45 ms to start on macOS) and fsyncing: about 7 s idle, and past 15 s under a loaded gate.
+}, 60_000);
 
 test("independent instances and lost change responses cannot bypass a paused or revoked grant", () => {
   const f = fixture();

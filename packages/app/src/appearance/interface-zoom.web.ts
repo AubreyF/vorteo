@@ -37,19 +37,29 @@ function applyZoom(zoom: number) {
   root.style.setProperty("--interface-scale", String(zoom / 100));
   window.dispatchEvent(new Event("resize"));
 }
+// One pair of window listeners serves every subscriber. Window listeners per component made
+// thousands of mounted tabs freeze the page, since each add scans the existing listeners.
+const subscribers = new Set<() => void>();
+function notifySubscribers() {
+  for (const subscriber of subscribers) subscriber();
+}
+function handleStorage(event: StorageEvent) {
+  if (event.key === KEY || event.key === null) {
+    current = undefined;
+    notifySubscribers();
+  }
+}
 function subscribe(callback: () => void) {
-  const update = () => callback();
-  const storage = (event: StorageEvent) => {
-    if (event.key === KEY || event.key === null) {
-      current = undefined;
-      update();
-    }
-  };
-  window.addEventListener(EVENT, update);
-  window.addEventListener("storage", storage);
+  if (subscribers.size === 0) {
+    window.addEventListener(EVENT, notifySubscribers);
+    window.addEventListener("storage", handleStorage);
+  }
+  subscribers.add(callback);
   return () => {
-    window.removeEventListener(EVENT, update);
-    window.removeEventListener("storage", storage);
+    subscribers.delete(callback);
+    if (subscribers.size > 0) return;
+    window.removeEventListener(EVENT, notifySubscribers);
+    window.removeEventListener("storage", handleStorage);
   };
 }
 function setZoom(value: number) {

@@ -19,6 +19,24 @@ function assertBuildsCoordinator(action) {
   );
 }
 
+/** Reviewed plan options and the request field each binds, in request order. */
+const PLAN_OPTIONS = [
+  ["supervisor-plan", "supervisorPlanSha256"],
+  ["factory-runtime-plan", "factoryRuntimePlanSha256"],
+  ["factory-runtime-recovery-of", "factoryRuntimeRecoveryOf"],
+  ["engine-restart-plan", "engineRestartPlanSha256"],
+  ["host-launcher-plan", "hostLauncherPlanSha256"],
+];
+
+function planBindings(values) {
+  return Object.fromEntries(
+    PLAN_OPTIONS.filter(([option]) => values[option]).map(([option, field]) => [
+      field,
+      values[option],
+    ]),
+  );
+}
+
 /** This client is copied alone into Dev. Use built-ins, not an undeclared
  * dispatcher dependency, to avoid fetch's shorter independent headers timeout.
  * One deadline covers connection, headers and body; failure never retries. */
@@ -96,6 +114,8 @@ if (
       "require-owner-approval": { type: "boolean" },
       "supervisor-plan": { type: "string" },
       "factory-runtime-plan": { type: "string" },
+      "engine-restart-plan": { type: "string" },
+      "host-launcher-plan": { type: "string" },
       "factory-runtime-recovery-of": { type: "string" },
       repository: { type: "string" },
       "contribution-id": { type: "string" },
@@ -170,6 +190,57 @@ if (
     if (!capability?.available || capability.sha256 !== values["factory-runtime-plan"])
       throw new Error(
         "Reviewed Factory adoption plan is unavailable or changed. No request submitted.",
+      );
+  }
+  if (values["host-launcher-plan"]) {
+    if (
+      config.kind !== "host-agent" ||
+      values.update ||
+      values["supervisor-plan"] ||
+      values["factory-runtime-plan"] ||
+      values["engine-restart-plan"] ||
+      values["require-owner-approval"] ||
+      values.target !== "host" ||
+      positionals[0] !== "request-restart"
+    )
+      throw new Error("--host-launcher-plan requires a separate trusted Host restart request");
+    const response = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok)
+      throw new Error(
+        "Coordinator cannot advertise the Host launcher update. No request submitted.",
+      );
+    const capability = (await response.json()).hostLauncherUpdate;
+    if (!capability?.available || capability.sha256 !== values["host-launcher-plan"])
+      throw new Error(
+        "Reviewed Host launcher update plan is unavailable or changed. No request submitted.",
+      );
+  }
+  if (values["engine-restart-plan"]) {
+    if (
+      config.kind !== "host-agent" ||
+      values.update ||
+      values["supervisor-plan"] ||
+      values["factory-runtime-plan"] ||
+      values["require-owner-approval"] ||
+      values.target !== "container-daemon" ||
+      positionals[0] !== "request-restart"
+    )
+      throw new Error("--engine-restart-plan requires a separate trusted Host Dev request");
+    const response = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok)
+      throw new Error("Coordinator cannot advertise a Docker restart. No request submitted.");
+    const capability = (await response.json()).engineRestart;
+    if (!capability?.available || capability.sha256 !== values["engine-restart-plan"])
+      throw new Error(
+        "Reviewed Docker restart plan is unavailable or changed. No request submitted.",
       );
   }
   if (values["supervisor-plan"]) {
@@ -347,13 +418,7 @@ if (
       body = {
         target: values.target,
         ...(values["require-owner-approval"] ? { requireOwnerApproval: true } : {}),
-        ...(values["supervisor-plan"] ? { supervisorPlanSha256: values["supervisor-plan"] } : {}),
-        ...(values["factory-runtime-plan"]
-          ? { factoryRuntimePlanSha256: values["factory-runtime-plan"] }
-          : {}),
-        ...(values["factory-runtime-recovery-of"]
-          ? { factoryRuntimeRecoveryOf: values["factory-runtime-recovery-of"] }
-          : {}),
+        ...planBindings(values),
         reason: readFileSync(values["reason-file"], "utf8"),
         ...(values.requester ? { requester: values.requester } : {}),
       };
@@ -505,8 +570,11 @@ if (
   if (upload) requestBody = upload;
   else if (body) requestBody = JSON.stringify(body);
   const requestUrl = new URL(resource, base);
-  if (["request-restart", "restart-status", "contribution-status"].includes(positionals[0]))
+  if (["request-restart", "restart-status", "contribution-status"].includes(positionals[0])) {
     requestUrl.searchParams.set("requireOwnerApproval", "1");
+    requestUrl.searchParams.set("engineRestart", "1");
+    requestUrl.searchParams.set("hostLauncherUpdate", "1");
+  }
   const requestOptions = {
     method: body ? "POST" : "GET",
     headers: {

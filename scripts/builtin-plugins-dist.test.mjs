@@ -9,6 +9,7 @@ import {
   builtinPlugins,
   resolveBuiltinPluginsRoot,
 } from "../packages/server/dist/server/server/plugins/builtin/index.js";
+import { readPrebuiltBundles } from "../packages/server/dist/server/server/plugins/builtin/prebuilt.js";
 import { compilePlugin } from "../packages/server/dist/server/server/plugins/compiler.js";
 import { readPluginManifest } from "../packages/server/dist/server/server/plugins/manifest.js";
 import { PluginRuntime } from "../packages/server/dist/server/server/plugins/runtime.js";
@@ -66,6 +67,11 @@ test("built output compiles and starts every listed built-in", async () => {
         client: await findEntry(directory, ["index.client.ts", "index.client.tsx"]),
       });
       assert.ok(bundles.serverBundle, `${id} must compile a server bundle`);
+      // The build stores verified bundles, so the daemon does not compile built-ins at start.
+      // Bundle text differs from this compile only in cwd-relative source comments.
+      const prebuilt = await readPrebuiltBundles(directory, version);
+      assert.equal(prebuilt.status, "loaded", `${id} must ship verified prebuilt bundles`);
+      assert.equal(Boolean(prebuilt.bundles.clientBundle), Boolean(bundles.clientBundle));
       await runtime.startBuiltinPlugin({ id, directory });
       assert.ok(runtime.catalog().some((plugin) => plugin.id === id));
       if (id.endsWith("-usage-source")) {

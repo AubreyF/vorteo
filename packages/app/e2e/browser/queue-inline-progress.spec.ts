@@ -4,6 +4,9 @@ import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { expectComposerVisible, fillComposerDraft } from "../support/helpers/composer";
 
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
+
 for (const width of [1133, 1600, 390]) {
   test(`queue remains reachable and progress stays in its row at ${width}px`, async ({
     page,

@@ -53,6 +53,9 @@ export async function withButtonAuthorExample(
     useMenusAndToggleButtons(): Promise<void>;
     inspectLiveWorkspaceDetails(): Promise<void>;
   }) => Promise<void>,
+  // Phones have no plugin header toolbar since 195e1c044; the phone checks run only in the
+  // known-failure test until it returns.
+  options: { phones: boolean } = { phones: false },
 ) {
   const workspace = await seedWorkspace({
     repoPrefix: "button-example-",
@@ -87,8 +90,10 @@ export async function withButtonAuthorExample(
             page.getByRole("button", { name: "Refresh context", exact: true }),
           ).toContainText("Refreshed · 2");
           await capture(page, info, "01-actions");
-          await page.setViewportSize(COMPACT);
-          await capture(page, info, "02-compact-actions");
+          if (options.phones) {
+            await page.setViewportSize(COMPACT);
+            await capture(page, info, "02-compact-actions");
+          }
         }),
       useMenusAndToggleButtons: () =>
         test.step("named menus include separators, nested actions, disabled items, and custom content", async () => {
@@ -127,18 +132,20 @@ export async function withButtonAuthorExample(
           ).toBeDisabled();
           await capture(page, info, "05-disabled");
           await exampleCommand(page, "enable");
-          await page.setViewportSize(COMPACT);
-          await headerButtons(page).click();
-          await expect(
-            page.getByRole("menuitem", { name: "Refresh workspace", exact: true }),
-          ).toBeInViewport();
-          await capture(
-            page,
-            info,
-            "06-compact-menu",
-            page.getByRole("menuitem", { name: "Refresh workspace", exact: true }),
-          );
-          await page.getByRole("menuitem", { name: "Refresh workspace", exact: true }).click();
+          if (options.phones) {
+            await page.setViewportSize(COMPACT);
+            await headerButtons(page).click();
+            await expect(
+              page.getByRole("menuitem", { name: "Refresh workspace", exact: true }),
+            ).toBeInViewport();
+            await capture(
+              page,
+              info,
+              "06-compact-menu",
+              page.getByRole("menuitem", { name: "Refresh workspace", exact: true }),
+            );
+            await page.getByRole("menuitem", { name: "Refresh workspace", exact: true }).click();
+          }
         }),
       inspectLiveWorkspaceDetails: () =>
         test.step("custom icons and content react to workspace changes and adapt to sheets", async () => {
@@ -166,18 +173,20 @@ export async function withButtonAuthorExample(
             page.getByRole("button", { name: "Close workspace details", exact: true }),
           );
           await closeDetails(page);
-          await page.setViewportSize(COMPACT);
-          await page.getByRole("button", { name: "Context details", exact: true }).click();
-          await expect(
-            page.getByRole("button", { name: "Close workspace details", exact: true }),
-          ).toBeInViewport();
-          await capture(
-            page,
-            info,
-            "09-compact-popover",
-            page.getByRole("button", { name: "Close workspace details", exact: true }),
-          );
-          await closeDetails(page);
+          if (options.phones) {
+            await page.setViewportSize(COMPACT);
+            await page.getByRole("button", { name: "Context details", exact: true }).click();
+            await expect(
+              page.getByRole("button", { name: "Close workspace details", exact: true }),
+            ).toBeInViewport();
+            await capture(
+              page,
+              info,
+              "09-compact-popover",
+              page.getByRole("button", { name: "Close workspace details", exact: true }),
+            );
+            await closeDetails(page);
+          }
           await client.disablePlugin("button-examples");
           await expect(headerButtons(page)).toHaveCount(0);
           await expect(

@@ -1,3 +1,4 @@
+import { REVIEWED_CONFIGURATION_SETTINGS } from "@getpaseo/protocol/coordinator-configuration-settings";
 import { performance } from "node:perf_hooks";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -24,6 +25,7 @@ import {
   inspectBootstrapWritableMountRoots,
   readBootstrapHostBinding,
   readPrivateBootstrapConfiguration,
+  reviewedConfigurationChanges,
   verifyBootstrapConfiguration,
 } from "./coordinator-bootstrap-host.js";
 import {
@@ -1092,13 +1094,15 @@ export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBoo
       );
   }
 
-  // Like Factory adoption, the Claude refresh setting may change through an
-  // owner-reviewed renewal: every coordinator replacement now runs through this
-  // path. Automatic plans still refuse it (assertAutomaticCoordinatorPlan), and
-  // verifyBootstrapConfiguration below admits only that exact field.
+  // Registered settings marked for renewal may change through an owner-reviewed
+  // renewal: every coordinator replacement now runs through this path. Automatic
+  // plans still refuse them (assertAutomaticCoordinatorPlan), and
+  // verifyBootstrapConfiguration below admits only the exact listed changes.
   if (
     plan.nativeHelperConfiguration !== undefined ||
-    plan.previewMonitorConfiguration !== undefined ||
+    reviewedConfigurationChanges(plan).some(
+      (change) => !REVIEWED_CONFIGURATION_SETTINGS[change.setting].renewal,
+    ) ||
     plan.hostRequestsAfter !== null
   )
     throw new BootstrapRequestConflict(
@@ -1122,6 +1126,8 @@ export async function verifyRetainedRenewal(
   setup: RunnerSetup,
   request?: CoordinatorBootstrapRequest,
   watchdog = false,
+  /** False only where the caller digests the runtime at its own custody boundaries. */
+  digestRuntime = true,
 ) {
   // Repeated verification in the native executor has left an unresolved wait
   // with no active I/O. A fresh reader preserves every check and bounds failure;
@@ -1131,18 +1137,19 @@ export async function verifyRetainedRenewal(
     process.argv[1] === nativeRunner &&
     ["executor", "watchdog", "boot-watchdog"].includes(process.argv[3])
   ) {
-    await verifyRetainedRenewalInChild(setup, request, watchdog);
+    await verifyRetainedRenewalInChild(setup, request, watchdog, digestRuntime);
     return;
   }
-  await verifyRenewalEvidence({ setup, request, watchdog, historical: false });
+  await verifyRenewalEvidence({ setup, request, watchdog, historical: false, digestRuntime });
 }
 
 async function verifyRetainedRenewalInChild(
   setup: RunnerSetup,
   request: CoordinatorBootstrapRequest | undefined,
   watchdog: boolean,
+  digestRuntime: boolean,
 ): Promise<void> {
-  const payload = JSON.stringify({ setup, request, watchdog });
+  const payload = JSON.stringify({ setup, request, watchdog, digestRuntime });
   if (Buffer.byteLength(payload) > 1024 * 1024)
     throw new BootstrapRequestConflict("Retained verification input exceeds its bound");
   const expected = `verified:${sha(payload)}\n`;
@@ -1153,7 +1160,7 @@ import { verifyRetainedRenewal } from ${JSON.stringify(import.meta.url)};
 const bytes = readFileSync(0);
 if (bytes.length > 1048576) throw Error("Retained verification input exceeds its bound");
 const input = JSON.parse(bytes.toString("utf8"));
-await verifyRetainedRenewal(input.setup, input.request, input.watchdog);
+await verifyRetainedRenewal(input.setup, input.request, input.watchdog, input.digestRuntime);
 process.stdout.write("verified:" + createHash("sha256").update(bytes).digest("hex") + "\\n");
 `;
   await new Promise<void>((resolve, reject) => {
@@ -1186,8 +1193,9 @@ async function verifyRenewalEvidence(input: {
   request?: CoordinatorBootstrapRequest;
   watchdog: boolean;
   historical: boolean;
+  digestRuntime?: boolean;
 }) {
-  const { setup, request, watchdog, historical } = input;
+  const { setup, request, watchdog, historical, digestRuntime = true } = input;
   if (setup.maintenance) {
     const { verifyMaintenanceRetainedRuntime } =
       await import("./coordinator-bootstrap-maintenance-runtime.js");
@@ -1213,7 +1221,9 @@ async function verifyRenewalEvidence(input: {
   if (
     renewal.originalAdmission.path !== setup.admissionSetupFile ||
     (await observeExecutable(setup.node.path, roots)).sha256 !== setup.node.sha256 ||
-    (!watchdog && (await digestBootstrapArtifact(setup.runtimeDirectory)) !== setup.runtimeSha256)
+    (!watchdog &&
+      digestRuntime &&
+      (await digestBootstrapArtifact(setup.runtimeDirectory)) !== setup.runtimeSha256)
   )
     throw new BootstrapRequestConflict("Retained renewal runtime changed");
   const source = z

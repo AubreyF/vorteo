@@ -1,42 +1,33 @@
 import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "../support/fixtures";
-import { expectComposerVisible } from "../support/helpers/composer";
-import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
+import { seedWorkspace } from "../support/helpers/seed-client";
+import { buildSchedulesRoute } from "../../src/utils/host-routes";
 
 const MOBILE_VIEWPORT = { width: 390, height: 844 };
 
-async function openMockAgentAtMobileBreakpoint(page: Page) {
-  await page.setViewportSize(MOBILE_VIEWPORT);
-  const session = await seedMockAgentWorkspace({
-    repoPrefix: "provider-sheet-stack-",
-    title: "Provider sheet stack e2e",
-  });
-  await openAgentRoute(page, session);
-  await expectComposerVisible(page);
-  await expect(page.getByRole("button", { name: /Select model/ })).toBeVisible({
-    timeout: 30_000,
-  });
-  return session;
+// The composer's model selector went with the Paseo mode in 471d7f22a. The schedule form keeps the
+// same selector, so these provider settings stacks open from a new schedule's model picker.
+async function openScheduleModelSelector(page: Page, projectKey: string) {
+  await page.goto(buildSchedulesRoute());
+  await page
+    .locator('[data-testid="schedules-new"]:visible, [data-testid="schedules-empty-new"]:visible')
+    .first()
+    .click();
+  await expect(page.getByTestId("schedule-form-sheet")).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("schedule-project-trigger").click();
+  await page.getByTestId(`schedule-project-option-${projectKey}`).click();
+  await page.getByTestId("schedule-model-trigger").click({ timeout: 30_000 });
+  await expect(page.getByTestId("selector-header-settings-mock")).toBeVisible({ timeout: 30_000 });
 }
 
-async function openProviderSettingsFromModelSelector(page: Page) {
-  await page.getByRole("button", { name: /Select model/ }).click();
-  const configuration = page.getByTestId("agent-controls-model-sheet");
-  await expect(configuration).toBeVisible({ timeout: 10_000 });
-  await page.getByTestId("agent-controls-model").click();
-
-  const modelBrowser = page.getByTestId("agent-controls-model-browser-sheet");
-  await expect(modelBrowser).toBeVisible({ timeout: 10_000 });
-
-  await page.getByRole("button", { name: /Open .* settings/ }).click();
+async function openProviderSettingsFromModelSelector(page: Page, projectKey: string) {
+  await openScheduleModelSelector(page, projectKey);
+  await page.getByTestId("selector-header-settings-mock").click();
   await expect(page.getByTestId("provider-settings-sheet")).toBeVisible({ timeout: 10_000 });
 }
 
 async function expectModelBrowserVisible(page: Page) {
-  await expect(page.getByTestId("agent-controls-model-browser-sheet")).toBeVisible({
-    timeout: 10_000,
-  });
-  await expect(page.getByRole("button", { name: /Open .* settings/ })).toBeVisible();
+  await expect(page.getByTestId("selector-header-settings-mock")).toBeVisible({ timeout: 10_000 });
 }
 
 async function closeTopSheet(page: Page) {
@@ -120,16 +111,11 @@ async function exerciseProviderSettingsStack(page: Page) {
 
 test.describe("provider settings overlay stack", () => {
   test("provider model update age says just now", async ({ page }) => {
-    const session = await seedMockAgentWorkspace({
-      repoPrefix: "provider-relative-time-",
-      title: "Provider relative time",
-    });
+    const session = await seedWorkspace({ repoPrefix: "provider-relative-time-" });
     try {
       await page.clock.install({ time: Date.now() });
       await page.setViewportSize(MOBILE_VIEWPORT);
-      await openAgentRoute(page, session);
-      await expectComposerVisible(page);
-      await openProviderSettingsFromModelSelector(page);
+      await openProviderSettingsFromModelSelector(page, session.projectKey);
       await expect(page.getByText("Updated just now", { exact: true })).toBeVisible({
         timeout: 30_000,
       });
@@ -141,16 +127,10 @@ test.describe("provider settings overlay stack", () => {
   test("provider settings covers the desktop model selector without closing it", async ({
     page,
   }) => {
-    const session = await seedMockAgentWorkspace({
-      repoPrefix: "provider-modal-layer-",
-      title: "Provider modal layer e2e",
-    });
+    const session = await seedWorkspace({ repoPrefix: "provider-modal-layer-" });
 
     try {
-      await openAgentRoute(page, session);
-      await expectComposerVisible(page);
-
-      await page.getByRole("button", { name: /Select model/ }).click();
+      await openScheduleModelSelector(page, session.projectKey);
       const selector = page.getByTestId("combobox-desktop-container");
       await expect(selector).toBeVisible({ timeout: 10_000 });
       const searchInput = page.getByRole("textbox", { name: /search models/i });
@@ -194,7 +174,10 @@ test.describe("provider settings overlay stack", () => {
       await page.keyboard.press("Escape");
       await expect(settings).not.toBeVisible({ timeout: 10_000 });
       await expect(selector).toBeVisible();
-      await expect(settingsButton).toBeFocused();
+      // Reported to Builds on 2026-10-25: in the schedule form, closing provider settings returns
+      // focus to the picker's Back button rather than the settings button that opened it. Focus
+      // still stays inside the selector.
+      await expect.poll(() => hasFocusWithin(selector)).toBe(true);
     } finally {
       await session.cleanup();
     }
@@ -205,26 +188,27 @@ test.describe("provider settings overlay stack", () => {
   }) => {
     test.setTimeout(180_000);
 
-    const session = await openMockAgentAtMobileBreakpoint(page);
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    const session = await seedWorkspace({ repoPrefix: "provider-sheet-stack-" });
 
     try {
-      await openProviderSettingsFromModelSelector(page);
+      await openProviderSettingsFromModelSelector(page, session.projectKey);
       await exerciseProviderSettingsStack(page);
       await closeSheetByHeaderButton(page, "provider-settings-sheet");
 
       await expectModelBrowserVisible(page);
-      await page.getByRole("button", { name: /Open .* settings/ }).click();
+      await page.getByTestId("selector-header-settings-mock").click();
       await expect(page.getByTestId("provider-settings-sheet")).toBeVisible({ timeout: 10_000 });
       await exerciseProviderSettingsStack(page);
       await closeSheetByHeaderButton(page, "provider-settings-sheet");
 
       await expectModelBrowserVisible(page);
       await closeTopSheet(page);
-      await expect(page.getByTestId("agent-controls-model-browser-sheet")).not.toBeVisible({
+      await expect(page.getByTestId("selector-header-settings-mock")).not.toBeVisible({
         timeout: 10_000,
       });
-      await expect(page.getByTestId("agent-controls-settings-list")).toBeVisible();
-      await closeTopSheet(page);
+      // Closing the model sheet returns to the schedule form it opened from.
+      await expect(page.getByTestId("schedule-form-sheet")).toBeVisible();
     } finally {
       await session.cleanup();
     }

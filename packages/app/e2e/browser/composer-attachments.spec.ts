@@ -1,10 +1,11 @@
 import { expect, test } from "../support/fixtures";
 import { clickNewChat } from "../support/helpers/launcher";
 import { expectComposerVisible } from "../support/helpers/composer";
+import type { Page } from "@playwright/test";
 import { expectAgentIdle } from "../support/helpers/agent-stream";
+import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 import {
   openAttachmentMenu,
-  expectAttachmentSheetRowsOnTitleRail,
   openGithubPickerFromMenu,
   attachImageFromMenu,
   expectAttachmentPill,
@@ -310,3 +311,18 @@ test.describe("Composer attachments", () => {
     }
   });
 });
+
+/**
+ * Since 6ee6bfd23 compact menu pages carry an 8px page inset, so each attachment row's edge,
+ * rather than its glyph, sits on the sheet title's rail.
+ */
+async function expectAttachmentSheetRowsOnTitleRail(page: Page): Promise<void> {
+  const title = page.getByText("Add attachment", { exact: true });
+  const firstRow = page.getByRole("menuitem", { name: "Add image", exact: true });
+  await waitForSettledPosition(title);
+  const [titleBox, rowBox] = await Promise.all([title.boundingBox(), firstRow.boundingBox()]);
+  if (!titleBox || !rowBox) {
+    throw new Error("Attachment sheet geometry could not be measured");
+  }
+  expect(Math.abs(rowBox.x - titleBox.x)).toBeLessThanOrEqual(1);
+}

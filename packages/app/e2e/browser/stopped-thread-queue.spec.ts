@@ -4,6 +4,9 @@ import { seedRunningMockAgentWorkspace, openAgentRoute } from "../support/helper
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { expectComposerVisible, fillComposerDraft } from "../support/helpers/composer";
 
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
+
 for (const width of [1280, 390]) {
   test(`queues without restarting a stopped thread at ${width}px`, async ({ page }, testInfo) => {
     test.setTimeout(180_000);
@@ -24,6 +27,15 @@ for (const width of [1280, 390]) {
       await expect
         .poll(async () => (await client.fetchAgent(agent.agentId))?.agent.status)
         .toBe("idle");
+      // Since 614c0e44f Stop leaves queue delivery alone, so a stopped thread holds queued
+      // messages only while its queue is explicitly paused.
+      const { snapshot } = await client.readMessageQueue(agent.agentId);
+      await client.mutateMessageQueue(agent.agentId, {
+        kind: "pause",
+        paused: true,
+        operationId: "pause",
+        expectedRevision: snapshot!.revision,
+      });
       await expect
         .poll(async () => (await client.readMessageQueue(agent.agentId)).snapshot?.paused)
         .toBe(true);

@@ -50,6 +50,8 @@ try {
     const result = await $`npx paseo worktree ls --help`.nothrow();
     assert.strictEqual(result.exitCode, 0, "worktree ls --help should exit 0");
     assert(result.stdout.includes("--host"), "help should mention --host option");
+    assert(result.stdout.includes("--cwd <path>"), "help should mention --cwd option");
+    assert(result.stdout.includes("--repo <path>"), "help should mention --repo option");
     console.log("✓ worktree ls --help shows options\n");
   }
 
@@ -87,6 +89,8 @@ try {
     assert.strictEqual(result.exitCode, 0, "worktree archive --help should exit 0");
     assert(result.stdout.includes("--host"), "help should mention --host option");
     assert(result.stdout.includes("<name>"), "help should mention required name argument");
+    assert(result.stdout.includes("--cwd <path>"), "help should mention --cwd option");
+    assert(result.stdout.includes("--repo <path>"), "help should mention --repo option");
     console.log("✓ worktree archive --help shows options\n");
   }
 

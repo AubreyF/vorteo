@@ -12,6 +12,8 @@ pre-commit:
     - name: lint
       glob: "*.{js,jsx,ts,tsx}"
       run: npm run lint -- {staged_files}
+    - name: fresh-declarations
+      run: node scripts/ensure-fresh-declarations.mjs
     - name: typecheck
       run: npm run typecheck
 

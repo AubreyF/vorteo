@@ -46,7 +46,9 @@ test.describe("Settings host selection", () => {
       await openSettings(page);
 
       await openSettingsHostSection(page, remoteDaemon.serverId, "connections");
-      await expect(page.getByTestId(`settings-environment-${remoteDaemon.serverId}`)).toBeVisible();
+      await expect(
+        page.getByTestId(`settings-environment-${remoteDaemon.serverId}`).first(),
+      ).toBeVisible();
       await expect(page.getByTestId("settings-host-picker")).toHaveCount(0);
     } finally {
       await remoteWorkspace.cleanup().catch(() => undefined);

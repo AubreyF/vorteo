@@ -4,7 +4,10 @@ import path from "node:path";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import {
+  EngineRestartConfigurationSchema,
   ExecutionInstallationSchema,
+  FactoryGateConfigurationSchema,
+  HostLauncherUpdateConfigurationSchema,
   FactoryRuntimeAdoptionConfigurationSchema,
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
@@ -50,6 +53,8 @@ const HostDaemonSchema = DaemonConnectionSchema.extend({
       home: z.string().startsWith("/"),
     })
     .optional(),
+  /** One-time Host launcher update adding the managed release link and root. */
+  launcherUpdate: HostLauncherUpdateConfigurationSchema.optional(),
 });
 
 export const InstallationConfigSchema = z.strictObject({
@@ -95,6 +100,8 @@ export const InstallationConfigSchema = z.strictObject({
   container: DaemonConnectionSchema.extend({
     persistentRegistration: DevRegistrationReferenceSchema.optional(),
     factoryRuntimeAdoption: FactoryRuntimeAdoptionConfigurationSchema.optional(),
+    engineRestart: EngineRestartConfigurationSchema.optional(),
+    factoryGate: FactoryGateConfigurationSchema.optional(),
     supervisorMaintenance: z
       .strictObject({
         node: z.string().startsWith("/"),

@@ -124,3 +124,11 @@ export const X = StubIcon;
 export const XCircle = StubIcon;
 
 export const BookOpen = StubIcon;
+export const FolderOpen = StubIcon;
+export const Bell = StubIcon;
+export const Clipboard = StubIcon;
+export const Code = StubIcon;
+export const Palette = StubIcon;
+export const Sparkles = StubIcon;
+export const Calendar = StubIcon;
+export const Puzzle = StubIcon;

@@ -180,7 +180,10 @@ test.describe("Tab creation", () => {
     await expect(agent).toBeFocused();
 
     await pressDirectNewTabShortcut(page, "e");
-    await expect(page.getByTestId("workspace-explorer-sidebar")).toBeVisible();
+    // Files is a supporting card since 60f4899a6, 2e2921f79 and 73be0edc5.
+    await expect(
+      page.getByTestId("workspace-supporting-cards").filter({ visible: true }),
+    ).toBeVisible();
     await expect(
       page.getByTestId("file-explorer-tree-scroll").filter({ visible: true }),
     ).toBeVisible();
@@ -247,7 +250,8 @@ test.describe("Tab creation", () => {
     await expect(editProfiles).toHaveAccessibleName("Edit profiles");
 
     await editProfiles.click();
-    await expect(page).toHaveURL(/\/settings\/hosts\/[^/]+\/terminals$/);
+    // Terminal profiles are a pane on the single settings page.
+    await expect(page).toHaveURL(/\/settings\/(hosts\/[^/]+\/)?terminals$/);
   });
 
   test("Cursor CLI profile uses the Cursor icon in New tab and host settings", async ({ page }) => {
@@ -278,7 +282,8 @@ test.describe("Tab creation", () => {
       const explicitMenuPath = await menuIconPath(explicit.name);
 
       await menu.getByTestId("workspace-new-tab-menu-edit-terminal-profiles").click();
-      await expect(page).toHaveURL(/\/settings\/hosts\/[^/]+\/terminals$/);
+      // Terminal profiles are a pane on the single settings page.
+      await expect(page).toHaveURL(/\/settings\/(hosts\/[^/]+\/)?terminals$/);
 
       const settingsIconPath = (id: string) =>
         page
@@ -319,6 +324,20 @@ test.describe("Tab transitions (no flash)", () => {
     await expect(
       page.getByTestId("workspace-new-tab-panel").filter({ visible: true }),
     ).toBeVisible();
+    // The New tab's chip can render after its panel; start sampling once the tab count settles.
+    const tabs = page.locator('[data-testid^="workspace-tab-"]').filter({ visible: true });
+    let previousCount = -1;
+    await expect
+      .poll(
+        async () => {
+          const count = await tabs.count();
+          const settled = count > 0 && count === previousCount;
+          previousCount = count;
+          return settled;
+        },
+        { intervals: [300] },
+      )
+      .toBe(true);
 
     // Sample the single New → Agent replacement, not the separate action that
     // creates the New tab in the first place.
