@@ -8,6 +8,7 @@ import {
   Users,
   Files,
   GitCompareArrows,
+  ChartPie,
 } from "lucide-react-native";
 import { View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -26,6 +27,7 @@ const icons = {
   plan: withUnistyles(FileText),
   question: withUnistyles(MessageCircleQuestion),
   permission: withUnistyles(ShieldCheck),
+  context: withUnistyles(ChartPie),
 };
 
 /** Decorative heading marks share the task progress chart's footprint. */

@@ -133,6 +133,10 @@ import {
   AgentGoalClearResponseSchema,
 } from "./agent-goals.js";
 import {
+  AgentContextGetBreakdownRequestSchema,
+  AgentContextGetBreakdownResponseSchema,
+} from "./agent-context.js";
+import {
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
   BootstrapClaimedRecoveryListRequestSchema,
@@ -3565,6 +3569,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalGetRequestSchema,
   AgentGoalSetRequestSchema,
   AgentGoalClearRequestSchema,
+  AgentContextGetBreakdownRequestSchema,
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
   BootstrapClaimedRecoveryListRequestSchema,
@@ -3998,6 +4003,8 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
         agentGoals: z.boolean().optional(),
+        // COMPAT(agentContextBreakdown): added 2026-10-21; gate the on-demand context breakdown request.
+        agentContextBreakdown: z.boolean().optional(),
         coordinatorBootstrapReview: z.boolean().optional(),
         // COMPAT(claimedRecovery): added 2026-10-14; keep gates until the daemon floor includes claimed recovery after 2027-04-14.
         coordinatorBootstrapClaimedRecovery: z.boolean().optional(),
@@ -7410,6 +7417,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalGetResponseSchema,
   AgentGoalSetResponseSchema,
   AgentGoalClearResponseSchema,
+  AgentContextGetBreakdownResponseSchema,
   CoordinatorBootstrapListResponseSchema,
   BootstrapPreclaimRecoveryListResponseSchema,
   BootstrapClaimedRecoveryListResponseSchema,

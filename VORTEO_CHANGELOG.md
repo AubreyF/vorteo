@@ -5,6 +5,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.731 - 2026-10-21
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.730 - 2026-10-21
+
+### Added
+
+- Add a Context window card to the right-hand details cards, beside Questions, Checklist and Journal. It shows whenever an agent has reported usage, starts collapsed and remembers its expanded state like the other cards. Its body is the same component the context meter's popover and compact sheet render, so the three always match
+- Show what fills the context window: a donut, then each category's tokens and share of the window, with deferred tool schemas listed outside the window. Claude agents report categories such as messages, system tools, MCP tools, skills and the compaction buffer, plus expandable lists of MCP tools, memory files, skills and custom agents. Other providers report totals only and show used and free space with a note saying so
+- Add the `agent.context.get_breakdown` request, gated by the `agentContextBreakdown` daemon feature. Older clients never send it and older daemons leave the totals-only view in place
+- Limitation: reading Claude's breakdown costs a request, which is why upstream stopped reading it after every turn. The app reads it only while the card is expanded or the popover is open, then once after each finished turn while it stays visible
+- Limitation: the breakdown needs a running Claude query. An agent restored without one shows totals until its next turn
+- Limitation: Claude marks deferred rows but not free space or the compaction buffer, so those two are recognized by the names the CLI gives them
+- Limitation: item groups expand in the card and the compact sheet. The desktop hover popover lists them without expansion, because it cannot be pressed
+
 ## 0.11.0-beta.3.vorteo.729 - 2026-10-21
 
 ### Maintenance

@@ -4223,6 +4223,18 @@ export class DaemonClient {
     return result.requests;
   }
 
+  /** The provider's breakdown of an agent's context window, or null when it reports none. */
+  async getAgentContextBreakdown(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-context").AgentContextBreakdown | null> {
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.context.get_breakdown.response">({
+        message: { type: "agent.context.get_breakdown.request", agentId },
+      });
+    if (result.error) throw new Error(result.error);
+    return result.breakdown;
+  }
+
   async getAgentGoal(
     agentId: string,
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {

@@ -9,6 +9,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { useHostReportsUsage } from "@/usage";
 import { ContextWindowDetails } from "./context-window-details";
 import { ContextWindowSheet } from "./context-window-sheet";
+import { formatSessionCost, getUsagePercentage } from "./context-window-meter.utils";
 import { useVortonTouch } from "@/vorton-touch";
 
 interface ContextWindowMeterProps {
@@ -32,33 +33,8 @@ const STROKE_WIDTH = 2;
 const COMPACT_STROKE_WIDTH = 1.75;
 const COMPACT_CIRCUMFERENCE = 2 * Math.PI * COMPACT_RADIUS;
 
-function isValidMaxTokens(value: number): boolean {
-  return Number.isFinite(value) && value > 0;
-}
-
-function isValidUsedTokens(value: number): boolean {
-  return Number.isFinite(value) && value >= 0;
-}
-
-function getUsagePercentage(maxTokens: number, usedTokens: number): number | null {
-  if (!isValidMaxTokens(maxTokens) || !isValidUsedTokens(usedTokens)) {
-    return null;
-  }
-  return (usedTokens / maxTokens) * 100;
-}
-
 function clampPercentage(value: number): number {
   return Math.max(0, Math.min(100, value));
-}
-
-function formatSessionCost(value: number): string | null {
-  if (!Number.isFinite(value) || value <= 0) {
-    return null;
-  }
-  if (value < 0.01) {
-    return `$${value.toFixed(4)}`;
-  }
-  return `$${value.toFixed(2)}`;
 }
 
 function getMeterColors(theme: ReturnType<typeof useUnistyles>["theme"]): {

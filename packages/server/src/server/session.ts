@@ -3442,6 +3442,8 @@ export class Session {
       case "agent.goal.set.request":
       case "agent.goal.clear.request":
         return this.handleAgentGoalRequest(msg);
+      case "agent.context.get_breakdown.request":
+        return this.handleAgentContextBreakdownRequest(msg);
       case "list_commands_request":
         await this.handleListCommandsRequest(msg);
         return;
@@ -5814,6 +5816,33 @@ export class Session {
       );
     } catch (error) {
       reply(null, error instanceof Error ? error.message : "The answer could not be saved.");
+    }
+  }
+
+  private async handleAgentContextBreakdownRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.context.get_breakdown.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const breakdown = await this.agentManager.readContextBreakdown(msg.agentId);
+      this.emit({
+        type: "agent.context.get_breakdown.response",
+        payload: { agentId: msg.agentId, requestId: msg.requestId, breakdown, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.context.get_breakdown.response",
+        payload: {
+          agentId: msg.agentId,
+          requestId: msg.requestId,
+          breakdown: null,
+          error: error instanceof Error ? error.message : "Context breakdown unavailable",
+        },
+      });
     }
   }
 
