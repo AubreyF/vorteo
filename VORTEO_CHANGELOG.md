@@ -5,8 +5,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.693 - 2026-10-20
 
+### Maintenance
 
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.692 - 2026-10-20
+
+### Fixes
+
+- ACP agents (Cursor, Copilot, Kimi, Kiro and generic ACP providers) now receive the agent's system prompt and the shared agent instructions in a marked block on a new session's first prompt. A failed first prompt keeps them for the next turn, a first-turn slash command defers them, and history replay hides the block.
 
 ## 0.11.0-beta.3.vorteo.691 - 2026-10-20
 
