@@ -11,6 +11,12 @@ Use the installed client command below. It carries a scoped agent credential. It
 
 ## Restart requests
 
+### Required restart control path
+
+Every Host or Dev daemon restart, supervisor replacement, and preparatory finish-turns hold must use the installation coordinator's tracked lifecycle workflow. The request must be visible in the sidebar and installation controls, with live status and owner cancellation before dispatch. Chat approval does not authorize bypassing these controls.
+
+Never call daemon drain/restart RPCs directly or use launchctl, supervisorctl, Docker restart, kill, or a private polling loop to perform or manage a Host/Dev daemon restart outside that workflow. Do not create an invisible hold while waiting for agents to finish. If the coordinator cannot represent the required operation, extend and validate the managed workflow before placing a hold or interrupting anything. Supervisor maintenance is not an exception. Report the unsupported operation explicitly; do not substitute a worker restart or fabricate a coordinator receipt.
+
 Before requesting a restart, finish source preparation, required checks, build, preservation of running work, and a rollback plan. Explain which daemon will restart and which work may be interrupted. A previous approval of a completed or cancelled restart does not authorize a new one. A pending or queued plain restart for the same target is shared: later request-restart calls return its existing ID, status and approval. Do not ask for approval again when that returned request is already approved.
 
 Write the reason and disruption to a local UTF-8 file. Run the installed client with `request-restart --target host --reason-file <file>` or `request-restart --target container-daemon --reason-file <file>`. Include `--requester <task-title-or-agent-id>` to identify the requesting task. Inspect the returned status before asking for approval. For a pending request, return its `approvalUrl` as **Review Host restart** or **Review Dev container restart**, together with the disruption. The link shows both target requests and focuses this one after owner unlock. The owner chooses **Restart when idle**, **Finish turns and restart**, or **Cancel**. For an already-approved request, report that the plain restart joins the existing queue and return the same review link without asking for approval again. The link itself never approves or restarts anything.
@@ -22,6 +28,10 @@ Requests do not expire. They remain in Settings and the persistent sidebar banne
 Use `restart-status <request-id>` to read the durable result. Pending means no approval; approved with `whenIdle` means waiting safely; running means dispatched but not yet verified. Waiting has no expiry. Claim success only after the coordinator reports succeeded and the relevant application behavior is verified. A failed or interrupted request needs diagnosis and a new approval before another attempt. Do not retry by shelling out to launchctl, Docker, kill, or a daemon restart command.
 
 The coordinator survives either daemon restarting. Container-daemon restart retains the existing container and supervisor. It does not recreate a container, resize Docker Desktop, or replace a release. Host restart uses the installation-owned native service. Daemon restart requests must not interrupt the coordinator or unrelated services. When the owner explicitly requests a coordinator update, prepare and validate its replacement and rollback first, preserve the restart journal, and verify that no restart is dispatching before a controlled coordinator reload. Updating the coordinator never grants approval to restart an agent daemon.
+
+## Tracked supervisor maintenance
+
+Supervisor and launcher repairs remain trusted Host maintenance. Prepare a protected script, exact digest, validation and rollback plan before configuring the coordinator. Use `capabilities` to discover its configured supervisor plan, then `request-restart --target container-daemon --supervisor-plan <sha256> --reason-file <file>`. Return the exact approval URL. The owner reviews **Dev supervisor** and chooses **Finish turns and restart** or **Cancel**. Only the coordinator may place the hold and execute the approved repair. A plain worker restart, guest request or prior chat approval cannot substitute. Verify the durable outcome, new supervisor and worker identities, inherited configuration and application behavior. Changed scripts need new review; interrupted execution must not replay.
 
 ## Agent communication boundary
 

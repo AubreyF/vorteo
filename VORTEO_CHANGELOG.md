@@ -5,17 +5,188 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
-## 0.11.0-beta.3.vorteo.192 - 2026-10-08
+## 0.11.0-beta.3.vorteo.203 - 2026-10-08
 
 ### Maintenance
 
-- Combine 1 source contributions; retain their release notes below
+- Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.202 - 2026-10-08
+
+### Maintenance
+
+- Integrate project environment selection and source batch corrections with the installed interface and pending checklist delivery ancestry.
+
+## 0.11.0-beta.3.vorteo.201 - 2026-10-08
+
+### Tests
+
+- Wait for project membership persistence when verifying new workspace creation after a profile environment switch.
+
+## 0.11.0-beta.3.vorteo.200 - 2026-10-08
+
+### Tests
+
+- Reopen the existing profile menu after an environment change in shared-project workspace acceptance, matching the composer's environment transition.
+
+## 0.11.0-beta.3.vorteo.199 - 2026-10-08
+
+### Fixed
+
+- Retain unambiguous native project folders in shared project groups so the existing profile environment selector can start new workspace drafts. Keep the chosen shared project membership when creating the workspace.
+
+## 0.11.0-beta.3.vorteo.198 - 2026-10-08
+
+### Fixed
+
+- Reconcile intact release-note entries across concurrent source deliveries without requiring historical entries to remain a contiguous suffix. Edited or deleted history still requires explicit correction.
+- Merge divergent contributions from their verified shared ancestor instead of replaying changes since an older bundle prerequisite. Ambiguous ancestry still requires explicit integration.
+- Recheck pending source conflicts after coordinator recovery without approving or replaying installation. Show blocked update status and its cause in the sidebar.
+
+## 0.11.0-beta.3.vorteo.199 - 2026-10-08
+
+### Maintenance
+
+- Reconcile checklist installation ancestry with the live interface while preserving all published implementation and historical notes.
+
+## 0.11.0-beta.3.vorteo.197 - 2026-10-08
+
+### Maintenance
+
+- Integrate persistent checklist delivery with installed source history, preserving historical release notes and the validated public implementation.
+
+## 0.11.0-beta.3.vorteo.193 - 2026-10-08
+
+### Fixed
+
+- Refuse Dev updater bootstrap when the managed supervisor or worker lacks the installation-owned profile client binding. Explain the required launcher repair and reviewed supervisor restart.
+
+### Maintenance
+
+- Cover missing and mismatched profile client paths and document acceptance of the inherited launcher environment.
+
+## 0.11.0-beta.3.vorteo.192 - 2026-10-08
+
+### Fixed
+
+- Prepare Host updates by transferring only the approved source commit into a fresh repository. Avoid local clone object-copy races and unrelated branch references while preserving bundle and ancestry checks.
+
+### Maintenance
+
+- Verify that native build preparation retains no unrelated refs or shared object-store dependency and leaves the live interface unchanged.
+
+## 0.11.0-beta.3.vorteo.191 - 2026-10-08
+
+### Fixed
+
+- Recognize managed Dev workers during preview recovery without changing their process arguments. Verify the selected release, executable, supervisor, ownership and stable process identity.
+
+### Maintenance
+
+- Add regression coverage for managed and legacy worker identity, release changes, ambiguous matches and PID reuse.
 
 ## 0.11.0-beta.3.vorteo.191 - 2026-10-08
 
 ### Maintenance
 
 - Integrate managed Dev source updates with the installed release and accepted checklist contribution, preserving both source histories and prior release notes.
+
+## 0.11.0-beta.3.vorteo.198 - 2026-10-08
+
+### Maintenance
+
+- Integrate accepted checklist controls and independent supervisor requests while preserving the live interface history and queued source contributions.
+
+## 0.11.0-beta.3.vorteo.197 - 2026-10-08
+
+### Fixed
+
+- Keep supervisor repair requests separate from pending source-update batches, preserving both contributions and owner controls. Approvals for the same environment still execute one at a time.
+
+## 0.11.0-beta.3.vorteo.196 - 2026-10-08
+
+### Added
+
+- Add persistent, caller-scoped checklist read and mutation tools across providers, with stable task IDs, status, completion criteria, ownership, dependencies, metadata, deletion and ordering.
+- Add manual task creation, editing, completion, reopening, deletion and ordering to the thread checklist card, with blocked-task errors and stale-edit protection.
+
+### Fixed
+
+- Preserve managed tasks through native provider events, history refreshes, concurrent storage writes and agent reloads. Broadcast checklist changes only after persistence succeeds.
+- Retain Claude task details, dependency changes and metadata through native task updates and list refreshes; ignore failed tool writes and reconcile missing tasks.
+
+### Changed
+
+- Carry accepted pending checklist items and their completion criteria through planning, implementation and handoff instructions. Preserve native provider task ownership.
+- Gate manual controls and client mutations on daemon capability; older installations retain their native checklist display.
+
+### Maintenance
+
+- Cover durable writes, lifecycle restoration, tool scope, live RPC updates and desktop and phone manual controls. Verify workspace completion across unopened threads and reloads. Updated daemon and interface installation remains required.
+
+## 0.11.0-beta.3.vorteo.197 - 2026-10-08
+
+### Maintenance
+
+- Retain the live interface source in installation ancestry before building tracked supervisor controls. Preserve deployed implementation and release notes.
+
+## 0.11.0-beta.3.vorteo.196 - 2026-10-08
+
+### Maintenance
+
+- Integrate tracked supervisor maintenance and profile launcher validation with the installed source history, retaining preview recovery and Host build repairs.
+
+## 0.11.0-beta.3.vorteo.195 - 2026-10-08
+
+### Fixed
+
+- Route Dev supervisor repairs through visible, cancellable installation requests with exact-plan approval and verified replacement readiness. Keep ordinary worker restarts separate and refuse guest maintenance requests.
+- Exclude inactive archived history from restart preparation while preserving active work, unknown failures and interruption safeguards.
+
+### Maintenance
+
+- Cover approval binding, cancellation, legacy clients, changed scripts and interrupted dispatch. Document protected Host preparation and the managed supervisor repair workflow.
+
+## 0.11.0-beta.3.vorteo.194 - 2026-10-08
+
+### Maintenance
+
+- Require coordinator-tracked, visible and cancellable workflows for all Host and Dev daemon holds, restarts and supervisor maintenance. Prohibit direct lifecycle RPCs and shell restart bypasses even when chat approval exists.
+- Require unsupported maintenance operations to be implemented in the managed workflow before draining or interrupting tasks.
+
+## 0.11.0-beta.3.vorteo.193 - 2026-10-08
+
+### Fixed
+
+- Refuse Dev updater bootstrap when the managed supervisor or worker lacks the installation-owned profile client binding. Explain the required launcher repair and reviewed supervisor restart.
+
+### Maintenance
+
+- Cover missing and mismatched profile client paths and document acceptance of the inherited launcher environment.
+
+- Integrate managed preview recovery and exact-source Host build preparation with the installed Dev and interface histories. Retain their existing features and release notes.
+
+## 0.11.0-beta.3.vorteo.192 - 2026-10-08
+
+### Fixed
+
+- Prepare Host updates by transferring only the approved source commit into a fresh repository. Avoid local clone object-copy races and unrelated branch references while preserving bundle and ancestry checks.
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+- Verify that native build preparation retains no unrelated refs or shared object-store dependency and leaves the live interface unchanged.
+
+## 0.11.0-beta.3.vorteo.191 - 2026-10-08
+
+### Fixed
+
+- Recognize managed Dev workers during preview recovery without changing their process arguments. Verify the selected release, executable, supervisor, ownership and stable process identity.
+
+### Maintenance
+
+- Integrate managed Dev source updates with the installed release and accepted checklist contribution, preserving both source histories and prior release notes.
+- Add regression coverage for managed and legacy worker identity, release changes, ambiguous matches and PID reuse.
 
 ## 0.11.0-beta.3.vorteo.190 - 2026-10-08
 

@@ -207,7 +207,13 @@ test.beforeAll(async () => {
   const settings = createInstallationSettings(config);
   const app = createInstallationServer(
     config,
-    createInstallationRestartExecutor(config),
+    {
+      ...createInstallationRestartExecutor(config),
+      supervisorPlan: () => "a".repeat(64),
+      restartSupervisor: async () => {
+        throw new Error("The UI fixture must not dispatch supervisor maintenance");
+      },
+    },
     pino({ level: "silent" }),
     profiles,
     settings,
@@ -3358,3 +3364,112 @@ for (const target of ["host", "container-daemon"]) {
     await card.screenshot({ path: info.outputPath("source-batch-review.png") });
   });
 }
+
+test("supervisor maintenance is visible and cancellable without offering an initial force restart", async ({
+  page,
+}, testInfo) => {
+  const created = await request("restart-requests", hostToken, {
+    target: "container-daemon",
+    reason: "Repair the Dev profile launcher. Dev tasks and terminals will reconnect.",
+    supervisorPlanSha256: "a".repeat(64),
+  });
+  expect(created.status).toBe(201);
+  const job = RestartJobSchema.parse(await created.json());
+  await page.goto(`${origin}/settings/general?installation=1&restart=${job.id}`);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const card = page.getByTestId(`restart-request-${job.id}`);
+  await expect(card).toContainText("Dev supervisor");
+  await expect(page.getByTestId(`restart-finish-${job.id}`)).toBeEnabled({ timeout: 30_000 });
+  await expect(card.getByRole("button")).toHaveText([
+    "Details",
+    "Finish turns and restart",
+    "Cancel",
+  ]);
+  await expect(page.getByTestId(`restart-force-${job.id}`)).toHaveCount(0);
+  await card.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(card).toContainText("a".repeat(64));
+  await page.screenshot({
+    path: testInfo.outputPath("supervisor-maintenance-review.png"),
+    fullPage: true,
+  });
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: "Finish turns and restart", exact: true }),
+  ).toHaveCount(0);
+  const outcome = await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
+    headers: { Authorization: `Bearer ${hostToken}`, Origin: origin },
+  });
+  expect((await outcome.json()).status).toBe("rejected");
+});
+
+test("new shared project workspace follows the existing profile environment selector", async ({
+  page,
+}, info) => {
+  const host = await connectInstallationDaemon(config, "host");
+  const dev = await connectInstallationDaemon(config, "container");
+  const membership = { key: `shared-project-${randomUUID()}`, name: "Shared creation project" };
+  const clients = [dev, host];
+  const directories: string[] = [];
+  try {
+    for (const [index, client] of clients.entries()) {
+      const directory = path.join(daemons[index]!.paseoHome, "shared-creation");
+      directories.push(directory);
+      await mkdir(directory, { recursive: true });
+      const created = await client.createWorkspace({
+        source: { kind: "directory", path: directory },
+        title: "Existing member",
+      });
+      if (!created.workspace) throw new Error(created.error ?? "Missing member");
+      await client.setWorkspaceProject({ workspaceId: created.workspace.id, membership });
+    }
+    await page.goto(origin);
+    await page.getByTestId("installation-password").fill(ownerPassword);
+    await page.getByTestId("installation-unlock").click();
+    await expect(page.getByTestId("installation-password")).not.toBeVisible();
+    await page.goto(`${origin}/new?serverId=${daemons[0]!.serverId}`);
+    await expectComposerVisible(page, { timeout: 60_000 });
+    await page.getByTestId("new-workspace-project-picker-trigger").click();
+    await page.getByTestId(`new-workspace-project-picker-option-${membership.key}`).click();
+    await fillComposerDraft(page, "Keep this draft and start it in Host.");
+    await page.getByTestId("agent-preset-selector").click();
+    if (info.project.name === "phone") await page.getByTestId("preset-section-environment").click();
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByTestId(`preset-environment-${daemons[1]!.serverId}`).click();
+    await page.keyboard.press("Escape");
+    await page.getByTestId("agent-preset-selector").click();
+    if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
+    await page.getByTestId("preset-account-mock").click();
+    await page.getByRole("button", { name: "Browser handoff", exact: true }).click();
+    await page.getByTestId("preset-use-profile").click();
+    await expect(page.getByRole("textbox", { name: "Message agent..." }).first()).toHaveValue(
+      "Keep this draft and start it in Host.",
+    );
+    await expect(page.getByTestId("new-workspace-project-picker-trigger")).toContainText(
+      membership.name,
+    );
+    await page.getByRole("button", { name: /^(Send message|Create)$/ }).click();
+    await expect
+      .poll(
+        async () =>
+          (await host.fetchAgents()).entries.filter(({ agent }) => agent.cwd === directories[1])
+            .length,
+      )
+      .toBe(1);
+    await expect
+      .poll(
+        async () =>
+          (await host.fetchWorkspaces()).entries.filter(
+            (item) => item.projectMembership?.key === membership.key,
+          ).length,
+      )
+      .toBe(2);
+    expect(
+      (await dev.fetchAgents()).entries.filter(({ agent }) => agent.cwd === directories[0]),
+    ).toHaveLength(0);
+    await page.screenshot({ path: info.outputPath("shared-project-created.png"), fullPage: true });
+  } finally {
+    await host.close();
+    await dev.close();
+  }
+});

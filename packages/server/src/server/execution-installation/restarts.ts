@@ -15,6 +15,8 @@ export interface RestartJournal {
 }
 
 export interface RestartExecutor {
+  supervisorPlan?(): string | undefined;
+  restartSupervisor?(job: RestartJob): Promise<string>;
   supportsUpdate?(target: RestartJob["target"]): boolean;
   sourceBase?(target: RestartJob["target"]): string;
   sourceWeb?(target: RestartJob["target"]): string;
@@ -57,6 +59,17 @@ export class InstallationRestarts {
     this.jobs = journal.read();
     // A coordinator crash leaves execution ambiguous. Never replay a disruptive action.
     this.jobs = this.jobs.map((job) => {
+      // Retry inert validation once after a coordinator upgrade. Never carry an
+      // approval into a recomputed batch or replay dispatched installation work.
+      if (job.status === "pending" && job.sourceBatch?.status === "conflict") {
+        return {
+          ...job,
+          revision: randomUUID(),
+          update: undefined,
+          sourceBatch: { ...job.sourceBatch, status: "preparing" as const },
+          detail: "Rechecking source contributions",
+        };
+      }
       if (job.status === "approved" && job.whenIdle) return job;
       if (job.status !== "running" && job.status !== "approved") return job;
       return {
@@ -81,20 +94,21 @@ export class InstallationRestarts {
     requestedBy: RestartJob["requestedBy"],
     update?: RestartJob["update"],
   ): RestartJob {
+    this.validateSupervisorRequest(input, requestedBy, update);
     if (update && !this.supportsUpdate(input.target))
       throw new RestartRequestError("Source updates are unavailable for this target");
     this.reconcilePending();
-    const active = this.jobs.find((job) => {
-      if (job.target !== input.target) return false;
-      if (job.status === "approved" || job.status === "running") return true;
-      return job.status === "pending";
-    });
+    const active = this.jobs.find((job) => this.conflictsWithRequest(job, input));
     if (active?.status === "running")
       throw new RestartRequestError(
         "This target is already restarting. Wait for its result before requesting another restart.",
       );
     if (active && (update || active.update || active.sourceBatch))
       throw new RestartRequestError("A source update cannot share a plain restart approval");
+    if (active && active.supervisorPlanSha256 !== input.supervisorPlanSha256)
+      throw new RestartRequestError(
+        "A different restart scope or maintenance plan already owns this target",
+      );
     // Only plain restart requests share a target approval. Source approvals stay exact.
     if (active) return { ...active };
     const job: RestartJob = {
@@ -131,6 +145,10 @@ export class InstallationRestarts {
     id: string,
     replaces?: string,
   ) {
+    if (input.supervisorPlanSha256)
+      throw new RestartRequestError(
+        "Supervisor maintenance cannot be submitted as a source contribution",
+      );
     if (!this.supportsUpdate(input.target) || !this.executor.prepareUpdate)
       throw new RestartRequestError("Source batching unavailable");
     const existing = this.contribution(id);
@@ -208,6 +226,32 @@ export class InstallationRestarts {
       throw new RestartRequestError("Only your conflicted or invalid contribution can be replaced");
     original.status = "superseded";
     original.supersededBy = input.id;
+  }
+
+  private conflictsWithRequest(job: RestartJob, input: RestartRequest): boolean {
+    if (job.target !== input.target) return false;
+    if (job.status === "approved" || job.status === "running") return true;
+    if (job.status !== "pending") return false;
+    // Maintenance must not discard another task's unapproved source contribution.
+    const separateMaintenance = input.supervisorPlanSha256 && (job.update || job.sourceBatch);
+    return !separateMaintenance;
+  }
+
+  private validateSupervisorRequest(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): void {
+    if (input.supervisorPlanSha256) {
+      if (requestedBy === "container-agent" || input.target !== "container-daemon")
+        throw new RestartRequestError("Supervisor maintenance requires a trusted Host request");
+      if (
+        update ||
+        !this.executor.restartSupervisor ||
+        input.supervisorPlanSha256 !== this.executor.supervisorPlan?.()
+      )
+        throw new RestartRequestError("Supervisor maintenance plan is unavailable or changed");
+    }
   }
 
   private supportsUpdate(target: RestartJob["target"]): boolean {
@@ -289,16 +333,23 @@ export class InstallationRestarts {
     revision: string,
     decision: RestartDecision,
     updateSha256?: string,
+    supervisorPlanSha256?: string,
   ): RestartJob {
     const job = this.jobs.find((candidate) => candidate.id === id);
     if (!job || job.revision !== revision)
       throw new RestartRequestError("Restart request is missing or changed");
+    this.validateSupervisorDecision(job, decision, supervisorPlanSha256);
     this.validateDecision(job, decision, updateSha256);
     if (decision === "request-again") {
       if (job.status !== "rejected")
         throw new RestartRequestError("Only cancelled requests can be requested again");
       return this.request(
-        { target: job.target, reason: job.reason, requester: job.requester },
+        {
+          target: job.target,
+          reason: job.reason,
+          requester: job.requester,
+          supervisorPlanSha256: job.supervisorPlanSha256,
+        },
         "owner",
       );
     }
@@ -342,6 +393,24 @@ export class InstallationRestarts {
     };
     this.replace(next);
     return { ...next };
+  }
+
+  private validateSupervisorDecision(
+    job: RestartJob,
+    decision: RestartDecision,
+    supervisorPlanSha256?: string,
+  ): void {
+    if (job.supervisorPlanSha256 && !["reject", "cancel", "request-again"].includes(decision)) {
+      if (
+        supervisorPlanSha256 !== job.supervisorPlanSha256 ||
+        supervisorPlanSha256 !== this.executor.supervisorPlan?.()
+      )
+        throw new RestartRequestError(
+          "Review this exact supervisor maintenance plan before approval",
+        );
+      if (decision === "approve-when-idle")
+        throw new RestartRequestError("Use Finish turns and restart for supervisor maintenance");
+    }
   }
 
   private currentSource(job: RestartJob) {
@@ -496,6 +565,14 @@ export class InstallationRestarts {
   }
 
   private executeApproved(job: RestartJob): Promise<string | null> {
+    if (job.supervisorPlanSha256) {
+      if (
+        !this.executor.restartSupervisor ||
+        job.supervisorPlanSha256 !== this.executor.supervisorPlan?.()
+      )
+        throw new RestartRequestError("Supervisor maintenance plan changed before dispatch");
+      return this.executor.restartSupervisor(job);
+    }
     if (job.update) {
       if (!this.executor.installUpdate) throw new Error("Source update executor unavailable");
       return this.executor.installUpdate(job);

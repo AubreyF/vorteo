@@ -14,7 +14,29 @@ import { createServer } from "node:http";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import os from "node:os";
-import { assertProtectedPaths, validateInstallPlan } from "./install-execution-host.mjs";
+import {
+  assertContainerProfileLauncher,
+  assertProtectedPaths,
+  validateInstallPlan,
+} from "./install-execution-host.mjs";
+
+test("Dev bootstrap requires the fixed profile client in both supervisor and worker", () => {
+  const expected = "/fixture/.local/share/vorteo-installation-client/client.json";
+  expect(() =>
+    assertContainerProfileLauncher({ expected, supervisor: expected, worker: expected }),
+  ).not.toThrow();
+  for (const [supervisor, worker] of [
+    [null, null],
+    [expected, null],
+    [null, expected],
+    ["/other/client.json", expected],
+    [expected, "/other/client.json"],
+  ]) {
+    expect(() => assertContainerProfileLauncher({ expected, supervisor, worker })).toThrow(
+      "VORTEO_INSTALLATION_CLIENT_CONFIG",
+    );
+  }
+});
 
 test("protected paths cannot enter a guest bind, including through a symlink ancestor", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "installation-paths-"));
@@ -266,10 +288,20 @@ test.each(["host", "container-daemon"])(
           resultFile,
         }),
       );
+      // Installation should acquire only the approved commit, not unrelated source branches.
+      writeFileSync(path.join(hostRepository, "refs/heads/unrelated"), baseCommit + "\n");
       await run(
         process.execPath,
         [path.resolve("scripts/prepare-installation-update.mjs"), request],
         { timeout: 60_000 },
+      );
+      const candidateRepository = path.join(work, "repository");
+      const candidateRefs = await run("git", ["for-each-ref", "--format=%(refname)"], {
+        cwd: candidateRepository,
+      });
+      expect(candidateRefs.stdout.trim()).toBe("refs/heads/main");
+      expect(existsSync(path.join(candidateRepository, ".git/objects/info/alternates"))).toBe(
+        false,
       );
       const prepared = JSON.parse(readFileSync(resultFile, "utf8"));
       expect(

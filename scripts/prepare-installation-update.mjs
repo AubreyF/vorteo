@@ -49,7 +49,10 @@ try {
   run("git", ["merge-base", "--is-ancestor", update.baseCommit, fetched], sourceRepository);
   run("git", ["update-ref", "refs/vorteo-updates/approved", fetched], sourceRepository);
   const repository = path.join(work, "repository");
-  run("git", ["clone", "--no-checkout", "--no-hardlinks", sourceRepository, repository], work);
+  // Transfer the approved graph through Git, without copying a changing local object store
+  // or importing unrelated branch references into the build repository.
+  run("git", ["init", repository], work);
+  run("git", ["fetch", "--no-tags", sourceRepository, fetched], repository);
   run("git", ["checkout", "-B", integrationRef.slice("refs/heads/".length), fetched], repository);
   const live = await readLiveState(input.webDirectory);
   if (!live.release?.sourceCommit)

@@ -135,6 +135,7 @@ export class InstallationClient {
         revision: job.revision,
         decision,
         ...(job.update ? { updateSha256: job.update.sha256 } : {}),
+        ...(job.supervisorPlanSha256 ? { supervisorPlanSha256: job.supervisorPlanSha256 } : {}),
       }),
     );
   }
@@ -159,7 +160,7 @@ export class InstallationClient {
         ? `${path}?idleRestarts=1${this.installation.gracefulRestarts ? "&gracefulRestarts=1" : ""}`
         : path;
     const query = path.startsWith("restarts")
-      ? `${resource}${resource.includes("?") ? "&" : "?"}sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1`
+      ? `${resource}${resource.includes("?") ? "&" : "?"}sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1`
       : resource;
     return this.ports.request(query, this.password, body);
   }

@@ -402,13 +402,7 @@ function canonicalToolTimeline(params: {
 }
 
 function todoTimeline(
-  items: Array<{
-    id?: string;
-    text: string;
-    completed: boolean;
-    status?: "pending" | "in_progress" | "completed";
-    activeForm?: string;
-  }>,
+  items: import("@getpaseo/protocol/agent-types").AgentTaskItem[],
   provider: AgentProvider = "codex",
 ): AgentStreamEventPayload {
   return {
@@ -1262,6 +1256,26 @@ describe("stream reducer canonical tool calls", () => {
     assert.strictEqual(tools.length, 1);
     assert.strictEqual(tools[0].payload.data.callId, callId);
     assert.strictEqual(tools[0].payload.data.status, "completed");
+  });
+
+  it("retains checklist editing details in live timeline projections", () => {
+    const task = {
+      id: "task",
+      source: "vorteo" as const,
+      text: "Verify",
+      completed: false,
+      description: "Check the rendered card",
+      owner: "worker",
+      blockedBy: ["build"],
+      metadata: { milestone: "Delivery" },
+    };
+    const state = hydrateStreamState([
+      { event: todoTimeline([task]), timestamp: new Date("2025-01-01T10:50:00Z") },
+    ]);
+    const todos = state.find(
+      (item): item is Extract<StreamItem, { kind: "todo_list" }> => item.kind === "todo_list",
+    );
+    assert.deepStrictEqual(todos?.items, [task]);
   });
 
   it("converts todo timeline updates to todo_list", () => {

@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { filterArchivedRestartErrors } from "./restart-impact.js";
+import { runSupervisorMaintenance, supervisorPlanDigest } from "./supervisor-maintenance.js";
 import { WebSocket } from "ws";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type {
@@ -171,6 +173,36 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
     return reportRestartTimeout(config, target);
   }
   return {
+    supervisorPlan: () => supervisorPlanDigest(config.container.supervisorMaintenance),
+    async restartSupervisor(job) {
+      const plan = config.container.supervisorMaintenance;
+      if (!plan || job.target !== "container-daemon" || job.supervisorPlanSha256 !== plan.sha256)
+        throw new Error("Supervisor maintenance plan is unavailable or changed");
+      const before = await connectInstallationDaemon(config, "container");
+      let previousPid: number;
+      try {
+        previousPid = (await before.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS })).pid;
+      } finally {
+        await before.close();
+      }
+      await runSupervisorMaintenance(plan, job);
+      const deadline = Date.now() + 120_000;
+      while (Date.now() < deadline) {
+        await delay(1000);
+        let client: DaemonClient | null = null;
+        try {
+          client = await connectInstallationDaemon(config, "container");
+          const status = await client.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS });
+          if (status.pid !== previousPid)
+            return `Dev supervisor maintenance completed; replacement worker ${status.pid} and environment identity verified`;
+        } catch {
+          /* The worker may still be starting; never dispatch again. */
+        } finally {
+          await client?.close();
+        }
+      }
+      return reportRestartTimeout(config, "container-daemon");
+    },
     async inspect(target): Promise<RestartImpact> {
       const client = await connectInstallationDaemon(
         config,
@@ -184,10 +216,15 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
             idleMode: "inspect",
           });
           if (!response.impact) throw new Error("Daemon did not return restart impact");
+          const agents = await filterArchivedRestartErrors(
+            response.impact.agents,
+            async (id) => (await client.fetchAgent(id))?.agent,
+          );
           return {
             target,
             checkedAt: new Date().toISOString(),
             ...response.impact,
+            agents,
             idleRestartSupported,
             gracefulRestartSupported:
               client.getLastServerInfoMessage()?.features?.gracefulRestart === true,
