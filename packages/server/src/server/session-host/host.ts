@@ -111,6 +111,12 @@ export interface SessionHostOptions {
   /** Reported to workers and the audit log. */
   release?: string;
   limits?: Partial<SessionHostLimits>;
+  /**
+   * Runs once this host holds the lock and before it listens: work that must never happen while
+   * another host serves this directory, such as stopping provider processes a dead host left.
+   * A failure here releases the lock and fails the start.
+   */
+  afterLock?: () => Promise<void>;
 }
 
 export interface SessionHost {
@@ -781,6 +787,7 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
   const lock = await acquireHostLock(options.socketPath);
   const server = net.createServer(serve);
   try {
+    await options.afterLock?.();
     await claimSocketPath(options.socketPath);
     token = typeof options.token === "string" ? options.token : await options.token();
     await withPrivateUmask(async () => {

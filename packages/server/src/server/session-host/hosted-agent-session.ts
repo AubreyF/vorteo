@@ -4,6 +4,7 @@ import type { JsonValue } from "@getpaseo/protocol/agent-types";
 import type {
   AgentCapabilityFlags,
   AgentFeature,
+  AgentGoals,
   AgentMode,
   AgentPermissionRequest,
   AgentPermissionResponse,
@@ -113,13 +114,20 @@ export interface HostedReattachPolicy {
    * second provider beside one that may still run.
    */
   aliveWindowMs?: number;
+  /**
+   * How long an open waits for a host that was killed, not stopped, to be restarted by launchd
+   * before the session starts in the worker instead. Covers launchd's restart throttle and the
+   * host's startup; a stopped host removed its socket and is never waited for.
+   */
+  returnWindowMs?: number;
   initialDelayMs: number;
   maxDelayMs: number;
 }
 
-export const DEFAULT_REATTACH_POLICY: HostedReattachPolicy = {
+export const DEFAULT_REATTACH_POLICY: Required<HostedReattachPolicy> = {
   windowMs: 60_000,
   aliveWindowMs: 300_000,
+  returnWindowMs: 15_000,
   initialDelayMs: 250,
   maxDelayMs: 5_000,
 };
@@ -180,18 +188,43 @@ function isHistoryEvent(event: AgentStreamEvent): boolean {
   return event.type === "timeline" || event.type === "provider_subagent";
 }
 
+/** Providers whose sessions handle slash commands without a model turn (Codex: /compact, /goal). */
+const OUT_OF_BAND_PROVIDERS = new Set(["codex"]);
+
+/**
+ * The same split the Codex adapter applies to a prompt, so the worker decides synchronously
+ * whether a prompt is a command the host will run out of band.
+ */
+function parseSlashCommand(prompt: AgentPromptInput): { name: string; args: string } | null {
+  if (typeof prompt !== "string") return null;
+  const trimmed = prompt.trim();
+  if (!trimmed.startsWith("/") || trimmed.length <= 1) return null;
+  const body = trimmed.slice(1);
+  const space = body.search(/\s/);
+  const name = space === -1 ? body : body.slice(0, space);
+  if (!name || name.includes("/")) return null;
+  return { name, args: space === -1 ? "" : body.slice(space + 1).trim() };
+}
+
+/** Codex records a goal intent only for `/goal <objective>`, not for pause, resume, clear or usage. */
+function goalIntent(args: string): "goal" | undefined {
+  const lower = args.trim().toLowerCase();
+  return lower && !["pause", "resume", "clear"].includes(lower) ? "goal" : undefined;
+}
+
 /**
  * Drives a provider session that runs in the session host. It mirrors the state the agent
  * manager reads synchronously, delivers provider events in host order and reattaches when the
  * connection drops, so a worker restart or reconnect does not end the provider's turn.
  *
- * Not hostable, so deliberately absent: goals, initialTimeline, quota observation and admission
- * guards, and out-of-band commands. The Claude adapter implements none of them, and quota-governed
+ * Goals and out-of-band commands cross the boundary as calls when the hosted session supports
+ * them. Deliberately absent: initialTimeline, quota observation and admission guards; quota-governed
  * sessions are never opened in the host.
  */
 export class HostedAgentSession implements AgentSession {
   readonly provider: string;
-  readonly capabilities: AgentCapabilityFlags;
+  /** Goal state and commands, present only when the hosted session supports goals. */
+  readonly goals: AgentGoals | undefined;
 
   private channel: HostedSession;
   private snapshot: HostedSessionSnapshot;
@@ -229,7 +262,6 @@ export class HostedAgentSession implements AgentSession {
 
   constructor(private readonly options: HostedAgentSessionOptions) {
     this.provider = options.provider;
-    this.capabilities = options.capabilities;
     this.model = options.usage.model;
     this.channel = options.channel;
     this.snapshot = HostedSessionSnapshotSchema.parse(options.channel.attach.snapshot);
@@ -237,6 +269,9 @@ export class HostedAgentSession implements AgentSession {
     this.liveHeld = options.rebuild !== undefined;
     this.appliedSeq = options.rebuild?.throughSeq ?? 0;
     this.ackedSeq = this.appliedSeq;
+    // Whether a session supports goals is fixed when the provider starts it, so the manager's
+    // truthiness check on `goals` can be answered once from the attach snapshot.
+    this.goals = this.snapshot.goals != null ? this.hostedGoals() : undefined;
     this.bind(options.channel);
     if (this.liveHeld)
       this.armRelease(REBUILD_UNREAD_RELEASE_MS, "Hosted history was not read in time");
@@ -246,8 +281,65 @@ export class HostedAgentSession implements AgentSession {
     return this.snapshot.id;
   }
 
+  /** The hosted session's own capabilities when the host reports them; the client's otherwise. */
+  get capabilities(): AgentCapabilityFlags {
+    return (
+      (this.snapshot.capabilities as AgentCapabilityFlags | undefined) ?? this.options.capabilities
+    );
+  }
+
   get features(): AgentFeature[] {
     return this.snapshot.features as unknown as AgentFeature[];
+  }
+
+  /**
+   * Codex handles /compact and, with goals on, /goal without a model turn. Recognition mirrors
+   * the adapter and stays local; the command itself runs in the host, and the events it emitted
+   * are dispatched here as the manager expects from an in-process handler.
+   */
+  tryHandleOutOfBand(
+    prompt: AgentPromptInput,
+  ): ReturnType<NonNullable<AgentSession["tryHandleOutOfBand"]>> {
+    if (!OUT_OF_BAND_PROVIDERS.has(this.provider)) return null;
+    const command = parseSlashCommand(prompt);
+    if (!command) return null;
+    if (command.name !== "compact" && !(command.name === "goal" && this.goals)) return null;
+    const text = prompt as string;
+    return {
+      ...(command.name === "goal" ? { intent: goalIntent(command.args) } : {}),
+      run: async ({ emit }) => {
+        const result = await this.invoke({ method: "outOfBand", prompt: text });
+        // The manager shows a thrown error; a silent return would swallow the command.
+        if (!result.handled) throw new Error("The hosted session does not handle this command.");
+        for (const event of result.events)
+          if (HostedStreamEventSchema.safeParse(event).success)
+            emit(event as unknown as AgentStreamEvent);
+      },
+    };
+  }
+
+  /**
+   * Goal reads and writes cross to the provider. The mirror follows the returned state, and the
+   * host's state entries keep it current between calls, so `state` reads like an in-process one.
+   */
+  private hostedGoals(): AgentGoals {
+    type GoalState = AgentGoals["state"];
+    const readState = (): GoalState => this.snapshot.goals as unknown as GoalState;
+    const apply = (state: GoalState): GoalState => {
+      this.snapshot = { ...this.snapshot, goals: state as HostedSessionSnapshot["goals"] };
+      return state;
+    };
+    const call = async (request: CallOf<"goalsRead" | "goalsSet" | "goalsClear">) =>
+      apply((await this.invoke(request)) as GoalState);
+    return {
+      get state(): GoalState {
+        return readState();
+      },
+      read: () => call({ method: "goalsRead" }),
+      set: (input) =>
+        call({ method: "goalsSet", input: asJson<CallOf<"goalsSet">["input"]>(input) }),
+      clear: () => call({ method: "goalsClear" }),
+    };
   }
 
   /** The session's current host-side status, for diagnostics and restart readiness. */

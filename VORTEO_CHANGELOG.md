@@ -5,6 +5,46 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.751 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.750 - 2026-10-22
+
+### Fixed
+
+- The session host stops provider processes left by an earlier host only after it holds the host lock, so a second host started by mistake can no longer stop the live host's Codex app-servers. A recorded process is stopped only while its command line still names both the launched binary and the app-server, and its whole process group is signalled so the tools it started go with it.
+- A hosted Codex session that resumes on demand, as after a worker restart, carries its account descriptor to the host like a new one, so a derived Codex account no longer reopens on the default provider.
+- A command the hosted session reports as unhandled now shows an error instead of being swallowed, and a host between taking its lock and listening is given a moment before a session falls back to the worker.
+
+### Validation
+
+- Unit tests cover a second host refused by the lock leaving a recorded live provider untouched, the account descriptor on resume, group signalling and the marker rule. The session host suites and the eight end-to-end scenarios pass. Independent review of the phase 2 commits raised these findings.
+
+## 0.11.0-beta.3.vorteo.749 - 2026-10-22
+
+### Fixed
+
+- A session whose host was killed waits for launchd to bring the host back, up to a return window of fifteen seconds, before it would start in the worker. The continuation of a turn the dead host was running therefore opens on the restarted host and stays durable, instead of running a local provider because the host was not listening yet in the seconds after the kill. A host that was stopped cleanly removes its socket and is not waited for.
+- The session host entrypoint builds again now that it loads the Codex adapter: the installation settings reader no longer passes a browser-only cache option to Node's fetch, which the Node-typed entrypoint build rejected. Behaviour is unchanged; Node keeps no HTTP cache.
+
+### Validation
+
+- The isolated durable sessions end-to-end suite runs a Codex-shaped scripted provider as well as the Claude-shaped one. Two new scenarios prove a goal set before a worker kill still reads through the replacement worker once the hosted turn completes, and that `/compact` and `/goal` run out of band in the host for a worker started after a supervisor restart without starting a turn. Failing scenarios now print the installation's daemon, host, audit and launchd logs and can keep the installation's files for inspection. The scripted provider's goal states now carry every field of the wire schema, which the first Codex scenarios exposed. All eight scenarios pass.
+
+## 0.11.0-beta.3.vorteo.748 - 2026-10-22
+
+### Features
+
+- Durable sessions phase 2: Codex sessions run in the session host when durable sessions are enabled, for builtin and account providers. The worker sends the account descriptor in the open request so the host builds the same client, Codex goal state and the `/goal` and `/compact` commands cross to the host, and the hosted session reports its own capabilities. Claude hosting is unchanged.
+- The session host records each detached Codex app-server process it spawns and, at its next start, stops any recorded process that still runs the app-server, so a host killed by its watchdog or a crash never leaves a second writer beside a continued agent.
+
+### Validation
+
+- New unit tests cover the child registry, Codex goals and commands through the host, per-session capabilities and the account descriptor reaching the host, and a recorded orphan stopped at host start. The existing session host suites pass unchanged on the installed source. Codex end-to-end and live acceptance follow in later commits.
+
 ## 0.11.0-beta.3.vorteo.747 - 2026-10-22
 
 ### Maintenance

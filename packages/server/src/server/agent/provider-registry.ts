@@ -199,11 +199,21 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
       ? createHostedAgentClient({ inner: client, runtimeSettings, routing: options.sessionHost })
       : client;
   },
-  codex: (logger, runtimeSettings, options) =>
-    new CodexAppServerAgentClient(logger, runtimeSettings, {
+  codex: (logger, runtimeSettings, options) => {
+    const client = new CodexAppServerAgentClient(logger, runtimeSettings, {
       workspaceGitService: options?.workspaceGitService,
       customProvider: options?.customProvider,
-    }),
+    });
+    // Durable sessions phase 2: Codex sessions run in the host too; the setting decides per session.
+    return options?.sessionHost
+      ? createHostedAgentClient({
+          inner: client,
+          runtimeSettings,
+          routing: options.sessionHost,
+          customProvider: options?.customProvider,
+        })
+      : client;
+  },
   copilot: (logger, runtimeSettings) =>
     new CopilotACPAgentClient({
       logger,

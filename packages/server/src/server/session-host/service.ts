@@ -1,7 +1,9 @@
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import pino, { type Logger } from "pino";
+import { createProviderChildRegistry, type ProviderChildRegistry } from "./provider-children.js";
 import { resolveDaemonVersion } from "../daemon-version.js";
 import { resolvePaseoHome } from "../paseo-home.js";
 import {
@@ -66,10 +68,62 @@ function openPrivateLog(logPath: string): Logger {
   return pino({ base: { pid: process.pid, module: "session-host" } }, { write: append });
 }
 
-/** Loaded only when no client is injected, so a test host never loads the Claude SDK. */
-async function loadClaudeClientFactory(): Promise<HostedClientFactory> {
-  const { ClaudeAgentClient } = await import("../agent/providers/claude/agent.js");
-  return ({ logger, runtimeSettings }) => new ClaudeAgentClient({ logger, runtimeSettings });
+/** The word a Codex app-server command line carries; a recorded pid is stopped only while it does. */
+export const CODEX_CHILD_MARKER = "app-server";
+
+/**
+ * Loaded only when no client is injected, so a test host never loads a provider SDK. Builds the
+ * client the worker would have built for the provider named in the open request.
+ */
+async function loadProviderClientFactory(
+  children: ProviderChildRegistry,
+): Promise<HostedClientFactory> {
+  const [{ ClaudeAgentClient }, { CodexAppServerAgentClient }] = await Promise.all([
+    import("../agent/providers/claude/agent.js"),
+    import("../agent/providers/codex-app-server-agent.js"),
+  ]);
+  return ({ provider, logger, runtimeSettings, customProvider }) => {
+    if (provider === "codex")
+      return new CodexAppServerAgentClient(logger, runtimeSettings, {
+        customProvider,
+        workspaceGitService: { resolveRepoRoot },
+        onChildSpawned: (child, context) => {
+          if (child.pid === undefined) return;
+          const pid = child.pid;
+          // Both the binary that was launched and the app-server word must still be on the command
+          // line before a recorded pid is ever signalled, so a reused pid is left alone.
+          const markers = [child.spawnfile, CODEX_CHILD_MARKER].filter((m) => m.length > 0);
+          void children
+            .record({ pid, markers, agentId: context.agentId })
+            .catch((error: unknown) =>
+              logger.warn({ err: error, pid }, "Could not record a Codex app-server child"),
+            );
+          child.once("exit", () => {
+            void children.forget(pid).catch(() => {});
+          });
+        },
+      });
+    return new ClaudeAgentClient({ logger, runtimeSettings });
+  };
+}
+
+/**
+ * The repository root of a working directory, for Codex skills discovery. Rejects outside a
+ * repository, which the Codex adapter already treats as "no repository".
+ */
+async function resolveRepoRoot(cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      { cwd, timeout: 5_000, env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } },
+      (error, stdout) => {
+        const root = String(stdout).trim();
+        if (error || !root) reject(error ?? new Error("Not inside a git repository."));
+        else resolve(root);
+      },
+    );
+  });
 }
 
 /**
@@ -88,12 +142,28 @@ export async function startSessionHostService(
   const exit = options.exit ?? ((code: number) => process.exit(code));
   const shutdownDeadlineMs = options.shutdownDeadlineMs ?? DEFAULT_SHUTDOWN_DEADLINE_MS;
   const release = options.release ?? resolveDaemonVersion(import.meta.url);
-  // A broken install fails here, before it can rotate the token of anything.
-  const createClient = options.createClient ?? (await loadClaudeClientFactory());
-
   await preparePrivateDirectory(paths.directory);
+  const children = createProviderChildRegistry(paths.directory);
+  // A broken install fails here, before it can rotate the token of anything.
+  const createClient = options.createClient ?? (await loadProviderClientFactory(children));
   const logPath = path.join(paths.directory, SESSION_HOST_LOG_FILE_NAME);
   const logger = openPrivateLog(logPath);
+  /**
+   * Detached provider processes from a host that died keep running; stop them before serving, so
+   * no continued agent ever shares a thread with an orphan. This runs only once this host holds
+   * the lock: a second host started by mistake must never stop the live host's providers.
+   */
+  async function reapOrphans(): Promise<void> {
+    const reaped = await children.reapOrphans();
+    if (reaped.stopped.length || reaped.dropped.length)
+      logger.warn(
+        {
+          stopped: reaped.stopped.map((child) => ({ pid: child.pid, agentId: child.agentId })),
+          dropped: reaped.dropped.length,
+        },
+        "Stopped provider processes left by an earlier session host",
+      );
+  }
   const watchdog = startSessionHostWatchdog({
     logPath,
     hangTimeoutMs: options.hangTimeoutMs ?? DEFAULT_HANG_TIMEOUT_MS,
@@ -171,6 +241,7 @@ export async function startSessionHostService(
     audit,
     release,
     limits: options.limits,
+    afterLock: reapOrphans,
   });
   watchdog.markListening();
   logger.info({ hostId: host.identity.id, release }, "Session host started");

@@ -104,6 +104,8 @@ export function createHostedAgentClient(input: {
   inner: AgentClient;
   runtimeSettings?: ProviderRuntimeSettings;
   routing: HostedSessionRouting;
+  /** The derived provider this client was built for, so the host builds the same one. */
+  customProvider?: { id: string; label: string; extends: string };
 }): AgentClient {
   const { inner, routing } = input;
   const logger = routing.logger.child({ module: "session-host", provider: inner.provider });
@@ -250,6 +252,47 @@ export function createHostedAgentClient(input: {
     };
   }
 
+  /**
+   * Connects before opening a session. A host that was stopped removed its socket and answers null
+   * at once, so the session runs in the worker. A host whose socket is still there but whose lock
+   * holder is dead was killed, and launchd is bringing it back within seconds; a session started in
+   * the worker meanwhile, such as the continuation of a turn the dead host was running, would lose
+   * its durability for nothing. That host gets the return window. A host that lives but does not
+   * answer is the watchdog's problem, not a reason to wait: it gets one more attempt, in case it
+   * only just took the lock and is about to listen, and then the worker runs the session itself.
+   */
+  async function connectForOpen(agentId: string): Promise<SessionHostClient | null> {
+    const client = await routing.connector.connect();
+    if (client) return client;
+    const policy = routing.reattach ?? DEFAULT_REATTACH_POLICY;
+    const deadline = Date.now() + (policy.returnWindowMs ?? DEFAULT_REATTACH_POLICY.returnWindowMs);
+    let delay = policy.initialDelayMs;
+    let waiting = false;
+    for (;;) {
+      const state = await routing.connector.hostState();
+      // No socket and no lock holder: the host was stopped. A live holder without a socket is a
+      // host between taking its lock and listening, which the attempt below gives a moment.
+      if (!(await routing.connector.present()) && state !== "alive") return null;
+      const lastAttempt = state === "alive" || Date.now() + delay > deadline;
+      if (!waiting && !lastAttempt) {
+        waiting = true;
+        logger.info({ agentId }, "The session host was killed; waiting for its restart");
+      }
+      await sleep(delay);
+      delay = Math.min(delay * 2, policy.maxDelayMs);
+      const returned = await routing.connector.connect({ force: true });
+      if (returned) return returned;
+      if (lastAttempt) {
+        if (waiting)
+          logger.warn(
+            { agentId },
+            "The session host did not return; the session runs in the worker",
+          );
+        return null;
+      }
+    }
+  }
+
   async function open(
     params: {
       request: HostedOpenRequest;
@@ -259,7 +302,7 @@ export function createHostedAgentClient(input: {
     },
     retried = false,
   ): Promise<AgentSession | null> {
-    const client: SessionHostClient | null = await routing.connector.connect();
+    const client: SessionHostClient | null = await connectForOpen(params.agentId);
     if (!client) return null;
     let channel: HostedSession;
     try {
@@ -342,6 +385,7 @@ export function createHostedAgentClient(input: {
           launchEnv: launchContext?.env,
           runtimeSettings: input.runtimeSettings ? toJson(input.runtimeSettings) : undefined,
           persistSession: options?.persistSession,
+          ...(input.customProvider ? { customProvider: input.customProvider } : {}),
         },
       });
       if (hosted) return hosted;
@@ -378,6 +422,7 @@ export function createHostedAgentClient(input: {
           runtimeSettings: input.runtimeSettings ? toJson(input.runtimeSettings) : undefined,
           handle: toJson(handle),
           overrides: overrides ? toJson(overrides) : undefined,
+          ...(input.customProvider ? { customProvider: input.customProvider } : {}),
         },
       });
       if (hosted) return hosted;

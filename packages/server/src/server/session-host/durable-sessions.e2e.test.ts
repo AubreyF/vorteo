@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "vitest";
 import type { DaemonClient } from "../test-utils/daemon-client.js";
@@ -19,10 +19,10 @@ import {
 } from "./durable-sessions.harness.e2e.js";
 
 /**
- * Durable sessions phase 1, proven against real processes: a session host run by launchd, and a
- * real supervisor and worker in an isolated PASEO_HOME. The host runs a scripted fake Claude
- * (durable-sessions.fixture.e2e.ts) whose turn streams numbered chunks about once a second, so
- * each test can restart something in the middle of a turn.
+ * Durable sessions, proven against real processes: a session host run by launchd, and a real
+ * supervisor and worker in an isolated PASEO_HOME. The host runs a scripted fake provider
+ * (durable-sessions.fixture.e2e.ts), Claude-shaped or Codex-shaped, whose turn streams numbered
+ * chunks about once a second, so each test can restart something in the middle of a turn.
  *
  * Run on request only, on macOS: DURABLE_SESSIONS_E2E=1 npx vitest run <this file> --bail=1
  */
@@ -34,7 +34,21 @@ const RESTART_AFTER_CHUNKS = 4;
 const THIS_TREE: ReleaseTree = { repoRoot: thisRepoRoot };
 
 const cleanups: (() => Promise<void> | void)[] = [];
-afterEach(async () => {
+const installations: Installation[] = [];
+/** A directory that receives a copy of each failed installation's files, for a closer look. */
+const KEEP_FAILED_DIR = process.env.DURABLE_SESSIONS_E2E_KEEP;
+afterEach(async (context) => {
+  // The installation is removed below, so a failure shows its logs first.
+  if (context.task.result?.state === "fail")
+    for (const installation of installations) {
+      report(installation.logs());
+      if (KEEP_FAILED_DIR)
+        cpSync(installation.root, path.join(KEEP_FAILED_DIR, installation.runId), {
+          recursive: true,
+          filter: (source) => !source.endsWith(".sock"),
+        });
+    }
+  installations.length = 0;
   for (const step of cleanups.splice(0).toReversed()) await step();
 });
 
@@ -49,9 +63,12 @@ function report(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
-async function freshInstallation(options: { password?: boolean } = {}): Promise<Installation> {
+async function freshInstallation(
+  options: { password?: boolean; agentProvider?: "claude" | "codex" } = {},
+): Promise<Installation> {
   const created = await createInstallation({ provider: "fake", ...options });
   cleanups.push(() => created.cleanup());
+  installations.push(created);
   return created;
 }
 
@@ -326,6 +343,102 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
     expect((await client.readMessageQueue(agentId)).snapshot?.items ?? []).toEqual([]);
     expectProviderProcesses(install, restarted.pid, 1);
     report(`[host kill] host back after ${hostBackMs} ms, continuation done after ${doneMs} ms`);
+  }, 300_000);
+
+  // Phase 2: the same host runs Codex-shaped sessions, whose goal state and commands live in the
+  // provider. The fake is the scripted session with goals on; the real adapter is left to live
+  // acceptance.
+  test("a Codex worker killed mid-turn is replaced, and the goal set before the kill still reads", async () => {
+    const install = await freshInstallation({ agentProvider: "codex" });
+    const host = await install.startHost(THIS_TREE);
+    const supervisor = await install.startSupervisor(THIS_TREE);
+    const firstWorker = supervisor.workers[0]!;
+    const client = await connected(install);
+    const agentId = await startScriptedAgent(install, client, TURN_CHUNKS);
+    await waitForChunks(client, agentId, RESTART_AFTER_CHUNKS);
+    // Paused, so the manager never drives the agent on toward the goal and muddies the turn.
+    const set = await client.setAgentGoal(agentId, {
+      objective: "survive the worker kill",
+      status: "paused",
+    });
+    expect(set.goal).toMatchObject({ objective: "survive the worker kill", status: "paused" });
+    expectProviderProcesses(install, host.pid, 1);
+    await client.close();
+
+    const killedAt = Date.now();
+    process.kill(firstWorker, "SIGKILL");
+    await supervisor.waitForWorker([firstWorker]);
+    const next = await connected(install);
+    await expectUninterruptedTurn(next, agentId);
+    const doneMs = Date.now() - killedAt;
+
+    // The replacement worker reads the goal from the provider in the host, not from anything it
+    // was told before the kill, and the snapshot it serves agrees.
+    const goal = await next.getAgentGoal(agentId);
+    expect(goal.goal).toMatchObject({ objective: "survive the worker kill", status: "paused" });
+    const snapshot = (await next.fetchAgent(agentId))?.agent as { goalState?: unknown };
+    expect(snapshot.goalState).toMatchObject({ goal: { objective: "survive the worker kill" } });
+    expect((await install.host()).pid).toBe(host.pid);
+    expectProviderProcesses(install, host.pid, 1);
+    report(`[codex worker kill] turn done after ${doneMs} ms with the goal intact`);
+  }, 300_000);
+
+  test("Codex commands run out of band in the host for a worker started after a supervisor restart", async () => {
+    const install = await freshInstallation({ agentProvider: "codex" });
+    const host = await install.startHost(THIS_TREE);
+    const first = await install.startSupervisor(THIS_TREE);
+    const client = await connected(install);
+    const agentId = await startScriptedAgent(install, client, 2);
+    await waitForTurnEnd(client, agentId, 2);
+    await client.close();
+
+    await first.stop();
+    expectProviderProcesses(install, host.pid, 1);
+    await install.startSupervisor(THIS_TREE);
+    const next = await connected(install);
+    // The new worker closed the idle hosted session at startup and loads the agent on demand; a
+    // timeline read is such a demand, and the agent reopens its session in the host.
+    await summarizeTimeline(next, agentId);
+    await waitUntil(
+      "the agent to reopen in the host",
+      async () => ((await next.fetchAgent(agentId))?.agent?.status === "idle" ? true : null),
+      60_000,
+    );
+    expectProviderProcesses(install, host.pid, 1);
+    // The scripted provider keeps no saved history, so the resumed agent's timeline starts over;
+    // what matters below is that the commands add no chunks to it.
+    const before = await summarizeTimeline(next, agentId);
+
+    // Both commands are recognised in the worker and run in the host; their replies come back as
+    // timeline items of the agent.
+    await next.sendMessage(agentId, "/compact");
+    await waitUntil(
+      "the compact reply",
+      async () => {
+        const summary = await summarizeTimeline(next, agentId);
+        return summary.assistantTexts.includes("compact handled") ? true : null;
+      },
+      30_000,
+    );
+    await next.sendMessage(agentId, "/goal finish the e2e");
+    await waitUntil(
+      "the goal reply",
+      async () => {
+        const summary = await summarizeTimeline(next, agentId);
+        return summary.assistantTexts.includes("goal handled") ? true : null;
+      },
+      30_000,
+    );
+    const goal = await next.getAgentGoal(agentId);
+    expect(goal.goal).toMatchObject({ objective: "finish the e2e", status: "active" });
+    // Neither command started a turn: no chunk was added.
+    const summary = await summarizeTimeline(next, agentId);
+    expect([...summary.chunks.values()]).toEqual([...before.chunks.values()]);
+    expect(summary.systemErrors).toEqual([]);
+    await next.clearAgentGoal(agentId);
+    expect((await next.getAgentGoal(agentId)).goal).toBeNull();
+    expect((await install.host()).pid).toBe(host.pid);
+    expectProviderProcesses(install, host.pid, 1);
   }, 300_000);
 });
 

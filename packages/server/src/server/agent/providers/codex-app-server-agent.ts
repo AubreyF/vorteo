@@ -323,6 +323,12 @@ interface CodexAppServerAgentDeps {
   customCodexConfig?: CodexCustomProviderConfig | null;
   // The CODEX_HOME the session's app-server runs with; prompts and skills are read from it.
   codexHome?: string;
+  /**
+   * Observes each app-server child this client spawns outside protected custody. The durable
+   * session host records the pid so an app-server orphaned by a host crash can be stopped later;
+   * the child is detached into its own process group and would otherwise outlive the host.
+   */
+  onChildSpawned?: (child: ChildProcessWithoutNullStreams, context: { agentId?: string }) => void;
   _createCodexClient?: (
     child: ChildProcessWithoutNullStreams,
     logger: Logger,
@@ -7853,6 +7859,7 @@ export class CodexAppServerAgentClient implements AgentClient {
       baseEnv: options?.environment ?? buildCodexAppServerEnv(this.runtimeSettings, launchEnv),
     });
     assertChildWithPipes(child);
+    this.deps.onChildSpawned?.(child, { agentId: options?.agentId });
     return child;
   }
 

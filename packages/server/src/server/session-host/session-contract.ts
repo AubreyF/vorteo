@@ -106,6 +106,15 @@ export const SessionCallSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("revertConversation"), ...MessageTargetSchema }).strict(),
   z.object({ method: z.literal("revertFiles"), ...MessageTargetSchema }).strict(),
   z.object({ method: z.literal("revertBoth"), ...MessageTargetSchema }).strict(),
+  /** Goals (phase 2): the provider's goal state lives with the provider, so reads and writes cross. */
+  z.object({ method: z.literal("goalsRead") }).strict(),
+  z.object({ method: z.literal("goalsSet"), input: JsonObjectSchema }).strict(),
+  z.object({ method: z.literal("goalsClear") }).strict(),
+  /**
+   * A slash command the provider handles without a model turn, such as Codex's /compact or /goal.
+   * The host runs the provider's handler and returns the events it emitted.
+   */
+  z.object({ method: z.literal("outOfBand"), prompt: z.string().max(100_000) }).strict(),
   z.object({ method: z.literal("close") }).strict(),
 ]);
 export type SessionHostCall = z.infer<typeof SessionCallSchema>;
@@ -154,6 +163,18 @@ export const SessionCallResultSchemas = {
   revertConversation: z.null(),
   revertFiles: z.null(),
   revertBoth: z.null(),
+  goalsRead: JsonObjectSchema,
+  goalsSet: JsonObjectSchema,
+  goalsClear: JsonObjectSchema,
+  outOfBand: z
+    .object({
+      /** False when the provider does not treat this prompt as a command; nothing ran. */
+      handled: z.boolean(),
+      intent: z.literal("goal").optional(),
+      /** Stream events the handler emitted, for the worker to dispatch as its own. */
+      events: z.array(JsonSchema).max(1_000),
+    })
+    .strict(),
   close: z.null(),
 } satisfies Record<SessionHostMethod, z.ZodType>;
 
@@ -193,6 +214,13 @@ export const HostedSessionSnapshotSchema = z
     features: z.array(FeatureSchema),
     /** The foreground or autonomous turn the provider is running, if any. */
     activeTurnId: z.string().nullable(),
+    /**
+     * Phase 2 additions, optional so a phase 1 host still attaches. Goal state is present only
+     * when the provider session supports goals; capabilities are the session's own, which can
+     * differ from its client's (Codex reports goal support per session).
+     */
+    goals: JsonObjectSchema.nullable().optional(),
+    capabilities: JsonObjectSchema.optional(),
   })
   .strict();
 export type HostedSessionSnapshot = z.infer<typeof HostedSessionSnapshotSchema>;
@@ -313,6 +341,11 @@ export const HostedOpenRequestSchema = z
     persistSession: z.boolean().optional(),
     handle: HostedPersistenceHandleSchema.optional(),
     overrides: JsonObjectSchema.optional(),
+    /** A derived provider (an account), so the host builds the same client the worker would. */
+    customProvider: z
+      .object({ id: ProviderSchema, label: z.string().max(200), extends: ProviderSchema })
+      .strict()
+      .optional(),
   })
   .strict();
 export type HostedOpenRequest = z.infer<typeof HostedOpenRequestSchema>;
