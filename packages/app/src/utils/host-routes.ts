@@ -500,6 +500,9 @@ export function resolveKnownHostRoute(input: {
 
 export const SETTINGS_SECTION_SLUGS = [
   "general",
+  "accounts",
+  "maintenance",
+  "about",
   "appearance",
   "sidebar",
   "chat",

@@ -1757,6 +1757,20 @@ function RestartActivity({ job }: { job: RestartJob }) {
   );
 }
 
+const NO_SUBSCRIPTION = () => () => {};
+
+/**
+ * Restart requests waiting on the owner, for the Settings attention strip.
+ * Locked controls only expose the summary count.
+ */
+export function useRestartsAwaitingApproval(): number {
+  const model = getInstallationPanel(useHostRegistryLoaded());
+  const getState = useCallback(() => model?.getState() ?? null, [model]);
+  const state = useSyncExternalStore(model?.subscribe ?? NO_SUBSCRIPTION, getState, getState);
+  if (!state) return 0;
+  return state.unlocked ? state.pendingJobs.length : (state.restartSummary?.requested ?? 0);
+}
+
 export function InstallationRestartBanner({
   placement = "floating",
 }: {

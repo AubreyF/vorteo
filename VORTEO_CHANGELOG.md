@@ -5,6 +5,40 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.726 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.725 - 2026-10-20
+
+### Changed
+
+- Show Settings as one continuous page of eleven sections instead of 24 separate pages: General, Accounts & profiles, Agent behavior, Chat & editor, Terminal, Appearance, Workspaces & projects, Environments, Plugins & integrations, Maintenance and About. The sidebar follows the section in view, and choosing a section scrolls to it.
+- Move Language to Appearance, version details to About, and installation controls, Vorteo and Paseo update tools and Diagnostics to Maintenance. Restart approval links and the sidebar version footer open Maintenance.
+- Lead General with a Needs attention list when something needs action: restart requests waiting for approval, an available Vorteo update and enabled accounts in an error state. New workspace defaults leave out accounts that are not installed.
+- List every provider's profiles together under Accounts & profiles, with an All filter first. Older migrated copies fold under the current profile with the same name and show how they differ; they are kept because older launches and workers still use them.
+- Show each shared account's quota beside its status, and open the profile editor as a staged full-height panel at the right edge on desktop.
+- Say Profile instead of preset, workflow or configuration in profile settings.
+- Keep environment tabs inside the Environments section, sticking to the top while that environment's details scroll on web.
+
+### Added
+
+- Search every setting from the Settings sidebar, or above the list on phones, and press `/` on web to focus it. Results forgive typos, show their section and where the value is stored, filter the page to matching sections and tint matching rows on web. Arrow keys move through results; Enter jumps to the row and flashes it.
+- Open a specific setting with `/settings/<section>?setting=<id>`. Previous `/settings/<page>` addresses open the section that absorbed them.
+
+### Fixed
+
+- Keep provider row controls beside the details button instead of inside it, which was invalid HTML and could trap keyboard focus.
+- Stop the Vorteo updates card from showing "Checking GitHub..." twice.
+- Open Settings from the sidebar overflow menu in the shared browser test helper.
+- Keep the installation connection check at the top of General, above Needs attention.
+
+### Validation
+
+- Catalog tests fail when a settings row label has no search entry; search, duplicate grouping and profile unit tests pass. Settings navigation, profile, updates and provider browser checks pass for the changed behavior. Provider management at both widths, provider removal, the old Claude CLI warning, the legacy favourites migration and two composer profile-picker checks fail identically on main.
+
 ## 0.11.0-beta.3.vorteo.724 - 2026-10-20
 
 ### Maintenance

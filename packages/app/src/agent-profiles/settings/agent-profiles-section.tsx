@@ -84,7 +84,7 @@ function LegacyAgentProfilesSection({
         JSON.stringify(current.find((entry) => entry.id === editing.id)) !== JSON.stringify(editing)
       ) {
         throw new Error(
-          "This preset changed while you were editing. Close and reopen it before saving.",
+          "This profile changed while you were editing. Close and reopen it before saving.",
         );
       }
       // The edited profile is replaced, not merged: `value` omits the fields the
@@ -182,7 +182,7 @@ function LegacyAgentProfilesSection({
         );
       } catch (error) {
         Alert.alert(
-          "Unable to save default configuration",
+          "Unable to save the default profile",
           error instanceof Error ? error.message : String(error),
         );
       } finally {
@@ -235,18 +235,18 @@ function LegacyAgentProfilesSection({
       >
         <>
           <SelectField
-            label="Default configuration"
+            label="Default profile"
             value={defaultId}
             selectedDisplay={defaultOptions.find((option) => option.value === defaultId) ?? null}
             options={defaultOptions}
             onChange={selectDefault}
             disabled={!profiles?.length || savingDefault}
-            placeholder="No configurations available"
-            emptyText="No configurations available"
+            placeholder="No profiles"
+            emptyText="No profiles"
           />
           <Text style={styles.emptyText}>
             Used for new Vorteo chats on this host. Existing chats and their accounts stay
-            unchanged. The first available configuration is selected when no default is set.
+            unchanged. The first available profile is selected when no default is set.
           </Text>
         </>
         <View style={settingsStyles.card} testID="agent-profiles-card">

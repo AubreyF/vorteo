@@ -1,11 +1,10 @@
 import { InstallationConnectionCheck } from "@/execution-installation/connection-check-wrapper";
-import { InstallationRestartBanner } from "@/execution-installation/panel";
+import { InstallationRestartBanner, InstallationControls } from "@/execution-installation/panel";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { WorkspaceDefaultsSection } from "@/screens/settings/general/workspace-defaults-section";
-
-import { EnvironmentsSettingsPage } from "./settings/environments-page";
+import { AttentionSection } from "@/screens/settings/general/attention-section";
+import { EnvironmentsPane } from "./settings/environments-page";
 import { SkillLibraryContent } from "@/agent-skills/library";
-import { InstallationControls } from "@/execution-installation/panel";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
 import { usePanelStore } from "@/stores/panel-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,25 +30,15 @@ import {
   Settings,
   Palette,
   Server,
-  Network,
   Bot,
-  Boxes,
-  Gauge,
-  Keyboard,
-  Stethoscope,
-  Bell,
-  Shield,
-  Puzzle,
+  Info,
+  MessageSquare,
   Plus,
   FolderGit2,
   SquareTerminal,
-  Code2,
   Sparkles,
   Blocks,
-  BookOpen,
-  Globe,
-  PanelLeft,
-  MessageSquare,
+  Wrench,
   ChevronRight,
 } from "lucide-react-native";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
@@ -58,7 +47,6 @@ import { AppearanceSection } from "@/screens/settings/appearance/appearance-sect
 import { OpenLocationSection } from "@/screens/settings/open-location/open-location-section";
 import { TerminalSection } from "@/screens/settings/terminal/terminal-section";
 import { ChatSection } from "@/screens/settings/chat/chat-section";
-import { SidebarNavSection } from "@/screens/settings/sidebar/sidebar-nav-section";
 import { SendingSection } from "@/screens/settings/general/sending-section";
 import {
   useAppSettings,
@@ -73,6 +61,7 @@ import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { WindowChromeRegion, WindowChromeSafeArea } from "@/utils/desktop-window";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { BackHeader } from "@/components/headers/back-header";
+import { MenuHeader } from "@/components/headers/menu-header";
 import { PageLayout } from "@/components/page-layout";
 import { AddHostMethodModal } from "@/components/add-host-method-modal";
 import { AddHostModal } from "@/components/add-host-modal";
@@ -134,127 +123,91 @@ import {
   buildSettingsHostSectionRoute,
   buildSettingsSectionRoute,
   type HostSectionSlug,
-  type SettingsSectionSlug,
 } from "@/utils/host-routes";
 import { returnFromSettings, type SettingsView } from "@/navigation/settings-navigation";
 import { isNative, isWeb } from "@/constants/platform";
+import { InstallationSettingsContent } from "@/screens/settings/installation-sections";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import {
-  InstallationSettingsContent,
-  isInstallationSettingsSection,
-} from "@/screens/settings/installation-sections";
+  SETTINGS_ENTRIES,
+  SETTINGS_SECTIONS,
+  getPane,
+  getSection,
+  isAvailable,
+  panesForSection,
+  resolveSettingsTarget,
+  type SettingsAvailabilityContext,
+  type SettingsSectionId,
+} from "@/settings-catalog/catalog";
+import {
+  SettingsScrollPage,
+  SettingsSearchBox,
+  type ResolvedSettingsEntry,
+  type SettingsPageSection,
+  type SettingsSearchControls,
+} from "@/screens/settings/settings-scroll-page";
+import { useSettingsNavigation } from "@/screens/settings/use-settings-navigation";
+import { useSettingsSearchShortcut } from "@/screens/settings/use-settings-search-shortcut";
 
 // ---------------------------------------------------------------------------
 // View model
 // ---------------------------------------------------------------------------
 
-interface SidebarSectionItem {
-  id: SettingsSectionSlug;
-  labelKey: string;
-  icon: ComponentType<{ size: number; color: string; strokeWidth?: number }>;
-  desktopOnly?: boolean;
-  webOnly?: boolean;
-  /** The page body, for pages that need nothing from the settings screen. */
-  Content?: ComponentType;
-}
+type IconComponent = ComponentType<{ size: number; color: string; strokeWidth?: number }>;
 
-const SIDEBAR_SECTION_ITEMS: SidebarSectionItem[] = [
-  { id: "general", labelKey: "settings.sections.general", icon: Settings },
-  { id: "environments", labelKey: "settings.hostSections.host", icon: Server },
-  { id: "providers", labelKey: "settings.hostSections.providers", icon: Boxes },
-  { id: "profiles", labelKey: "settings.host.agentProfiles.sectionTitle", icon: Bot },
-  {
-    id: "appearance",
-    labelKey: "settings.sections.appearance",
-    icon: Palette,
-    Content: AppearanceSection,
-  },
-  {
-    id: "sidebar",
-    labelKey: "settings.sections.sidebar",
-    icon: PanelLeft,
-    Content: SidebarNavSection,
-  },
-  { id: "chat", labelKey: "settings.sections.chat", icon: MessageSquare, Content: ChatSection },
-  {
-    id: "terminal",
-    labelKey: "settings.sections.terminal",
-    icon: SquareTerminal,
-    Content: TerminalSection,
-  },
-  {
-    id: "browser",
-    labelKey: "settings.sections.browser",
-    icon: Globe,
-    desktopOnly: true,
-    Content: BrowserDataSection,
-  },
-  {
-    id: "editor",
-    labelKey: "settings.sections.editor",
-    icon: Code2,
-    webOnly: true,
-    Content: EditorSection,
-  },
-  {
-    id: "shortcuts",
-    labelKey: "settings.sections.shortcuts",
-    icon: Keyboard,
-    desktopOnly: true,
-    Content: KeyboardShortcutsSection,
-  },
-  {
-    id: "integrations",
-    labelKey: "settings.sections.integrations",
-    icon: Puzzle,
-    desktopOnly: true,
-    Content: IntegrationsSection,
-  },
-  {
-    id: "notifications",
-    labelKey: "settings.sections.notifications",
-    icon: Bell,
-    desktopOnly: true,
-    Content: DesktopNotificationsSection,
-  },
-  {
-    id: "permissions",
-    labelKey: "settings.sections.permissions",
-    icon: Shield,
-    desktopOnly: true,
-    Content: DesktopPermissionsSection,
-  },
-  {
-    id: "skills",
-    labelKey: "settings.sections.skills",
-    icon: BookOpen,
-    Content: SkillLibraryContent,
-  },
-  { id: "diagnostics", labelKey: "settings.sections.diagnostics", icon: Stethoscope },
-];
-
-function isSectionAvailable(item: SidebarSectionItem, isDesktopApp: boolean): boolean {
-  if (item.id === "sidebar") return false;
-  return (!item.desktopOnly || isDesktopApp) && (!item.webOnly || isWeb);
-}
+const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
+  general: Settings,
+  accounts: Bot,
+  agents: Sparkles,
+  chat: MessageSquare,
+  terminal: SquareTerminal,
+  appearance: Palette,
+  workspaces: FolderGit2,
+  environments: Server,
+  plugins: Blocks,
+  maintenance: Wrench,
+  about: Info,
+};
 
 interface HostSectionItem {
   id: HostSectionSlug;
   labelKey: string;
-  icon: ComponentType<{ size: number; color: string; strokeWidth?: number }>;
 }
 
+/** Titles for the per-host drill-in pages under `/settings/hosts/<id>/<section>`. */
 const HOST_SECTION_ITEMS: HostSectionItem[] = [
-  { id: "host", labelKey: "settings.hostSections.host", icon: Server },
-  { id: "providers", labelKey: "settings.hostSections.providers", icon: Boxes },
-  { id: "projects", labelKey: "settings.hostSections.projects", icon: FolderGit2 },
-  { id: "connections", labelKey: "settings.hostSections.connections", icon: Network },
-  { id: "agents", labelKey: "settings.hostSections.agents", icon: Bot },
-  { id: "metadata", labelKey: "settings.hostSections.metadata", icon: Sparkles },
-  { id: "workspaces", labelKey: "settings.hostSections.workspaces", icon: FolderGit2 },
-  { id: "usage", labelKey: "settings.hostSections.usage", icon: Gauge },
-  { id: "terminals", labelKey: "settings.hostSections.terminals", icon: SquareTerminal },
-  { id: "plugins", labelKey: "settings.hostSections.plugins", icon: Blocks },
+  { id: "host", labelKey: "settings.hostSections.host" },
+  { id: "providers", labelKey: "settings.hostSections.providers" },
+  { id: "projects", labelKey: "settings.hostSections.projects" },
+  { id: "connections", labelKey: "settings.hostSections.connections" },
+  { id: "agents", labelKey: "settings.hostSections.agents" },
+  { id: "metadata", labelKey: "settings.hostSections.metadata" },
+  { id: "workspaces", labelKey: "settings.hostSections.workspaces" },
+  { id: "usage", labelKey: "settings.hostSections.usage" },
+  { id: "terminals", labelKey: "settings.hostSections.terminals" },
+  { id: "plugins", labelKey: "settings.hostSections.plugins" },
 ];
+
+/** The section a drill-in page belongs to, for the sidebar highlight. */
+function sectionForView(view: SettingsView): SettingsSectionId | null {
+  if (view.kind === "project") return "workspaces";
+  if (view.kind === "plugin") return "plugins";
+  if (view.kind === "host") {
+    if (view.section === "host") return "environments";
+    return resolveSettingsTarget(view.section).section;
+  }
+  return null;
+}
+
+/** The sidebar highlight: none while searching, else the section in view or owning a drill-in. */
+function selectedSidebarSection(
+  view: SettingsView,
+  searching: boolean,
+  activeSection: SettingsSectionId,
+): SettingsSectionId | null {
+  if (searching) return null;
+  return view.kind === "section" ? activeSection : sectionForView(view);
+}
 
 function renderHostSettingsContent(
   view: Extract<SettingsView, { kind: "host" }>,
@@ -286,6 +239,87 @@ function renderHostSettingsContent(
   }
 }
 
+function useAvailabilityContext(): SettingsAvailabilityContext {
+  const hosts = useHosts();
+  const isDesktopApp = isElectronRuntime();
+  const hasInstallation = readExecutionInstallation() !== null;
+  return useMemo(
+    () => ({ isDesktopApp, isWeb, isNative, hasHosts: hosts.length > 0, hasInstallation }),
+    [hasInstallation, hosts.length, isDesktopApp],
+  );
+}
+
+function useSettingsSections(context: SettingsAvailabilityContext): SettingsPageSection[] {
+  return useMemo(
+    () =>
+      SETTINGS_SECTIONS.map((section) => ({
+        id: section.id,
+        label: section.label,
+        panes: panesForSection(section.id, context),
+      })).filter((section) => section.panes.length > 0),
+    [context],
+  );
+}
+
+/** Catalog entries for this device, translated, plus live names such as environments. */
+function useSearchEntries(
+  sections: readonly SettingsPageSection[],
+  context: SettingsAvailabilityContext,
+): ResolvedSettingsEntry[] {
+  const { t } = useTranslation();
+  const hosts = useHosts();
+  return useMemo(() => {
+    const available = new Set(sections.flatMap((section) => section.panes.map((pane) => pane.id)));
+    const breadcrumbFor = (paneId: string) => {
+      const pane = getPane(paneId);
+      const section = pane ? getSection(pane.section) : null;
+      return section && pane && section.label !== pane.label
+        ? `${section.label} › ${pane.label}`
+        : (section?.label ?? "");
+    };
+    const contextFor = (paneId: string) => {
+      const pane = getPane(paneId);
+      if (!pane) return [];
+      const section = getSection(pane.section);
+      // Section keywords stay out: they describe the whole section, and would
+      // match every row in it. Section matches come from the pane filter.
+      return [pane.label, section.label, ...(pane.keywords ?? [])];
+    };
+    const entries: ResolvedSettingsEntry[] = SETTINGS_ENTRIES.filter(
+      (entry) => available.has(entry.pane) && isAvailable(entry, context),
+    ).map((entry) => {
+      const label = entry.labelKey ? t(entry.labelKey, { defaultValue: entry.label }) : entry.label;
+      return {
+        id: entry.id,
+        pane: entry.pane,
+        section: getPane(entry.pane)!.section,
+        label,
+        hint: entry.hintKey ? t(entry.hintKey, { defaultValue: entry.hint }) : entry.hint,
+        // Keep the English label searchable when the interface is translated.
+        keywords: label === entry.label ? entry.keywords : [entry.label, ...(entry.keywords ?? [])],
+        context: contextFor(entry.pane),
+        scope: entry.scope,
+        breadcrumb: breadcrumbFor(entry.pane),
+      };
+    });
+    if (available.has("environments.environments")) {
+      for (const host of hosts) {
+        entries.push({
+          id: `environment:${host.serverId}`,
+          pane: "environments.environments",
+          section: "environments",
+          label: host.label,
+          keywords: ["environment", "host", host.serverId],
+          context: contextFor("environments.environments"),
+          scope: "device",
+          breadcrumb: breadcrumbFor("environments.environments"),
+        });
+      }
+    }
+    return entries;
+  }, [context, hosts, sections, t]);
+}
+
 // ---------------------------------------------------------------------------
 // Trigger + sidebar style helpers
 // ---------------------------------------------------------------------------
@@ -311,7 +345,7 @@ function getActiveLocale(language: string | undefined): SupportedLocale {
 // Section components
 // ---------------------------------------------------------------------------
 
-interface GeneralSectionProps {
+interface LanguageSectionProps {
   settings: AppSettings;
   handleLanguageChange: (language: AppLanguage) => void;
 }
@@ -340,7 +374,7 @@ function LanguageMenuItem({ value, activeLocale, selected, onChange }: LanguageM
   );
 }
 
-function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps) {
+function LanguageSection({ settings, handleLanguageChange }: LanguageSectionProps) {
   const { t, i18n } = useTranslation();
   const activeLocale = getActiveLocale(i18n.language);
   const selectedLanguageOption = LANGUAGE_OPTIONS.find(
@@ -354,7 +388,7 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
       )
     : settings.language;
   return (
-    <SettingsSection title={t("settings.general.title")}>
+    <SettingsSection title={t("settings.general.language.label")}>
       <View style={settingsStyles.card}>
         <View style={settingsStyles.row}>
           <View style={settingsStyles.rowContent}>
@@ -461,18 +495,11 @@ function DiagnosticsSection({
 }
 
 interface AboutSectionProps {
-  showInstallation: boolean;
-  appVersion: string | null;
   appVersionText: string;
   isDesktopApp: boolean;
 }
 
-function AboutSection({
-  appVersion,
-  appVersionText,
-  isDesktopApp,
-  showInstallation,
-}: AboutSectionProps) {
+function AboutSection({ appVersionText, isDesktopApp }: AboutSectionProps) {
   const { t } = useTranslation();
   return (
     <>
@@ -489,10 +516,6 @@ function AboutSection({
           {isDesktopApp ? <DesktopAppUpdateRow /> : null}
         </View>
       </SettingsSection>
-      {showInstallation ? <InstallationControls /> : null}
-      <VortonUpdatesSection />
-      <UpstreamUpdatesSection />
-      <ConnectedHostsSection clientVersion={appVersion} />
       <View style={styles.aboutCommunity}>
         <CommunityLinks />
       </View>
@@ -759,27 +782,27 @@ function DesktopAppUpdateRow() {
 // ---------------------------------------------------------------------------
 
 interface SidebarSectionButtonProps {
-  itemId: SettingsSectionSlug;
+  sectionId: SettingsSectionId;
   label: string;
-  icon: ComponentType<{ size: number; color: string; strokeWidth?: number }>;
+  icon: IconComponent;
   isSelected: boolean;
-  onSelect: (section: SettingsSectionSlug) => void;
+  onSelect: (section: SettingsSectionId) => void;
 }
 
 // Lighter than lucide's default 2px stroke so the nav reads quieter than the content.
 const SIDEBAR_ICON_STROKE_WIDTH = 1.5;
 
 function SidebarSectionButton({
-  itemId,
+  sectionId,
   label,
-  icon: IconComponent,
+  icon: Icon,
   isSelected,
   onSelect,
 }: SidebarSectionButtonProps) {
   const { theme } = useUnistyles();
   const handlePress = useCallback(() => {
-    onSelect(itemId);
-  }, [onSelect, itemId]);
+    onSelect(sectionId);
+  }, [onSelect, sectionId]);
   const accessibilityState = useMemo(() => ({ selected: isSelected }), [isSelected]);
   const labelStyle = useMemo(
     () => [sidebarStyles.label, isSelected && { color: theme.colors.foreground }],
@@ -790,10 +813,10 @@ function SidebarSectionButton({
       accessibilityRole="button"
       accessibilityState={accessibilityState}
       onPress={handlePress}
-      testID={`settings-section-${itemId}`}
+      testID={`settings-section-${sectionId}`}
       style={isSelected ? selectedSidebarItemStyle : sidebarItemStyle}
     >
-      <IconComponent
+      <Icon
         size={theme.iconSize.md}
         color={isSelected ? theme.colors.foreground : theme.colors.foregroundMuted}
         strokeWidth={SIDEBAR_ICON_STROKE_WIDTH}
@@ -807,39 +830,37 @@ function SidebarSectionButton({
 
 interface SettingsSidebarProps {
   appVersionText: string;
-  view: SettingsView;
-  onSelectSection: (section: SettingsSectionSlug) => void;
+  sections: readonly SettingsPageSection[];
+  selectedSection: SettingsSectionId | null;
+  onSelectSection: (section: SettingsSectionId) => void;
   onAddHost: () => void;
   onBackToWorkspace: () => void;
+  search: SettingsSearchControls;
   layout: "desktop" | "mobile";
 }
 
 function SettingsSidebar({
   appVersionText,
-  view,
+  sections,
+  selectedSection,
   onSelectSection,
   onAddHost,
   onBackToWorkspace,
+  search,
   layout,
 }: SettingsSidebarProps) {
   const { checkNow } = useVortonUpdate();
-  const openAbout = useCallback(() => {
+  // The version footer checks for updates and shows the result where update
+  // status lives, in Maintenance.
+  const openUpdates = useCallback(() => {
     checkNow();
-    onSelectSection("general");
+    onSelectSection("maintenance");
   }, [onSelectSection, checkNow]);
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const hosts = useHosts();
   const hasHosts = hosts.length > 0;
   const enableBuiltInDaemonOption = useEnableBuiltInDaemonOption();
-  const isDesktopApp = isElectronRuntime();
-  const items = SIDEBAR_SECTION_ITEMS.filter((item) => {
-    const requiresHost = item.id === "environments" || item.id === "providers";
-    return isSectionAvailable(item, isDesktopApp) && (!requiresHost || hasHosts);
-  });
-  const hostItems = HOST_SECTION_ITEMS.filter(
-    (item) => item.id !== "host" && item.id !== "providers",
-  );
   const insets = useSafeAreaInsets();
   const isDesktop = layout === "desktop";
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
@@ -861,46 +882,20 @@ function SettingsSidebar({
     () => [{ flex: 1 }, isDesktop ? { paddingTop: insets.top } : null],
     [insets.top, isDesktop],
   );
-  const selectedSectionId = view.kind === "section" ? view.section : null;
-  let selectedHostSection: HostSectionSlug | null = null;
-  if (view.kind === "host") selectedHostSection = view.section;
-  if (view.kind === "project") selectedHostSection = "projects";
-  if (view.kind === "plugin") selectedHostSection = "plugins";
 
   const sidebarBody = (
     <View style={sidebarStyles.list}>
-      {items.map((item) => (
+      {sections.map((section) => (
         <SidebarSectionButton
-          key={item.id}
-          itemId={item.id}
-          label={item.id === "environments" ? "Environments" : t(item.labelKey)}
-          icon={item.icon}
-          isSelected={
-            selectedSectionId === item.id ||
-            selectedHostSection === item.id ||
-            (item.id === "environments" && selectedHostSection === "host")
-          }
+          key={section.id}
+          sectionId={section.id}
+          label={section.label}
+          icon={SECTION_ICONS[section.id]}
+          isSelected={selectedSection === section.id}
           onSelect={onSelectSection}
         />
       ))}
-      {hasHosts ? (
-        <View>
-          {hostItems.map((item) => (
-            <SidebarSectionButton
-              key={item.id}
-              itemId={item.id === "host" ? "environments" : item.id}
-              label={item.id === "host" ? "Environments" : t(item.labelKey)}
-              icon={item.icon}
-              isSelected={
-                selectedSectionId === item.id ||
-                selectedHostSection === item.id ||
-                (item.id === "host" && selectedSectionId === "environments")
-              }
-              onSelect={onSelectSection}
-            />
-          ))}
-        </View>
-      ) : (
+      {hasHosts ? null : (
         <View>
           <Pressable
             accessibilityRole="button"
@@ -966,6 +961,9 @@ function SettingsSidebar({
               </Button>
             </View>
           </View>
+          <View style={sidebarStyles.search}>
+            <SettingsSearchBox search={search} />
+          </View>
           <ScrollView
             style={sidebarStyles.scrollBody}
             showsVerticalScrollIndicator={false}
@@ -976,8 +974,8 @@ function SettingsSidebar({
           <InstallationRestartBanner placement="sidebar" />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${appVersionText}, ${t("settings.sections.general")}`}
-            onPress={openAbout}
+            accessibilityLabel={`${appVersionText}, check for updates`}
+            onPress={openUpdates}
             style={sidebarStyles.versionButton}
             testID="settings-sidebar-version"
           >
@@ -992,6 +990,146 @@ function SettingsSidebar({
 }
 
 // ---------------------------------------------------------------------------
+// Panes
+// ---------------------------------------------------------------------------
+
+/** What pane bodies need from the settings screen. */
+interface PaneContext {
+  appVersion: string | null;
+  appVersionText: string;
+  isDesktopApp: boolean;
+  settings: AppSettings;
+  restartRequestId: string | null;
+  voiceAudioEngine: ReturnType<typeof useVoiceAudioEngineOptional>;
+  isPlaybackTestRunning: boolean;
+  playbackTestResult: string | null;
+  onAddHost: () => void;
+  onHostRemoved: () => void;
+  onLanguageChange: (language: AppLanguage) => void;
+  onPlaybackTest: () => Promise<void>;
+  onUseLegacyTerminalRendererChange: (value: boolean) => void;
+  onOpenPane: (paneId: string) => void;
+}
+
+type InstallationPaneSection = Parameters<typeof InstallationSettingsContent>[0]["section"];
+
+function installationPane(section: InstallationPaneSection) {
+  return (context: PaneContext) => (
+    <InstallationSettingsContent section={section} onAddHost={context.onAddHost} />
+  );
+}
+
+/** Each catalog pane's body. Panes reuse the existing settings components. */
+const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
+  "general.attention": (context) => (
+    <>
+      <InstallationConnectionCheck />
+      <AttentionSection onOpenPane={context.onOpenPane} />
+    </>
+  ),
+  "general.newWorkspace": () => <WorkspaceDefaultsSection />,
+  "general.sending": () => <SendingSection />,
+  "general.notifications": () => <DesktopNotificationsSection />,
+  "accounts.providers": installationPane("providers"),
+  "accounts.profiles": installationPane("profiles"),
+  "accounts.usage": installationPane("usage"),
+  "agents.tools": installationPane("agents"),
+  "agents.skills": () => <SkillLibraryContent />,
+  "agents.metadata": installationPane("metadata"),
+  "agents.browserData": () => <BrowserDataSection />,
+  "agents.permissions": () => <DesktopPermissionsSection />,
+  "chat.chat": () => <ChatSection />,
+  "chat.openLocation": () => <OpenLocationSection />,
+  "chat.editor": () => <EditorSection />,
+  "chat.shortcuts": () => <KeyboardShortcutsSection />,
+  "terminal.terminal": () => <TerminalSection />,
+  "terminal.profiles": installationPane("terminals"),
+  "appearance.appearance": () => <AppearanceSection />,
+  "appearance.language": (context) => (
+    <LanguageSection settings={context.settings} handleLanguageChange={context.onLanguageChange} />
+  ),
+  "workspaces.projects": installationPane("projects"),
+  "workspaces.workspaces": installationPane("workspaces"),
+  "environments.environments": (context) => (
+    <EnvironmentsPane onHostRemoved={context.onHostRemoved} />
+  ),
+  "environments.connections": installationPane("connections"),
+  "plugins.plugins": installationPane("plugins"),
+  "plugins.integrations": () => <IntegrationsSection />,
+  "maintenance.installation": (context) => (
+    <InstallationControls requestId={context.restartRequestId} />
+  ),
+  "maintenance.updates": () => <VortonUpdatesSection />,
+  "maintenance.upstream": () => <UpstreamUpdatesSection />,
+  "maintenance.diagnostics": (context) => (
+    <DiagnosticsSection
+      useLegacyTerminalRenderer={context.settings.useLegacyTerminalRenderer}
+      onUseLegacyTerminalRendererChange={context.onUseLegacyTerminalRendererChange}
+      voiceAudioEngine={context.voiceAudioEngine}
+      isPlaybackTestRunning={context.isPlaybackTestRunning}
+      playbackTestResult={context.playbackTestResult}
+      handlePlaybackTest={context.onPlaybackTest}
+    />
+  ),
+  "about.about": (context) => (
+    <AboutSection appVersionText={context.appVersionText} isDesktopApp={context.isDesktopApp} />
+  ),
+  "about.hosts": (context) => <ConnectedHostsSection clientVersion={context.appVersion} />,
+};
+
+// ---------------------------------------------------------------------------
+// Drill-in pages
+// ---------------------------------------------------------------------------
+
+function resolveDetailTitle(
+  view: SettingsView,
+  installedPlugins: ReturnType<typeof useInstalledPlugins>,
+  t: TFunction,
+): string | undefined {
+  if (view.kind === "plugin") {
+    const screen = installedPlugins
+      .find((plugin) => plugin.serverId === view.serverId && plugin.id === view.pluginId)
+      ?.settingsScreens.find((candidate) => candidate.id === view.screenId);
+    return `${view.pluginId} · ${screen?.title ?? t("settings.title")}`;
+  }
+  if (view.kind === "host") {
+    const item = HOST_SECTION_ITEMS.find((s) => s.id === view.section);
+    return item ? t(item.labelKey) : undefined;
+  }
+  if (view.kind === "project") return t("settings.projects");
+  return undefined;
+}
+
+function renderDetailContent(
+  view: SettingsView,
+  options: { isCompactLayout: boolean; onBack: () => void; onHostRemoved: () => void },
+): ReactNode {
+  if (view.kind === "plugin") {
+    return (
+      <PluginSettingsContent
+        serverId={view.serverId}
+        pluginId={view.pluginId}
+        screenId={view.screenId}
+        onBackToPlugins={options.onBack}
+        showBackToPlugins={!options.isCompactLayout}
+      />
+    );
+  }
+  if (view.kind === "host") return renderHostSettingsContent(view, options.onHostRemoved);
+  if (view.kind === "project") {
+    return (
+      <ProjectSettingsScreen
+        serverId={view.serverId}
+        projectId={view.projectId}
+        onBackToProjects={options.onBack}
+        showBackToProjects={!options.isCompactLayout}
+      />
+    );
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Main screen
 // ---------------------------------------------------------------------------
 
@@ -1000,6 +1138,8 @@ export interface SettingsScreenProps {
   openAddHostIntent?: string | null;
   installationRequested?: boolean;
   restartRequestId?: string | null;
+  /** Catalog entry id to scroll to and highlight, from `?setting=`. */
+  settingId?: string | null;
 }
 
 export default function SettingsScreen({
@@ -1007,6 +1147,7 @@ export default function SettingsScreen({
   openAddHostIntent = null,
   installationRequested = false,
   restartRequestId = null,
+  settingId = null,
 }: SettingsScreenProps) {
   const router = useRouter();
   const { t } = useTranslation();
@@ -1024,6 +1165,23 @@ export default function SettingsScreen({
   const isCompactLayout = useIsCompactFormFactor();
   const insets = useSafeAreaInsets();
   const insetBottomStyle = useMemo(() => ({ paddingBottom: insets.bottom }), [insets.bottom]);
+
+  const availability = useAvailabilityContext();
+  const sections = useSettingsSections(availability);
+  const entries = useSearchEntries(sections, availability);
+  const navigation = useSettingsNavigation({
+    view,
+    installationRequested,
+    settingId,
+    isCompactLayout,
+    hasInstallation: availability.hasInstallation,
+    sections,
+    entries,
+  });
+  const { query, search, results, request, activeSection } = navigation;
+  useSettingsSearchShortcut();
+  const searching = query.trim().length > 0;
+
   const handleLanguageChange = useCallback(
     (language: AppLanguage) => {
       void updateSettings({ language });
@@ -1113,24 +1271,11 @@ export default function SettingsScreen({
     [isCompactLayout, router],
   );
 
-  const handleSelectSection = useCallback(
-    (section: SettingsSectionSlug) => {
-      const target = buildSettingsSectionRoute(section);
-      if (isCompactLayout) {
-        router.push(target);
-      } else {
-        router.replace(target);
-      }
-    },
-    [isCompactLayout, router],
-  );
-
   const handleHostRemoved = useCallback(() => {
-    const fallback = buildSettingsSectionRoute("general");
     if (isCompactLayout) {
       router.replace("/settings");
     } else {
-      router.replace(fallback);
+      router.replace(buildSettingsSectionRoute("general"));
     }
   }, [isCompactLayout, router]);
 
@@ -1142,96 +1287,52 @@ export default function SettingsScreen({
     returnFromSettings({ kind: "root" });
   }, []);
 
-  const installedPlugins = useInstalledPlugins();
-  const detailTitle = ((): string | undefined => {
-    if (view.kind === "plugin") {
-      const screen = installedPlugins
-        .find((plugin) => plugin.serverId === view.serverId && plugin.id === view.pluginId)
-        ?.settingsScreens.find((candidate) => candidate.id === view.screenId);
-      return `${view.pluginId} · ${screen?.title ?? t("settings.title")}`;
-    }
-    if (view.kind === "host") {
-      const item = HOST_SECTION_ITEMS.find((s) => s.id === view.section);
-      return item ? t(item.labelKey) : undefined;
-    }
-    if (view.kind === "section") {
-      if (view.section === "environments") return "Environments";
-      const sharedItem = HOST_SECTION_ITEMS.find((item) => item.id === view.section);
-      if (sharedItem) return t(sharedItem.labelKey);
-      const item = SIDEBAR_SECTION_ITEMS.find((s) => s.id === view.section);
-      return item ? t(item.labelKey) : undefined;
-    }
-    if (view.kind === "project") {
-      return t("settings.projects");
-    }
-    return undefined;
-  })();
+  const paneContext = useMemo<PaneContext>(
+    () => ({
+      appVersion,
+      appVersionText,
+      isDesktopApp,
+      settings,
+      restartRequestId,
+      voiceAudioEngine,
+      isPlaybackTestRunning,
+      playbackTestResult,
+      onAddHost: handleAddHost,
+      onHostRemoved: handleHostRemoved,
+      onLanguageChange: handleLanguageChange,
+      onPlaybackTest: handlePlaybackTest,
+      onUseLegacyTerminalRendererChange: handleUseLegacyTerminalRendererChange,
+      onOpenPane: navigation.openPane,
+    }),
+    [
+      appVersion,
+      appVersionText,
+      handleAddHost,
+      handleHostRemoved,
+      handleLanguageChange,
+      handlePlaybackTest,
+      handleUseLegacyTerminalRendererChange,
+      isDesktopApp,
+      isPlaybackTestRunning,
+      navigation.openPane,
+      playbackTestResult,
+      restartRequestId,
+      settings,
+      voiceAudioEngine,
+    ],
+  );
+  const renderPane = useCallback(
+    (paneId: string): ReactNode => PANE_RENDERERS[paneId]?.(paneContext) ?? null,
+    [paneContext],
+  );
 
-  const content: ReactNode = (() => {
-    if (view.kind === "plugin")
-      return (
-        <PluginSettingsContent
-          serverId={view.serverId}
-          pluginId={view.pluginId}
-          screenId={view.screenId}
-          onBackToPlugins={handleBackFromDetail}
-          showBackToPlugins={!isCompactLayout}
-        />
-      );
-    if (view.kind === "host") {
-      return renderHostSettingsContent(view, handleHostRemoved);
-    }
-    if (view.kind === "project") {
-      return (
-        <ProjectSettingsScreen
-          serverId={view.serverId}
-          projectId={view.projectId}
-          onBackToProjects={handleBackFromDetail}
-          showBackToProjects={!isCompactLayout}
-        />
-      );
-    }
-    if (view.kind === "section") {
-      if (isInstallationSettingsSection(view.section)) {
-        return <InstallationSettingsContent section={view.section} onAddHost={handleAddHost} />;
-      }
-      const item = SIDEBAR_SECTION_ITEMS.find((candidate) => candidate.id === view.section);
-      if (!item || !isSectionAvailable(item, isDesktopApp)) return null;
-      switch (view.section) {
-        case "general":
-          return (
-            <>
-              <InstallationConnectionCheck />
-              {installationRequested ? <InstallationControls requestId={restartRequestId} /> : null}
-              <GeneralSection settings={settings} handleLanguageChange={handleLanguageChange} />
-              <WorkspaceDefaultsSection />
-              <SendingSection />
-              <AboutSection
-                showInstallation={!installationRequested}
-                appVersion={appVersion}
-                appVersionText={appVersionText}
-                isDesktopApp={isDesktopApp}
-              />
-              {isDesktopApp ? <OpenLocationSection /> : null}
-            </>
-          );
-        case "diagnostics":
-          return (
-            <DiagnosticsSection
-              useLegacyTerminalRenderer={settings.useLegacyTerminalRenderer}
-              onUseLegacyTerminalRendererChange={handleUseLegacyTerminalRendererChange}
-              voiceAudioEngine={voiceAudioEngine}
-              isPlaybackTestRunning={isPlaybackTestRunning}
-              playbackTestResult={playbackTestResult}
-              handlePlaybackTest={handlePlaybackTest}
-            />
-          );
-        default:
-          return item.Content ? <item.Content /> : null;
-      }
-    }
-    return null;
-  })();
+  const installedPlugins = useInstalledPlugins();
+  const detailTitle = resolveDetailTitle(view, installedPlugins, t);
+  const detailContent = renderDetailContent(view, {
+    isCompactLayout,
+    onBack: handleBackFromDetail,
+    onHostRemoved: handleHostRemoved,
+  });
 
   if (settingsLoading) {
     return (
@@ -1241,18 +1342,45 @@ export default function SettingsScreen({
     );
   }
 
-  const detailPage =
-    view.kind === "section" && view.section === "environments" ? (
-      <EnvironmentsSettingsPage onBack={handleBackFromDetail} onHostRemoved={handleHostRemoved} />
-    ) : (
-      <PageLayout
-        title={detailTitle}
-        titleTestID="settings-detail-header-title"
-        onBack={handleBackFromDetail}
-      >
-        {content}
-      </PageLayout>
-    );
+  const scrollPage = (
+    <SettingsScrollPage
+      sections={sections}
+      renderPane={renderPane}
+      request={request}
+      onActiveSectionChange={navigation.handleActiveSectionChange}
+      query={query}
+      results={results}
+      matchedPanes={navigation.matchedPanes}
+      selectedResult={navigation.selectedResult}
+      onSelectResult={navigation.handleSelectResult}
+      search={isCompactLayout ? search : undefined}
+      bottomInset={insets.bottom}
+    />
+  );
+
+  const showScrollPage = view.kind === "section" || searching;
+  const activeLabel = sections.find((section) => section.id === activeSection)?.label;
+  const detailPage = showScrollPage ? (
+    <View style={styles.container}>
+      {isCompactLayout ? (
+        <BackHeader
+          title={view.kind === "section" && !searching ? activeLabel : t("settings.title")}
+          onBack={view.kind === "section" ? handleBackFromDetail : handleBackToWorkspace}
+        />
+      ) : (
+        <MenuHeader borderless />
+      )}
+      {scrollPage}
+    </View>
+  ) : (
+    <PageLayout
+      title={detailTitle}
+      titleTestID="settings-detail-header-title"
+      onBack={handleBackFromDetail}
+    >
+      {detailContent}
+    </PageLayout>
+  );
 
   const addHostModals = (
     <>
@@ -1277,21 +1405,38 @@ export default function SettingsScreen({
     </>
   );
 
-  // Mobile root: full-screen sidebar-as-list.
+  const selectedSection = selectedSidebarSection(view, searching, activeSection);
+
+  // Mobile root: search above the section list; a query swaps the list for results.
   if (isCompactLayout && view.kind === "root") {
     return (
       <View style={styles.container}>
-        <BackHeader title={t("settings.title")} onBack={handleBackToWorkspace} />
-        <ScrollView style={styles.scrollView} contentContainerStyle={insetBottomStyle}>
-          <SettingsSidebar
-            appVersionText={appVersionText}
-            view={view}
-            onSelectSection={handleSelectSection}
-            onAddHost={handleAddHost}
-            onBackToWorkspace={handleBackToWorkspace}
-            layout="mobile"
-          />
-        </ScrollView>
+        {searching ? (
+          detailPage
+        ) : (
+          <>
+            <BackHeader title={t("settings.title")} onBack={handleBackToWorkspace} />
+            <ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={insetBottomStyle}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.compactSearch}>
+                <SettingsSearchBox search={search} />
+              </View>
+              <SettingsSidebar
+                appVersionText={appVersionText}
+                sections={sections}
+                selectedSection={null}
+                onSelectSection={navigation.handleSelectSection}
+                onAddHost={handleAddHost}
+                onBackToWorkspace={handleBackToWorkspace}
+                search={search}
+                layout="mobile"
+              />
+            </ScrollView>
+          </>
+        )}
         {addHostModals}
       </View>
     );
@@ -1315,10 +1460,12 @@ export default function SettingsScreen({
         <WindowChromeRegion corners="top-left">
           <SettingsSidebar
             appVersionText={appVersionText}
-            view={view}
-            onSelectSection={handleSelectSection}
+            sections={sections}
+            selectedSection={selectedSection}
+            onSelectSection={navigation.handleSelectSection}
             onAddHost={handleAddHost}
             onBackToWorkspace={handleBackToWorkspace}
+            search={search}
             layout="desktop"
           />
         </WindowChromeRegion>
@@ -1370,6 +1517,11 @@ const styles = StyleSheet.create((theme) => ({
   aboutCommunity: {
     marginTop: theme.spacing[4],
   },
+  compactSearch: {
+    flexDirection: "row",
+    paddingTop: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+  },
   aboutUpdateActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -1407,6 +1559,11 @@ const sidebarStyles = StyleSheet.create((theme) => ({
   },
   scrollBody: {
     flex: 1,
+  },
+  search: {
+    flexDirection: "row",
+    paddingHorizontal: theme.spacing[2],
+    paddingTop: theme.spacing[2],
   },
   version: {
     fontSize: theme.fontSize.sm,

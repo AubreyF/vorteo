@@ -91,6 +91,15 @@ const styles = StyleSheet.create((theme) => ({
     padding: theme.spacing[6],
     pointerEvents: "auto" as const,
   },
+  desktopOverlayEnd: {
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    padding: theme.spacing[2],
+  },
+  desktopCardEnd: {
+    height: "100%",
+    maxHeight: "100%",
+  },
   desktopCard: {
     overflow: "hidden",
     width: "100%",
@@ -469,6 +478,12 @@ export interface AdaptiveModalSheetProps {
   testID?: string;
   /** Override the max width of the desktop card. */
   desktopMaxWidth?: number;
+  /**
+   * Where the desktop card sits. "end" docks a full-height panel against the
+   * window's trailing edge, for editors that benefit from seeing the page they
+   * change; compact layouts keep the bottom sheet either way.
+   */
+  desktopPlacement?: "center" | "end";
   /** Bound an author-owned list without changing content-sized first-party dialogs. */
   desktopHeight?: DimensionValue;
   /** Whether the host supplies the scroll container. Caller-owned lists still share sheet gestures. */
@@ -485,6 +500,12 @@ export interface AdaptiveModalSheetProps {
   contextBridge?: ContextBridge | null;
 }
 
+function placementStyles(placement: AdaptiveModalSheetProps["desktopPlacement"]) {
+  return placement === "end"
+    ? { card: styles.desktopCardEnd, overlay: styles.desktopOverlayEnd }
+    : { card: null, overlay: null };
+}
+
 export function AdaptiveModalSheet({
   header,
   visible,
@@ -497,6 +518,7 @@ export function AdaptiveModalSheet({
   testID,
   desktopMaxWidth,
   desktopHeight,
+  desktopPlacement,
   scrollable = true,
   onScroll,
   presentation,
@@ -566,14 +588,16 @@ export function AdaptiveModalSheet({
   const desktopCardStyle = useMemo(
     () => [
       styles.desktopCard,
+      placementStyles(desktopPlacement).card,
       desktopHeight != null && { height: desktopHeight },
       desktopMaxWidth != null && { maxWidth: desktopMaxWidth },
     ],
-    [desktopMaxWidth, desktopHeight],
+    [desktopMaxWidth, desktopHeight, desktopPlacement],
   );
   const desktopOverlayStyle = useMemo(
     () => [
       styles.desktopOverlay,
+      placementStyles(desktopPlacement).overlay,
       isWeb && {
         zIndex: modalLayer,
         opacity: isWebClosing ? 0 : 1,
@@ -582,7 +606,7 @@ export function AdaptiveModalSheet({
         transitionTimingFunction: "ease",
       },
     ],
-    [isWebClosing, modalLayer],
+    [desktopPlacement, isWebClosing, modalLayer],
   );
 
   const handleWebOverlayKeyDown = useCallback(

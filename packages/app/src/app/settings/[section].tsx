@@ -41,6 +41,7 @@ export default function SettingsSectionRoute() {
     addHost?: string;
     installation?: string;
     restart?: string;
+    setting?: string;
   }>();
   const rawSection = typeof params.section === "string" ? params.section : "";
   const section: SettingsSectionSlug = isSettingsSectionSlug(rawSection) ? rawSection : "general";
@@ -56,9 +57,7 @@ export default function SettingsSectionRoute() {
     );
   }
 
-  if (rawSection === "sidebar") return <Redirect href={buildSettingsSectionRoute("general")} />;
-
-  if (rawSection === "about") return <Redirect href={buildSettingsSectionRoute("general")} />;
+  if (rawSection === "sidebar") return <Redirect href={buildSettingsSectionRoute("appearance")} />;
 
   return (
     <SettingsScreen
@@ -66,6 +65,7 @@ export default function SettingsSectionRoute() {
       openAddHostIntent={openAddHostIntent}
       installationRequested={params.installation === "1" || typeof params.restart === "string"}
       restartRequestId={typeof params.restart === "string" ? params.restart : null}
+      settingId={typeof params.setting === "string" ? params.setting : null}
     />
   );
 }
