@@ -1,3 +1,4 @@
+import { DelegatedMaintenanceApprovalSchema } from "./maintenance-approval.js";
 import { z } from "zod";
 
 /**
@@ -75,6 +76,7 @@ export const SessionHostJobSchema = z.strictObject({
   stage: z.enum(["prepared", "dispatch_pending", "applying", "verifying", "succeeded", "failed"]),
   detail: z.string(),
   approvedAt: z.string().datetime().optional(),
+  delegatedApproval: DelegatedMaintenanceApprovalSchema.optional(),
   /** A remove that stopped a host which no longer answered, after the workers' alive window. */
   forcedStop: z.boolean().optional(),
   /** The host that answered after an install or a restart. */

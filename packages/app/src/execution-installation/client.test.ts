@@ -689,3 +689,40 @@ test("session host query keeps jobs when the coordinator could not inspect the j
   await client.unlock("fixture-owner");
   expect(await client.sessionHost()).toEqual({ jobs: [job], status: null });
 });
+
+test("full maintenance delegation requires unlocked access and a supported query", async () => {
+  const calls: string[] = [];
+  let supported = false;
+  const preference = { available: true, revision: null, enabled: false, activatedAt: null };
+  const client = new InstallationClient(installation, {
+    request: async (resource) => {
+      calls.push(resource);
+      if (resource === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) => ({
+            kind: environment.kind,
+            serverId: environment.serverId,
+            endpoint: environment.endpoint,
+            useTls: environment.useTls,
+            password: "fixture-password",
+          })),
+        };
+      if (!supported) throw new InstallationRouteUnavailable("Unavailable");
+      return preference;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.maintenanceDelegation()).rejects.toThrow(
+    "Unlock installation controls first",
+  );
+  expect(calls).toEqual([]);
+  await client.unlock("owner-password");
+  expect(await client.maintenanceDelegation()).toBeNull();
+  await expect(client.changeMaintenanceDelegation(preference, true)).rejects.toThrow("unavailable");
+  expect(calls).toEqual(["unlock", "maintenance-delegation/query"]);
+  supported = true;
+  expect(await client.maintenanceDelegation()).toEqual(preference);
+  supported = false;
+  await expect(client.maintenanceDelegation()).rejects.toThrow("Unavailable");
+});

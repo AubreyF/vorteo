@@ -1,3 +1,4 @@
+import { maintenanceDelegationActivation } from "./owner-delegation.js";
 import { changeStandingGrant, FileEnrollmentJournal } from "./maintenance/authorization.js";
 import { z } from "zod";
 import { createHash, createHmac, timingSafeEqual, randomUUID } from "node:crypto";
@@ -72,8 +73,15 @@ export function verifyCoordinatorSubmission(
 export function coordinatorAutomaticAuthority(
   config: CoordinatorAutomationConfig,
 ): CoordinatorAutomaticAuthority | null {
-  const policyActivatedAt = new DaemonAutomation(config.stateDir, false).activation("coordinator");
-  if (!policyActivatedAt) return null;
+  const automation = new DaemonAutomation(config.stateDir, false);
+  if (!automation.legacyPolicyAvailable()) return null;
+  const coordinatorActivatedAt = automation.activation("coordinator");
+  const maintenanceApprovedAfter = maintenanceDelegationActivation(config.stateDir);
+  if (!coordinatorActivatedAt && !maintenanceApprovedAfter) return null;
+  const policyActivatedAt = [
+    coordinatorActivatedAt ?? "",
+    maintenanceApprovedAfter ?? "",
+  ].sort()[1]!;
   const credentialBinding = createHash("sha256")
     .update(
       JSON.stringify({
@@ -82,6 +90,7 @@ export function coordinatorAutomaticAuthority(
         host: config.hostAgentTokenHash,
         container: config.containerAgentTokenHash,
         owner: config.ownerPasswordHash,
+        ...(maintenanceApprovedAfter ? { maintenanceApprovedAfter } : {}),
       }),
     )
     .digest("hex");

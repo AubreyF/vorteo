@@ -5653,7 +5653,7 @@ test.each(["unhealthy", "changed ownership", "no attempt"])(
   },
 );
 
-function automaticCoordinatorFixture() {
+function automaticCoordinatorFixture(delegatedMaintenance = false) {
   const f = bootRecoveryFixture();
   f.plan.automaticRecovery = "restore-compatible";
   f.plan.compatibleRecovery = f.plan.previous;
@@ -5670,6 +5670,7 @@ function automaticCoordinatorFixture() {
       () => verify(),
       () => now,
       () => authority,
+      () => delegatedMaintenance,
     );
   const prepare = () =>
     service().prepare({ id: f.id, reason: "Automatic coordinator fixture", plan: f.plan });
@@ -6614,4 +6615,19 @@ test("an automatic successor cannot close an owner-reviewed failure, so its revi
       .list()
       .find((item) => item.id === submitted.id)?.status,
   ).toBe("pending");
+});
+
+test("explicit maintenance delegation approves exact coordinator settings and still revokes before dispatch", async () => {
+  const f = automaticCoordinatorFixture(true);
+  f.plan.configurationChanges = [
+    { setting: "recoveryOrigin", value: "https://recovery.example.test" },
+  ];
+  f.plan.candidate.configuration.sha256 = "f".repeat(64);
+  const submitted = await f.submit();
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  expect(approved.status).toBe("approved");
+  expect(approved.automaticApproval?.dispatchAfter).toBeDefined();
+  f.advance();
+  f.disable();
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow();
 });

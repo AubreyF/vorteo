@@ -1,9 +1,15 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 import { afterEach, expect, test } from "vitest";
-import { delegatedHandler, readOwnerDelegation } from "./owner-delegation.js";
+import {
+  delegatedHandler,
+  readOwnerDelegation,
+  maintenanceDelegationActivation,
+  maintenanceDelegationStatus,
+  changeMaintenanceDelegation,
+} from "./owner-delegation.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -136,4 +142,100 @@ test("a missing or invalid delegation file delegates nothing", () => {
   );
   // The window is capped at an hour; an out-of-range value delegates nothing.
   expect(readOwnerDelegation(dir).graceMinutes).toBe(15);
+});
+
+test("maintenance authority requires an explicit protected grant, not a requester label", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "owner-maintenance-")));
+  dirs.push(dir);
+  const file = join(dir, "owner-delegation.json");
+  const grant = {
+    version: 1,
+    delegatedRequesterPrefixes: ["Nova "],
+    hostUpdateServiceRestart: true,
+  };
+  writeFileSync(file, JSON.stringify(grant), { mode: 0o600 });
+  expect(maintenanceDelegationActivation(dir)).toBeNull();
+  const activatedAt = "2026-10-28T19:00:00.000Z";
+  writeFileSync(file, JSON.stringify({ ...grant, maintenanceApprovedAfter: activatedAt }));
+  expect(maintenanceDelegationActivation(dir)).toBe(activatedAt);
+  chmodSync(file, 0o666);
+  expect(maintenanceDelegationActivation(dir)).toBeNull();
+  chmodSync(file, 0o600);
+  writeFileSync(file, JSON.stringify({ ...grant, maintenanceApprovedAfter: null }));
+  expect(maintenanceDelegationActivation(dir)).toBeNull();
+  rmSync(file);
+  const target = join(dir, "other.json");
+  writeFileSync(target, JSON.stringify({ ...grant, maintenanceApprovedAfter: activatedAt }), {
+    mode: 0o600,
+  });
+  symlinkSync(target, file);
+  expect(maintenanceDelegationActivation(dir)).toBeNull();
+});
+
+test("owner maintenance changes preserve existing delegation and reject stale revisions", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "owner-maintenance-change-")));
+  dirs.push(dir);
+  const file = join(dir, "owner-delegation.json");
+  const original = {
+    version: 1,
+    delegatedRequesterPrefixes: ["Nova "],
+    hostUpdateServiceRestart: true,
+    graceMinutes: 8,
+  };
+  writeFileSync(file, JSON.stringify(original), { mode: 0o600 });
+  const initial = maintenanceDelegationStatus(dir);
+  const enabled = changeMaintenanceDelegation(dir, {
+    expectedRevision: initial.revision,
+    enabled: true,
+  });
+  expect(enabled.enabled).toBe(true);
+  expect(readOwnerDelegation(dir)).toMatchObject(original);
+  expect(() =>
+    changeMaintenanceDelegation(dir, { expectedRevision: initial.revision, enabled: false }),
+  ).toThrow("changed");
+  expect(
+    changeMaintenanceDelegation(dir, { expectedRevision: enabled.revision, enabled: true }),
+  ).toEqual(enabled);
+  const disabled = changeMaintenanceDelegation(dir, {
+    expectedRevision: enabled.revision,
+    enabled: false,
+  });
+  expect(disabled.enabled).toBe(false);
+  expect(maintenanceDelegationActivation(dir)).toBeNull();
+  const renewed = changeMaintenanceDelegation(dir, {
+    expectedRevision: disabled.revision,
+    enabled: true,
+  });
+  expect(renewed.activatedAt).not.toBe(enabled.activatedAt);
+});
+
+test("owner maintenance edits refuse symlinks, unsafe modes and invalid retained state", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "owner-maintenance-edit-")));
+  dirs.push(dir);
+  const file = join(dir, "owner-delegation.json");
+  const target = join(dir, "target.json");
+  writeFileSync(
+    target,
+    JSON.stringify({ version: 1, delegatedRequesterPrefixes: [], hostUpdateServiceRestart: false }),
+    { mode: 0o600 },
+  );
+  symlinkSync(target, file);
+  expect(() => maintenanceDelegationStatus(dir)).toThrow();
+  expect(() =>
+    changeMaintenanceDelegation(dir, { expectedRevision: null, enabled: true }),
+  ).toThrow();
+  rmSync(file);
+  writeFileSync(file, "invalid", { mode: 0o600 });
+  expect(() =>
+    changeMaintenanceDelegation(dir, { expectedRevision: null, enabled: true }),
+  ).toThrow();
+  rmSync(file);
+  chmodSync(dir, 0o777);
+  expect(() => changeMaintenanceDelegation(dir, { expectedRevision: null, enabled: true })).toThrow(
+    "directory",
+  );
+  chmodSync(dir, 0o700);
+  expect(changeMaintenanceDelegation(dir, { expectedRevision: null, enabled: true }).enabled).toBe(
+    true,
+  );
 });

@@ -2,7 +2,7 @@ import { assertFrozenCoordinatorIdle } from "./coordinator-bootstrap.js";
 import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
-import { InstallationRestarts } from "./restarts.js";
+import { InstallationRestarts, type RestartApprovalPolicy } from "./restarts.js";
 import type { LifecycleJob } from "./lifecycle-journal.js";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
 
@@ -90,7 +90,7 @@ test("journal rejects duplicate identities and malformed entries without partial
   expect(() => parseLifecycleJournal([restart, { ...helper, plan: undefined }])).toThrow();
 });
 
-function queueFixture() {
+function queueFixture(policy: RestartApprovalPolicy = {}) {
   let records: LifecycleJob[] = [];
   const events: string[] = [];
   let validate = async () => {};
@@ -113,6 +113,7 @@ function queueFixture() {
   };
   const queue = new InstallationRestarts(journal, executor, () => Date.parse(date), {
     hostRequestsAfter: date,
+    ...policy,
   });
   const prepare = () =>
     queue.prepareHelper({ id: helper.id, reason: helper.reason, plan: helper.plan }, "host-agent");
@@ -868,4 +869,35 @@ test("linked rollback cannot clear an unrelated failed helper receipt", async ()
     status: "failed",
     stage: "prepared",
   });
+});
+
+test("explicit helper delegation rechecks revocation after validation and never leaks private authority", async () => {
+  let activated: string | null = date;
+  const f = queueFixture({
+    maintenanceRequestsAfter: () => activated,
+    authority: () => digest,
+    cancellationDelayMs: 0,
+  });
+  await f.prepare();
+  f.setValidate(async () => {
+    activated = null;
+  });
+  await f.queue.drain();
+  expect(f.events).toEqual([]);
+  expect(f.queue.listHelpers()[0]?.status).toBe("rejected");
+  expect(f.queue.listHelpers()[0]).not.toHaveProperty("delegatedApproval");
+  expect(f.journal.read()[0]).toHaveProperty("delegatedApproval");
+});
+
+test("explicit helper delegation executes the validated plan only once", async () => {
+  const f = queueFixture({
+    maintenanceRequestsAfter: () => date,
+    authority: () => digest,
+    cancellationDelayMs: 0,
+  });
+  await f.prepare();
+  await f.queue.drain();
+  await f.queue.drain();
+  expect(f.events).toEqual(["helper"]);
+  expect(f.queue.listHelpers()[0]?.status).toBe("succeeded");
 });

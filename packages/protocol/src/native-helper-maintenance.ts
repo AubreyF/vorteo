@@ -1,3 +1,4 @@
+import { DelegatedMaintenanceApprovalSchema } from "./maintenance-approval.js";
 import { z } from "zod";
 
 export const NativeHelperConfigurationSchema = z.strictObject({
@@ -114,6 +115,7 @@ export const NativeHelperJobSchema = z.strictObject({
   recoveredBy: z.string().uuid().optional(),
   recoveryVerifiedAt: z.string().datetime().optional(),
   approvedAt: z.string().datetime().optional(),
+  delegatedApproval: DelegatedMaintenanceApprovalSchema.optional(),
   previousProcess: NativeHelperProcessIdentitySchema.nullable().optional(),
   installerExit: NativeHelperInstallerExitSchema.optional(),
   installerPid: z.number().int().positive().max(2147483647).optional(),

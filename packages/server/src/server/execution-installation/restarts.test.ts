@@ -5675,3 +5675,94 @@ test("degraded engine recovery can be cancelled before dispatch and binds the cu
   expect(calls).toBe(0);
   expect(queue.list()[0]?.status).toBe("rejected");
 });
+
+test("full maintenance delegation approves exact Factory work and revocation prevents any hold", async () => {
+  const plan = "c".repeat(64);
+  const calls: string[] = [];
+  let delegated: string | null = "2026-01-01T00:00:00Z";
+  const queue = new InstallationRestarts(
+    new MemoryJournal(),
+    {
+      factoryRuntimePlan: () => plan,
+      adoptFactoryRuntime: async () => {
+        calls.push("adopt");
+        return "ready";
+      },
+      restart: async () => "wrong",
+      restartWhenIdle: async () => "wrong",
+      holdCurrentTurns: async () => {
+        calls.push("hold");
+      },
+      releaseCurrentTurns: async () => {
+        calls.push("release");
+      },
+      inspect: async () => ({
+        target: "container-daemon",
+        checkedAt: new Date().toISOString(),
+        agents: [],
+        pendingStarts: 0,
+        idleRestartSupported: true,
+        gracefulRestartSupported: true,
+        error: null,
+      }),
+    },
+    Date.now,
+    { maintenanceRequestsAfter: () => delegated, cancellationDelayMs: 30_000 },
+  );
+  queue.request(
+    { target: "container-daemon", reason: "Adopt", factoryRuntimePlanSha256: plan },
+    "host-agent",
+  );
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("approved");
+  expect(calls).toEqual([]);
+  delegated = null;
+  await queue.drain();
+  // Existing cancellation performs an idempotent release, never a hold or adoption.
+  expect(calls).toEqual(["release"]);
+  expect(queue.list()[0]?.status).toBe("rejected");
+});
+
+test("delegated degraded recovery retains cancellation and never probes or holds unavailable Dev", async () => {
+  const sha = "e".repeat(64);
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  let now = 2000;
+  let calls = 0;
+  f.executor.engineRecoveryPlan = () => sha;
+  f.executor.recoverEngine = async () => {
+    calls++;
+    return "verified recovery";
+  };
+  const forbidden = async () => {
+    throw new Error("unavailable Dev must not be called");
+  };
+  f.executor.inspect = forbidden;
+  f.executor.holdCurrentTurns = forbidden;
+  f.executor.captureRestartContinuation = forbidden;
+  f.executor.guardDevRestart = forbidden;
+  const queue = new InstallationRestarts(f.journal, f.executor, () => now, {
+    ...f.policy,
+    maintenanceRequestsAfter: () => new Date(1000).toISOString(),
+    cancellationDelayMs: 30_000,
+  });
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Recover unavailable engine",
+    engineRecoveryPlanSha256: sha,
+  };
+  expect(() => queue.request(input, "container-agent")).toThrow("trusted Host");
+  queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({
+    status: "approved",
+    whenIdle: false,
+    finishCurrentTurns: false,
+  });
+  expect(calls).toBe(0);
+  now += 30_001;
+  await queue.drain();
+  expect(calls).toBe(1);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  await queue.drain();
+  expect(calls).toBe(1);
+});

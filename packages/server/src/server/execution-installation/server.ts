@@ -107,7 +107,14 @@ import { inspectContainerSource } from "./container-updates.js";
 import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationSourceUpdates } from "./source-updates.js";
 import { FactoryGate, factoryRestartClass } from "./factory-gate.js";
-import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./owner-delegation.js";
+import {
+  delegatedHandler,
+  changeMaintenanceDelegation,
+  maintenanceDelegationStatus,
+  maintenanceDelegationActivation,
+  readOwnerDelegation,
+  type OwnerDelegation,
+} from "./owner-delegation.js";
 
 /**
  * Status answers are reused this long unless a session host job changes. Each answer greets the
@@ -471,6 +478,10 @@ export function createInstallationServer(
       standingDecision: standingRuntime.standingDecision,
       serviceAuthority: standingRuntime.serviceAuthority,
       daemonRequestsAfter: (target) => daemonAutomation.activation(target),
+      maintenanceRequestsAfter: () =>
+        daemonAutomation.legacyPolicyAvailable()
+          ? maintenanceDelegationActivation(config.stateDir)
+          : null,
       supervisorRequestsAfter: () => daemonAutomation.activation("supervisor") ?? null,
       cancellationDelayMs: 30_000,
       hostUpdateServiceRestart: () => readOwnerDelegation(config.stateDir).hostUpdateServiceRestart,
@@ -482,6 +493,12 @@ export function createInstallationServer(
               host: config.hostAgentTokenHash,
               container: config.containerAgentTokenHash,
               policy: "host-only-service-permissions-v2",
+              ...(maintenanceDelegationActivation(config.stateDir)
+                ? {
+                    maintenanceApprovedAfter: maintenanceDelegationActivation(config.stateDir),
+                    owner: config.ownerPasswordHash,
+                  }
+                : {}),
               // Absent when off, so existing grants keep their authority.
               ...(readOwnerDelegation(config.stateDir).hostUpdateServiceRestart
                 ? { hostUpdateServiceRestart: true }
@@ -738,7 +755,7 @@ export function createInstallationServer(
       readiness: supervisorBlocker ? "blocked" : "ready",
       reason:
         supervisorBlocker ??
-        "The protected supervisor plan is available through the tracked queue. Only a separate supervisor permission can authorize it automatically.",
+        "The protected supervisor plan is available through the tracked queue. A separate supervisor permission or explicit full maintenance delegation can authorize it automatically.",
     };
   }
   async function coordinatorCapability() {
@@ -800,7 +817,12 @@ export function createInstallationServer(
       const recoveryBlocker = restarts.maintenanceBlocker(target);
       for (const requester of ["host-agent", "container-agent"] as const) {
         const automatic =
-          requester === "host-agent" && Boolean(daemonAutomation.effectiveActivation(target));
+          requester === "host-agent" &&
+          Boolean(
+            daemonAutomation.effectiveActivation(target) ||
+            (daemonAutomation.legacyPolicyAvailable() &&
+              maintenanceDelegationActivation(config.stateDir)),
+          );
         for (const operation of ["restart", "source-update"] as const) {
           let blocker: string | null = null;
           if (recoveryBlocker) blocker = recoveryBlocker;
@@ -866,11 +888,17 @@ export function createInstallationServer(
         : undefined;
     const supervisorPlan = advertisedPlan(operationFor("supervisorPlanSha256"));
     const permissions = daemonAutomation.servicePermissions();
+    const delegatedMaintenance =
+      host &&
+      daemonAutomation.legacyPolicyAvailable() &&
+      maintenanceDelegationActivation(config.stateDir) !== null;
     const automaticSupported = supportsAutomaticMaintenance(executor);
     // COMPAT(hostAutomaticRestarts): per-target permissions added v543; retain
     // the conservative aggregate until legacy capability clients retire after 2027-04-15.
     const automaticHost = Boolean(
-      permissions.host && permissions["container-daemon"] && automaticSupported && devReady,
+      (delegatedMaintenance || (permissions.host && permissions["container-daemon"])) &&
+      automaticSupported &&
+      devReady,
     );
     void (async () => {
       const monitorCompatible = host ? ((await executor.monitorCompatible?.()) ?? false) : false;
@@ -881,12 +909,14 @@ export function createInstallationServer(
           restart: target === "host" || devReady,
           ownerApprovalRequired: !(
             host &&
-            permissions[target] &&
+            (permissions[target] || delegatedMaintenance) &&
             automaticSupported &&
             (target === "host" || devReady)
           ),
           hostAutomaticRestarts: Boolean(
-            permissions[target] && automaticSupported && (target === "host" || devReady),
+            (permissions[target] || delegatedMaintenance) &&
+            automaticSupported &&
+            (target === "host" || devReady),
           ),
           sourceUpdate: await updateCapability(target),
         })),
@@ -900,13 +930,20 @@ export function createInstallationServer(
             ownerApprovalRequired: !automaticHost || !host,
             hostAutomaticRestarts: automaticHost,
             requireOwnerApproval: host,
+            maintenanceDelegation: {
+              available: host && daemonAutomation.legacyPolicyAvailable(),
+              enabled: delegatedMaintenance,
+            },
             maintenanceServices: {
               available: host && restarts.serviceMaintenanceAvailable(),
               operations: host ? restarts.serviceMaintenanceOperations() : [],
             },
             coordinatorMaintenance: {
               ...coordinator,
-              ownerApprovalRequired: !(host && daemonAutomation.activation("coordinator")),
+              ownerApprovalRequired: !(
+                host &&
+                (daemonAutomation.activation("coordinator") || delegatedMaintenance)
+              ),
             },
             previewMonitor: {
               available: Boolean(
@@ -915,7 +952,7 @@ export function createInstallationServer(
                 executor.installMonitor &&
                 monitorCompatible,
               ),
-              ownerApprovalRequired: true,
+              ownerApprovalRequired: !delegatedMaintenance,
             },
             nativeHelper: {
               available: Boolean(
@@ -924,11 +961,11 @@ export function createInstallationServer(
                 executor.installHelper &&
                 executor.verifyHelperRecovery,
               ),
-              ownerApprovalRequired: true,
+              ownerApprovalRequired: !delegatedMaintenance,
             },
             sessionHostJob: {
               available: host && restarts.sessionHostAvailable(),
-              ownerApprovalRequired: true,
+              ownerApprovalRequired: !delegatedMaintenance,
               // COMPAT(sessionHostRestart): clients send the restart operation only when this is set.
               restart: true,
             },
@@ -936,13 +973,13 @@ export function createInstallationServer(
               available: Boolean(supervisorPlan && executor.restartSupervisor),
               ownerApprovalRequired: !(
                 host &&
-                daemonAutomation.activation("supervisor") &&
+                (daemonAutomation.activation("supervisor") || delegatedMaintenance) &&
                 supportsAutomaticMaintenance(executor)
               ),
               ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
             },
-            // Reviewed plans advertise owner approval, as before; supervisor maintenance is above.
-            ...reviewedPlanCapabilities(advertisedPlan, executor),
+            // Exact plans retain manual review unless the owner grants full delegation.
+            ...reviewedPlanCapabilities(advertisedPlan, executor, delegatedMaintenance),
           }),
         next,
       );
@@ -1927,6 +1964,27 @@ export function createInstallationServer(
     coordinatorRequests?.revokeAutomatic();
     restarts.refreshApprovalPolicy();
     res.json({ ...preference, services: daemonAutomation.servicePermissions() });
+    void drainRestarts();
+  });
+  app.post("/api/installation/owner/maintenance-delegation/query", (_req, res) => {
+    const available = daemonAutomation.legacyPolicyAvailable();
+    const status = maintenanceDelegationStatus(config.stateDir);
+    res.json({
+      ...status,
+      available,
+      enabled: available && status.enabled,
+      activatedAt: available ? status.activatedAt : null,
+    });
+  });
+  app.post("/api/installation/owner/maintenance-delegation/change", (req, res) => {
+    if (!daemonAutomation.legacyPolicyAvailable())
+      throw new RestartRequestError(
+        "Enrolled installations require their exact standing maintenance grant.",
+      );
+    const status = changeMaintenanceDelegation(config.stateDir, req.body);
+    coordinatorRequests?.revokeAutomatic();
+    restarts.refreshApprovalPolicy();
+    res.json({ available: true, ...status });
     void drainRestarts();
   });
   app.post("/api/installation/owner/daemon-automation/query", (_req, res) => {

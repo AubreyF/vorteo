@@ -606,7 +606,44 @@ function RequestReadiness({
   );
 }
 
-function DaemonAutomationControl({
+function FullMaintenanceDelegation({
+  model,
+  state,
+}: {
+  model: InstallationPanelModel;
+  state: ReturnType<InstallationPanelModel["getState"]>;
+}) {
+  const delegation = state.maintenanceDelegation;
+  const change = useCallback(
+    () => void model.changeMaintenanceDelegation(!delegation?.enabled),
+    [model, delegation?.enabled],
+  );
+  if (!delegation?.available) return null;
+  return (
+    <View>
+      <Text style={styles.text}>
+        {delegation.enabled
+          ? "Full maintenance delegation is enabled."
+          : "Full maintenance delegation is off."}{" "}
+        Trusted Host requests can cover all supported updates, restarts and exact recovery plans.
+        Degraded Docker recovery may interrupt unknown work. Plan checks and cancellation remain;
+        failed operations stop for inspection.
+      </Text>
+      <Button
+        size="md"
+        disabled={state.busy || Boolean(state.maintenanceDelegationError)}
+        onPress={change}
+        testID="maintenance-delegation-change"
+      >
+        {delegation.enabled
+          ? "Revoke full maintenance delegation"
+          : "Delegate all supported maintenance"}
+      </Button>
+    </View>
+  );
+}
+
+export function DaemonAutomationControl({
   model,
   state,
 }: {
@@ -629,6 +666,7 @@ function DaemonAutomationControl({
   return (
     <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="daemon-automation-preference">
       <Text style={settingsStyles.rowTitle}>Automatic maintenance authorization</Text>
+      <FullMaintenanceDelegation model={model} state={state} />
       {(
         [
           [
@@ -660,8 +698,14 @@ function DaemonAutomationControl({
             label={label}
             explanation={explanation}
             model={model}
-            checked={Boolean(state.daemonAutomation?.services?.[service])}
-            disabled={state.busy || !state.daemonAutomation?.services}
+            checked={Boolean(
+              state.maintenanceDelegation?.enabled || state.daemonAutomation?.services?.[service],
+            )}
+            disabled={
+              state.busy ||
+              Boolean(state.maintenanceDelegation?.enabled) ||
+              !state.daemonAutomation?.services
+            }
             readiness={
               state.maintenanceStatus?.services?.find((item) => item.service === service)?.reason ??
               "Checking maintenance readiness..."
@@ -675,13 +719,18 @@ function DaemonAutomationControl({
           remain in effect.
         </Text>
       ) : null}
-      {state.daemonAutomation.legacyHostOnly ? (
+      {state.daemonAutomation.legacyHostOnly && !state.maintenanceDelegation?.enabled ? (
         <Text style={styles.text}>
           Existing Host-only daemon permissions are retained. Coordinator and supervisor permissions
           require their own opt-in.
         </Text>
       ) : null}
       <RequestReadiness status={state.maintenanceStatus} />
+      {state.maintenanceDelegationError ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {state.maintenanceDelegationError}
+        </Text>
+      ) : null}
       {state.daemonAutomationError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {state.daemonAutomationError}

@@ -38,6 +38,8 @@ export interface ReviewedRestartOperation {
   /** Names the plan in refusals: "<planLabel> is unavailable or changed". */
   planLabel: string;
   automatic?: RestartOperationAutomatic;
+  /** A separate full maintenance grant can approve this exact operation. */
+  delegable?: boolean;
   /** Unavailable work cannot be drained. Requires exact immediate interruption approval. */
   immediateOnly?: boolean;
   /** A worker launch request may accompany it. Omitted means refused. */
@@ -74,6 +76,7 @@ export interface ReviewedRestartOperation {
 export const RESTART_OPERATIONS: readonly ReviewedRestartOperation[] = [
   {
     field: "supervisorPlanSha256",
+    delegable: true,
     target: "container-daemon",
     label: "Supervisor maintenance",
     planLabel: "Supervisor maintenance plan",
@@ -88,6 +91,7 @@ export const RESTART_OPERATIONS: readonly ReviewedRestartOperation[] = [
   },
   {
     field: "factoryRuntimePlanSha256",
+    delegable: true,
     target: "container-daemon",
     label: "Factory adoption",
     planLabel: "Factory adoption plan",
@@ -116,6 +120,7 @@ export const RESTART_OPERATIONS: readonly ReviewedRestartOperation[] = [
   },
   {
     field: "engineRestartPlanSha256",
+    delegable: true,
     target: "container-daemon",
     label: "Docker restart",
     planLabel: "Docker restart plan",
@@ -136,6 +141,7 @@ export const RESTART_OPERATIONS: readonly ReviewedRestartOperation[] = [
   },
   {
     field: "engineRecoveryPlanSha256",
+    delegable: true,
     target: "container-daemon",
     label: "Degraded Docker recovery",
     planLabel: "Degraded Docker recovery plan",
@@ -156,6 +162,7 @@ export const RESTART_OPERATIONS: readonly ReviewedRestartOperation[] = [
   },
   {
     field: "hostLauncherPlanSha256",
+    delegable: true,
     target: "host",
     label: "Host launcher update",
     planLabel: "Host launcher update plan",
@@ -211,11 +218,16 @@ export function automaticPermitted(
   job: Pick<RestartJob, RestartPlanField>,
   standing: boolean,
   operations: readonly ReviewedRestartOperation[] = RESTART_OPERATIONS,
+  delegatedMaintenance = false,
 ): boolean {
   return operations.every((operation) => {
     if (!job[operation.field]) return true;
     const policy = automaticPolicy(operation);
-    return policy === "allowed" || (policy === "standing" && standing);
+    return (
+      policy === "allowed" ||
+      (policy === "standing" && standing) ||
+      (delegatedMaintenance && operation.delegable === true)
+    );
   });
 }
 
@@ -234,17 +246,18 @@ export function legacyOperationReplies(
 export function reviewedPlanCapabilities(
   advertisedPlan: (operation: ReviewedRestartOperation) => string | undefined,
   executor: RestartOperationExecutor,
+  delegatedMaintenance = false,
 ) {
   const capabilities: Record<
     string,
-    { available: boolean; ownerApprovalRequired: true; sha256?: string }
+    { available: boolean; ownerApprovalRequired: boolean; sha256?: string }
   > = {};
   for (const operation of RESTART_OPERATIONS) {
     if (!operation.legacyReply) continue;
     const plan = advertisedPlan(operation);
     capabilities[operation.capability] = {
       available: Boolean(plan && operation.run(executor)),
-      ownerApprovalRequired: true,
+      ownerApprovalRequired: !(delegatedMaintenance && operation.delegable),
       ...(plan ? { sha256: plan } : {}),
     };
   }

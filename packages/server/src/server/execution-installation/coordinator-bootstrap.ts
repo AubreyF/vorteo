@@ -353,6 +353,7 @@ function automaticRecoverySuccessor(
 function assertAutomaticCoordinatorPlan(
   plan: CoordinatorBootstrapPlan,
   preFreezeRecovery = false,
+  delegatedMaintenance = false,
 ): void {
   if (
     !plan.bootRecovery ||
@@ -363,13 +364,14 @@ function assertAutomaticCoordinatorPlan(
       "Automatic coordinator maintenance requires independent compatible recovery",
     );
   if (
-    plan.candidate.configuration.sha256 !== plan.previous.configuration.sha256 ||
     plan.compatibleRecovery.configuration.sha256 !== plan.previous.configuration.sha256 ||
     (plan.recoveredFrom && !preFreezeRecovery) ||
     plan.supervisionRecovery ||
-    plan.sourceUpdateTooling ||
-    plan.nativeHelperConfiguration !== undefined ||
-    plansConfigurationChange(plan)
+    (!delegatedMaintenance &&
+      (plan.candidate.configuration.sha256 !== plan.previous.configuration.sha256 ||
+        plan.sourceUpdateTooling ||
+        plan.nativeHelperConfiguration !== undefined ||
+        plansConfigurationChange(plan)))
   )
     throw new BootstrapRequestConflict(
       "Coordinator configuration, recovery successors and other service changes require exact owner review",
@@ -401,6 +403,7 @@ export class CoordinatorBootstrapRequests {
     private readonly verifyPreparedBytes: (plan: CoordinatorBootstrapPlan) => Promise<void>,
     private readonly now: () => number = Date.now,
     private readonly automaticAuthority: () => CoordinatorAutomaticAuthority | null = () => null,
+    private readonly delegatedMaintenance: () => boolean = () => false,
   ) {
     BindingSchema.parse(binding());
   }
@@ -532,6 +535,7 @@ export class CoordinatorBootstrapRequests {
     assertAutomaticCoordinatorPlan(
       request.plan,
       automaticRecoverySuccessor(request.plan, expected, this.journal),
+      this.delegatedMaintenance(),
     );
     await this.verifyApproval(request);
     this.requireSameBinding(binding, request.plan);
@@ -688,6 +692,11 @@ export class CoordinatorBootstrapRequests {
 
   private requireEligibleAutomaticDispatch(request: CoordinatorBootstrapRequest): void {
     const authority = this.requireAutomaticAuthority(request);
+    assertAutomaticCoordinatorPlan(
+      request.plan,
+      automaticRecoverySuccessor(request.plan, this.read(), this.journal),
+      this.delegatedMaintenance(),
+    );
     if (
       !request.automaticApproval ||
       !this.matchesAutomaticAuthority(request.automaticApproval, authority) ||

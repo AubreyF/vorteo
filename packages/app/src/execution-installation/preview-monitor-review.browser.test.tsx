@@ -7,7 +7,7 @@ import { InstallationPanelModel } from "./panel-model";
 import type { RestartDecision, RestartJob } from "@getpaseo/protocol/execution-installation";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { monitorReviewFixture } from "./preview-monitor-review.fixture";
-import { InstallationControls, RestartActions } from "./panel";
+import { DaemonAutomationControl, InstallationControls, RestartActions } from "./panel";
 
 const capture = vi.hoisted(() => ({
   model: undefined as InstallationPanelModel | undefined,
@@ -331,3 +331,92 @@ test.each([1280, 390])(
     }
   },
 );
+
+test("full maintenance delegation shows its scope and revokes on desktop and compact layouts", async () => {
+  vi.stubGlobal("React", React);
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const saved = {
+    available: true,
+    enabled: true,
+    revision: "a".repeat(64),
+    activatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  let changes = 0;
+  let delegationUnavailable = false;
+  const model = new InstallationPanelModel({
+    ...client,
+    daemonAutomation: async () => ({
+      revision: null,
+      enabled: false,
+      enabledAfter: null,
+      legacyHostOnly: false,
+      services: { host: null, "container-daemon": null, coordinator: null, supervisor: null },
+    }),
+    maintenanceDelegation: async () => {
+      if (delegationUnavailable) throw new Error("Delegation file protection changed");
+      return saved;
+    },
+    changeMaintenanceDelegation: async (preference, enabled) => {
+      changes++;
+      expect(preference.revision).toBe(saved.revision);
+      return { ...preference, enabled, activatedAt: null, revision: "b".repeat(64) };
+    },
+  });
+  const container = document.createElement("div");
+  container.style.cssText = "max-width:720px;margin:0 auto;padding:16px;box-sizing:border-box";
+  document.body.append(container);
+  const root = createRoot(container);
+  const render = () =>
+    act(() => root.render(<DaemonAutomationControl model={model} state={model.getState()} />));
+  try {
+    await act(() => model.initialize());
+    for (const width of [1280, 390]) {
+      await page.viewport(width, 1000);
+      render();
+      expect(container.textContent).toContain("Full maintenance delegation is enabled.");
+      expect(container.textContent).toContain("may interrupt unknown work");
+      const revoke = page.getByTestId("maintenance-delegation-change");
+      await expect.element(revoke).toBeVisible();
+      expect(revoke.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      expect(container.scrollWidth).toBeLessThanOrEqual(container.clientWidth);
+      expect(
+        page.getByTestId("maintenance-permission-host").element().getAttribute("aria-disabled"),
+      ).toBe("true");
+      await page.screenshot({
+        path: `../../../../output/playwright/full-maintenance-delegation-${width}.png`,
+        fullPage: true,
+      });
+      delegationUnavailable = true;
+      await act(() => model.refresh());
+      render();
+      await expect
+        .element(page.getByRole("alert"))
+        .toHaveTextContent("Delegation file protection changed");
+      expect(revoke.element().getAttribute("aria-disabled")).toBe("true");
+      expect(container.scrollWidth).toBeLessThanOrEqual(container.clientWidth);
+      await page.screenshot({
+        path: `../../../../output/playwright/full-maintenance-delegation-error-${width}.png`,
+        fullPage: true,
+      });
+      delegationUnavailable = false;
+      await act(() => model.refresh());
+      render();
+      await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+      expect(revoke.element().getAttribute("aria-disabled")).not.toBe("true");
+    }
+    await act(async () => {
+      await page.getByTestId("maintenance-delegation-change").click();
+    });
+    render();
+    expect(changes).toBe(1);
+    expect(container.textContent).toContain("Full maintenance delegation is off.");
+    expect(container.textContent).toContain("Existing service permissions are retained.");
+    expect(
+      page.getByTestId("maintenance-permission-host").element().getAttribute("aria-disabled"),
+    ).not.toBe("true");
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});

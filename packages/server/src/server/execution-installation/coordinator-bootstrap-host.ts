@@ -1,3 +1,4 @@
+import { maintenanceDelegationActivation } from "./owner-delegation.js";
 import { lstatSync, realpathSync } from "node:fs";
 import { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
 import { retainServiceFiles } from "./coordinator-bootstrap-maintenance-service-inspection.js";
@@ -112,6 +113,7 @@ export function createBootstrapReconciliationLedger(
       );
       return coordinatorAutomaticAuthority(config);
     },
+    () => maintenanceDelegationActivation(initial.stateDirectory) !== null,
   );
   return {
     list: () => requests.list(),
@@ -197,6 +199,7 @@ export async function createBootstrapReviewService(
       );
       return coordinatorAutomaticAuthority(config);
     },
+    () => maintenanceDelegationActivation(initial.stateDirectory) !== null,
   );
 }
 
