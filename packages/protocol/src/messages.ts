@@ -1024,6 +1024,9 @@ export const AgentSnapshotPayloadSchema = z.object({
   questions: z.array(AgentQuestionSchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
+  // True when the agent's provider session runs in the durable session host, so its turn survives
+  // a daemon restart. Optional on a non-strict schema: older daemons omit it, older clients ignore it.
+  hosted: z.boolean().optional(),
   id: z.string(),
   profile: z.object({ id: z.string(), name: z.string() }).optional(),
   quotaPausedAt: z.string().optional(),
@@ -4161,6 +4164,9 @@ export const ServerInfoStatusPayloadSchema = z
         installationProviderRemoval: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: z.boolean().optional(),
+        // COMPAT(localProjectConfig): added in Vorteo 2026-10, remove gate after 2027-04-22.
+        // The daemon merges untracked paseo.local.json script entries over paseo.json.
+        localProjectConfig: z.boolean().optional(),
       })
       .optional(),
   })

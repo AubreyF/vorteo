@@ -175,6 +175,8 @@ export const es: TranslationResources = {
     },
     errors: {
       failedToSend: "No se pudo enviar el mensaje",
+      connectionLostWhileSending:
+        "Se perdió la conexión al enviar. Comprueba si el mensaje llegó antes de reenviarlo.",
       failedToCreateAgent: "No se pudo crear el agente",
       noHostSelected: "Ningún anfitrión seleccionado",
       initialPromptRequired: "Se requiere aviso inicial",
@@ -312,6 +314,7 @@ export const es: TranslationResources = {
       archived: "Archivado",
       pending: "{{count}}pendiente",
       attention: "Atención",
+      hosted: "Sobrevive a reinicios",
     },
     archiveSheet: {
       hostOffline: "Hostfuera de línea",
@@ -1226,6 +1229,8 @@ export const es: TranslationResources = {
         openFolderFailed: "Couldn't open folder",
         remove: "Eliminar proyecto",
         removing: "Eliminando...",
+        removeBlockedSystem:
+          "Vorteo System contiene el código fuente y los espacios de trabajo de mantenimiento de esta instalación, así que no se puede quitar.",
       },
       confirmations: {
         removeTitle: "¿Quitar proyecto?",
@@ -2748,6 +2753,12 @@ export const es: TranslationResources = {
         imageUrl: "URL de imagen o sitio web",
         save: "Guardar cambios",
         savedToast: "Proyecto actualizado",
+        nameLockedSystem: "El daemon le da nombre a este proyecto, así que no se puede renombrar.",
+      },
+      system: {
+        title: "Acerca de Vorteo System",
+        description:
+          "Este proyecto sirve para hacer evolucionar esta instalación de Vorteo. Se basa en el checkout con el que se construyó la instalación y también contiene espacios de trabajo de mantenimiento que gestiona el daemon, como el Optimization Runner. El daemon lo vuelve a crear y depende de él, así que no se puede quitar ni renombrar.",
       },
       readFailures: {
         invalidTitle: "paseo.json no se pudo analizar",

@@ -20,6 +20,8 @@ interface CardDemand {
   compact?: boolean;
   /** Undefined for accessory rows, which do not participate in disclosure layout. */
   expanded?: boolean;
+  /** The owner dragged this card's height. */
+  fixed?: boolean;
 }
 
 /** Natural heights of collapsed tiles, which the row tracker measures. */
@@ -35,8 +37,8 @@ function gridDemands(
   rows: ReadonlyMap<string, number>,
 ): Map<string, CardGridDemand> {
   const grid = new Map<string, CardGridDemand>();
-  for (const [id, { height, compact, expanded }] of demands) {
-    grid.set(id, { height, expanded, row: compact ? rows.get(id) : undefined });
+  for (const [id, { height, compact, expanded, fixed }] of demands) {
+    grid.set(id, { height, expanded, fixed, row: compact ? rows.get(id) : undefined });
   }
   return grid;
 }
@@ -44,7 +46,13 @@ function gridDemands(
 interface CardColumnLayout {
   heights: ReadonlyMap<string, number>;
   allCollapsed: boolean;
-  measure: (id: string, height: number | null, compact?: boolean, expanded?: boolean) => void;
+  measure: (
+    id: string,
+    height: number | null,
+    compact?: boolean,
+    expanded?: boolean,
+    fixed?: boolean,
+  ) => void;
   onTileLayout: (id: string, event: LayoutChangeEvent) => void;
 }
 export const CardColumnContext = createContext<CardColumnLayout | null>(null);
@@ -63,19 +71,26 @@ export function CardColumn({ children }: { children: ReactNode }) {
     [schedule],
   );
   const measure = useCallback(
-    (id: string, demand: number | null, isCompact?: boolean, expanded?: boolean) => {
+    (
+      id: string,
+      demand: number | null,
+      isCompact?: boolean,
+      expanded?: boolean,
+      fixed?: boolean,
+    ) => {
       setDemands((previous) => {
         const before = previous.get(id);
         if (
           (before?.height === demand &&
             before?.compact === isCompact &&
-            before?.expanded === expanded) ||
+            before?.expanded === expanded &&
+            before?.fixed === fixed) ||
           (demand === null && !before)
         )
           return previous;
         const next = new Map(previous);
         if (demand === null) next.delete(id);
-        else next.set(id, { height: demand, compact: isCompact, expanded });
+        else next.set(id, { height: demand, compact: isCompact, expanded, fixed });
         return next;
       });
     },

@@ -12,12 +12,15 @@ import type { SessionHostLockState } from "../session-host/host-files.js";
 import {
   bootoutJob,
   bootstrapJob,
+  kickstartJob,
   LaunchctlError,
   printJob,
   renderSessionHostPlist,
   runLaunchdCommand,
+  signalJob,
   type CommandRunner,
 } from "../session-host/launchd.js";
+import { SESSION_HOST_RESTART_MARKER_NAME } from "../session-host/host-files.js";
 import { hostLaunchdService, type InstallationConfig } from "./config.js";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap-errors.js";
 
@@ -28,6 +31,13 @@ export const SESSION_HOST_STATUS_RELEASE = "installation-coordinator-status";
 
 /** An install must see the new host answer within this. */
 const INSTALL_ANSWER_DEADLINE_MS = 60_000;
+/**
+ * A restart must see a new host answer within this: the old host's shutdown deadline, launchd's
+ * restart throttle and the new host's start all fit well inside it.
+ */
+export const RESTART_ANSWER_DEADLINE_MS = 90_000;
+/** A host still answering under its old pid this long after SIGTERM is killed, once verified. */
+const RESTART_FORCE_AFTER_MS = 45_000;
 /**
  * The workers' alive window. A host that has not answered for this long, with the setting off,
  * has had every hosted session declared lost by its workers, so stopping it is safe.
@@ -52,6 +62,8 @@ export interface SessionHostAnswer {
   pid: number;
   release?: string;
   sessions: number;
+  /** Hosted sessions by provider id, when the host listed them. */
+  providers?: Record<string, number>;
 }
 
 /** Every effect the job has, so tests run without launchctl or a live installation. */
@@ -201,6 +213,7 @@ export async function deriveSessionHostPlan(input: {
     const rendered = renderPlannedPlist(SessionHostPlanSchema.parse(planned));
     return SessionHostPlanSchema.parse({ ...partial, plistSha256: digest(rendered) });
   }
+  // Remove and restart bind the plist that exists now, so a changed job is never acted on.
   const existing = await ports.readFile(plistPath);
   return SessionHostPlanSchema.parse({
     ...partial,
@@ -411,12 +424,169 @@ export async function removeSessionHost(input: {
     await ports.sleep(500);
   }
   await ports.removeFile(plan.plistPath);
+  // A marker left by an interrupted restart would make workers wait for a host that never comes.
+  await ports.removeFile(restartMarkerPath(plan));
   return {
     detail: forced
       ? "The session host did not answer for five minutes with the setting off, so it was stopped and its job removed."
       : "The session host job is removed.",
     forced,
   };
+}
+
+/**
+ * Restarts the host on the installed release. Every hosted turn is interrupted: the providers die
+ * with the host and each worker continues its agents on the new host once it answers. The restart
+ * marker written first tells workers that the host is returning, since a stopped host leaves no
+ * socket or lock behind; the new host removes the marker once it listens, and a failed restart
+ * removes it here. The job itself is untouched: launchd relaunches it under the same plist.
+ */
+export async function restartSessionHost(input: {
+  plan: SessionHostPlan;
+  ports: SessionHostPorts;
+  reportStage(stage: "applying" | "verifying"): void;
+}): Promise<{
+  detail: string;
+  host: { pid: number; release?: string };
+  previousHost?: SessionHostAnswer;
+}> {
+  const { plan, ports } = input;
+  const job = await assertRestartable(plan, ports);
+  const reply = await ports.queryHost(plan.paseoHome);
+  const before = reply === "refused" ? null : reply;
+  input.reportStage("applying");
+  const marker = restartMarkerPath(plan);
+  await ports.writePrivateFile(
+    marker,
+    JSON.stringify({ requestedAt: new Date(ports.now()).toISOString(), pid: before?.pid ?? null }),
+  );
+  try {
+    await stopForRestart(plan, job.pid, ports);
+    input.reportStage("verifying");
+    const replaced = await awaitReplacementHost(plan, ports, job.pid);
+    if (replaced) {
+      return {
+        detail: restartDetail(job.pid, before, replaced.answer, replaced.forced),
+        host: {
+          pid: replaced.answer.pid,
+          ...(replaced.answer.release ? { release: replaced.answer.release } : {}),
+        },
+        ...(before ? { previousHost: before } : {}),
+      };
+    }
+  } finally {
+    await ports.removeFile(marker).catch(() => {});
+  }
+  throw new SessionHostJobError(
+    "The session host did not answer under a new process within 90 seconds. launchd keeps relaunching the job; inspect its status and log.",
+  );
+}
+
+function restartMarkerPath(plan: SessionHostPlan): string {
+  return path.join(plan.paseoHome, "session-host", SESSION_HOST_RESTART_MARKER_NAME);
+}
+
+/**
+ * Stops the running host through launchd, or starts the job when nothing runs. A host that exits
+ * at idle between the job read and the signal makes the kill fail; launchd relaunches it under
+ * KeepAlive, so that failure is treated like a job with no process.
+ */
+async function stopForRestart(
+  plan: SessionHostPlan,
+  pid: number | null,
+  ports: SessionHostPorts,
+): Promise<void> {
+  if (pid !== null) {
+    try {
+      await signalJob(plan.label, "SIGTERM", launchdOptions(ports));
+      return;
+    } catch (error) {
+      if (!(error instanceof LaunchctlError)) throw error;
+    }
+  }
+  await kickstartJob(plan.label, launchdOptions(ports)).catch((error: unknown) => {
+    // Already running again: the relaunch beat the kickstart, which is the outcome wanted.
+    if (!(error instanceof LaunchctlError)) throw error;
+  });
+}
+
+/** The loaded job a restart may act on; every refusal names what to do instead. */
+async function assertRestartable(
+  plan: SessionHostPlan,
+  ports: SessionHostPorts,
+): Promise<{ pid: number | null }> {
+  if (plan.operation !== "session-host-restart")
+    throw new SessionHostJobError("This plan does not restart the session host.");
+  if (plan.serviceDomain !== `gui/${ports.uid}`)
+    throw new SessionHostJobError("The plan belongs to another user's launchd domain.");
+  const existing = await ports.readFile(plan.plistPath);
+  if (!existing || plan.plistSha256 === null)
+    throw new SessionHostJobError(
+      "The session host job is not installed, so there is nothing to restart.",
+    );
+  if (digest(existing) !== plan.plistSha256)
+    throw new SessionHostJobError(
+      "The session host plist changed. Prepare and review a new request.",
+    );
+  const job = await readLaunchdJob(plan.label, ports);
+  if (!job)
+    throw new SessionHostJobError(
+      "The session host job is not loaded. Remove it and install it again from Installation controls.",
+    );
+  if (!(await ports.exists(plan.entrypoint)))
+    throw new SessionHostJobError(
+      "The selected release has no session host. Install a release that includes it first.",
+    );
+  return job;
+}
+
+/**
+ * Waits for a host under a new pid that launchd also reports. A host that keeps answering under
+ * the old pid past its own shutdown deadline is killed once its command is verified; launchd
+ * relaunches it either way. Null when nothing new answered within the deadline.
+ */
+async function awaitReplacementHost(
+  plan: SessionHostPlan,
+  ports: SessionHostPorts,
+  oldPid: number | null,
+): Promise<{ answer: SessionHostAnswer; forced: boolean } | null> {
+  const startedAt = ports.now();
+  let forced = false;
+  for (;;) {
+    const current = await ports.queryHost(plan.paseoHome);
+    const answer = current === "refused" ? null : current;
+    const loaded = answer ? await readLaunchdJob(plan.label, ports) : null;
+    if (answer && loaded?.pid === answer.pid && answer.pid !== oldPid) return { answer, forced };
+    const elapsed = ports.now() - startedAt;
+    if (elapsed >= RESTART_ANSWER_DEADLINE_MS) return null;
+    if (!forced && oldPid !== null && answer?.pid === oldPid && elapsed >= RESTART_FORCE_AFTER_MS) {
+      const command = await ports.processCommand(oldPid);
+      if (command?.includes("session-host-entrypoint")) {
+        ports.kill(oldPid, "SIGKILL");
+        forced = true;
+      }
+    }
+    await ports.sleep(1_000);
+  }
+}
+
+function restartDetail(
+  oldPid: number | null,
+  before: SessionHostAnswer | null,
+  answer: SessionHostAnswer,
+  forced: boolean,
+): string {
+  const release = (host: SessionHostAnswer | null) =>
+    host?.release ? ` on release ${host.release}` : "";
+  const sessions = before
+    ? `with ${before.sessions} hosted session${before.sessions === 1 ? "" : "s"}`
+    : "while not answering, so its hosted sessions are unknown";
+  const how = forced ? ", by force after ignoring the stop" : "";
+  return (
+    `The session host restarted: process ${oldPid ?? "unknown"}${release(before)} stopped ` +
+    `${sessions}${how}, and process ${answer.pid}${release(answer)} answers. ` +
+    "Interrupted turns continue on the new host."
+  );
 }
 
 /** Waits for the host process to exit, then SIGKILLs it if it is still the session host. */
@@ -487,6 +657,7 @@ export async function inspectSessionHost(input: {
   const home = config.host.startupValidation?.home;
   const reply = home && job ? await ports.queryHost(home) : null;
   const answer = reply === "refused" ? null : reply;
+  const installedRelease = current ? await readInstalledRelease(current, ports) : undefined;
   return {
     supported,
     installed,
@@ -497,17 +668,46 @@ export async function inspectSessionHost(input: {
       pid: job?.pid ?? null,
       lastExitStatus: job?.lastExitStatus ?? null,
       runs: job?.runs ?? null,
-      host: answer
-        ? {
-            pid: answer.pid,
-            ...(answer.release ? { release: answer.release } : {}),
-            sessions: answer.sessions,
-          }
-        : null,
+      host: describeHost(answer),
+      ...(installedRelease ? { installedRelease } : {}),
       settingEnabled: home ? await ports.settingEnabled(home) : false,
       observedAt: new Date(ports.now()).toISOString(),
     },
   };
+}
+
+const SESSION_HOST_APPLIERS = {
+  "session-host-install": installSessionHost,
+  "session-host-remove": removeSessionHost,
+  "session-host-restart": restartSessionHost,
+} satisfies Record<SessionHostOperation, unknown>;
+
+/** The host as the status reports it: identity, release and sessions, by provider when listed. */
+function describeHost(
+  answer: SessionHostAnswer | null,
+): NonNullable<SessionHostStatus["detail"]>["host"] {
+  if (!answer) return null;
+  return {
+    pid: answer.pid,
+    ...(answer.release ? { release: answer.release } : {}),
+    sessions: answer.sessions,
+    ...(answer.providers ? { providers: answer.providers } : {}),
+  };
+}
+
+/** The server package version under the current release link, which a new host would run. */
+async function readInstalledRelease(
+  current: string,
+  ports: SessionHostPorts,
+): Promise<string | undefined> {
+  const manifest = await ports.readFile(path.join(current, "packages/server/package.json"));
+  if (!manifest) return undefined;
+  try {
+    const version = (JSON.parse(manifest.toString("utf8")) as { version?: unknown }).version;
+    return typeof version === "string" && version.length <= 200 ? version : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The coordinator's session host operations over the given effects. */
@@ -522,10 +722,12 @@ export function createSessionHostExecutor(input: {
     applySessionHost: (
       job: SessionHostJob,
       reportStage: (stage: "applying" | "verifying") => void,
-    ): Promise<{ detail: string; host?: SessionHostJob["host"]; forced?: boolean }> =>
-      job.operation === "session-host-install"
-        ? installSessionHost({ plan: job.plan, ports, reportStage })
-        : removeSessionHost({ plan: job.plan, ports, reportStage }),
+    ): Promise<{
+      detail: string;
+      host?: SessionHostJob["host"];
+      previousHost?: SessionHostJob["previousHost"];
+      forced?: boolean;
+    }> => SESSION_HOST_APPLIERS[job.operation]({ plan: job.plan, ports, reportStage }),
     inspectSessionHost: (detail: boolean) => inspectSessionHost({ config, ports, detail }),
   };
 }

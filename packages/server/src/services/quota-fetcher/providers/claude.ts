@@ -134,14 +134,18 @@ interface ScopedLimit {
   resetsAt: string | null;
 }
 
+const FIVE_HOURS_MS = 5 * 60 * 60_000;
+const WEEK_MS = 7 * 24 * 60 * 60_000;
+
 // Windows that describe no particular model or surface.
 const UNSCOPED_WINDOWS: ReadonlyArray<{
   field: "five_hour" | "seven_day";
   id: string;
   label: string;
+  windowMs: number;
 }> = [
-  { field: "five_hour", id: "five_hour", label: "Session" },
-  { field: "seven_day", id: "weekly", label: "Weekly" },
+  { field: "five_hour", id: "five_hour", label: "Session", windowMs: FIVE_HOURS_MS },
+  { field: "seven_day", id: "weekly", label: "Weekly", windowMs: WEEK_MS },
 ];
 
 // Scoped windows from before `limits[]` existed. Declaring the dimension here is what
@@ -282,6 +286,7 @@ function unscopedWindows(resp: ClaudeUsageResponse): ProviderUsageWindow[] {
         label: spec.label,
         utilizationPct: window.utilization,
         resetsAt: window.resets_at ?? null,
+        windowMs: spec.windowMs,
         tone: toneFromUsedPct(window.utilization),
       }),
     );
@@ -301,6 +306,7 @@ function scopedWindows(limits: ScopedLimit[]): ProviderUsageWindow[] {
       label: `Weekly \u00b7 ${limit.name}`,
       utilizationPct: limit.usedPct,
       resetsAt: limit.resetsAt,
+      windowMs: WEEK_MS,
       tone: toneFromUsedPct(limit.usedPct),
     });
   });

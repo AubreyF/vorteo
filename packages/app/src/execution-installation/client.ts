@@ -85,6 +85,15 @@ export interface InstallationClientPorts {
 
 export class OwnerAccessExpired extends Error {}
 export class InstallationRouteUnavailable extends Error {}
+/** A coordinator reply that was not OK, with its HTTP status for callers that branch on it. */
+export class InstallationRequestFailed extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 
 export class InstallationClient {
   private password: string | null = null;
@@ -288,8 +297,12 @@ export class InstallationClient {
           jobs: z.array(SessionHostJobSchema),
           // Null when the coordinator could not inspect the job; its jobs still need decisions.
           status: SessionHostStatusSchema.nullable(),
+          // COMPAT(sessionHostRestart): absent from coordinators without the restart operation.
+          restartSupported: z.boolean().optional(),
         })
-        .parse(await this.request("session-host/query", {}));
+        // The flags declare what this interface can parse: restart jobs and the hosted indicator.
+        // Older coordinators ignore them; newer ones withhold those additions from clients without them.
+        .parse(await this.request("session-host/query", { restart: true, indicator: true }));
       this.sessionHostSupported = true;
       return overview;
     } catch (error) {
@@ -562,6 +575,7 @@ export async function requestInstallationOwner(
       "dev-repair/query",
       "session-host/query",
       "instruction-requests/query",
+      "claude/oauth/read",
     ].includes(path) &&
     response.ok &&
     !response.headers.get("content-type")?.includes("application/json")
@@ -578,8 +592,9 @@ export async function requestInstallationOwner(
     const detail = z
       .object({ error: z.string().max(2000) })
       .safeParse(await response.json().catch(() => null));
-    throw new Error(
+    throw new InstallationRequestFailed(
       detail.success ? detail.data.error : `Installation request failed (${response.status})`,
+      response.status,
     );
   }
   return response.json();

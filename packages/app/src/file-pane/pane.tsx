@@ -400,7 +400,6 @@ function FilePanePresentation({
     }
   }, [downloadFile, filename, readTarget]);
   const canDownload = readTarget !== null;
-  const canDownloadImage = canDownload && preview?.kind === "image";
   const downloading = useDownloadStore((state) =>
     Array.from(state.downloads.values()).some(
       (download) =>
@@ -439,6 +438,8 @@ function FilePanePresentation({
         isMobile={isMobile}
         location={location}
         navigationRevision={navigationRevision}
+        onDownload={onDownload}
+        downloading={downloading}
       />
     );
   }
@@ -469,7 +470,7 @@ function FilePanePresentation({
         <FilePanelBar
           size={preview.size}
           textContent={preview.kind === "text" ? (preview.content ?? "") : undefined}
-          onDownload={canDownloadImage ? onDownload : undefined}
+          onDownload={canDownload ? onDownload : undefined}
           downloading={downloading}
           lineCount={lineCount}
           mode={previewMode}
@@ -505,6 +506,8 @@ function EditableFilePane({
   isMobile,
   location,
   navigationRevision,
+  onDownload,
+  downloading,
 }: {
   client: DaemonClient;
   cwd: string;
@@ -520,6 +523,9 @@ function EditableFilePane({
   isMobile: boolean;
   location: WorkspaceFileLocation;
   navigationRevision: number;
+  // Downloads the saved file on disk; unsaved editor changes are not included.
+  onDownload: () => void;
+  downloading: boolean;
 }) {
   const { settings } = useAppSettings();
   const { t } = useTranslation();
@@ -632,6 +638,8 @@ function EditableFilePane({
         }
         lineCount={snapshot.content.split("\n").length}
         textContent={snapshot.content}
+        onDownload={onDownload}
+        downloading={downloading}
         editorStatus={snapshot.status}
         cursor={showSource ? cursor : undefined}
         vimMode={showSource ? vimMode : null}

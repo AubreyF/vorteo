@@ -120,3 +120,10 @@ app.json
 
 # Heap snapshots dumped by --heapsnapshot-near-heap-limit; keep them for debugging.
 *.heapsnapshot
+
+# Machine-local script overrides merged over paseo.json; preview launch wrappers live here.
+paseo.local.json
+# Task preview artifacts and Vitest browser failure captures.
+/.runtime/
+.vitest-attachments/
+__screenshots__/

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { Text, View, type LayoutChangeEvent } from "react-native";
 import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,23 @@ import { ThemePreviewArtwork } from "./theme-preview-artwork";
 import { InterfaceZoomControl } from "./interface-zoom-control";
 
 const previewDataset = { ptheme: true };
+
+// Freed's bubble geometry: resting pills lift on hover, and the selected
+// theme stands as a circle-like capsule that fills the row height.
+function bubbleHeight(selected: boolean, lifted: boolean, compact: boolean): number {
+  if (selected) return compact ? 35.2 : 38.4;
+  if (lifted) return compact ? 26.4 : 28.8;
+  return compact ? 17.6 : 19.2;
+}
+
+// Hover deepens the blurred drop shadow; the selected theme gets a ring and glow.
+function bubbleShadow(selected: boolean, lifted: boolean, ring: string): string {
+  if (selected) {
+    return `0 0 0 2px rgba(0,0,0,0.28), 0 0 0 4px color-mix(in srgb, ${ring} 68%, transparent), 0 10px 24px rgba(0,0,0,0.18), 0 0 28px color-mix(in srgb, ${ring} 32%, transparent)`;
+  }
+  if (lifted) return "0 0 0 1px rgba(255,255,255,0.1), 0 10px 24px rgba(0,0,0,0.22)";
+  return "0 0 0 1px rgba(255,255,255,0.04), 0 0 0 rgba(0,0,0,0)";
+}
 
 interface ThemePreviewCardProps {
   compact?: boolean;
@@ -42,6 +59,8 @@ function ThemePreviewCard({
   const hovered = useRef(false);
   const focused = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [lifted, setLifted] = useState(false);
+  const [surfaceWidth, setSurfaceWidth] = useState(48);
   const clearTimer = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
@@ -67,20 +86,27 @@ function ThemePreviewCard({
   const enter = useCallback(() => {
     hovered.current = true;
     if (touch || pending) return;
+    setLifted(true);
     clearTimer();
     timer.current = setTimeout(() => preview(appearance.id), 180);
   }, [appearance.id, clearTimer, pending, preview, touch]);
   const focus = useCallback(() => {
     focused.current = true;
-    if (!touch && !pending) preview(appearance.id);
+    if (touch || pending) return;
+    setLifted(true);
+    preview(appearance.id);
   }, [appearance.id, pending, preview, touch]);
   const leave = useCallback(() => {
     hovered.current = false;
-    if (!focused.current) stopPreview();
+    if (focused.current) return;
+    setLifted(false);
+    stopPreview();
   }, [stopPreview]);
   const blur = useCallback(() => {
     focused.current = false;
-    if (!hovered.current) stopPreview();
+    if (hovered.current) return;
+    setLifted(false);
+    stopPreview();
   }, [stopPreview]);
   const commit = useCallback(() => {
     clearTimer();
@@ -90,40 +116,51 @@ function ThemePreviewCard({
   if (!option || !("theme" in option)) throw new Error("Missing built-in theme");
   const palette = option.theme.colors;
   const compact = forceCompact || width < 640;
-  const activeHeight = compact ? 35.2 : 38.4;
-  const restingHeight = compact ? 17.6 : 19.2;
-  const swatchHeight = selected ? activeHeight : restingHeight;
+  const swatchHeight = bubbleHeight(selected, lifted, compact);
   const accessibilityState = useMemo(() => ({ selected, disabled: pending }), [pending, selected]);
-  const cardStyle = useMemo(() => [styles.card, { width: compact ? 48 : 56 }], [compact]);
+  const measure = useCallback(
+    (event: LayoutChangeEvent) => setSurfaceWidth(Math.round(event.nativeEvent.layout.width)),
+    [],
+  );
   const fillStyle = useMemo(
     () => [
       styles.swatch,
       {
-        width: compact ? 48 : 56,
         height: swatchHeight,
         borderColor: selected ? palette.ring : "rgba(255,255,255,0.42)",
+        opacity: selected || lifted ? 1 : 0.9,
       },
       inlineUnistylesStyle({
         backgroundColor: palette.accent,
-        ...(isWeb ? { backgroundImage: appearance.previewGradient } : {}),
+        ...(isWeb
+          ? {
+              backgroundImage: appearance.previewGradient,
+              transform: [{ scale: lifted ? 1.05 : 1 }],
+              boxShadow: bubbleShadow(selected, lifted, palette.ring),
+            }
+          : {}),
       }),
     ],
-    [appearance.previewGradient, compact, palette.accent, palette.ring, selected, swatchHeight],
+    [appearance.previewGradient, lifted, palette.accent, palette.ring, selected, swatchHeight],
   );
   // Button children are text. Keep graphics outside that wrapper so native text
   // layout cannot squeeze the swatch width.
   const swatch = useMemo(
     () => (
-      <View style={fillStyle} testID={`theme-preview-surface-${appearance.id}`}>
+      <View
+        style={fillStyle}
+        onLayout={isWeb ? undefined : measure}
+        testID={`theme-preview-surface-${appearance.id}`}
+      >
         <ThemePreviewArtwork
           appearance={appearance.id}
-          width={compact ? 48 : 56}
+          width={surfaceWidth}
           height={swatchHeight}
         />
         <View style={styles.sheen} />
       </View>
     ),
-    [appearance.id, compact, fillStyle, swatchHeight],
+    [appearance.id, fillStyle, measure, surfaceWidth, swatchHeight],
   );
   return (
     <View
@@ -136,7 +173,7 @@ function ThemePreviewCard({
         <TooltipTrigger asChild>
           <Button
             variant="ghost"
-            style={cardStyle}
+            style={styles.card}
             onPress={commit}
             onFocus={focus}
             onBlur={blur}
@@ -233,20 +270,43 @@ export function ThemePreviewGrid({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  controls: { maxWidth: "100%", flexShrink: 1 },
-  grid: { flexWrap: "wrap", flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
-  hoverTarget: { position: "relative" },
+  controls: { width: "100%", maxWidth: 376, flexShrink: 1, gap: 12 },
+  // One row of equal columns, as in Freed's view menu. Bubbles shrink with the
+  // container instead of wrapping onto a second line.
+  grid: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 44,
+    paddingHorizontal: 4,
+  },
+  hoverTarget: { position: "relative", flex: 1, minWidth: 0 },
   card: {
+    width: "100%",
+    minWidth: 0,
     padding: 0,
     borderWidth: 0,
     borderRadius: 25,
     height: 44,
     minHeight: 44,
-    alignItems: "center",
+    alignItems: "stretch",
     justifyContent: "center",
     backgroundColor: "transparent",
   },
-  swatch: { width: "100%", borderRadius: 24, borderWidth: 1.5, overflow: "hidden" },
+  swatch: {
+    width: "100%",
+    borderRadius: 24,
+    borderWidth: 1.5,
+    overflow: "hidden",
+    ...(isWeb
+      ? {
+          backdropFilter: "blur(18px)",
+          transitionProperty: "height, transform, box-shadow, opacity",
+          transitionDuration: "240ms",
+          transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+        }
+      : {}),
+  },
   sheen: {
     position: "absolute",
     left: 4,

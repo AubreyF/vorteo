@@ -165,13 +165,49 @@ export type LifecycleWriteAdmission = (
   next: readonly LifecycleJob[],
 ) => undefined;
 
+/** How long a writer waits for another process to release the journal lock.
+ * Holders only read or replace small files, but under heavy Host load the
+ * coordinator loop and daemon status reads held it often enough that owner
+ * decisions failed outright when the lock refused immediately. */
+export const BOOTSTRAP_LOCK_WAIT_MS = 3000;
+
+// flock conflicts between descriptors of one process too, so a nested use
+// can never succeed by waiting. Refuse it at once instead of blocking.
+const locksHeldByThisProcess = new Set<string>();
+
+function bootstrapStorageBusy(): BootstrapRequestConflict {
+  return new BootstrapRequestConflict(
+    "Bootstrap storage is busy. Refresh after its writer settles.",
+  );
+}
+
+const BOUNDED_FLOCK = [
+  "import fcntl, sys, time",
+  "deadline = time.monotonic() + float(sys.argv[1])",
+  "delay = 0.01",
+  "while True:",
+  "    try:",
+  "        fcntl.flock(3, fcntl.LOCK_EX | fcntl.LOCK_NB)",
+  "        break",
+  "    except BlockingIOError:",
+  "        if time.monotonic() >= deadline:",
+  "            sys.exit(75)",
+  "        time.sleep(delay)",
+  "        delay = min(delay * 2, 0.25)",
+].join("\n");
+
 /** Serializes bootstrap claims and lifecycle admission through one protected lock. */
 export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
   private readonly file: string;
   private readonly lock: string;
   private readonly pendingFile: string;
+  private readonly lockWaitMs: number;
 
-  constructor(private readonly directory: string) {
+  constructor(
+    private readonly directory: string,
+    options: { lockWaitMs?: number } = {},
+  ) {
+    this.lockWaitMs = options.lockWaitMs ?? BOOTSTRAP_LOCK_WAIT_MS;
     this.checkDirectory();
     this.file = path.join(directory, "coordinator-bootstrap.json");
     this.lock = path.join(directory, "coordinator-bootstrap.lock");
@@ -811,6 +847,16 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
 
   private withLock<T>(operation: () => T): T {
     this.checkDirectory();
+    if (locksHeldByThisProcess.has(this.lock)) throw bootstrapStorageBusy();
+    locksHeldByThisProcess.add(this.lock);
+    try {
+      return this.withProcessLock(operation);
+    } finally {
+      locksHeldByThisProcess.delete(this.lock);
+    }
+  }
+
+  private withProcessLock<T>(operation: () => T): T {
     const lock = this.openLock();
     try {
       this.acquireLock(lock);
@@ -872,15 +918,14 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
       // Python is already a native bootstrap dependency. Passing descriptor 3
       // shares its open file description, so the parent retains flock after the
       // helper exits. No service operation or credential enters this helper.
+      // The helper polls with backoff up to the wait budget, then exits 75.
       execFileSync(
         "/usr/bin/python3",
-        ["-I", "-B", "-c", "import fcntl; fcntl.flock(3, fcntl.LOCK_EX | fcntl.LOCK_NB)"],
-        { stdio: ["ignore", "ignore", "pipe", descriptor], timeout: 5000 },
+        ["-I", "-B", "-c", BOUNDED_FLOCK, String(this.lockWaitMs / 1000)],
+        { stdio: ["ignore", "ignore", "pipe", descriptor], timeout: this.lockWaitMs + 5000 },
       );
     } catch {
-      throw new BootstrapRequestConflict(
-        "Bootstrap storage is busy. Refresh after its writer settles.",
-      );
+      throw bootstrapStorageBusy();
     }
   }
 

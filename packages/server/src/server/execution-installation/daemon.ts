@@ -244,6 +244,9 @@ export function createInstallationRestartExecutor(
   config: InstallationConfig,
   assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
   logger?: Pick<Logger, "info" | "warn">,
+  // Read-only inspection may use a shared connection; see daemon-connections.ts.
+  connectForInspection: (kind: ExecutionEnvironmentKind) => Promise<DaemonClient> = (kind) =>
+    connectInstallationDaemon(config, kind),
 ): RestartExecutor {
   const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   function retainedHeldRestart(job: RestartJob) {
@@ -501,10 +504,7 @@ export function createInstallationRestartExecutor(
       return reportRestartTimeout(config, "container-daemon");
     },
     async inspect(target): Promise<RestartImpact> {
-      const client = await connectInstallationDaemon(
-        config,
-        target === "host" ? "host" : "container",
-      );
+      const client = await connectForInspection(target === "host" ? "host" : "container");
       try {
         const features = client.getLastServerInfoMessage()?.features;
         const idleRestartSupported = features?.idleRestart === true;

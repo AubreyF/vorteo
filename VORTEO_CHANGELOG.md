@@ -5,6 +5,410 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.773 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.772 - 2026-10-22
+
+### Maintenance
+
+- Merge installation platform batch 2: web builds stop leaking disk and clone a shared dependency install, journal writers wait briefly for the bootstrap lock, and the coordinator shares daemon connections
+
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Fixed
+
+- The installation coordinator no longer opens a fresh Host daemon connection for every settings, profile and restart-impact check. It opened about 1.4 a second, 33,723 in six and a half hours on 2026-10-22, and each one made the daemon run a full hello and session sync. Those periodic reads now share one connection per environment, replaced when it drops and closed after a minute unused. Restart, hold and update operations keep fresh connections because they must observe a new daemon.
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Fixed
+
+- Automatic coordinator updates no longer fail when another process briefly holds the installation journal lock. This morning's automatic coordinator update failed at its promotion step for exactly this reason: the lock refused at once, and the coordinator's own two-second loop and Host status reads hold it often under load. Journal writers now wait up to three seconds with backoff before reporting the journal busy, so owner and Nova decisions stop failing the same way. Nested use within one process still refuses at once.
+- Web build pruning runs in a detached, low-priority process instead of inside the build. Deleting the roughly 300 leftover builds took over an hour and would have stalled the next build. `scripts/prune-instance-builds.mjs` runs the same cleanup by hand, and a lock keeps concurrent builds from repeating it.
+
+### Maintenance
+
+- The restart test "new requests cannot join a restart after dispatch starts" asked too early: since the queue began releasing finished holds before dispatching, a request made in the same tick still joins the approved restart, as designed. The test now waits for dispatch to begin.
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Fixed
+
+- Web builds no longer leave about 3 GB behind each. Once the export is sealed, a build deletes its source snapshot and dependencies and keeps only the export; a failed build deletes its whole directory. Each build also prunes abandoned builds and exports beyond the newest five or older than a week, skipping any build whose process is still running. 345 leftover builds filled the Host disk on 2026-10-22.
+
+### Changed
+
+- On macOS, task worktrees, workspace setup and web builds clone a cached dependency install of the same lockfile with APFS copy-on-write instead of running a full `npm ci`. Each checkout still gets its own `node_modules`, so workspace packages resolve inside it, and clones use almost no extra disk. Our own version bumps do not invalidate the cache. A cache miss or failed clone runs `npm ci` as before; `VORTEO_DEPENDENCY_CACHE=0` turns the cache off.
+
+## 0.11.0-beta.3.vorteo.771 - 2026-10-22
+
+### Maintenance
+
+- Merge the full Claude sign-in choice for installation accounts (hidden until the coordinator runs Host refresh and every environment supports it)
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Fixed
+
+- Offer Full sign-in for a new Claude account only when the coordinator positively confirms its Host-refresh routes. A maintenance reply, network failure or missing route now hides the choice, so no account is created with a sign-in type the installation cannot refresh.
+- Stop recomputing the environment list on every render of the Add Claude account sheet.
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Added
+
+- Add Claude account in an installation offers a Sign-in type choice: Full sign-in (usage visible, the Host keeps the sign-in fresh for Host and Dev) or Setup token. The choice appears only when the coordinator has Host-owned refresh enabled and every environment's daemon supports full sign-in, because older daemons reject shared settings that carry it.
+- Full sign-in accounts use the coordinator's Host-refresh sign-in routes. Their panel names the signed-in Claude account and asks for sign-in again when the Host loses the grant.
+- An existing setup-token account cannot be converted; add a new full sign-in account instead. Host-owned refresh remains off until the installation enables it.
+
+## 0.11.0-beta.3.vorteo.770 - 2026-10-22
+
+### Maintenance
+
+- Merge the published web interface source so the Host update descends from it
+
+## 0.11.0-beta.3.vorteo.762 - 2026-10-22
+
+### Maintenance
+
+- Merge GitHub main, including the fix that keeps sent messages cleared after a connection drop, into the live interface source, which already carries the sidebar card spacing changes. Entries from both lines keep their original version labels.
+
+## 0.11.0-beta.3.vorteo.769 - 2026-10-22
+
+### Maintenance
+
+- Merge the Nova bridge MCP handshake fix
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Fixed
+
+- Let the Nova bridge accept the standard MCP initialize handshake used by OpenAI's Secure MCP Tunnel client. Initialize, ping, tool listing and tool calls are served statelessly behind the same bearer token; modern requests keep their existing path.
+- Answer OAuth metadata probes with a plain 404 before authentication, so the tunnel client recognizes the bridge as a server without OAuth instead of reporting broken metadata.
+- Proactive events remain available only to modern protocol clients. Live ChatGPT connection and revocation acceptance remain open. This ports the fix tested on 2026-10-20 (`vorteo.556` on an unpublished branch) onto current main unchanged.
+
+## 0.11.0-beta.3.vorteo.768 - 2026-10-22
+
+### Maintenance
+
+- Merge durable sessions phase 2 with its client compatibility fix: tracked session host restart, detached-turn durability and the hosted indicator
+
+## 0.11.0-beta.3.vorteo.761 - 2026-10-22
+
+### Fixed
+
+- Older interfaces keep working with a coordinator that knows session host restarts and the hosted indicator. They parse the owner's session host query strictly, so the coordinator now sends restart jobs and the stopped host's record only to an interface that declares restart support, and the installed release and per-provider counts only to one that declares the indicator; a client that sends an empty query gets exactly the shape it always parsed. The interface also treats a session host query it cannot parse like any other card failure: the card keeps its last state and shows the error, and the restart and helper lists with their approval buttons still load.
+
+### Validation
+
+- A contract test freezes the pre-change strict schemas and checks that, with a finished restart job in the ledger and the new status fields present, an empty query parses with them while a query declaring both flags parses with the current schemas and carries everything; declaring one flag withholds only the other addition. A panel model test covers the query failure leaving the rest of Installation controls intact.
+
+## 0.11.0-beta.3.vorteo.760 - 2026-10-22
+
+### Features
+
+- Agents whose provider session runs in the durable session host are marked: the agent snapshot carries an optional hosted flag, and the agent list shows a "Survives restarts" badge beside them, so the owner can tell at a glance which turns a daemon restart will not interrupt. Older daemons omit the flag and older interfaces ignore it.
+- The session host status in Installation controls and the Host client now names the installed release beside the host's own release, and breaks hosted sessions down by provider, so a host still running an older release than the installation is visible.
+
+### Validation
+
+- Tests cover the hosted flag on the agent payload for hosted, local and sessionless agents, the status fields and their display, and every locale carries the new badge label.
+
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Fixed
+
+- A hosted turn that finishes while no worker is attached, as during a long Host update or a slow restart, no longer loses the end of its output. The next worker used to close such a session as idle at startup without ever applying the events recorded after the previous worker's last acknowledgement. It now adopts a session that still holds unapplied events, loads the agent, applies them, and leaves the session hosted and idle. Found by the isolated end-to-end suite running under heavy machine load, where the gap between workers outlasted the scripted turn.
+
+### Validation
+
+- A unit test covers a turn that ends during the worker gap and shows its final text reaching the next worker's timeline. The end-to-end wait for a turn now names the agent's status and chunk list when it times out.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Validation
+
+- The hosted session suite covers a marked session host restart whose new host already holds the lock but does not listen yet: the worker keeps waiting and the session opens in the host, which closes the one path the independent review found untested.
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Fixed
+
+- Independent review follow-ups for the tracked session host restart: the owner query reports restart support only to an app that asks for it, so an older interface that parses the reply strictly keeps working; the restart marker is removed with the job and ignored once it is older than a restart could take, so an interrupted restart cannot leave workers waiting for a host that never comes; a marked restart keeps waiting while its new host is between taking its lock and listening; a stop that finds no running process falls back to starting the job; the restart detail says when the stopped host was not answering; and the interruption warning shows only when a restart can be requested.
+
+### Validation
+
+- Unit tests cover the marker's age limit, its removal with the job, the opt-in owner query field, and the corrected texts. The session host job, workflow, connector, hosted session and service suites pass, as do the app review and client suites.
+
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Features
+
+- Installation controls and the Host client can request a tracked session host restart. The coordinator plans it like install and removal, the owner approves the exact plan, and the restart stops the host through launchd and waits for a new process on the installed release, killing a host that ignores the stop once verified. The request names how many hosted turns it interrupts; each continues on the new host because the worker waits on a restart marker the coordinator writes and the new host removes. This is how a session host moves to a newer release, which a Host update alone never does.
+
+### Validation
+
+- Unit tests cover the restart through a fake launchd, a host that ignores the stop, a replacement that never answers, the refusals, the worker's wait on the restart marker, the host removing the marker at start, the client's capability gate and the owner-facing texts. A new end-to-end scenario performs the coordinator's steps against a real launchd job: the marker, the stop signal, and the interrupted turn's continuation opening on the new host. The ledger suite has one failure that predates this change and reproduces with it reverted.
+
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Maintenance
+
+- Merge the multi-provider Quotas card and usage pace projection
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Added
+
+- Claude and Codex usage windows now carry a pace projection. When the average rate since a window opened would exhaust it before its reset, the window reports when it runs out. Projections start once a tenth of the window, and at least 15 minutes, has passed.
+
+### Changed
+
+- The left sidebar's quota card is titled Quotas when more than one account reports and shows every enforced window as its own remaining-percent bar, plus a bar for each balance with a known limit. Each reset shows its absolute date, time and time zone with a countdown; hovering shows the same moment in UTC.
+- Each account shows its plan, running agent count, the profile selector's Reconnect or reset-credit control, provider details and its sign-in source. A Limiting tag marks the window that will stop work first, and code review is labeled as a separate allowance.
+- Accounts that are failing, below 15% or on pace to run out open expanded; healthy accounts collapse to one summary line. Each account remembers being opened or closed on the device.
+- Known limitation: pace projections cover Claude and Codex only, because other providers do not report their window length.
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Maintenance
+
+- Merge GitHub main and the removal of the floating update notice
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Changed
+
+- Remove the floating "Vorteo update available" notice. The interface no longer polls GitHub in the background; Settings → General still shows how this build compares with main and offers Check now.
+
+## 0.11.0-beta.3.vorteo.763 - 2026-10-22
+
+### Changed
+
+- Vorteo :: Builds is the only writer of shared state. AGENTS.md defines the handoff, and the installation client's request commands, web builds for publication, publish-main and pushes to main refuse to run outside Builds (VORTEO_BUILDS=1), guarding against accidental parallel writes. The coordinator's own interface publication step is unaffected, and the client keeps its check inline so copied clients still run on their own.
+
+## 0.11.0-beta.3.vorteo.762 - 2026-10-22
+
+### Fixed
+
+- The agent guide and installation-maintenance skill no longer tell every agent that restarts need the owner's own click. Approval decisions are automatic where the owner's policy allows, otherwise made by the owner or by the installation lead the owner has delegated approvals to, and other agents hand requests to that lead. Shared instruction changes stay with the owner. Agents had been routing Dev updates to the owner because of the old wording.
+
+## 0.11.0-beta.3.vorteo.761 - 2026-10-22
+
+### Maintenance
+
+- Merge GitHub main again (installers write the System checkout setting, new workspaces branch from origin when local main is only behind) so the Host update still contains everything on main. The installation-maintenance skill keeps main's rewrite, with the client sentence updated for invalid contributions.
+
+## 0.11.0-beta.3.vorteo.760 - 2026-10-22
+
+### Maintenance
+
+- Merge the published web interface source (owners drag card heights and answer Yes beside the recommendation) so the Host update descends from the published web commit. Label `vorteo.758` exists on both lines; both notes are kept.
+
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Maintenance
+
+- Merge GitHub main (sidebar global cards below navigation, file preview downloads, Vorteo System as an ordinary project backed by its checkout) into the reviewed Host contribution that ports three Dev-only fixes and reports invalid source batch contributions. Labels `vorteo.756` and `vorteo.757` exist on both lines; both sets of notes are kept.
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Fixed
+
+- The installation agent tool reports invalid source batch contributions as well as conflicting ones, naming the requester and the rejection, so a batch blocked by an invalid contribution (such as a release-note heading the coordinator refused) no longer looks silently pending. The installation-maintenance skill says to ask the owning task to correct a contribution that is not yours.
+
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Fixed
+
+- Port three fixes that shipped only to Dev (source `0a4ab444`, 2026-10-19 and 2026-10-20) to the Host source, so GitHub main carries everything Dev runs: schedule ticks no longer overlap or admit stale work, schedule tick admission waits are bounded, and Codex workers accept the read-only Factory qualifier workspace profile.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- # Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+  > > > > > > > > > Temporary merge branch 2
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- # Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+  > > > > > > > > > Temporary merge branch 2
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
+## 0.11.0-beta.3.vorteo.764 - 2026-10-22
+
+### Changed
+
+- Restyle the theme and zoom controls after Freed's view menu. The six theme bubbles share one row; hovering one makes it taller with a soft shadow, and the selected theme stands as a circle. Zoom shows its percentage beside the label and keeps the smaller step, slider and larger step inside one bordered group.
+- Cmd or Ctrl with plus, minus and zero now change Vorteo's interface zoom instead of the browser's, so toolbars reflow instead of cropping. The desktop View menu does the same.
+- Block browser pinch zoom on phones and tablets. It cropped the toolbars without reflowing them; use the Zoom control instead.
+
+## 0.11.0-beta.3.vorteo.763 - 2026-10-22
+
+### Maintenance
+
+- Merge the live interface source (resizable cards, the Open questions Yes button and mobile card spacing) into main, so the next Host update keeps everything already published. That branch labelled its entries `vorteo.758` and `vorteo.759`, which main also used for different commits; both historical entries are kept.
+
+## 0.11.0-beta.3.vorteo.762 - 2026-10-22
+
+### Fixed
+
+- Submitting the first message in a new agent draft no longer leaves the Environment, Account and Profile picker above the composer while the message already shows at the top. The picker tucks into the composer as the message fades up into place, comes back if creation fails, and never appears for a draft opened mid-launch. Reduced-motion settings skip the animation.
+
+## 0.11.0-beta.3.vorteo.761 - 2026-10-22
+
+### Fixed
+
+- Stop sent messages from bouncing back into the composer when a slow connection drops mid-send. When the reply is lost after the message left the client, such as after "Liveness check timed out", the composer now waits up to a minute for the reconnected timeline. It clears the draft if the host received the message, and otherwise restores it with "Connection lost while sending" instead of the raw timeout.
+
+## 0.11.0-beta.3.vorteo.760 - 2026-10-22
+
+### Fixed
+
+- New workspaces no longer start from a stale local branch. When a request names `main` or another unqualified branch, the daemon fetches `origin/main` and branches from it if the local branch is only behind; a local branch with unpushed commits still wins. The primary checkout had sat 865 commits behind because all work is pushed from other worktrees.
+
+### Added
+
+- The daemon merges script entries from an untracked `paseo.local.json` over `paseo.json` and advertises this as `localProjectConfig`, which `paseo daemon status --json` reports. Project settings still edit `paseo.json` alone.
+- The preview helper writes its launch wrapper to `paseo.local.json` when the daemon supports it, so starting a preview no longer dirties a shared checkout. Older daemons keep the previous `paseo.json` write. The HTTPS broker reads the merged configuration. The installed helper and broker need reinstalling to use this.
+
+### Maintenance
+
+- The agent guide treats the primary checkout as read-only. Git ignores `paseo.local.json`, `.runtime/`, Vitest attachments and browser test screenshots.
+
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Added
+
+- Write the Vorteo System checkout setting from the installers. The Host installer records the checkout it runs from and the installed commit. Dev update setup records the same checkout as the container sees it, or explains why it cannot. `install-execution-host.mjs configure-system-source --root <root>` updates both for existing installations, keeping every other setting.
+
+### Fixed
+
+- Correct the installation-maintenance skill and agent guidance: Host-originated restarts and source updates are approved automatically for both Host and Dev when the owner's policy allows it, while Dev-originated requests, mixed batches and listed request types stay manual. The skill now explains how to follow an automatic decision and what a coordinator recovery refusal means.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Fixed
+
+- On mobile, the sidebar's Open questions and Quota cards keep the 8px card gap from the list above and from the sync notice, restart banner or footer below, instead of touching the banner.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Maintenance
+
+- Merge the file preview Download change from GitHub main into the live interface source, which already carries the sidebar cards change. Both commits used `vorteo.756`; both historical entries are kept.
+
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Changed
+
+- On desktop, the left sidebar's Open questions and Quota cards now sit below the navigation card as separate cards instead of nesting inside it. The mobile sidebar keeps them in its full-height sheet.
+
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Changed
+
+- Show Download in the file preview toolbar for every file, not only images, placed immediately after Copy all. Editable text files download the saved copy on disk; unsaved edits are not included. Binary previews keep their larger Download button in the body.
+
 ## 0.11.0-beta.3.vorteo.755 - 2026-10-22
 
 ### Maintenance
