@@ -56,7 +56,8 @@ import type {
   ScheduleFormState,
 } from "@/schedules/schedule-form-model";
 import { validateCron } from "@/utils/schedule-format";
-import { toErrorMessage } from "@/utils/error-messages";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { getDeviceTimeZone } from "@/utils/device-timezone";
 
 export interface ScheduleFormSheetProps {
@@ -409,6 +410,7 @@ function OpenScheduleFormSheet({
     return true;
   }, [createSchedule, mode, persistPreferences, schedule, state, updateSchedule]);
 
+  const reportActionError = useReportActionError();
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) {
       return;
@@ -421,9 +423,18 @@ function OpenScheduleFormSheet({
         onClose();
       }
     } catch (error) {
-      model.setSubmitError(toErrorMessage(error));
+      if (isConnectionError(error)) reportActionError(error);
+      else model.setSubmitError(toErrorMessage(error));
     }
-  }, [canSubmit, model, onClose, state.targetKind, submitAgentTarget, submitNewAgent]);
+  }, [
+    canSubmit,
+    model,
+    onClose,
+    reportActionError,
+    state.targetKind,
+    submitAgentTarget,
+    submitNewAgent,
+  ]);
 
   const handleSubmitPress = useCallback(() => {
     void handleSubmit();

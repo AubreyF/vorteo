@@ -8,7 +8,7 @@ import {
   rmSync,
   statSync,
 } from "fs";
-import { copyFile, rm, stat } from "fs/promises";
+import { copyFile, readFile, rm, stat } from "fs/promises";
 import { join, basename, dirname, isAbsolute, resolve, sep } from "path";
 import net from "node:net";
 import { createHash } from "node:crypto";
@@ -17,7 +17,7 @@ import {
   buildStringCommandShellInvocation,
   createStringCommandShellEnv,
 } from "./string-command-shell.js";
-import { readPaseoConfigJson, resolvePaseoConfigPath } from "./paseo-config-file.js";
+import { readEffectivePaseoConfigJson, resolvePaseoConfigPath } from "./paseo-config-file.js";
 export {
   PaseoConfigRawSchema,
   PaseoLifecycleCommandRawSchema,
@@ -41,6 +41,8 @@ import {
 import { runGitCommand } from "./run-git-command.js";
 import { spawnProcess } from "./spawn.js";
 import { resolvePaseoHome } from "../server/paseo-home.js";
+import { logicalProjectsPath } from "../server/projects-folder.js";
+import { writeFileAtomic } from "../server/atomic-file.js";
 import { createExternalProcessEnv } from "../server/paseo-env.js";
 import { parseGitRevParsePath, resolveGitRevParsePath } from "./git-rev-parse-path.js";
 import { expandTilde, getRealpathAwareRelativePath, isPathInsideRoot } from "./path.js";
@@ -259,7 +261,7 @@ export type ReadPaseoConfigResult =
 
 export function readPaseoConfig(repoRoot: string): ReadPaseoConfigResult {
   try {
-    const json = readPaseoConfigJson(repoRoot);
+    const json = readEffectivePaseoConfigJson(repoRoot);
     if (json === null) {
       return { ok: true, config: null };
     }
@@ -846,16 +848,31 @@ function deriveShortAlphanumericHash(value: string): string {
   return hashValue.toString(36).padStart(13, "0").slice(0, WORKTREE_PROJECT_HASH_LENGTH);
 }
 
-export async function deriveWorktreeProjectHash(cwd: string): Promise<string> {
+/** The repository's real path, before any Projects folder alias maps it to its logical form. */
+async function resolveWorktreeProjectRealPath(cwd: string): Promise<string> {
   try {
-    const commonDir = await getGitCommonDir(cwd);
-    const normalizedCommonDir = normalizePathForOwnership(commonDir);
-    const repoRoot =
-      basename(normalizedCommonDir) === ".git" ? dirname(normalizedCommonDir) : normalizedCommonDir;
-    return deriveShortAlphanumericHash(repoRoot);
+    const commonDir = realPathOrResolved(await getGitCommonDir(cwd));
+    return basename(commonDir) === ".git" ? dirname(commonDir) : commonDir;
   } catch {
-    return deriveShortAlphanumericHash(normalizePathForOwnership(cwd));
+    return realPathOrResolved(cwd);
   }
+}
+
+/** Hashes the logical repository path, so the Host and Dev agree on a project's worktrees. */
+export async function deriveWorktreeProjectHash(cwd: string): Promise<string> {
+  return deriveShortAlphanumericHash(
+    logicalProjectsPath(await resolveWorktreeProjectRealPath(cwd)),
+  );
+}
+
+/** The current hash, then the hash an alias path produced before the folder had aliases. */
+async function deriveWorktreeProjectHashes(cwd: string): Promise<string[]> {
+  const realPath = await resolveWorktreeProjectRealPath(cwd);
+  const hashes = [
+    deriveShortAlphanumericHash(logicalProjectsPath(realPath)),
+    deriveShortAlphanumericHash(realPath),
+  ];
+  return [...new Set(hashes)];
 }
 
 export function resolvePaseoWorktreesBaseRoot(options?: WorktreeRootOptions): string {
@@ -870,6 +887,16 @@ export function resolvePaseoWorktreesBaseRoot(options?: WorktreeRootOptions): st
 
   const home = options?.paseoHome ? resolve(options.paseoHome) : resolvePaseoHome();
   return join(home, "worktrees");
+}
+
+/**
+ * The configured worktrees root, then the default it replaced. Worktrees created before
+ * the root moved (for example into the Projects folder) keep their Paseo ownership.
+ */
+export function resolvePaseoWorktreesBaseRoots(options?: WorktreeRootOptions): string[] {
+  const primary = resolvePaseoWorktreesBaseRoot(options);
+  const previous = resolvePaseoWorktreesBaseRoot({ paseoHome: options?.paseoHome });
+  return primary === previous ? [primary] : [primary, previous];
 }
 
 export async function getPaseoWorktreesRoot(
@@ -922,12 +949,17 @@ export function mapWorkspaceRelativeCwdToWorktree(input: {
   return mappedCwd;
 }
 
-function normalizePathForOwnership(input: string): string {
+function realPathOrResolved(input: string): string {
   try {
     return realpathSync(input);
   } catch {
     return resolve(input);
   }
+}
+
+/** The real path, in its logical form when it is under a Projects folder alias. */
+function normalizePathForOwnership(input: string): string {
+  return logicalProjectsPath(realPathOrResolved(input));
 }
 
 function resolveRepoRootFromGitCommonDir(commonDir: string): string {
@@ -958,36 +990,26 @@ export async function isPaseoOwnedWorktreeCwd(
     }
   }
 
-  const worktreesBaseRoot = resolvePaseoWorktreesBaseRoot(options);
-  const relativePath = getRealpathAwareRelativePath(worktreesBaseRoot, resolvedCwd);
-
   // Ownership is defined by the path living under <worktrees-root>/<hash>/<slug>[/...].
   // The <hash>/<slug> prefix is Paseo-private — nothing else writes there — so the
   // path shape alone is sufficient proof of ownership, even when git has already
   // forgotten about the worktree.
-  if (relativePath === null) {
+  for (const worktreesBaseRoot of resolvePaseoWorktreesBaseRoots(options)) {
+    const relativePath = getRealpathAwareRelativePath(worktreesBaseRoot, resolvedCwd);
+    const parts = relativePath?.split(sep).filter((part) => part.length > 0) ?? [];
+    if (parts.length < 2) continue;
+    const worktreesRoot = join(worktreesBaseRoot, parts[0]);
     return {
-      allowed: false,
+      allowed: true,
       ...(repoRoot !== undefined ? { repoRoot } : {}),
-      worktreePath: resolvedCwd,
+      worktreeRoot: worktreesRoot,
+      worktreePath: join(worktreesRoot, parts[1]),
     };
   }
-
-  const parts = relativePath.split(sep).filter((part) => part.length > 0);
-  if (parts.length < 2) {
-    return {
-      allowed: false,
-      ...(repoRoot !== undefined ? { repoRoot } : {}),
-      worktreePath: resolvedCwd,
-    };
-  }
-
-  const worktreesRoot = join(worktreesBaseRoot, parts[0]);
   return {
-    allowed: true,
+    allowed: false,
     ...(repoRoot !== undefined ? { repoRoot } : {}),
-    worktreeRoot: worktreesRoot,
-    worktreePath: join(worktreesRoot, parts[1]),
+    worktreePath: resolvedCwd,
   };
 }
 
@@ -1051,7 +1073,11 @@ export async function listPaseoWorktrees({
   paseoHome?: string;
   worktreesRoot?: string;
 }): Promise<PaseoWorktreeInfo[]> {
-  const projectWorktreesRoot = await getPaseoWorktreesRoot(cwd, paseoHome, worktreesRoot);
+  const projectHashes = await deriveWorktreeProjectHashes(cwd);
+  const projectWorktreesRoots = resolvePaseoWorktreesBaseRoots({
+    paseoHome,
+    worktreesRoot,
+  }).flatMap((baseRoot) => projectHashes.map((projectHash) => join(baseRoot, projectHash)));
   const { stdout } = await runGitCommand(["worktree", "list", "--porcelain"], {
     cwd,
     envOverlay: READ_ONLY_GIT_ENV,
@@ -1059,7 +1085,12 @@ export async function listPaseoWorktrees({
 
   return parseWorktreeList(stdout)
     .map((entry) => Object.assign({}, entry, { path: normalizePathForOwnership(entry.path) }))
-    .filter((entry) => getRealpathAwareRelativePath(projectWorktreesRoot, entry.path) !== null)
+    .filter((entry) =>
+      projectWorktreesRoots.some(
+        (projectWorktreesRoot) =>
+          getRealpathAwareRelativePath(projectWorktreesRoot, entry.path) !== null,
+      ),
+    )
     .map((entry) =>
       Object.assign({}, entry, { createdAt: resolveWorktreeCreatedAtIso(entry.path) }),
     );
@@ -1109,10 +1140,14 @@ export async function deletePaseoWorktree({
   const resolvedWorktree =
     ownership.allowed && ownership.worktreePath ? ownership.worktreePath : resolvedRequested;
 
-  const relativeWorktreePath = getRealpathAwareRelativePath(
-    resolvedWorktreesRoot,
-    resolvedWorktree,
-  );
+  // A worktree made under the previous default root belongs to that root.
+  const owningWorktreesRoot =
+    ownership.allowed &&
+    ownership.worktreeRoot &&
+    getRealpathAwareRelativePath(resolvedWorktreesRoot, resolvedWorktree) === null
+      ? ownership.worktreeRoot
+      : resolvedWorktreesRoot;
+  const relativeWorktreePath = getRealpathAwareRelativePath(owningWorktreesRoot, resolvedWorktree);
   if (relativeWorktreePath === null || relativeWorktreePath === "") {
     throw new Error("Refusing to delete non-Vorteo worktree");
   }
@@ -1242,6 +1277,7 @@ export const createWorktree = async ({
     timeout: 120_000,
   });
   worktreePath = normalizePathForOwnership(finalWorktreePath);
+  await rewriteWorktreeLinksToLogicalPaths(worktreePath);
 
   if (sourcePlan.pushRemote) {
     await configureWorktreePushRemote({
@@ -1285,6 +1321,34 @@ export const createWorktree = async ({
         : (sourcePlan.metadataBaseRef ?? sourcePlan.metadataBaseRefName),
   };
 };
+
+/**
+ * Git records a linked worktree's two link files with real paths: `<worktree>/.git` says
+ * `gitdir: <admin dir>`, and `<admin dir>/gitdir` names `<worktree>/.git`. Inside a Dev
+ * container that reaches the Projects folder through an alias those are paths the Host
+ * cannot open, so both are rewritten to the logical path, which resolves in both
+ * environments. Relative links and links outside the folder's aliases are left alone.
+ */
+export async function rewriteWorktreeLinksToLogicalPaths(worktreePath: string): Promise<void> {
+  const adminDir = await rewriteGitdirLink(join(worktreePath, ".git"));
+  if (adminDir) await rewriteGitdirLink(join(adminDir, "gitdir"));
+}
+
+/** Rewrites one link file in place and returns the absolute path it points to. */
+async function rewriteGitdirLink(linkFile: string): Promise<string | null> {
+  const content = await readFile(linkFile, "utf8").catch((error: NodeJS.ErrnoException) => {
+    // A main checkout's .git is a directory, not a link.
+    if (error.code === "EISDIR" || error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (content === null) return null;
+  const prefix = content.startsWith("gitdir: ") ? "gitdir: " : "";
+  const target = content.slice(prefix.length).trim();
+  if (!isAbsolute(target)) return resolve(dirname(linkFile), target);
+  const logical = logicalProjectsPath(target);
+  if (logical !== target) await writeFileAtomic(linkFile, `${prefix}${logical}\n`);
+  return logical;
+}
 
 interface ResolveWorktreeSourcePlanOptions {
   cwd: string;
@@ -1691,7 +1755,13 @@ async function resolveBaseBranchForWorktree(
     }
   }
 
-  const candidates = [`refs/heads/${requested}`, `refs/remotes/origin/${requested}`, requested];
+  const localRef = `refs/heads/${requested}`;
+  const originRef = `refs/remotes/origin/${requested}`;
+  if ((await gitRefExists(cwd, localRef)) && (await gitRefExists(cwd, originRef))) {
+    return resolveLocalOrFresherOriginBase(cwd, localRef, originRef);
+  }
+
+  const candidates = [localRef, originRef, requested];
   for (const candidate of candidates) {
     try {
       await runGitCommand(["rev-parse", "--verify", candidate], { cwd });
@@ -1701,6 +1771,33 @@ async function resolveBaseBranchForWorktree(
     }
   }
   throw new Error(`Base branch not found: ${normalized}`);
+}
+
+async function gitRefExists(cwd: string, ref: string): Promise<boolean> {
+  try {
+    await runGitCommand(["rev-parse", "--verify", "--quiet", ref], { cwd });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// An unqualified base such as "main" prefers the local branch so unpushed local commits are kept.
+// Nothing advances a local branch that only falls behind (a primary checkout whose work is pushed
+// from other worktrees), so new workspaces would silently start from an old commit. When the local
+// branch is strictly behind the freshly fetched remote ref, branch from the remote ref instead.
+async function resolveLocalOrFresherOriginBase(
+  cwd: string,
+  localRef: string,
+  originRef: string,
+): Promise<string> {
+  await refreshRemoteTrackingBaseRef(cwd, originRef);
+  const { stdout } = await runGitCommand(
+    ["rev-list", "--left-right", "--count", `${localRef}...${originRef}`],
+    { cwd },
+  );
+  const [localOnly, originOnly] = stdout.trim().split(/\s+/).map(Number);
+  return localOnly === 0 && originOnly > 0 ? originRef : localRef;
 }
 
 // Clients give up on a create request after 60s. A remote that accepts the connection and never

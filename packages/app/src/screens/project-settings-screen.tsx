@@ -32,6 +32,7 @@ import { EditingTextInput as TextInput } from "@/components/ui/text-input";
 import { SettingsTextAreaCard } from "@/components/settings-textarea";
 import { SettingsGroup } from "@/components/settings/headings/settings-group";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
+import { ProjectExclusionsSection } from "@/execution-installation/project-exclusions";
 import { settingsStyles } from "@/styles/settings";
 import { useProjects } from "@/hooks/use-projects";
 import type { ProjectEditFormSnapshot } from "@/projects/edit-form";
@@ -41,6 +42,8 @@ import { useHostRuntimeClient, useHostRuntimeSnapshot } from "@/runtime/host-run
 import { useHostFeature } from "@/runtime/host-features";
 import { useToast } from "@/contexts/toast-context";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError, useResetOnReconnect } from "@/hooks/use-action-error";
 import {
   applyDraftToConfig,
   configToDraft,
@@ -224,15 +227,15 @@ function ProjectSettingsBody({
     retry: false,
   });
   const refetchProjectConfig = readQuery.refetch;
-  useFocusEffect(
-    useCallback(() => {
-      void refetchProjectConfig();
-    }, [refetchProjectConfig]),
-  );
+  const reloadProjectConfig = useCallback(() => {
+    void refetchProjectConfig();
+  }, [refetchProjectConfig]);
+  useFocusEffect(reloadProjectConfig);
+  useResetOnReconnect(selectedHost.serverId, reloadProjectConfig);
 
   const data = readQuery.data;
   const supportsCustomIcon = useHostFeature(selectedHost.serverId, "projectCustomIcon");
-  // The daemon owns the System project's name and icon.
+  // The daemon owns the System project's name; its icon stays the operator's choice.
   const systemProject = useIsSystemProject(selectedHost.serverId, selectedHost.projectId);
   const customIconRevision = selectedHost.customIconRevision ?? null;
   const projectIconTargets = useMemo(() => {
@@ -282,7 +285,7 @@ function ProjectSettingsBody({
           <Text style={styles.projectTitle} numberOfLines={1}>
             {selectedHost.projectName}
           </Text>
-          {systemProject ? null : (
+          {systemProject && !supportsCustomIcon ? null : (
             <Pressable
               testID="project-edit-button"
               accessibilityRole="button"
@@ -295,6 +298,15 @@ function ProjectSettingsBody({
             </Pressable>
           )}
         </View>
+        {systemProject ? (
+          <Alert
+            size="sm"
+            variant="info"
+            testID="system-project-note"
+            title={t("settings.project.system.title")}
+            description={t("settings.project.system.description")}
+          />
+        ) : null}
       </View>
 
       <ProjectEditSheet
@@ -307,6 +319,7 @@ function ProjectSettingsBody({
         projectViewKey={project.viewKey}
         client={client}
         supportsCustomIcon={supportsCustomIcon}
+        nameLockedReason={systemProject ? t("settings.project.edit.nameLockedSystem") : null}
         snapshot={editSnapshot}
       />
 
@@ -324,6 +337,8 @@ function ProjectSettingsBody({
         onBackToProjects,
         showBackToProjects,
       })}
+
+      <ProjectExclusionsSection rootPath={selectedHost.repoRoot} serverId={selectedHost.serverId} />
     </View>
   );
 }
@@ -469,9 +484,8 @@ function resolveReadFailureCopy(input: {
 }
 
 function errorToDetail(error: unknown): string | null {
-  if (error instanceof Error && error.message.length > 0) return error.message;
-  if (typeof error === "string" && error.length > 0) return error;
-  return null;
+  if (!(error instanceof Error) && typeof error !== "string") return null;
+  return toErrorMessage(error) || null;
 }
 
 interface ProjectConfigFormProps {
@@ -496,6 +510,7 @@ function ProjectConfigForm({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const reportActionError = useReportActionError();
 
   const [draft, setDraft] = useState<ProjectConfigDraft>(() => configToDraft(baseConfig));
   const [writeError, setWriteError] = useState<ProjectConfigRpcError | null>(null);
@@ -533,6 +548,8 @@ function ProjectConfigForm({
         setWriteError(result.error);
       }
     },
+    // A failed request leaves the draft in place so the owner can save again.
+    onError: reportActionError,
   });
 
   const handleSave = useCallback(() => {

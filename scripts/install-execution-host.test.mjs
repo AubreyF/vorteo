@@ -11,6 +11,7 @@ import {
   existsSync,
   chmodSync,
   realpathSync,
+  statSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -24,13 +25,27 @@ import {
   assertSessionHostJobRemoved,
   validateInstallPlan,
   configureWebSource,
+  configureSystemSource,
+  configureProjectsFolder,
+  writeContainerSystemSource,
 } from "./install-execution-host.mjs";
+import {
+  mergeProjectsFolderSettings,
+  mountsFolderAtIdenticalPath,
+} from "./lib/projects-folder.mjs";
+import {
+  containerCheckoutPath,
+  mergeSystemSource,
+  writeSystemSource,
+} from "./lib/system-source.mjs";
 
 import {
   digest,
   publicationBindingPath,
   readPublicationBinding,
 } from "./instance-web-artifact.mjs";
+// These tests run the installation client's request commands, which only Vorteo :: Builds may run.
+process.env.VORTEO_BUILDS = "1";
 
 test("Dev bootstrap requires the fixed profile client in both supervisor and worker", () => {
   const expected = "/fixture/.local/share/vorteo-installation-client/client.json";
@@ -137,7 +152,7 @@ test("installed agent commands return a public approval link without authorizing
       },
       {
         method: "GET",
-        url: `/api/installation/restart-requests/${id}?requireOwnerApproval=1`,
+        url: `/api/installation/restart-requests/${id}?sourceBatches=1&requireOwnerApproval=1`,
         token: "Bearer scoped-test-token",
       },
     ]);
@@ -338,146 +353,157 @@ test.each(["host", "container-daemon"])(
   90_000,
 );
 
-test("Dev builds remain inactive until exact-source activation and retain the previous release", async () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "installation-dev-build-"));
-  const releases = path.join(root, "releases");
-  const previous = path.join(releases, "previous");
-  const home = path.join(root, "home");
-  const link = path.join(releases, "current");
-  mkdirSync(previous, { recursive: true });
-  mkdirSync(home);
-  symlinkSync(previous, link);
-  const baseCommit = "b".repeat(40);
-  writeFileSync(
-    path.join(previous, ".installation-source.json"),
-    JSON.stringify({ sourceCommit: baseCommit }),
-  );
-  const supervisor = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
-    env: { ...process.env, PASEO_MANAGED_RELEASE_LINK: link, PASEO_MANAGED_RELEASE_ROOT: releases },
-    stdio: "ignore",
-  });
-  writeFileSync(
-    path.join(home, "managed-supervisor.json"),
-    JSON.stringify({ version: 1, pid: supervisor.pid, root: releases, link }),
-  );
-  const source = path.join(root, "source");
-  mkdirSync(source);
-  writeFileSync(
-    path.join(source, "package.json"),
-    JSON.stringify({
-      name: "dev-update-fixture",
-      version: "1.0.0",
-      scripts: {
-        postinstall: "node build.cjs",
-        "build:server": "node build.cjs",
-      },
-    }),
-  );
-  const buildFile = path.join(source, "build.cjs");
-  writeFileSync(buildFile, "throw new Error('expected build failure');");
-  const run = promisify(execFile);
-  const helper = readFileSync(
-    new URL("./installation-container-runtime.mjs", import.meta.url),
-    "utf8",
-  );
-  const settings = {
-    releaseRoot: releases,
-    currentReleaseLink: link,
-    home,
-    node: process.execPath,
-  };
-  const update = { sourceCommit: "a".repeat(40), baseCommit, sha256: "d".repeat(64), bytes: 50 };
-  const command = (operation, archive) =>
-    new Promise((resolve, reject) => {
-      const child = execFile(
-        process.execPath,
-        ["--input-type=module", "--eval", helper, JSON.stringify({ settings, ...operation })],
-        { timeout: 30000 },
-        (error, stdout) => {
-          if (error) reject(error);
-          else resolve(JSON.parse(stdout));
-        },
-      );
-      child.stdin.end(archive);
-    });
-  const archiveFile = path.join(root, "source.tar");
-  const prepare = async (jobId) => {
-    await run("tar", ["-cf", archiveFile, "-C", source, "."]);
-    const archive = readFileSync(archiveFile);
-    return command(
-      {
-        action: "prepare",
-        previous,
-        jobId,
-        update,
-        archiveSha256: createHash("sha256").update(archive).digest("hex"),
-      },
-      archive,
-    );
-  };
-  try {
-    await run(
-      "npm",
-      [
-        "install",
-        "--package-lock-only",
-        "--ignore-scripts",
-        "--offline",
-        "--no-audit",
-        "--no-fund",
-      ],
-      { cwd: source },
-    );
-    await expect(prepare("a430b160-00a2-4d3e-bd91-d2eef4db7493")).rejects.toThrow(
-      "Dev build failed before activation",
-    );
-    expect((await command({ action: "inspect" })).release).toBe(previous);
+// The Dev runtime helper inspects /proc, so this exercises it only where Dev runs.
+test.skipIf(process.platform !== "linux")(
+  "Dev builds remain inactive until exact-source activation and retain the previous release",
+  async () => {
+    // The runtime compares the link against the canonical release root; macOS
+    // temporary paths under /var resolve to /private/var.
+    const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "installation-dev-build-")));
+    const releases = path.join(root, "releases");
+    const previous = path.join(releases, "previous");
+    const home = path.join(root, "home");
+    const link = path.join(releases, "current");
+    mkdirSync(previous, { recursive: true });
+    mkdirSync(home);
+    symlinkSync(previous, link);
+    const baseCommit = "b".repeat(40);
     writeFileSync(
-      buildFile,
-      "const fs=require('fs'); for(const file of ['packages/server/dist/server/server/daemon-worker.js','packages/server/dist/scripts/supervisor-entrypoint.js']){fs.mkdirSync(require('path').dirname(file),{recursive:true});fs.writeFileSync(file,'process.exit(0)');}",
+      path.join(previous, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: baseCommit }),
     );
-    const candidate = await prepare("a430b160-00a2-4d3e-bd91-d2eef4db7494");
-    expect((await command({ action: "inspect" })).release).toBe(previous);
-    expect(candidate.artifactSha256).toMatch(/^[a-f0-9]{64}$/);
-    const activation = {
-      action: "activate",
-      previous,
-      release: candidate.release,
-      update,
-      artifactSha256: candidate.artifactSha256,
+    const supervisor = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+      env: {
+        ...process.env,
+        PASEO_MANAGED_RELEASE_LINK: link,
+        PASEO_MANAGED_RELEASE_ROOT: releases,
+      },
+      stdio: "ignore",
+    });
+    writeFileSync(
+      path.join(home, "managed-supervisor.json"),
+      JSON.stringify({ version: 1, pid: supervisor.pid, root: releases, link }),
+    );
+    const source = path.join(root, "source");
+    mkdirSync(source);
+    writeFileSync(
+      path.join(source, "package.json"),
+      JSON.stringify({
+        name: "dev-update-fixture",
+        version: "1.0.0",
+        scripts: {
+          postinstall: "node build.cjs",
+          "build:server": "node build.cjs",
+        },
+      }),
+    );
+    const buildFile = path.join(source, "build.cjs");
+    writeFileSync(buildFile, "throw new Error('expected build failure');");
+    const run = promisify(execFile);
+    const helper = readFileSync(
+      new URL("./installation-container-runtime.mjs", import.meta.url),
+      "utf8",
+    );
+    const settings = {
+      releaseRoot: releases,
+      currentReleaseLink: link,
+      home,
+      node: process.execPath,
     };
-    expect((await command({ ...activation, action: "verify-candidate" })).artifactSha256).toBe(
-      candidate.artifactSha256,
-    );
-    const workerFile = path.join(
-      candidate.release,
-      "packages/server/dist/server/server/daemon-worker.js",
-    );
-    writeFileSync(workerFile, "throw new Error('changed candidate');");
-    await expect(command({ ...activation, action: "verify-candidate" })).rejects.toThrow(
-      "content changed",
-    );
-    await expect(command(activation)).rejects.toThrow("content changed");
-    expect((await command({ action: "inspect" })).release).toBe(previous);
-    writeFileSync(workerFile, "process.exit(0)");
-    await expect(
-      command({ ...activation, update: { ...update, sha256: "e".repeat(64) } }),
-    ).rejects.toThrow("differs from approval");
-    await command(activation);
-    expect((await command({ action: "inspect" })).sourceCommit).toBe(update.sourceCommit);
-    await command({ action: "restore", previous, release: candidate.release });
-    expect((await command({ action: "inspect" })).sourceCommit).toBe(baseCommit);
-    expect(existsSync(candidate.release)).toBe(true);
-    await expect(
-      command({ action: "restore", previous, release: candidate.release }),
-    ).rejects.toThrow("selection changed");
-  } finally {
-    const closed = new Promise((resolve) => supervisor.once("close", resolve));
-    supervisor.kill("SIGTERM");
-    await closed;
-    rmSync(root, { recursive: true, force: true });
-  }
-}, 60000);
+    const update = { sourceCommit: "a".repeat(40), baseCommit, sha256: "d".repeat(64), bytes: 50 };
+    const command = (operation, archive) =>
+      new Promise((resolve, reject) => {
+        const child = execFile(
+          process.execPath,
+          ["--input-type=module", "--eval", helper, JSON.stringify({ settings, ...operation })],
+          { timeout: 30000 },
+          (error, stdout) => {
+            if (error) reject(error);
+            else resolve(JSON.parse(stdout));
+          },
+        );
+        child.stdin.end(archive);
+      });
+    const archiveFile = path.join(root, "source.tar");
+    const prepare = async (jobId) => {
+      await run("tar", ["-cf", archiveFile, "-C", source, "."]);
+      const archive = readFileSync(archiveFile);
+      return command(
+        {
+          action: "prepare",
+          previous,
+          jobId,
+          update,
+          archiveSha256: createHash("sha256").update(archive).digest("hex"),
+        },
+        archive,
+      );
+    };
+    try {
+      await run(
+        "npm",
+        [
+          "install",
+          "--package-lock-only",
+          "--ignore-scripts",
+          "--offline",
+          "--no-audit",
+          "--no-fund",
+        ],
+        { cwd: source },
+      );
+      await expect(prepare("a430b160-00a2-4d3e-bd91-d2eef4db7493")).rejects.toThrow(
+        "Dev build failed before activation",
+      );
+      expect((await command({ action: "inspect" })).release).toBe(previous);
+      writeFileSync(
+        buildFile,
+        "const fs=require('fs'); for(const file of ['packages/server/dist/server/server/daemon-worker.js','packages/server/dist/scripts/supervisor-entrypoint.js']){fs.mkdirSync(require('path').dirname(file),{recursive:true});fs.writeFileSync(file,'process.exit(0)');}",
+      );
+      const candidate = await prepare("a430b160-00a2-4d3e-bd91-d2eef4db7494");
+      expect((await command({ action: "inspect" })).release).toBe(previous);
+      expect(candidate.artifactSha256).toMatch(/^[a-f0-9]{64}$/);
+      const activation = {
+        action: "activate",
+        previous,
+        release: candidate.release,
+        update,
+        artifactSha256: candidate.artifactSha256,
+      };
+      expect((await command({ ...activation, action: "verify-candidate" })).artifactSha256).toBe(
+        candidate.artifactSha256,
+      );
+      const workerFile = path.join(
+        candidate.release,
+        "packages/server/dist/server/server/daemon-worker.js",
+      );
+      writeFileSync(workerFile, "throw new Error('changed candidate');");
+      await expect(command({ ...activation, action: "verify-candidate" })).rejects.toThrow(
+        "content changed",
+      );
+      await expect(command(activation)).rejects.toThrow("content changed");
+      expect((await command({ action: "inspect" })).release).toBe(previous);
+      writeFileSync(workerFile, "process.exit(0)");
+      await expect(
+        command({ ...activation, update: { ...update, sha256: "e".repeat(64) } }),
+      ).rejects.toThrow("differs from approval");
+      await command(activation);
+      expect((await command({ action: "inspect" })).sourceCommit).toBe(update.sourceCommit);
+      await command({ action: "restore", previous, release: candidate.release });
+      expect((await command({ action: "inspect" })).sourceCommit).toBe(baseCommit);
+      expect(existsSync(candidate.release)).toBe(true);
+      await expect(
+        command({ action: "restore", previous, release: candidate.release }),
+      ).rejects.toThrow("selection changed");
+    } finally {
+      const closed = new Promise((resolve) => supervisor.once("close", resolve));
+      supervisor.kill("SIGTERM");
+      await closed;
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+  60000,
+);
 
 async function webSourceFixture() {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "web-source-setup-")));
@@ -551,6 +577,7 @@ async function webSourceFixture() {
   };
 }
 
+// Each setup creates and fetches real repositories; allow for a loaded Host.
 test("web source setup reads actual config, seeds live history and preserves config and selection", async () => {
   const f = await webSourceFixture();
   try {
@@ -592,7 +619,7 @@ test("web source setup reads actual config, seeds live history and preserves con
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
-});
+}, 60_000);
 
 test.each(["new binding", "matching retry"])(
   "web source setup retains %s after directory sync failure and reconciles on retry",
@@ -653,6 +680,7 @@ test.each(["new binding", "matching retry"])(
       rmSync(f.root, { recursive: true, force: true });
     }
   },
+  60_000,
 );
 
 test.each(["repository", "config", "binding-parent", "writable-parent"])(
@@ -1018,6 +1046,19 @@ test("session host commands need the advertised capability and send only the ope
       operation: "session-host-remove",
       reason: "Requested by a Host agent through the installation client.",
     });
+    // A restart is sent only to a coordinator that advertises it; older ones would reject it.
+    const before = calls.length;
+    await expect(client("host-agent", "request-session-host", "--restart")).rejects.toThrow(
+      "does not support session host restarts",
+    );
+    expect(calls.slice(before).map(({ url }) => url)).toEqual(["/api/installation/capabilities"]);
+    capability = { available: true, ownerApprovalRequired: true, restart: true };
+    await client("host-agent", "request-session-host", "--restart", "--reason", "New release");
+    expect(calls.at(-1).body).toMatchObject({
+      operation: "session-host-restart",
+      reason: "New release",
+    });
+    capability = { available: true, ownerApprovalRequired: true };
     expect(JSON.parse((await client("host-agent", "session-host-status")).stdout)).toEqual(status);
     expect(calls.at(-1)).toMatchObject({ method: "GET", url: "/api/installation/session-host" });
 
@@ -1025,7 +1066,7 @@ test("session host commands need the advertised capability and send only the ope
     calls.length = 0;
     await expect(
       client("host-agent", "request-session-host", "--install", "--remove"),
-    ).rejects.toThrow("exactly one of --install or --remove");
+    ).rejects.toThrow("exactly one of --install, --remove or --restart");
     await expect(client("container-agent", "request-session-host", "--install")).rejects.toThrow(
       "trusted Host client",
     );
@@ -1075,4 +1116,315 @@ test("installation removal waits until the session host job is removed", async (
   ).resolves.toBeUndefined();
   // Inspection only: the installer never stops the session host job itself.
   expect(calls).toEqual(Array(3).fill(["/bin/launchctl", "print", `gui/501/${label}`]));
+});
+
+test("System settings keep operator keys and refuse a damaged file", () => {
+  const merged = JSON.parse(
+    mergeSystemSource(
+      JSON.stringify({ adopt: { runner: "wks_01" }, source: { repository: "/repo" } }),
+      { checkout: "/src/vorteo", ref: "abc" },
+    ),
+  );
+  expect(merged).toEqual({
+    adopt: { runner: "wks_01" },
+    source: { repository: "/repo", checkout: "/src/vorteo", ref: "abc" },
+  });
+  expect(() => mergeSystemSource("{", { checkout: "/src/vorteo" })).toThrow("not valid JSON");
+  expect(() => mergeSystemSource("[]", { checkout: "/src/vorteo" })).toThrow("JSON object");
+  expect(() => mergeSystemSource(null, { checkout: "relative" })).toThrow("absolute");
+});
+
+test("Host System settings are written privately and only when they change", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "vorteo-system-home-"));
+  try {
+    const first = writeSystemSource({ paseoHome: home, checkout: "/src/vorteo" });
+    expect(first.changed).toBe(true);
+    expect((statSync(first.file).mode & 0o777).toString(8)).toBe("600");
+    expect(writeSystemSource({ paseoHome: home, checkout: "/src/vorteo" }).changed).toBe(false);
+    expect(JSON.parse(readFileSync(first.file, "utf8"))).toEqual({
+      source: { checkout: "/src/vorteo" },
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a Host checkout maps into the container through its deepest bind mount", () => {
+  const mounts = [
+    { Type: "bind", Source: "/Users/me", Destination: "/home/me" },
+    { Type: "bind", Source: "/Users/me/dev", Destination: "/Users/guest/dev" },
+    { Type: "volume", Source: "/var/lib/docker/x", Destination: "/data" },
+  ];
+  expect(containerCheckoutPath(mounts, "/Users/me/dev/vorteo")).toBe("/Users/guest/dev/vorteo");
+  expect(containerCheckoutPath(mounts, "/Users/me/dev")).toBe("/Users/guest/dev");
+  expect(containerCheckoutPath(mounts, "/Users/me-else/vorteo")).toBeNull();
+  expect(containerCheckoutPath(mounts, "/opt/vorteo")).toBeNull();
+});
+
+test("configure-system-source records the checkout for the Host and the Dev container", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "vorteo-system-root-"));
+  const previous = { inspect: process.env.FAKE_INSPECT, node: process.env.REAL_NODE };
+  try {
+    const checkout = realpathSync(mkdtempSync(path.join(os.tmpdir(), "vorteo-checkout-")));
+    mkdirSync(path.join(checkout, ".git"));
+    const hostHome = path.join(root, "state/host");
+    const devHome = path.join(root, "dev-home");
+    mkdirSync(devHome, { recursive: true });
+    mkdirSync(path.join(devHome, "system"));
+    writeFileSync(
+      path.join(devHome, "system/system.json"),
+      JSON.stringify({ absorb: { projects: ["prj_0a"] } }),
+    );
+    // A stand-in Docker: inspect returns the mounts, exec runs the script with this Node.
+    const docker = path.join(root, "docker");
+    writeFileSync(
+      docker,
+      '#!/bin/sh\nif [ "$1" = inspect ]; then cat "$FAKE_INSPECT"; exit 0; fi\nshift 5\nexec "$REAL_NODE" "$@"\n',
+    );
+    chmodSync(docker, 0o755);
+    const inspect = path.join(root, "inspect.json");
+    writeFileSync(
+      inspect,
+      JSON.stringify([
+        {
+          Mounts: [
+            { Type: "bind", Source: path.dirname(checkout), Destination: "/Users/guest/tmp" },
+          ],
+        },
+      ]),
+    );
+    process.env.FAKE_INSPECT = inspect;
+    process.env.REAL_NODE = process.execPath;
+    const configFile = path.join(root, "coordinator.json");
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        containerSourceUpdates: {
+          docker,
+          containerId: "dev",
+          user: "paseo",
+          node: "node",
+          home: devHome,
+        },
+      }),
+    );
+    writeFileSync(path.join(root, "installation.json"), JSON.stringify({ hostHome, configFile }));
+
+    const result = await configureSystemSource(root, checkout);
+
+    const guestCheckout = path.posix.join("/Users/guest/tmp", path.basename(checkout));
+    expect(result.dev).toEqual({ written: true, checkout: guestCheckout });
+    expect(JSON.parse(readFileSync(path.join(hostHome, "system/system.json"), "utf8"))).toEqual({
+      source: { checkout },
+    });
+    expect(JSON.parse(readFileSync(path.join(devHome, "system/system.json"), "utf8"))).toEqual({
+      absorb: { projects: ["prj_0a"] },
+      source: { checkout: guestCheckout },
+    });
+
+    writeFileSync(inspect, JSON.stringify([{ Mounts: [] }]));
+    const unshared = await writeContainerSystemSource(
+      JSON.parse(readFileSync(configFile, "utf8")).containerSourceUpdates,
+      checkout,
+    );
+    expect(unshared.written).toBe(false);
+    expect(unshared.reason).toContain("cannot see");
+    rmSync(checkout, { recursive: true, force: true });
+  } finally {
+    for (const [key, value] of [
+      ["FAKE_INSPECT", previous.inspect],
+      ["REAL_NODE", previous.node],
+    ]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Projects folder settings keep operator keys and earlier locations", () => {
+  const merged = JSON.parse(
+    mergeProjectsFolderSettings(
+      JSON.stringify({ migrateFrom: ["/Users/guest/dev"], aliases: ["/mnt/dev"], note: "kept" }),
+      {
+        root: "/Users/owner/dev",
+        migrateFrom: ["/Users/guest/dev", "/Users/owner/dev"],
+        aliases: ["/Users/guest/dev", "/Users/owner/dev"],
+        keepPaths: ["/Users/guest/dev/freed", "/Users/guest/dev/freed"],
+      },
+    ),
+  );
+  expect(merged).toEqual({
+    note: "kept",
+    root: "/Users/owner/dev",
+    migrateFrom: ["/Users/guest/dev"],
+    aliases: ["/mnt/dev", "/Users/guest/dev"],
+    keepPaths: ["/Users/guest/dev/freed"],
+  });
+  expect(() => mergeProjectsFolderSettings("[]", { root: "/dev" })).toThrow("JSON object");
+  expect(() => mergeProjectsFolderSettings(null, { root: "dev" })).toThrow("absolute");
+});
+
+test("only an identical-path writable bind mount shares the Projects folder", () => {
+  const folder = "/Users/owner/dev";
+  expect(
+    mountsFolderAtIdenticalPath([{ Type: "bind", Source: folder, Destination: folder }], folder),
+  ).toBe(true);
+  expect(
+    mountsFolderAtIdenticalPath(
+      [{ Type: "bind", Source: "/Users/owner", Destination: "/Users/owner" }],
+      folder,
+    ),
+  ).toBe(true);
+  expect(
+    mountsFolderAtIdenticalPath(
+      [{ Type: "bind", Source: folder, Destination: "/Users/guest/dev" }],
+      folder,
+    ),
+  ).toBe(false);
+  expect(
+    mountsFolderAtIdenticalPath(
+      [{ Type: "bind", Source: folder, Destination: folder, RW: false }],
+      folder,
+    ),
+  ).toBe(false);
+});
+
+test("configure-projects-folder writes both daemons and trusts the folder in Dev", async () => {
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "vorteo-projects-root-")));
+  const keys = ["FAKE_INSPECT", "REAL_NODE", "FAKE_GIT_LOG", "FAKE_GIT_EXISTING", "FAKE_REALPATHS"];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    const folder = path.join(root, "dev");
+    mkdirSync(folder);
+    const hostHome = path.join(root, "state/host");
+    const devHome = path.join(root, "dev-home");
+    mkdirSync(devHome, { recursive: true });
+    // A stand-in Docker: inspect returns the mounts, git calls are recorded, and the
+    // settings script runs with this Node.
+    const docker = path.join(root, "docker");
+    writeFileSync(
+      docker,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = inspect ]; then cat "$FAKE_INSPECT"; exit 0; fi',
+        // The container's real paths, when a test stands in for a symlink inside it.
+        'case "$*" in *realpathSync*) if [ -n "$FAKE_REALPATHS" ]; then printf "%s" "$FAKE_REALPATHS"; exit 0; fi;; esac',
+        'if [ "$5" = git ]; then echo "$*" >> "$FAKE_GIT_LOG";',
+        '  case "$*" in *--get-all*) printf "%s" "$FAKE_GIT_EXISTING";; esac; exit 0; fi',
+        "shift 5",
+        'exec "$REAL_NODE" "$@"',
+        "",
+      ].join("\n"),
+    );
+    chmodSync(docker, 0o755);
+    const inspect = path.join(root, "inspect.json");
+    process.env.FAKE_INSPECT = inspect;
+    process.env.REAL_NODE = process.execPath;
+    process.env.FAKE_GIT_LOG = path.join(root, "git.log");
+    process.env.FAKE_GIT_EXISTING = "/Users/guest/dev/app\n/home/paseo/x\n";
+    const configFile = path.join(root, "coordinator.json");
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        containerSourceUpdates: {
+          docker,
+          containerId: "dev",
+          user: "paseo",
+          node: "node",
+          home: devHome,
+        },
+      }),
+    );
+    writeFileSync(
+      path.join(root, "installation.json"),
+      JSON.stringify({ hostHome, configFile, release: path.join(root, "release") }),
+    );
+
+    // Without an identical-path mount, only the Host is configured.
+    writeFileSync(
+      inspect,
+      JSON.stringify([
+        { Mounts: [{ Type: "bind", Source: folder, Destination: "/Users/guest/dev" }] },
+      ]),
+    );
+    const unaliased = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(unaliased.dev.written).toBe(false);
+    expect(unaliased.dev.reason).toContain("no symlink");
+    expect(unaliased.dev.commands.root).toBe(
+      `mkdir -p '${root}' && test ! -e '${folder}' && ln -s '/Users/guest/dev' '${folder}'`,
+    );
+    expect(unaliased.dev.commands.verify).toBe(
+      `readlink '${folder}' && test "$(cd '${folder}' && pwd -P)" = '/Users/guest/dev'`,
+    );
+    expect(unaliased.dev.commands.dockerRoot).toContain("exec --user root 'dev' sh -c");
+    expect(existsSync(path.join(devHome, "projects-folder.json"))).toBe(false);
+    expect(JSON.parse(readFileSync(path.join(hostHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+    });
+
+    // Once the folder's own path leads to the mount inside the container, it is an alias.
+    process.env.FAKE_REALPATHS = JSON.stringify(["/Users/guest/dev", "/Users/guest/dev"]);
+    const aliased = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(aliased.dev).toEqual({
+      written: true,
+      root: folder,
+      aliases: ["/Users/guest/dev"],
+      trusted: [`${folder}/*`, `${folder}/app`],
+    });
+    expect(JSON.parse(readFileSync(path.join(devHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+      migrateFrom: ["/Users/guest/dev"],
+      aliases: ["/Users/guest/dev"],
+    });
+    rmSync(path.join(devHome, "projects-folder.json"));
+    rmSync(process.env.FAKE_GIT_LOG);
+    delete process.env.FAKE_REALPATHS;
+
+    writeFileSync(inspect, JSON.stringify([{ Mounts: [] }]));
+    const unmounted = await configureProjectsFolder(root, { folder });
+    expect(unmounted.dev.written).toBe(false);
+    expect(unmounted.dev.reason).toContain("does not mount");
+
+    writeFileSync(
+      inspect,
+      JSON.stringify([{ Mounts: [{ Type: "bind", Source: folder, Destination: folder }] }]),
+    );
+    const result = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(result.dev).toEqual({
+      written: true,
+      root: folder,
+      aliases: [],
+      trusted: [`${folder}/*`, `${folder}/app`],
+    });
+    expect(JSON.parse(readFileSync(path.join(devHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(readFileSync(process.env.FAKE_GIT_LOG, "utf8")).toContain(
+      `--add safe.directory ${folder}/*`,
+    );
+
+    // The Host's own files may never sit in the guest-writable folder.
+    writeFileSync(
+      path.join(root, "installation.json"),
+      JSON.stringify({ hostHome: path.join(folder, "host"), configFile }),
+    );
+    await expect(configureProjectsFolder(root, { folder })).rejects.toThrow("outside");
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
 });

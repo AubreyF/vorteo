@@ -18,11 +18,12 @@ import {
   type SidebarGroupMode,
 } from "@/stores/sidebar-view-store";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
+import { useSidebarFolderStore } from "@/sidebar-folders/store";
+import { useSidebarFoldersSupported } from "@/sidebar-folders/actions";
 import type { SidebarShortcutModel } from "@/utils/sidebar-shortcuts";
 import { buildSidebarProjection } from "./sidebar-projection";
 import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model";
 import { filterWorkspacesByLabels, type SidebarWorkspaceGroup } from "./sidebar-labels";
-import type { SidebarSystemGroup } from "@/workspace/lifecycle/grouping";
 import { filterWorkspacesByProjects, resolveActiveProjectFilters } from "./sidebar-project-filter";
 
 interface SidebarModel extends SidebarWorkspacesListResult {
@@ -39,7 +40,6 @@ interface SidebarModel extends SidebarWorkspacesListResult {
   hasProjectsBeforeFilter: boolean;
   groupMode: SidebarGroupMode;
   workspaceGroups: SidebarWorkspaceGroup[];
-  systemGroups: SidebarSystemGroup[];
   projectIconTargets: SidebarProjectIconTarget[];
   pinnedGroups: PinnedSidebarGroups;
   collapsedProjectKeys: ReadonlySet<string>;
@@ -67,6 +67,9 @@ export function SidebarModelProvider({
   );
   const pinnedCollapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedPinned);
   const pinnedWorkspaceOrder = useSidebarOrderStore((state) => state.pinnedWorkspaceOrder);
+  const foldersSupported = useSidebarFoldersSupported();
+  const storedFolders = useSidebarFolderStore();
+  const folderState = foldersSupported ? storedFolders : null;
 
   const hasActiveLabelFilter = hasActiveSidebarLabelFilter(labelFilter);
   const resolvedProjectFilters = useMemo(
@@ -149,7 +152,6 @@ export function SidebarModelProvider({
     [filteredWorkspaceEntriesByKey],
   );
   const factorySupportedHosts = useHostFeatureMap(factoryHostIds, "factoryWorkspaceMembership");
-  const systemSupportedHosts = useHostFeatureMap(factoryHostIds, "systemProject");
   const projectionInput = useMemo(
     () => ({
       projects: filteredProjects,
@@ -162,9 +164,10 @@ export function SidebarModelProvider({
       collapsedProjectKeys,
       collapsedWorkspaceGroupKeys,
       factorySupportedHosts,
-      systemSupportedHosts,
+      folderState,
     }),
     [
+      folderState,
       collapsedProjectKeys,
       collapsedWorkspaceGroupKeys,
       groupMode,
@@ -175,7 +178,6 @@ export function SidebarModelProvider({
       pinnedWorkspaceOrder,
       filteredWorkspaceEntriesByKey,
       factorySupportedHosts,
-      systemSupportedHosts,
     ],
   );
   const projection = useMemo(() => buildSidebarProjection(projectionInput), [projectionInput]);
@@ -189,7 +191,6 @@ export function SidebarModelProvider({
       workspaceEntriesByKey: filteredWorkspaceEntriesByKey,
       groupMode,
       workspaceGroups: projection.workspaceGroups,
-      systemGroups: projection.systemGroups,
       projectIconTargets: projection.projectIconTargets,
       pinnedGroups: projection.pinnedGroups,
       collapsedProjectKeys,

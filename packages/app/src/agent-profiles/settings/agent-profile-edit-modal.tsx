@@ -31,7 +31,8 @@ import {
 } from "@/components/ui/select-field";
 import { Switch } from "@/components/ui/switch";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { toErrorMessage } from "@/utils/error-messages";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { AgentProfileAppearanceField } from "./agent-profile-appearance-field";
 import { ProfileAccountControl } from "./profile-account-control";
 import { generatedPresetNickname } from "../nickname";
@@ -691,6 +692,7 @@ function OpenAgentProfileEditModal({
     [model],
   );
 
+  const reportActionError = useReportActionError();
   const handleSave = useCallback(async () => {
     const value = model.getState().submitValue;
     if (!value) {
@@ -702,11 +704,12 @@ function OpenAgentProfileEditModal({
       await onSave(value);
       onClose();
     } catch (error) {
-      model.setSubmitError(toErrorMessage(error));
+      if (isConnectionError(error)) reportActionError(error);
+      else model.setSubmitError(toErrorMessage(error));
     } finally {
       model.setSubmitting(false);
     }
-  }, [model, onClose, onSave]);
+  }, [model, onClose, onSave, reportActionError]);
 
   const handleSavePress = useCallback(() => {
     void handleSave();

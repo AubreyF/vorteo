@@ -143,6 +143,46 @@ test("offers six reference themes with Dark Star selected by default", async ({
   });
 });
 
+test("keeps sidebar theme bubbles in one row and lifts them on hover", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await gotoAppShell(page);
+  await page.getByTestId("sidebar-footer-overflow").click();
+  const surfaces = page.locator('[data-testid^="theme-preview-surface-"]');
+  await expect(surfaces).toHaveCount(6);
+  const centers = await Promise.all(
+    (await surfaces.all()).map(async (surface) => {
+      const box = (await surface.boundingBox())!;
+      return box.y + box.height / 2;
+    }),
+  );
+  for (const center of centers) expect(Math.abs(center - centers[0]!)).toBeLessThanOrEqual(1);
+  const neon = page.getByTestId("theme-preview-surface-neon");
+  const resting = (await neon.boundingBox())!.height;
+  await page.getByTestId("theme-preview-neon").hover();
+  await expect.poll(async () => (await neon.boundingBox())!.height).toBeGreaterThan(resting + 8);
+  await expect(neon).not.toHaveCSS("box-shadow", "none");
+  await page.screenshot({ path: info.outputPath("sidebar-theme-hover.png") });
+  await page.mouse.move(1500, 850);
+  await expect.poll(async () => (await neon.boundingBox())!.height).toBeCloseTo(resting, 0);
+});
+
+test("routes the browser zoom keys to interface zoom", async ({ page }) => {
+  await page.goto("/settings/appearance");
+  const slider = page.getByRole("slider", { name: "Interface zoom", exact: true });
+  await expect(slider).toHaveValue("100");
+  const html = page.locator("html");
+  await page.keyboard.press("ControlOrMeta+Equal");
+  await expect(html).toHaveAttribute("data-interface-zoom", "110");
+  await page.keyboard.press("ControlOrMeta+Minus");
+  await page.keyboard.press("ControlOrMeta+Minus");
+  await expect(html).toHaveAttribute("data-interface-zoom", "90");
+  await page.keyboard.press("ControlOrMeta+Digit0");
+  await expect(html).toHaveAttribute("data-interface-zoom", "100");
+  await expect(slider).toHaveValue("100");
+  // The page itself stays at 1x; only the interface zoom changed.
+  expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(1);
+});
+
 test("stacks font labels above inputs on compact screens", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/settings");

@@ -191,8 +191,37 @@ update message for older standalone daemons. Sidebar patches merge individual pr
 maps, while concurrent changes to the same field use the last accepted write. Initialization
 only fills an absent shared state; reconnecting never replaces it with an old device cache.
 
+## Sidebar folders
+
+`server_info.features.sidebarFolders` advertises that the sidebar authority stores folders. The
+sidebar state gains four optional records: `sidebarFolders`, `itemFolder`, `childOrder` and
+`collapsedFolders`. Clients show folder controls only when the authority advertises the
+capability, because an older daemon's schema would silently drop the fields. In patches, a
+`null` value removes that key from a folder record; every other record still merges by key.
+
+Older clients ignore the new fields and keep reading `projectOrder` and
+`workspaceOrderByProject`. Folder moves rewrite those flat orders in display order, so older
+clients see the same sequence without the folders. Their reorders do not update `childOrder`,
+so newer clients keep the folder order until the next folder-aware move.
+
+Applying a patch repairs the folder tree on both the Host and each device: a removed folder's
+folders, items and order move to its parent; parents must exist in the same scope; a move that
+would form a cycle returns to its previous parent; and projects can map only to root folders,
+workspaces only to folders of their own project when the flat orders show which project that is.
+The Host rejects only folder records stored under another id or naming themselves as parent.
+
 ## Installation worker-launch preparation
 
 Worker-launch hints and retained child records are optional additions to the existing installation request schema. They use pure structural declarations. Legacy restart digests omit absent hints, and ordinary HTTP restart replies remove the new fields for older strict requesters. Only explicit `workerLaunch=1` negotiation returns the child record.
 
 The direct installation requester checks `workerLaunch.available` before submission. Production reports it unavailable, so this preparation adds no native launch behavior or new unsolicited messages. Ordinary restart authority does not imply worker launch; the optional enrollment profile and explicit operation must match independently verified native admission before a future implementation can consume a generation.
+
+## Projects folder
+
+Daemons with a configured Projects folder advertise `features.projectsRoot` and send optional `server_info.projectsRoot`. Clients show the Projects folder Add project flow only when both are present. Browse entries gain optional `git` and `projectId` markers; older clients ignore them. `project.create_directory.request` accepts optional `register: false` to create a folder without adding it as a project. The client refuses to send it to a daemon without `projectsRoot`, because an older daemon would ignore the flag and add the project. Open and add responses can carry `outside_projects_folder` or `projects_folder_root` error codes; older clients parse unknown codes as null and show the error text.
+
+Clients treat a project root inside a Projects folder that two daemons advertise at the same path as one folder: they join those placements in the sidebar and use the identical path in the other environment. Daemons without a matching folder keep the earlier folder mapping and chooser.
+
+## Project policies
+
+Installation settings gain optional `projectPolicies`. Older coordinators, owner clients and daemon admission readers parse settings strictly, so the coordinator includes the field only for owner requests with `X-Vorteo-Project-Policies: 1` and admission reads with `projectPolicies=1`. Owner clients read its presence as the capability. Daemon config gains optional `installationProjectPolicies`, with a loose policy schema so newer fields never break older clients, and `features.installationProjectPolicies`. The coordinator projects the copy only to daemons whose config reports the key.

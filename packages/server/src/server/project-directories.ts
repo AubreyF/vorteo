@@ -7,6 +7,11 @@ import type {
   ProjectDirectoryBrowsePayload,
 } from "@getpaseo/protocol/messages";
 import { isPathInsideRoot } from "../utils/path.js";
+import {
+  hasGitMarker,
+  logicalProjectsPath,
+  PROJECTS_FOLDER_STATE_DIRECTORY,
+} from "./projects-folder.js";
 
 const HostFilesystemSchema = z.object({
   version: z.literal(1),
@@ -19,7 +24,13 @@ interface DirectoryEnvironment {
   container: boolean;
   config: HostFilesystem | null;
   mountPaths: Set<string>;
+  /** The installation's Projects folder. When set it is the only browsable root. */
+  projectsRoot?: string | null;
+  /** Registered project roots by path, so Projects folder listings can mark them. */
+  projectIdsByPath?: ReadonlyMap<string, string>;
 }
+
+export const PROJECTS_ROOT_ID = "projects";
 
 class DirectoryBrowseError extends Error {
   constructor(
@@ -30,7 +41,9 @@ class DirectoryBrowseError extends Error {
   }
 }
 
-export async function projectDirectoryEnvironment(): Promise<DirectoryEnvironment> {
+export async function projectDirectoryEnvironment(
+  projects: Pick<DirectoryEnvironment, "projectsRoot" | "projectIdsByPath"> = {},
+): Promise<DirectoryEnvironment> {
   const raw = process.env.PASEO_HOST_FILESYSTEM;
   const config = raw ? HostFilesystemSchema.parse(JSON.parse(raw)) : null;
   const container =
@@ -52,33 +65,15 @@ export async function projectDirectoryEnvironment(): Promise<DirectoryEnvironmen
         );
     }
   }
-  return { home: homedir(), container, config, mountPaths };
+  return { home: homedir(), container, config, mountPaths, ...projects };
 }
 
 export async function browseProjectDirectories(
   request: ProjectDirectoryBrowseRequest,
   environment: DirectoryEnvironment,
 ): Promise<ProjectDirectoryBrowsePayload> {
-  const { home, container, config } = environment;
-  const roots: ProjectDirectoryBrowsePayload["roots"] = (config?.shares ?? []).map((share) => ({
-    id: share.id,
-    label: path.basename(share.hostPath),
-    containerPath: share.containerPath,
-    hostPath: share.hostPath,
-  }));
-  roots.push({
-    id: "home",
-    label: container ? "Container home" : "Home",
-    containerPath: home,
-    hostPath: container ? null : home,
-  });
-  if (container)
-    roots.push({
-      id: "workspace",
-      label: "Container workspace",
-      containerPath: "/workspace",
-      hostPath: null,
-    });
+  const projectsRoot = environment.projectsRoot ?? null;
+  const roots = projectsRoot ? projectsFolderRoots(projectsRoot) : legacyRoots(environment);
   const base = {
     roots,
     directory: null,
@@ -95,12 +90,7 @@ export async function browseProjectDirectories(
         "unknown_root",
         "This shared folder is no longer configured. Refresh the folder list.",
       );
-    if (container && root.hostPath && !environment.mountPaths.has(root.containerPath)) {
-      throw new DirectoryBrowseError(
-        "mount_unavailable",
-        "The shared folder is not mounted. Apply the pending shared-folder configuration on the host.",
-      );
-    }
+    assertSharedRootMounted(root, environment);
     const rootPath = await realpath(root.containerPath);
     const requested = path.resolve(root.containerPath, relativePath);
     if (!isPathInsideRoot(root.containerPath, requested))
@@ -122,6 +112,9 @@ export async function browseProjectDirectories(
       rootPath,
       visibleRelative,
       showHidden: request.showHidden === true,
+      // Paseo-owned worktrees live in the Projects folder's state directory; never offer it.
+      hiddenNames: projectsRoot && visibleRelative === "." ? [PROJECTS_FOLDER_STATE_DIRECTORY] : [],
+      projectIdsByPath: projectsRoot ? environment.projectIdsByPath : undefined,
     });
     entries.sort((a, b) => a.name.localeCompare(b.name));
     const offset = request.offset ?? 0;
@@ -143,12 +136,62 @@ export async function browseProjectDirectories(
   }
 }
 
+// Shared folders are their own mounts; the Projects folder may sit inside a larger one.
+function assertSharedRootMounted(
+  root: ProjectDirectoryBrowsePayload["roots"][number],
+  environment: DirectoryEnvironment,
+): void {
+  if (environment.projectsRoot || !environment.container || !root.hostPath) return;
+  if (environment.mountPaths.has(root.containerPath)) return;
+  throw new DirectoryBrowseError(
+    "mount_unavailable",
+    "The shared folder is not mounted. Apply the pending shared-folder configuration on the host.",
+  );
+}
+
+function projectsFolderRoots(projectsRoot: string): ProjectDirectoryBrowsePayload["roots"] {
+  // The Projects folder has the same path on the Host and in the Dev container.
+  return [
+    {
+      id: PROJECTS_ROOT_ID,
+      label: "Projects",
+      containerPath: projectsRoot,
+      hostPath: projectsRoot,
+    },
+  ];
+}
+
+function legacyRoots(environment: DirectoryEnvironment): ProjectDirectoryBrowsePayload["roots"] {
+  const { home, container, config } = environment;
+  const roots: ProjectDirectoryBrowsePayload["roots"] = (config?.shares ?? []).map((share) => ({
+    id: share.id,
+    label: path.basename(share.hostPath),
+    containerPath: share.containerPath,
+    hostPath: share.hostPath,
+  }));
+  roots.push({
+    id: "home",
+    label: container ? "Container home" : "Home",
+    containerPath: home,
+    hostPath: container ? null : home,
+  });
+  if (container)
+    roots.push({
+      id: "workspace",
+      label: "Container workspace",
+      containerPath: "/workspace",
+      hostPath: null,
+    });
+  return roots;
+}
+
 function resolveBrowseLocation(
   request: ProjectDirectoryBrowseRequest,
   environment: DirectoryEnvironment,
   roots: ProjectDirectoryBrowsePayload["roots"],
 ) {
-  let rootId = request.rootId;
+  // With a Projects folder there is nothing above it to list.
+  let rootId = request.rootId ?? (environment.projectsRoot ? PROJECTS_ROOT_ID : undefined);
   const { config, container, home } = environment;
   let relativePath = request.path ?? ".";
   if (request.hostPath !== undefined) {
@@ -167,14 +210,17 @@ function resolveBrowseLocation(
         "invalid_path",
         "Enter an absolute host path or a path starting with ~/.",
       );
-    hostPath = path.normalize(hostPath);
+    // A path through a Projects folder alias browses the same folder.
+    hostPath = logicalProjectsPath(path.normalize(hostPath));
     const root = roots
       .filter((candidate) => candidate.hostPath && isPathInsideRoot(candidate.hostPath, hostPath))
       .sort((a, b) => (b.hostPath?.length ?? 0) - (a.hostPath?.length ?? 0))[0];
     if (!root?.hostPath)
       throw new DirectoryBrowseError(
         "not_shared",
-        "This host folder is not shared with this instance. Run share-folder.sh on the host, then apply the change when active tasks can be interrupted.",
+        environment.projectsRoot
+          ? `Choose a folder inside the Projects folder (${environment.projectsRoot}).`
+          : "This host folder is not shared with this instance. Run share-folder.sh on the host, then apply the change when active tasks can be interrupted.",
       );
     rootId = root.id;
     relativePath = path.relative(root.hostPath, hostPath);
@@ -187,6 +233,9 @@ interface ChildListingInput {
   rootPath: string;
   visibleRelative: string;
   showHidden: boolean;
+  hiddenNames: string[];
+  /** When set, entries are marked as git checkouts and registered projects. */
+  projectIdsByPath: ReadonlyMap<string, string> | undefined;
 }
 
 async function listBrowsableChildren(input: ChildListingInput) {
@@ -194,12 +243,22 @@ async function listBrowsableChildren(input: ChildListingInput) {
   const children = await readdir(input.requested, { withFileTypes: true });
   for (const child of children) {
     if (!input.showHidden && child.name.startsWith(".")) continue;
+    if (input.hiddenNames.includes(child.name)) continue;
+    const childPath = path.join(input.requested, child.name);
     const isDirectory =
       child.isDirectory() ||
-      (child.isSymbolicLink() &&
-        (await isBrowsableSymlink(path.join(input.requested, child.name), input.rootPath)));
-    if (isDirectory)
-      entries.push({ name: child.name, path: path.join(input.visibleRelative, child.name) });
+      (child.isSymbolicLink() && (await isBrowsableSymlink(childPath, input.rootPath)));
+    if (!isDirectory) continue;
+    const entry: (typeof entries)[number] = {
+      name: child.name,
+      path: path.join(input.visibleRelative, child.name),
+    };
+    if (input.projectIdsByPath) {
+      entry.git = await hasGitMarker(childPath);
+      const projectId = input.projectIdsByPath.get(childPath);
+      if (projectId) entry.projectId = projectId;
+    }
+    entries.push(entry);
   }
   return entries;
 }

@@ -15,7 +15,11 @@ export async function requestInstallationSettings(update?: InstallationSettingsU
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(10000),
-    headers: { "Content-Type": "application/json", "X-Vorteo-Provider-Removal": "1" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Vorteo-Provider-Removal": "1",
+      "X-Vorteo-Project-Policies": "1",
+    },
     body: JSON.stringify(update ?? {}),
   }).catch((error: unknown) => {
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"))
@@ -28,8 +32,15 @@ export async function requestInstallationSettings(update?: InstallationSettingsU
     throw new OwnerAccessExpired("Unlock Installation controls in General settings to continue.");
   if (response.status === 409)
     throw new Error("Shared settings changed. Reload and review the current values before saving.");
+  if (response.status === 400) throw new Error(await readRefusal(response));
   if (!response.ok) throw new Error("Unable to access shared installation settings.");
   return InstallationSettingsSnapshotSchema.parse(await response.json());
+}
+
+async function readRefusal(response: Response): Promise<string> {
+  const body: unknown = await response.json().catch(() => null);
+  const error = typeof body === "object" && body !== null ? Reflect.get(body, "error") : null;
+  return typeof error === "string" ? error : "Shared settings refused this change.";
 }
 
 export function useInstallationSettings(enabled = true) {

@@ -1092,6 +1092,10 @@ export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBoo
       );
   }
 
+  // Like Factory adoption, the Claude refresh setting may change through an
+  // owner-reviewed renewal: every coordinator replacement now runs through this
+  // path. Automatic plans still refuse it (assertAutomaticCoordinatorPlan), and
+  // verifyBootstrapConfiguration below admits only that exact field.
   if (
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||

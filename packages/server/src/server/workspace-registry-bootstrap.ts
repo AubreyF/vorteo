@@ -8,6 +8,8 @@ import type { AgentStorage } from "./agent/agent-storage.js";
 import { classifyDirectoryForProjectMembership } from "./workspace-registry-bootstrap-legacy.js";
 import { generateWorkspaceId } from "./workspace-registry-model.js";
 import { backfillWorkspaceIdForLegacyAgents } from "./migrations/backfill-workspace-id.migration.js";
+import { migrateRegistryPathsToProjectsFolder } from "./migrations/projects-folder-paths.migration.js";
+import type { ProjectsFolderConfig } from "./projects-folder.js";
 import type { WorkspaceGitService } from "./workspace-git-service.js";
 import {
   createPersistedProjectRecord,
@@ -48,12 +50,26 @@ function resolveAgentUpdatedAt(record: StoredAgentRecord): string {
 export async function bootstrapWorkspaceRegistries(options: {
   serverId?: string;
   paseoHome: string;
+  projectsFolder?: ProjectsFolderConfig;
   agentStorage: AgentStorage;
   projectRegistry: ProjectRegistry;
   workspaceRegistry: WorkspaceRegistry;
   workspaceGitService: WorkspaceGitService;
   logger: Logger;
 }): Promise<void> {
+  // Before the registries load, so they read the rewritten paths.
+  // A failed move keeps the earlier paths, which stay usable as existing projects.
+  if (options.projectsFolder?.aliases.length) {
+    await migrateRegistryPathsToProjectsFolder({
+      paseoHome: options.paseoHome,
+      root: options.projectsFolder.root,
+      aliases: options.projectsFolder.aliases,
+      keepPaths: options.projectsFolder.keepPaths,
+      logger: options.logger,
+    }).catch((error: unknown) => {
+      options.logger.warn({ err: error }, "Could not move registry paths into the Projects folder");
+    });
+  }
   const [projectsExists, workspacesExists] = await Promise.all([
     options.projectRegistry.existsOnDisk(),
     options.workspaceRegistry.existsOnDisk(),

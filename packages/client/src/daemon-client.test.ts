@@ -3,6 +3,7 @@ import { afterEach, expect, expectTypeOf, test, vi } from "vitest";
 import { z } from "zod";
 import {
   DaemonClient,
+  isRequestOutcomeUnknown,
   supportsUsageReports,
   type DaemonClientTrace,
   type CreateAgentRequestOptions,
@@ -456,6 +457,44 @@ test.each(["agent", "workspace"] as const)(
     expect(transport.sent).toEqual([]);
   },
 );
+
+test("a message whose reply is lost to a dropped connection has an unknown outcome", async () => {
+  const transport = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "send-outcome-unknown",
+    transportFactory: () => transport.transport,
+    reconnect: { enabled: false },
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  transport.triggerOpen({ features: {} });
+  await connecting;
+
+  const sending = client.sendAgentMessage("agent-1", "hello", { messageId: "client-message" });
+  const outcome = sending.then(
+    () => null,
+    (error: unknown) => error,
+  );
+  expect(transport.sent).toHaveLength(1);
+  transport.triggerClose({ code: 1006, reason: "Liveness check timed out (15000ms)" });
+
+  expect(isRequestOutcomeUnknown(await outcome)).toBe(true);
+});
+
+test("a message that never left the client is not an unknown outcome", async () => {
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "send-never-left",
+    transportFactory: () => createMockTransport().transport,
+    reconnect: { enabled: false },
+  });
+  clients.push(client);
+
+  const error = await client.sendAgentMessage("agent-1", "hello").catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(Error);
+  expect(isRequestOutcomeUnknown(error)).toBe(false);
+});
 
 test("Hub management requires daemon support before dispatching requests", async () => {
   const mock = createMockTransport();
@@ -1040,6 +1079,7 @@ test("advertises client capabilities in hello", async () => {
       terminal_reflowable_snapshot: true,
       timeline_notifications: true,
       plugin_timeline_items: true,
+      profile_switch_timeline: true,
       workspace_setup_blocked: true,
       checklist_blocked_status: true,
       checklist_review_status: true,

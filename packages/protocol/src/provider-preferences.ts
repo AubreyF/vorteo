@@ -67,6 +67,15 @@ export function isSharedWorkflowProfile(id: string): boolean {
   return id.startsWith("shared-workflow/") || id.startsWith("shared-profile/");
 }
 
+/**
+ * A profile's identity in every environment: shared workflows by workflow id, because their
+ * profile ids name an environment's local account; other profiles by id.
+ */
+export function profilePolicyIdentity(id: string): string {
+  if (!isSharedWorkflowProfile(id)) return id;
+  return `workflow/${decodeURIComponent(id.split("/")[2] ?? "")}`;
+}
+
 export function sharedProfileId(providerType: string, workflowId: string): string {
   return `shared-profile/${encodeURIComponent(providerType)}/${encodeURIComponent(workflowId)}`;
 }

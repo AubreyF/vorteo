@@ -63,6 +63,62 @@ const MetadataProviderSchema = z.strictObject({
   thinkingOptionId: z.string().min(1).optional(),
 });
 
+/**
+ * Per-project exclusions, stored by the installation and never in `paseo.json`. They add to the
+ * environment's resource exclusions for agents and workspaces in that project.
+ */
+export const InstallationProjectPolicySchema = z.strictObject({
+  excludedEnvironments: z.array(z.enum(["host", "container"])).optional(),
+  providerIds: z.array(z.string().min(1)).optional(),
+  profileIds: z.array(z.string().min(1)).optional(),
+  skillIdentities: z.array(z.string().min(1)).optional(),
+});
+export type InstallationProjectPolicy = z.infer<typeof InstallationProjectPolicySchema>;
+
+const PROJECT_POLICY_FIELDS = [
+  "excludedEnvironments",
+  "providerIds",
+  "profileIds",
+  "skillIdentities",
+] as const;
+
+/**
+ * Project policies are keyed by the project's absolute root path without a trailing separator.
+ * Inside the shared Projects folder that path names the same project in every environment.
+ */
+export function projectPolicyKey(rootPath: string): string {
+  return rootPath.replace(/\/+$/u, "") || "/";
+}
+
+/**
+ * The union of every policy whose project root is one of `paths` or contains it, so a policy
+ * also covers subdirectories and checkouts inside the project folder.
+ */
+export function effectiveProjectPolicy(
+  policies: Readonly<Record<string, InstallationProjectPolicy>> | undefined,
+  paths: readonly string[],
+): Required<InstallationProjectPolicy> {
+  const effective: Required<InstallationProjectPolicy> = {
+    excludedEnvironments: [],
+    providerIds: [],
+    profileIds: [],
+    skillIdentities: [],
+  };
+  const candidates = paths.map(projectPolicyKey);
+  for (const [root, policy] of Object.entries(policies ?? {})) {
+    const key = projectPolicyKey(root);
+    const prefix = key === "/" ? "/" : `${key}/`;
+    if (!candidates.some((path) => path === key || path.startsWith(prefix))) continue;
+    for (const field of PROJECT_POLICY_FIELDS) {
+      for (const value of policy[field] ?? []) {
+        const values: string[] = effective[field];
+        if (!values.includes(value)) values.push(value);
+      }
+    }
+  }
+  return effective;
+}
+
 export const InstallationSettingsSchema = z.strictObject({
   browserTools: z.strictObject({ enabled: z.boolean() }).optional(),
   providerDefinitions: z.array(InstallationProviderSchema).optional(),
@@ -87,6 +143,9 @@ export const InstallationSettingsSchema = z.strictObject({
       metadataProviderIds: z.array(z.string().min(1)),
     }),
   ),
+  // COMPAT(projectPolicies): added 2026-10-22. Coordinators send it only to readers that ask
+  // with `projectPolicies=1`, because older strict readers reject unknown keys.
+  projectPolicies: z.record(z.string().min(1), InstallationProjectPolicySchema).optional(),
 });
 export type InstallationSettings = z.infer<typeof InstallationSettingsSchema>;
 export const InstallationSettingsFieldSchema = InstallationSettingsSchema.keyof();

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -83,5 +83,69 @@ describe("shared project directories", () => {
     } finally {
       await chmod(denied, 0o700);
     }
+  });
+});
+
+describe("Projects folder browsing", () => {
+  let temp: string;
+  let projects: string;
+  beforeEach(async () => {
+    temp = await realpath(await mkdtemp(path.join(tmpdir(), "projects-folder-")));
+    projects = path.join(temp, "dev");
+    await mkdir(path.join(projects, "app", ".git"), { recursive: true });
+    await mkdir(path.join(projects, "notes"));
+    await mkdir(path.join(projects, ".vorteo", "worktrees"), { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(temp, { recursive: true, force: true });
+  });
+  function browse(input: Partial<Parameters<typeof browseProjectDirectories>[0]>) {
+    return browseProjectDirectories(
+      { type: "project.directory.browse.request", requestId: "test", ...input },
+      {
+        home: temp,
+        container: true,
+        mountPaths: new Set(),
+        config: {
+          version: 1,
+          hostHome: temp,
+          shares: [{ id: "old", hostPath: temp, containerPath: "/shared/old" }],
+        },
+        projectsRoot: projects,
+        projectIdsByPath: new Map([[path.join(projects, "app"), "prj_app"]]),
+      },
+    );
+  }
+
+  it("offers only the Projects folder and opens it by default", async () => {
+    const result = await browse({});
+    expect(result.roots).toEqual([
+      { id: "projects", label: "Projects", containerPath: projects, hostPath: projects },
+    ]);
+    expect(result.directory?.parent).toBeNull();
+    expect(result.directory?.entries).toEqual([
+      { name: "app", path: "app", git: true, projectId: "prj_app" },
+      { name: "notes", path: "notes", git: false },
+    ]);
+  });
+
+  it("never lists the worktree state folder, even with hidden folders shown", async () => {
+    const names = (await browse({ showHidden: true })).directory?.entries.map(
+      (entry) => entry.name,
+    );
+    expect(names).toEqual(["app", "notes"]);
+  });
+
+  it.skipIf(process.platform === "win32")("keeps symlink and parent escapes out", async () => {
+    await mkdir(path.join(temp, "outside"));
+    await symlink(path.join(temp, "outside"), path.join(projects, "escape"));
+    expect((await browse({ rootId: "projects", path: "escape" })).errorCode).toBe("outside_root");
+    expect((await browse({ rootId: "projects", path: "../outside" })).errorCode).toBe(
+      "outside_root",
+    );
+    expect((await browse({ hostPath: path.join(temp, "outside") })).errorCode).toBe("not_shared");
+    expect((await browse({ hostPath: path.join(projects, "notes") })).directory?.path).toBe(
+      "notes",
+    );
   });
 });

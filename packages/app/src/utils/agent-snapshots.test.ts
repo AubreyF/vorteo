@@ -36,6 +36,15 @@ function createSnapshot(
 }
 
 describe("normalizeAgentSnapshot", () => {
+  it("keeps the hosted flag through the snapshot boundary and leaves it out for local agents", () => {
+    const hosted = normalizeAgentSnapshot({ ...createSnapshot(), hosted: true }, "server-1");
+    expect(hosted.hosted).toBe(true);
+    expect(projectAgentSnapshot(hosted).hosted).toBe(true);
+    const local = normalizeAgentSnapshot(createSnapshot(), "server-1");
+    expect(local.hosted).toBeUndefined();
+    expect("hosted" in projectAgentSnapshot(local)).toBe(false);
+  });
+
   it("round-trips identified active turns through the canonical snapshot boundary", () => {
     const snapshot = createSnapshot({
       status: "running",

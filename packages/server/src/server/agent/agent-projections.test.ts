@@ -227,6 +227,18 @@ describe("toStoredAgentRecord", () => {
 });
 
 describe("toAgentPayload", () => {
+  it("marks an agent whose session runs in the durable session host, and only that one", () => {
+    const hosted = createManagedAgent({
+      session: { isDurablyHosted: () => true } as unknown as AgentSession,
+    });
+    expect(toAgentPayload(hosted).hosted).toBe(true);
+    const local = createManagedAgent({
+      session: { isDurablyHosted: () => false } as unknown as AgentSession,
+    });
+    expect(toAgentPayload(local).hosted).toBeUndefined();
+    expect(toAgentPayload(createManagedAgent()).hosted).toBeUndefined();
+  });
+
   it("marks a launch preset modified after a Classic model change without exposing instructions", () => {
     const agent = createManagedAgent({
       config: {

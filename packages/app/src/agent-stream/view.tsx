@@ -13,6 +13,8 @@ import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
+import { ProfileSwitchMarker } from "@/profile-switch/marker";
+import { QuotaNotice } from "@/profile-switch/quota-notice";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
 import { AgentTaskCards, AgentQueueCards } from "./task-cards";
 import { JumpToLatest } from "./jump-to-latest";
@@ -834,12 +836,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const renderAssistantMessageItem = useCallback(
       (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "assistant_message" }>) => {
         if (isQuotaExhaustionMessage(item.text)) {
-          return (
-            <Notification
-              level="warning"
-              message="Account usage limit reached. Open the preset picker to reset utilization, then send your next message here. You can also choose another preset to continue in a new task."
-            />
-          );
+          return <QuotaNotice serverId={resolvedServerId} agentId={agentId} />;
         }
         return (
           <AssistantFileLinkResolverProvider
@@ -1011,6 +1008,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
           case "compaction":
             return <CompactionMarker item={item} />;
+
+          case "profile_switch":
+            return <ProfileSwitchMarker item={item} serverId={resolvedServerId} />;
 
           case "plugin":
             return (

@@ -42,7 +42,12 @@ function fill(model: ReturnType<typeof openSharedSkillForm>) {
 }
 test("review freezes the catalog revision and retains source and bytes through failed saves", async () => {
   const save = vi.fn().mockRejectedValueOnce(new Error("Shared settings changed"));
-  const model = openSharedSkillForm({ prepare: async () => prepared, read: vi.fn(), save });
+  const model = openSharedSkillForm({
+    prepare: async () => prepared,
+    read: vi.fn(),
+    save,
+    reportConnectionLost: vi.fn(),
+  });
   fill(model);
   const opened = snapshot();
   await model.prepare(opened);
@@ -71,7 +76,10 @@ test("updates review previous content and do not replace another source or direc
   const read = vi.fn(async () => prepared.package);
   const resolve = vi.fn(async () => prepared);
   const save = vi.fn();
-  const model = openSharedSkillForm({ prepare: resolve, read, save }, prepared.definition);
+  const model = openSharedSkillForm(
+    { prepare: resolve, read, save, reportConnectionLost: vi.fn() },
+    prepared.definition,
+  );
   model.setSource("directory", "skills/different");
   await model.prepare(opened);
   expect(resolve).not.toHaveBeenCalled();
@@ -85,7 +93,7 @@ test("updates review previous content and do not replace another source or direc
     expectedRevision: 7,
     settings: { skillLibrary: [prepared.definition] },
   });
-  const add = openSharedSkillForm({ prepare: resolve, read, save });
+  const add = openSharedSkillForm({ prepare: resolve, read, save, reportConnectionLost: vi.fn() });
   fill(add);
   await add.prepare(opened);
   expect(add.getState().error).toContain("already exists");
@@ -101,6 +109,7 @@ test("late responses cannot restore stale review after editing or closing", asyn
       }),
     read: vi.fn(),
     save,
+    reportConnectionLost: vi.fn(),
   });
   fill(model);
   const first = model.prepare(snapshot());
@@ -114,4 +123,19 @@ test("late responses cannot restore stale review after editing or closing", asyn
   await second;
   expect(await model.submit()).toBe(false);
   expect(save).not.toHaveBeenCalled();
+});
+test("a lost connection is reported outside the form and leaves no inline error", async () => {
+  const lost = new Error("Transport closed (code 1006)");
+  const reportConnectionLost = vi.fn();
+  const model = openSharedSkillForm({
+    prepare: async () => prepared,
+    read: vi.fn(),
+    save: vi.fn().mockRejectedValueOnce(lost),
+    reportConnectionLost,
+  });
+  fill(model);
+  await model.prepare(snapshot());
+  expect(await model.submit()).toBe(false);
+  expect(reportConnectionLost).toHaveBeenCalledWith(lost);
+  expect(model.getState()).toMatchObject({ phase: "review", error: null });
 });

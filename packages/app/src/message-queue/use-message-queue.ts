@@ -5,6 +5,8 @@ import type { QueueOperation } from "@getpaseo/protocol/message-queue";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { useReportActionError } from "@/hooks/use-action-error";
+import { toErrorMessage } from "@/utils/error-messages";
 
 import { generateMessageId } from "@/types/stream";
 import { canRequestImmediateDelivery, type OutboxRecord } from "./outbox-record";
@@ -44,6 +46,7 @@ export function useMessageQueue(serverId: string, agentId: string) {
   });
   const enabled = active && supported && connected && !!agentId;
   const sendingNow = useRef(false);
+  const reportError = useReportActionError();
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const reconnectError = useFetchQuery<string | null>({
     dataShape: "value",
@@ -57,7 +60,7 @@ export function useMessageQueue(serverId: string, agentId: string) {
     if (!enabled) return;
     setSubscriptionError(null);
     return watchSharedQueue(serverId, agentId, (error) =>
-      setSubscriptionError(error instanceof Error ? error.message : "Queue subscription failed."),
+      setSubscriptionError(toErrorMessage(error)),
     );
   }, [enabled, serverId, agentId]);
   const queue = useFetchQuery({
@@ -123,6 +126,8 @@ export function useMessageQueue(serverId: string, agentId: string) {
         if (immediate) sendingNow.current = false;
       }
     },
+    // Queue actions report failures as toasts; durable queue state renders in the card.
+    onError: reportError,
     retry: false,
   });
   const pending = outbox.data?.records?.filter((record) => record.agentId === agentId) ?? [];
@@ -137,7 +142,7 @@ export function useMessageQueue(serverId: string, agentId: string) {
     pending,
     canSendNow,
     error: firstQueueError(
-      [mutation.error, queue.error, outbox.error],
+      [queue.error, outbox.error],
       outbox.data?.error,
       subscriptionError ?? reconnectError.data ?? null,
     ),
@@ -146,10 +151,9 @@ export function useMessageQueue(serverId: string, agentId: string) {
     canMutate,
     mutate: mutation.mutateAsync,
     refresh: () => {
-      mutation.reset();
       setSubscriptionError(null);
       void subscribeQueue(serverId, agentId, true).catch((error: unknown) =>
-        setSubscriptionError(error instanceof Error ? error.message : "Queue subscription failed."),
+        setSubscriptionError(toErrorMessage(error)),
       );
       void queue.refetch();
       void flushMessageOutbox(serverId);
@@ -189,5 +193,6 @@ function firstQueueError(
   stored: string | null | undefined,
   subscription: string | null,
 ): string | null {
-  return errors.find((error) => error !== null)?.message ?? stored ?? subscription;
+  const error = errors.find((candidate) => candidate !== null);
+  return error ? toErrorMessage(error) : (stored ?? subscription);
 }

@@ -1,4 +1,5 @@
 import type { AgentQuestion } from "@getpaseo/protocol/agent-questions";
+import type { UsageLimitHold } from "@getpaseo/protocol/usage-limit";
 import type { SidebarStateStore } from "./sidebar-state/store.js";
 import type { HeldRestart } from "@getpaseo/protocol/messages";
 import type { MaintenanceRestartBridge } from "./maintenance-restart-channel.js";
@@ -18,6 +19,13 @@ import {
   systemFieldsForDescriptor,
 } from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
+import { assertWorkspaceEnvironment } from "./execution-installation/settings/project-policies.js";
+import {
+  projectsFolderPolicyFor,
+  ProjectsFolderError,
+  type ProjectsFolderConfig,
+  type ProjectsFolderPolicy,
+} from "./projects-folder.js";
 import { setupSystemSource } from "./system-project/setup-source.js";
 import {
   planProviderRemoval,
@@ -148,6 +156,7 @@ import type {
   ManagedAgent,
 } from "./agent/agent-manager.js";
 import { createAgentCommand } from "./agent/create-agent/create.js";
+import { switchAgentProfileCommand } from "./agent/profile-switch/command.js";
 import { normalizeClientMessageId } from "./client-message-id.js";
 import { createAgentForMessage, AgentCreationRequestError } from "./agent/create-agent/requests.js";
 import { resolveCreateAgentIntent, type CreateAgentIntent } from "./agent/create-agent/intent.js";
@@ -510,6 +519,7 @@ export interface SessionOptions {
   pushNotifications: PushNotifications;
   paseoHome: string;
   worktreesRoot?: string;
+  projectsFolder?: ProjectsFolderConfig;
   agentManager: AgentManager;
   agentStorage: AgentStorage;
   messageReceipts: Pick<MessageReceipts, "send">;
@@ -791,6 +801,7 @@ export class Session {
   private readonly paseoHome: string;
   private readonly projectIcons: ProjectIconReader;
   private readonly worktreesRoot: string | undefined;
+  private readonly projectsFolder: ProjectsFolderPolicy | null;
   private readonly rewindInitiators = new Map<string, object | undefined>();
 
   private agentManager: AgentManager;
@@ -972,6 +983,7 @@ export class Session {
     this.creationService = options.creationService;
     this.projectIcons = new ProjectIconReader(paseoHome);
     this.worktreesRoot = worktreesRoot;
+    this.projectsFolder = projectsFolderPolicyFor(options.projectsFolder);
     this.pluginRuntime = pluginRuntime;
     this.orchestrationSkills = orchestrationSkills;
     this.sessionLogger = logger.child({
@@ -1409,6 +1421,7 @@ export class Session {
     let capability: ClientCapability;
     if (item.type === "notification") capability = CLIENT_CAPS.timelineNotifications;
     else if (item.type === "plugin") capability = CLIENT_CAPS.pluginTimelineItems;
+    else if (item.type === "profile_switch") capability = CLIENT_CAPS.profileSwitchTimeline;
     else return true;
     return source ? this.supportsForSource(capability, source) : this.supports(capability);
   }
@@ -2833,6 +2846,8 @@ export class Session {
     switch (msg.type) {
       case "agent.detach.request":
         return this.handleDetachAgentRequest(msg.agentId, msg.requestId);
+      case "agent.profile.switch.request":
+        return this.handleAgentProfileSwitchRequest(msg);
       default:
         return undefined;
     }
@@ -3453,6 +3468,8 @@ export class Session {
         return this.handleAgentGoalRequest(msg);
       case "agent.context.get_breakdown.request":
         return this.handleAgentContextBreakdownRequest(msg);
+      case "agent.usage_limit.set_resume.request":
+        return this.handleAgentUsageLimitResumeRequest(msg);
       case "list_commands_request":
         await this.handleListCommandsRequest(msg);
         return;
@@ -4851,6 +4868,44 @@ export class Session {
     }
   }
 
+  private async handleAgentProfileSwitchRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.profile.switch.request" }>,
+  ): Promise<void> {
+    const { agentId, requestId } = msg;
+    const logFields = { agentId, requestId, provider: msg.provider, profileId: msg.profileId };
+    this.sessionLogger.info(logFields, "session: agent.profile.switch.request");
+    try {
+      await switchAgentProfileCommand(
+        {
+          agentManager: this.agentManager,
+          agentStorage: this.agentStorage,
+          logger: this.sessionLogger,
+          providerSnapshotManager: this.providerSnapshotManager,
+          getAgentProfiles: () => this.daemonConfigStore.get().agentProfiles ?? [],
+          getSharedProviderConfig: () => this.daemonConfigStore.get(),
+          validateSharedConfiguration: (selection) =>
+            this.providerSnapshotManager.validateAgentConfiguration(selection),
+        },
+        msg,
+      );
+      this.emit({
+        type: "agent.profile.switch.response",
+        payload: { requestId, agentId, accepted: true, error: null },
+      });
+    } catch (error) {
+      this.sessionLogger.error({ err: error, ...logFields }, "session: agent.profile.switch error");
+      this.emit({
+        type: "agent.profile.switch.response",
+        payload: {
+          requestId,
+          agentId,
+          accepted: false,
+          error: getErrorMessageOr(error, "Failed to switch the thread's account"),
+        },
+      });
+    }
+  }
+
   private async handleCreateAgentRequest(msg: CreateAgentRequestMessage): Promise<void> {
     try {
       let agent: AgentSnapshotPayload;
@@ -5863,6 +5918,26 @@ export class Session {
     }
   }
 
+  private async handleAgentUsageLimitResumeRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.usage_limit.set_resume.request" }>,
+  ): Promise<void> {
+    const reply = (hold: UsageLimitHold | null, error: string | null) =>
+      this.emit({
+        type: "agent.usage_limit.set_resume.response",
+        payload: { agentId: msg.agentId, requestId: msg.requestId, hold, error },
+      });
+    try {
+      await ensureAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      reply(await this.agentManager.setUsageLimitResume(msg.agentId, msg.action), null);
+    } catch (error) {
+      reply(null, error instanceof Error ? error.message : "The thread could not be updated.");
+    }
+  }
+
   private async handleAgentContextBreakdownRequest(
     msg: Extract<SessionInboundMessage, { type: "agent.context.get_breakdown.request" }>,
   ): Promise<void> {
@@ -6089,7 +6164,10 @@ export class Session {
     msg: Extract<SessionInboundMessage, { type: "project.directory.browse.request" }>,
   ): Promise<void> {
     try {
-      const payload = await browseProjectDirectories(msg, await projectDirectoryEnvironment());
+      const payload = await browseProjectDirectories(
+        msg,
+        await projectDirectoryEnvironment(await this.projectsFolderBrowseContext()),
+      );
       this.emit({ type: "project.directory.browse.response", payload });
     } catch (error) {
       this.sessionLogger.error({ err: error }, "Invalid host filesystem configuration");
@@ -6114,12 +6192,15 @@ export class Session {
       const workspaceCwd = cwd?.trim();
       const searchesWorkspace = Boolean(workspaceCwd);
       const entries = await searchDirectoryEntries({
-        root: workspaceCwd ? expandTilde(workspaceCwd) : (process.env.HOME ?? homedir()),
+        // New projects come from the Projects folder, so searches start there.
+        root: workspaceCwd
+          ? expandTilde(workspaceCwd)
+          : (this.projectsFolder?.config.root ?? process.env.HOME ?? homedir()),
         query,
         pathFormat: searchesWorkspace ? "relative" : "absolute",
         pathQueryPolicy: searchesWorkspace ? "slashes" : "rooted",
         blankQueryBehavior: searchesWorkspace ? "children" : "none",
-        rootAliases: searchesWorkspace ? [] : ["~"],
+        rootAliases: searchesWorkspace || this.projectsFolder ? [] : ["~"],
         traversableHiddenDirectoryNames: searchesWorkspace
           ? WORKSPACE_SEARCH_HIDDEN_DIRECTORIES
           : [],
@@ -7722,6 +7803,7 @@ export class Session {
     if (!directoryExists) {
       throw new SessionRequestError("directory_not_found", `Directory not found: ${cwd}`);
     }
+    await assertWorkspaceEnvironment(this.daemonConfigStore.get(), cwd);
 
     const explicitTitle = request.title?.trim() || null;
     const promptTitle = resolveFirstAgentPromptTitle(request.firstAgentContext);
@@ -7781,6 +7863,7 @@ export class Session {
     }
 
     const sourceCwd = await resolveWorktreeSourceCwd(source, this.projectRegistry);
+    await assertWorkspaceEnvironment(this.daemonConfigStore.get(), sourceCwd);
 
     const result = await this.createPaseoWorktreeWorkflow(
       {
@@ -7828,6 +7911,20 @@ export class Session {
           workspace: null,
           error: `Directory not found: ${cwd}`,
           errorCode: "directory_not_found",
+        },
+      });
+      return;
+    }
+    const rejection = await this.rejectNewProjectOutsideProjectsFolder(cwd);
+    if (rejection) {
+      this.sessionLogger.info({ requestedCwd, reason: rejection.code }, "Open project rejected");
+      this.emit({
+        type: "open_project_response",
+        payload: {
+          requestId: request.requestId,
+          workspace: null,
+          error: rejection.message,
+          errorCode: rejection.code,
         },
       });
       return;
@@ -7899,6 +7996,47 @@ export class Session {
     }
   }
 
+  /**
+   * Null when `cwd` may become a project here. With a Projects folder, a directory that is
+   * not already registered must be strictly inside it; registered ones keep working.
+   */
+  private async rejectNewProjectOutsideProjectsFolder(
+    cwd: string,
+  ): Promise<ProjectsFolderError | null> {
+    if (!this.projectsFolder) return null;
+    const [projects, workspaces] = await Promise.all([
+      this.projectRegistry.list(),
+      this.workspaceRegistry.list(),
+    ]);
+    const paths = [
+      ...projects.map((project) => project.rootPath),
+      ...workspaces.map((workspace) => workspace.cwd),
+    ];
+    try {
+      await this.projectsFolder.assertNewProjectDirectory(cwd, { paths });
+      return null;
+    } catch (error) {
+      if (error instanceof ProjectsFolderError) return error;
+      throw error;
+    }
+  }
+
+  private async projectsFolderBrowseContext(): Promise<{
+    projectsRoot?: string;
+    projectIdsByPath?: ReadonlyMap<string, string>;
+  }> {
+    if (!this.projectsFolder) return {};
+    const projects = await this.projectRegistry.list();
+    return {
+      projectsRoot: this.projectsFolder.config.root,
+      projectIdsByPath: new Map(
+        projects
+          .filter((project) => !project.archivedAt)
+          .map((project) => [resolve(project.rootPath), project.projectId] as const),
+      ),
+    };
+  }
+
   private async handleProjectAddRequest(
     request: Extract<SessionInboundMessage, { type: "project.add.request" }>,
   ): Promise<void> {
@@ -7917,6 +8055,20 @@ export class Session {
           project: null,
           error: `Directory not found: ${cwd}`,
           errorCode: "directory_not_found",
+        },
+      });
+      return;
+    }
+    const rejection = await this.rejectNewProjectOutsideProjectsFolder(cwd);
+    if (rejection) {
+      this.sessionLogger.info({ requestedCwd, reason: rejection.code }, "Add project rejected");
+      this.emit({
+        type: "project.add.response",
+        payload: {
+          requestId: request.requestId,
+          project: null,
+          error: rejection.message,
+          errorCode: rejection.code,
         },
       });
       return;
@@ -7969,8 +8121,15 @@ export class Session {
       const result = await createProjectDirectory(
         { parentPath: request.parentPath, name: request.name },
         {
-          registerProject: (directoryPath) =>
-            this.workspaceProvisioning.findOrCreateProjectForDirectory(directoryPath),
+          // Only a folder inside the Projects folder can be created; it is then a new project.
+          assertParentDirectory: this.projectsFolder
+            ? (parentPath) => this.projectsFolder!.assertParentDirectory(parentPath)
+            : undefined,
+          registerProject:
+            request.register === false
+              ? null
+              : (directoryPath) =>
+                  this.workspaceProvisioning.findOrCreateProjectForDirectory(directoryPath),
         },
       );
       this.emit({
@@ -7978,19 +8137,13 @@ export class Session {
         payload: {
           requestId: request.requestId,
           directoryPath: result.directoryPath,
-          project: await this.buildProjectDescriptor(result.project),
+          project: result.project ? await this.buildProjectDescriptor(result.project) : null,
           error: null,
           errorCode: null,
         },
       });
     } catch (error) {
-      const requestError =
-        error instanceof ProjectDirectoryRequestError
-          ? error
-          : new ProjectDirectoryRequestError(
-              "registration_failed",
-              error instanceof Error ? error.message : "Failed to create project directory",
-            );
+      const requestError = toProjectDirectoryRequestError(error);
       this.sessionLogger.error(
         {
           err: error,
@@ -8104,6 +8257,9 @@ export class Session {
       if (!this.isPathWithinRoot(targetParent, checkoutPath)) {
         throw new Error("Resolved checkout path must stay inside the target directory");
       }
+      // Checked before any folder is created, through the deepest existing ancestor.
+      await this.projectsFolder?.assertParentDirectory(targetParent);
+      await this.projectsFolder?.assertNewProjectDirectory(checkoutPath, { paths: [] });
 
       await mkdir(targetParent, { recursive: true });
       try {
@@ -9666,4 +9822,15 @@ function legacyWantsEvent(
     default:
       return true;
   }
+}
+
+function toProjectDirectoryRequestError(error: unknown): ProjectDirectoryRequestError {
+  if (error instanceof ProjectDirectoryRequestError) return error;
+  if (error instanceof ProjectsFolderError) {
+    return new ProjectDirectoryRequestError("outside_projects_folder", error.message);
+  }
+  return new ProjectDirectoryRequestError(
+    "registration_failed",
+    error instanceof Error ? error.message : "Failed to create project directory",
+  );
 }

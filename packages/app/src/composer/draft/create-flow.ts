@@ -15,6 +15,7 @@ import {
 } from "@/types/stream";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { PendingMessageSubmission } from "@/composer/submission/model";
+import { toErrorMessage } from "@/utils/error-messages";
 
 const EMPTY_STREAM_ITEMS: StreamItem[] = [];
 
@@ -27,14 +28,15 @@ interface CreateAttempt {
   attachments?: AgentAttachment[];
 }
 
+// A validation error belongs to the inputs it was raised for, so it disappears once they change.
 type DraftAgentMachineState<TDraftAgent> =
-  | { tag: "draft"; errorMessage: string }
+  | { tag: "draft"; errorMessage: string; errorInputsKey: string }
   | { tag: "creating"; attempt: CreateAttempt; draftAgent: TDraftAgent };
 
 type DraftAgentMachineEvent<TDraftAgent> =
-  | { type: "DRAFT_SET_ERROR"; message: string }
+  | { type: "DRAFT_SET_ERROR"; message: string; inputsKey: string }
   | { type: "SUBMIT"; attempt: CreateAttempt; draftAgent: TDraftAgent }
-  | { type: "CREATE_FAILED"; message: string };
+  | { type: "CREATE_FAILED" };
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled state: ${JSON.stringify(value)}`);
@@ -49,7 +51,7 @@ function reducer<TDraftAgent>(
       if (state.tag !== "draft") {
         return state;
       }
-      return { ...state, errorMessage: event.message };
+      return { ...state, errorMessage: event.message, errorInputsKey: event.inputsKey };
     }
     case "SUBMIT": {
       return { tag: "creating", attempt: event.attempt, draftAgent: event.draftAgent };
@@ -58,21 +60,23 @@ function reducer<TDraftAgent>(
       if (state.tag !== "creating") {
         return state;
       }
-      return { tag: "draft", errorMessage: event.message };
+      return { tag: "draft", errorMessage: "", errorInputsKey: "" };
     }
     default:
       return assertNever(event);
   }
 }
 
-function prepareCreateAttempt<TDraftAgent>(
-  attempt: CreateAttempt,
-  buildDraftAgent: (attempt: CreateAttempt) => TDraftAgent,
-): DraftAgentMachineState<TDraftAgent> {
+function prepareCreateAttempt<TDraftAgent>(input: {
+  attempt: CreateAttempt;
+  buildDraftAgent: (attempt: CreateAttempt) => TDraftAgent;
+  inputsKey: string;
+}): DraftAgentMachineState<TDraftAgent> {
+  const { attempt, buildDraftAgent, inputsKey } = input;
   try {
     return { tag: "creating", attempt, draftAgent: buildDraftAgent(attempt) };
   } catch (error) {
-    return { tag: "draft", errorMessage: error instanceof Error ? error.message : String(error) };
+    return { tag: "draft", errorMessage: toErrorMessage(error), errorInputsKey: inputsKey };
   }
 }
 
@@ -99,6 +103,8 @@ interface CreateRequestContext {
 interface UseDraftAgentCreateFlowOptions<TDraftAgent, TCreateResult> {
   draftId: string;
   getPendingServerId: () => string | null;
+  /** Identifies the form inputs; a validation error clears when this changes. */
+  formInputsKey: string;
   initialAttempt?: CreateAttempt | null;
   allowEmptyText?: boolean;
   validateBeforeSubmit?: (ctx: SubmitContext) => string | null;
@@ -107,12 +113,14 @@ interface UseDraftAgentCreateFlowOptions<TDraftAgent, TCreateResult> {
   createRequest: (ctx: CreateRequestContext) => Promise<CreateRequestResult<TCreateResult>>;
   buildDraftAgent: (attempt: CreateAttempt) => TDraftAgent;
   onCreateSuccess: (ctx: { result: TCreateResult; attempt: CreateAttempt }) => Promise<void> | void;
-  onCreateError?: (error: Error) => void;
+  /** Reports a failed create request. The form keeps only validation errors inline. */
+  onCreateError: (error: unknown) => void;
 }
 
 export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
   draftId,
   getPendingServerId,
+  formInputsKey,
   initialAttempt = null,
   allowEmptyText = false,
   validateBeforeSubmit,
@@ -129,10 +137,11 @@ export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
     initialAttempt,
     (attempt): DraftAgentMachineState<TDraftAgent> =>
       attempt
-        ? prepareCreateAttempt(attempt, buildDraftAgent)
+        ? prepareCreateAttempt({ attempt, buildDraftAgent, inputsKey: formInputsKey })
         : {
             tag: "draft",
             errorMessage: "",
+            errorInputsKey: "",
           },
   );
 
@@ -141,18 +150,23 @@ export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
   // arrive, and observe the original request's failure through shared state.
   const machine = useMemo<DraftAgentMachineState<TDraftAgent>>(() => {
     if (pending?.lifecycle === "abandoned") {
-      return { tag: "draft", errorMessage: pending.errorMessage ?? "" };
+      return { tag: "draft", errorMessage: "", errorInputsKey: "" };
     }
     if (pending?.lifecycle === "active" && localMachine.tag === "draft" && initialAttempt) {
-      return prepareCreateAttempt(initialAttempt, buildDraftAgent);
+      return prepareCreateAttempt({
+        attempt: initialAttempt,
+        buildDraftAgent,
+        inputsKey: formInputsKey,
+      });
     }
     return localMachine;
-  }, [pending, localMachine, initialAttempt, buildDraftAgent]);
+  }, [pending, localMachine, initialAttempt, buildDraftAgent, formInputsKey]);
 
   const setPendingCreateAttempt = useCreateFlowStore((state) => state.setPending);
   const updatePendingAgentId = useCreateFlowStore((state) => state.updateAgentId);
   const markPendingCreateLifecycle = useCreateFlowStore((state) => state.markLifecycle);
-  const formErrorMessage = machine.tag === "draft" ? machine.errorMessage : "";
+  const formErrorMessage =
+    machine.tag === "draft" && machine.errorInputsKey === formInputsKey ? machine.errorMessage : "";
   const isSubmitting = machine.tag === "creating";
 
   const submittedStreamItems = useMemo<StreamItem[]>(() => {
@@ -191,14 +205,18 @@ export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
   const draftAgent = machine.tag === "creating" ? machine.draftAgent : null;
   const startCreateAttempt = useCallback(
     (attempt: CreateAttempt) => {
-      const prepared = prepareCreateAttempt(attempt, buildDraftAgent);
+      const prepared = prepareCreateAttempt({ attempt, buildDraftAgent, inputsKey: formInputsKey });
       if (prepared.tag === "draft") {
-        dispatch({ type: "DRAFT_SET_ERROR", message: prepared.errorMessage });
+        dispatch({
+          type: "DRAFT_SET_ERROR",
+          message: prepared.errorMessage,
+          inputsKey: formInputsKey,
+        });
         throw new Error(prepared.errorMessage);
       }
       dispatch({ type: "SUBMIT", attempt, draftAgent: prepared.draftAgent });
     },
-    [buildDraftAgent],
+    [buildDraftAgent, formInputsKey],
   );
 
   const runCreateAttempt = useCallback(
@@ -206,7 +224,7 @@ export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
       const pendingServerId = getPendingServerId();
       if (!pendingServerId) {
         const error = new Error(t("composer.errors.noHostSelected"));
-        dispatch({ type: "DRAFT_SET_ERROR", message: error.message });
+        dispatch({ type: "DRAFT_SET_ERROR", message: error.message, inputsKey: formInputsKey });
         throw error;
       }
 
@@ -245,21 +263,18 @@ export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
 
         await onCreateSuccess({ result: createResult.result, attempt });
       } catch (error) {
-        const resolved =
-          error instanceof Error ? error : new Error(t("composer.errors.failedToCreateAgent"));
-        dispatch({ type: "CREATE_FAILED", message: resolved.message });
-        markPendingCreateLifecycle({
-          draftId,
-          lifecycle: "abandoned",
-          errorMessage: resolved.message,
-        });
-        onCreateError?.(resolved);
+        dispatch({ type: "CREATE_FAILED" });
+        markPendingCreateLifecycle({ draftId, lifecycle: "abandoned" });
+        onCreateError(
+          error instanceof Error ? error : new Error(t("composer.errors.failedToCreateAgent")),
+        );
         throw error;
       }
     },
     [
       createRequest,
       draftId,
+      formInputsKey,
       getPendingServerId,
       markPendingCreateLifecycle,
       onBeforeSubmit,
@@ -280,12 +295,12 @@ export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
         throw new Error(t("composer.errors.alreadyLoading"));
       }
 
-      dispatch({ type: "DRAFT_SET_ERROR", message: "" });
+      dispatch({ type: "DRAFT_SET_ERROR", message: "", inputsKey: formInputsKey });
       const trimmedPrompt = text.trim();
       const pendingServerId = getPendingServerId();
       if (!pendingServerId) {
         const error = new Error(t("composer.errors.noHostSelected"));
-        dispatch({ type: "DRAFT_SET_ERROR", message: error.message });
+        dispatch({ type: "DRAFT_SET_ERROR", message: error.message, inputsKey: formInputsKey });
         throw error;
       }
       const supportsForgeSearch =
@@ -301,7 +316,7 @@ export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
       const hasAttachmentContent = images.length > 0 || wirePayload.attachments.length > 0;
       if (!trimmedPrompt && !hasAttachmentContent && !allowEmptyText) {
         const error = new Error(t("composer.errors.initialPromptRequired"));
-        dispatch({ type: "DRAFT_SET_ERROR", message: error.message });
+        dispatch({ type: "DRAFT_SET_ERROR", message: error.message, inputsKey: formInputsKey });
         throw error;
       }
 
@@ -312,7 +327,7 @@ export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
       });
       if (validationError) {
         const error = new Error(validationError);
-        dispatch({ type: "DRAFT_SET_ERROR", message: validationError });
+        dispatch({ type: "DRAFT_SET_ERROR", message: validationError, inputsKey: formInputsKey });
         throw error;
       }
 
@@ -346,6 +361,7 @@ export function useDraftAgentCreateFlow<TDraftAgent, TCreateResult>({
     [
       allowEmptyText,
       draftId,
+      formInputsKey,
       getPendingServerId,
       isSubmitting,
       onCreateStart,

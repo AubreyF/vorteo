@@ -68,6 +68,7 @@ export const ru: TranslationResources = {
       daemonClientDisconnected: "Daemon клиента отключен",
       noFileFound: "Файл для {{token}} не найден",
       unexpectedDictationError: "При обработке диктовки произошла непредвиденная ошибка.",
+      hostConnectionLost: "Соединение с хостом потеряно. Повторите попытку после переподключения.",
     },
     connectionStatus: {
       online: "Онлайн",
@@ -175,6 +176,8 @@ export const ru: TranslationResources = {
     },
     errors: {
       failedToSend: "Не удалось отправить сообщение",
+      connectionLostWhileSending:
+        "Соединение потеряно при отправке. Проверьте, дошло ли сообщение, прежде чем отправлять снова.",
       failedToCreateAgent: "Не удалось создать агента.",
       noHostSelected: "Хост не выбран",
       initialPromptRequired: "Необходим инициализирующий промпт",
@@ -311,6 +314,7 @@ export const ru: TranslationResources = {
       archived: "В архиве",
       pending: "На рассмотрении: {{count}}",
       attention: "Внимание",
+      hosted: "Переживает перезапуски",
     },
     archiveSheet: {
       hostOffline: "Хост не в сети",
@@ -397,6 +401,7 @@ export const ru: TranslationResources = {
       withTokens: "Контекст сжат ({{tokens}} тыс. токенов)",
       completed: "Контекст сжат",
     },
+    profileSwitch: en.message.profileSwitch,
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
@@ -1198,6 +1203,35 @@ export const ru: TranslationResources = {
         "Добавьте команды настройки для автоматической установки зависимостей и подготовки новых worktree.",
       openProjectSettings: "Открыть настройки проекта",
     },
+    folders: {
+      actions: {
+        menu: "Действия с папкой",
+        newFolder: "Новая папка",
+        newWorkspaceFolder: "Новая папка рабочих пространств",
+        newSubfolder: "Новая папка внутри",
+        rename: "Переименовать папку",
+        delete: "Удалить папку",
+        moveToFolder: "Переместить в папку…",
+      },
+      dialogs: {
+        createTitle: "Новая папка",
+        renameTitle: "Переименовать папку",
+        namePlaceholder: "Название папки",
+        create: "Создать",
+        rename: "Переименовать",
+        moveTitle: "Переместить «{{name}}»",
+        destination: "Папка",
+        topLevel: "Без папки",
+        move: "Переместить",
+        cancel: "Отмена",
+      },
+      confirmations: {
+        deleteTitle: "Удалить папку?",
+        deleteMessage:
+          "Удалить «{{folderName}}»? Её содержимое поднимется на уровень выше. Ничего не архивируется, файлы на диске не меняются.",
+        deleteConfirm: "Удалить",
+      },
+    },
     project: {
       actions: {
         menu: "Действия проекта",
@@ -1208,6 +1242,8 @@ export const ru: TranslationResources = {
         openFolderFailed: "Не удалось открыть папку",
         remove: "Удалить проект",
         removing: "Удаление...",
+        removeBlockedSystem:
+          "Vorteo System содержит исходный код и служебные рабочие пространства этой установки, поэтому его нельзя удалить.",
       },
       confirmations: {
         removeTitle: "Удалить проект?",
@@ -2740,6 +2776,12 @@ export const ru: TranslationResources = {
         imageUrl: "URL изображения или сайта",
         save: "Сохранить изменения",
         savedToast: "Проект обновлён",
+        nameLockedSystem: "Имя этому проекту задаёт демон, поэтому его нельзя переименовать.",
+      },
+      system: {
+        title: "О Vorteo System",
+        description:
+          "Этот проект нужен для развития этой установки Vorteo. Он основан на копии исходного кода, из которой собрана установка, и также содержит служебные рабочие пространства, которыми управляет демон, например Optimization Runner. Демон пересоздаёт его и полагается на него, поэтому проект нельзя удалить или переименовать.",
       },
       readFailures: {
         invalidTitle: "Не удалось разобрать paseo.json",

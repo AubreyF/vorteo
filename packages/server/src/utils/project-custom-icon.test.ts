@@ -16,6 +16,7 @@ import {
   removeProjectCustomIcon,
   setProjectCustomIcon,
 } from "./project-custom-icon.js";
+import { SYSTEM_PROJECT_DEFAULT_ICON } from "../server/system-project/default-icon.js";
 
 const PNG_1X1 = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -77,6 +78,28 @@ function nonSquarePng(): Buffer {
 }
 
 describe("project custom icon", () => {
+  it("shows the Vorteo mark for the System project until a custom icon is set", async () => {
+    const paseoHome = await tempDir("paseo-home-");
+    const rootPath = await tempDir("paseo-project-root-");
+    await mkdir(join(rootPath, "public"));
+    await writeFile(join(rootPath, "public", "favicon.png"), PNG_1X1);
+    const system = {
+      ...createPersistedProjectRecord({
+        projectId: "project-system",
+        rootPath,
+        kind: "git",
+        displayName: "vorteo",
+        createdAt: "2026-10-22T00:00:00.000Z",
+        updatedAt: "2026-10-22T00:00:00.000Z",
+      }),
+      systemProject: { kind: "vorteo-system" },
+    };
+
+    await expect(readProjectIcon({ paseoHome, project: system })).resolves.toEqual(
+      SYSTEM_PROJECT_DEFAULT_ICON,
+    );
+  });
+
   it("stores uploaded bytes as the custom icon", async () => {
     const target = await project();
 

@@ -13,6 +13,7 @@ import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
 import { FormTextInput } from "@/components/ui/form-field";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import type { TodoEntry } from "@/types/stream";
@@ -75,11 +76,7 @@ function OpenQuestionsContent({
   const toggle = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const [showAnswered, setShowAnswered] = useState(false);
   const toggleAnswered = useCallback(() => setShowAnswered((value) => !value), []);
-  const { canAnswer, pendingId, failedId, error, answer } = useQuestionAnswer(
-    serverId,
-    agentId,
-    readOnly,
-  );
+  const { canAnswer, pendingId, answer } = useQuestionAnswer(serverId, agentId, readOnly);
   const badge = useMemo(
     () => (
       <CountBadge
@@ -113,7 +110,6 @@ function OpenQuestionsContent({
               first={index === 0}
               canAnswer={canAnswer}
               pending={pendingId === question.id}
-              error={failedId === question.id ? error : null}
               onAnswer={answer}
             />
           ))}
@@ -135,23 +131,26 @@ function OpenQuestionsContent({
   );
 }
 
-/** Answers go to the thread that asked; one answer per thread is in flight at a time. */
+/**
+ * Answers go to the thread that asked; one answer per thread is in flight at a time. A failed
+ * answer is reported as a toast and the typed draft stays in place for a retry.
+ */
 export function useQuestionAnswer(serverId: string, agentId: string, readOnly: boolean) {
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
+  const reportError = useReportActionError();
   const mutation = useMutation({
     mutationFn: async ({ questionId, answer }: AnswerInput) => {
       if (!client || !connected || readOnly)
         throw new Error("Reconnect to an active thread before answering.");
       return client.answerAgentQuestion(agentId, questionId, answer);
     },
+    onError: reportError,
     retry: false,
   });
   return {
     canAnswer: connected && !readOnly && !mutation.isPending,
     pendingId: mutation.isPending ? mutation.variables?.questionId : undefined,
-    failedId: mutation.isError ? mutation.variables?.questionId : undefined,
-    error: mutation.error?.message ?? null,
     answer: mutation.mutate,
   };
 }
@@ -162,7 +161,6 @@ export function OpenQuestion({
   first,
   canAnswer,
   pending,
-  error,
   onAnswer,
   onShowTasks,
   context,
@@ -173,7 +171,6 @@ export function OpenQuestion({
   first: boolean;
   canAnswer: boolean;
   pending: boolean;
-  error: string | null;
   onAnswer: (input: AnswerInput) => void;
   /** Where a blocked task leads; by default, this thread's Tasks card. */
   onShowTasks?: () => void;
@@ -213,11 +210,13 @@ export function OpenQuestion({
         {`Asked ${formatTimeAgo(askedAt)}`}
         {defaultAt ? ` · Recommended default applies after ${defaultAt}` : ""}
       </Text>
-      <View style={styles.recommendation}>
-        <Text style={styles.recommendationText}>
-          <Text style={styles.label}>Recommended: </Text>
-          {question.recommendedDefault}
-        </Text>
+      <View style={styles.answerRow}>
+        <View style={styles.recommendation}>
+          <Text style={styles.recommendationText}>
+            <Text style={styles.label}>Recommended: </Text>
+            {question.recommendedDefault}
+          </Text>
+        </View>
         <Button
           variant="default"
           size={size}
@@ -227,7 +226,7 @@ export function OpenQuestion({
           accessibilityLabel={`Use recommended answer: ${question.recommendedDefault}`}
           testID={`${testIDPrefix}-use-recommended-${question.id}`}
         >
-          Use recommended
+          Yes
         </Button>
       </View>
       <View style={styles.answerRow}>
@@ -254,11 +253,6 @@ export function OpenQuestion({
           Answer
         </Button>
       </View>
-      {error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
-          {error}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -364,25 +358,15 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
   },
   recommendation: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: theme.spacing[2],
+    flex: 1,
+    minWidth: 0,
     padding: theme.spacing[2],
     borderRadius: theme.borderRadius.md,
     backgroundColor: theme.colors.surface2,
   },
-  recommendationText: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 160,
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-  },
+  recommendationText: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   answerRow: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
   answerInput: { flex: 1, minWidth: 0 },
   answered: { paddingTop: theme.spacing[1], alignItems: "flex-start" },
   answeredToggle: { marginLeft: theme.spacing[1] },
-  error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm },
 }));

@@ -14,6 +14,7 @@ import {
   workingTreeChanges,
 } from "./lib/delivery-git.mjs";
 import { isMainModule } from "./is-main-module.mjs";
+import { assertBuildsCoordinator } from "./lib/builds-guard.mjs";
 
 export class PublishRefusal extends Error {}
 
@@ -89,6 +90,7 @@ function main() {
 
 if (isMainModule(import.meta.url)) {
   try {
+    assertBuildsCoordinator("Publishing GitHub main");
     main();
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

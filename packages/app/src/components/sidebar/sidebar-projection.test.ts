@@ -221,124 +221,132 @@ it("keeps Factory shortcuts in rendered order and respects its collapsed section
   ).toEqual(["first", "standing", "second"]);
 });
 
-function systemGroupIds(projection: ReturnType<typeof buildSidebarProjection>) {
-  return projection.systemGroups.map((group) => [
-    group.serverId,
-    group.workspaces.map((workspace) => workspace.workspaceId),
-  ]);
-}
-
 function groupedRowIds(projection: ReturnType<typeof buildSidebarProjection>) {
   return projection.workspaceGroups.flatMap((group) => group.rows.map((row) => row.workspaceId));
 }
 
-describe("Vorteo System section", () => {
-  function systemWorkspace(id: string, serverId: string, managed: boolean) {
-    const base = makeWorkspace(id, "attention", [], `system:${serverId}`);
-    const placement = { ...base.placement, serverId, workspaceKey: `${serverId}:${id}` };
-    const entry: SidebarWorkspaceEntry = {
-      ...base.entry,
-      ...placement,
-      projectSystem: { kind: "vorteo-system" },
-      ...(managed ? { systemMembership: { role: "optimization-runner" } } : {}),
+function projectWorkspaceIds(projection: ReturnType<typeof buildSidebarProjection>) {
+  return projection.pinnedGroups.unpinnedProjects.map((project) => [
+    project.viewKey,
+    project.workspaces.map((workspace) => workspace.workspaceId),
+  ]);
+}
+
+describe("Vorteo System project", () => {
+  function systemWorkspace(id: string, managed: boolean) {
+    const { placement, entry } = makeWorkspace(id, "attention", [], "system:srv");
+    return {
+      placement,
+      entry: {
+        ...entry,
+        // System-managed workspaces arrive standing and protected from the daemon.
+        ...(managed ? { standing: true, systemMembership: { role: "optimization-runner" } } : {}),
+        projectSystem: { kind: "vorteo-system" },
+      } satisfies SidebarWorkspaceEntry,
     };
-    return { placement, entry };
   }
 
+  /** The System project sits between two ordinary projects, wherever the operator dragged it. */
   function systemInput(groupMode: "project" | "status") {
     const input = twoProjectInput(groupMode);
-    const hostOperator = systemWorkspace("notes", "srv", false);
-    const hostRunner = systemWorkspace("runner", "srv", true);
-    const devRunner = systemWorkspace("dev-runner", "dev", true);
-    for (const item of [hostOperator, hostRunner, devRunner]) {
+    const operator = systemWorkspace("notes", false);
+    const runner = systemWorkspace("runner", true);
+    for (const item of [operator, runner]) {
       input.workspaceEntriesByKey.set(item.entry.workspaceKey, item.entry);
     }
-    input.projects.push(
-      makeProject([hostOperator.placement, hostRunner.placement], "system:srv"),
-      makeProject([devRunner.placement], "system:dev"),
-    );
+    input.projects.splice(1, 0, makeProject([runner.placement, operator.placement], "system:srv"));
     return input;
   }
 
-  const bothHosts = new Map([
-    ["srv", true],
-    ["dev", true],
-  ]);
+  it("keeps the System project and all its workspaces in the normal project order", () => {
+    const projection = buildSidebarProjection(systemInput("project"));
 
-  for (const groupMode of ["project", "status"] as const) {
-    it(`moves System members out of ${groupMode} rows into per-host groups, managed first`, () => {
-      const projection = buildSidebarProjection({
-        ...systemInput(groupMode),
-        systemSupportedHosts: bothHosts,
-      });
-
-      expect(systemGroupIds(projection)).toEqual([
-        ["srv", ["runner", "notes"]],
-        ["dev", ["dev-runner"]],
-      ]);
-      expect(projection.pinnedGroups.unpinnedProjects.map((project) => project.viewKey)).toEqual([
-        "project",
-        "other-project",
-      ]);
-      expect(groupedRowIds(projection)).not.toContain("runner");
-      expect(projection.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual(
-        groupMode === "project"
-          ? ["first", "second", "runner", "notes", "dev-runner"]
-          : ["second", "first", "runner", "notes", "dev-runner"],
-      );
-    });
-  }
-
-  it("leaves System members in place on hosts that do not advertise the System project", () => {
-    const projection = buildSidebarProjection({
-      ...systemInput("project"),
-      systemSupportedHosts: new Map([["dev", true]]),
-    });
-
-    expect(projection.systemGroups.map((group) => group.serverId)).toEqual(["dev"]);
-    expect(projection.pinnedGroups.unpinnedProjects.map((project) => project.viewKey)).toEqual([
-      "project",
-      "other-project",
-      "system:srv",
+    expect(projectWorkspaceIds(projection)).toEqual([
+      ["project", ["first"]],
+      ["system:srv", ["runner", "notes"]],
+      ["other-project", ["second"]],
     ]);
-  });
-
-  it("keeps pinned System workspaces pinned and drops the emptied project header", () => {
-    const input = systemInput("project");
-    const projection = buildSidebarProjection({
-      ...input,
-      pinnedKeys: {
-        pinnedWorkspaceKeys: ["dev:dev-runner"],
-        pinnedAtByKey: { "dev:dev-runner": "2026-10-22T12:00:00.000Z" },
-      },
-      systemSupportedHosts: bothHosts,
-    });
-
-    expect(projection.pinnedGroups.pinnedChats.map((entry) => entry.workspaceId)).toEqual([
-      "dev-runner",
-    ]);
-    expect(projection.systemGroups.map((group) => group.serverId)).toEqual(["srv"]);
-    expect(projection.pinnedGroups.unpinnedProjects.map((project) => project.viewKey)).toEqual([
-      "project",
-      "other-project",
-    ]);
-  });
-
-  it("drops System shortcuts while the section or a host group is collapsed", () => {
-    const input = systemInput("project");
-    input.collapsedWorkspaceGroupKeys.add("system:srv");
-    expect(
-      buildSidebarProjection({
-        ...input,
-        systemSupportedHosts: bothHosts,
-      }).shortcutModel.shortcutTargets.map((target) => target.workspaceId),
-    ).toEqual(["first", "second", "dev-runner"]);
-    input.collapsedWorkspaceGroupKeys.add("system");
-    const projection = buildSidebarProjection({ ...input, systemSupportedHosts: bothHosts });
-
     expect(projection.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual([
       "first",
+      "notes",
+      "runner",
       "second",
+    ]);
+  });
+
+  it("groups System workspaces with every other workspace in status mode", () => {
+    const projection = buildSidebarProjection(systemInput("status"));
+
+    expect(groupedRowIds(projection).sort()).toEqual(["first", "notes", "runner", "second"]);
+  });
+
+  it("drops System shortcuts only when its project is collapsed, like any project", () => {
+    const input = systemInput("project");
+    input.collapsedProjectKeys.add("system:srv");
+
+    expect(
+      buildSidebarProjection(input).shortcutModel.shortcutTargets.map(
+        (target) => target.workspaceId,
+      ),
+    ).toEqual(["first", "second"]);
+  });
+});
+
+describe("buildSidebarProjection with folders", () => {
+  const createdAt = "2026-10-22T00:00:00.000Z";
+  const alpha = makeWorkspace("alpha", "done", [], "first");
+  const beta = makeWorkspace("beta", "done", [], "first");
+  const gamma = makeWorkspace("gamma", "done", [], "second");
+  const input = {
+    ...projectionInput(),
+    projects: [
+      makeProject([alpha.placement, beta.placement], "first"),
+      makeProject([gamma.placement], "second"),
+    ],
+    pinnedKeys: { pinnedWorkspaceKeys: [], pinnedAtByKey: {} },
+    workspaceEntriesByKey: new Map(
+      [alpha, beta, gamma].map((workspace) => [workspace.entry.workspaceKey, workspace.entry]),
+    ),
+  };
+
+  it("numbers shortcuts in folder order and skips collapsed folders", () => {
+    const projectScope = { kind: "project" as const, projectKey: "first" };
+    const folderState = {
+      sidebarFolders: {
+        top: {
+          id: "top",
+          name: "Top",
+          parentId: null,
+          scope: { kind: "root" as const },
+          createdAt,
+        },
+        later: { id: "later", name: "Later", parentId: null, scope: projectScope, createdAt },
+      },
+      itemFolder: { second: "top", "srv:alpha": "later" },
+      childOrder: { root: ["folder:top", "first"], "project:first": ["srv:beta", "folder:later"] },
+      collapsedFolders: {},
+    };
+    const expanded = buildSidebarProjection({ ...input, folderState });
+    expect(expanded.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual([
+      "gamma",
+      "beta",
+      "alpha",
+    ]);
+    const collapsed = buildSidebarProjection({
+      ...input,
+      folderState: { ...folderState, collapsedFolders: { top: true, later: true } },
+    });
+    expect(collapsed.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual([
+      "beta",
+    ]);
+  });
+
+  it("keeps the flat order when the host has no folder support", () => {
+    const projection = buildSidebarProjection({ ...input, folderState: null });
+    expect(projection.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual([
+      "alpha",
+      "beta",
+      "gamma",
     ]);
   });
 });

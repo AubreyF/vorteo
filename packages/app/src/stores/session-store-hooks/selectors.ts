@@ -4,6 +4,7 @@ import {
   type WorkspaceStructure,
   type WorkspaceStructureProject,
 } from "@/projects/workspace-structure";
+import { advertisedProjectsRoot } from "@/projects/projects-root";
 import type { DesktopBadgeWorkspaceStatus } from "@/utils/desktop-badge-state";
 import { resolveWorkspaceMapKeyByIdentity } from "@/utils/workspace-identity";
 import { isSystemManagedWorkspace } from "@/workspace/lifecycle/system-workspace";
@@ -157,11 +158,7 @@ export function selectWorkspaceStructureProjects(
   state: SessionsSnapshot,
   serverIds: readonly string[],
 ): WorkspaceStructureProject[] {
-  const sessions: Array<{
-    serverId: string;
-    workspaces: Iterable<WorkspaceDescriptor>;
-    projects: Iterable<ProjectDescriptor>;
-  }> = [];
+  const sessions: Parameters<typeof buildWorkspaceStructureProjects>[0]["sessions"] = [];
 
   for (const serverId of serverIds) {
     const session = state.sessions[serverId];
@@ -172,6 +169,7 @@ export function selectWorkspaceStructureProjects(
     }
     sessions.push({
       serverId,
+      projectsRoot: advertisedProjectsRoot(session.serverInfo),
       workspaces: workspaces?.values() ?? [],
       projects: projects?.values() ?? [],
     });
@@ -190,6 +188,7 @@ export function createWorkspaceStructureProjectsSelector(
   let previousInputs: Array<{
     workspaces: Map<string, WorkspaceDescriptor> | undefined;
     projects: Map<string, ProjectDescriptor> | undefined;
+    projectsRoot: string | null;
   }> | null = null;
   let previousProjects: WorkspaceStructureProject[] | null = null;
 
@@ -197,6 +196,7 @@ export function createWorkspaceStructureProjectsSelector(
     const inputs = serverIds.map((serverId) => ({
       workspaces: state.sessions[serverId]?.workspaces,
       projects: state.sessions[serverId]?.projects,
+      projectsRoot: advertisedProjectsRoot(state.sessions[serverId]?.serverInfo),
     }));
     const priorInputs = previousInputs;
     const unchanged =
@@ -204,7 +204,8 @@ export function createWorkspaceStructureProjectsSelector(
       inputs.every(
         (input, index) =>
           input.workspaces === priorInputs[index]?.workspaces &&
-          input.projects === priorInputs[index]?.projects,
+          input.projects === priorInputs[index]?.projects &&
+          input.projectsRoot === priorInputs[index]?.projectsRoot,
       );
     if (unchanged && previousProjects) {
       return previousProjects;

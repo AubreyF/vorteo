@@ -10,6 +10,7 @@ import { Field } from "@/components/ui/form-field";
 import { Switch } from "@/components/ui/switch";
 import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
+import { toErrorMessage } from "@/utils/error-messages";
 
 export function ProfileSkillPolicy({
   serverId,
@@ -111,7 +112,7 @@ export function ProfileSkillPolicy({
         Skills discovered for {providerType} in this environment. Skills do not control tool
         permissions. Existing tasks retain their launch selection.
       </Text>
-      {query.error ? <Text style={styles.hint}>{query.error.message}</Text> : null}
+      {query.error ? <Text style={styles.hint}>{toErrorMessage(query.error)}</Text> : null}
       {policy.mode === "inherit" ? (
         <Button variant="outline" onPress={toggleExpanded}>
           {expanded ? "Hide skill choices" : "Customize skill choices"}

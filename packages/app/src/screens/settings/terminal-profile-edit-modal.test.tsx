@@ -36,7 +36,13 @@ vi.mock("@/constants/platform", () => ({
   isNative: false,
 }));
 
+const reportActionError = vi.hoisted(() => vi.fn());
+vi.mock("@/hooks/use-action-error", () => ({
+  useReportActionError: () => reportActionError,
+}));
+
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => undefined },
   useTranslation: () => ({
     t: (key: string) => key,
   }),
@@ -350,6 +356,25 @@ describe("TerminalProfileEditModal", () => {
       document.querySelector<HTMLElement>('[data-testid="terminal-profile-submit-error"]')
         ?.textContent,
     ).toContain("Server said no");
+    expect(querySubmit()?.disabled).toBe(false);
+  });
+
+  it("reports a lost connection as a toast and leaves no inline error", async () => {
+    const lost = new Error("Transport closed (code 1006)");
+    const onSave = vi.fn().mockRejectedValue(lost);
+    const onClose = vi.fn();
+    renderModal({ onSave, onClose });
+
+    typeInto("terminal-profile-name-input", "Codex");
+    typeInto("terminal-profile-command-input", "codex");
+    click(querySubmit());
+    await flush();
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(reportActionError).toHaveBeenCalledWith(lost);
+    expect(
+      document.querySelector<HTMLElement>('[data-testid="terminal-profile-submit-error"]'),
+    ).toBeNull();
     expect(querySubmit()?.disabled).toBe(false);
   });
 
