@@ -45,6 +45,7 @@ const NOT_ROWS = new Set([
   "Dev preview monitor",
   "Native helper",
   "Waiting for compatible environments",
+  // Sub-headings inside one instruction request's review, not settings rows.
   "Changes",
   "Full proposed instructions (applied exactly)",
   "Current instructions",

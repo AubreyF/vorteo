@@ -1021,12 +1021,7 @@ function installationPane(section: InstallationPaneSection) {
 
 /** Each catalog pane's body. Panes reuse the existing settings components. */
 const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
-  "general.attention": (context) => (
-    <>
-      <InstallationConnectionCheck />
-      <AttentionSection onOpenPane={context.onOpenPane} />
-    </>
-  ),
+  "general.attention": (context) => <AttentionSection onOpenPane={context.onOpenPane} />,
   "general.newWorkspace": () => <WorkspaceDefaultsSection />,
   "general.sending": () => <SendingSection />,
   "general.notifications": () => <DesktopNotificationsSection />,
@@ -1053,7 +1048,12 @@ const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
   "environments.environments": (context) => (
     <EnvironmentsPane onHostRemoved={context.onHostRemoved} />
   ),
-  "environments.connections": installationPane("connections"),
+  "environments.connections": (context) => (
+    <>
+      <InstallationConnectionCheck />
+      {installationPane("connections")(context)}
+    </>
+  ),
   "plugins.plugins": installationPane("plugins"),
   "plugins.integrations": () => <IntegrationsSection />,
   "maintenance.installation": (context) => (

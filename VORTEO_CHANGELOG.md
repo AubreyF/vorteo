@@ -5,6 +5,152 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.729 - 2026-10-21
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.728 - 2026-10-21
+
+### Maintenance
+
+- Record the published interface update for the focused-tab card fix in installation history. Main already carries the fix, so the code is unchanged; both release notes are kept.
+
+## 0.11.0-beta.3.vorteo.727 - 2026-10-21
+
+### Maintenance
+
+- Merge GitHub main into the installed Host source so the Host receives main's newer commits, including the focused-tab card column fix. Where both lines changed Settings, keep main's version, which already integrated the installed redesign and moved the connection check into Environments, Connections. The resulting code matches GitHub main.
+
+## 0.11.0-beta.3.vorteo.726 - 2026-10-21
+
+### Maintenance
+
+- Merge a second GitHub main commit that landed during the first merge. Its fix keeps each conversation's cards in the right-hand column only while that tab is focused.
+- The installed line had already moved the queue out of the task cards, so the queue portal edit from main does not apply there; conversation cards still go through the focused-tab portal.
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.563 there, 2026-10-21)
+
+#### Fixed
+
+- Show only the current tab's cards in the right-hand column. Switching between conversation tabs could leave the previous tab's Open questions, Tasks, Journal, Subagents and queue cards stacked above the current tab's. The column now checks which tab is focused when it draws each conversation's cards.
+
+#### Maintenance
+
+- Give explicit types to agent and worktree list callbacks in the CLI archive, detach, reload, stop and worktree list commands. The type checker dropped their inferred types once the protocol grew, which failed `npm run typecheck` on main. Runtime behavior is unchanged.
+
+#### Validation
+
+- New tests plant a leftover card entry from another tab and confirm it stays hidden, including after focus moves; both fail without the fix. Supporting card group tests pass. Typecheck and lint pass. The supporting view cards suite fails identically on main.
+
+## 0.11.0-beta.3.vorteo.725 - 2026-10-21
+
+### Maintenance
+
+- Merge GitHub main into the installed Host source (release 724) so main carries every installed change. The two lines had numbered versions independently, so main's six commits keep their own labels below and the installed history keeps its labels unchanged.
+- Main's headless browser and Add project commits were already installed through earlier integrations; the merge brings no new code for them. The Settings redesign is new to this line and is not yet installed on Host.
+- Keep the installation connection check in the redesigned Settings by showing it at the top of Environments, Connections, with a searchable "Connection check" entry. It previously sat in the General page, which the redesign replaced.
+- Keep both the paseo skill's preview-sharing guidance and main's browser tools section.
+- Add Settings search entries for the installed Agent instruction changes and Session host rows, which main's new catalog did not yet know about, and exclude the instruction review's sub-headings from the row scanner.
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.562 there, 2026-10-20)
+
+#### Changed
+
+- Show Settings as one continuous page of eleven sections instead of 24 separate pages: General, Accounts & profiles, Agent behavior, Chat & editor, Terminal, Appearance, Workspaces & projects, Environments, Plugins & integrations, Maintenance and About. The sidebar follows the section in view, and choosing a section scrolls to it.
+- Move Language to Appearance, version details to About, and installation controls, Vorteo and Paseo update tools and Diagnostics to Maintenance. Restart approval links and the sidebar version footer open Maintenance.
+- Lead General with a Needs attention list when something needs action: restart requests waiting for approval, an available Vorteo update and enabled accounts in an error state. New workspace defaults leave out accounts that are not installed.
+- List every provider's profiles together under Accounts & profiles, with an All filter first. Older migrated copies fold under the current profile with the same name and show how they differ; they are kept because older launches and workers still use them.
+- Show each shared account's quota beside its status, and open the profile editor as a staged full-height panel at the right edge on desktop.
+- Say Profile instead of preset, workflow or configuration in profile settings.
+- Keep environment tabs inside the Environments section, sticking to the top while that environment's details scroll on web.
+
+#### Added
+
+- Search every setting from the Settings sidebar, or above the list on phones, and press `/` on web to focus it. Results forgive typos, show their section and where the value is stored, filter the page to matching sections and tint matching rows on web. Arrow keys move through results; Enter jumps to the row and flashes it.
+- Open a specific setting with `/settings/<section>?setting=<id>`. Previous `/settings/<page>` addresses open the section that absorbed them.
+
+#### Fixed
+
+- Keep provider row controls beside the details button instead of inside it, which was invalid HTML and could trap keyboard focus.
+- Stop the Vorteo updates card from showing "Checking GitHub..." twice.
+- Open Settings from the sidebar overflow menu in the shared browser test helper.
+
+#### Validation
+
+- Catalog tests fail when a settings row label has no search entry; search, duplicate grouping and profile unit tests pass. Settings navigation, profile, updates and provider browser checks pass for the changed behavior. Provider management at both widths, provider removal, the old Claude CLI warning, the legacy favourites migration and two composer profile-picker checks fail identically on main.
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.561 there, 2026-10-20)
+
+#### Changed
+
+- Rebuild Add project around one folder browser. Open a folder, New project folder and the GitHub clone destination share it on hosts that can list folders, replacing the separate directory search page, the Browse host folders toggle and the choose-parent-then-name pages
+- Create a project folder by browsing into its parent and typing a name, so the parent always exists and the late "Parent directory not found" error no longer appears
+- List shared host folders by their host path and container storage by name, so the container user's home never appears as `~` or `/home/paseo`; `~` in typed paths means the host home
+- Navigate with Right Arrow to open a folder and Backspace in an empty field to go up; a pasted path opens directly, and top-level text still searches folders by name
+- Show creation errors in terms of the browsed folder instead of container paths
+
+#### Fixed
+
+- Open the sidebar overflow menu before choosing Add project in browser test helpers
+
+#### Documentation
+
+- Describe the folder browser in the Docker guide and customizations inventory, and add roadmap items for renaming the container user to `vorteo` and for whole-filesystem browsing on native hosts
+
+#### Known limitations
+
+- Native hosts browse only inside the home folder; other locations must be typed
+- Browser tests that add a second host or use the global new workspace action still target moved sidebar controls and fail independently of this change
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.560 there, 2026-10-20)
+
+#### Documentation
+
+- State in the README that the Host agents' browser cannot reach this machine, private networks or the tailnet unless a specific address is allowed
+- Teach agents how browser tools work, what `browser_no_host` and `browser_denied` mean, and how to check a local preview without bypassing the browser policy
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.559 there, 2026-10-19)
+
+#### Fixed
+
+- Refuse NAT64 forms of private IPv4 addresses and all 6to4 and Teredo addresses in the headless browser, since they can embed private destinations
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.558 there, 2026-10-19)
+
+#### Fixed
+
+- Refuse loopback, private, link-local, CGNAT/tailnet and local destinations in the headless browser by default, including after DNS resolution and redirects, with `allowedHosts` and `--allow-host` for explicit exceptions such as a local preview
+- Validate every message between the daemon and the browser host process, so a malformed or hostile message is dropped instead of crashing the daemon
+- Start the browser host process with a minimal environment, keeping SSH agent sockets and tokens out of it
+
+#### Documentation
+
+- Note that Chromium comes from the Playwright cache, outside release custody
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.557 there, 2026-10-19)
+
+#### Changed
+
+- Run the Host daemon's headless Chromium in a separate supervised process that starts on the first browser request, restarts after a crash with backoff and stops with the daemon. `paseo browser host` uses the same process, so neither the daemon nor the CLI loads Playwright.
+
+#### Validation
+
+- A source trace test confirms the daemon worker and CLI entries never reach Playwright, with a positive control on the browser host entry.
+
+### Fixed
+
+- Show only the current tab's cards in the right-hand column. Switching between conversation tabs could leave the previous tab's Open questions, Tasks, Journal and Subagents cards stacked above the current tab's. The column now checks which tab is focused when it draws each conversation's cards.
+
+### Maintenance
+
+- Give explicit types to agent and worktree list callbacks in the CLI archive, detach, reload, stop and worktree list commands. The type checker dropped their inferred types once the protocol grew, which failed `npm run typecheck` on main. Runtime behavior is unchanged.
+
+### Validation
+
+- New tests plant a leftover card entry from another tab and confirm it stays hidden, including after focus moves; both fail without the fix. Supporting card group tests pass. Typecheck and lint pass. The supporting view cards suite fails identically on main.
+
 ## 0.11.0-beta.3.vorteo.726 - 2026-10-20
 
 ### Maintenance

@@ -21,13 +21,30 @@ export function useInlineCardsHost(agentId: string): string | null {
     : null;
 }
 
+/**
+ * Draws a conversation's cards only while it is the focused one. Portal content renders at the
+ * host, so this reads the host's live focus. The portal transport mutates its state in place and
+ * can resurrect an entry after its source unmounts; the check keeps such an entry from showing
+ * another tab's cards.
+ */
+export function FocusedAgentCards({ agentId, children }: { agentId: string; children: ReactNode }) {
+  const value = useContext(SupportingCardsContext);
+  return value?.agentId === agentId ? children : null;
+}
+
 export function WorkspaceCardsPortal({
   hostName,
+  agentId,
   children,
 }: {
   hostName: string | null;
+  agentId: string;
   children: ReactNode;
 }) {
   if (!hostName) return null;
-  return <PanePortal hostName={hostName}>{children}</PanePortal>;
+  return (
+    <PanePortal hostName={hostName}>
+      <FocusedAgentCards agentId={agentId}>{children}</FocusedAgentCards>
+    </PanePortal>
+  );
 }
