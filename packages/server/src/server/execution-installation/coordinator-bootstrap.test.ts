@@ -4328,6 +4328,134 @@ test("stale coordinator cancellation never touches executing requests or restart
   expect(jobs[0]).toMatchObject({ status: "pending" });
 });
 
+test("old clients see a Host launcher update plan hidden and cannot approve it", async () => {
+  const f = fixture();
+  f.plan.hostLauncherUpdateConfiguration = {
+    candidate: "/fixture/candidate.plist",
+    sha256: "c".repeat(64),
+  };
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  expect(legacy.payload.requests![0]!.plan).not.toHaveProperty("hostLauncherUpdateConfiguration");
+  expect(legacy.payload.requests![0]!.reason).toContain("Host launcher");
+  const refused = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "approve",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(refused.payload.error).toContain("Host launcher update plan");
+  const approved = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      hostLauncherUpdate: true,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(approved.payload.error).toBeNull();
+});
+
+test("old clients see a Factory check configuration hidden and cannot approve it", async () => {
+  const f = fixture();
+  f.plan.factoryGateConfiguration = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    container: "a".repeat(64),
+    verify: {
+      script: "/fixture/verify.sh",
+      sha256: "b".repeat(64),
+      lockInode: 3901122,
+      ownerMode: "paused",
+    },
+  };
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  expect(legacy.payload.requests![0]!.plan).not.toHaveProperty("factoryGateConfiguration");
+  expect(legacy.payload.requests![0]!.reason).toContain("Factory check");
+  const refused = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "approve",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(refused.payload.error).toContain("Factory check configuration");
+  const approved = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      factoryGate: true,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(approved.payload.error).toBeNull();
+});
+
+test("old clients see a Docker restart plan hidden, cannot approve it, and can still cancel", async () => {
+  const f = fixture();
+  f.plan.engineRestartConfiguration = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    containers: {
+      dev: "a".repeat(64),
+      gatewayTailscale: "b".repeat(64),
+      gatewayCaddy: "c".repeat(64),
+    },
+  };
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  const projected = legacy.payload.requests![0]!;
+  expect(projected.plan).not.toHaveProperty("engineRestartConfiguration");
+  expect(projected.planSha256).toBe(pending.planSha256);
+  expect(projected.reason).toContain("Docker restart");
+  const service = f.service();
+  const decide = vi.spyOn(service, "decide");
+  const refused = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "approve",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    service,
+  );
+  expect(refused.payload.error).toContain("Docker restart configuration");
+  expect(decide).not.toHaveBeenCalled();
+  const approved = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      engineRestart: true,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(approved.payload.error).toBeNull();
+  expect(approved.payload.requests![0]!.plan.engineRestartConfiguration?.containers.dev).toBe(
+    "a".repeat(64),
+  );
+});
+
 test("source tooling selection is literal true and binds exact review identity and durable retries", async () => {
   const f = fixture();
   const original = coordinatorPlanDigest(f.plan);
@@ -6288,4 +6416,97 @@ test("lifecycle mutation and admission share exclusion and isolate rejected muta
     ),
   ).toThrow("Grant revoked");
   expect(f.journal.readLifecycle()).toEqual(before);
+});
+
+/** A request whose claim failed before promotion, plus an automatic successor plan. */
+async function preFreezeFailureFixture({ promoted = false, ownerReviewed = false } = {}) {
+  const f = automaticCoordinatorFixture();
+  let approved: CoordinatorBootstrapRequest;
+  if (ownerReviewed) {
+    const pending = await f.prepare();
+    approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  } else {
+    const submitted = await f.submit();
+    const automatic = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+    f.advance();
+    approved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(automatic));
+  }
+  const claimed = await f.service().claimDispatch(automaticCoordinatorIdentity(approved));
+  const progress = {
+    id: claimed.id,
+    revision: claimed.revision,
+    planSha256: claimed.planSha256,
+    generation: claimed.execution!.generation,
+  };
+  let failed: CoordinatorBootstrapRequest;
+  if (promoted) {
+    f.service().promoteDispatch(claimed);
+    const freezing = f.service().advanceDispatch(progress, "freeze_pending");
+    failed = f
+      .service()
+      .advanceDispatch({ ...progress, revision: freezing.revision }, "recovery_required");
+  } else failed = f.service().advanceDispatch(progress, "recovery_required");
+  const id = randomUUID();
+  const plan: CoordinatorBootstrapPlan = {
+    ...structuredClone(f.plan),
+    bootRecovery: { ...f.plan.bootRecovery!, requestId: id },
+    recoveredFrom: {
+      id: failed.id,
+      revision: failed.revision,
+      generation: failed.execution!.generation,
+      planSha256: failed.planSha256,
+    },
+  };
+  const submit = (value = plan) =>
+    f
+      .service()
+      .prepareAutomatic(
+        { id, reason: "Automatic successor", plan: value },
+        { credentialBinding: "b".repeat(64), policyActivatedAt: "2026-10-15T00:00:00Z" },
+      );
+  return { ...f, failed, plan, submit };
+}
+
+test("an automatic successor closes a failure that never reached promotion", async () => {
+  const f = await preFreezeFailureFixture();
+  expect(() => f.journal.verifyUnpromotedFailure(f.failed)).not.toThrow();
+  const submitted = await f.submit();
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  expect(approved.status).toBe("approved");
+  expect(approved.automaticApproval?.requestRevision).toBe(approved.revision);
+  expect(approved.plan.recoveredFrom?.id).toBe(f.failed.id);
+});
+
+test("an automatic successor cannot close a failure after promotion or for another coordinator process", async () => {
+  const promoted = await preFreezeFailureFixture({ promoted: true });
+  const afterFreeze = await promoted.submit();
+  await expect(
+    promoted.service().approveAutomatic(automaticCoordinatorIdentity(afterFreeze)),
+  ).rejects.toThrow("require exact owner review");
+
+  const f = await preFreezeFailureFixture();
+  const other = await f.submit({
+    ...f.plan,
+    expectedProcess: { ...f.plan.expectedProcess, pid: 456 },
+  });
+  await expect(f.service().approveAutomatic(automaticCoordinatorIdentity(other))).rejects.toThrow(
+    "require exact owner review",
+  );
+});
+
+test("an automatic successor cannot close an owner-reviewed failure, so its reviewed change is never dropped", async () => {
+  const f = await preFreezeFailureFixture({ ownerReviewed: true });
+  expect(() => f.journal.verifyUnpromotedFailure(f.failed)).not.toThrow();
+  const submitted = await f.submit();
+  await expect(
+    f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+  ).rejects.toThrow("require exact owner review");
+  expect(
+    f
+      .service()
+      .list()
+      .find((item) => item.id === submitted.id)?.status,
+  ).toBe("pending");
 });

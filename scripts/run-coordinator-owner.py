@@ -357,7 +357,9 @@ def supervision_effect(state, request_id, revision, generation, digest, effect,
             or plan["hostRequestsAfter"] is not None
             or any(key in plan for key in ("sourceUpdateTooling", "nativeHelperConfiguration",
                                            "previewMonitorConfiguration", "factoryRuntimeAdoptionConfiguration",
-                                           "claudeHostRefreshConfiguration"))
+                                           "claudeHostRefreshConfiguration", "engineRestartConfiguration",
+                                           "factoryGateConfiguration",
+                                           "hostLauncherUpdateConfiguration"))
             or any(plan[key]["sourceCommit"] == plan["previous"]["sourceCommit"]
                    or plan[key]["configuration"]["sha256"] != plan["previous"]["configuration"]["sha256"]
                    for key in ("candidate", "compatibleRecovery"))):

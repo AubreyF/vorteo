@@ -4,6 +4,76 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.814 - 2026-10-23
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.813 - 2026-10-22
+
+### Maintenance
+
+- Merge the CLI worktree fix: paseo worktree ls and archive send the current folder, or --cwd or --repo, so they work again
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Fixed
+
+- `paseo worktree ls` and `paseo worktree archive` work again. Since upstream commit a94bc0720 the daemon refuses a worktree list without a repository, and both commands sent none, so they always failed with "cwd or repoRoot is required". They now list the worktrees of the current directory's repository.
+- Both commands accept `--cwd <path>`, matching `paseo worktree create`, and `--repo <path>`, which names the repository root and takes precedence. Relative paths resolve against the current directory.
+
+### Maintenance
+
+- Unit tests check the list request for the default directory, `--cwd` and `--repo`; the CLI worktree end-to-end test checks both options in help.
+
+## 0.11.0-beta.3.vorteo.812 - 2026-10-22
+
+### Maintenance
+
+- Merge automatic closure of failed coordinator updates: an automatic successor may close an automatic update that failed before promotion for the same coordinator process; owner-reviewed failures still need review
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Fixed
+
+- An automatic coordinator update that failed before promotion, and so never froze or replaced the running coordinator, no longer waits for a hand-built successor. An automatic renewal can name it in `recoveredFrom` and is approved under Host coordinator permission, after the coordinator proves under its journal lock that the failure was never promoted and that the successor expects the same coordinator process. Owner-reviewed failures, failures after promotion, claimed recoveries and configuration changes still need the owner, so a reviewed change is never dropped.
+
+## 0.11.0-beta.3.vorteo.811 - 2026-10-22
+
+### Maintenance
+
+- Merge the Host launcher update, Factory checks around Dev restarts and the tracked Docker restart: each is a plan-bound job that stays off until an owner-reviewed coordinator renewal adds its plan, is never approved automatically, verifies its result and restores on failure
+
+## 0.11.0-beta.3.vorteo.802 - 2026-10-23
+
+### Maintenance
+
+- Update the app installation client tests for the restart query flags that negotiate the Docker restart and Host launcher review. Non-restart requests are unchanged.
+
+## 0.11.0-beta.3.vorteo.801 - 2026-10-23
+
+### Added
+
+- A one-time, owner-approved Host launcher update adds managed release selection to the Host's launchd plist, so later worker-only Host restarts load the selected build instead of the one the supervisor started from. It finishes turns, keeps the previous plist as a fallback, reloads the service once, and verifies the server identity, a new supervisor, the selected version and both settings in the live process. Any failure restores the previous plist. Reviewed coordinator plans and renewals accept `hostLauncherUpdateConfiguration` to set its plan.
+
+## 0.11.0-beta.3.vorteo.800 - 2026-10-23
+
+### Added
+
+- Once configured through a reviewed coordinator renewal, the coordinator runs Factory's read-only lock acceptance check around every restart that replaces the Dev worker. A restart is refused with nothing changed if Factory isn't in a known good state. It's reported as failed, naming the difference, if it moved Factory's controller, owner pause or custody records in a way its class doesn't allow. Builds no longer has to take and compare Factory snapshots by hand.
+
+### Changed
+
+- The tracked Docker restart also requires Factory's supervisor to be a new process afterwards.
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-23
+
+### Added
+
+- The installation coordinator can run a tracked Docker Desktop restart for Dev. A trusted Host request with `--engine-restart-plan` creates a Dev restart bound to the exact configured plan. After the owner or a delegated lead chooses Finish turns and restart Docker, it checks the engine, the pinned Dev and gateway containers and Factory's lock acceptance, restarts Docker once, and verifies that every container returned under its ID, Dev is healthy, a new Dev worker answers and Factory's controller epoch advanced. It is never approved automatically and never retried.
+- Reviewed coordinator plans and renewals accept `engineRestartConfiguration` to set or remove that plan. Clients that do not negotiate the field see it hidden and can only cancel.
+
 ## 0.11.0-beta.3.vorteo.810 - 2026-10-23
 
 ### Maintenance

@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import { connectToDaemon } from "../../utils/client.js";
 import type { AgentSnapshotPayload, PaseoWorktreeListResponse } from "@getpaseo/protocol/messages";
 import type { CommandOptions, ListResult, OutputSchema, CommandError } from "../../output/index.js";
@@ -39,15 +39,44 @@ export const worktreeLsSchema: OutputSchema<WorktreeListItem> = {
 
 export type WorktreeLsResult = ListResult<WorktreeListItem>;
 
-export interface WorktreeLsOptions extends CommandOptions {
+/** Options that choose which repository's worktrees the daemon lists */
+export interface WorktreeRepoOptions {
+  cwd?: string;
+  repo?: string;
+}
+
+export interface WorktreeLsOptions extends CommandOptions, WorktreeRepoOptions {
   host?: string;
+}
+
+export interface WorktreeListRequest {
+  cwd?: string;
+  repoRoot?: string;
+}
+
+/**
+ * The daemon refuses a worktree list without a repository (upstream a94bc0720),
+ * so always send one: `--repo` as repoRoot, otherwise `--cwd` or the process cwd.
+ */
+export function buildWorktreeListRequest(options: WorktreeRepoOptions): WorktreeListRequest {
+  if (options.repo) {
+    return { repoRoot: resolve(options.repo) };
+  }
+  return { cwd: resolve(options.cwd ?? process.cwd()) };
 }
 
 export async function runLsCommand(
   options: WorktreeLsOptions,
   _command: Command,
 ): Promise<WorktreeLsResult> {
-  const client = await connectToDaemon({ target: options.daemonTarget });
+  return runLsCommandWithDeps(options, { connectToDaemon });
+}
+
+export async function runLsCommandWithDeps(
+  options: WorktreeLsOptions,
+  deps: { connectToDaemon: typeof connectToDaemon },
+): Promise<WorktreeLsResult> {
+  const client = await deps.connectToDaemon({ target: options.daemonTarget });
 
   try {
     const agentsPayload = await client.fetchAgents({ filter: { includeArchived: true } });
@@ -55,8 +84,7 @@ export async function runLsCommand(
       (entry: { agent: AgentSnapshotPayload }) => entry.agent,
     );
 
-    // Get worktree list from daemon
-    const response = await client.getPaseoWorktreeList({});
+    const response = await client.getPaseoWorktreeList(buildWorktreeListRequest(options));
 
     await client.close();
 

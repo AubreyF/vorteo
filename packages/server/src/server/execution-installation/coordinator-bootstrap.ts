@@ -29,6 +29,8 @@ export interface BootstrapRequestJournal {
   promote?(request: CoordinatorBootstrapRequest): void;
   /** Atomically compare against expected and persist next, or refuse the edit. */
   replace(expected: CoordinatorBootstrapRequest[], next: CoordinatorBootstrapRequest[]): void;
+  /** Under the journal lock, prove a failed claim never reached either promotion location. */
+  verifyUnpromotedFailure?(expected: CoordinatorBootstrapRequest): void;
 }
 
 const BindingSchema = z.strictObject({
@@ -286,6 +288,9 @@ function assertSupervisionRecoveryScope(plan: CoordinatorBootstrapPlan): void {
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||
     plan.claudeHostRefreshConfiguration !== undefined ||
+    plan.engineRestartConfiguration !== undefined ||
+    plan.factoryGateConfiguration !== undefined ||
+    plan.hostLauncherUpdateConfiguration !== undefined ||
     plan.factoryRuntimeAdoptionConfiguration !== undefined
   )
     throw new BootstrapRequestConflict(
@@ -318,7 +323,41 @@ export function coordinatorPlanDigest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(plan)).digest("hex");
 }
 
-function assertAutomaticCoordinatorPlan(plan: CoordinatorBootstrapPlan): void {
+/**
+ * An automatic plan may close one earlier automatic failure that never touched the
+ * running coordinator: its claim failed before promotion, which precedes the freeze,
+ * and the successor expects the same coordinator process. An owner-reviewed failure
+ * stays with the owner, so its reviewed change is never silently dropped.
+ */
+function automaticRecoverySuccessor(
+  plan: CoordinatorBootstrapPlan,
+  records: CoordinatorBootstrapRequest[],
+  journal: BootstrapRequestJournal,
+): boolean {
+  if (!plan.recoveredFrom || plan.supervisionRecovery || !journal.verifyUnpromotedFailure)
+    return false;
+  const recovered = assertRecoveredBootstrapBase(plan, records);
+  if (
+    !recovered ||
+    !recovered.automaticApproval ||
+    recovered.execution?.stage !== "recovery_required" ||
+    !isDeepStrictEqual(plan.expectedProcess, recovered.plan.expectedProcess)
+  )
+    return false;
+  try {
+    journal.verifyUnpromotedFailure(recovered);
+  } catch (error) {
+    // A promoted or changed failure needs the owner; storage errors still surface.
+    if (error instanceof BootstrapRequestConflict) return false;
+    throw error;
+  }
+  return true;
+}
+
+function assertAutomaticCoordinatorPlan(
+  plan: CoordinatorBootstrapPlan,
+  preFreezeRecovery = false,
+): void {
   if (
     !plan.bootRecovery ||
     plan.automaticRecovery !== "restore-compatible" ||
@@ -330,12 +369,15 @@ function assertAutomaticCoordinatorPlan(plan: CoordinatorBootstrapPlan): void {
   if (
     plan.candidate.configuration.sha256 !== plan.previous.configuration.sha256 ||
     plan.compatibleRecovery.configuration.sha256 !== plan.previous.configuration.sha256 ||
-    plan.recoveredFrom ||
+    (plan.recoveredFrom && !preFreezeRecovery) ||
     plan.supervisionRecovery ||
     plan.sourceUpdateTooling ||
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||
     plan.claudeHostRefreshConfiguration !== undefined ||
+    plan.engineRestartConfiguration !== undefined ||
+    plan.factoryGateConfiguration !== undefined ||
+    plan.hostLauncherUpdateConfiguration !== undefined ||
     plan.factoryRuntimeAdoptionConfiguration !== undefined
   )
     throw new BootstrapRequestConflict(
@@ -496,7 +538,10 @@ export class CoordinatorBootstrapRequests {
       throw new BootstrapRequestConflict("Exact pending coordinator request required");
     const binding = this.readBinding(request.plan);
     const authority = this.requireAutomaticAuthority(request);
-    assertAutomaticCoordinatorPlan(request.plan);
+    assertAutomaticCoordinatorPlan(
+      request.plan,
+      automaticRecoverySuccessor(request.plan, expected, this.journal),
+    );
     await this.verifyApproval(request);
     this.requireSameBinding(binding, request.plan);
     if (!isDeepStrictEqual(authority, this.requireAutomaticAuthority(request)))

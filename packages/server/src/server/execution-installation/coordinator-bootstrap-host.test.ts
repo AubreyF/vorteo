@@ -571,6 +571,58 @@ test("bootstrap configuration preserves credentials, service targets and state w
   save(candidateFile, f.config);
   expect(verify).not.toThrow();
   delete plan.claudeHostRefreshConfiguration;
+  // The Docker restart plan changes only through its own reviewed field.
+  const engineRestart = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    containers: {
+      dev: "a".repeat(64),
+      gatewayTailscale: "b".repeat(64),
+      gatewayCaddy: "c".repeat(64),
+    },
+  };
+  const withEngine = { ...f.config, container: { ...f.config.container, engineRestart } };
+  save(candidateFile, withEngine);
+  expect(verify).toThrow("outside its approved policy");
+  plan.engineRestartConfiguration = { ...engineRestart, deadlineSeconds: 120 };
+  expect(verify).toThrow("outside its approved policy");
+  plan.engineRestartConfiguration = engineRestart;
+  expect(verify).not.toThrow();
+  save(candidateFile, f.config);
+  expect(verify).toThrow("outside its approved policy");
+  plan.engineRestartConfiguration = null;
+  expect(verify).not.toThrow();
+  delete plan.engineRestartConfiguration;
+  // Factory's Dev restart checks change only through their own reviewed field.
+  const factoryGate = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    container: "a".repeat(64),
+    verify: {
+      script: "/fixture/verify.sh",
+      sha256: "b".repeat(64),
+      lockInode: 3901122,
+      ownerMode: "paused" as const,
+    },
+  };
+  save(candidateFile, { ...f.config, container: { ...f.config.container, factoryGate } });
+  expect(verify).toThrow("outside its approved policy");
+  plan.factoryGateConfiguration = factoryGate;
+  expect(verify).not.toThrow();
+  save(candidateFile, f.config);
+  plan.factoryGateConfiguration = null;
+  expect(verify).not.toThrow();
+  delete plan.factoryGateConfiguration;
+  // The Host launcher update plan changes only through its own reviewed field.
+  const launcherUpdate = { candidate: "/fixture/candidate.plist", sha256: "c".repeat(64) };
+  save(candidateFile, { ...f.config, host: { ...f.config.host, launcherUpdate } });
+  expect(verify).toThrow("outside its approved policy");
+  plan.hostLauncherUpdateConfiguration = launcherUpdate;
+  expect(verify).not.toThrow();
+  save(candidateFile, f.config);
+  plan.hostLauncherUpdateConfiguration = null;
+  expect(verify).not.toThrow();
+  delete plan.hostLauncherUpdateConfiguration;
 
   const policy = { hostRequestsAfter: "2026-10-09T00:00:00.000Z" };
   save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
@@ -1458,6 +1510,9 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapCompatibleRecovery: false,
       coordinatorBootstrapPreviewMonitor: false,
       coordinatorBootstrapClaudeHostRefresh: false,
+      coordinatorBootstrapEngineRestart: false,
+      coordinatorBootstrapFactoryGate: false,
+      coordinatorBootstrapHostLauncherUpdate: false,
       coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapBootRecovery: false,
       coordinatorBootstrapRecoveryBootPlan: false,

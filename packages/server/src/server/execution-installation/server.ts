@@ -100,6 +100,7 @@ import { InstructionRequestError, InstructionRequests } from "./settings/instruc
 import { inspectContainerSource } from "./container-updates.js";
 import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationSourceUpdates } from "./source-updates.js";
+import { FactoryGate, factoryRestartClass } from "./factory-gate.js";
 import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./owner-delegation.js";
 
 /**
@@ -153,6 +154,39 @@ function factoryAdoptionReply(job: RestartJob, enabled: boolean | undefined): Re
     ...compatible,
     reason: "Factory startup adoption. Reload Vorteo to review the exact operation.",
     detail: "Reload to review Factory adoption. Cancellation remains available.",
+  };
+}
+
+// COMPAT(engineRestart): added 2026-10-23; remove after 2027-04-23 once all supported
+// clients negotiate Docker restart review. Old clients see a Dev restart they can only cancel.
+function engineRestartReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
+  if (!job.engineRestartPlanSha256 || enabled) return job;
+  const { engineRestartPlanSha256: _plan, ...compatible } = job;
+  return {
+    ...compatible,
+    reason: "Docker restart for Dev. Reload Vorteo to review the exact operation.",
+    detail: "Reload to review the Docker restart. Cancellation remains available.",
+  };
+}
+
+// COMPAT(hostLauncherUpdate): added 2026-10-23; remove after 2027-04-23 once all supported
+// clients negotiate Host launcher review. Old clients see a Host restart they can only cancel.
+function hostLauncherReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
+  if (!job.hostLauncherPlanSha256 || enabled) return job;
+  const { hostLauncherPlanSha256: _plan, ...compatible } = job;
+  return {
+    ...compatible,
+    reason: "Host launcher update. Reload Vorteo to review the exact operation.",
+    detail: "Reload to review the Host launcher update. Cancellation remains available.",
+  };
+}
+
+/** A plan-bound operation that only an owner or delegate approves, advertised by digest. */
+function planCapability(plan: string | undefined, executor: unknown) {
+  return {
+    available: Boolean(plan && executor),
+    ownerApprovalRequired: true,
+    ...(plan ? { sha256: plan } : {}),
   };
 }
 
@@ -214,6 +248,8 @@ function restartReply(
   hostAutomaticRestarts = false,
   factoryRuntimeAdoption?: boolean,
   requireOwnerApproval?: boolean,
+  engineRestart?: boolean,
+  hostLauncherUpdate?: boolean,
 ) {
   // Captures are retained in the protected journal, not sent to legacy strict clients.
   // COMPAT(workerLaunchReply): added in v674; remove after 2027-04-17 once requester floor >= v674.
@@ -237,6 +273,8 @@ function restartReply(
   } = job;
   job = ownerApprovalReply(publicJob, requireOwnerApproval);
   job = factoryAdoptionReply(job, factoryRuntimeAdoption);
+  job = engineRestartReply(job, engineRestart);
+  job = hostLauncherReply(job, hostLauncherUpdate);
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
     job = compatible;
@@ -378,8 +416,29 @@ export function createInstallationServer(
         "Dev source updates require independently verified transition-phase readiness",
       );
   }
+  // Factory's read-only checks around every Dev worker replacement, once configured.
+  const factoryGate = config.container.factoryGate
+    ? new FactoryGate(config.container.factoryGate)
+    : null;
   const restartExecutor: RestartExecutor = {
     ...executor,
+    ...(factoryGate
+      ? {
+          async guardDevRestart(job, dispatch) {
+            await factoryGate.before(job.id);
+            let detail: string | null;
+            try {
+              detail = await dispatch();
+            } catch (error) {
+              await factoryGate.discard(job.id);
+              throw error;
+            }
+            // Not idle yet: keep the baseline for the next attempt.
+            if (detail === null) return null;
+            return `${detail} ${await factoryGate.after(job.id, factoryRestartClass(job))}`;
+          },
+        }
+      : {}),
     supportsUpdate: (target) => updates[target] !== null,
     sourceBase: (target) => forTarget(target).source().baseCommit,
     sourceWeb: (target) => forTarget(target).source().webCommit,
@@ -839,6 +898,11 @@ export function createInstallationServer(
       host && devReady && !config.container.persistentRegistration
         ? executor.factoryRuntimePlan?.()
         : undefined;
+    const hostLauncherPlan = host ? executor.hostLauncherPlan?.() : undefined;
+    const engineRestartPlan =
+      host && devReady && !config.container.persistentRegistration
+        ? executor.engineRestartPlan?.()
+        : undefined;
     const permissions = daemonAutomation.servicePermissions();
     const automaticSupported = supportsAutomaticMaintenance(executor);
     // COMPAT(hostAutomaticRestarts): per-target permissions added v543; retain
@@ -915,11 +979,14 @@ export function createInstallationServer(
               ),
               ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
             },
-            factoryRuntimeAdoption: {
-              available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
-              ownerApprovalRequired: true,
-              ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
-            },
+            factoryRuntimeAdoption: planCapability(
+              factoryRuntimePlan,
+              executor.adoptFactoryRuntime,
+            ),
+            // Never automatic: the one-time launcher update restarts every Host agent.
+            hostLauncherUpdate: planCapability(hostLauncherPlan, executor.updateHostLauncher),
+            // Never automatic: a Docker restart interrupts all of Dev and the gateway.
+            engineRestart: planCapability(engineRestartPlan, executor.restartEngine),
           }),
         next,
       );
@@ -1055,6 +1122,8 @@ export function createInstallationServer(
             req.query.hostAutomaticRestarts === "1",
             req.query.factoryRuntimeAdoption === "1",
             req.query.requireOwnerApproval === "1",
+            req.query.engineRestart === "1",
+            req.query.hostLauncherUpdate === "1",
           ),
         });
         void drainRestarts();
@@ -1073,6 +1142,8 @@ export function createInstallationServer(
               req.query.hostAutomaticRestarts === "1",
               true,
               req.query.requireOwnerApproval === "1",
+              req.query.engineRestart === "1",
+              req.query.hostLauncherUpdate === "1",
             ),
           );
     },
@@ -1097,6 +1168,8 @@ export function createInstallationServer(
         req.query.hostAutomaticRestarts === "1",
         undefined,
         req.query.requireOwnerApproval === "1",
+        req.query.engineRestart === "1",
+        req.query.hostLauncherUpdate === "1",
       ),
     });
   });
@@ -1518,6 +1591,8 @@ export function createInstallationServer(
           req.query.hostAutomaticRestarts === "1",
           true,
           req.query.requireOwnerApproval === "1",
+          req.query.engineRestart === "1",
+          req.query.hostLauncherUpdate === "1",
         ),
       );
   });
@@ -1559,6 +1634,8 @@ export function createInstallationServer(
         req.query.hostAutomaticRestarts === "1",
         true,
         req.query.requireOwnerApproval === "1",
+        req.query.engineRestart === "1",
+        req.query.hostLauncherUpdate === "1",
       ),
     );
   });
@@ -1949,6 +2026,8 @@ export function createInstallationServer(
               req.query.hostAutomaticRestarts === "1",
               req.query.factoryRuntimeAdoption === "1",
               req.query.requireOwnerApproval === "1",
+              req.query.engineRestart === "1",
+              req.query.hostLauncherUpdate === "1",
             ),
             job,
             delegation,
@@ -1999,6 +2078,8 @@ export function createInstallationServer(
       decision.updateSha256,
       decision.supervisorPlanSha256,
       decision.factoryRuntimePlanSha256,
+      decision.engineRestartPlanSha256,
+      decision.hostLauncherPlanSha256,
     );
     res.json(
       withDelegation(
@@ -2013,6 +2094,8 @@ export function createInstallationServer(
           req.query.hostAutomaticRestarts === "1",
           req.query.factoryRuntimeAdoption === "1",
           req.query.requireOwnerApproval === "1",
+          req.query.engineRestart === "1",
+          req.query.hostLauncherUpdate === "1",
         ),
         job,
         requestedDelegation(config.stateDir, req.query.delegatedRequests === "1"),

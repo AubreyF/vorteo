@@ -5262,3 +5262,183 @@ test("source updates refuse a release without the session host while its job is 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a Docker restart needs a trusted request, the exact plan and owner review, even under automatic policy", async () => {
+  const sha = "e".repeat(64);
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  const calls: string[] = [];
+  f.executor.engineRestartPlan = () => sha;
+  f.executor.restartEngine = async () => {
+    calls.push("engine");
+    return "Docker restarted";
+  };
+  const standing = {
+    grantId: randomUUID(),
+    grantRevision: randomUUID(),
+    manifestSha256: "1".repeat(64),
+    planSha256: "2".repeat(64),
+    targetIdentitySha256: "3".repeat(64),
+    authoritySha256: "4".repeat(64),
+    policyActivatedAt: new Date(1000).toISOString(),
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, {
+    ...f.policy,
+    standingDecision: () => standing,
+  });
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Docker restart for Factory",
+    engineRestartPlanSha256: sha,
+  };
+  expect(() => queue.request(input, "container-agent")).toThrow("trusted Host");
+  expect(() => queue.request({ ...input, target: "host" }, "host-agent")).toThrow("trusted Host");
+  expect(() =>
+    queue.request({ ...input, engineRestartPlanSha256: "f".repeat(64) }, "host-agent"),
+  ).toThrow("unavailable or changed");
+  expect(() => queue.request({ ...input, requireOwnerApproval: true }, "host-agent")).toThrow(
+    "already requires exact owner review",
+  );
+  expect(() =>
+    queue.contribute(
+      input,
+      "host-agent",
+      {
+        sourceCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: "c".repeat(64),
+        bytes: 1,
+      },
+      randomUUID(),
+    ),
+  ).toThrow("source contribution");
+  const job = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("pending");
+  expect(queue.list()[0]?.automaticApproval).toBeUndefined();
+  expect(() =>
+    queue.request({ target: "container-daemon", reason: "Plain restart" }, "host-agent"),
+  ).toThrow("different");
+  expect(() => queue.decide(job.id, job.revision, "finish-current-turns")).toThrow(
+    "exact Docker restart",
+  );
+  expect(() =>
+    queue.decide(job.id, job.revision, "approve-when-idle", undefined, undefined, undefined, sha),
+  ).toThrow("Finish turns");
+  queue.decide(job.id, job.revision, "finish-current-turns", undefined, undefined, undefined, sha);
+  await queue.drain();
+  expect(f.events).toEqual(["hold"]);
+  expect(calls).toEqual([]);
+  f.idle();
+  await queue.drain();
+  expect(calls).toEqual(["engine"]);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  // The hold is renewed at dispatch and released once the job is terminal.
+  await queue.drain();
+  expect(f.events).toEqual(["hold", "hold", "release"]);
+  expect(calls).toEqual(["engine"]);
+});
+
+test("a Docker restart never dispatches on a changed plan or replays an interrupted run", async () => {
+  let sha = "e".repeat(64);
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const executor: RestartExecutor = {
+    engineRestartPlan: () => sha,
+    restartEngine: async () => {
+      calls.push("engine");
+      return "Docker restarted";
+    },
+    restart: async () => {
+      throw new Error("A worker restart cannot run a Docker restart");
+    },
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Docker restart",
+    engineRestartPlanSha256: sha,
+  };
+  const changed = queue.request(input, "owner");
+  queue.decide(changed.id, changed.revision, "approve", undefined, undefined, undefined, sha);
+  sha = "d".repeat(64);
+  await queue.drain();
+  expect(calls).toEqual([]);
+  expect(queue.list()[0]?.status).toBe("failed");
+
+  const job = queue.request({ ...input, engineRestartPlanSha256: sha }, "host-agent");
+  queue.decide(job.id, job.revision, "approve", undefined, undefined, undefined, sha);
+  const interrupted = queue.list();
+  for (const entry of interrupted) if (entry.id === job.id) entry.status = "running";
+  journal.write(interrupted);
+  const recovered = new InstallationRestarts(journal, executor);
+  await recovered.drain();
+  expect(recovered.list().find((entry) => entry.id === job.id)?.status).toBe("failed");
+  expect(calls).toEqual([]);
+});
+
+test("Factory's guard wraps every approved Dev dispatch and never a Host one", async () => {
+  const guarded: string[] = [];
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async (target) => `${target} ready`,
+    async guardDevRestart(job, dispatch) {
+      guarded.push(job.target);
+      const detail = await dispatch();
+      return detail === null ? null : `${detail}; Factory checked`;
+    },
+  });
+  const dev = queue.request({ target: "container-daemon", reason: "Dev" }, "host-agent");
+  queue.decide(dev.id, dev.revision, "approve");
+  await queue.drain();
+  const host = queue.request({ target: "host", reason: "Host" }, "host-agent");
+  queue.decide(host.id, host.revision, "approve");
+  await queue.drain();
+  expect(guarded).toEqual(["container-daemon"]);
+  expect(queue.list().find((job) => job.id === dev.id)?.detail).toBe(
+    "container-daemon ready; Factory checked",
+  );
+  expect(queue.list().find((job) => job.id === host.id)?.detail).toBe("host ready");
+});
+
+test("the Host launcher update needs a trusted Host request, the exact plan and owner review", async () => {
+  const sha = "c".repeat(64);
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  const calls: string[] = [];
+  f.executor.hostLauncherPlan = () => sha;
+  f.executor.updateHostLauncher = async () => {
+    calls.push("launcher");
+    return "Host launcher updated";
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+  const input = {
+    target: "host" as const,
+    reason: "Managed releases",
+    hostLauncherPlanSha256: sha,
+  };
+  expect(() => queue.request(input, "container-agent")).toThrow("trusted Host");
+  expect(() => queue.request({ ...input, target: "container-daemon" }, "host-agent")).toThrow(
+    "trusted Host",
+  );
+  expect(() =>
+    queue.request({ ...input, hostLauncherPlanSha256: "d".repeat(64) }, "host-agent"),
+  ).toThrow("unavailable or changed");
+  const job = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("pending");
+  expect(queue.list()[0]?.automaticApproval).toBeUndefined();
+  expect(() => queue.request({ target: "host", reason: "Plain" }, "host-agent")).toThrow(
+    "different",
+  );
+  expect(() => queue.decide(job.id, job.revision, "finish-current-turns")).toThrow(
+    "exact Host launcher update",
+  );
+  const decide = (decision: "approve-when-idle" | "finish-current-turns") =>
+    queue.decide(job.id, job.revision, decision, undefined, undefined, undefined, undefined, sha);
+  expect(() => decide("approve-when-idle")).toThrow("Finish turns");
+  decide("finish-current-turns");
+  await queue.drain();
+  expect(calls).toEqual([]);
+  f.idle();
+  await queue.drain();
+  expect(calls).toEqual(["launcher"]);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+});

@@ -174,6 +174,14 @@ export interface RestartExecutor {
   ): Promise<string>;
   supervisorPlan?(): string | undefined;
   restartSupervisor?(job: RestartJob): Promise<string>;
+  /** Wraps every approved Dev dispatch, for Factory's checks before and after it. */
+  guardDevRestart?(job: RestartJob, dispatch: () => Promise<string | null>): Promise<string | null>;
+  /** Digest of the one-time Host launcher update, when it is configured and not yet applied. */
+  hostLauncherPlan?(): string | undefined;
+  updateHostLauncher?(job: RestartJob): Promise<string>;
+  /** Digest of the configured Docker engine restart plan, when it is executable. */
+  engineRestartPlan?(): string | undefined;
+  restartEngine?(job: RestartJob): Promise<string>;
   supportsUpdate?(target: RestartJob["target"]): boolean;
   sourceBase?(target: RestartJob["target"]): string;
   sourceWeb?(target: RestartJob["target"]): string;
@@ -1185,6 +1193,10 @@ export class InstallationRestarts {
       throw new RestartRequestError("Explicit owner approval requires trusted Host provenance");
     if (input.factoryRuntimePlanSha256 || input.factoryRuntimeRecoveryOf)
       throw new RestartRequestError("Factory adoption already requires exact owner review");
+    if (input.engineRestartPlanSha256)
+      throw new RestartRequestError("Docker restart already requires exact owner review");
+    if (input.hostLauncherPlanSha256)
+      throw new RestartRequestError("Host launcher update already requires exact owner review");
   }
 
   private sharePlainRequest(active: RestartJob, requireOwnerApproval: boolean): RestartJob {
@@ -1264,6 +1276,8 @@ export class InstallationRestarts {
     this.validateOwnerApprovalOrigin(input, requestedBy);
     this.validateSupervisorRequest(input, requestedBy, update);
     this.validateFactoryRuntimeRequest(input, requestedBy, update);
+    this.validateEngineRestartRequest(input, requestedBy, update);
+    this.validateHostLauncherRequest(input, requestedBy, update);
     if (update && !this.supportsUpdate(input.target))
       throw new RestartRequestError("Source updates are unavailable for this target");
     this.reconcilePending();
@@ -1274,7 +1288,12 @@ export class InstallationRestarts {
       );
     if (active && (update || active.update || active.sourceBatch))
       throw new RestartRequestError("A source update cannot share a plain restart approval");
-    if (active && active.supervisorPlanSha256 !== input.supervisorPlanSha256)
+    if (
+      active &&
+      (active.supervisorPlanSha256 !== input.supervisorPlanSha256 ||
+        active.engineRestartPlanSha256 !== input.engineRestartPlanSha256 ||
+        active.hostLauncherPlanSha256 !== input.hostLauncherPlanSha256)
+    )
       throw new RestartRequestError(
         "A different restart scope or maintenance plan already owns this target",
       );
@@ -1360,14 +1379,7 @@ export class InstallationRestarts {
   ) {
     this.requireActive();
     this.validateOwnerApprovalOrigin(input, requestedBy);
-    if (input.factoryRuntimePlanSha256 || input.factoryRuntimeRecoveryOf)
-      throw new RestartRequestError(
-        "Factory adoption cannot be submitted as a source contribution",
-      );
-    if (input.supervisorPlanSha256)
-      throw new RestartRequestError(
-        "Supervisor maintenance cannot be submitted as a source contribution",
-      );
+    refusePlanBoundContribution(input);
     if (!this.supportsUpdate(input.target) || !this.executor.prepareUpdate)
       throw new RestartRequestError("Source batching unavailable");
     const existing = this.contribution(id);
@@ -1501,7 +1513,10 @@ export class InstallationRestarts {
     if (input.factoryRuntimeRecoveryOf) return false;
     // Maintenance must not discard another task's unapproved source contribution.
     const separateMaintenance =
-      (input.supervisorPlanSha256 || input.factoryRuntimePlanSha256) &&
+      (input.supervisorPlanSha256 ||
+        input.factoryRuntimePlanSha256 ||
+        input.engineRestartPlanSha256 ||
+        input.hostLauncherPlanSha256) &&
       (job.update || job.sourceBatch);
     return !separateMaintenance;
   }
@@ -1521,6 +1536,47 @@ export class InstallationRestarts {
       )
         throw new RestartRequestError("Supervisor maintenance plan is unavailable or changed");
     }
+  }
+
+  private validateHostLauncherRequest(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): void {
+    if (!input.hostLauncherPlanSha256) return;
+    if (requestedBy === "container-agent" || input.target !== "host")
+      throw new RestartRequestError("Host launcher update requires a trusted Host request");
+    if (
+      update ||
+      input.supervisorPlanSha256 ||
+      input.factoryRuntimePlanSha256 ||
+      input.factoryRuntimeRecoveryOf ||
+      input.engineRestartPlanSha256 ||
+      input.workerLaunchRequest ||
+      !this.executor.updateHostLauncher ||
+      input.hostLauncherPlanSha256 !== this.executor.hostLauncherPlan?.()
+    )
+      throw new RestartRequestError("Host launcher update plan is unavailable or changed");
+  }
+
+  private validateEngineRestartRequest(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): void {
+    if (!input.engineRestartPlanSha256) return;
+    if (requestedBy === "container-agent" || input.target !== "container-daemon")
+      throw new RestartRequestError("Docker restart requires a trusted Host request");
+    if (
+      update ||
+      input.supervisorPlanSha256 ||
+      input.factoryRuntimePlanSha256 ||
+      input.factoryRuntimeRecoveryOf ||
+      input.workerLaunchRequest ||
+      !this.executor.restartEngine ||
+      input.engineRestartPlanSha256 !== this.executor.engineRestartPlan?.()
+    )
+      throw new RestartRequestError("Docker restart plan is unavailable or changed");
   }
 
   private validateFactoryRuntimeRequest(
@@ -1561,7 +1617,8 @@ export class InstallationRestarts {
       job.status !== "pending" ||
       job.sourceBatch?.status !== "conflict" ||
       job.factoryRuntimePlanSha256 ||
-      job.supervisorPlanSha256
+      job.supervisorPlanSha256 ||
+      job.engineRestartPlanSha256
     )
       throw new RestartRequestError(
         "Only a pending Dev source conflict can be prepared for repair",
@@ -1739,6 +1796,8 @@ export class InstallationRestarts {
     updateSha256?: string,
     supervisorPlanSha256?: string,
     factoryRuntimePlanSha256?: string,
+    engineRestartPlanSha256?: string,
+    hostLauncherPlanSha256?: string,
   ): RestartJob {
     this.requireActive();
     const job = this.jobs.find((candidate) => candidate.id === id);
@@ -1746,6 +1805,8 @@ export class InstallationRestarts {
       throw new RestartRequestError("Restart request is missing or changed");
     this.validateSupervisorDecision(job, decision, supervisorPlanSha256);
     this.validateFactoryRuntimeDecision(job, decision, factoryRuntimePlanSha256);
+    this.validateEngineRestartDecision(job, decision, engineRestartPlanSha256);
+    this.validateHostLauncherDecision(job, decision, hostLauncherPlanSha256);
     this.validateDecision(job, decision, updateSha256);
     if (decision === "request-again") {
       if (job.status !== "rejected")
@@ -1758,6 +1819,8 @@ export class InstallationRestarts {
           supervisorPlanSha256: job.supervisorPlanSha256,
           factoryRuntimePlanSha256: job.factoryRuntimePlanSha256,
           factoryRuntimeRecoveryOf: job.factoryRuntimeRecoveryOf,
+          engineRestartPlanSha256: job.engineRestartPlanSha256,
+          hostLauncherPlanSha256: job.hostLauncherPlanSha256,
         },
         "owner",
       );
@@ -1888,6 +1951,38 @@ export class InstallationRestarts {
       }),
       this.helpers,
     );
+  }
+
+  private validateHostLauncherDecision(
+    job: RestartJob,
+    decision: RestartDecision,
+    hostLauncherPlanSha256?: string,
+  ): void {
+    if (!job.hostLauncherPlanSha256 || ["reject", "cancel", "request-again"].includes(decision))
+      return;
+    if (
+      hostLauncherPlanSha256 !== job.hostLauncherPlanSha256 ||
+      hostLauncherPlanSha256 !== this.executor.hostLauncherPlan?.()
+    )
+      throw new RestartRequestError("Review this exact Host launcher update before approval");
+    if (decision === "approve-when-idle")
+      throw new RestartRequestError("Use Finish turns and restart for the Host launcher update");
+  }
+
+  private validateEngineRestartDecision(
+    job: RestartJob,
+    decision: RestartDecision,
+    engineRestartPlanSha256?: string,
+  ): void {
+    if (!job.engineRestartPlanSha256 || ["reject", "cancel", "request-again"].includes(decision))
+      return;
+    if (
+      engineRestartPlanSha256 !== job.engineRestartPlanSha256 ||
+      engineRestartPlanSha256 !== this.executor.engineRestartPlan?.()
+    )
+      throw new RestartRequestError("Review this exact Docker restart plan before approval");
+    if (decision === "approve-when-idle")
+      throw new RestartRequestError("Use Finish turns and restart for a Docker restart");
   }
 
   private validateSupervisorDecision(
@@ -2293,6 +2388,10 @@ export class InstallationRestarts {
     return (
       job.status === "pending" &&
       !job.workerLaunchRequest &&
+      // A Docker restart interrupts all of Dev and the gateway; only an owner or delegate approves it.
+      !job.engineRestartPlanSha256 &&
+      // The Host launcher update restarts every Host agent; it is never automatic either.
+      !job.hostLauncherPlanSha256 &&
       this.automaticHostOrigin(job) &&
       !job.requireOwnerApproval &&
       (standing != null ||
@@ -2760,7 +2859,9 @@ export class InstallationRestarts {
       job.automaticApproval &&
       !job.standingDecision.activationStep &&
       !job.supervisorPlanSha256 &&
-      !job.factoryRuntimePlanSha256,
+      !job.factoryRuntimePlanSha256 &&
+      !job.engineRestartPlanSha256 &&
+      !job.hostLauncherPlanSha256,
     );
   }
 
@@ -2833,22 +2934,15 @@ export class InstallationRestarts {
     )
       throw new RestartRequestError("Automatic approval no longer matches the prepared request");
     if (this.executor.verifyDispatch) await this.executor.verifyDispatch(job);
-    if (job.factoryRuntimePlanSha256) {
-      if (
-        !this.executor.adoptFactoryRuntime ||
-        job.factoryRuntimePlanSha256 !== this.executor.factoryRuntimePlan?.()
-      )
-        throw new RestartRequestError("Factory adoption plan changed before dispatch");
-      return this.executor.adoptFactoryRuntime(job);
-    }
-    if (job.supervisorPlanSha256) {
-      if (
-        !this.executor.restartSupervisor ||
-        job.supervisorPlanSha256 !== this.executor.supervisorPlan?.()
-      )
-        throw new RestartRequestError("Supervisor maintenance plan changed before dispatch");
-      return this.executor.restartSupervisor(job);
-    }
+    const dispatch = () => this.dispatchApproved(job);
+    if (job.target === "container-daemon" && this.executor.guardDevRestart)
+      return this.executor.guardDevRestart(job, dispatch);
+    return dispatch();
+  }
+
+  private async dispatchApproved(job: RestartJob): Promise<string | null> {
+    const planBound = this.executePlanBound(job);
+    if (planBound) return planBound;
     if (job.update) {
       if (!this.executor.installUpdate) throw new Error("Source update executor unavailable");
       return this.executor.installUpdate(job, { serviceRestart: this.serviceRestartGranted(job) });
@@ -2863,6 +2957,45 @@ export class InstallationRestarts {
       return this.executor.restartWhenIdle(job.target);
     }
     return this.executor.restart(job.target);
+  }
+
+  /** Exact reviewed plans run only through their own executor, never a worker restart. */
+  private executePlanBound(job: RestartJob): Promise<string> | null {
+    if (job.factoryRuntimePlanSha256) {
+      if (
+        !this.executor.adoptFactoryRuntime ||
+        job.factoryRuntimePlanSha256 !== this.executor.factoryRuntimePlan?.()
+      )
+        throw new RestartRequestError("Factory adoption plan changed before dispatch");
+      return this.executor.adoptFactoryRuntime(job);
+    }
+    if (job.hostLauncherPlanSha256) {
+      if (
+        job.automaticApproval ||
+        !this.executor.updateHostLauncher ||
+        job.hostLauncherPlanSha256 !== this.executor.hostLauncherPlan?.()
+      )
+        throw new RestartRequestError("Host launcher update plan changed before dispatch");
+      return this.executor.updateHostLauncher(job);
+    }
+    if (job.engineRestartPlanSha256) {
+      if (
+        job.automaticApproval ||
+        !this.executor.restartEngine ||
+        job.engineRestartPlanSha256 !== this.executor.engineRestartPlan?.()
+      )
+        throw new RestartRequestError("Docker restart plan changed before dispatch");
+      return this.executor.restartEngine(job);
+    }
+    if (job.supervisorPlanSha256) {
+      if (
+        !this.executor.restartSupervisor ||
+        job.supervisorPlanSha256 !== this.executor.supervisorPlan?.()
+      )
+        throw new RestartRequestError("Supervisor maintenance plan changed before dispatch");
+      return this.executor.restartSupervisor(job);
+    }
+    return null;
   }
 
   async refreshImpacts(): Promise<void> {
@@ -3180,6 +3313,21 @@ function continuationId(job: RestartJob): string {
 function withoutCaptureId(job: RestartJob): RestartJob {
   const { continuationCaptureId: _released, ...retained } = job;
   return retained;
+}
+
+function refusePlanBoundContribution(input: RestartRequest): void {
+  if (input.factoryRuntimePlanSha256 || input.factoryRuntimeRecoveryOf)
+    throw new RestartRequestError("Factory adoption cannot be submitted as a source contribution");
+  if (input.supervisorPlanSha256)
+    throw new RestartRequestError(
+      "Supervisor maintenance cannot be submitted as a source contribution",
+    );
+  if (input.engineRestartPlanSha256)
+    throw new RestartRequestError("Docker restart cannot be submitted as a source contribution");
+  if (input.hostLauncherPlanSha256)
+    throw new RestartRequestError(
+      "Host launcher update cannot be submitted as a source contribution",
+    );
 }
 
 /** Only an undispatched or running continuation fences other lifecycle work. A
