@@ -340,6 +340,7 @@ async function fixture(
     RestartExecutor,
     "validateHelperPlan" | "installHelper" | "verifyHelperRecovery"
   >,
+  initialize?: (config: InstallationConfig) => void,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
   writeFileSync(
@@ -418,6 +419,7 @@ async function fixture(
       currentReleaseLink: "/dev/releases/current",
     };
   }
+  initialize?.(config);
   const calls: string[] = [];
   const app = createInstallationServer(
     config,
@@ -2254,4 +2256,147 @@ test("owner can disable automation when the coordinator loses restart support", 
   });
   expect(refused.status).toBe(409);
   expect(new DaemonAutomation(f.root, false).read()).toEqual(state);
+});
+
+test("Dev repair routes require owner authentication and refuse missing or changed requests without lifecycle effects", async () => {
+  const f = await fixture(undefined, undefined, undefined, "both");
+  const query = "/api/installation/owner/dev-repair/query";
+  const prepare = "/api/installation/owner/dev-repair/prepare";
+  for (const token of [undefined, "host-agent-test-token", "guest-agent-test-token"]) {
+    expect((await f.request(query, token, {})).status).toBe(401);
+    expect(
+      (
+        await f.request(prepare, token, {
+          id: randomUUID(),
+          revision: randomUUID(),
+        })
+      ).status,
+    ).toBe(401);
+  }
+  expect(await (await f.request(query, "owner-test-password", {})).json()).toEqual({
+    available: true,
+    preparingIds: [],
+  });
+  const refused = await f.request(prepare, "owner-test-password", {
+    id: randomUUID(),
+    revision: randomUUID(),
+  });
+  expect(refused.status).toBe(409);
+  expect(f.calls).toEqual([]);
+});
+
+test("owner HTTP repair captures and stages real Git source without approving or restarting", async () => {
+  let id = "";
+  const prepareBatch = vi
+    .spyOn(InstallationSourceUpdates.prototype, "prepare")
+    .mockImplementation(async (contributions) => ({
+      batch: { status: "conflict", contributions },
+    }));
+  try {
+    const f = await fixture(
+      undefined,
+      undefined,
+      undefined,
+      "both",
+      false,
+      undefined,
+      undefined,
+      undefined,
+      (config) => {
+        const repository = path.join(config.stateDir, "objects");
+        mkdirSync(repository);
+        const git = (...args: string[]) =>
+          execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+            cwd: repository,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              GIT_AUTHOR_NAME: "Fixture",
+              GIT_AUTHOR_EMAIL: "fixture@example.test",
+              GIT_COMMITTER_NAME: "Fixture",
+              GIT_COMMITTER_EMAIL: "fixture@example.test",
+            },
+          }).trim();
+        git("init", "--initial-branch=main");
+        writeFileSync(path.join(repository, "source.txt"), "base");
+        git("add", ".");
+        git("commit", "-m", "Base");
+        const base = git("rev-parse", "HEAD");
+        writeFileSync(path.join(repository, "source.txt"), "candidate");
+        git("commit", "-am", "Candidate");
+        const candidate = git("rev-parse", "HEAD");
+        config.sourceUpdates!.sourceRepository = repository;
+        config.containerSourceUpdates!.sourceRepository = repository;
+        writeFileSync(
+          config.containerSourceUpdates!.receiptFile,
+          JSON.stringify({ sourceCommit: base }),
+        );
+        writeFileSync(
+          path.join(config.sourceUpdates!.currentReleaseLink, ".installation-source.json"),
+          JSON.stringify({ sourceCommit: candidate }),
+        );
+        id = randomUUID();
+        writeFileSync(
+          path.join(config.stateDir, "restart-jobs.json"),
+          JSON.stringify([
+            {
+              id,
+              revision: randomUUID(),
+              target: "container-daemon",
+              reason: "Fixture conflict",
+              requestedBy: "container-agent",
+              createdAt: new Date().toISOString(),
+              expiresAt: "9999-12-31T23:59:59.999Z",
+              status: "pending",
+              detail: "Conflict",
+              sourceBatch: {
+                status: "conflict",
+                contributions: [
+                  {
+                    id: randomUUID(),
+                    update: {
+                      baseCommit: base,
+                      sourceCommit: base,
+                      sha256: "a".repeat(64),
+                      bytes: 10,
+                    },
+                    reason: "Retained",
+                    requestedBy: "container-agent",
+                    createdAt: new Date().toISOString(),
+                    status: "conflict",
+                    detail: "Fixture conflict",
+                  },
+                ],
+              },
+            },
+          ]),
+        );
+      },
+    );
+    await f.drain();
+    const journal = () => JSON.parse(readFileSync(path.join(f.root, "restart-jobs.json"), "utf8"));
+    const before = journal()[0];
+    const response = await f.request(
+      "/api/installation/owner/dev-repair/prepare",
+      "owner-test-password",
+      { id, revision: before.revision },
+    );
+    expect(response.status).toBe(202);
+    await vi.waitFor(() => expect(journal()[0].devRepairs?.[0]?.status).toBe("prepared"));
+    const after = journal()[0];
+    expect(after.status).toBe("pending");
+    expect(after.requireOwnerApproval).toBe(true);
+    expect(after.sourceBatch.contributions[0]).toEqual(before.sourceBatch.contributions[0]);
+    const update = after.sourceBatch.contributions[1].update;
+    expect(
+      existsSync(path.join(f.root, "container-source-updates", `${update.sha256}.bundle`)),
+    ).toBe(true);
+    const legacy = await (
+      await f.request("/api/installation/owner/restarts/query", "owner-test-password", {})
+    ).json();
+    expect(legacy[0]).not.toHaveProperty("devRepairs");
+    expect(f.calls).toEqual([]);
+  } finally {
+    prepareBatch.mockRestore();
+  }
 });

@@ -322,3 +322,39 @@ test("daemon automation requires unlocked access and refuses writes without supp
   supported = false;
   await expect(client.daemonAutomation()).rejects.toThrow("Unavailable");
 });
+
+test("Dev repair capability loss fails closed and preparation sends only the exact request identity", async () => {
+  let available = true;
+  const sent: Array<{ path: string; body: unknown }> = [];
+  const id = "c429363b-8277-4d56-8f46-029b0c05668c";
+  const revision = "b752672e-bd0e-4464-8367-41fb0a695eb2";
+  const client = new InstallationClient(installation, {
+    request: async (path, _password, body) => {
+      if (path === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((item) =>
+            Object.assign({}, item, { password: "fixture" }),
+          ),
+        };
+      if (!available) throw new InstallationRouteUnavailable("Unavailable");
+      sent.push({ path, body });
+      return path === "dev-repair/query" ? { available: true, preparingIds: [] } : { id, revision };
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await client.unlock("fixture");
+  await client.devRepairStatus();
+  await client.prepareDevRepair({ id, revision } as Parameters<typeof client.prepareDevRepair>[0]);
+  expect(sent.at(-1)).toEqual({
+    path: "dev-repair/prepare",
+    body: { id, revision },
+  });
+  available = false;
+  await expect(client.devRepairStatus()).rejects.toThrow("Unavailable");
+  const before = sent.length;
+  await expect(
+    client.prepareDevRepair({ id, revision } as Parameters<typeof client.prepareDevRepair>[0]),
+  ).rejects.toThrow("Update the coordinator");
+  expect(sent).toHaveLength(before);
+});

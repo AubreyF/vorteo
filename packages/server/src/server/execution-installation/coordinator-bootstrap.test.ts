@@ -2450,3 +2450,111 @@ test("source tooling legacy cancellation preserves the exact hidden plan", async
   expect(reply.payload.requests![0]!.planSha256).toBe(pending.planSha256);
   expect(service.list()[0]!.plan).toEqual(pending.plan);
 });
+
+async function pendingRecoveryStartupFixture() {
+  const f = fixture();
+  f.plan.state.directory = f.root;
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const failed = f.journal.fenceUnpromotedClaim(claimed, {
+    id: randomUUID(),
+    revision: randomUUID(),
+    generation: randomUUID(),
+    planSha256: "f".repeat(64),
+  });
+  const next = await f.service().prepare({
+    id: randomUUID(),
+    reason: "Reviewed successor",
+    plan: {
+      ...f.plan,
+      recoveredFrom: {
+        id: failed.id,
+        revision: failed.revision,
+        generation: failed.execution!.generation,
+        planSha256: failed.planSha256,
+      },
+    },
+  });
+  const decided = await f
+    .service()
+    .decide({ ...pickDecision(next), decision: "approve" }, ownerPassword);
+  const successor = await f.service().claimDispatch(pickDecision(decided));
+  f.journal.promote(successor);
+  const started = {
+    ...successor,
+    execution: { ...successor.execution!, stage: "start_pending" as const },
+  };
+  const records = f.journal.read();
+  f.journal.replace(
+    records,
+    records.map((r) => (r.id === started.id ? started : r)),
+  );
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.root,
+    node: f.plan.candidate.node.path,
+    entrypoint: f.plan.candidate.entrypoint.path,
+    configuration: f.plan.candidate.configuration.path,
+  };
+  return { ...f, failed, started, identity };
+}
+
+test("startup retains exact pending recovery ancestry without granting unrelated pending claims authority", async () => {
+  const f = await pendingRecoveryStartupFixture();
+  const records = f.journal.read();
+  const unrelated = {
+    ...f.failed,
+    id: randomUUID(),
+    revision: randomUUID(),
+    execution: { ...f.failed.execution!, generation: randomUUID(), stage: "claimed" as const },
+  };
+  f.journal.replace(records, [...records, unrelated]);
+  const paths = ["coordinator-bootstrap.json", "coordinator-bootstrap-pending.json"].map((n) =>
+    path.join(f.root, n),
+  );
+  const before = paths.map((p) => readFileSync(p));
+  expect(f.journal.readPromoted().map((r) => r.id)).toEqual([f.started.id]);
+  const fence = loadCoordinatorStartupFence(f.identity);
+  expect(fence?.generation).toBe(f.started.execution.generation);
+  expect(fence?.released()).toBe(false);
+  expect(paths.map((p) => readFileSync(p))).toEqual(before);
+  const current = f.journal.read();
+  const completed = {
+    ...f.started,
+    execution: { ...f.started.execution, stage: "succeeded" as const },
+  };
+  f.journal.replace(
+    current,
+    current.map((r) => (r.id === f.started.id ? completed : r)),
+  );
+  expect(fence?.released()).toBe(true);
+  expect(loadCoordinatorStartupFence(f.identity)).toBeUndefined();
+  expect(f.journal.readPromoted().map((r) => r.id)).toEqual([f.started.id]);
+});
+
+test.each(["missing", "revision", "generation", "plan"])(
+  "startup refuses changed pending recovery ancestry: %s",
+  async (change) => {
+    const f = await pendingRecoveryStartupFixture();
+    const records = f.journal.read();
+    const changed = structuredClone(f.failed);
+    if (change === "revision") changed.revision = randomUUID();
+    if (change === "generation") changed.execution!.generation = randomUUID();
+    if (change === "plan") changed.planSha256 = "0".repeat(64);
+    f.journal.replace(
+      records,
+      records.flatMap((r) => {
+        if (r.id !== f.failed.id) return [r];
+        return change === "missing" ? [] : [changed];
+      }),
+    );
+    expect(() => loadCoordinatorStartupFence(f.identity)).toThrow(
+      "Recovered coordinator history changed",
+    );
+  },
+);

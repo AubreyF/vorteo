@@ -5,6 +5,52 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.509 - 2026-10-14
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.508 - 2026-10-14
+
+### Fixed
+
+- Let a promoted coordinator successor read its exact recovered predecessor from pending history without promoting that predecessor or admitting unrelated pending work.
+- Reject missing or changed recovery references and preserve journal bytes while evaluating startup and release fences.
+
+## 0.11.0-beta.3.vorteo.507 - 2026-10-14
+
+### Maintenance
+
+- Reconcile validated Dev repair controls with the prepared capacity update and latest published card layout, preserving both source and release histories.
+- Keep this preparation isolated from the pending Host update. Installed repair acceptance still requires compatible coordinator delivery and Dev recovery.
+
+## 0.11.0-beta.3.vorteo.506 - 2026-10-14
+
+### Maintenance
+
+- Match the packaged Dev repair assertion to the rendered guidance. Desktop and phone checks verify preparation, duplicate-action prevention, available cancellation and separate installation approval.
+
+## 0.11.0-beta.3.vorteo.505 - 2026-10-14
+
+### Fixed
+
+- Refuse Dev repair preparation at the client when coordinator support becomes unavailable, before sending a request.
+
+### Maintenance
+
+- Extend packaged desktop and phone coverage for repair preparation, continued cancellation and separate installation approval.
+
+## 0.11.0-beta.3.vorteo.504 - 2026-10-14
+
+### Added
+
+- Add owner-started Dev source repair preparation in Installation controls. Capture the installed Host source and queued contributions, persist preparation history, and require a separate exact installation review.
+
+### Fixed
+
+- Discard late repair results after cancellation or changed contributions, and report interrupted preparation without replaying it. Preserve finite and uncapped worker profile source in the same delivery ancestry.
+
 ## 0.11.0-beta.3.vorteo.505 - 2026-10-14
 
 ### Maintenance

@@ -129,12 +129,12 @@ export function loadCoordinatorStartupFence(identity: CoordinatorStartupIdentity
     throw error;
   }
   const journal = new FileBootstrapRequestJournal(current.stateDirectory);
-  const admission = coordinatorStartupAdmission(journal.readPromoted(), current);
+  const admission = coordinatorStartupAdmission(journal.readStartupHistory(), current);
   if (admission.kind === "ordinary") return undefined;
   const expected = admission.request;
   if (!expected.execution) throw new BootstrapRequestConflict("Startup generation is missing");
   return {
     generation: expected.execution.generation,
-    released: () => coordinatorStartupReleased(journal.readPromoted(), current, expected),
+    released: () => coordinatorStartupReleased(journal.readStartupHistory(), current, expected),
   };
 }
