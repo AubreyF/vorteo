@@ -1958,7 +1958,6 @@ export const ko: TranslationResources = {
     breakdown: {
       used: "사용됨",
       free: "남은 공간",
-      loading: "세부 내역을 불러오는 중",
       totalsOnly: "이 제공자는 합계만 보고합니다.",
       error: "세부 내역을 불러오지 못했습니다.",
       overLimit: "창을 {{tokens}} 토큰 초과",

@@ -1,10 +1,13 @@
 import { Text } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
-import { AgentUsage } from "@/usage";
-import { VortonAgentUsage } from "@/provider-usage/tooltip-section";
+import { AgentUsageSection, useAgentUsage } from "@/usage";
+import { ProviderUsageTooltipSection } from "@/provider-usage/tooltip-section";
+import { useProviderUsage } from "@/provider-usage/use-provider-usage";
+import { useSessionStore } from "@/stores/session-store";
 
 import { ContextBreakdown } from "./context-breakdown/view";
+import { useContextBreakdown } from "./context-breakdown/use-context-breakdown";
 
 interface ContextWindowDetailsProps {
   serverId: string;
@@ -26,6 +29,10 @@ interface ContextWindowDetailsProps {
  * What the context window meter opens and the Context details card shows: how full the window
  * is and what fills it, then the usage of the agent's account. The wide tooltip, the compact
  * sheet and the card all render it, so they always match.
+ *
+ * The breakdown, account usage and plan usage load independently. Until all three settle, one
+ * loading pulse stands in for them, so the details appear together instead of as three
+ * separate loading sentences.
  */
 export function ContextWindowDetails({
   serverId,
@@ -38,21 +45,33 @@ export function ContextWindowDetails({
   refreshable,
 }: ContextWindowDetailsProps) {
   const { t } = useTranslation();
+  const breakdown = useContextBreakdown(serverId, agentId);
+  const accountUsage = useAgentUsage(serverId, agentId);
+  const { view: planUsage } = useProviderUsage(serverId, { refreshOnMount: true });
+  const provider = useSessionStore(
+    (state) => state.sessions[serverId]?.agents.get(agentId)?.provider,
+  );
+  const loading =
+    breakdown.kind === "loading" || accountUsage.kind === "loading" || planUsage.kind === "loading";
 
   return (
     <>
       {showTitle ? <Text style={styles.title}>{t("contextWindow.title")}</Text> : null}
       <ContextBreakdown
-        serverId={serverId}
-        agentId={agentId}
+        view={breakdown}
+        loading={loading}
         percentage={percentage}
         usedTokens={usedTokens}
         maxTokens={maxTokens}
         sessionCost={sessionCost}
         interactive={refreshable}
       />
-      <AgentUsage serverId={serverId} agentId={agentId} refreshable={refreshable} />
-      {<VortonAgentUsage serverId={serverId} agentId={agentId} />}
+      {loading ? null : (
+        <>
+          <AgentUsageSection serverId={serverId} view={accountUsage} refreshable={refreshable} />
+          <ProviderUsageTooltipSection view={planUsage} activeProviderId={provider} />
+        </>
+      )}
     </>
   );
 }

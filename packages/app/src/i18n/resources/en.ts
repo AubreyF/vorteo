@@ -2011,7 +2011,6 @@ export const en = {
     breakdown: {
       used: "Used",
       free: "Free space",
-      loading: "Loading the breakdown",
       totalsOnly: "This provider reports totals only.",
       error: "Could not load the breakdown.",
       overLimit: "{{tokens}} tokens over the window",

@@ -5,6 +5,25 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.739 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.738 - 2026-10-21
+
+### Fixed
+
+- Draw the Context window donut on web. Its track and segments were themed SVG circles, which render nothing there; the donut is now one themed graphic with plain colours, like the usage ring
+- Show one loading pulse in the Context window details instead of separate "Loading the breakdown", "Loading usage..." and "Loading plan usage..." lines. The breakdown, account usage and plan usage now appear together once all three have loaded, in the card, the meter popover and the compact sheet
+
+## 0.11.0-beta.3.vorteo.737 - 2026-10-21
+
+### Fixed
+
+- Keep History, Schedules and Settings in the left sidebar toolbar until they would actually overlap. The toolbar hid them at fixed widths, so a 330px sidebar moved Settings into the actions menu with room to spare. It now measures its own width and moves a button into the menu only when it no longer fits.
+
 ## 0.11.0-beta.3.vorteo.736 - 2026-10-21
 
 ### Maintenance

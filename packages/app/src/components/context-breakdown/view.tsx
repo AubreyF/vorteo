@@ -16,7 +16,8 @@ import {
   type ContextBreakdownModel,
   type ContextRow,
 } from "./model";
-import { useContextBreakdown } from "./use-context-breakdown";
+import type { ContextBreakdownView } from "./use-context-breakdown";
+import { SkeletonPulse, useSkeletonPulse } from "@/git/pull-request-panel/activity-skeleton";
 
 const DONUT_SIZE = 88;
 const DONUT_STROKE = 12;
@@ -31,16 +32,17 @@ const DONUT_GAP = 2;
  * category's tokens and share of the window. Providers that report totals only get used and free.
  */
 export function ContextBreakdown({
-  serverId,
-  agentId,
+  view,
+  loading,
   percentage,
   usedTokens,
   maxTokens,
   sessionCost,
   interactive,
 }: {
-  serverId: string;
-  agentId: string;
+  view: ContextBreakdownView;
+  /** Whether anything in the details is still loading; one pulse stands in for all of it. */
+  loading: boolean;
   percentage: number;
   usedTokens: number;
   maxTokens: number;
@@ -49,7 +51,6 @@ export function ContextBreakdown({
   interactive: boolean;
 }) {
   const { t } = useTranslation();
-  const view = useContextBreakdown(serverId, agentId);
   const model = useMemo<ContextBreakdownModel>(
     () =>
       view.kind === "ready"
@@ -91,30 +92,42 @@ export function ContextBreakdown({
           ) : null}
         </View>
       </View>
-      <View style={styles.legend}>
-        {model.legend.map((row) => (
-          <LegendRow key={row.key} row={row} />
-        ))}
-      </View>
-      {view.kind === "ready" && view.breakdown.groups.length > 0 ? (
+      {loading ? <LoadingPulse /> : null}
+      {loading ? null : (
+        <View style={styles.legend}>
+          {model.legend.map((row) => (
+            <LegendRow key={row.key} row={row} />
+          ))}
+        </View>
+      )}
+      {!loading && view.kind === "ready" && view.breakdown.groups.length > 0 ? (
         <View style={styles.groups}>
           {view.breakdown.groups.map((group) => (
             <GroupRow key={group.id} group={group} interactive={interactive} />
           ))}
         </View>
       ) : null}
-      {note ? <Text style={styles.note}>{note}</Text> : null}
+      {note && !loading ? <Text style={styles.note}>{note}</Text> : null}
+    </View>
+  );
+}
+
+function LoadingPulse() {
+  const pulse = useSkeletonPulse();
+  return (
+    <View testID="context-breakdown-loading" accessibilityRole="progressbar">
+      <SkeletonPulse pulse={pulse} style={styles.pulse} />
     </View>
   );
 }
 
 function breakdownNote(
-  kind: ReturnType<typeof useContextBreakdown>["kind"],
+  kind: ContextBreakdownView["kind"],
   t: ReturnType<typeof useTranslation>["t"],
 ): string | null {
   switch (kind) {
     case "loading":
-      return t("contextWindow.breakdown.loading");
+      return null;
     case "error":
       return t("contextWindow.breakdown.error");
     case "totals":
@@ -131,70 +144,98 @@ function rowColor(theme: Theme, slot: number | null, kind: ContextRow["kind"]): 
   return theme.colors.surface3;
 }
 
-// SVG strokes and icon colours are not styles, so they reach the theme through withUnistyles.
-const ThemedCircle = withUnistyles(Circle);
+// Icon colours are not styles, so they reach the theme through withUnistyles.
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedChevronRight = withUnistyles(ChevronRight);
-const trackStroke = (theme: Theme) => ({ stroke: theme.colors.surface2 });
 const mutedIcon = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
-function Arc({ row, length, offset }: { row: ContextRow; length: number; offset: number }) {
-  const { slot, kind } = row;
-  const stroke = useCallback(
-    (theme: Theme) => ({ stroke: rowColor(theme, slot, kind) }),
-    [slot, kind],
-  );
+interface DonutSegment {
+  key: string;
+  slot: number | null;
+  kind: ContextRow["kind"];
+  length: number;
+  offset: number;
+}
+
+/**
+ * The donut drawing. It takes plain colour props and the whole graphic goes through
+ * withUnistyles, like the usage ring: themed raw SVG primitives do not draw on web.
+ */
+function DonutGraphic({
+  segments,
+  track,
+  buffer,
+  free,
+  scheme,
+}: {
+  segments: readonly DonutSegment[];
+  track: string;
+  buffer: string;
+  free: string;
+  scheme: Theme["colorScheme"];
+}) {
+  const strokeFor = (segment: DonutSegment) => {
+    if (segment.slot !== null) return seriesColor(segment.slot, scheme);
+    return segment.kind === "buffer" ? buffer : free;
+  };
   return (
-    <ThemedCircle
-      cx={DONUT_CENTER}
-      cy={DONUT_CENTER}
-      r={DONUT_RADIUS}
-      fill="none"
-      uniProps={stroke}
-      strokeWidth={DONUT_STROKE}
-      strokeDasharray={`${length} ${DONUT_CIRCUMFERENCE - length}`}
-      // Dash offsets run backwards; SVG strokes start at three o'clock.
-      strokeDashoffset={-offset}
-      transform={`rotate(-90 ${DONUT_CENTER} ${DONUT_CENTER})`}
-    />
+    <Svg width={DONUT_SIZE} height={DONUT_SIZE} viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}>
+      <Circle
+        cx={DONUT_CENTER}
+        cy={DONUT_CENTER}
+        r={DONUT_RADIUS}
+        fill="none"
+        stroke={track}
+        strokeWidth={DONUT_STROKE}
+      />
+      {segments.map((segment) => (
+        <Circle
+          key={segment.key}
+          cx={DONUT_CENTER}
+          cy={DONUT_CENTER}
+          r={DONUT_RADIUS}
+          fill="none"
+          stroke={strokeFor(segment)}
+          strokeWidth={DONUT_STROKE}
+          strokeDasharray={`${segment.length} ${DONUT_CIRCUMFERENCE - segment.length}`}
+          // Dash offsets run backwards; SVG strokes start at three o'clock.
+          strokeDashoffset={-segment.offset}
+          rotation={-90}
+          origin={`${DONUT_CENTER}, ${DONUT_CENTER}`}
+        />
+      ))}
+    </Svg>
   );
 }
+const ThemedDonutGraphic = withUnistyles(DonutGraphic);
+const donutPalette = (theme: Theme) => ({
+  track: theme.colors.surface2,
+  buffer: theme.colors.foregroundMuted,
+  free: theme.colors.surface3,
+  scheme: theme.colorScheme,
+});
 
 function Donut({ model, percentage }: { model: ContextBreakdownModel; percentage: number }) {
   const { t } = useTranslation();
-  const arcs = useMemo(
-    () =>
-      layoutDonut({
-        segments: model.segments,
-        total: model.maxTokens,
-        circumference: DONUT_CIRCUMFERENCE,
-        gap: DONUT_GAP,
-      }),
-    [model],
-  );
-  const rows = new Map(model.segments.map((row) => [row.key, row]));
+  const segments = useMemo(() => {
+    const rows = new Map(model.segments.map((row) => [row.key, row]));
+    return layoutDonut({
+      segments: model.segments,
+      total: model.maxTokens,
+      circumference: DONUT_CIRCUMFERENCE,
+      gap: DONUT_GAP,
+    }).flatMap((arc): DonutSegment[] => {
+      const row = rows.get(arc.key);
+      return row ? [{ ...arc, slot: row.slot, kind: row.kind }] : [];
+    });
+  }, [model]);
   return (
     <View
       style={styles.donut}
       accessibilityRole="image"
       accessibilityLabel={t("contextWindow.accessibility", { percentage })}
     >
-      <Svg width={DONUT_SIZE} height={DONUT_SIZE} viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}>
-        <ThemedCircle
-          cx={DONUT_CENTER}
-          cy={DONUT_CENTER}
-          r={DONUT_RADIUS}
-          fill="none"
-          uniProps={trackStroke}
-          strokeWidth={DONUT_STROKE}
-        />
-        {arcs.map((arc) => {
-          const row = rows.get(arc.key);
-          return row ? (
-            <Arc key={arc.key} row={row} length={arc.length} offset={arc.offset} />
-          ) : null;
-        })}
-      </Svg>
+      <ThemedDonutGraphic segments={segments} uniProps={donutPalette} />
       <View style={styles.donutLabel} pointerEvents="none">
         <Text style={styles.donutPercent}>{`${percentage}%`}</Text>
       </View>
@@ -366,5 +407,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   itemLabel: { flexShrink: 1, color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   itemDetail: { flex: 1, color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  pulse: {
+    height: 64,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface2,
+  },
   note: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
 }));

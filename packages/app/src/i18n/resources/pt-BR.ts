@@ -1981,7 +1981,6 @@ export const ptBR: TranslationResources = {
     breakdown: {
       used: "Usado",
       free: "Espaço livre",
-      loading: "Carregando o detalhamento",
       totalsOnly: "Este provedor informa apenas os totais.",
       error: "Não foi possível carregar o detalhamento.",
       overLimit: "{{tokens}} tokens acima da janela",

@@ -1981,7 +1981,6 @@ export const ru: TranslationResources = {
     breakdown: {
       used: "Использовано",
       free: "Свободно",
-      loading: "Загрузка разбивки",
       totalsOnly: "Этот провайдер сообщает только итоги.",
       error: "Не удалось загрузить разбивку.",
       overLimit: "Окно превышено на {{tokens}} токенов",

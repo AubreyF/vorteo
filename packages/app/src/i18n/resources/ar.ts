@@ -1948,7 +1948,6 @@ export const ar: TranslationResources = {
     breakdown: {
       used: "مستخدم",
       free: "مساحة فارغة",
-      loading: "جارٍ تحميل التفصيل",
       totalsOnly: "يُبلغ هذا المزوّد عن الإجماليات فقط.",
       error: "تعذّر تحميل التفصيل.",
       overLimit: "تجاوز النافذة بمقدار {{tokens}} رمزًا",

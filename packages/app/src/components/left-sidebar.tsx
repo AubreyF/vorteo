@@ -71,6 +71,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import { Button } from "@/components/ui/button";
 import { CompactProjectRail } from "./sidebar/compact-project-rail";
+import { SIDEBAR_TOOLBAR_GROUP_GAP, sidebarToolbarFit } from "./sidebar/sidebar-toolbar-fit";
 import {
   FLOATING_PANEL_RADIUS,
   FLOATING_PANEL_CONTROL_HEIGHT,
@@ -438,11 +439,13 @@ function IconTooltipContent({
   );
 }
 
-function sidebarNavigationVisibility(width: number, rail: boolean) {
-  const showHistory = !rail && width >= 300;
-  const showSchedules = !rail && width >= 260;
-  const showSettings = !rail && width >= 340;
-  const navigationRows = !rail && width < 260;
+/** `fit` is how many optional buttons fit; see `sidebarToolbarFit`. */
+function sidebarNavigationVisibility(fit: number, rail: boolean) {
+  const showSchedules = !rail && fit >= 1;
+  const showHistory = !rail && fit >= 2;
+  const showSettings = !rail && fit >= 3;
+  // Below the width for even one optional button, navigation moves to labeled rows.
+  const navigationRows = !rail && fit === 0;
   const settingsOutside = showSettings || navigationRows;
   const menuSchedules = !showSchedules && !rail && !navigationRows;
   const menuHistory = !showHistory && !rail && !navigationRows;
@@ -527,6 +530,12 @@ function SidebarToolbar({
     [theme.iconSize.sm, theme.colors.foregroundMuted],
   );
   const width = useSidebarWidth();
+  // Start from the panel width so the first frame is close, then follow the toolbar's real width.
+  // Only the fitting button count is stored, so dragging rerenders when a button appears or hides.
+  const [fit, setFit] = useState(() => sidebarToolbarFit(width - SIDEBAR_TOOLBAR_GROUP_GAP * 2));
+  const measureToolbar = useCallback((event: LayoutChangeEvent) => {
+    setFit(sidebarToolbarFit(event.nativeEvent.layout.width));
+  }, []);
   const {
     showHistory,
     showSchedules,
@@ -536,7 +545,7 @@ function SidebarToolbar({
     menuSchedules,
     menuHistory,
     hasMenuNavigation,
-  } = sidebarNavigationVisibility(width, rail);
+  } = sidebarNavigationVisibility(fit, rail);
   const moreStyle = useCallback(
     ({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
       styles.footerIconButton,
@@ -678,6 +687,7 @@ function SidebarToolbar({
             : [styles.sidebarFooter, styles.sidebarToolbar, touch && styles.touchToolbar]
         }
         testID="sidebar-toolbar"
+        onLayout={rail ? undefined : measureToolbar}
       >
         {rail && onExpand ? (
           <FooterIconButton

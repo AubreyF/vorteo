@@ -1030,12 +1030,12 @@ test("sidebar drags into a compact rail with persistent controls and interactive
       .getByText("+1", { exact: true }),
   ).toHaveCount(0);
   await expect(page.getByTestId("sidebar-search")).toBeVisible();
-  await expect(page.getByTestId("sidebar-schedules")).toHaveCount(0);
+  // Schedules still fits beside the fixed controls; History and Settings move into the menu.
+  await expect(page.getByTestId("sidebar-schedules")).toBeVisible();
+  await expect(page.getByTestId("sidebar-sessions")).toHaveCount(0);
   await page.getByTestId("sidebar-footer-overflow").click();
-  await expect(sidebar.getByRole("button", { name: "Schedules", exact: true })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "History", exact: true })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "Settings", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Settings", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "History", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Settings", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await dragTo(180);
   await expect(page.getByTestId("compact-project-rail")).toHaveCount(0);
