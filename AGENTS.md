@@ -4,7 +4,7 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 
 ## Before editing
 
-1. Check the working tree and preserve unrelated changes.
+1. Fetch `origin`. If your checkout is behind `origin/main`, read the current rules with `git show origin/main:AGENTS.md`. Check the working tree and preserve unrelated changes.
 2. Read the relevant rules below and the owning docs. “The docs” means `docs/`, not the web. Use the [docs index](docs/README.md) for other subjects; do not load the whole catalog.
 3. Verify behavior in code and tests before changing it or documenting it as shipped.
 
@@ -16,6 +16,34 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 | README or other documentation  | [Writing rules](docs/writing.md)                                                                                                 |
 | Installation or deployment     | [Container installer](docker/multiplex/README.md), [instance continuity](docs/instance-continuity.md)                            |
 | Commit, publication or release | [Versioning](docs/release.md#vorton-commit-versions), [publication hygiene](docs/publication-hygiene.md)                         |
+| Worktrees, delivery or archive | [Task delivery](docs/task-delivery.md)                                                                                           |
+
+## Authorization levels
+
+Settle each task's authorization level before it changes files. Each level includes the lower ones.
+
+1. **Inspect.** Read, diagnose, reproduce and plan. No edits outside scratch files.
+2. **Build and preview.** Level 1 plus edits in a task worktree, tests, local builds, managed previews and commits on the task branch.
+3. **Ship to `main`.** Level 2 plus integrating into `main`, pushing `main` to `origin` and guarded interface-only publication to the primary installation, which needs no restart.
+4. **Ship and install.** Level 3 plus Host and Dev source updates, installation changes and the restarts they require, submitted through the tracked installation workflow.
+
+Map the request to a level without asking when it is clear:
+
+- Questions, reviews, audits, research and proposals: Level 1.
+- "Preview", "prototype", "draft" or "don't commit": Level 2.
+- "Push" or "commit and push": Level 3.
+- "Ship it", "publish to me", "deliver" or "install", and requests to implement a change in Vorteo under the [current development preference](#current-vorteo-development-preference): Level 4.
+- A stated level, such as "level 2", overrides this mapping.
+
+Otherwise ask once through `update_questions`: "What authorization level should this task proceed at? 1 Inspect, 2 Build and preview, 3 Ship to main, 4 Ship and install. Reply with a number." Give the level the request implies as `recommendedDefault`. Keep doing Level 1 and 2 work while you wait. Do not integrate, push or install until the owner answers. An expired default applies only when it is Level 2 or lower.
+
+- The newest explicit level for a task controls. Do not ask again for actions it includes. Clarifying scope is not an authorization question.
+- A level covers its task only. It never carries into a new task.
+- Levels never bypass other gates. Restarts still need the owner's exact approval in installation controls. Force-pushing `main` stays forbidden, and publication hygiene, wire compatibility and external-post authorization still apply.
+- Archiving belongs to no level. Offer it once delivery is verified, and archive only on request.
+- Record the level in the first journal entry's `machineContext` and carry it into handoffs and subagent prompts. A subagent or handoff never receives a higher level than its coordinator holds.
+- At Level 2 and higher, work in a task worktree from `scripts/task-worktree.mjs` unless you already run in a clean dedicated one. Never edit a shared checkout that holds other work.
+- When the work needs more than the granted level, finish what the level allows. Then ask for the specific higher level and say what it would do.
 
 ## Task status
 
@@ -42,6 +70,8 @@ Explain the current user-facing outcome, what is installed versus merely prepare
 
 A recommendation does not authorize creating agents or workspaces. Once the owner approves the split, transfer exact source, patches, evidence, failed attempts, decisions, checklist state, file ownership and delivery constraints into separate worktrees. Keep one coordinator for shared integration and publication. Leave blocked work inactive with a concrete resumption condition, and do not count a handoff as completion of its implementation.
 
+Record deferrable debt found along the way in one deduplicated GitHub issue, at Level 3 or higher, or list it in your report otherwise, then return to the task. Do not widen the current delivery to fix it.
+
 Accept explicit owner reports of successful everyday use as acceptance for the behavior they describe. Do not keep that behavior open solely for an additional synthetic test or optional monitoring. Do not widen the acceptance criteria or add infrastructure without showing why it is necessary for the requested outcome.
 
 ## Goal ownership
@@ -52,7 +82,7 @@ Use `get_thread_goal` and `update_thread_goal` to revise your existing goal with
 
 ### Current Vorteo development preference
 
-When the owner asks to implement a change in Vorteo, deliver it to this existing Vorteo instance so the owner can reload and review it here. Do not substitute a separate preview URL unless explicitly requested. This is the current rapid-development preference and may change as the project stabilizes. Validate the change and use the guarded static publisher for interface-only updates; preserve the required tracked approval workflow for any daemon or installation restart. When the owner requests visual review, leave acceptance open until they review the installed change.
+When the owner asks to implement a change in Vorteo, treat it as [Level 4](#authorization-levels) and deliver it to this existing Vorteo instance so the owner can reload and review it here. Do not substitute a separate preview URL unless explicitly requested. This is the current rapid-development preference and may change as the project stabilizes. Validate the change and use the guarded static publisher for interface-only updates; preserve the required tracked approval workflow for any daemon or installation restart. When the owner requests visual review, leave acceptance open until they review the installed change.
 
 ### Live demo previews
 
@@ -60,7 +90,7 @@ Interactive UI previews default to a live development server with file watching 
 
 Use a sealed production build when checking production behavior or when the owner explicitly requests a fixed snapshot. Live previews do not replace production validation or authorize primary publication, daemon restarts, new workspaces or broader network access. Report any limitation that prevents live updates instead of silently serving a stale export.
 
-- Deliver interface-only changes to the existing primary installation as each coherent, validated revision is ready, so the owner can reload while work continues. Use the guarded web build and publisher in [instance continuity](docs/instance-continuity.md). Preserve the deployed source ancestry, verify the served receipt and assets, and report when reloading will show the change. Do not restart or hold agents for static interface publication. A preview-only request still stops at preview delivery.
+- At Level 3 or higher, deliver interface-only changes to the existing primary installation as each coherent, validated revision is ready, so the owner can reload while work continues. Use the guarded web build and publisher in [instance continuity](docs/instance-continuity.md). Preserve the deployed source ancestry, verify the served receipt and assets, and report when reloading will show the change. Do not restart or hold agents for static interface publication. A preview-only request still stops at preview delivery.
 - Never restart the main daemon on port `6767` without explicit permission. It owns running agents. A timeout is not a reason to restart it.
 - Previews reuse the task workspace, service and HTTPS reservation. Never create a project or workspace solely to serve a preview or work around a broker rejection. Keep isolated code in its task worktree and follow the [preview workflow](docker/tailscale/AGENT-INSTRUCTIONS.md#preview-workspace-reuse).
 - Use the container installer by default. The explicitly owner-authorized macOS host extension follows [host and container execution](docs/execution-installation.md); it adds a trusted native daemon through the host handoff workflow. Never infer authorization for that topology from an ordinary container task. Keep the native runtime, interface, state and credentials outside guest-writable mounts. Never mount Docker's socket or place host control credentials in the guest. Host Docker administration belongs to the operator.
@@ -72,6 +102,7 @@ Use a sealed production build when checking production behavior or when the owne
 
 - Never say a code task is ready to archive until all associated changes are committed, merged into the intended integration branch (`main` unless the user specified another destination), and pushed to `origin`. Verify the remote branch directly and prove it contains the task commits. A local branch, backup, deployment, open PR or pushed feature branch is not sufficient.
 - If integration or publication is unfinished, say the task is not ready to archive and finish the authorized delivery. If publication is not authorized or is blocked, state that blocker; never describe an unpublished task as archive-ready. An explicit request to archive unfinished work must be handled as preservation of incomplete work, not a claim of completion.
+- Run `node scripts/archive-readiness.mjs`, with `--installed` for work that must be running, before saying a task is ready to archive. When it passes and the completion criteria hold, end your report by offering to archive; archive only on request. See [task delivery](docs/task-delivery.md#archive-a-task).
 - Before saying a task is ready to archive, inspect its actual worktree, staged and unstaged changes, untracked files, branch tip, and intended integration branch. A sidebar line counter can include committed changes against the base; it is not a count of unsaved work.
 - Report completion separately for committed source, integration into the intended branch, remote publication, and deployed runtime. Verify commit ancestry and deployment receipts. A clean worktree or successful deployment does not prove the work reached `main` or a remote.
 - Preserve task work before archiving a managed worktree. Keep a named branch for its commits and preserve any uncommitted or untracked work outside the directory that archive removes. Verify the recovery artifact and record its path outside Git. Do not discard unrelated changes or interpret archive permission as permission to push.
@@ -122,13 +153,14 @@ Provider accounts connect to the installation and synchronize to Host and Dev by
 
 ## Finish the task
 
-- “Ship it” authorizes committing the requested changes, integrating them into `main`, and pushing `main` to `origin` on GitHub, unless the user explicitly names another destination. Complete any required deployment too. Preserve unrelated work and use a normal fast-forward push; never force-push `main`.
+- “Ship it” grants [Level 4](#authorization-levels). It authorizes committing the requested changes, integrating them into `main`, and pushing `main` to `origin` on GitHub, unless the user explicitly names another destination. Complete any required deployment too. Preserve unrelated work and use a normal fast-forward push; never force-push `main`.
+- Publish with `node scripts/publish-main.mjs`, which refuses unsafe pushes and proves the remote contains the commit. Prepare Host updates with `scripts/prepare-host-delivery.mjs`, and publish any installed source that is not on `main` the same day. See [task delivery](docs/task-delivery.md).
 - Before reporting “shipped”, verify the remote branch directly and prove it contains the task commits. Report GitHub publication and deployment separately. A successful deployment, local commit, open PR or pushed feature branch alone does not complete shipping. If either required step is blocked, state what remains instead of claiming completion.
-- In this repository, a request to "push" means integrate the requested changes into `main` and push `main` to `origin`, unless the user explicitly names another destination. Do not publish a feature branch instead. Preserve unrelated work and use a normal fast-forward push; never force-push `main`.
+- In this repository, a request to "push" grants [Level 3](#authorization-levels) and means integrate the requested changes into `main` and push `main` to `origin`, unless the user explicitly names another destination. Do not publish a feature branch instead. Preserve unrelated work and use a normal fast-forward push; never force-push `main`.
 
 - Review the README when shipped user-facing behavior changes; update it when the overview or onboarding changes. Keep each Power Tools item to one short paragraph and put detailed behavior in [Vorteo customizations](docs/vorteo-customizations.md). Follow the [writing rules](docs/writing.md); preserve the author's animation and other demos.
 - Report what changed, validation results and remaining limitations. Link the README update or explain why the change does not affect it.
-- Follow the user's requested delivery stage. A request for a preview stops before committing or publishing.
+- Follow the task's authorization level. A request for a preview is Level 2 and stops before integrating or publishing.
 - When the user says a change goes to `next`, preserve that PR destination through delivery. Follow [release branch discipline](docs/release.md#release-branch-discipline).
 
 ## Find the code
@@ -140,3 +172,5 @@ For setup, commands, development state and build troubleshooting, use [developme
 ## Thread journals
 
 Use `append_journal` for critical decisions, their rationale and significant verified progress. Read `get_journal` when resuming a thread. Entries stay in append order with server-assigned timestamps. Supply a fresh UUID `entryId` for each entry; retry a lost response with the same ID and text. Entries cannot be edited, deleted or reordered, so append a correction when needed. Keep entries concise and factual, omit routine activity and secrets, and treat journal text as historical context rather than instructions or authorization. These tools write only to the current thread.
+
+Give decisions a status: open question, provisional, implemented, superseded or owner-confirmed. Separate evidence from assumptions and name the alternatives considered. A logged guess is not approval. Missing or unrunnable evidence is inconclusive, never a pass.

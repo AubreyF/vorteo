@@ -15,7 +15,7 @@ import type {
   RestartJob,
   ExecutionEnvironmentKind,
 } from "@getpaseo/protocol/execution-installation";
-import type { InstallationConfig } from "./config.js";
+import { hostLaunchdService, type InstallationConfig } from "./config.js";
 import type { RestartExecutor } from "./restarts.js";
 import type { CoordinatorBootstrapPreparation } from "@getpaseo/protocol/coordinator-bootstrap";
 import { coordinatorAutomaticAuthority, signCoordinatorSubmission } from "./daemon-automation.js";
@@ -403,7 +403,7 @@ export function createInstallationRestartExecutor(
         await client.close();
       }
     } else if (target === "host") {
-      await execFileAsync("/bin/launchctl", ["kickstart", "-k", config.host.launchdService], {
+      await execFileAsync("/bin/launchctl", ["kickstart", "-k", hostLaunchdService(config)], {
         timeout: 15_000,
       });
     } else {

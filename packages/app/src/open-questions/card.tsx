@@ -1,7 +1,7 @@
 import type { AgentQuestion } from "@getpaseo/protocol/agent-questions";
 import { useMutation } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ListTodo } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useShallow } from "zustand/shallow";
@@ -24,7 +24,7 @@ const EMPTY_QUESTIONS: AgentQuestion[] = [];
 const EMPTY_TASKS: TodoEntry[] = [];
 const HEADING_ICON = <TaskCardIcon kind="question" />;
 
-interface AnswerInput {
+export interface AnswerInput {
   questionId: string;
   answer: string;
 }
@@ -71,23 +71,15 @@ function OpenQuestionsContent({
   tasks: TodoEntry[];
   readOnly: boolean;
 }) {
-  const client = useHostRuntimeClient(serverId);
-  const connected = useHostRuntimeIsConnected(serverId);
   const [expanded, setExpanded] = useCardDisclosure("questions");
   const toggle = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const [showAnswered, setShowAnswered] = useState(false);
   const toggleAnswered = useCallback(() => setShowAnswered((value) => !value), []);
-  const mutation = useMutation({
-    mutationFn: async ({ questionId, answer }: AnswerInput) => {
-      if (!client || !connected || readOnly)
-        throw new Error("Reconnect to an active thread before answering.");
-      return client.answerAgentQuestion(agentId, questionId, answer);
-    },
-    retry: false,
-  });
-  const canAnswer = connected && !readOnly && !mutation.isPending;
-  const failedId = mutation.isError ? mutation.variables?.questionId : undefined;
-  const pendingId = mutation.isPending ? mutation.variables?.questionId : undefined;
+  const { canAnswer, pendingId, failedId, error, answer } = useQuestionAnswer(
+    serverId,
+    agentId,
+    readOnly,
+  );
   const badge = useMemo(
     () => (
       <CountBadge
@@ -121,8 +113,8 @@ function OpenQuestionsContent({
               first={index === 0}
               canAnswer={canAnswer}
               pending={pendingId === question.id}
-              error={failedId === question.id ? (mutation.error?.message ?? null) : null}
-              onAnswer={mutation.mutate}
+              error={failedId === question.id ? error : null}
+              onAnswer={answer}
             />
           ))}
           {open.length === 0 ? (
@@ -143,7 +135,28 @@ function OpenQuestionsContent({
   );
 }
 
-function OpenQuestion({
+/** Answers go to the thread that asked; one answer per thread is in flight at a time. */
+export function useQuestionAnswer(serverId: string, agentId: string, readOnly: boolean) {
+  const client = useHostRuntimeClient(serverId);
+  const connected = useHostRuntimeIsConnected(serverId);
+  const mutation = useMutation({
+    mutationFn: async ({ questionId, answer }: AnswerInput) => {
+      if (!client || !connected || readOnly)
+        throw new Error("Reconnect to an active thread before answering.");
+      return client.answerAgentQuestion(agentId, questionId, answer);
+    },
+    retry: false,
+  });
+  return {
+    canAnswer: connected && !readOnly && !mutation.isPending,
+    pendingId: mutation.isPending ? mutation.variables?.questionId : undefined,
+    failedId: mutation.isError ? mutation.variables?.questionId : undefined,
+    error: mutation.error?.message ?? null,
+    answer: mutation.mutate,
+  };
+}
+
+export function OpenQuestion({
   question,
   tasks,
   first,
@@ -151,14 +164,23 @@ function OpenQuestion({
   pending,
   error,
   onAnswer,
+  onShowTasks,
+  context,
+  testIDPrefix = "open-question",
 }: {
   question: AgentQuestion;
-  tasks: TodoEntry[];
+  tasks: readonly TodoEntry[];
   first: boolean;
   canAnswer: boolean;
   pending: boolean;
   error: string | null;
   onAnswer: (input: AnswerInput) => void;
+  /** Where a blocked task leads; by default, this thread's Tasks card. */
+  onShowTasks?: () => void;
+  /** Shown above the question when it is listed outside its own thread. */
+  context?: ReactNode;
+  /** Keeps test IDs unique when the same question also shows in its thread's card. */
+  testIDPrefix?: string;
 }) {
   const touch = useVortonTouch();
   const size = touch ? "md" : "sm";
@@ -179,11 +201,14 @@ function OpenQuestion({
   return (
     <View
       style={[styles.question, taskCardStyles.proseInset, !first && taskCardStyles.separator]}
-      testID={`open-question-${question.id}`}
+      testID={`${testIDPrefix}-${question.id}`}
     >
+      {context}
       <Text style={styles.title}>{question.question}</Text>
       <Text style={styles.muted}>{question.why}</Text>
-      {blocks.length > 0 ? <BlockedTasks blocks={blocks} /> : null}
+      {blocks.length > 0 ? (
+        <BlockedTasks blocks={blocks} onShowTasks={onShowTasks} testIDPrefix={testIDPrefix} />
+      ) : null}
       <Text style={styles.meta}>
         {`Asked ${formatTimeAgo(askedAt)}`}
         {defaultAt ? ` · Recommended default applies after ${defaultAt}` : ""}
@@ -200,7 +225,7 @@ function OpenQuestion({
           loading={pending}
           onPress={useRecommended}
           accessibilityLabel={`Use recommended answer: ${question.recommendedDefault}`}
-          testID={`open-question-use-recommended-${question.id}`}
+          testID={`${testIDPrefix}-use-recommended-${question.id}`}
         >
           Use recommended
         </Button>
@@ -216,7 +241,7 @@ function OpenQuestion({
             maxLength={4000}
             placeholder="Or type your answer"
             accessibilityLabel={`Answer: ${question.question}`}
-            testID={`open-question-answer-${question.id}`}
+            testID={`${testIDPrefix}-answer-${question.id}`}
           />
         </View>
         <Button
@@ -224,7 +249,7 @@ function OpenQuestion({
           size={size}
           disabled={!canAnswer || !answer}
           onPress={send}
-          testID={`open-question-send-${question.id}`}
+          testID={`${testIDPrefix}-send-${question.id}`}
         >
           Answer
         </Button>
@@ -238,9 +263,18 @@ function OpenQuestion({
   );
 }
 
-function BlockedTasks({ blocks }: { blocks: { id: string; text: string }[] }) {
+function BlockedTasks({
+  blocks,
+  onShowTasks,
+  testIDPrefix,
+}: {
+  blocks: { id: string; text: string }[];
+  onShowTasks?: () => void;
+  testIDPrefix: string;
+}) {
   const [, setTasksExpanded] = useCardDisclosure("tasks");
-  const showTasks = useCallback(() => setTasksExpanded(true), [setTasksExpanded]);
+  const expandTasks = useCallback(() => setTasksExpanded(true), [setTasksExpanded]);
+  const showTasks = onShowTasks ?? expandTasks;
   return (
     <View style={styles.blocks}>
       <Text style={styles.meta}>Blocks</Text>
@@ -251,8 +285,8 @@ function BlockedTasks({ blocks }: { blocks: { id: string; text: string }[] }) {
           size="xs"
           leftIcon={ListTodo}
           onPress={showTasks}
-          accessibilityHint="Opens the Tasks card"
-          testID={`open-question-task-${task.id}`}
+          accessibilityHint={onShowTasks ? "Opens the thread" : "Opens the Tasks card"}
+          testID={`${testIDPrefix}-task-${task.id}`}
         >
           {task.text}
         </Button>

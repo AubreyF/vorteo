@@ -10,6 +10,7 @@ Use this index to find the document that owns your task. Read relevant subjects 
 | [docs/product.md](product.md)                                         | What Vorteo is, who it's for, where it's going                                                                                 |
 | [docs/architecture.md](architecture.md)                               | System design, package layering, WebSocket protocol, agent lifecycle, data flow                                                |
 | [docs/agent-lifecycle.md](agent-lifecycle.md)                         | Agent states, parent/child relationships, archive semantics, tabs vs archive, subagents track                                  |
+| [Task delivery](task-delivery.md)                                     | Task worktrees, publishing to main, Host delivery, archive readiness and worktree cleanup scripts                              |
 | [docs/data-model.md](data-model.md)                                   | File-based JSON persistence, Zod schemas, atomic writes, no migrations                                                         |
 | [docs/glossary.md](glossary.md)                                       | Authoritative terminology — UI label wins, no synonyms                                                                         |
 | [docs/coding-standards.md](coding-standards.md)                       | Type hygiene, error handling, state design, React patterns, file organization                                                  |

@@ -1,10 +1,11 @@
 import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { settingsStyles } from "@/styles/settings";
+import { SettingsExpansion } from "@/components/settings/settings-expansion";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   currentMaintenanceStatus,
@@ -17,6 +18,8 @@ interface MaintenanceDashboardProps {
   error: string | null;
   refreshing: boolean;
   onRefresh(): void;
+  /** More installation detail shown under Details, such as the recovery page. */
+  children?: ReactNode;
 }
 
 /** Both independent recovery and normal installation views render this observation. */
@@ -25,8 +28,11 @@ export function MaintenanceDashboard({
   error,
   refreshing,
   onRefresh,
+  children: extraDetails,
 }: MaintenanceDashboardProps) {
   const touch = useVortonTouch();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const toggleDetails = useCallback(() => setDetailsOpen((value) => !value), []);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const deadline = Date.parse(status?.validUntil ?? "");
@@ -41,6 +47,11 @@ export function MaintenanceDashboard({
   const current = status ? currentMaintenanceStatus(status, now) : null;
   const savedHeadline = current ? maintenanceHeadline(current) : null;
   const headline = error ? unavailableHeadline : savedHeadline;
+  // Status refreshes on its own every few seconds; a manual refresh is only
+  // offered when the last check failed or no status has arrived.
+  const offerRefresh = Boolean(error) || !status;
+  const services = current?.services ?? [];
+  const attention = services.filter((service) => service.readiness === "blocked");
   return (
     <View testID="installation-maintenance-dashboard" style={styles.dashboard}>
       <View style={styles.heading} testID="installation-health-headline">
@@ -52,62 +63,87 @@ export function MaintenanceDashboard({
           {error}
         </Text>
       ) : null}
-      {headline ? (
-        <Text style={styles.hint}>{headline.explanation}</Text>
-      ) : (
-        <Text style={styles.hint}>
-          Installation status is unavailable. Refresh to check the maintenance service.
-        </Text>
-      )}
-      {status ? (
-        <>
-          <Text style={styles.hint}>
-            Activation: {status.completedSteps} of {status.totalSteps} steps verified.
-          </Text>
-          {current?.services.map((service) => (
-            <View
-              key={service.target}
-              style={styles.service}
-              testID={`maintenance-service-${service.target}`}
-            >
-              <View style={styles.serviceTitle}>
-                <Text style={settingsStyles.rowTitle}>
-                  {maintenanceTargetLabels[service.target]}
-                </Text>
-                <StatusBadge
-                  label={readinessLabels[service.readiness]}
-                  variant={readinessVariants[service.readiness]}
-                />
-              </View>
-              <Text style={styles.hint}>{service.reason}</Text>
-              <Text style={styles.hint}>
-                {service.enabled ? "Automatic maintenance enabled" : "Automatic maintenance off"}
-                {service.observedAt
-                  ? ` · Observed ${new Date(service.observedAt).toLocaleString()}`
-                  : ""}
-              </Text>
-            </View>
-          ))}
-          <Text style={styles.hint}>
-            Status checked {new Date(status.checkedAt).toLocaleString()}.
-          </Text>
-        </>
-      ) : null}
+      <Text style={styles.hint}>{summaryText(headline, status)}</Text>
+      {attention.map((service) => (
+        <ServiceRow key={service.target} service={service} />
+      ))}
       <View style={styles.actions}>
-        <Button
-          variant="ghost"
-          size={touch ? "md" : "sm"}
-          loading={refreshing}
-          disabled={refreshing}
-          onPress={onRefresh}
-        >
-          Refresh status
-        </Button>
+        {offerRefresh ? (
+          <Button
+            variant="ghost"
+            size={touch ? "md" : "sm"}
+            loading={refreshing}
+            disabled={refreshing}
+            onPress={onRefresh}
+          >
+            Refresh status
+          </Button>
+        ) : null}
+        {status || extraDetails ? (
+          <Button
+            variant="ghost"
+            size={touch ? "md" : "sm"}
+            onPress={toggleDetails}
+            accessibilityState={detailsOpen ? EXPANDED : COLLAPSED}
+            testID="installation-health-details-toggle"
+          >
+            {detailsOpen ? "Hide health details" : "Health details"}
+          </Button>
+        ) : null}
       </View>
+      {detailsOpen ? (
+        <SettingsExpansion testID="installation-health-details">
+          {status ? (
+            <Text style={styles.hint}>
+              Activation: {status.completedSteps} of {status.totalSteps} steps verified.
+            </Text>
+          ) : null}
+          {services
+            .filter((service) => service.readiness !== "blocked")
+            .map((service) => (
+              <ServiceRow key={service.target} service={service} />
+            ))}
+          {extraDetails}
+        </SettingsExpansion>
+      ) : null}
     </View>
   );
 }
 
+function summaryText(
+  headline: { explanation: string } | null,
+  status: InstallationEnrollmentStatus | null,
+): string {
+  const explanation =
+    headline?.explanation ??
+    "Installation status is unavailable. Refresh to check the maintenance service.";
+  if (!status) return explanation;
+  return `${explanation} Checked ${new Date(status.checkedAt).toLocaleTimeString()}.`;
+}
+
+type ServiceStatus = ReturnType<typeof currentMaintenanceStatus>["services"][number];
+
+function ServiceRow({ service }: { service: ServiceStatus }) {
+  return (
+    <View style={styles.service} testID={`maintenance-service-${service.target}`}>
+      <View style={styles.serviceTitle}>
+        <Text style={settingsStyles.rowTitle}>{maintenanceTargetLabels[service.target]}</Text>
+        <StatusBadge
+          label={readinessLabels[service.readiness]}
+          variant={readinessVariants[service.readiness]}
+        />
+      </View>
+      <Text style={styles.hint}>{service.reason}</Text>
+      <Text style={styles.hint}>
+        {service.enabled ? "Automatic maintenance enabled" : "Automatic maintenance off"}
+        {service.observedAt ? ` · Observed ${new Date(service.observedAt).toLocaleString()}` : ""}
+      </Text>
+    </View>
+  );
+}
+
+const EXPANDED = { expanded: true };
+const COLLAPSED = { expanded: false };
 const readinessLabels = {
   ready: "Ready",
   blocked: "Needs attention",
@@ -137,5 +173,5 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "space-between",
     gap: theme.spacing[2],
   },
-  actions: { alignItems: "flex-end" },
+  actions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
 }));

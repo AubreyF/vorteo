@@ -3,7 +3,7 @@ import { userInfo } from "node:os";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { InstallationConfigSchema, type InstallationConfig } from "./config.js";
+import { hostLaunchdService, InstallationConfigSchema, type InstallationConfig } from "./config.js";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
 import { readEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
@@ -50,7 +50,7 @@ function configurationIdentity(config: InstallationConfig) {
     host: {
       endpoint: config.host.endpoint,
       password: config.host.password,
-      launchdService: config.host.launchdService,
+      launchdService: hostLaunchdService(config),
     },
     container: { endpoint: config.container.endpoint, password: config.container.password },
   };

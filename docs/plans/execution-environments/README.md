@@ -73,6 +73,7 @@ Each linked document owns a separately deliverable project with its own acceptan
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | [Task containers through Docker](docker-task-containers.md)    | Create and supervise isolated task environments using the Docker installation already available |
 | [Apple Container backend](apple-container.md)                  | Optional macOS backend for new Linux task containers                                            |
+| [Linux Host](linux-host.md)                                    | Run the Host half on Linux as `systemd --user` services with equivalent trust anchors           |
 | [Host directory grants](directory-grants.md)                   | Browse and share folders without manual Docker commands                                         |
 | [Environment and task grants](environment-grants.md)           | Host-issued identities and bounded operations for lower-trust environments                      |
 | [Credential broker and GitHub connector](credential-broker.md) | Protected credentials and typed, approved GitHub operations                                     |
@@ -82,6 +83,7 @@ Each linked document owns a separately deliverable project with its own acceptan
 | [Primary installation recovery](installation-recovery.md)      | Reconstructible releases and separately planned migration                                       |
 | [Transparent HTTPS mediation](https-mediation.md)              | Research compatibility and security before adding transparent credential injection              |
 | [Browser credential mediation](browser-credentials.md)         | Define which browser-authenticated actions can be safely delegated                              |
+| [Signed-in browser profiles](browser-profiles.md)              | Owner-created signed-in Host browser profiles granted to specific workspaces                    |
 | [Provider authentication migration](provider-auth.md)          | Assess credential isolation across provider CLIs independently                                  |
 | [Kernel information-flow research](information-flow.md)        | Evaluate whether stronger tracking justifies its cost                                           |
 | [macOS VM testing](macos-vms.md)                               | Optional disposable native OS testing when a concrete requirement exists                        |

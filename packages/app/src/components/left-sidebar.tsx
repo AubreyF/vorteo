@@ -120,6 +120,7 @@ import {
 } from "@/utils/host-routes";
 import { openHostOverview } from "@/navigation/settings-navigation";
 import { UsageSidebarItem, useHasUsageSummary } from "@/usage";
+import { SidebarGlobalCards } from "@/components/sidebar/global-cards";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 
@@ -906,6 +907,7 @@ function MobileSidebar({
             />
           )}
 
+          <SidebarGlobalCards onBeforeNavigate={closeSidebar} />
           <SidebarSyncNotice />
           <InstallationRestartBanner placement="sidebar" />
           <DemoControls />
@@ -1214,6 +1216,7 @@ function DesktopSidebar({
             </>
           )}
 
+          {!compact ? <SidebarGlobalCards /> : null}
           <SidebarSyncNotice compact={compact} />
           <InstallationRestartBanner placement={compact ? "rail" : "sidebar"} />
           {!compact ? <DemoControls /> : null}

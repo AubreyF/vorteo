@@ -27,32 +27,34 @@ export function MaintenanceServiceQueue({
   onRefresh,
   onCancel,
 }: MaintenanceServiceQueueProps) {
+  // Nothing to show until requests exist; status refreshes on its own.
+  if (!error && (!status || (status.available && status.jobs.length === 0))) return null;
   return (
     <View style={styles.queue} testID="maintenance-request-queue">
       <View style={styles.heading}>
         <Text style={settingsStyles.rowTitle}>Maintenance requests</Text>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={refreshing}
-          loading={refreshing}
-          onPress={onRefresh}
-        >
-          Refresh requests
-        </Button>
+        {error ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={refreshing}
+            loading={refreshing}
+            onPress={onRefresh}
+          >
+            Refresh requests
+          </Button>
+        ) : null}
       </View>
       {error ? (
         <Text accessibilityRole="alert" style={settingsStyles.rowError}>
           {error}
         </Text>
       ) : null}
-      {!status ? <Text style={styles.hint}>Request status has not been retrieved.</Text> : null}
       {status && !status.available ? (
         <Text style={styles.hint}>
           Maintenance execution is unavailable. Recorded requests remain visible.
         </Text>
       ) : null}
-      {status?.jobs.length === 0 ? <Text style={styles.hint}>No maintenance requests.</Text> : null}
       {status?.jobs.map((job) => (
         <MaintenanceRequestRow
           key={job.id}

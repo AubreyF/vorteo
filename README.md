@@ -29,6 +29,8 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 - **Keep a decision journal.** Agents can record critical decisions and verified progress in a timestamped journal card. Entries are append-only and stay in their original order. Requires an updated daemon. See [thread journals](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
 
+- **Answer agents from anywhere.** When an agent is blocked on your decision, it asks an open question with a recommended answer. The left sidebar collects every thread's waiting questions across projects, labeled with their thread and project, so you can answer without opening each one. A Quota card beside them lists every account's remaining usage, with accounts that are failing or nearly out first. See [open questions](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
+
 - **Cross-device, server-managed message queuing.** Line up your task messages with files or images - then edit, reorder, pause, and send them from any connected device. The daemon in each environment will continue executing queued work even if your client is offline.
 
 <img width="400" alt="Server managed cross-device message queuing." src="https://github.com/user-attachments/assets/59dfdb03-e1ec-40d2-b66e-9683134e3811" />

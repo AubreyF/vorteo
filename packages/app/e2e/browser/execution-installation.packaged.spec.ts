@@ -4540,6 +4540,8 @@ test("automatic maintenance shows readiness and preserves owner opt-in across re
   await page.keyboard.press("Escape");
   await page.getByText("Automatic maintenance authorization", { exact: true }).click();
   await expect(control).toBeVisible();
+  // Request readiness explains the permissions and stays folded until opened.
+  await page.getByTestId("maintenance-readiness-toggle").click();
   await expect(page.getByTestId("maintenance-readiness")).toContainText("manual");
   await control.click();
   await expect(control).toHaveAttribute("aria-checked", "true");
@@ -4550,6 +4552,7 @@ test("automatic maintenance shows readiness and preserves owner opt-in across re
     );
   await page.reload();
   await expect(control).toHaveAttribute("aria-checked", "true");
+  await page.getByTestId("maintenance-readiness-toggle").click();
   await expect(page.getByTestId("maintenance-readiness")).toContainText("automatic");
   await page.screenshot({ path: testInfo.outputPath("maintenance-readiness.png"), fullPage: true });
   await control.click();

@@ -401,7 +401,11 @@ interface SlashCommandInvocation {
 function classifyClaudeSlashCommand(commandName: string): AgentSlashCommand["kind"] {
   // Claude exposes commands and skills as one flat SDK list, without structured source
   // metadata. Keep obvious root-only/session controls out of inline autocomplete and
-  // treat the rest as skills; the worst failure mode is an inert inline suggestion.
+  // treat the rest as skills. Restricted skill policies count every "skill" here as a
+  // native default that needs an inspectable package, so a misread command blocks
+  // launches. Names starting with "__" are Claude Code's hidden internal commands
+  // (__remote-workflow since 2.1.285); skill names never start with underscores.
+  if (commandName.startsWith("__")) return "command";
   return CLAUDE_ROOT_ONLY_COMMANDS.has(commandName) ? "command" : "skill";
 }
 
