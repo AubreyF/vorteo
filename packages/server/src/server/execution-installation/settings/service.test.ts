@@ -17,6 +17,54 @@ function fixture() {
   return { host, container, journal, service };
 }
 
+test("a Host-only account stays pending on Dev across recovery without blocking unrelated settings", async () => {
+  const { service, host, container, journal } = fixture();
+  host.config.providers = {
+    "claude-account": { extends: "claude", label: "Claude 1", enabled: true },
+  };
+  const initial = await service.reconcile();
+  const definition = initial.settings?.providerDefinitions?.[0];
+  if (!definition) throw new Error("Expected migrated account");
+  await service.update({
+    expectedRevision: initial.revision,
+    settings: { appendSystemPrompt: "Shared instruction" },
+  });
+  const pending = await service.reconcile();
+  expect(host.config.appendSystemPrompt).toBe("Shared instruction");
+  expect(container.config.appendSystemPrompt).toBe("Shared instruction");
+  expect(pending.sources.host.error).toBeNull();
+  expect(pending.sources.container).toMatchObject({
+    pendingRevision: pending.revision,
+    error: "account_binding_unavailable",
+  });
+  expect(container.config.providers).toEqual({});
+  const restored = new InstallationSettingsService(journal, [host, container]);
+  const recovered = await restored.reconcile();
+  expect(recovered.sources.container.error).toBe("account_binding_unavailable");
+  await restored.update({
+    expectedRevision: recovered.revision,
+    settings: {
+      resourceExclusions: {
+        container: {
+          providerIds: [definition.id],
+          terminalProfileIds: [],
+          metadataProviderIds: [],
+        },
+      },
+    },
+  });
+  const excluded = await restored.reconcile();
+  expect(excluded.sources.container.error).toBeNull();
+  expect(excluded.sources.container.pendingRevision).toBeNull();
+  await restored.update({
+    expectedRevision: excluded.revision,
+    settings: { resourceExclusions: {} },
+  });
+  const requiredAgain = await restored.reconcile();
+  expect(requiredAgain.sources.container.error).toBe("account_binding_unavailable");
+  expect(host.config.providers["claude-account"].enabled).toBe(true);
+});
+
 test("shared skill choices are durable before projection and removal approvals are consumed once", async () => {
   const { service, host, container, journal } = fixture();
   await service.reconcile();

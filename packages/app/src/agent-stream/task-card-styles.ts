@@ -20,8 +20,8 @@ export const taskCardStyles = StyleSheet.create((theme) => {
   return {
     surface,
     contentInsets,
-    // Header rows supply part of the top clearance; keep a small inset above them.
-    container: { ...surface, ...contentInsets, paddingTop: theme.spacing[1] },
+    // Equal outer insets keep header-only and collapsed cards vertically centered.
+    scrollContent: contentInsets,
     item: {
       minHeight: TASK_CARD_ROW_HEIGHT,
       paddingVertical: theme.spacing[1],
@@ -57,6 +57,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       justifyContent: "flex-start",
       paddingHorizontal: theme.spacing[2],
     },
+    headingRow: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
     heading: {
       lineHeight: Math.max(16, Math.round(theme.fontSize.sm * 1.4)),
       color: theme.colors.foreground,

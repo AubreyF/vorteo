@@ -13101,6 +13101,43 @@ test("restart drain preserves a held goal and cancellation can resume it without
   }
 });
 
+test("open checklist tasks do not start work or prevent a restart drain from becoming idle", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "restart-checklist-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    const requestId = randomUUID();
+    expect(manager.beginRestartDrain(requestId)).toBe(true);
+    await expect.poll(() => manager.getRestartImpact().pendingStarts).toBe(0);
+    await manager.mutateChecklist(agent.id, {
+      operation: "create",
+      id: "review",
+      text: "Review after restart",
+    });
+    await manager.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "review",
+      status: "in_progress",
+    });
+    expect(manager.readChecklist(agent.id)).toMatchObject([
+      { id: "review", status: "in_progress", completed: false },
+    ]);
+    expect(manager.getRestartImpact()).toMatchObject({ agents: [], pendingStarts: 0 });
+    expect(() => manager.streamAgent(agent.id, "new work")).toThrow("held");
+    expect(manager.prepareIdleRestart()).toBe(true);
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("native task snapshots persist without timeline subscribers and restore after reopening", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-checklist-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

@@ -5,6 +5,64 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.223 - 2026-10-09
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.222 - 2026-10-08
+
+### Maintenance
+
+- Integrate task status guidance with the published conversation card and attribution fixes, preserving both version 221 release entries
+
+## 0.11.0-beta.3.vorteo.221 - 2026-10-08
+
+### Maintenance
+
+- Update queue component test fixtures for shared card scrolling and heading icons
+- Integrate the live conversation card refinements with published account readiness, saved history and delegated message attribution fixes; retain both branches’ release notes
+
+## 0.11.0-beta.3.vorteo.221 - 2026-10-09
+
+### Changed
+
+- Require agents to mark checklist work in progress before starting, update status at work transitions, and complete items only after acceptance checks. Clarify pending and blocked work, parallel activity, and stale-state reconciliation in shared launch guidance, tool help, and repo/skill instructions.
+
+## 0.11.0-beta.3.vorteo.220 - 2026-10-09
+
+### Changed
+
+- Add distinct heading icons to conversation detail cards: messages, targets, subagents, plans, questions and permissions. Keep task progress charts and show a pie icon for an empty checklist.
+
+## 0.11.0-beta.3.vorteo.219 - 2026-10-09
+
+### Changed
+
+- Remove horizontal separators between queued messages and pending recovery rows.
+
+## 0.11.0-beta.3.vorteo.218 - 2026-10-09
+
+### Fixed
+
+- Center single-row and collapsed card headers with equal vertical padding. Remove the empty task list container and its trailing gap.
+
+## 0.11.0-beta.3.vorteo.217 - 2026-10-09
+
+### Changed
+
+- Rename the message queue card heading to Messages.
+
+## 0.11.0-beta.3.vorteo.216 - 2026-10-09
+
+### Changed
+
+- Collapse thread tasks into an accordion with a progress tag, an add icon, completion checkboxes, details icons and the same drag handles as queued messages. Keep task rows on one line without separators.
+- Limit task, goal, queue, subagent, plan, question and permission cards to half the viewport height and scroll their contents internally.
+- Let sortable drag handles own their keyboard controls instead of triggering the global voice shortcut.
+- Make guarded interface-only publication the default for validated UI revisions during ongoing work. Preserve daemon installation approvals for changes that require daemon updates.
+
 ## 0.11.0-beta.3.vorteo.215 - 2026-10-09
 
 ### Maintenance
@@ -16,6 +74,46 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Integrate explicit sender provenance and shorter conversation rail marks for agent messages. Preserve previously deployed interface changes and historical release notes.
+
+## 0.11.0-beta.3.vorteo.219 - 2026-10-08
+
+### Fixed
+
+- Preserve agent-message attribution through coordinator delegation and task creation so conversation navigation can distinguish these prompts from owner messages. Delegated prompts no longer create owner-message evidence, and retries cannot change a saved message's attribution.
+
+## 0.11.0-beta.3.vorteo.218 - 2026-10-08
+
+### Fixed
+
+- Keep saved threads visible after moving their workspace to another project and archiving the original backing project. Agent and workspace directories now share the same active-membership policy; archived workspaces and threads remain excluded.
+
+## 0.11.0-beta.3.vorteo.217 - 2026-10-08
+
+### Tested
+
+- Verify that creating and updating unfinished checklist items during a restart hold neither starts a turn nor prevents idle readiness. Existing goal and message-queue restart safeguards remain in effect.
+
+## 0.11.0-beta.3.vorteo.216 - 2026-10-08
+
+### Fixed
+
+- Let paired Linux managed workers load their existing private installation client when an older supervisor omitted its environment variable. Validate file ownership, permissions, credential scope and transport before starting.
+- Preserve explicit launcher configuration and exact coordinator admission checks. The repair uses a reviewed worker update without replacing the supervisor or changing Host and standalone launch behavior.
+
+## 0.11.0-beta.3.vorteo.215 - 2026-10-08
+
+### Fixed
+
+- Keep shared account synchronization pending when an included environment lacks an enabled Codex or Claude account binding. Continue applying unrelated settings and preserve explicit exclusions through recovery.
+- Clarify the pending account message and record the installation-wide connection contract for future implementation. This guard does not yet synchronize authentication or credential refresh.
+
+## 0.11.0-beta.3.vorteo.214 - 2026-10-08
+
+### Added
+
+- Add an optional native macOS permission helper with authenticated local IPC and scoped Safari reads and interactions. Include signing, installation, rollback and diagnostics tooling without enabling them automatically.
+- Bind staged helper identity and content to the validated build before changing the installed helper. Add isolated installer, adapter and browser tests.
+- Document remaining production signing, managed installation, consent and permission-persistence acceptance. Source publication does not install the helper or establish live Safari access.
 
 ## 0.11.0-beta.3.vorteo.213 - 2026-10-08
 

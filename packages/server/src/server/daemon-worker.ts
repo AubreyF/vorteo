@@ -1,5 +1,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { homedir } from "node:os";
+import { resolveManagedInstallationClient } from "./execution-installation/managed-client.js";
 import { createPaseoDaemon, formatListenTarget } from "./bootstrap.js";
 import { loadConfig } from "./config.js";
 import { resolvePaseoHome } from "./paseo-home.js";
@@ -75,6 +77,15 @@ function bootstrapFromEnvironment(): BootstrapResult {
   try {
     const paseoHome = resolvePaseoHome();
     const config = loadConfig(paseoHome);
+    const installationClient = resolveManagedInstallationClient({
+      configuredPath: process.env.VORTEO_INSTALLATION_CLIENT_CONFIG,
+      managedWorker,
+      environment: config.sharedProviderPreferences?.installation?.environment,
+      platform: process.platform,
+      homeDir: homedir(),
+      uid: process.getuid?.(),
+    });
+    if (installationClient) process.env.VORTEO_INSTALLATION_CLIENT_CONFIG = installationClient;
     const logger = createRootLogger({ log: config.log }, { paseoHome, file: false });
     return { paseoHome, logger, config };
   } catch (err) {

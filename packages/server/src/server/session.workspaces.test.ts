@@ -2801,6 +2801,17 @@ test("active-scoped fetch_agents includes only unarchived agents in active works
     updatedAt: "2026-03-01T12:00:00.000Z",
   });
 
+  const movedWorkspace = {
+    ...workspaceInArchivedProject,
+    workspaceId: "ws-moved",
+    projectMembership: { key: "current-project", name: "Current project" },
+  };
+  const archivedMovedWorkspace = {
+    ...movedWorkspace,
+    workspaceId: "ws-moved-archived",
+    archivedAt,
+  };
+
   session.projectRegistry.list = async () => [activeProject, archivedProject];
   session.projectRegistry.get = async (projectId: string) =>
     [activeProject, archivedProject].find((project) => project.projectId === projectId) ?? null;
@@ -2808,8 +2819,24 @@ test("active-scoped fetch_agents includes only unarchived agents in active works
     activeWorkspace,
     archivedWorkspace,
     workspaceInArchivedProject,
+    movedWorkspace,
+    archivedMovedWorkspace,
   ];
   session.listAgentPayloads = async () => [
+    makeAgent({
+      id: "agent-moved",
+      cwd: "/tmp/archived-project",
+      workspaceId: movedWorkspace.workspaceId,
+      status: "closed",
+      updatedAt: "2026-03-01T12:05:00.000Z",
+    }),
+    makeAgent({
+      id: "agent-moved-archived",
+      cwd: "/tmp/archived-project",
+      workspaceId: archivedMovedWorkspace.workspaceId,
+      status: "closed",
+      updatedAt: "2026-03-01T12:05:00.000Z",
+    }),
     makeAgent({
       id: "agent-active",
       cwd: "/tmp/active",
@@ -2857,7 +2884,11 @@ test("active-scoped fetch_agents includes only unarchived agents in active works
     filter: { includeArchived: true },
   });
 
-  expect(agentIdsFromEntries(result.entries)).toEqual(["agent-active", "agent-subdir"]);
+  expect(agentIdsFromEntries(result.entries)).toEqual([
+    "agent-moved",
+    "agent-active",
+    "agent-subdir",
+  ]);
   expect(result.pageInfo.hasMore).toBe(false);
 });
 

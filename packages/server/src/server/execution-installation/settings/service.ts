@@ -4,6 +4,7 @@ import {
   readInstallationProviders,
   mergeInstallationProviders,
   installationProvidersSettled,
+  installationAccountBindingsComplete,
 } from "./providers.js";
 import type { InstallationProvider } from "@getpaseo/protocol/installation-provider";
 import { mergeInstallationSkills } from "./skill-catalog.js";
@@ -929,6 +930,15 @@ export class InstallationSettingsService {
   ): void {
     if (this.projectionRevision !== null && this.projectionRevision !== this.state.revision) return;
     const next = this.snapshot();
+    // Keep applying unrelated settings, but never report a missing account as synchronized.
+    if (error === null && next.settings?.providerDefinitions) {
+      const complete = installationAccountBindingsComplete(
+        next.settings.providerDefinitions,
+        serverId,
+        next.settings.resourceExclusions[serverId]?.providerIds,
+      );
+      if (!complete) error = "account_binding_unavailable";
+    }
     const status = next.sources[serverId];
     status.error = error;
     status.pendingRevision = error === null ? null : next.revision;

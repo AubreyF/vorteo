@@ -256,6 +256,7 @@ import type { ProviderUsageService } from "../services/quota-fetcher/service.js"
 import type { ProviderQuotaObservationService } from "../services/quota-fetcher/governor-service.js";
 import type { ProviderResetService } from "../services/quota-fetcher/reset-service.js";
 import {
+  activeWorkspaceRecords,
   resolveWorkspaceRootAgent,
   summarizeFetchWorkspacesEntries,
   workspaceIdsOnCheckout,
@@ -4741,7 +4742,7 @@ export class Session {
           onCreated: async ({ agentId: registeredAgentId }) => {
             createdAgentId = registeredAgentId;
             await recordCreated?.(registeredAgentId);
-            if (initialPrompt && !msg.callerAgentId) {
+            if (initialPrompt && !msg.callerAgentId && !msg.origin) {
               await this.ownerEvidence.record({
                 taskId: registeredAgentId,
                 principalId: this.principalId,
@@ -4755,6 +4756,7 @@ export class Session {
           worktreeName,
           initialPrompt,
           initialGoal: msg.initialGoal,
+          origin: msg.callerAgentId ? "agent" : msg.origin,
           clientMessageId,
           outputSchema,
           images,
@@ -6036,16 +6038,16 @@ export class Session {
       this.workspaceRegistry.list(),
       this.projectRegistry.list(),
     ]);
-    const activeProjects = new Map(
-      persistedProjects
-        .filter((project) => !project.archivedAt)
-        .map((project) => [project.projectId, project] as const),
+    const projectsById = new Map(
+      persistedProjects.map((project) => [project.projectId, project] as const),
     );
     const placementsByWorkspaceId = new Map<string, ProjectPlacementPayload>();
 
-    const pairs = persistedWorkspaces.flatMap((workspace) => {
-      if (workspace.archivedAt) return [];
-      const project = activeProjects.get(workspace.projectId);
+    // Use the same membership policy as the workspace directory: moving a workspace
+    // preserves its backing project even when that original project is archived.
+    const activeWorkspaces = activeWorkspaceRecords(persistedWorkspaces, persistedProjects);
+    const pairs = activeWorkspaces.flatMap((workspace) => {
+      const project = projectsById.get(workspace.projectId);
       if (!project) return [];
       return [{ workspace, project }];
     });
@@ -8802,13 +8804,17 @@ export class Session {
     try {
       const agentId = resolved.agentId;
 
-      await this.ownerEvidence.record({
-        taskId: agentId,
-        principalId: this.principalId,
-        clientId: this.clientId,
-        messageId: msg.messageId ?? msg.requestId,
-        text: msg.text,
-      });
+      const recordOwnerMessage = async () => {
+        if (!msg.origin) {
+          await this.ownerEvidence.record({
+            taskId: agentId,
+            principalId: this.principalId,
+            clientId: this.clientId,
+            messageId: msg.messageId ?? msg.requestId,
+            text: msg.text,
+          });
+        }
+      };
       const prompt = buildAgentPrompt(msg.text, msg.images, msg.attachments);
       this.sessionLogger.trace(
         {
@@ -8827,6 +8833,7 @@ export class Session {
           prompt,
           messageId: msg.messageId,
           activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
+          runOptions: msg.origin ? { origin: msg.origin } : undefined,
           clearPendingPermissions: true,
           logger: this.sessionLogger,
         });
@@ -8842,13 +8849,19 @@ export class Session {
         await this.messageReceipts.send({
           agentId,
           messageId: msg.messageId,
-          request: { prompt, activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt" },
+          request: {
+            prompt,
+            activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
+            ...(msg.origin ? { origin: msg.origin } : {}),
+          },
           prepare: async () => {
             await this.prepareAgentMessage(agentId, msg.text);
+            await recordOwnerMessage();
           },
           send,
         });
       } else {
+        await recordOwnerMessage();
         await send();
       }
 
