@@ -6,6 +6,10 @@ import {
   FACTORY_MANAGED_EXPLANATION,
   selectFactoryMembership,
 } from "@/workspace/lifecycle/factory-membership";
+import {
+  SYSTEM_MANAGED_EXPLANATION,
+  systemWorkspaceKind,
+} from "@/workspace/lifecycle/system-workspace";
 
 interface ProjectRemoveHost {
   serverId: string;
@@ -78,6 +82,13 @@ function assertProjectUnprotected(input: ProjectRemoveInput): void {
   const protectionError =
     "This project contains a protected workspace. Remove protection before removing the project.";
   for (const workspace of input.workspaces ?? []) {
+    if (
+      systemWorkspaceKind(
+        selectWorkspace(sessionState, workspace.serverId, workspace.workspaceId),
+        selectHostFeature(sessionState, workspace.serverId, "systemProject"),
+      )
+    )
+      throw new Error(SYSTEM_MANAGED_EXPLANATION);
     if (selectFactoryMembership(sessionState, workspace.serverId, workspace.workspaceId))
       throw new Error(FACTORY_MANAGED_EXPLANATION);
     if (selectWorkspace(sessionState, workspace.serverId, workspace.workspaceId)?.protected) {
@@ -89,6 +100,10 @@ function assertProjectUnprotected(input: ProjectRemoveInput): void {
     const workspaces = sessionState.sessions[target.serverId]?.workspaces.values() ?? [];
     for (const workspace of workspaces) {
       const nativeMember = workspace.projectId === target.projectId && !workspace.projectMembership;
+      const supportsSystem = selectHostFeature(sessionState, target.serverId, "systemProject");
+      // The System project itself cannot be removed, even when it holds only operator work.
+      if (nativeMember && systemWorkspaceKind(workspace, supportsSystem))
+        throw new Error(SYSTEM_MANAGED_EXPLANATION);
       if (nativeMember && selectFactoryMembership(sessionState, target.serverId, workspace.id))
         throw new Error(FACTORY_MANAGED_EXPLANATION);
       if (nativeMember && workspace.protected) throw new Error(protectionError);

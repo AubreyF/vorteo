@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getIsElectronRuntimeMac } from "@/constants/layout";
 import { useAggregatedAgents } from "./use-aggregated-agents";
 import { getDesktopHost } from "@/desktop/host";
 import { useWorkspaceStatusesForBadges } from "@/stores/session-store-hooks";
 import { deriveMacDockBadgeCountFromWorkspaceStatuses } from "@/utils/desktop-badge-state";
 import { isNative } from "@/constants/platform";
+import { useShallow } from "zustand/shallow";
+import { useSessionStore } from "@/stores/session-store";
+import { selectSystemManagedWorkspaceKeys } from "@/workspace/lifecycle/system-membership";
 
 type FaviconStatus = "none" | "running" | "attention";
 type ColorScheme = "dark" | "light";
@@ -25,8 +28,13 @@ const FAVICON_IMAGES: Record<ColorScheme, Record<FaviconStatus, { uri: string } 
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 function deriveFaviconStatus(
-  agents: ReturnType<typeof useAggregatedAgents>["agents"],
+  allAgents: ReturnType<typeof useAggregatedAgents>["agents"],
+  systemWorkspaceKeys: ReadonlySet<string> = new Set(),
 ): FaviconStatus {
+  // System-managed workspaces stay out of the global running and attention signal.
+  const agents = allAgents.filter(
+    (agent) => !systemWorkspaceKeys.has(`${agent.serverId}:${agent.workspaceId}`),
+  );
   const hasRunning = agents.some((agent) => agent.status === "running");
   if (hasRunning) {
     return "running";
@@ -96,6 +104,11 @@ async function updateMacDockBadge(count?: number) {
 export function useFaviconStatus() {
   const { agents } = useAggregatedAgents({ demand: !isNative });
   const workspaceStatuses = useWorkspaceStatusesForBadges();
+  const systemWorkspaceKeyList = useSessionStore(useShallow(selectSystemManagedWorkspaceKeys));
+  const systemWorkspaceKeys = useMemo(
+    () => new Set(systemWorkspaceKeyList),
+    [systemWorkspaceKeyList],
+  );
   const [colorScheme, setColorScheme] = useState<ColorScheme>(getSystemColorScheme);
   const lastDockBadgeCountRef = useRef<number | undefined>(undefined);
 
@@ -116,7 +129,7 @@ export function useFaviconStatus() {
   useEffect(() => {
     if (isNative) return;
 
-    const status = deriveFaviconStatus(agents);
+    const status = deriveFaviconStatus(agents, systemWorkspaceKeys);
     updateFavicon(status, colorScheme);
 
     const dockBadgeCount = deriveMacDockBadgeCountFromWorkspaceStatuses(workspaceStatuses);
@@ -124,5 +137,5 @@ export function useFaviconStatus() {
       lastDockBadgeCountRef.current = dockBadgeCount;
       void updateMacDockBadge(dockBadgeCount);
     }
-  }, [agents, colorScheme, workspaceStatuses]);
+  }, [agents, colorScheme, systemWorkspaceKeys, workspaceStatuses]);
 }

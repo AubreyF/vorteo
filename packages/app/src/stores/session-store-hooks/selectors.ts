@@ -6,7 +6,8 @@ import {
 } from "@/projects/workspace-structure";
 import type { DesktopBadgeWorkspaceStatus } from "@/utils/desktop-badge-state";
 import { resolveWorkspaceMapKeyByIdentity } from "@/utils/workspace-identity";
-import type { ProjectDescriptor, WorkspaceDescriptor } from "../session-store";
+import { isSystemManagedWorkspace } from "@/workspace/lifecycle/system-workspace";
+import type { DaemonServerInfo, ProjectDescriptor, WorkspaceDescriptor } from "../session-store";
 
 export type { DesktopBadgeWorkspaceStatus } from "@/utils/desktop-badge-state";
 export type { WorkspaceStructure, WorkspaceStructureProject } from "@/projects/workspace-structure";
@@ -19,6 +20,7 @@ export interface SessionsSnapshot {
       hasWorkspaceDirectorySnapshot?: boolean;
       workspaces: Map<string, WorkspaceDescriptor>;
       projects?: Map<string, ProjectDescriptor>;
+      serverInfo?: DaemonServerInfo | null;
     }
   >;
 }
@@ -312,7 +314,10 @@ export function selectWorkspaceStatusesForBadges(
 ): DesktopBadgeWorkspaceStatus[] {
   const statuses: DesktopBadgeWorkspaceStatus[] = [];
   for (const session of Object.values(state.sessions)) {
+    const supportsSystem = session.serverInfo?.features?.systemProject === true;
     for (const workspace of session.workspaces.values()) {
+      // System-managed workspaces stay out of the global attention count.
+      if (isSystemManagedWorkspace(workspace, supportsSystem)) continue;
       statuses.push(workspace.status);
     }
   }

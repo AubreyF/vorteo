@@ -55,6 +55,8 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 <img width="400" alt="Protected and scheduled workspaces" src="https://github.com/user-attachments/assets/757352aa-a2e7-457d-b95f-7ded601444f7" />
 
+- **Tailor your own installation.** Every daemon keeps a protected Vorteo System project for its standing upkeep, such as the Optimization Runner, which agents and bulk actions cannot archive or move. Set up Vorteo source from Maintenance settings to clone your installation's own source into the project, then branch from it to change Vorteo itself; changes go live through your reviewed source update. Requires the updated daemon. See [Vorteo System project](docs/system-project.md).
+
 - **Run tasks in either environment within one workspace.** Choose Host or Dev container in a new task while retaining draft text and uploaded files. Task tabs identify their environment; mapped directories and remembered folder choices keep later tasks in the same visible workspace. Updated daemons are required.
 
 - **Let agents use a browser.** Enable the Host or Dev daemon's headless Chromium, or run `paseo browser host`, so agents can open pages, read them, click and take screenshots. Dev's browser runs inside the container. It starts with an empty profile and never touches your logged-in browser state. It cannot reach this machine, your private networks or your tailnet unless you allow a specific address or preview port range, and it always refuses origins you deny, such as the protected interface. See [browser tools for Host agents](docs/execution-installation.md#browser-tools-for-host-agents).

@@ -12,6 +12,8 @@ Priorities below describe unfinished work. The [customizations inventory](vorteo
 
 ## Next capabilities
 
+- **Grow the Vorteo System project.** Keep the Vorteo source clone in step with each installed update without disturbing operators' worktrees. Ship the Optimization Runner's tasks and schedule in source, installed by launchd on the Host, supervisord in the Dev container and the daemon scheduler on plain installs. Add a Monitoring role with cheap Host and Dev collectors and threshold-driven advice. See [Vorteo System project](system-project.md#limitations).
+
 - **Recover installation services before login.** Future work, explicitly outside the current unattended-maintenance delivery. Evaluate system-level service registration, credential access and container startup before a user session exists. Current recovery acceptance begins after login with the container runtime available.
 
 - **Broker service credentials.** Define environment identities and bounded grants, then implement a credential broker and first GitHub connector. Resolve operation scope, identity, key custody, revocation and recovery before implementation. See [environment grants](plans/execution-environments/environment-grants.md) and the [broker plan](plans/execution-environments/credential-broker.md).

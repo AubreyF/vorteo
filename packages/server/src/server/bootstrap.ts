@@ -162,6 +162,7 @@ import { loadAdoptedAgents, planHostedStartup } from "./session-host/boot-attach
 import { ensureAgentLoaded } from "./agent/agent-loading.js";
 import type { SessionHostConnector } from "./session-host/connector.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
+import { seedSystemProjectAtStartup } from "./system-project/ensure-system-project.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import {
   FileBackedProjectRegistry,
@@ -464,6 +465,8 @@ export interface PaseoDaemonConfig {
   installationResourceBindings?: MutableDaemonConfig["installationResourceBindings"];
   skillSelection?: AgentSkillSelection;
   pluginsEnabled?: boolean;
+  /** Seeds the Vorteo System project at startup. Defaults on; test daemons turn it off. */
+  systemProjectEnabled?: boolean;
   plugins?: Record<string, PluginSource>;
   pluginRegistries?: PluginRegistries;
   pluginRegistryUrl?: string;
@@ -1129,6 +1132,16 @@ export async function createPaseoDaemon(
     projectRegistry,
     workspaceRegistry,
     workspaceGitService,
+    logger,
+  });
+  // Before reconciliation, so system folders exist when it checks for missing directories.
+  await seedSystemProjectAtStartup({
+    enabled: config.systemProjectEnabled,
+    paseoHome: config.paseoHome,
+    serverId,
+    sharedProviderPreferences: config.sharedProviderPreferences,
+    projectRegistry,
+    workspaceRegistry: archiveWorkspaceRegistry,
     logger,
   });
   await workspaceLabelService.initialize();

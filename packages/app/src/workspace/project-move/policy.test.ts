@@ -7,6 +7,11 @@ test("protected moves explain the existing action; ordinary moves remain availab
   expect(projectMoveBlockedReason({ protected: false })).toBeNull();
 });
 
+test("system-managed workspaces explain that Vorteo System owns their placement", () => {
+  expect(projectMoveBlockedReason({ protected: true }, true)).toContain("Managed by Vorteo System");
+  expect(projectMoveBlockedReason({ protected: false }, false)).toBeNull();
+});
+
 describe("moving the local project with the group", () => {
   const vorteo = {
     viewKey: "remote:github.com/acme/vorteo",

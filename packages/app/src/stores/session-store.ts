@@ -113,6 +113,8 @@ export interface WorkspaceDescriptor {
   projectId: string;
   projectMembership?: WorkspaceDescriptorPayload["projectMembership"];
   factoryMembership?: WorkspaceDescriptorPayload["factoryMembership"];
+  projectSystem?: WorkspaceDescriptorPayload["projectSystem"];
+  systemMembership?: WorkspaceDescriptorPayload["systemMembership"];
   projectDisplayName: string;
   projectCustomName?: string | null;
   projectCustomIconRevision?: string | null;
@@ -155,6 +157,8 @@ export function normalizeWorkspaceDescriptor(
     projectRootPath: payload.projectRootPath,
     projectMembership: payload.projectMembership,
     factoryMembership: payload.factoryMembership,
+    projectSystem: payload.projectSystem,
+    systemMembership: payload.systemMembership,
     // Canonicalize the workspace directory once, at the store boundary, so every
     // consumer can read workspace.workspaceDirectory directly. Empty means "no
     // usable directory" (older daemons may omit it; the wire field is optional).

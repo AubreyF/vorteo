@@ -633,6 +633,8 @@ export function resolveConfigFromPersisted(
     installationResourceBindings,
     skillSelection: persisted.agents?.skills?.selection,
     pluginsEnabled: persisted.pluginsEnabled ?? false,
+    // Unset means on. Isolated test daemons pass 0 to keep fixture projects exact.
+    systemProjectEnabled: parseBooleanEnv(env.PASEO_SYSTEM_PROJECT),
     plugins: persisted.plugins,
     pluginRegistries: persisted.pluginRegistries,
     pluginRegistryUrl: env.PASEO_PLUGIN_REGISTRY,
