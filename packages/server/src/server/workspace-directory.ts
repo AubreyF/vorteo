@@ -153,7 +153,7 @@ export function workspaceIdsForProjects(
   return Array.from(workspaceIds);
 }
 
-function activeWorkspaceRecords(
+export function activeWorkspaceRecords(
   workspaces: PersistedWorkspaceRecord[],
   projects: PersistedProjectRecord[],
 ): PersistedWorkspaceRecord[] {

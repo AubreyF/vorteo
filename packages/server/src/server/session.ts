@@ -263,6 +263,7 @@ import type { ProviderUsageService } from "../services/quota-fetcher/service.js"
 import type { ProviderQuotaObservationService } from "../services/quota-fetcher/governor-service.js";
 import type { ProviderResetService } from "../services/quota-fetcher/reset-service.js";
 import {
+  activeWorkspaceRecords,
   resolveWorkspaceRootAgent,
   summarizeFetchWorkspacesEntries,
   workspaceIdsOnCheckout,
@@ -6052,16 +6053,16 @@ export class Session {
       this.workspaceRegistry.list(),
       this.projectRegistry.list(),
     ]);
-    const activeProjects = new Map(
-      persistedProjects
-        .filter((project) => !project.archivedAt)
-        .map((project) => [project.projectId, project] as const),
+    const projectsById = new Map(
+      persistedProjects.map((project) => [project.projectId, project] as const),
     );
     const placementsByWorkspaceId = new Map<string, ProjectPlacementPayload>();
 
-    const pairs = persistedWorkspaces.flatMap((workspace) => {
-      if (workspace.archivedAt) return [];
-      const project = activeProjects.get(workspace.projectId);
+    // Use the same membership policy as the workspace directory: moving a workspace
+    // preserves its backing project even when that original project is archived.
+    const activeWorkspaces = activeWorkspaceRecords(persistedWorkspaces, persistedProjects);
+    const pairs = activeWorkspaces.flatMap((workspace) => {
+      const project = projectsById.get(workspace.projectId);
       if (!project) return [];
       return [{ workspace, project }];
     });
