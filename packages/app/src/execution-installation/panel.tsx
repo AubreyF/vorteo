@@ -60,7 +60,11 @@ import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runti
 import { useVortonTouch } from "@/vorton-touch";
 import {
   getBootstrapPanel,
+  BootstrapHistory,
   BootstrapReview,
+  CoordinatorRecoveryHistory,
+  HistoryGroup,
+  useCoordinatorHistoryCount,
   BootstrapBanner,
   getPreclaimRecoveryPanel,
   getClaimedRecoveryPanel,
@@ -266,6 +270,67 @@ function CoordinatorMaintenanceReviews() {
   );
 }
 
+/**
+ * One history for everything finished: restarts and updates, coordinator
+ * updates and coordinator recoveries. Only active work stays above it.
+ */
+function InstallationHistory({
+  history,
+  model,
+  busy,
+  requestId,
+  visible,
+  onToggle,
+  controlSize,
+}: {
+  history: RestartJob[];
+  model: InstallationPanelModel;
+  busy: boolean;
+  requestId: string | null;
+  visible: boolean;
+  onToggle: () => void;
+  controlSize: "sm" | "md";
+}) {
+  const historyCount = history.length + useCoordinatorHistoryCount();
+  const bootstrapModel = getBootstrapPanel();
+  return (
+    <View testID="restart-history" style={[styles.cardBody, settingsStyles.rowBorder]}>
+      <View style={styles.requestHeader}>
+        <Button
+          variant="ghost"
+          size={controlSize}
+          onPress={onToggle}
+          {...disclosureProps(visible)}
+          testID="restart-history-toggle"
+          disabled={!historyCount}
+        >
+          {visible ? "Hide history" : `History (${historyCount})`}
+        </Button>
+      </View>
+      {visible ? (
+        <SettingsExpansion testID="restart-history-content">
+          {history.length ? (
+            <HistoryGroup title="Restarts and updates">
+              {history.slice(0, 20).map((job) => (
+                <RestartRequest
+                  key={`${job.id}:${job.revision}`}
+                  job={job}
+                  model={model}
+                  busy={busy}
+                  historical
+                  linked={job.id === requestId}
+                />
+              ))}
+            </HistoryGroup>
+          ) : null}
+          {bootstrapModel ? <BootstrapHistory model={bootstrapModel} /> : null}
+          <CoordinatorRecoveryHistory />
+        </SettingsExpansion>
+      ) : null}
+    </View>
+  );
+}
+
 function InstallationPanel({
   model,
   requestId,
@@ -386,7 +451,7 @@ function InstallationPanel({
                   {...disclosureProps(sharingVisible)}
                   testID="installation-sharing-toggle"
                 >
-                  {sharingVisible ? "Hide shared workflows" : "Shared workflows"}
+                  {sharingVisible ? "Hide profile sharing" : "Profile sharing"}
                 </Button>
                 <StatusBadge label={sharingLabel} variant={sharingVariant} />
               </View>
@@ -400,34 +465,15 @@ function InstallationPanel({
                 </SettingsExpansion>
               ) : null}
             </View>
-            <View testID="restart-history" style={[styles.cardBody, settingsStyles.rowBorder]}>
-              <View style={styles.requestHeader}>
-                <Button
-                  variant="ghost"
-                  size={controlSize}
-                  onPress={toggleHistory}
-                  {...disclosureProps(historyVisible)}
-                  testID="restart-history-toggle"
-                  disabled={!history.length}
-                >
-                  {historyVisible ? "Hide restart history" : `Restart history (${history.length})`}
-                </Button>
-              </View>
-              {historyVisible ? (
-                <SettingsExpansion testID="restart-history-content">
-                  {visibleHistory.slice(0, 20).map((job) => (
-                    <RestartRequest
-                      key={`${job.id}:${job.revision}`}
-                      job={job}
-                      model={model}
-                      busy={state.busy}
-                      historical
-                      linked={job.id === requestId}
-                    />
-                  ))}
-                </SettingsExpansion>
-              ) : null}
-            </View>
+            <InstallationHistory
+              history={visibleHistory}
+              model={model}
+              busy={state.busy}
+              requestId={requestId}
+              visible={historyVisible}
+              onToggle={toggleHistory}
+              controlSize={controlSize}
+            />
           </>
         ) : null}
       </View>

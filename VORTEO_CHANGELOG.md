@@ -5,6 +5,30 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.741 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.740 - 2026-10-21
+
+### Fixed
+
+- Stop listing every past coordinator recovery in full under Maintenance. Recoveries whose executor cleanup was verified, that stopped before effects or that were canceled now leave the review; only recoveries that still need you stay there.
+
+### Changed
+
+- Combine restart, coordinator update and coordinator recovery history into one collapsed History in Installation. Finished recoveries show one line with their outcome and time, with the full plan behind Exact recovery details.
+- Show Refresh recovery status only after a status error; recovery status already refreshes every few seconds.
+- Rename Shared workflows to Profile sharing in Installation.
+
+### Validation
+
+- Installation review component tests cover finished recoveries staying out of the review, canceled recoveries moving to history and coordinator history rendering outside the review.
+
+## 0.11.0-beta.3.vorteo.732 - 2026-10-22
+
 ## 0.11.0-beta.3.vorteo.739 - 2026-10-22
 
 ### Maintenance
