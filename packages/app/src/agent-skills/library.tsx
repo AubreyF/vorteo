@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { SharedSkillCatalog } from "./shared-catalog";
 import { readExecutionInstallation } from "@/execution-installation/policy";
 import { useFetchQuery } from "@/data/query";
@@ -282,9 +283,11 @@ function ChangeResult({
               </Text>
             </View>
           ))}
-          <Button disabled={pending} onPress={applyPreview}>
-            Apply reviewed change
-          </Button>
+          <ActionFooter>
+            <Button disabled={pending} onPress={applyPreview}>
+              Apply reviewed change
+            </Button>
+          </ActionFooter>
         </>
       ) : null}
     </View>
@@ -398,19 +401,21 @@ function SkillDetail({
           </Text>
         ))}
         {skill.owner === "personal" ? (
-          <View style={styles.actions}>
+          <ActionFooter style={styles.actions}>
             <Button variant="outline" disabled={change.isPending} onPress={linkClaude}>
               Preview Claude discovery link
             </Button>
             <Button variant="outline" disabled={change.isPending} onPress={linkCodex}>
               Preview Codex discovery link
             </Button>
-          </View>
+          </ActionFooter>
         ) : null}
         {skill.managed && !readExecutionInstallation() ? (
-          <Button variant="outline" disabled={change.isPending} onPress={remove}>
-            Preview removal
-          </Button>
+          <ActionFooter>
+            <Button variant="outline" disabled={change.isPending} onPress={remove}>
+              Preview removal
+            </Button>
+          </ActionFooter>
         ) : null}
         {alternatives
           .filter(
@@ -421,13 +426,14 @@ function SkillDetail({
               other.path === other.resolvedPath,
           )
           .map((other) => (
-            <ConsolidateButton
-              key={other.id}
-              skill={skill}
-              other={other}
-              pending={change.isPending}
-              mutate={change.mutate}
-            />
+            <ActionFooter key={other.id}>
+              <ConsolidateButton
+                skill={skill}
+                other={other}
+                pending={change.isPending}
+                mutate={change.mutate}
+              />
+            </ActionFooter>
           ))}
         <ChangeResult
           result={change.data}
@@ -516,13 +522,15 @@ function InstallSkill({
             onChangeText={directoryChanged}
           />
         </Field>
-        <Button
-          variant="outline"
-          disabled={change.isPending || !/^[a-f0-9]{40}$/.test(draft.revision)}
-          onPress={inspect}
-        >
-          Inspect installation
-        </Button>
+        <ActionFooter>
+          <Button
+            variant="outline"
+            disabled={change.isPending || !/^[a-f0-9]{40}$/.test(draft.revision)}
+            onPress={inspect}
+          >
+            Inspect installation
+          </Button>
+        </ActionFooter>
         <ChangeResult
           result={change.data}
           pending={change.isPending}
@@ -571,7 +579,13 @@ function SkillHistory({
                   {entry.target}
                 </Text>
                 {entry.beforeHash && !readExecutionInstallation() ? (
-                  <RestoreButton id={entry.id} pending={change.isPending} mutate={change.mutate} />
+                  <ActionFooter>
+                    <RestoreButton
+                      id={entry.id}
+                      pending={change.isPending}
+                      mutate={change.mutate}
+                    />
+                  </ActionFooter>
                 ) : null}
               </View>
             ))

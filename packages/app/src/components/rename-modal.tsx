@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -155,7 +156,7 @@ export function AdaptiveRenameModal({
           </Text>
         ) : null}
         {renderSuggestions?.(selectSuggestion, isPending)}
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button
             variant="secondary"
             size="sm"
@@ -176,7 +177,7 @@ export function AdaptiveRenameModal({
           >
             {isPending ? t("renameModal.saving") : (submitLabel ?? t("renameModal.rename"))}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );
@@ -207,6 +208,6 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   actionButton: {
-    flex: 1,
+    flexShrink: 0,
   },
 }));

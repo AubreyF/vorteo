@@ -2,7 +2,7 @@ import { useShallow } from "zustand/shallow";
 import { useSessionStore } from "@/stores/session-store";
 import { usePendingArchiveAgentIds } from "@/hooks/use-archive-agent";
 import { workspaceChecklistProgress } from "./progress";
-import { ChecklistProgressRing } from "./progress-ring";
+import { ChecklistProgressFlower } from "./progress-flower";
 
 export function WorkspaceChecklistProgress({
   serverId,
@@ -21,7 +21,7 @@ export function WorkspaceChecklistProgress({
   );
   if (!progress) return null;
   return (
-    <ChecklistProgressRing
+    <ChecklistProgressFlower
       {...progress}
       testID={`workspace-task-progress-${serverId}-${workspaceId}`}
     />

@@ -1,3 +1,7 @@
+import {
+  handleBootstrapReview,
+  type BootstrapReviewService,
+} from "./execution-installation/coordinator-bootstrap-session.js";
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
 import {
   assertWorkspaceNotFactoryManaged,
@@ -471,6 +475,7 @@ const nodeSessionFileSystem: SessionFileSystem = {
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
 export interface SessionOptions {
+  coordinatorBootstrap?: BootstrapReviewService;
   messageQueue?: MessageQueueService;
   browserToolsBroker?: BrowserToolsBroker | null;
   clientId: string;
@@ -859,7 +864,10 @@ export class Session {
   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
   private readonly creationService: Pick<CreationService, "create" | "subscribe">;
 
+  private readonly coordinatorBootstrap: BootstrapReviewService | undefined;
+
   constructor(options: SessionOptions) {
+    this.coordinatorBootstrap = options.coordinatorBootstrap;
     const {
       clientId,
       permissions,
@@ -1163,6 +1171,7 @@ export class Session {
       logger: this.sessionLogger,
       hubRelationships: options.hubRelationships,
       reloadConfig: () => daemonConfigStore.reload(),
+      originAdmission: daemonConfigStore,
     });
     this.hubExecutionController = options.hubExecutionAgents
       ? new HubExecutionController({
@@ -2939,6 +2948,19 @@ export class Session {
     }
   }
 
+  private dispatchOriginAdmissionMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "daemon.config.get_origin_admission.request":
+        this.daemonSession.handleOriginAdmissionInspectRequest(msg);
+        return Promise.resolve();
+      case "daemon.config.admit_origin.request":
+        this.daemonSession.handleOriginAdmissionRequest(msg);
+        return Promise.resolve();
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchAgentConfigMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "set_agent_mode_request":
@@ -2985,7 +3007,7 @@ export class Session {
       case "write_project_config_request":
         return this.projectConfigSession.handleWriteProjectConfigRequest(msg);
       default:
-        return this.dispatchAccountCreationMessage(msg);
+        return this.dispatchOriginAdmissionMessage(msg) ?? this.dispatchAccountCreationMessage(msg);
     }
   }
 
@@ -3317,6 +3339,11 @@ export class Session {
 
   private async dispatchMiscMessage(msg: SessionInboundMessage): Promise<void> {
     switch (msg.type) {
+      case "installation.bootstrap.list_requests.request":
+      case "installation.bootstrap.prepare.request":
+      case "installation.bootstrap.decide.request":
+        this.emit(await handleBootstrapReview(msg, this.coordinatorBootstrap));
+        return;
       case "agent.queue.attachment.get.request":
         return this.handleQueueAttachmentRequest(msg);
       case "agent.queue.read.request":
@@ -4757,7 +4784,7 @@ export class Session {
           onCreated: async ({ agentId: registeredAgentId }) => {
             createdAgentId = registeredAgentId;
             await recordCreated?.(registeredAgentId);
-            if (initialPrompt && !msg.callerAgentId) {
+            if (initialPrompt && !msg.callerAgentId && !msg.origin) {
               await this.ownerEvidence.record({
                 taskId: registeredAgentId,
                 principalId: this.principalId,
@@ -4771,6 +4798,7 @@ export class Session {
           worktreeName,
           initialPrompt,
           initialGoal: msg.initialGoal,
+          origin: msg.callerAgentId ? "agent" : msg.origin,
           clientMessageId,
           outputSchema,
           images,
@@ -8830,13 +8858,17 @@ export class Session {
     try {
       const agentId = resolved.agentId;
 
-      await this.ownerEvidence.record({
-        taskId: agentId,
-        principalId: this.principalId,
-        clientId: this.clientId,
-        messageId: msg.messageId ?? msg.requestId,
-        text: msg.text,
-      });
+      const recordOwnerMessage = async () => {
+        if (!msg.origin) {
+          await this.ownerEvidence.record({
+            taskId: agentId,
+            principalId: this.principalId,
+            clientId: this.clientId,
+            messageId: msg.messageId ?? msg.requestId,
+            text: msg.text,
+          });
+        }
+      };
       const prompt = buildAgentPrompt(msg.text, msg.images, msg.attachments);
       this.sessionLogger.trace(
         {
@@ -8855,6 +8887,7 @@ export class Session {
           prompt,
           messageId: msg.messageId,
           activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
+          runOptions: msg.origin ? { origin: msg.origin } : undefined,
           clearPendingPermissions: true,
           logger: this.sessionLogger,
         });
@@ -8870,13 +8903,19 @@ export class Session {
         await this.messageReceipts.send({
           agentId,
           messageId: msg.messageId,
-          request: { prompt, activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt" },
+          request: {
+            prompt,
+            activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
+            ...(msg.origin ? { origin: msg.origin } : {}),
+          },
           prepare: async () => {
             await this.prepareAgentMessage(agentId, msg.text);
+            await recordOwnerMessage();
           },
           send,
         });
       } else {
+        await recordOwnerMessage();
         await send();
       }
 

@@ -226,7 +226,7 @@ const styles = StyleSheet.create((theme) => ({
     borderTopColor: theme.colors.surface2,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     gap: theme.spacing[2],
   },
 }));

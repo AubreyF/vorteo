@@ -19,6 +19,27 @@ function normalizedLimit(limit: QuotaConsumptionLimit): QuotaConsumptionLimit {
   };
 }
 
+function intersectPrepaidAuthorization(
+  parent: QuotaGovernorPolicy,
+  child: QuotaGovernorPolicy,
+): QuotaGovernorPolicy["prepaidAuthorization"] {
+  const parentGrant = parent.prepaidAuthorization;
+  const childGrant = child.prepaidAuthorization;
+  if (!parentGrant || !childGrant) return undefined;
+  const sameWindow =
+    parentGrant.bucketId === childGrant.bucketId && parentGrant.windowId === childGrant.windowId;
+  if (!sameWindow) throw new Error("Prepaid authorization windows require reconciliation.");
+  const startsAt = Math.max(Date.parse(parentGrant.startsAt), Date.parse(childGrant.startsAt));
+  const expiresAt = Math.min(Date.parse(parentGrant.expiresAt), Date.parse(childGrant.expiresAt));
+  if (startsAt >= expiresAt) throw new Error("Prepaid authorizations do not overlap.");
+  return {
+    bucketId: parentGrant.bucketId,
+    windowId: parentGrant.windowId,
+    startsAt: new Date(startsAt).toISOString(),
+    expiresAt: new Date(expiresAt).toISOString(),
+  };
+}
+
 /** Combine obligations, never consumption totals. Incompatible meter semantics need migration. */
 export function combineQuotaPolicies(
   parentInput: QuotaGovernorPolicy,
@@ -26,6 +47,7 @@ export function combineQuotaPolicies(
 ): QuotaGovernorPolicy {
   const parent = parseQuotaGovernorPolicy(parentInput);
   const child = parseQuotaGovernorPolicy(childInput);
+  const prepaidAuthorization = intersectPrepaidAuthorization(parent, child);
   if (!isDeepStrictEqual(parent.account, child.account)) throw new Error("Quota account mismatch.");
   const windows = new Map<string, QuotaGovernorPolicy["requiredWindows"][number]>();
   for (const window of [...parent.requiredWindows, ...child.requiredWindows]) {
@@ -75,7 +97,7 @@ export function combineQuotaPolicies(
       freezeAt: Math.min(freezeAt, oldFreeze),
     });
   }
-  return parseQuotaGovernorPolicy({
+  const combined: QuotaGovernorPolicy = {
     ...parent,
     requiredWindows: [...windows.values()],
     launchFloorPercent: Math.max(parent.launchFloorPercent, child.launchFloorPercent),
@@ -85,8 +107,11 @@ export function combineQuotaPolicies(
       child.maxObservationAgeSeconds,
     ),
     consumptionLimits: [...limits.values()],
+    prepaidAuthorization,
     ...(estimatedHourly ? { estimatedHourly } : {}),
-  });
+  };
+  if (!prepaidAuthorization) delete combined.prepaidAuthorization;
+  return parseQuotaGovernorPolicy(combined);
 }
 
 /** Input must come from the trusted observer, never from a schedule or RPC request body. */

@@ -1,3 +1,5 @@
+import { SidebarCalloutStack } from "@/components/sidebar-callout";
+import { ActionFooter } from "@/components/ui/action-footer";
 import { EnvironmentsSettingsPage } from "./settings/environments-page";
 import { SkillLibraryContent } from "@/agent-skills/library";
 import { InstallationControls, InstallationRestartBanner } from "@/execution-installation/panel";
@@ -725,7 +727,7 @@ function DesktopAppUpdateRow() {
           ) : null}
           {errorMessage ? <Text style={styles.aboutErrorText}>{errorMessage}</Text> : null}
         </View>
-        <View style={styles.aboutUpdateActions}>
+        <ActionFooter style={styles.aboutUpdateActions}>
           <Button
             variant="outline"
             size="sm"
@@ -742,7 +744,7 @@ function DesktopAppUpdateRow() {
           >
             {getUpdateButtonLabel(t, isInstalling, readyUpdateVersion)}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     </>
   );
@@ -965,7 +967,9 @@ function SettingsSidebar({
           >
             {sidebarBody}
           </ScrollView>
-          <InstallationRestartBanner />
+          <SidebarCalloutStack>
+            <InstallationRestartBanner />
+          </SidebarCalloutStack>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${appVersionText}, ${t("settings.sections.general")}`}
@@ -1282,7 +1286,9 @@ export default function SettingsScreen({
             layout="mobile"
           />
         </ScrollView>
-        <InstallationRestartBanner />
+        <SidebarCalloutStack>
+          <InstallationRestartBanner />
+        </SidebarCalloutStack>
         {addHostModals}
       </View>
     );
@@ -1292,7 +1298,9 @@ export default function SettingsScreen({
     return (
       <View style={styles.container}>
         {detailPage}
-        <InstallationRestartBanner />
+        <SidebarCalloutStack>
+          <InstallationRestartBanner />
+        </SidebarCalloutStack>
         {addHostModals}
       </View>
     );

@@ -62,3 +62,34 @@ it("refuses incompatible account, window, meter denomination and calendar defini
     expect(() => combineQuotaPolicies(policy, changed)).toThrow("consumption semantics");
   }
 });
+
+it("requires prepaid authority in both parent and child and intersects their time bounds", () => {
+  const prepaid = {
+    ...policy,
+    prepaidAuthorization: {
+      bucketId: "coding",
+      windowId: "weekly",
+      startsAt: "2026-09-14T08:00:00Z",
+      expiresAt: "2026-09-14T12:00:00Z",
+    },
+  };
+  expect(combineQuotaPolicies(policy, prepaid).prepaidAuthorization).toBeUndefined();
+  expect(combineQuotaPolicies(prepaid, policy).prepaidAuthorization).toBeUndefined();
+  const child = {
+    ...prepaid,
+    prepaidAuthorization: {
+      ...prepaid.prepaidAuthorization,
+      startsAt: "2026-09-14T09:00:00Z",
+      expiresAt: "2026-09-14T13:00:00Z",
+    },
+  };
+  expect(combineQuotaPolicies(prepaid, child).prepaidAuthorization).toEqual({
+    bucketId: "coding",
+    windowId: "weekly",
+    startsAt: "2026-09-14T09:00:00.000Z",
+    expiresAt: "2026-09-14T12:00:00.000Z",
+  });
+  expect(combineQuotaPolicies(prepaid, child).consumptionLimits).toEqual(policy.consumptionLimits);
+  child.prepaidAuthorization.startsAt = "2026-09-14T12:00:00Z";
+  expect(() => combineQuotaPolicies(prepaid, child)).toThrow("do not overlap");
+});

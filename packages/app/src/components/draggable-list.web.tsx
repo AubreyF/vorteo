@@ -29,6 +29,8 @@ import type {
 } from "./draggable-list.types";
 import { getDragActivationConstraints, useDragReorderState } from "./drag-reorder";
 
+import { useOptimisticReorder } from "./drag-reorder/use-optimistic-reorder";
+
 export type { DraggableListProps, DraggableRenderItemInfo };
 
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({
@@ -224,10 +226,11 @@ export function DraggableList<T>({
   onDragBegin,
   nestable: _nestable = false,
 }: DraggableListProps<T>) {
+  const optimistic = useOptimisticReorder(data, keyExtractor, onDragEnd);
   const { activeId, items, handlers } = useDragReorderState({
-    data,
+    data: optimistic.items,
     keyExtractor,
-    onDragEnd,
+    onDragEnd: optimistic.drop,
     onDragBegin,
   });
   const activationConstraints = getDragActivationConstraints(

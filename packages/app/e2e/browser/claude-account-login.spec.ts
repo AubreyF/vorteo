@@ -1,4 +1,5 @@
 import path from "node:path";
+import { access, unlink } from "node:fs/promises";
 import { z } from "zod";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { expect, test } from "../support/fixtures";
@@ -77,6 +78,15 @@ for (const width of [1280, 402]) {
       await page.getByTestId("provider-login-done").click();
       await expect(page.getByTestId("provider-reconnect-dialog")).toBeHidden();
       await expect(page.getByTestId(`provider-rename-${account[0]}`)).toBeVisible();
+      // The fixture stores auth outside .credentials.json, as macOS Keychain does.
+      await expect(
+        access(path.join(environment.CLAUDE_CONFIG_DIR, ".credentials.json")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      const usage = await client.listProviderUsage({ forceRefresh: true });
+      expect(usage.providers.find((entry) => entry.providerId === account[0])?.status).toBe(
+        "unavailable",
+      );
+      await expect(page.getByTestId(`provider-connect-${account[0]}`)).toBeHidden();
       await page.evaluate(() => {
         const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
         if (!nonce) throw new Error("Missing isolated browser seed nonce");
@@ -86,6 +96,11 @@ for (const width of [1280, 402]) {
       await expect(page.getByTestId("host-page-providers-card")).toBeVisible();
       await expect(page.getByTestId("catalog-provider-claude")).toBeVisible();
       expect((await client.getDaemonConfig()).config.providers[account[0]].label).toBe(name);
+      await expect(page.getByTestId(`provider-connect-${account[0]}`)).toBeHidden();
+      // A subsequent sign-out must restore the action on the same account.
+      await unlink(path.join(environment.CLAUDE_CONFIG_DIR, "signed-in"));
+      await client.refreshProvidersSnapshot({ providers: [account[0]] });
+      await expect(page.getByTestId(`provider-connect-${account[0]}`)).toBeVisible();
     } finally {
       await client.close();
     }

@@ -1,3 +1,10 @@
+import {
+  AgentJournalEntrySchema,
+  AppendJournalSchema,
+  type AgentJournalEntry,
+  type AppendJournalInput,
+} from "@getpaseo/protocol/agent-journal";
+import { JournalError } from "./journal/model.js";
 import { AgentTaskItemSchema } from "@getpaseo/protocol/messages";
 import type { AgentTaskItem } from "@getpaseo/protocol/agent-types";
 import {
@@ -74,6 +81,7 @@ export const GoalSubmissionSchema = z.object({
 export type GoalSubmission = z.infer<typeof GoalSubmissionSchema>;
 
 const STORED_AGENT_SCHEMA = z.object({
+  journal: z.array(AgentJournalEntrySchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalSubmissions: z.array(GoalSubmissionSchema).optional(),
   queueGoalHold: QueueGoalHoldSchema.optional(),
@@ -257,6 +265,44 @@ export class AgentStorage {
     return this.queueRecordMutation(record.id, () => record);
   }
 
+  async appendJournal(agentId: string, input: AppendJournalInput): Promise<AgentJournalEntry> {
+    const { entryId, text } = AppendJournalSchema.parse(input);
+    await this.load();
+    let committed: AgentJournalEntry | null = null;
+    await this.queueRecordMutation(
+      agentId,
+      (record) => {
+        if (!record || record.archivedAt)
+          throw new JournalError("not_found", "Only an active thread can append to its journal.");
+        const entries = record.journal ?? [];
+        const previous = entries.find((entry) => entry.id === entryId);
+        if (previous) {
+          if (previous.text !== text)
+            throw new JournalError(
+              "conflict",
+              "This entry ID was already used for different text. Journal entries cannot be edited.",
+            );
+          committed = previous;
+          return null;
+        }
+        committed = {
+          id: entryId,
+          sequence: entries.length + 1,
+          timestamp: new Date().toISOString(),
+          text,
+        };
+        return { ...record, journal: [...entries, committed] };
+      },
+      { journalWrite: true },
+    );
+    if (committed === null)
+      throw new JournalError(
+        "not_found",
+        "The thread was deleted before the journal entry could be saved.",
+      );
+    return structuredClone(committed);
+  }
+
   async mutateChecklist(agentId: string, mutation: ChecklistMutation): Promise<AgentTaskItem[]> {
     await this.load();
     let committed: AgentTaskItem[] | null = null;
@@ -281,7 +327,7 @@ export class AgentStorage {
   private queueRecordMutation(
     agentId: string,
     mutate: (existing: StoredAgentRecord | null) => StoredAgentRecord | null,
-    options?: { checklistWrite?: boolean },
+    options: { checklistWrite?: boolean; journalWrite?: boolean } = {},
   ): Promise<void> {
     const prev = this.pendingWrites.get(agentId) ?? Promise.resolve();
     const next = prev.then(async () => {
@@ -292,7 +338,9 @@ export class AgentStorage {
       const existing = this.cache.get(agentId) ?? null;
       const record = mutate(existing);
       if (!record) return undefined;
-      if (!options?.checklistWrite) preserveManagedChecklist(record, existing);
+      // Only the append operation may change a journal. Stale snapshots cannot rewrite history.
+      if (!options.journalWrite && existing) record.journal = existing.journal;
+      if (!options.checklistWrite) preserveManagedChecklist(record, existing);
       // Loading sessions and metadata writers can hold snapshots from before
       // a reserve transition. All writes preserve the newest durable revision.
       const reserve = existing?.config?.quotaReserve;

@@ -553,7 +553,7 @@ function ProviderCatalog({
   const reorder = useCallback(
     (ordered: ProviderFamily[]) => {
       const rank = new Map(ordered.map((family, index) => [family.id, index]));
-      change.mutate({
+      return change.mutateAsync({
         expectedRevision: data.revision,
         settings: {
           providerDefinitions: data.settings.providerDefinitions.map((entry) => ({
@@ -599,12 +599,10 @@ function ProviderCatalog({
     <View>
       <SettingsSection
         title="Shared providers"
+        status={change.isPending ? "Saving provider settings..." : null}
         info="Changes apply across environments. Manage exclusions in Environment exceptions."
       >
         {change.isError ? <Alert variant="error" description={change.error.message} /> : null}
-        {change.isPending ? (
-          <Text style={settingsStyles.rowHint}>Saving shared provider settings...</Text>
-        ) : null}
         <DraggableList
           data={families}
           keyExtractor={familyKey}

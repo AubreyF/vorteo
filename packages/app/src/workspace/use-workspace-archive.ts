@@ -11,10 +11,14 @@ import {
   DEFAULT_WORKTREE_ARCHIVE_WARNING_LABELS,
   type WorktreeArchiveWarningLabels,
 } from "@/git/worktree-archive-warning";
-import type { WorkspaceDescriptor } from "@/stores/session-store";
+import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { archiveWorkspaceOptimistically } from "@/workspace/workspace-archive";
+import {
+  FACTORY_MANAGED_EXPLANATION,
+  selectFactoryMembership,
+} from "./lifecycle/factory-membership";
 
 function purgeArchivedWorkspaceState(input: { serverId: string; workspaceId: string }): void {
   const workspaceKey = buildWorkspaceTabPersistenceKey(input);
@@ -95,6 +99,10 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
 
   const archive = useCallback(() => {
     void (async () => {
+      if (selectFactoryMembership(useSessionStore.getState(), serverId, workspaceId)) {
+        toast.error(FACTORY_MANAGED_EXPLANATION);
+        return;
+      }
       const reason = getWorkspaceArchiveBlockReason(serverId, workspaceId);
       if (reason) {
         toast.error(reason);

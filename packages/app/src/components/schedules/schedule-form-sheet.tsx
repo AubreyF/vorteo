@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import equal from "fast-deep-equal";
 import {
   useCallback,
@@ -437,7 +438,7 @@ function OpenScheduleFormSheet({
 
   const footer = useMemo(
     () => (
-      <View style={styles.footer}>
+      <ActionFooter style={styles.footer}>
         <Button
           style={styles.footerButton}
           variant="secondary"
@@ -456,7 +457,7 @@ function OpenScheduleFormSheet({
         >
           {mode === "edit" ? "Save changes" : "Create schedule"}
         </Button>
-      </View>
+      </ActionFooter>
     ),
     [canSubmit, handleSubmitPress, isSubmitting, mode, onClose],
   );
@@ -1108,7 +1109,7 @@ const styles = StyleSheet.create((theme) => {
       gap: theme.spacing[3],
     },
     footerButton: {
-      flex: 1,
+      flexShrink: 0,
     },
     submitError: {
       color: theme.colors.palette.red[300],

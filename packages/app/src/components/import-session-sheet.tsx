@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, type PressableStateCallbackType, Text, View } from "react-native";
 import { keepPreviousData, useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
@@ -792,7 +793,7 @@ export function ImportSessionSheet({
         />
       ) : null}
       {showLoadMore ? (
-        <View style={styles.footer}>
+        <ActionFooter style={styles.footer}>
           <Button
             variant="ghost"
             onPress={handleLoadMore}
@@ -801,7 +802,7 @@ export function ImportSessionSheet({
           >
             {t("importSession.actions.loadMore")}
           </Button>
-        </View>
+        </ActionFooter>
       ) : null}
       {showEmptyState ? <SheetEmptyState title={emptyStateTitle} /> : null}
     </AdaptiveModalSheet>

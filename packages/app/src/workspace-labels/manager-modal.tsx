@@ -1,3 +1,4 @@
+import { ActionFooter, ActionFooterLeading } from "@/components/ui/action-footer";
 import {
   useCallback,
   useEffect,
@@ -142,17 +143,18 @@ export function WorkspaceLabelManagerModal({
   const footer = useMemo(
     () =>
       isEditing ? (
-        <View style={styles.footer}>
-          <Button
-            // Red belongs to the confirm dialog, not to the surface that opens it — docs/design.md.
-            variant="outline"
-            size="md"
-            disabled={disabled}
-            onPress={remove}
-            testID="workspace-label-manager-delete"
-          >
-            {t("workspaceLabels.manage.delete")}
-          </Button>
+        <ActionFooter style={styles.footer}>
+          <ActionFooterLeading>
+            <Button
+              variant="destructive"
+              size="md"
+              disabled={disabled}
+              onPress={remove}
+              testID="workspace-label-manager-delete"
+            >
+              {t("workspaceLabels.manage.delete")}
+            </Button>
+          </ActionFooterLeading>
           <Button
             size="md"
             style={styles.saveButton}
@@ -163,7 +165,7 @@ export function WorkspaceLabelManagerModal({
           >
             {t("workspaceLabels.manage.save")}
           </Button>
-        </View>
+        </ActionFooter>
       ) : undefined,
     [disabled, isEditing, remove, save, state.dirty, state.pending, t],
   );

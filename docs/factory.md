@@ -108,3 +108,25 @@ in structured output. Transport loss or invalid identity after dispatch requires
 of the original operation. The command never retries installation. These source commands do
 not authorize controller adoption, deployment, account changes or a daemon restart. Other
 operations remain unavailable until their reconciled native handlers exist.
+
+### Time-limited prepaid execution
+
+The native policy source supports optional `prepaidAuthorization` for one exact weekly
+allowance window. Its start and expiry bound a positive interval of at most 24 hours.
+The trusted account envelope and the worker policy must both authorize that window;
+native admission intersects their intervals. A worker request cannot create account authority.
+SDK schedule changes require the advertised `prepaidQuotaAuthorization` capability.
+
+During that interval, the matching weekly reserve floor and occupancy estimate do not stop
+prepaid execution. They do not measure prepaid spending. Other windows, configured consumption
+meters, fresh authenticated account observations, native custody, concurrency and manual pause
+remain enforced. Expiry refuses admission and resume, revokes dispatch permits and freezes
+active execution even if a telemetry read stalls. Settlement of already stopped work remains
+possible with its required accounting evidence after expiry.
+
+This source support does not establish prepaid balance, a monetary spending ceiling or model
+billing attribution. While the matching authorization is active, Factory reports null usage and
+limit points rather than displaying allowance occupancy as prepaid cost or an enforced paid limit.
+The original native measurement timestamp remains distinct from snapshot time. The owner authorization and exact account identity stay in private native
+configuration and evidence. Installing this source and applying an account policy are separate
+operations; an older installed governor still enforces its existing weekly policy.

@@ -368,6 +368,31 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
   }
 
   async fetchUsage(): Promise<ProviderUsage> {
+    // Presence is sufficient, including malformed or expired artifacts. Never inspect an older
+    // native grant to identify or operate on an installation setup-token connection.
+    if (this.claudeHome || process.env.VORTEO_INSTALLATION_CLIENT_CONFIG) {
+      let managed = Boolean(process.env.VORTEO_INSTALLATION_CLIENT_CONFIG);
+      if (!managed && this.claudeHome) {
+        try {
+          await fs.lstat(join(this.claudeHome, ".vorteo-auth"));
+          managed = true;
+        } catch (error) {
+          managed = !(error instanceof Error && "code" in error && error.code === "ENOENT");
+        }
+      }
+      if (managed)
+        return {
+          ...unavailableUsage(this),
+          details: [
+            {
+              id: "claude-setup-token",
+              label: "Subscription",
+              value:
+                "Setup-token connection. Usage and reset credits are unavailable with this credential.",
+            },
+          ],
+        };
+    }
     const credentials = await this.readCredentials();
     if (!credentials) {
       return unavailableUsage(this);

@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/server",
-  "version": "0.11.0-beta.3.vorteo.213",
+  "version": "0.11.0-beta.3.vorteo.272",
   "description": "Vorteo backend server",
   "files": [
     "dist/server",
@@ -63,6 +63,16 @@
       "source": "./src/server/agent/agent-response-loop.ts",
       "default": "./dist/server/server/agent/agent-response-loop.js"
     },
+    "./factory-contracts": {
+      "types": "./dist/server/factory-shared/contracts.d.ts",
+      "source": "../../plugins/factory/shared/contracts.ts",
+      "default": "./dist/server/factory-shared/contracts.js"
+    },
+    "./factory-operations": {
+      "types": "./dist/server/factory-shared/operations.d.ts",
+      "source": "../../plugins/factory/shared/operations.ts",
+      "default": "./dist/server/factory-shared/operations.js"
+    },
     "./factory-ownership": {
       "types": "./dist/server/server/factory/ownership.d.ts",
       "source": "./src/server/factory/ownership.ts",
@@ -78,15 +88,10 @@
       "source": "./src/server/factory/create-controller-observation-source.ts",
       "default": "./dist/server/server/factory/create-controller-observation-source.js"
     },
-    "./factory-operations": {
-      "types": "./dist/server/factory-shared/operations.d.ts",
-      "source": "../../plugins/factory/shared/operations.ts",
-      "default": "./dist/server/factory-shared/operations.js"
-    },
-    "./factory-contracts": {
-      "types": "./dist/server/factory-shared/contracts.d.ts",
-      "source": "../../plugins/factory/shared/contracts.ts",
-      "default": "./dist/server/factory-shared/contracts.js"
+    "./factory-stage-native": {
+      "types": "./dist/server/server/factory/governed-stage-native.d.ts",
+      "source": "./src/server/factory/governed-stage-native.ts",
+      "default": "./dist/server/server/factory/governed-stage-native.js"
     }
   },
   "publishConfig": {
@@ -133,11 +138,11 @@
     "@agentclientprotocol/sdk": "^0.17.1",
     "@anthropic-ai/claude-agent-sdk": "0.3.246",
     "@anthropic-ai/sdk": "^0.104.2",
-    "@getpaseo/client": "0.11.0-beta.3.vorteo.213",
-    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.213",
-    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.213",
-    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.213",
-    "@getpaseo/relay": "0.11.0-beta.3.vorteo.213",
+    "@getpaseo/client": "0.11.0-beta.3.vorteo.272",
+    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.272",
+    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.272",
+    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.272",
+    "@getpaseo/relay": "0.11.0-beta.3.vorteo.272",
     "@isaacs/ttlcache": "^2.1.4",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@opencode-ai/sdk": "1.14.46",

@@ -382,6 +382,7 @@ export const fr: TranslationResources = {
       title: "Tâches",
       empty: "Aucune tâche pour l'instant.",
       tasksProgress: "{{completed}}/{{total}} tâches",
+      activeCount: en.message.todo.activeCount,
       activity: {
         created: "{{count}} tâches créées",
         added: "Ajoutée",

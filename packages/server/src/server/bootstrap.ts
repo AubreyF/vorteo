@@ -1,3 +1,7 @@
+import { createConfiguredBootstrapReview } from "./execution-installation/coordinator-bootstrap-launch.js";
+import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
+import { ScheduleStore } from "./schedule/store.js";
+import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
 import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
@@ -253,6 +257,10 @@ import {
 } from "./factory/native-install-startup.js";
 import { NativeFactorySetupService } from "./factory/setup-service.js";
 import { createFactoryCoordinatorBinder } from "./factory/create-coordinator-binder.js";
+import { createFactoryStageNativeRuntime } from "./factory/governed-stage-native.js";
+import { captureFactoryWorkerProfile } from "./factory/capture-worker-profile.js";
+import { createFactoryScheduleInspection } from "./factory/native-schedule-inspection.js";
+import { createFactoryPrepaidPolicyApplication } from "./factory/apply-prepaid-policy.js";
 import { createFactoryControllerObservationSource } from "./factory/create-controller-observation-source.js";
 import { BuiltinPluginLoader } from "./plugins/builtin/index.js";
 import { ManagedPluginSources } from "./plugins/managed-source.js";
@@ -684,6 +692,10 @@ export async function createPaseoDaemon(
   });
 
   const serverId = getOrCreateServerId(config.paseoHome, { logger });
+  const coordinatorBootstrap = await createConfiguredBootstrapReview(serverId).catch(() => {
+    logger.warn("Coordinator bootstrap setup is unavailable; maintenance capability disabled");
+    return undefined;
+  });
   const daemonKeyPair = await loadOrCreateDaemonKeyPair(config.paseoHome, logger);
   const managedProcesses = createBootstrapManagedProcessRegistry(config, logger);
   // Reconcile the helper-process ledger in the background so it never blocks the
@@ -843,6 +855,17 @@ export async function createPaseoDaemon(
   );
 
   app.use(express.json());
+  mountClaudeSetupConsumer(app, {
+    paseoHome: config.paseoHome,
+    store: daemonConfigStore,
+    onApplied: (providerId) => {
+      void providerSnapshotManager
+        .refreshSettingsSnapshot({ providers: [providerId] })
+        .catch(() => {
+          logger.warn({ providerId }, "Claude provider catalog refresh is pending");
+        });
+    },
+  });
 
   // Serve static files from public directory
   app.use("/public", express.static(staticDir));
@@ -940,10 +963,27 @@ export async function createPaseoDaemon(
     projects: projectRegistry,
     installer: () => resolveFactoryInstaller(),
   });
-  workspaceRegistry = new FileBackedWorkspaceRegistry(
+  const archiveScheduleStore = new ScheduleStore(path.join(config.paseoHome, "schedules"), logger);
+  const assertArchiveAllowed = async (workspaceId: string): Promise<void> => {
+    const workspace = await archiveWorkspaceRegistry.get(workspaceId);
+    if (workspace) assertWorkspaceUnprotected(workspace);
+    await assertWorkspaceArchiveAllowed(
+      {
+        workspaces: archiveWorkspaceRegistry,
+        schedules: archiveScheduleStore,
+        agents: agentStorage,
+      },
+      workspaceId,
+    );
+    const current = await archiveWorkspaceRegistry.get(workspaceId);
+    if (current) assertWorkspaceUnprotected(current);
+  };
+  const archiveWorkspaceRegistry = new FileBackedWorkspaceRegistry(
     path.join(config.paseoHome, "projects", "workspaces.json"),
     logger,
+    { assertArchiveAllowed },
   );
+  workspaceRegistry = archiveWorkspaceRegistry;
   const workspaceLabelService = createWorkspaceLabelService({
     paseoHome: config.paseoHome,
     workspaceRegistry,
@@ -1002,10 +1042,7 @@ export async function createPaseoDaemon(
   const initialAgentManagerState = providerSnapshotManager.getAgentManagerProviderState();
   const agentManager = new AgentManager({
     getSharedProviderConfig: () => daemonConfigStore.get(),
-    assertWorkspaceArchiveAllowed: async (workspaceId) => {
-      const workspace = await workspaceRegistry.get(workspaceId);
-      if (workspace) assertWorkspaceUnprotected(workspace);
-    },
+    assertWorkspaceArchiveAllowed: assertArchiveAllowed,
     pluginLifecycle: pluginRuntime,
     clients: initialAgentManagerState.clients,
     providerDefinitions: initialAgentManagerState.providerDefinitions,
@@ -1449,10 +1486,29 @@ export async function createPaseoDaemon(
   const canDispatchFactory = () =>
     pluginRuntime.isBuiltinPluginLoaded === loadedBuiltin &&
     loadedBuiltin.call(pluginRuntime, "factory");
+  const factoryScheduleInspection = createFactoryScheduleInspection();
   const governedRuntime = await dependencies.createGovernedScheduleRuntime?.({
     hostId: serverId,
     paseoHome: config.paseoHome,
     store: governorStore,
+    factoryStage: createFactoryStageNativeRuntime(governorStore),
+    factoryProfiles: {
+      capture: (input) =>
+        captureFactoryWorkerProfile({
+          ...input,
+          readSettings: () => daemonConfigStore.get(),
+        }),
+    },
+    factorySchedules: { inspect: factoryScheduleInspection.inspect },
+    factoryAccountPolicy: {
+      create: ({ providerId, ...input }) =>
+        createFactoryPrepaidPolicyApplication({
+          ...input,
+          store: governorStore,
+          readObservation: () => governorObservations.read(providerId),
+          nowMs: Date.now,
+        }),
+    },
     factoryInstallation: {
       create: createNativeFactoryInstallStartup({
         serverId,
@@ -1520,6 +1576,7 @@ export async function createPaseoDaemon(
   });
   quotaReservePolling.start();
   await scheduleService.start();
+  factoryScheduleInspection.activate(scheduleService);
   agentManager.setAgentArchivedCallback(async (agentId) => {
     try {
       await scheduleService.completeForAgent(agentId);
@@ -1840,6 +1897,7 @@ export async function createPaseoDaemon(
               daemonConfigStore,
               mcpBaseUrl,
               {
+                coordinatorBootstrap,
                 getAllowedOrigins: () => allowedOrigins,
                 getHostnames: () => configuredHostnames,
                 daemonStatusRpc: dependencies.serverFeatureOverrides?.daemonStatusRpc,
@@ -1948,6 +2006,7 @@ export async function createPaseoDaemon(
       speechService.start();
       scriptHealthMonitor.start();
     } catch (error) {
+      factoryScheduleInspection.revoke();
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
       unsubscribePluginProviders();
@@ -1987,6 +2046,7 @@ export async function createPaseoDaemon(
   };
 
   const stop = async () => {
+    factoryScheduleInspection.revoke();
     quotaPreflight.stop();
     // Close ingress before waiting for metadata processes or other teardown.
     wsServer?.prepareForShutdown();

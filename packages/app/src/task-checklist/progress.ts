@@ -4,13 +4,17 @@ import type { Agent } from "@/stores/session-store";
 export interface ChecklistProgress {
   completed: number;
   total: number;
+  active: number;
 }
 
 export function checklistProgress(tasks: readonly TodoEntry[]): ChecklistProgress {
-  return {
-    completed: tasks.filter((task) => task.completed || task.status === "completed").length,
-    total: tasks.length,
-  };
+  let completed = 0;
+  let active = 0;
+  for (const task of tasks) {
+    if (task.completed || task.status === "completed") completed++;
+    else if (task.status === "in_progress") active++;
+  }
+  return { completed, active, total: tasks.length };
 }
 
 /** Sum items, not thread percentages. Task IDs belong to their own thread. */
@@ -19,7 +23,7 @@ export function workspaceChecklistProgress(
   workspaceId: string,
   pendingArchive: ReadonlySet<string>,
 ): ChecklistProgress {
-  const progress = { completed: 0, total: 0 };
+  const progress = { completed: 0, active: 0, total: 0 };
   for (const agent of agents) {
     if (agent.workspaceId !== workspaceId || agent.archivedAt || pendingArchive.has(agent.id)) {
       continue;
@@ -27,6 +31,7 @@ export function workspaceChecklistProgress(
     const thread = checklistProgress(agent.tasks ?? []);
     progress.completed += thread.completed;
     progress.total += thread.total;
+    progress.active += thread.active;
   }
   return progress;
 }

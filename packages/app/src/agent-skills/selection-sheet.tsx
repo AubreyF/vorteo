@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
@@ -122,7 +123,7 @@ export function SkillSelectionSheet({
 
   const footer = useMemo(
     () => (
-      <View style={styles.footer}>
+      <ActionFooter style={styles.footer}>
         <Button
           style={styles.footerButton}
           variant="secondary"
@@ -142,7 +143,7 @@ export function SkillSelectionSheet({
             ? t("settings.host.skills.actions.saving")
             : t("settings.host.skills.actions.save")}
         </Button>
-      </View>
+      </ActionFooter>
     ),
     [handleDismiss, handleSave, isSaving, t],
   );
@@ -257,7 +258,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[3],
   },
   footerButton: {
-    flex: 1,
+    flexShrink: 0,
   },
   checkboxRow: {
     justifyContent: "flex-start",

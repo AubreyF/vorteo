@@ -1,7 +1,10 @@
+import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
+import { TaskCard, TaskCardHeader, TaskCardActions } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { Text, View } from "react-native";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Pause, Play, Trash2, Pencil } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
@@ -18,6 +21,8 @@ interface GoalBarProps {
 
 export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
   const touch = useVortonTouch();
+  const [expanded, setExpanded] = useState(true);
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
   const mutate = control.mutate;
   const toggle = useCallback(() => {
@@ -36,19 +41,21 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
   const label = goalBarLabel(control);
 
   return (
-    <View style={taskCardStyles.container} testID="agent-goal-bar">
-      <View
-        style={[
-          taskCardStyles.header,
-          touch && taskCardStyles.touchHeader,
-          !touch && styles.actionInset,
-        ]}
-      >
-        <View style={styles.copy}>
-          <Text style={taskCardStyles.heading}>{label}</Text>
-        </View>
-        {goal ? <Text style={styles.elapsed}>{formatGoalElapsed(elapsed)}</Text> : null}
-        <View style={taskCardStyles.actions}>
+    <TaskCard testID="agent-goal-bar" bodyVisible={expanded}>
+      <TaskCardHeader>
+        <TaskCardIcon kind="goal" />
+        <CardDisclosure
+          title={label}
+          expanded={expanded}
+          onPress={toggleExpanded}
+          testID="agent-goal-toggle"
+        />
+        {goal ? (
+          <Text style={styles.elapsed} numberOfLines={1}>
+            {formatGoalElapsed(elapsed)}
+          </Text>
+        ) : null}
+        <TaskCardActions>
           <Button
             variant="ghost"
             size="sm"
@@ -79,43 +86,46 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
             loading={control.pending}
             onPress={toggle}
           />
-        </View>
-      </View>
-      <Text style={styles.objective} numberOfLines={2} selectable>
-        {goal?.objective}
-      </Text>
-      {queueError ? (
-        <View style={styles.errorRow}>
-          <Text accessibilityRole="alert" style={styles.error}>
-            {queueGoalRecoveryMessage(queueError)}
-          </Text>
-          <Button
-            variant="default"
-            size="sm"
-            style={[styles.recoveryAction, touch && styles.touch]}
-            testID="agent-goal-review"
-            onPress={onExpand}
-          >
-            Review goal
-          </Button>
-        </View>
-      ) : null}
-      {control.error ? (
-        <View style={styles.errorRow}>
-          <Text accessibilityRole="alert" style={styles.error}>
-            {control.error}
-          </Text>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!control.connected || control.refreshing}
-            onPress={control.refresh}
-          >
-            Refresh
-          </Button>
-        </View>
-      ) : null}
-    </View>
+        </TaskCardActions>
+      </TaskCardHeader>
+
+      <CollapsibleCardBody expanded={expanded} testID="agent-goal-body">
+        <Text style={styles.objective} selectable>
+          {goal?.objective}
+        </Text>
+        {queueError ? (
+          <View style={styles.errorRow}>
+            <Text accessibilityRole="alert" style={styles.error}>
+              {queueGoalRecoveryMessage(queueError)}
+            </Text>
+            <Button
+              variant="default"
+              size="sm"
+              style={[styles.recoveryAction, touch && styles.touch]}
+              testID="agent-goal-review"
+              onPress={onExpand}
+            >
+              Review goal
+            </Button>
+          </View>
+        ) : null}
+        {control.error ? (
+          <View style={styles.errorRow}>
+            <Text accessibilityRole="alert" style={styles.error}>
+              {control.error}
+            </Text>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!control.connected || control.refreshing}
+              onPress={control.refresh}
+            >
+              Refresh
+            </Button>
+          </View>
+        ) : null}
+      </CollapsibleCardBody>
+    </TaskCard>
   );
 }
 
@@ -143,7 +153,6 @@ const styles = StyleSheet.create((theme) => ({
   objective: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   elapsed: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   touch: { minWidth: 44, minHeight: 44 },
-  actionInset: { paddingRight: theme.spacing[1] },
   errorRow: { alignItems: "flex-start", gap: theme.spacing[1] },
   recoveryAction: { alignSelf: "flex-end" },
   error: { alignSelf: "stretch", color: theme.colors.destructive, fontSize: theme.fontSize.sm },

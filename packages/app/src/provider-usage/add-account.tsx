@@ -169,8 +169,9 @@ function AccountForm({
         <Text style={styles.text}>{state.account.name} added.</Text>
         {readExecutionInstallation() ? (
           <Text style={styles.text}>
-            Shared across environments. Sign in below for this environment; other environments show
-            their own sign-in status.
+            {props.provider === "claude"
+              ? "Sign in once below. This Claude connection is shared by Host and Dev, unless you exclude an environment."
+              : "Shared across environments. Sign in below for this environment; other environments show their own sign-in status."}
           </Text>
         ) : null}
         <ProviderLoginPanel

@@ -5,6 +5,7 @@ import {
   readInstallationProviders,
   mergeInstallationProviders,
   projectInstallationProviders,
+  installationAccountBindingsComplete,
 } from "./providers.js";
 const accountId = "ef227b47-c914-4d5b-bd92-2e50d784407b";
 const host: ProviderOverrides = {
@@ -27,6 +28,23 @@ const dev: ProviderOverrides = {
     options: { local: "dev" },
   },
 };
+
+test("only explicit exclusions or disabled accounts waive a required account binding", () => {
+  const definitions = readInstallationProviders("host", host);
+  const definition = definitions[0];
+  expect(installationAccountBindingsComplete(definitions, "host")).toBe(true);
+  expect(installationAccountBindingsComplete(definitions, "dev")).toBe(false);
+  expect(installationAccountBindingsComplete(definitions, "dev", [definition.id])).toBe(true);
+  expect(installationAccountBindingsComplete([{ ...definition, removed: true }], "dev")).toBe(true);
+  expect(
+    installationAccountBindingsComplete(
+      [{ ...definition, policy: { ...definition.policy, enabled: false } }],
+      "dev",
+    ),
+  ).toBe(true);
+  const plugin = { ...definition, accountId: undefined, providerType: "plugin-agent" };
+  expect(installationAccountBindingsComplete([plugin], "dev")).toBe(true);
+});
 test("verified accounts share one portable definition while credentials and runtime state remain local", () => {
   const observed = {
     host: readInstallationProviders("host", host),

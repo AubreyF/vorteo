@@ -1,21 +1,17 @@
+import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
+import { CardHeaderStatus } from "@/components/ui/card-header-status";
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { CountBadge } from "@/components/ui/count-badge";
 import { QueueMessageIndicator } from "./queue-indicator";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
-import { isNative } from "@/constants/platform";
+import { ListDragHandle } from "@/components/list-drag-handle";
 import { QueueDragScrollContext } from "./drag-scroll";
 import { queueReorderAction } from "./reorder";
 import { SharedQueueAttachments } from "./shared-attachments";
 import { QueueAttachmentSummary } from "./attachment-summary";
-import {
-  ArrowUp,
-  Pencil,
-  RotateCw,
-  Play,
-  Pause,
-  MoreHorizontal,
-  GripVertical,
-} from "lucide-react-native";
+import { ArrowUp, Pencil, RotateCw, Play, Pause, MoreHorizontal } from "lucide-react-native";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   DropdownMenu,
@@ -24,8 +20,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { isQueueGoalError } from "./goal-error";
-import { useCallback, useState, useRef, useContext, useEffect, type Ref } from "react";
-import { Text, View, Pressable } from "react-native";
+import { useCallback, useState, useRef, useContext, useEffect, useMemo } from "react";
+import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import type { QueueItem } from "@getpaseo/protocol/message-queue";
@@ -34,7 +30,9 @@ import { QueueEditDraftProvider, useQueueEditDrafts } from "./edit-draft-context
 import { reviewRejectedQueueEdit } from "./edit-draft-runtime";
 import { lazy, Suspense } from "react";
 const QueueEditEditor = lazy(() =>
-  import("./edit-editor").then((module) => ({ default: module.QueueEditEditor })),
+  import("./edit-editor").then((module) => ({
+    default: module.QueueEditEditor,
+  })),
 );
 import { type MessageQueueControl } from "./use-message-queue";
 import { canKeepRejectedChange, type OutboxRecord } from "./outbox-record";
@@ -90,6 +88,8 @@ function QueueViewContent({
   control: MessageQueueControl;
   goalErrorHandled?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(true);
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const edits = useQueueEditDrafts();
   const snapshot = control.snapshot;
   if (
@@ -97,82 +97,109 @@ function QueueViewContent({
     (!showSharedQueue(control, goalErrorHandled) && !edits.drafts.length && !edits.error)
   )
     return null;
-  const hasMessages = hasQueueMessages(control);
-  const hasRows =
-    !!snapshot?.items.length ||
-    control.pending.some((record) => record.operation.kind === "enqueue");
   const recovery = control.pending.filter((record) => {
     const operation = record.operation;
-    if (operation.kind !== "enqueue") return true;
+    if (operation.kind !== "enqueue") return !!record.error || !!record.dismissed;
     return !!record.error && !!snapshot?.items.some((item) => item.id === operation.messageId);
   });
   return (
-    <View
-      style={hasMessages ? taskCardStyles.container : undefined}
-      testID={hasMessages ? "shared-message-queue" : "queue-recovery-status"}
-    >
-      {hasMessages ? <QueueHeader control={control} /> : null}
-      {!(goalErrorHandled && isQueueGoalError(snapshot?.deliveryError)) ? (
-        <QueueDeliveryError control={control} />
-      ) : null}
-      {edits.error ? (
-        <Text style={styles.error} accessibilityRole="alert">
-          {edits.error.message}
-        </Text>
-      ) : null}
-      {control.loading ? <Text style={styles.secondary}>Loading queue...</Text> : null}
-      {control.error ? (
-        <View style={styles.row}>
+    <TaskCard testID="shared-message-queue" bodyVisible={expanded}>
+      <TaskCardHeader testID="message-queue-header">
+        <QueueHeader control={control} expanded={expanded} toggleExpanded={toggleExpanded} />
+      </TaskCardHeader>
+
+      <CollapsibleCardBody expanded={expanded} testID="message-queue-body">
+        {!(goalErrorHandled && isQueueGoalError(snapshot?.deliveryError)) ? (
+          <QueueDeliveryError control={control} />
+        ) : null}
+        {edits.error ? (
           <Text style={styles.error} accessibilityRole="alert">
-            {control.error}
+            {edits.error.message}
           </Text>
-          <Button variant="ghost" size="sm" style={styles.inlineAction} onPress={control.refresh}>
-            Retry
-          </Button>
+        ) : null}
+        {control.error ? (
+          <View style={styles.row}>
+            <Text style={styles.error} accessibilityRole="alert">
+              {control.error}
+            </Text>
+            <Button variant="ghost" size="sm" style={styles.inlineAction} onPress={control.refresh}>
+              Retry
+            </Button>
+          </View>
+        ) : null}
+        <View>
+          <QueueRows control={control} serverId={serverId} agentId={agentId} />
+          {recovery.map((record) => (
+            <PendingRow key={record.operation.operationId} record={record} control={control} />
+          ))}
         </View>
-      ) : null}
-      <View>
-        <QueueRows control={control} serverId={serverId} agentId={agentId} />
-        {recovery.map((record, index) => (
-          <PendingRow
-            key={record.operation.operationId}
-            record={record}
-            control={control}
-            separated={index > 0 || hasRows}
-          />
-        ))}
-      </View>
-    </View>
+      </CollapsibleCardBody>
+    </TaskCard>
   );
 }
 
-function QueueHeader({ control }: { control: MessageQueueControl }) {
+function QueueHeader({
+  control,
+  expanded,
+  toggleExpanded,
+}: {
+  control: MessageQueueControl;
+  expanded: boolean;
+  toggleExpanded: () => void;
+}) {
+  const countBadge = useMemo(() => <QueueCountBadge control={control} />, [control]);
   const touch = useVortonTouch();
   const snapshot = control.snapshot;
+  const pending = control.pending.filter(
+    (record) =>
+      !record.error &&
+      !record.dismissed &&
+      record.operation.kind !== "enqueue" &&
+      record.operation.kind !== "reorder",
+  );
+  const operation = pending[0];
+  let status: string | null = null;
+  if (snapshot?.paused) status = "Paused";
+  if (!control.connected) status = "Offline";
+  if (control.loading) status = "Loading queue...";
+  if (operation) {
+    status =
+      operation.operation.kind === "edit" ? "Saving message" : describePendingChange(operation);
+    if (pending.length > 1) status += ` (+${pending.length - 1})`;
+  }
   const toggle = useCallback(() => {
     if (snapshot)
       void control
-        .mutate({ kind: "pause", paused: !snapshot.paused, expectedRevision: snapshot.revision })
+        .mutate({
+          kind: "pause",
+          paused: !snapshot.paused,
+          expectedRevision: snapshot.revision,
+        })
         .catch(() => {});
   }, [control, snapshot]);
   return (
-    <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-      <Text style={taskCardStyles.heading}>Message queue</Text>
-      <QueueCountBadge control={control} />
-      <View style={styles.heading} />
-      {!control.connected ? <Text style={styles.secondary}>Offline</Text> : null}
-      {control.connected && snapshot?.paused ? <Text style={styles.secondary}>Paused</Text> : null}
+    <>
+      <TaskCardIcon kind="messages" />
+      <CardDisclosure
+        title="Messages"
+        expanded={expanded}
+        onPress={toggleExpanded}
+        compact
+        testID="message-queue-toggle"
+        count={countBadge}
+      />
+      <CardHeaderStatus text={status} testID="message-queue-header-status" />
       <Button
         variant="ghost"
         size="sm"
         accessibilityLabel={snapshot?.paused ? "Resume queue" : "Pause queue"}
         testID="message-queue-pause-resume"
         leftIcon={snapshot?.paused ? Play : Pause}
-        style={touch && styles.touch}
+        style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
         disabled={!control.canMutate || !snapshot}
         onPress={toggle}
       />
-    </View>
+    </>
   );
 }
 
@@ -193,7 +220,7 @@ function QueueRows({
   agentId: string;
 }) {
   const snapshot = control.snapshot;
-  const [preview, setPreview] = useState<{ revision: number; items: QueueItem[] } | null>(null);
+  const [savingOrder, setSavingOrder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedRevision = useRef<number | null>(null);
   const edits = useQueueEditDrafts();
@@ -204,7 +231,7 @@ function QueueRows({
     control.canMutate &&
     !edits.drafts.length &&
     !control.pending.some((record) => record.operation.kind === "enqueue") &&
-    !preview &&
+    !savingOrder &&
     !!snapshot &&
     snapshot.items.length > 1 &&
     snapshot.items.every((item) => item.delivery.status === "queued");
@@ -221,11 +248,8 @@ function QueueRows({
       try {
         const action = queueReorderAction(snapshot, startedRevision.current, items);
         if (!action) return;
-        setPreview({ revision: snapshot.revision, items });
-        void control
-          .mutate(action)
-          .catch(() => {})
-          .finally(() => setPreview(null));
+        setSavingOrder(true);
+        return control.mutate(action).finally(() => setSavingOrder(false));
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : "Could not reorder the queue.");
       }
@@ -236,7 +260,6 @@ function QueueRows({
     (info: DraggableRenderItemInfo<QueueDisplayItem>) => (
       <QueueRow
         item={info.item}
-        index={info.index}
         control={control}
         serverId={serverId}
         agentId={agentId}
@@ -246,10 +269,7 @@ function QueueRows({
     ),
     [control, serverId, agentId, enabled],
   );
-  const queuedItems =
-    preview && preview.revision === snapshot?.revision
-      ? preview.items
-      : (snapshot?.items ?? EMPTY_QUEUE_ITEMS);
+  const queuedItems = snapshot?.items ?? EMPTY_QUEUE_ITEMS;
   const items = [...queuedItems];
   for (const draft of edits.drafts) {
     if (!items.some((item) => item.id === draft.original.id)) items.push(draft.original);
@@ -286,43 +306,6 @@ function QueueRows({
   );
 }
 
-// A plain web activator lets dnd-kit own Space/arrow keys without a Pressable
-// consuming the key event first. Native still uses press-in to acquire the drag.
-const DragHandleSurface = isNative ? Pressable : View;
-
-function QueueDragHandle({
-  info,
-  disabled,
-}: {
-  info: DraggableRenderItemInfo<QueueDisplayItem>;
-  disabled: boolean;
-}) {
-  const touch = useVortonTouch();
-  const handle = disabled ? undefined : info.dragHandleProps;
-  return (
-    <DragHandleSurface
-      {...handle?.attributes}
-      {...handle?.listeners}
-      ref={handle?.setActivatorNodeRef as Ref<View> | undefined}
-      onPressIn={isNative && !disabled ? info.drag : undefined}
-      tabIndex={disabled ? -1 : 0}
-      accessibilityRole="button"
-      accessibilityLabel="Reorder queued message"
-      accessibilityHint="Drag to change the message order."
-      aria-disabled={disabled}
-      testID={`queue-drag-${info.item.id}`}
-      style={[
-        styles.dragHandle,
-        touch && styles.touch,
-        info.isActive && styles.dragGrabbing,
-        disabled && styles.dragDisabled,
-      ]}
-    >
-      <ThemedGrip size={14} uniProps={mutedIconMapping} />
-    </DragHandleSurface>
-  );
-}
-
 function QueueCountBadge({ control }: { control: MessageQueueControl }) {
   const count = control.snapshot?.items.length ?? 0;
   return (
@@ -331,15 +314,6 @@ function QueueCountBadge({ control }: { control: MessageQueueControl }) {
       accessibilityLabel={`${count} queued messages`}
       testID="message-queue-card-count"
     />
-  );
-}
-
-function hasQueueMessages(control: MessageQueueControl): boolean {
-  return Boolean(
-    control.snapshot?.items.length ||
-    control.pending.some(
-      ({ operation }) => operation.kind === "enqueue" || operation.kind === "edit",
-    ),
   );
 }
 
@@ -360,7 +334,11 @@ function QueueDeliveryError({ control }: { control: MessageQueueControl }) {
   const retry = useCallback(() => {
     if (!snapshot) return;
     void control
-      .mutate({ kind: "pause", paused: false, expectedRevision: snapshot.revision })
+      .mutate({
+        kind: "pause",
+        paused: false,
+        expectedRevision: snapshot.revision,
+      })
       .catch(() => {});
   }, [control, snapshot]);
   if (!snapshot?.deliveryError) return null;
@@ -384,18 +362,10 @@ function QueueDeliveryError({ control }: { control: MessageQueueControl }) {
   );
 }
 
-function PendingRow({
-  record,
-  control,
-  separated,
-}: {
-  record: OutboxRecord;
-  control: MessageQueueControl;
-  separated: boolean;
-}) {
+function PendingRow({ record, control }: { record: OutboxRecord; control: MessageQueueControl }) {
   const attachments = pendingAttachments(record);
   return (
-    <View style={[taskCardStyles.item, separated && taskCardStyles.separator]}>
+    <View style={taskCardStyles.item}>
       <View style={styles.summary}>
         <QueueMessageIndicator record={record} />
         <QueueAttachmentSummary
@@ -450,11 +420,13 @@ function PendingRecovery({
   }, [record, control]);
   return (
     <View>
-      {record.error ? <Text style={styles.secondary}>Could not synchronize</Text> : null}
+      {record.error && !record.dismissed ? (
+        <Text style={styles.secondary}>Could not synchronize</Text>
+      ) : null}
       {record.dismissed ? (
         <Text style={styles.secondary}>Kept locally. This change will not be sent.</Text>
       ) : null}
-      {record.error ? (
+      {record.error && !record.dismissed ? (
         <Text style={styles.error} accessibilityRole="alert">
           {record.error.message}
         </Text>
@@ -549,7 +521,6 @@ function QueueRow({
   serverId,
   agentId,
   item: row,
-  index,
   control,
   dragInfo,
   reorderEnabled,
@@ -557,7 +528,6 @@ function QueueRow({
   serverId: string;
   agentId: string;
   item: QueueDisplayItem;
-  index: number;
   control: MessageQueueControl;
   dragInfo: DraggableRenderItemInfo<QueueDisplayItem>;
   reorderEnabled: boolean;
@@ -581,17 +551,20 @@ function QueueRow({
   const toggleDetails = useCallback(() => setDetails((value) => !value), []);
   return (
     <View
-      style={[
-        taskCardStyles.item,
-        index > 0 && taskCardStyles.separator,
-        dragInfo.isActive && styles.dragActive,
-      ]}
+      style={[taskCardStyles.item, dragInfo.isActive && styles.dragActive]}
       testID={`queue-message-${row.id}`}
     >
       {!editing.length ? (
         <View style={styles.summary}>
           <QueueMessageIndicator record={record}>
-            {item ? <QueueDragHandle info={dragInfo} disabled={!reorderEnabled} /> : null}
+            {item ? (
+              <ListDragHandle
+                info={dragInfo}
+                disabled={!reorderEnabled}
+                label="Reorder queued message"
+                testID={`queue-drag-${row.id}`}
+              />
+            ) : null}
           </QueueMessageIndicator>
           <QueueAttachmentSummary
             count={attachments.length}
@@ -682,7 +655,11 @@ function QueueActions({
   const blocked = item.delivery.status === "uncertain" || item.delivery.status === "failed";
   const remove = useCallback(() => {
     void control
-      .mutate({ kind: "delete", messageId: item.id, expectedRevision: item.revision })
+      .mutate({
+        kind: "delete",
+        messageId: item.id,
+        expectedRevision: item.revision,
+      })
       .catch(() => {});
   }, [control, item]);
   const retry = useCallback(() => {
@@ -710,7 +687,7 @@ function QueueActions({
       <QueuePrimaryActions
         queued={queued}
         canMutate={control.canMutate}
-        sendRequested={!!item.sendNow}
+        sendRequested={!control.canSendNow}
         edit={edit}
         sendNow={sendNow}
       />
@@ -791,19 +768,36 @@ function QueuePrimaryActions({
   );
 }
 
-const ThemedGrip = withUnistyles(GripVertical);
 const ThemedMore = withUnistyles(MoreHorizontal);
-const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const mutedIconMapping = (theme: Theme) => ({
+  color: theme.colors.foregroundMuted,
+});
 
 const styles = StyleSheet.create((theme) => ({
-  row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: theme.spacing[1] },
-  summary: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
+  row: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  summary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
   summaryText: { flex: 1, minWidth: 0 },
   heading: {
     flex: 1,
   },
-  secondary: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
-  error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm, flexShrink: 1 },
+  secondary: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+  },
+  error: {
+    color: theme.colors.destructive,
+    fontSize: theme.fontSize.sm,
+    flexShrink: 1,
+  },
   touch: { minHeight: 44, minWidth: 44 },
   inlineAction: { minHeight: 44, alignSelf: "flex-start" },
   menuTrigger: {
@@ -813,18 +807,12 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
     borderRadius: theme.borderRadius.full,
   },
-  dragHandle: {
-    width: 24,
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    _web: { cursor: "grab" },
-    touchAction: "none",
-  },
-  dragGrabbing: { _web: { cursor: "grabbing" } },
-  dragDisabled: { opacity: 0.35, _web: { cursor: "auto" } },
   dragActive: { backgroundColor: theme.colors.surface2 },
-  editorActions: { flexDirection: "row", justifyContent: "flex-end", gap: theme.spacing[2] },
+  editorActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: theme.spacing[2],
+  },
   editor: { gap: theme.spacing[2], paddingTop: theme.spacing[2] },
   input: {
     color: theme.colors.foreground,

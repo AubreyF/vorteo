@@ -1,3 +1,6 @@
+import { parseLifecycleJournal } from "./lifecycle-journal.js";
+import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
+import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import {
   SkillSourceSchema,
   InstallationSkillSchema,
@@ -21,7 +24,6 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import {
   SourceUpdateSchema,
-  RestartJobSchema,
   type RestartJob,
   RestartRequestSchema,
   RestartDecisionSchema,
@@ -80,7 +82,12 @@ function restartReply(
   sourceBatches = false,
   containerSourceUpdates = false,
   supervisorMaintenance = false,
+  hostAutomaticRestarts = false,
 ) {
+  if (!hostAutomaticRestarts) {
+    const { automaticApproval: _approval, ...compatible } = job;
+    job = compatible;
+  }
   // COMPAT(supervisorMaintenance): keep strict old clients readable, but never accept their approval.
   if (job.supervisorPlanSha256 && !supervisorMaintenance) {
     const { supervisorPlanSha256: _plan, ...compatible } = job;
@@ -148,6 +155,11 @@ function restartReply(
   return { ...legacy, expiresAt: "9999-12-31T23:59:59.999Z" };
 }
 
+export interface InstallationStartupFence {
+  generation: string;
+  released(): boolean;
+}
+
 export function createInstallationServer(
   config: InstallationConfig,
   executor: RestartExecutor,
@@ -156,6 +168,8 @@ export function createInstallationServer(
   settings: InstallationSettingsService = createInstallationSettings(config),
   resolvePluginSource: InstallationPluginSourceResolver = (input) =>
     resolveInstallationPluginSource(config, input),
+  claudeSetup?: ClaudeSetupRuntime,
+  startupFence?: InstallationStartupFence,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const journal = path.join(config.stateDir, "restart-jobs.json");
@@ -182,9 +196,7 @@ export function createInstallationServer(
   const restarts = new InstallationRestarts(
     {
       read: () =>
-        existsSync(journal)
-          ? z.array(RestartJobSchema).parse(JSON.parse(readFileSync(journal, "utf8")))
-          : [],
+        existsSync(journal) ? parseLifecycleJournal(JSON.parse(readFileSync(journal, "utf8"))) : [],
       write: (jobs) => {
         writePrivateFileAtomicSync(journal, JSON.stringify(jobs));
         // Finish the receipt and directory rename before dispatching a disruption.
@@ -199,11 +211,22 @@ export function createInstallationServer(
       },
     },
     restartExecutor,
+    Date.now,
+    config.restartApprovalPolicy,
+    { fenced: startupFence !== undefined },
   );
-  const drainRestarts = () =>
-    restarts
-      .drain()
-      .catch((error) => logger.error({ err: error }, "Installation restart journal failed"));
+  const startupReleased = () => {
+    if (startupFence && !startupFence.released()) return false;
+    restarts.activate();
+    return true;
+  };
+  const drainRestarts = async () => {
+    try {
+      if (startupReleased()) await restarts.drain();
+    } catch {
+      logger.error("Installation restart journal or startup fence failed");
+    }
+  };
   const sessions = new OwnerSessions(path.join(config.stateDir, "owner-sessions.json"));
   const secureCookies = new URL(config.public.origin).protocol === "https:";
   const cookieName = secureCookies ? "__Host-vorteo-owner" : "vorteo-owner";
@@ -256,6 +279,23 @@ export function createInstallationServer(
     res.setHeader("Cache-Control", "no-store");
     next();
   });
+  app.use((req, res, next) => {
+    try {
+      if (startupReleased()) return next();
+      if (req.method === "GET" && req.path === "/api/installation/health") {
+        res.json({
+          installationId: config.public.installationId,
+          bootstrap: { generation: startupFence!.generation, pid: process.pid, fenced: true },
+        });
+        return;
+      }
+      res
+        .status(503)
+        .json({ error: "Coordinator maintenance is verifying startup. Try again shortly." });
+    } catch {
+      res.status(503).json({ error: "Coordinator startup requires installation recovery." });
+    }
+  });
   let uploads = 0;
   function authenticateUpdate(req: Request, res: Response, next: NextFunction) {
     const token = extractHttpBearerToken(req.header("authorization"));
@@ -287,6 +327,13 @@ export function createInstallationServer(
       config.hostAgentTokenHash,
     );
     const supervisorPlan = host ? executor.supervisorPlan?.() : undefined;
+    const automaticHost = Boolean(
+      config.restartApprovalPolicy &&
+      executor.inspect &&
+      executor.holdCurrentTurns &&
+      executor.releaseCurrentTurns &&
+      executor.restartWhenIdle,
+    );
     void Promise.all(
       (["host", "container-daemon"] as const).map(async (target) => ({
         target,
@@ -298,7 +345,17 @@ export function createInstallationServer(
         res.json({
           version: 1,
           targets,
-          ownerApprovalRequired: true,
+          ownerApprovalRequired: !host || !automaticHost,
+          hostAutomaticRestarts: automaticHost,
+          nativeHelper: {
+            available: Boolean(
+              host &&
+              executor.validateHelperPlan &&
+              executor.installHelper &&
+              executor.verifyHelperRecovery,
+            ),
+            ownerApprovalRequired: true,
+          },
           supervisorMaintenance: {
             available: Boolean(supervisorPlan && executor.restartSupervisor),
             ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
@@ -420,7 +477,19 @@ export function createInstallationServer(
           input.contributionId,
           input.replaces,
         );
-        res.status(201).json(receipt);
+        res.status(201).json({
+          ...receipt,
+          batch: restartReply(
+            receipt.batch,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            req.query.hostAutomaticRestarts === "1",
+          ),
+        });
         void drainRestarts();
       } else res.status(201).json(restarts.request(input.request, requester, input.update));
     },
@@ -431,7 +500,19 @@ export function createInstallationServer(
       res.sendStatus(404);
       return;
     }
-    res.json(receipt);
+    res.json({
+      ...receipt,
+      batch: restartReply(
+        receipt.batch,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        req.query.hostAutomaticRestarts === "1",
+      ),
+    });
   });
   app.use(express.json({ limit: "1mb" }));
   app.get("/api/installation/health", (_req, res) =>
@@ -441,7 +522,18 @@ export function createInstallationServer(
   // Only counts are public. Reasons and task identities require owner access.
   app.get("/api/installation/restart-summary", (_req, res) => {
     const jobs = restarts.list();
+    const helpers = restarts.listHelpers();
     res.json({
+      ...(helpers.length
+        ? {
+            nativeHelper: {
+              requested: helpers.filter((job) => job.status === "pending").length,
+              queued: helpers.filter((job) => job.status === "approved").length,
+              running: helpers.filter((job) => job.status === "running").length,
+              recovery: helpers.filter((job) => job.stage === "recovery_required").length,
+            },
+          }
+        : {}),
       requested: jobs.filter((job) => job.status === "pending").length,
       queued: jobs.filter((job) => job.status === "approved").length,
       running: jobs.filter((job) => job.status === "running").length,
@@ -497,6 +589,34 @@ export function createInstallationServer(
   });
 
   // Request-only credentials never authorize login, approval, delegation, or another daemon.
+  app.get("/api/installation/helper-requests/:id", (req, res) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (!matchesToken(token, config.hostAgentTokenHash)) {
+      res.sendStatus(401);
+      return;
+    }
+    const job = restarts.listHelpers().find((entry) => entry.id === req.params.id);
+    if (!job) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(job);
+  });
+  app.post("/api/installation/helper-requests", (req, res, next) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (!matchesToken(token, config.hostAgentTokenHash)) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!executor.validateHelperPlan || !executor.installHelper || !executor.verifyHelperRecovery) {
+      res.status(503).json({ error: "Native helper maintenance is unavailable" });
+      return;
+    }
+    void restarts
+      .prepareHelper(req.body, "host-agent")
+      .then((job) => res.status(201).json(job), next);
+  });
+
   app.post("/api/installation/restart-requests", (req, res) => {
     const token = extractHttpBearerToken(req.header("authorization"));
     let requestedBy: "host-agent" | "container-agent";
@@ -507,7 +627,20 @@ export function createInstallationServer(
       return;
     }
     const job = restarts.request(RestartRequestSchema.parse(req.body), requestedBy);
-    res.status(201).json(job);
+    res
+      .status(201)
+      .json(
+        restartReply(
+          job,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          req.query.hostAutomaticRestarts === "1",
+        ),
+      );
   });
 
   app.get("/api/installation/restart-requests/:id", (req, res) => {
@@ -525,7 +658,18 @@ export function createInstallationServer(
       res.sendStatus(404);
       return;
     }
-    res.json(restartReply(job, true, true, true, req.query.sourceBatches === "1", true));
+    res.json(
+      restartReply(
+        job,
+        true,
+        true,
+        true,
+        req.query.sourceBatches === "1",
+        true,
+        true,
+        req.query.hostAutomaticRestarts === "1",
+      ),
+    );
   });
 
   app.post("/api/installation/container-agents", (req, res, next) => {
@@ -595,6 +739,18 @@ export function createInstallationServer(
       }
     })();
   });
+  app.post("/api/installation/owner/helpers/query", (_req, res) => {
+    res.json({ jobs: restarts.listHelpers() });
+  });
+  app.post("/api/installation/owner/helpers/decision", (req, res) => {
+    const job = restarts.decideHelper(req.body);
+    res.json(job);
+    void restarts.drain().catch(() => logger.error("Helper lifecycle journal failed"));
+  });
+  app.post("/api/installation/owner/helpers/verify-installed", (req, res, next) => {
+    void restarts.verifyHelperRecovery(req.body).then((job) => res.json(job), next);
+  });
+  if (claudeSetup) mountClaudeSetupRoutes(app, claudeSetup);
   app.post("/api/installation/owner/lock", (req, res) => {
     sessions.revoke(sessionToken(req));
     res.clearCookie(cookieName, cookieOptions);
@@ -719,6 +875,7 @@ export function createInstallationServer(
             req.query.sourceBatches === "1",
             req.query.containerSourceUpdates === "1",
             req.query.supervisorMaintenance === "1",
+            req.query.hostAutomaticRestarts === "1",
           ),
         ),
     );
@@ -744,12 +901,18 @@ export function createInstallationServer(
       reviewed?.target === "container-daemon" &&
       (reviewed.update || reviewed.sourceBatch) &&
       req.query.containerSourceUpdates !== "1" &&
-      decision.decision !== "reject"
+      decision.decision !== "reject" &&
+      decision.decision !== "cancel"
     )
       throw new RestartRequestError(
         "Reload Vorteo to review Dev source installation before approval",
       );
-    if (reviewed?.sourceBatch && req.query.sourceBatches !== "1" && decision.decision !== "reject")
+    if (
+      reviewed?.sourceBatch &&
+      req.query.sourceBatches !== "1" &&
+      decision.decision !== "reject" &&
+      decision.decision !== "cancel"
+    )
       throw new RestartRequestError(
         "Reload Vorteo to review all source contributions before approval",
       );
@@ -769,6 +932,7 @@ export function createInstallationServer(
         req.query.sourceBatches === "1",
         req.query.containerSourceUpdates === "1",
         req.query.supervisorMaintenance === "1",
+        req.query.hostAutomaticRestarts === "1",
       ),
     );
     void restarts

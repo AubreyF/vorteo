@@ -41,6 +41,11 @@ export interface ProviderSubagentRow {
 
 export type SubagentRow = PaseoSubagentRow | ProviderSubagentRow;
 
+/** Open turns are authoritative for managed workers, including turns waiting for input. */
+export function isActiveSubagent(row: SubagentRow): boolean {
+  return row.kind === "paseo" ? row.turn.phase === "open" : row.status === "running";
+}
+
 type SessionStoreSnapshot = ReturnType<typeof useSessionStore.getState>;
 type ProviderSubagentStoreSnapshot = ReturnType<typeof useProviderSubagentStore.getState>;
 

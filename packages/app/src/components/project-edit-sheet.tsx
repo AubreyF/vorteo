@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { Buffer } from "buffer";
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
@@ -93,7 +94,7 @@ export function ProjectEditSheet({
 
   const footer = useMemo(
     () => (
-      <View style={styles.footer}>
+      <ActionFooter style={styles.footer}>
         <Button
           variant="secondary"
           size="md"
@@ -114,7 +115,7 @@ export function ProjectEditSheet({
         >
           {t("settings.project.edit.save")}
         </Button>
-      </View>
+      </ActionFooter>
     ),
     [handleClose, handleSubmit, isSaving, state.canSubmit, t],
   );

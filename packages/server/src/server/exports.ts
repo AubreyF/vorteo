@@ -7,6 +7,9 @@ export { createRootLogger, type LogLevel, type LogFormat } from "./logger.js";
 export {
   loadPersistedConfig,
   savePersistedConfig,
+  mutatePersistedConfig,
+  withPersistedConfigWriter,
+  type PersistedConfigWriter,
   type PersistedConfig,
 } from "./persisted-config.js";
 export { hashDaemonPassword, isBearerTokenValidAsync } from "./auth.js";

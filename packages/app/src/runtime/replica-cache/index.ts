@@ -1,3 +1,4 @@
+import { AgentJournalEntrySchema } from "@getpaseo/protocol/agent-journal";
 import { AgentGoalStateSchema } from "@getpaseo/protocol/agent-goals";
 import { z } from "zod";
 import {
@@ -103,7 +104,7 @@ const TodoEntrySchema = z.strictObject({
   text: z.string(),
   completed: z.boolean(),
   id: z.string().optional(),
-  status: z.enum(["pending", "in_progress", "completed"]).optional(),
+  status: z.enum(["pending", "in_progress", "blocked", "completed"]).optional(),
   activeForm: z.string().optional(),
 });
 
@@ -230,6 +231,7 @@ const StoredProjectPlacementSchema = z.strictObject({
 
 const StoredAgentSnapshotSchema = z.strictObject({
   tasks: z.array(AgentTaskItemSchema).optional(),
+  journal: z.array(AgentJournalEntrySchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
   provider: AgentProviderSchema,
@@ -671,6 +673,7 @@ function serializeAgent(agent: Agent): StoredAgent {
     pendingPermissions: [],
     goalState: cachedGoalState(agent.goalState),
     tasks: agent.tasks,
+    journal: agent.journal,
     persistence: null,
     ...(agent.lastError ? { lastError: agent.lastError } : {}),
     profile: agent.profile,

@@ -10,6 +10,10 @@ import type { attachFactoryControllerObservation } from "../factory/attach-contr
 import type { createFactoryControllerObservationSource } from "../factory/create-controller-observation-source.js";
 import type { createNativeFactoryInstallStartup } from "../factory/native-install-startup.js";
 import type { NativeFactoryInstallAdapter } from "../factory/native-install-adapter.js";
+import type { FactoryStageNativeRuntime } from "../factory/governed-stage-native.js";
+import type { captureFactoryWorkerProfile } from "../factory/capture-worker-profile.js";
+import type { createFactoryScheduleInspection } from "../factory/native-schedule-inspection.js";
+import type { createFactoryPrepaidPolicyApplication } from "../factory/apply-prepaid-policy.js";
 
 import type { createFactoryCoordinatorBinder } from "../factory/create-coordinator-binder.js";
 
@@ -17,6 +21,25 @@ export interface GovernedScheduleRuntimeContext {
   hostId: string;
   paseoHome: string;
   store: QuotaGovernorStore;
+  /** Constructors from this daemon build, bound to this same governor store. */
+  factoryStage?: FactoryStageNativeRuntime;
+  /** Trusted native profile resolution only; no session creation or settings mutation. */
+  factoryProfiles?: {
+    capture(
+      input: Omit<Parameters<typeof captureFactoryWorkerProfile>[0], "readSettings">,
+    ): ReturnType<typeof captureFactoryWorkerProfile>;
+  };
+  /** Owner-side parent policy only; unavailable to schedules, workers and plugin RPC. */
+  factoryAccountPolicy?: {
+    create(
+      input: Omit<
+        Parameters<typeof createFactoryPrepaidPolicyApplication>[0],
+        "store" | "readObservation" | "nowMs"
+      > & { providerId: string },
+    ): ReturnType<typeof createFactoryPrepaidPolicyApplication>;
+  };
+  /** Read-only native facts, unavailable before service startup and revoked on shutdown. */
+  factorySchedules?: Pick<ReturnType<typeof createFactoryScheduleInspection>, "inspect">;
   readObservation(providerId: string): Promise<QuotaObservation>;
   captureClient(providerId: string): CapturedQuotaExecutionClient;
   /** Explicit adoption operation, never invoked merely by loading a runtime. */

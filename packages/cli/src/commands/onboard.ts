@@ -4,7 +4,7 @@ import { Command, Option } from "commander";
 import path from "node:path";
 import {
   readPersistedConfig as loadPersistedConfig,
-  savePersistedConfig,
+  mutatePersistedConfig,
   type PersistedConfig,
 } from "@getpaseo/server/configuration";
 import { readDaemonInstance, waitForDaemonReady } from "@getpaseo/server/daemon-control";
@@ -178,7 +178,7 @@ async function resolveAndPersistVoice(
   paseoHome: string,
   options: OnboardOptions,
 ): Promise<boolean> {
-  let persisted = loadPersistedConfig(paseoHome) as OnboardPersistedConfig;
+  const persisted = loadPersistedConfig(paseoHome) as OnboardPersistedConfig;
   const persistedVoiceSelection = resolvePersistedVoiceSelection(persisted);
   const shouldPrompt = options.voice === "ask" || options.voice === undefined;
   let voiceEnabled: boolean;
@@ -199,35 +199,39 @@ async function resolveAndPersistVoice(
     log.message(`Using saved voice setup from config (${voiceEnabled ? "enabled" : "disabled"}).`);
   }
 
-  persisted = applyVoiceSelection(persisted, voiceEnabled);
-  savePersistedConfig(paseoHome, persisted);
+  mutatePersistedConfig(paseoHome, (current) => applyVoiceSelection(current, voiceEnabled));
   return voiceEnabled;
 }
 
 function persistSetupChoices(paseoHome: string, options: OnboardOptions): void {
-  const persisted = loadPersistedConfig(paseoHome, { defaultsIfMissing: true });
-  if (options.listen || options.port) {
-    persisted.daemon = {
-      ...persisted.daemon,
-      listen: options.listen ?? `127.0.0.1:${options.port}`,
-    };
-  }
-  if (options.relay !== undefined)
-    persisted.daemon = {
-      ...persisted.daemon,
-      relay: { ...persisted.daemon?.relay, enabled: options.relay },
-    };
-  if (options.mcp !== undefined)
-    persisted.daemon = {
-      ...persisted.daemon,
-      mcp: { ...persisted.daemon?.mcp, enabled: options.mcp },
-    };
-  if (options.hostnames)
-    persisted.daemon = {
-      ...persisted.daemon,
-      hostnames: options.hostnames === "true" ? true : options.hostnames.split(","),
-    };
-  savePersistedConfig(paseoHome, persisted);
+  mutatePersistedConfig(
+    paseoHome,
+    (persisted) => {
+      if (options.listen || options.port) {
+        persisted.daemon = {
+          ...persisted.daemon,
+          listen: options.listen ?? `127.0.0.1:${options.port}`,
+        };
+      }
+      if (options.relay !== undefined)
+        persisted.daemon = {
+          ...persisted.daemon,
+          relay: { ...persisted.daemon?.relay, enabled: options.relay },
+        };
+      if (options.mcp !== undefined)
+        persisted.daemon = {
+          ...persisted.daemon,
+          mcp: { ...persisted.daemon?.mcp, enabled: options.mcp },
+        };
+      if (options.hostnames)
+        persisted.daemon = {
+          ...persisted.daemon,
+          hostnames: options.hostnames === "true" ? true : options.hostnames.split(","),
+        };
+      return persisted;
+    },
+    { defaultsIfMissing: true },
+  );
 }
 
 export async function runOnboard(options: OnboardOptions): Promise<void> {

@@ -133,7 +133,7 @@ afterEach(() => {
 });
 
 describe("workspace subagents integration", () => {
-  it("keeps a child ingested before its parent out of auto-tabs, then exposes it in the parent section", () => {
+  it("keeps an orphan readable when it arrives before its parent, then exposes it in the parent section", () => {
     const workspaceKey = buildWorkspaceTabPersistenceKey({
       serverId: SERVER_ID,
       workspaceId: WORKSPACE_ID,
@@ -154,13 +154,16 @@ describe("workspace subagents integration", () => {
 
     reconcileWorkspaceTabs(workspaceKey!, deriveVisibilityFromSession());
 
-    expect(getWorkspaceAgentTabIds(workspaceKey!)).toEqual([]);
+    expect(getWorkspaceAgentTabIds(workspaceKey!)).toEqual(["agent_child-agent"]);
 
     appendAgent(parent);
 
     reconcileWorkspaceTabs(workspaceKey!, deriveVisibilityFromSession());
 
-    expect(getWorkspaceAgentTabIds(workspaceKey!)).toEqual(["agent_parent-agent"]);
+    expect(getWorkspaceAgentTabIds(workspaceKey!)).toEqual([
+      "agent_child-agent",
+      "agent_parent-agent",
+    ]);
     expect(
       selectSubagentsForParent(
         useSessionStore.getState(),
@@ -242,10 +245,24 @@ describe("workspace subagents integration", () => {
       title: "Cross-workspace child",
     });
 
+    reconcileWorkspaceTabs(workspaceKey!, {
+      activeAgentIds: new Set(),
+      autoOpenAgentIds: new Set(),
+    });
+    const initialLayout = useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey!];
+    const initialPane = findPaneById(initialLayout.root, initialLayout.focusedPaneId);
+    const initialTab = useWorkspaceLayoutStore
+      .getState()
+      .getWorkspaceTabs(workspaceKey!)
+      .find((tab) => tab.tabId === initialPane?.focusedTabId);
+    expect(initialTab?.target).toEqual({ kind: "new_tab" });
+
     initializeAgents([parent, child]);
     reconcileWorkspaceTabs(workspaceKey!, deriveVisibilityFromSession());
 
     expect(getWorkspaceAgentTabIds(workspaceKey!)).toEqual(["agent_child-agent"]);
+    const layout = useWorkspaceLayoutStore.getState().layoutByWorkspace[workspaceKey!];
+    expect(findPaneById(layout.root, layout.focusedPaneId)?.focusedTabId).toBe("agent_child-agent");
     expect(
       selectSubagentsForParent(
         useSessionStore.getState(),

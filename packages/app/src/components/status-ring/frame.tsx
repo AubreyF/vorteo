@@ -13,6 +13,7 @@ import {
 import { STATUS_INDICATOR_FILLED_DOT_SIZE } from "@/utils/status-indicator-geometry";
 
 export interface StatusRingProps {
+  variant?: "agent" | "task";
   // The surface the ring is drawn on top of, named rather than resolved, because theme colours
   // are only legible inside `StyleSheet.create` — see docs/unistyles.md. The frame fills itself
   // with this so the ring reads as a hole punched in whatever it overlaps: the agent icon under a
@@ -21,21 +22,20 @@ export interface StatusRingProps {
   backdrop?: SurfaceBackdrop | null;
 }
 
-/**
- * The static half of the running indicator: the knockout, the track, and the centre dot. The
- * platform entry points supply the rotating quarter and own only how it is driven.
- *
- * The ring has no colour prop. It only ever means one thing — an agent is running — so it reads
- * that one colour out of the theme itself. Passing the colour in would materialise it at the call
- * site, outside anything Unistyles tracks, and leave the mark in the old theme until something
- * incidental re-rendered the row.
- */
-export function StatusRingFrame({ backdrop, children }: StatusRingProps & { children: ReactNode }) {
+/** Shared ring geometry; task activity uses a foreground outline without the agent dot. */
+export function StatusRingFrame({
+  backdrop,
+  variant = "agent",
+  children,
+}: StatusRingProps & { children: ReactNode }) {
   return (
-    <View style={[styles.frame, getBackdropStyle(backdrop)]}>
-      <View style={styles.track} />
+    <View
+      testID={variant === "task" ? "task-running-spinner" : undefined}
+      style={[styles.frame, getBackdropStyle(backdrop)]}
+    >
+      <View style={[styles.track, variant === "task" && styles.taskTrack]} />
       {children}
-      <View style={styles.centerDot} />
+      {variant === "agent" ? <View style={styles.centerDot} /> : null}
     </View>
   );
 }
@@ -113,6 +113,9 @@ export const styles = StyleSheet.create((theme) => {
       borderTopColor: runningColor,
       opacity: STATUS_RING_HEAD_OPACITY,
     },
+
+    taskTrack: { borderColor: theme.colors.foreground },
+    taskArc: { borderTopColor: theme.colors.foreground, opacity: 1 },
 
     centerDot: {
       width: STATUS_INDICATOR_FILLED_DOT_SIZE,

@@ -87,6 +87,7 @@ import { openHostOverview } from "@/navigation/settings-navigation";
 import { UsageSidebarItem, useHasUsageSummary } from "@/usage";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { InstallationRestartBanner } from "@/execution-installation/panel";
+import { SidebarCalloutStack } from "./sidebar-callout";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 
@@ -867,8 +868,10 @@ function DesktopSidebar({
           />
         )}
 
-        <InstallationRestartBanner />
-        <SidebarCalloutSlot />
+        <SidebarCalloutStack>
+          <InstallationRestartBanner />
+          <SidebarCalloutSlot />
+        </SidebarCalloutStack>
 
         {<SidebarFooterRows />}
 

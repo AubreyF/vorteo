@@ -1,10 +1,32 @@
-import { execFileSync } from "node:child_process";
+import {
+  recoverFactoryAccount,
+  reconcileFactoryExecutionOwner,
+  type FactoryAccountRecoveryOptions,
+  type FactoryExecutionRecoveryOptions,
+} from "../../../../../../plugins/factory/server/controller/recovery.mjs";
+import {
+  createFactoryObservationReader,
+  FactoryExecutionObservationUncertainError,
+  type FactoryExecutionObservationOptions,
+} from "../../../../../../plugins/factory/server/controller/execution-observation.mjs";
+import { QuotaGovernorStore } from "../../agent/quota-reserve/governor-store.js";
+import { captureFactoryQuotaPolicy } from "../../../../../../plugins/factory/server/controller/quota-policy.mjs";
+import {
+  execFile,
+  execFileSync,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
+import assert from "node:assert/strict";
+import { createHash, randomUUID } from "node:crypto";
+import { promisify } from "node:util";
 import {
   chmod,
   mkdtemp,
   mkdir,
   readFile,
   rename,
+  readdir,
   rm,
   stat,
   symlink,
@@ -14,6 +36,15 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, test, vi } from "vitest";
+import {
+  createFactoryGovernedStage,
+  type FactoryGovernedStageOptions,
+} from "../../../../../../plugins/factory/server/controller/governed-stage.mjs";
+import { QuotaConstructionCleanupError } from "../../agent/agent-sdk-types.js";
+import {
+  advanceGovernorExecution,
+  type GovernorExecution,
+} from "../../agent/quota-reserve/governor-lifecycle.js";
 import { createTestLogger } from "../../../test-utils/test-logger.js";
 import { attachFactoryControllerObservation } from "../../factory/attach-controller-observation.js";
 import type { GovernedScheduleRuntime } from "../../schedule/governed-runtime.js";
@@ -23,7 +54,7 @@ import {
   FactoryControllerObservationProvider,
   type FactoryControllerObservationSource,
 } from "../../factory/controller-observation-provider.js";
-import type { QuotaObservation } from "@getpaseo/protocol/quota-governor";
+import type { QuotaObservation, QuotaConsumptionLimit } from "@getpaseo/protocol/quota-governor";
 import {
   NativeFactoryObservationService,
   createNativeFactoryObservationResolver,
@@ -57,14 +88,116 @@ import {
   type ActivityReceipts,
 } from "../../../../../../plugins/factory/shared/contracts.js";
 
+import {
+  assertFactoryMergeReceipt,
+  createFactoryMergeController,
+  createClaimMergeJournal,
+  verifyFactoryMergedReceipt,
+  type FactoryMergeCandidate,
+  type FactoryMergeControllerOptions,
+  type FactoryMergeState,
+  type FactoryMergeClaimState,
+} from "../../../../../../plugins/factory/server/controller/merge-controller.mjs";
+import {
+  FactoryWorkflow,
+  initialFactoryWorkflow,
+  assertFactoryWorkflow,
+  type FactoryWorkflowOptions,
+  type FactoryWorkflowClaimState,
+  type FactoryWorkflowAttempt,
+  type FactoryWorkflowPublishedDraft,
+} from "../../../../../../plugins/factory/server/controller/workflow.mjs";
+import {
+  assertFactoryBaseRevision,
+  createPristineBaseRevision,
+  factoryPreparationKey,
+  factoryPreparationOperationId,
+  factoryPublicationBranch,
+  hasOnlyPriorRevisionExecutions,
+} from "../../../../../../plugins/factory/server/controller/base-revision.mjs";
+import {
+  assertFactoryRetirement,
+  createFactoryExternalCompletionVerifier,
+  createFactoryParkingVerifier,
+  type FactoryExternalRetirement,
+  type FactoryParkedRetirement,
+} from "../../../../../../plugins/factory/server/controller/retirement.mjs";
+import {
+  FactoryClaimJournal,
+  type FactoryClaimAttempt,
+  type FactoryClaimAuthority,
+  type FactoryClaimInput,
+  type FactoryWorkerExecution,
+  type FactoryCustodyIdentity,
+} from "../../../../../../plugins/factory/server/controller/claim-journal.mjs";
+import {
+  createFactorySelection,
+  type FactorySelectionOptions,
+} from "../../../../../../plugins/factory/server/controller/selection.mjs";
+import {
+  createFactoryGitHubDelivery,
+  verifyFactoryReleasedDelivery,
+  type FactoryDeliveryOptions,
+  type FactoryDeliveryPull,
+  type FactoryDeliveryNativePublication,
+  type FactoryDraftPublication,
+} from "../../../../../../plugins/factory/server/controller/github-delivery.mjs";
 import { captureControllerOwnership } from "../../../../../../plugins/factory/server/controller/ownership.mjs";
 import { createFactoryProjectGuard } from "../../../../../../plugins/factory/server/controller/project-binding.mjs";
 import { openBuildJournal } from "../../../../../../plugins/factory/server/controller/build-journal.mjs";
+import {
+  openQualificationJournal,
+  type QualificationPublicationState,
+} from "../../../../../../plugins/factory/server/controller/qualification-journal.mjs";
+import {
+  publishQualification,
+  createFactoryQualificationPublisher,
+  type QualificationPublicationOptions,
+} from "../../../../../../plugins/factory/server/controller/qualification-publisher.mjs";
+import {
+  createFactoryIntakeSelector,
+  createQualifiedAssignmentVerifier,
+  type FactoryQualifiedVerifierOptions,
+} from "../../../../../../plugins/factory/server/controller/qualified-assignment.mjs";
+import {
+  approvalComment,
+  issueContentDigest,
+  selectApprovedIssues,
+  readApprovedFactoryQueue,
+  recheckFactoryAssignment,
+  type FactoryQueuePolicy,
+  type FactoryQueueIssue,
+  type FactoryQueueComment,
+  type FactoryApprovedQueueSelection,
+  type FactoryQueueTimeline,
+} from "../../../../../../plugins/factory/server/controller/github-queue.mjs";
 import {
   devReleaseStatus,
   planDevRelease,
   planDevSourceReview,
 } from "../../../../../../plugins/factory/server/controller/dev-release.mjs";
+
+import {
+  decodeGitHubResponse,
+  githubRequest,
+  githubJobLog,
+  githubArtifactArchive,
+} from "../../../../../../plugins/factory/server/controller/github-transport.mjs";
+
+import {
+  prepareQualification,
+  assertQualificationCurrent,
+  qualificationAuditBody,
+  type QualificationInputs,
+  type QualificationAssessment,
+  type CriterionAssessment,
+} from "../../../../../../plugins/factory/server/controller/qualification.mjs";
+
+import {
+  createFactoryQualificationReader,
+  type FactoryQualificationReaderOptions,
+  type FactoryQualificationSelectedSource,
+} from "../../../../../../plugins/factory/server/controller/qualification-reader.mjs";
 
 const roots: string[] = [];
 
@@ -1003,6 +1136,28 @@ test("retained controller projection displays valid over-limit usage without cha
   expect(snapshot.admission).toEqual(f.lifecycle.admission);
 });
 
+test("retained controller projection does not present allowance occupancy as prepaid spending", async () => {
+  const f = controllerProjectionFixture();
+  f.source.policy.prepaidAuthorization = {
+    bucketId: "weekly",
+    windowId: "primary",
+    startsAt: new Date(f.now).toISOString(),
+    expiresAt: new Date(f.now + 60_000).toISOString(),
+  };
+  const before = structuredClone(f.observation);
+  const provider = new FactoryControllerObservationProvider(f.source, () => f.now);
+  const snapshot = await provider.snapshot({ projectId: "prj_test" });
+  expect(snapshot.account).toEqual({
+    usagePoints: null,
+    limitPoints: null,
+    observedAt: f.observation.estimatedHourlyUsage!.observedAt,
+    unit: "allowance-points",
+  });
+  expect(snapshot.admission).toEqual(f.lifecycle.admission);
+  expect(f.observation).toEqual(before);
+  expect(f.source.readAccountObservation).toHaveBeenCalledTimes(1);
+});
+
 test("retained controller projection discloses capped pending Builds coverage", async () => {
   const f = controllerProjectionFixture();
   f.builds.requests = Array.from({ length: 101 }, (_, index) => ({
@@ -1354,7 +1509,7 @@ async function fixture(root: string, id: string, client = false): Promise<string
 }
 
 test("bundled Factory observes serving identity without creating or adopting work", async () => {
-  const version = "0.11.0-beta.3.vorteo.203";
+  const version = "0.11.0-beta.3.vorteo.254";
   const root = await mkdtemp(path.join(os.tmpdir(), "factory-observation-"));
   roots.push(root);
   const daemon = await createTestPaseoDaemon({
@@ -1747,4 +1902,5078 @@ test("native Factory startup fresh adapter never upgrades a persisted attached c
     state: "held",
     operations: { install: false },
   });
+});
+
+test("bundled GitHub transport preserves legacy paginated arrays without partial results", () => {
+  const first = [{ body: 'A ] [ " \\ café', values: [[], { key: "}" }] }];
+  const second = [{ number: 2 }];
+  const bytes = Buffer.from(`${JSON.stringify(first)}\n[]\n${JSON.stringify(second)}\n`);
+  expect(decodeGitHubResponse(bytes, true)).toEqual([...first, ...second]);
+  expect(decodeGitHubResponse(Buffer.from("[]\n"), true)).toEqual([]);
+});
+
+test("bundled GitHub transport refuses incomplete or corrupt pagination", () => {
+  const invalid = ["", "[1]\n[", "[1]\n{}", "[1,]", '[{"x":1]]', '["unterminated]'];
+  for (const response of invalid) {
+    expect(() => decodeGitHubResponse(Buffer.from(response), true)).toThrow();
+  }
+  expect(() => decodeGitHubResponse(Buffer.from([91, 34, 0xff, 34, 93]), true)).toThrow();
+});
+
+test("bundled GitHub transport cannot paginate writes or accept multiple ordinary documents", () => {
+  expect(decodeGitHubResponse(Buffer.from('{"merged":true}'))).toEqual({ merged: true });
+  expect(() => decodeGitHubResponse(Buffer.from("[] []"))).toThrow();
+  expect(() => githubRequest("POST", "repos/example/project/issues", {}, true)).toThrow("reads");
+  expect(() => githubRequest("GET", "repos/example/project/issues", {}, true)).toThrow("reads");
+});
+
+test("bundled GitHub evidence transport rejects invalid identities before subprocess dispatch", () => {
+  for (const repository of [
+    "",
+    "example",
+    "example/project/extra",
+    "https://github.com/example/project",
+  ]) {
+    expect(() => githubJobLog(repository, 1)).toThrow("identity");
+    expect(() => githubArtifactArchive(repository, 1)).toThrow("identity");
+  }
+  for (const id of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    expect(() => githubJobLog("example/project", id)).toThrow("identity");
+    expect(() => githubArtifactArchive("example/project", id)).toThrow("identity");
+  }
+});
+
+const qualificationNow = Date.parse("2026-10-06T12:00:00Z");
+function qualificationFixture() {
+  const input: QualificationInputs = {
+    repository: "example/product",
+    policySha256: "a".repeat(64),
+    permitted: true,
+    issue: {
+      number: 1,
+      title: "Fix search error",
+      body: "Show failure without stale results",
+      state: "open",
+      assignees: [],
+    },
+    dependencies: [],
+    relatedPulls: [],
+    sourceInputs: [{ path: "src/search.ts", blob: "b".repeat(40) }],
+    evidence: [
+      { id: "issue", sha256: "c".repeat(64) },
+      { id: "source", sha256: "d".repeat(64) },
+    ],
+  };
+  function criterion(reason: string): CriterionAssessment {
+    return { verdict: "pass", reason, evidence: ["issue", "source"] };
+  }
+  const assessment: QualificationAssessment = {
+    issueNumber: 1,
+    decision: "ready",
+    summary: "Bounded search correction with a regression case.",
+    criteria: {
+      outcome: criterion("Inspected outcome"),
+      scope: criterion("Inspected scope"),
+      acceptance: criterion("Inspected acceptance"),
+      verification: criterion("Inspected verification"),
+      dependencies: criterion("Inspected dependencies"),
+      duplicates: criterion("Inspected duplicates"),
+      ownership: criterion("Inspected ownership"),
+      authority: criterion("Inspected authority"),
+    },
+  };
+  return {
+    input,
+    assessment,
+    executionId: "11111111-1111-4111-8111-111111111111",
+    reviewedAt: new Date(qualificationNow).toISOString(),
+    validUntil: new Date(qualificationNow + 3600000).toISOString(),
+  };
+}
+
+test("bundled qualification retains exact evidence and canonical order without granting execution", () => {
+  const f = qualificationFixture();
+  const result = prepareQualification(f);
+  expect(
+    assertQualificationCurrent({ ...result, input: f.input, now: qualificationNow }).assessment
+      .decision,
+  ).toBe("ready");
+  expect(result.receipt.executionId).toBe(f.executionId);
+  expect(result.receipt.snapshot.sourceInputs[0].blob).toBe("b".repeat(40));
+  f.input.evidence.reverse();
+  expect(prepareQualification(f)).toEqual(result);
+  f.assessment.summary = "Changed model output";
+  expect(result.receipt.assessment.summary).not.toBe(f.assessment.summary);
+});
+
+test("bundled qualification admission rejects drift in issue, source, policy, dependency and ownership", () => {
+  const changes: Array<(f: ReturnType<typeof qualificationFixture>) => void> = [
+    (f) => {
+      f.input.issue.body = "Broader request";
+    },
+    (f) => {
+      f.input.sourceInputs[0].blob = "e".repeat(40);
+    },
+    (f) => {
+      f.input.policySha256 = "f".repeat(64);
+    },
+    (f) => {
+      f.input.dependencies.push({ repository: "example/product", number: 2, state: "open" });
+    },
+    (f) => {
+      f.input.evidence[0].sha256 = "e".repeat(64);
+    },
+    (f) => {
+      f.input.issue.assignees.push({ id: 99 });
+    },
+    (f) => {
+      f.input.relatedPulls.push({ number: 3, state: "open", head: "c".repeat(40) });
+    },
+    (f) => {
+      f.input.permitted = false;
+    },
+  ];
+  for (const change of changes) {
+    const f = qualificationFixture();
+    const result = prepareQualification(f);
+    change(f);
+    expect(() =>
+      assertQualificationCurrent({ ...result, input: f.input, now: qualificationNow }),
+    ).toThrow();
+  }
+});
+
+test("bundled qualification refuses model-invented evidence, incomplete criteria and extra authority", () => {
+  const changes: Array<(f: ReturnType<typeof qualificationFixture>) => void> = [
+    (f) => {
+      f.assessment.criteria.acceptance.verdict = "unknown";
+    },
+    (f) => {
+      f.assessment.criteria.acceptance.evidence = [];
+    },
+    (f) => {
+      f.assessment.criteria.scope.evidence = ["imaginary-owner-approval"];
+    },
+    (f) => {
+      Object.assign(f.assessment, { grantsProviderAuthority: true });
+    },
+    (f) => {
+      f.input.permitted = false;
+    },
+  ];
+  for (const change of changes) {
+    const f = qualificationFixture();
+    change(f);
+    expect(() => prepareQualification(f)).toThrow();
+  }
+});
+
+test("bundled qualification records blocked decisions without turning them into dispatch authority", () => {
+  const f = qualificationFixture();
+  f.assessment.decision = "needs-information";
+  f.assessment.criteria.acceptance = {
+    verdict: "unknown",
+    reason: "Required behavior is unspecified",
+    evidence: ["issue"],
+  };
+  const result = prepareQualification(f);
+  expect(result.receipt.assessment.criteria.acceptance.reason).toBe(
+    "Required behavior is unspecified",
+  );
+  expect(() =>
+    assertQualificationCurrent({ ...result, input: f.input, now: qualificationNow }),
+  ).toThrow("fresh review");
+});
+
+test("bundled qualification expires and rejects future review or tampered receipts", () => {
+  const f = qualificationFixture();
+  const result = prepareQualification(f);
+  for (const now of [qualificationNow - 1, qualificationNow + 3600000, NaN]) {
+    expect(() => assertQualificationCurrent({ ...result, input: f.input, now })).toThrow();
+  }
+  result.receipt.assessment.summary += " changed";
+  expect(() =>
+    assertQualificationCurrent({ ...result, input: f.input, now: qualificationNow }),
+  ).toThrow("changed");
+});
+
+test("bundled qualification audit is attributable and refuses oversized comments", () => {
+  const f = qualificationFixture();
+  const result = prepareQualification(f);
+  expect(qualificationAuditBody(result)).toContain(
+    `<!-- vorton-factory:qualification:v1:${result.receiptSha256} -->`,
+  );
+  expect(qualificationAuditBody(result).startsWith("(AI Generated).\n\n")).toBe(true);
+  for (let i = 0; i < 100; i++) {
+    f.input.sourceInputs.push({ path: `src/${"x".repeat(700)}/${i}.ts`, blob: "b".repeat(40) });
+  }
+  expect(() => qualificationAuditBody(prepareQualification(f))).toThrow("comment bound");
+});
+
+const executeReaderGit = promisify(execFile);
+const readerHash = (value: string) => createHash("sha256").update(value).digest("hex");
+interface QualificationReaderFixtureIssue {
+  number: number;
+  title: string;
+  body: string;
+  state: "open" | "closed";
+  labels: Array<{ name: string }>;
+  assignees: Array<{ id: number }>;
+}
+interface QualificationReaderFixtureDependency {
+  number: number;
+  repository_url: string;
+  state: "open" | "closed";
+}
+interface QualificationReaderFixtureRelatedIssue {
+  number: number;
+  repository_url: string;
+  pull_request?: Record<string, never>;
+}
+interface QualificationReaderFixtureEvent {
+  event: string;
+  source?: { issue?: QualificationReaderFixtureRelatedIssue };
+}
+interface QualificationReaderFixturePull {
+  number: number;
+  state: "open" | "closed";
+  head: { sha: string };
+  base: { repo: { full_name: string } };
+}
+interface QualificationReaderFixtureState {
+  commit: string;
+  issue: QualificationReaderFixtureIssue;
+  dependencies: QualificationReaderFixtureDependency[];
+  timeline: QualificationReaderFixtureEvent[];
+  permitted: boolean;
+  pulls: Record<string, QualificationReaderFixturePull>;
+  selected: FactoryQualificationSelectedSource[];
+}
+async function qualificationReaderFixture(
+  readerOptions: Partial<FactoryQualificationReaderOptions> = {},
+) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-intake-reader-"));
+  roots.push(root);
+  const git = async (...args: string[]) =>
+    (await executeReaderGit("git", ["-C", root, ...args])).stdout.trim();
+  await git("init", "-b", "dev");
+  await git("config", "user.name", "Fixture");
+  await git("config", "user.email", "fixture@example.invalid");
+  await git("remote", "add", "origin", "https://github.com/example/product.git");
+  // Local repository configuration only. The capture still executes its real
+  // immutable Git reads and fetch; no network or owner registry is touched.
+  await git("config", `url.file://${root}.insteadOf`, "https://github.com/example/product.git");
+  const config = JSON.stringify({
+    repository: "example/product",
+    baseBranch: "dev",
+  });
+  await writeFile(path.join(root, "vorton.factory.json"), config);
+  await writeFile(path.join(root, "AGENTS.md"), "Root instructions");
+  await mkdir(path.join(root, "src"));
+  await writeFile(path.join(root, "src/AGENTS.md"), "Scoped instructions");
+  await writeFile(path.join(root, "src/task.mjs"), "export const task = true;");
+  await git("add", ".");
+  await git("commit", "-m", "fixture");
+  const state: QualificationReaderFixtureState = {
+    commit: await git("rev-parse", "HEAD"),
+    issue: {
+      number: 7,
+      title: "Fix task",
+      body: "Acceptance and scope",
+      state: "open",
+      labels: [],
+      assignees: [],
+    },
+    dependencies: [],
+    timeline: [],
+    permitted: true,
+    pulls: {},
+    selected: [],
+  };
+  const base = "repos/example/product";
+  const request = async (method: "GET", endpoint: string): Promise<unknown> => {
+    assert.equal(method, "GET");
+    if (endpoint === `${base}/issues/7`) return structuredClone(state.issue);
+    if (endpoint === `${base}/git/ref/heads/dev`)
+      return { object: { type: "commit", sha: state.commit } };
+    if (endpoint === `${base}/issues/7/dependencies/blocked_by?per_page=100&page=1`)
+      return structuredClone(state.dependencies);
+    if (endpoint === `${base}/issues/7/timeline?per_page=100&page=1`)
+      return structuredClone(state.timeline);
+    if (endpoint.startsWith(`${base}/pulls/`))
+      return structuredClone(state.pulls[endpoint.slice(`${base}/pulls/`.length)]);
+    throw new Error(`Unexpected endpoint ${endpoint}`);
+  };
+  const options: FactoryQualificationReaderOptions = {
+    authority: { assertCurrent() {} },
+    repositoryRoot: root,
+    policy: {
+      config: { repository: "example/product", baseBranch: "dev" },
+      configSha256: readerHash(config),
+    },
+    sourcePaths: ["src/task.mjs", "src/missing.mjs"],
+    authorizeScope: async () => state.permitted,
+    request,
+    executeGit: async (command, args, gitOptions) =>
+      args.slice(2).join(" ") === "remote get-url origin"
+        ? { stdout: Buffer.from("https://github.com/example/product.git\n") }
+        : executeReaderGit(command, args, gitOptions),
+  };
+  const makeReader = (extra: Partial<FactoryQualificationReaderOptions> = {}) =>
+    createFactoryQualificationReader({ ...options, ...readerOptions, ...extra });
+  return { root, git, state, reader: makeReader(), makeReader, request };
+}
+
+test("bundled qualification reader capture retains actual source and ancestor instructions; ready projection does not invalidate its own audit", async () => {
+  const { reader, state } = await qualificationReaderFixture();
+  const packet = await reader.capture(7);
+  assert.equal(
+    packet.documents.find((item) => item.id === "source:src/AGENTS.md").text,
+    "Scoped instructions",
+  );
+  assert.equal(
+    packet.input.sourceInputs.find((item) => item.path === "src/missing.mjs").blob,
+    null,
+  );
+  for (const document of packet.documents) assert.equal(readerHash(document.text), document.sha256);
+  const criteria = Object.fromEntries(
+    [
+      "outcome",
+      "scope",
+      "acceptance",
+      "verification",
+      "dependencies",
+      "duplicates",
+      "ownership",
+      "authority",
+    ].map((name) => [name, { verdict: "pass", reason: "Fixture evidence", evidence: ["issue"] }]),
+  );
+  const decision = prepareQualification({
+    input: packet.input,
+    assessment: {
+      issueNumber: 7,
+      decision: "ready",
+      summary: "Bounded fixture",
+      criteria,
+    },
+    executionId: "00000000-0000-4000-8000-000000000001",
+    reviewedAt: "2026-10-06T00:00:00Z",
+    validUntil: "2026-10-07T00:00:00Z",
+  });
+  state.issue.labels.push({ name: "factory:ready" });
+  assertQualificationCurrent({
+    ...decision,
+    input: await reader.readInputs(packet.snapshot),
+    now: Date.parse("2026-10-06T01:00:00Z"),
+  });
+  state.issue.labels.push({ name: "owner-hold" });
+  assert.throws(() =>
+    assertQualificationCurrent({
+      ...decision,
+      input: { ...packet.input, permitted: false },
+      now: Date.parse("2026-10-06T01:00:00Z"),
+    }),
+  );
+  assert.notEqual((await reader.capture(7)).inputSha256, packet.inputSha256);
+});
+
+test("bundled qualification reader sees fresh source, dependencies and related PR identities instead of trusting supplied evidence", async () => {
+  const { reader, state, root, git } = await qualificationReaderFixture();
+  const before = await reader.capture(7);
+  await writeFile(path.join(root, "src/task.mjs"), "export const task = false;");
+  await git("add", ".");
+  await git("commit", "-m", "changed source");
+  state.commit = await git("rev-parse", "HEAD");
+  state.dependencies = [
+    {
+      number: 8,
+      repository_url: "https://api.github.com/repos/example/product",
+      state: "open",
+    },
+  ];
+  state.timeline = [
+    {
+      event: "cross-referenced",
+      source: {
+        issue: {
+          number: 9,
+          repository_url: "https://api.github.com/repos/example/product",
+          pull_request: {},
+        },
+      },
+    },
+  ];
+  state.pulls[9] = {
+    number: 9,
+    state: "open",
+    head: { sha: state.commit },
+    base: { repo: { full_name: "example/product" } },
+  };
+  const fresh = await reader.capture(7);
+  assert.notEqual(fresh.inputSha256, before.inputSha256);
+  assert.equal(fresh.input.dependencies[0].state, "open");
+  assert.equal(fresh.input.relatedPulls[0].head, state.commit);
+  assert.equal(
+    fresh.documents.find((item) => item.id === "source:src/task.mjs").text,
+    "export const task = false;",
+  );
+  await assert.rejects(
+    reader.readInputs({ ...before.snapshot, sourceInputs: [] }),
+    /inspection scope/,
+  );
+});
+
+test("bundled qualification reader refuses source symlinks and changed policy without following checkout paths", async () => {
+  const { reader, state, root, git } = await qualificationReaderFixture();
+  await rm(path.join(root, "src/task.mjs"));
+  await symlink("/etc/passwd", path.join(root, "src/task.mjs"));
+  await git("add", ".");
+  await git("commit", "-m", "symlink fixture");
+  state.commit = await git("rev-parse", "HEAD");
+  await assert.rejects(reader.capture(7), /regular committed file/);
+  await rm(path.join(root, "src/task.mjs"));
+  await writeFile(path.join(root, "src/task.mjs"), "ok");
+  await writeFile(path.join(root, "vorton.factory.json"), "{}");
+  await git("add", ".");
+  await git("commit", "-m", "policy fixture");
+  state.commit = await git("rev-parse", "HEAD");
+  await assert.rejects(reader.capture(7), /repository policy changed/);
+});
+
+test("bundled qualification reader refuses external PR ambiguity and oversized source evidence", async () => {
+  const { reader, state, root, git } = await qualificationReaderFixture();
+  state.timeline = [
+    {
+      event: "cross-referenced",
+      source: {
+        issue: {
+          number: 9,
+          repository_url: "https://api.github.com/repos/other/project",
+          pull_request: {},
+        },
+      },
+    },
+  ];
+  await assert.rejects(reader.capture(7), /external or unidentified/);
+  state.timeline = [];
+  await writeFile(path.join(root, "src/task.mjs"), "x".repeat(65537));
+  await git("add", ".");
+  await git("commit", "-m", "size fixture");
+  state.commit = await git("rev-parse", "HEAD");
+  await assert.rejects(reader.capture(7), /source file exceeds/);
+});
+
+test("bundled qualification reader cancelled capture starts no source or network work", async () => {
+  const { reader } = await qualificationReaderFixture();
+  const abort = new AbortController();
+  abort.abort();
+  await assert.rejects(reader.capture(7, abort.signal), /capture stopped/);
+});
+
+test("bundled qualification reader per-issue selector captures distinct committed scope and invalidates changed policy or resolution", async () => {
+  let selectedPath = "src/task.mjs";
+  const { reader, makeReader, state, root, git } = await qualificationReaderFixture({
+    sourcePaths: [],
+    selectorPolicySha256: readerHash("reviewed selector v1"),
+    standingScope: "Development only; missing provider approval must block readiness.",
+    resolveSourcePaths: async ({ commit, issue, inventory }) => {
+      assert.equal(commit, state.commit);
+      assert.deepEqual(
+        typeof issue === "object" && issue !== null && "number" in issue ? issue.number : null,
+        7,
+      );
+      assert.ok(
+        inventory.some((item) => item.path === selectedPath && /^[a-f0-9]{40}$/.test(item.blob)),
+      );
+      return [{ path: selectedPath, reason: "Trusted fixture rule, not issue authority" }];
+    },
+  });
+  const first = await reader.capture(7);
+  assert.match(
+    first.documents.find((item) => item.id === "standing-scope").text,
+    /missing provider approval/,
+  );
+  assert.match(first.documents.find((item) => item.id === "source-selection").text, /uncaptured/);
+  assert.ok(first.input.sourceInputs.some((item) => item.path === "src/AGENTS.md"));
+  await reader.readInputs(first.snapshot);
+  await assert.rejects(
+    makeReader({ selectorPolicySha256: readerHash("changed policy") }).readInputs(first.snapshot),
+    /selector policy/,
+  );
+  await writeFile(path.join(root, "src/other.mjs"), "export const other = true;");
+  await git("add", ".");
+  await git("commit", "-m", "next source");
+  state.commit = await git("rev-parse", "HEAD");
+  selectedPath = "src/other.mjs";
+  const second = await reader.capture(7);
+  assert.ok(second.input.sourceInputs.some((item) => item.path === selectedPath));
+  assert.ok(!second.input.sourceInputs.some((item) => item.path === "src/task.mjs"));
+  await assert.rejects(reader.readInputs(first.snapshot), /inspection scope/);
+  state.permitted = false;
+  assert.equal((await reader.capture(7)).input.permitted, false);
+});
+
+test("bundled qualification reader per-issue selector refuses invalid, oversized and symlink scope without following it", async () => {
+  const { reader, state, root, git } = await qualificationReaderFixture({
+    sourcePaths: [],
+    selectorPolicySha256: readerHash("bounded selector"),
+    resolveSourcePaths: async () => state.selected,
+  });
+  for (const selected of [
+    [{ path: "../outside", reason: "hint" }],
+    Array.from({ length: 65 }, (_, i) => ({ path: `src/${i}`, reason: "hint" })),
+    [
+      { path: "src/task.mjs", reason: "hint" },
+      { path: "src/task.mjs", reason: "duplicate" },
+    ],
+  ]) {
+    state.selected = selected;
+    await assert.rejects(reader.capture(7), /source selection is invalid/);
+  }
+  await symlink("/etc/passwd", path.join(root, "src/link"));
+  await git("add", ".");
+  await git("commit", "-m", "unsafe source");
+  state.commit = await git("rev-parse", "HEAD");
+  state.selected = [{ path: "src/link", reason: "Untrusted hint" }];
+  await assert.rejects(reader.capture(7), /regular committed file/);
+  state.selected = [{ path: "src/absent", reason: "Missing hint" }];
+  const missing = await reader.capture(7);
+  assert.equal(missing.input.sourceInputs.find((item) => item.path === "src/absent").blob, null);
+});
+
+test("bundled qualification reader refuses owner loss after source selection without granting scope", async () => {
+  let current = true;
+  let scopeCalls = 0;
+  const f = await qualificationReaderFixture({
+    authority: {
+      assertCurrent() {
+        if (!current) throw new Error("Owner changed");
+      },
+    },
+    sourcePaths: [],
+    selectorPolicySha256: readerHash("installed selector"),
+    resolveSourcePaths: async () => {
+      current = false;
+      return [{ path: "src/task.mjs", reason: "Installed rule" }];
+    },
+    authorizeScope: async () => {
+      scopeCalls++;
+      return true;
+    },
+  });
+  await expect(f.reader.capture(7)).rejects.toThrow("Owner changed");
+  expect(scopeCalls).toBe(0);
+});
+
+test("bundled qualification reader refuses capped GitHub evidence rather than returning complete inputs", async () => {
+  const f = await qualificationReaderFixture();
+  let dependencyPages = 0;
+  const reader = f.makeReader({
+    request: async (method, endpoint) => {
+      if (endpoint.includes("/dependencies/blocked_by?")) {
+        dependencyPages++;
+        return Array.from({ length: 100 }, (_, i) => ({
+          number: i + 1,
+          repository_url: "https://api.github.com/repos/example/product",
+          state: "closed",
+        }));
+      }
+      return f.request(method, endpoint);
+    },
+  });
+  await expect(reader.capture(7)).rejects.toThrow("inspection bound");
+  expect(dependencyPages).toBe(10);
+});
+
+async function qualificationRecordFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-publication-record-"));
+  roots.push(root);
+  await chmod(root, 0o700);
+  let current = true;
+  const decision = prepareQualification(qualificationFixture());
+  const input = {
+    root,
+    receiptSha256: decision.receiptSha256,
+    authority: {
+      assertCurrent() {
+        if (!current) throw new Error("Owner changed");
+      },
+    },
+  };
+  const state: QualificationPublicationState = {
+    version: 1,
+    decision,
+    phase: "audit",
+    commentIntent: true,
+    labelIntent: false,
+    commentId: null,
+  };
+  return {
+    root,
+    input,
+    state,
+    journal: openQualificationJournal(input),
+    loseOwner() {
+      current = false;
+    },
+    filename: path.join(root, `qualification-${decision.receiptSha256}.json`),
+  };
+}
+
+test("bundled publication record preserves pending intent across replacement without initialization", async () => {
+  const f = await qualificationRecordFixture();
+  await expect(f.journal.write(f.state)).rejects.toThrow("Read qualification state");
+  expect(await f.journal.read()).toBeNull();
+  await expect(readFile(f.filename)).rejects.toMatchObject({ code: "ENOENT" });
+  await f.journal.write(f.state);
+  const reopened = openQualificationJournal(f.input);
+  const retained = await reopened.read();
+  expect(retained).toEqual(f.state);
+  assert.ok(retained);
+  retained.commentIntent = false;
+  expect(reopened.inspect()).toEqual(f.state);
+  expect((await stat(f.filename)).mode & 0o777).toBe(0o600);
+});
+
+test("bundled publication record rejects stale writers and lost owner without resetting intent", async () => {
+  const f = await qualificationRecordFixture();
+  const stale = openQualificationJournal(f.input);
+  await stale.read();
+  await f.journal.read();
+  await f.journal.write(f.state);
+  await expect(stale.write(f.state)).rejects.toThrow("reconcile before writing");
+  const persisted = await readFile(f.filename, "utf8");
+  f.loseOwner();
+  await expect(f.journal.write({ ...f.state, commentIntent: false })).rejects.toThrow(
+    "Owner changed",
+  );
+  expect(await readFile(f.filename, "utf8")).toBe(persisted);
+});
+
+test("bundled publication record rejects corrupt, permissive and linked retained files", async () => {
+  const f = await qualificationRecordFixture();
+  await f.journal.read();
+  await f.journal.write(f.state);
+  const saved = await readFile(f.filename);
+  await writeFile(f.filename, "not JSON");
+  expect(() => f.journal.inspect()).toThrow();
+  await writeFile(f.filename, saved);
+  await chmod(f.filename, 0o644);
+  expect(() => f.journal.inspect()).toThrow("Unsafe qualification journal file");
+  await chmod(f.filename, 0o600);
+  const retained = path.join(f.root, "retained.json");
+  await rename(f.filename, retained);
+  await symlink(retained, f.filename);
+  expect(() => f.journal.inspect()).toThrow();
+  expect(await readFile(retained)).toEqual(saved);
+});
+
+test("bundled publication record rejects receipt substitution and changed directory identity", async () => {
+  const f = await qualificationRecordFixture();
+  await f.journal.read();
+  const changed = structuredClone(f.state);
+  changed.decision.receipt.assessment.summary = "Unverified replacement";
+  await expect(f.journal.write(changed)).rejects.toThrow("Invalid qualification journal state");
+  await expect(readFile(f.filename)).rejects.toMatchObject({ code: "ENOENT" });
+  await f.journal.write(f.state);
+  const moved = `${f.root}-retained`;
+  roots.push(moved);
+  await rename(f.root, moved);
+  await mkdir(f.root, { mode: 0o700 });
+  expect(() => f.journal.inspect()).toThrow("directory changed");
+  expect(await readFile(path.join(moved, path.basename(f.filename)), "utf8")).toBe(
+    JSON.stringify(f.state),
+  );
+});
+
+interface QualificationAuditComment {
+  id: number;
+  user: { id: number };
+  body: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+async function qualificationPublisherFixture() {
+  const f = qualificationFixture();
+  const decision = prepareQualification(f);
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-publisher-"));
+  roots.push(root);
+  await chmod(root, 0o700);
+  const controls = {
+    authorized: true,
+    current: true,
+    accountId: 42,
+    losePost: false,
+    loseBeforePost: false,
+    loseLabel: false,
+  };
+  const comments: QualificationAuditComment[] = [];
+  const labels = [{ name: "debt" }];
+  const writes: string[] = [];
+  const authority = {
+    assertCurrent() {
+      if (!controls.current) throw new Error("Owner changed");
+    },
+  };
+  const journal = openQualificationJournal({
+    root,
+    receiptSha256: decision.receiptSha256,
+    authority,
+  });
+  const options: QualificationPublicationOptions = {
+    decision,
+    ownerId: 42,
+    now: () => qualificationNow,
+    authority,
+    authorize: async () => controls.authorized,
+    readInputs: async () => structuredClone(f.input),
+    journal,
+    request: async (method, endpoint, body) => {
+      if (method === "GET") {
+        if (endpoint === "user") return { id: controls.accountId };
+        if (endpoint.includes("/comments?")) return structuredClone(comments);
+        if (endpoint === "repos/example/product/labels/factory%3Aready")
+          return { name: "factory:ready" };
+        return { ...structuredClone(f.input.issue), labels: structuredClone(labels) };
+      }
+      writes.push(`${method} ${endpoint}`);
+      const saved = journal.inspect();
+      assert.ok(saved);
+      if (endpoint.endsWith("/comments")) {
+        assert.equal(saved.commentIntent, true);
+        if (controls.loseBeforePost) throw new Error("unknown POST outcome");
+        assert.ok(typeof body === "object" && body !== null && "body" in body);
+        assert.equal(typeof body.body, "string");
+        assert.ok(typeof body.body === "string");
+        const comment: QualificationAuditComment = {
+          id: 10,
+          user: { id: 42 },
+          body: body.body,
+          created_at: f.reviewedAt,
+          updated_at: f.reviewedAt,
+        };
+        comments.push(comment);
+        if (controls.losePost) throw new Error("lost response");
+        return comment;
+      }
+      assert.equal(saved.phase, "label");
+      assert.equal(saved.labelIntent, true);
+      assert.equal(comments.length, 1, "immutable audit must precede ready label");
+      if (method === "POST") {
+        assert.ok(typeof body === "object" && body !== null && "labels" in body);
+        assert.deepEqual(body.labels, ["factory:ready"]);
+        labels.push({ name: "factory:ready" });
+      } else {
+        assert.equal(method, "DELETE");
+        labels.splice(
+          labels.findIndex((label) => label.name === "factory:ready"),
+          1,
+        );
+      }
+      if (controls.loseLabel) throw new Error("lost label response");
+      return labels;
+    },
+  };
+  return { root, input: f.input, options, controls, comments, labels, writes };
+}
+
+test("bundled qualification publisher persists audit before ready membership and preserves unrelated labels", async () => {
+  const f = await qualificationPublisherFixture();
+  const result = await publishQualification(f.options);
+  expect(result).toEqual({ receiptSha256: f.options.decision.receiptSha256, commentId: 10 });
+  expect(f.options.journal.inspect()?.phase).toBe("complete");
+  expect(f.labels).toEqual([{ name: "debt" }, { name: "factory:ready" }]);
+  expect(f.comments[0].body).toMatch(/^\(AI Generated\)\.\n\n/);
+  await publishQualification(f.options);
+  expect(f.writes).toHaveLength(2);
+});
+
+test("bundled qualification publisher reconciles visible lost responses without duplicate writes", async () => {
+  for (const fault of ["losePost", "loseLabel"]) {
+    const f = await qualificationPublisherFixture();
+    if (fault === "losePost") f.controls.losePost = true;
+    else f.controls.loseLabel = true;
+    await expect(publishQualification(f.options)).rejects.toThrow("lost");
+    f.controls.losePost = false;
+    f.controls.loseLabel = false;
+    await publishQualification(f.options);
+    expect(f.comments).toHaveLength(1);
+    expect(f.labels).toEqual([{ name: "debt" }, { name: "factory:ready" }]);
+    expect(f.writes).toHaveLength(2);
+  }
+});
+
+test("bundled qualification publisher holds an absent uncertain POST without replay", async () => {
+  const f = await qualificationPublisherFixture();
+  f.controls.loseBeforePost = true;
+  await expect(publishQualification(f.options)).rejects.toThrow("unknown POST");
+  f.controls.loseBeforePost = false;
+  await expect(publishQualification(f.options)).rejects.toThrow("Uncertain qualification");
+  expect(f.writes).toHaveLength(1);
+  expect(f.labels).toEqual([{ name: "debt" }]);
+  expect(f.options.journal.inspect()?.commentIntent).toBe(true);
+});
+
+test("bundled qualification publisher rejects revoked authority, changed inputs and edited audits", async () => {
+  const revoked = await qualificationPublisherFixture();
+  revoked.controls.authorized = false;
+  await expect(publishQualification(revoked.options)).rejects.toThrow("standing authority");
+  expect(revoked.writes).toHaveLength(0);
+  expect(revoked.options.journal.inspect()).toBeNull();
+  const changed = await qualificationPublisherFixture();
+  changed.input.issue.body += " new requirements";
+  await expect(publishQualification(changed.options)).rejects.toThrow("fresh review");
+  expect(changed.writes).toHaveLength(0);
+  const edited = await qualificationPublisherFixture();
+  edited.controls.losePost = true;
+  await expect(publishQualification(edited.options)).rejects.toThrow("lost response");
+  edited.comments[0].updated_at = new Date(qualificationNow + 1000).toISOString();
+  await expect(publishQualification(edited.options)).rejects.toThrow("audit identity changed");
+  expect(edited.labels).toEqual([{ name: "debt" }]);
+});
+
+test("bundled qualification publisher preserves owner holds after completed or uncertain label writes", async () => {
+  const completed = await qualificationPublisherFixture();
+  await publishQualification(completed.options);
+  completed.labels.pop();
+  await expect(publishQualification(completed.options)).rejects.toThrow("owner hold");
+  expect(completed.writes).toHaveLength(2);
+  const uncertain = await qualificationPublisherFixture();
+  uncertain.controls.loseLabel = true;
+  await expect(publishQualification(uncertain.options)).rejects.toThrow("lost label");
+  uncertain.labels.pop();
+  uncertain.controls.loseLabel = false;
+  await expect(publishQualification(uncertain.options)).rejects.toThrow("preserve owner changes");
+  expect(uncertain.writes).toHaveLength(2);
+});
+
+test("bundled qualification publisher recovers durable audit intent across replacement and serializes replay", async () => {
+  const f = await qualificationPublisherFixture();
+  f.controls.losePost = true;
+  const first = createFactoryQualificationPublisher({ root: f.root, ...f.options });
+  await expect(first(f.options.decision)).rejects.toThrow("lost response");
+  f.controls.losePost = false;
+  const reopened = createFactoryQualificationPublisher({ root: f.root, ...f.options });
+  await reopened(f.options.decision);
+  expect(f.options.journal.inspect()?.phase).toBe("complete");
+  await Promise.all([reopened(f.options.decision), reopened(f.options.decision)]);
+  expect(f.comments).toHaveLength(1);
+  expect(f.writes).toHaveLength(2);
+});
+
+test("bundled qualification publisher rejects account or audit sender substitution and duplicate audit identities", async () => {
+  const account = await qualificationPublisherFixture();
+  account.controls.accountId = 43;
+  await expect(publishQualification(account.options)).rejects.toThrow("account changed");
+  expect(account.writes).toHaveLength(0);
+  expect(account.options.journal.inspect()).toBeNull();
+  const sender = await qualificationPublisherFixture();
+  sender.controls.losePost = true;
+  await expect(publishQualification(sender.options)).rejects.toThrow("lost response");
+  sender.comments[0].user.id = 43;
+  await expect(publishQualification(sender.options)).rejects.toThrow("audit identity changed");
+  expect(sender.writes).toHaveLength(1);
+  const duplicate = await qualificationPublisherFixture();
+  duplicate.controls.losePost = true;
+  await expect(publishQualification(duplicate.options)).rejects.toThrow("lost response");
+  duplicate.comments.push({ ...duplicate.comments[0], id: 11 });
+  await expect(publishQualification(duplicate.options)).rejects.toThrow("audit identity changed");
+  expect(duplicate.writes).toHaveLength(1);
+});
+
+test("bundled qualification publisher fails closed on owner loss after persisting write intent", async () => {
+  const f = await qualificationPublisherFixture();
+  const write = f.options.journal.write;
+  f.options.journal.write = async (state) => {
+    await write(state);
+    if (state.commentIntent) f.controls.current = false;
+  };
+  await expect(publishQualification(f.options)).rejects.toThrow("Owner changed");
+  expect(f.writes).toHaveLength(0);
+  f.controls.current = true;
+  expect(f.options.journal.inspect()?.commentIntent).toBe(true);
+  await expect(publishQualification(f.options)).rejects.toThrow("Uncertain qualification");
+  expect(f.writes).toHaveLength(0);
+});
+
+test("bundled qualification publisher reconciles a rejected record write that persisted intent", async () => {
+  const f = await qualificationPublisherFixture();
+  const write = f.options.journal.write;
+  let interrupted = false;
+  f.options.journal.write = async (state) => {
+    await write(state);
+    if (state.commentIntent && !interrupted) {
+      interrupted = true;
+      throw new Error("Directory durability outcome uncertain");
+    }
+  };
+  await expect(publishQualification(f.options)).rejects.toThrow("durability outcome uncertain");
+  expect(f.writes).toHaveLength(0);
+  expect(f.options.journal.inspect()?.commentIntent).toBe(true);
+  await expect(publishQualification(f.options)).rejects.toThrow("Uncertain qualification");
+  expect(f.writes).toHaveLength(0);
+  expect(f.labels).toEqual([{ name: "debt" }]);
+});
+
+test("bundled qualification publisher refuses absent or invalid timestamps in completed audit receipts", async () => {
+  const mutations: Array<(comment: QualificationAuditComment) => void> = [
+    (comment) => {
+      delete comment.created_at;
+      delete comment.updated_at;
+    },
+    (comment) => {
+      comment.created_at = null;
+      comment.updated_at = null;
+    },
+    (comment) => {
+      comment.created_at = "";
+      comment.updated_at = "";
+    },
+    (comment) => {
+      comment.created_at = "not a timestamp";
+      comment.updated_at = "not a timestamp";
+    },
+    (comment) => {
+      comment.created_at = "2026";
+      comment.updated_at = "2026";
+    },
+    (comment) => {
+      comment.created_at = "2026-02-30T12:00:00Z";
+      comment.updated_at = "2026-02-30T12:00:00Z";
+    },
+    (comment) => {
+      delete comment.created_at;
+    },
+    (comment) => {
+      delete comment.updated_at;
+    },
+  ];
+  for (const mutate of mutations) {
+    const f = await qualificationPublisherFixture();
+    await publishQualification(f.options);
+    const saved = f.options.journal.inspect();
+    mutate(f.comments[0]);
+    await expect(publishQualification(f.options)).rejects.toThrow("audit identity changed");
+    expect(f.writes).toHaveLength(2);
+    expect(f.options.journal.inspect()).toEqual(saved);
+  }
+});
+
+function qualifiedAssignmentFixture() {
+  const f = qualificationFixture();
+  const issue: FactoryQueueIssue = { ...f.input.issue, labels: [{ name: "factory:ready" }] };
+  f.input.issue = issue;
+  const decision = prepareQualification(f);
+  const binding = { ...decision, commentId: 10 };
+  const comments: FactoryQueueComment[] = [
+    {
+      id: 10,
+      user: { id: 42 },
+      body: qualificationAuditBody(decision),
+      created_at: f.reviewedAt,
+      updated_at: f.reviewedAt,
+    },
+  ];
+  const policy: FactoryQueuePolicy = {
+    trustedCommit: "e".repeat(40),
+    configSha256: f.input.policySha256,
+    config: {
+      repository: f.input.repository,
+      issues: {
+        requiredLabels: ["factory:ready"],
+        excludedLabels: ["factory:human-review"],
+        priorityLabels: ["priority:high"],
+      },
+    },
+  };
+  const control = { allowed: true, current: true, time: qualificationNow, dependency: false };
+  const reads: string[] = [];
+  const options: FactoryQualifiedVerifierOptions = {
+    authority: {
+      assertCurrent() {
+        if (!control.current) throw new Error("Owner changed");
+      },
+    },
+    policy,
+    ownerId: 42,
+    authorize: async () => control.allowed,
+    readInputs: async () => structuredClone(f.input),
+    now: () => control.time,
+    request: async (method, endpoint) => {
+      expect(method).toBe("GET");
+      reads.push(endpoint);
+      if (endpoint === "user") return { id: 42 };
+      if (endpoint.includes("/comments?")) return structuredClone(comments);
+      if (endpoint.includes("/dependencies/")) return control.dependency ? [{ state: "open" }] : [];
+      if (endpoint.includes("?state=open")) return [structuredClone(issue)];
+      return structuredClone(issue);
+    },
+  };
+  return {
+    input: f.input,
+    issue,
+    binding,
+    comments,
+    policy,
+    control,
+    reads,
+    options,
+    verifier: createQualifiedAssignmentVerifier(options),
+  };
+}
+
+test("bundled qualified assignment intake preserves current decisions, owner holds and prior work", async () => {
+  const f = qualifiedAssignmentFixture();
+  const select = createFactoryIntakeSelector(f.options);
+  expect(await select(f.policy)).toBeNull();
+  f.control.time += 3600001;
+  expect(await select(f.policy)).toEqual({ issueNumber: 1 });
+  f.issue.labels = [];
+  expect(await select(f.policy)).toBeNull();
+  f.comments.length = 0;
+  expect(await select(f.policy)).toEqual({ issueNumber: 1 });
+  f.issue.labels.push({ name: "factory:human-review" });
+  expect(await select(f.policy)).toBeNull();
+  f.issue.labels = [];
+  f.comments.push({ body: "<!-- vorton-factory:status:v1:prior -->" });
+  expect(await select(f.policy)).toBeNull();
+});
+
+test("bundled qualified assignment intake avoids repeating unchanged non-ready review", async () => {
+  const f = qualifiedAssignmentFixture();
+  const decision = prepareQualification({
+    input: f.input,
+    assessment: { ...f.binding.receipt.assessment, decision: "needs-information" },
+    executionId: f.binding.receipt.executionId,
+    reviewedAt: f.binding.receipt.reviewedAt,
+    validUntil: f.binding.receipt.validUntil,
+  });
+  f.comments[0].body = qualificationAuditBody(decision);
+  f.issue.labels = [];
+  const select = createFactoryIntakeSelector(f.options);
+  expect(await select(f.policy)).toBeNull();
+  f.issue.body = "Now includes the missing acceptance criterion";
+  expect(await select(f.policy)).toEqual({ issueNumber: 1 });
+});
+
+test("bundled qualified assignment verifies a standing qualification without fabricated manual approval", async () => {
+  const f = qualifiedAssignmentFixture();
+  const queue = await f.verifier.readQueue();
+  expect(queue.held).toEqual([]);
+  expect(queue.eligible).toEqual([
+    {
+      issueNumber: 1,
+      qualification: f.binding,
+      approvedAt: f.binding.receipt.reviewedAt,
+      priority: 1,
+    },
+  ]);
+  const admitted = await f.verifier.admit(f.binding);
+  expect(admitted.approval.delivery).toBe("reviewed-draft-only");
+  expect(admitted.approvalCommentId).toBe(10);
+  expect(admitted.qualification).toEqual(f.binding);
+  expect(admitted.issue).toEqual(f.issue);
+  expect(f.comments).toHaveLength(1);
+  expect(f.reads.some((endpoint) => endpoint === "user")).toBe(true);
+});
+
+test("bundled qualified assignment refuses malformed audit dates before admission and queue ordering", async () => {
+  const timestamps: unknown[] = [
+    undefined,
+    null,
+    "",
+    "not-a-date",
+    "2026",
+    2026,
+    "2026-02-30T12:00:00Z",
+  ];
+  for (const timestamp of timestamps) {
+    const f = qualifiedAssignmentFixture();
+    const request = f.options.request;
+    const verifier = createQualifiedAssignmentVerifier({
+      ...f.options,
+      request: async (...args) => {
+        if (args[1].includes("/comments?"))
+          return f.comments.map((comment) => ({
+            ...comment,
+            created_at: timestamp,
+            updated_at: timestamp,
+          }));
+        return request(...args);
+      },
+    });
+    await expect(verifier.admit(f.binding)).rejects.toThrow("audit metadata is incomplete");
+    expect(await verifier.readQueue()).toEqual({
+      eligible: [],
+      held: [{ issueNumber: 1, reason: "qualification_metadata_invalid" }],
+    });
+  }
+});
+
+test("bundled qualified assignment requires both valid audit dates and holds malformed intake history", async () => {
+  const metadata = [
+    { created_at: undefined, updated_at: new Date(qualificationNow).toISOString() },
+    { created_at: new Date(qualificationNow).toISOString(), updated_at: undefined },
+    { created_at: "2026", updated_at: "2026" },
+    { created_at: "2026-02-30T12:00:00Z", updated_at: "2026-02-30T12:00:00Z" },
+    { created_at: 2026, updated_at: 2026 },
+  ];
+  for (const dates of metadata) {
+    const f = qualifiedAssignmentFixture();
+    const request = f.options.request;
+    const options: FactoryQualifiedVerifierOptions = {
+      ...f.options,
+      request: async (...args) => {
+        if (args[1].includes("/comments?"))
+          return f.comments.map((comment) => ({ ...comment, ...dates }));
+        return request(...args);
+      },
+    };
+    const verifier = createQualifiedAssignmentVerifier(options);
+    await expect(verifier.admit(f.binding)).rejects.toThrow("audit metadata is incomplete");
+    expect((await verifier.readQueue()).eligible).toEqual([]);
+    f.issue.body = "Changed scope needs a fresh qualification";
+    expect(await createFactoryIntakeSelector(f.options)(f.policy)).toEqual({ issueNumber: 1 });
+    expect(await createFactoryIntakeSelector(options)(f.policy)).toBeNull();
+  }
+});
+
+test("bundled qualified assignment rejects stale, revoked, changed, forged and superseded evidence", async () => {
+  const changes: Array<(f: ReturnType<typeof qualifiedAssignmentFixture>) => void> = [
+    (f) => {
+      f.control.allowed = false;
+    },
+    (f) => {
+      f.control.time += 3600001;
+    },
+    (f) => {
+      f.issue.body = "Changed";
+    },
+    (f) => {
+      f.input.sourceInputs[0].blob = "d".repeat(40);
+    },
+    (f) => {
+      f.control.dependency = true;
+    },
+    (f) => {
+      f.comments[0].updated_at = new Date(qualificationNow + 1000).toISOString();
+    },
+    (f) => {
+      f.comments.push({
+        ...f.comments[0],
+        id: 11,
+        body: "<!-- vorton-factory:qualification:invalid -->",
+      });
+    },
+    (f) => {
+      f.comments.push({
+        id: 11,
+        user: { id: 42 },
+        created_at: new Date(qualificationNow + 1000).toISOString(),
+        body: "<!-- vorton-factory:approval:invalid -->",
+      });
+    },
+    (f) => {
+      f.comments.push({ id: 12, body: "<!-- vorton-factory:status:v1:prior -->" });
+    },
+    (f) => {
+      f.comments[0].user = { id: 43 };
+    },
+  ];
+  for (const change of changes) {
+    const f = qualifiedAssignmentFixture();
+    change(f);
+    await expect(f.verifier.admit(f.binding)).rejects.toThrow();
+    expect((await f.verifier.readQueue()).eligible).toEqual([]);
+  }
+});
+
+test("bundled qualified assignment ongoing work keeps pinned admission while enforcing current owner holds", async () => {
+  const f = qualifiedAssignmentFixture();
+  const admitted = await f.verifier.admit(f.binding);
+  f.control.time += 86400000;
+  f.input.sourceInputs[0].blob = "d".repeat(40);
+  f.comments.push({ id: 20, body: "<!-- vorton-factory:status:v1:current -->" });
+  expect((await f.verifier.ongoing(admitted)).issue).toEqual(f.issue);
+  f.control.allowed = false;
+  await expect(f.verifier.ongoing(admitted)).rejects.toThrow("standing authority");
+});
+
+test("bundled qualified assignment propagates owner loss instead of returning held queue data", async () => {
+  const f = qualifiedAssignmentFixture();
+  const verifier = createQualifiedAssignmentVerifier({
+    ...f.options,
+    authorize: async () => {
+      f.control.current = false;
+      return true;
+    },
+  });
+  await expect(verifier.readQueue()).rejects.toThrow("Owner changed");
+});
+
+test("bundled qualified assignment refuses capped queues before reading individual audits", async () => {
+  const f = qualifiedAssignmentFixture();
+  const options = {
+    ...f.options,
+    request: async () => Array.from({ length: 1001 }, () => f.issue),
+  };
+  await expect(createQualifiedAssignmentVerifier(options).readQueue()).rejects.toThrow(
+    "exceeds its bound",
+  );
+  await expect(createFactoryIntakeSelector(options)(f.policy)).rejects.toThrow("exceeds its bound");
+});
+
+test("bundled qualified assignment rejects attempt drift during ongoing asynchronous verification", async () => {
+  const f = qualifiedAssignmentFixture();
+  const attempt = await f.verifier.admit(f.binding);
+  let release = () => {
+    throw new Error("Gate not initialized");
+  };
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let arrive = () => {
+    throw new Error("Arrival not initialized");
+  };
+  const arrival = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  const request = f.options.request;
+  assert.ok(request);
+  const verifier = createQualifiedAssignmentVerifier({
+    ...f.options,
+    request: async (...args) => {
+      if (args[1] === "user") {
+        arrive();
+        await gate;
+      }
+      return request(...args);
+    },
+  });
+  const pending = verifier.ongoing(attempt);
+  await arrival;
+  attempt.approval.scope = "Unverified replacement scope";
+  release();
+  await expect(pending).rejects.toThrow("binding changed");
+});
+
+function legacyApprovalFixture(numbers = [1]): FactoryApprovedQueueSelection {
+  const policy: FactoryQueuePolicy = {
+    trustedCommit: "a".repeat(40),
+    configSha256: "b".repeat(64),
+    config: {
+      repository: "example/product",
+      issues: {
+        requiredLabels: ["factory:ready"],
+        excludedLabels: ["factory:running"],
+        priorityLabels: ["priority:high", "priority:normal"],
+      },
+    },
+  };
+  const issues: FactoryQueueIssue[] = numbers.map((number) => ({
+    number,
+    state: "open",
+    title: `Issue ${number}`,
+    body: "Bounded acceptance",
+    assignees: [],
+    labels: [{ name: "factory:ready" }],
+  }));
+  const commentsByIssue = new Map<number, FactoryQueueComment[]>();
+  for (const issue of issues)
+    commentsByIssue.set(issue.number, [
+      {
+        id: issue.number,
+        user: { id: 42 },
+        created_at: new Date(qualificationNow).toISOString(),
+        body: approvalComment({
+          schemaVersion: 1,
+          action: "approve",
+          repository: policy.config.repository,
+          issueNumber: issue.number,
+          issueContentSha256: issueContentDigest(issue),
+          baseCommit: policy.trustedCommit,
+          configSha256: policy.configSha256,
+          host: "linux-container",
+          delivery: "reviewed-draft-only",
+          scope: "Only the bounded fixture",
+        }),
+      },
+    ]);
+  return {
+    policy,
+    ownerId: 42,
+    issues,
+    commentsByIssue,
+    dependenciesByIssue: new Map(numbers.map((number) => [number, []])),
+    timelinesByIssue: new Map(numbers.map((number) => [number, []])),
+    excludedIssues: [],
+  };
+}
+
+function legacyComment(input: FactoryApprovedQueueSelection, number = 1) {
+  const comments = input.commentsByIssue.get(number);
+  assert.ok(comments);
+  return comments;
+}
+
+test("bundled qualified assignment legacy ordering retains priority, approval time and issue identity", () => {
+  const f = legacyApprovalFixture([3, 2, 1, 4, 5]);
+  f.issues[0].labels.push({ name: "priority:normal" });
+  for (const i of [1, 3, 4]) f.issues[i].labels.push({ name: "priority:high" });
+  legacyComment(f, 5)[0].created_at = new Date(qualificationNow - 3600000).toISOString();
+  expect(selectApprovedIssues(f).eligible.map((issue) => issue.issueNumber)).toEqual([
+    5, 2, 4, 3, 1,
+  ]);
+});
+
+test("bundled qualified assignment legacy labels cannot authorize forged or changed scope", () => {
+  const forged = legacyApprovalFixture();
+  legacyComment(forged)[0].user = { id: 7 };
+  expect(selectApprovedIssues(forged).held[0].reason).toBe("approval_missing");
+  const mutations: Array<(f: FactoryApprovedQueueSelection) => void> = [
+    (f) => {
+      f.issues[0].body += " new work";
+    },
+    (f) => {
+      f.issues[0].title += " changed";
+    },
+    (f) => {
+      f.policy = { ...f.policy, trustedCommit: "c".repeat(40) };
+    },
+    (f) => {
+      f.policy = { ...f.policy, configSha256: "d".repeat(64) };
+    },
+  ];
+  for (const mutate of mutations) {
+    const f = legacyApprovalFixture();
+    mutate(f);
+    expect(selectApprovedIssues(f).held[0].reason).toBe("approval_scope_changed");
+  }
+});
+
+test("bundled qualified assignment legacy owner revocation or malformed controls supersede approval", () => {
+  for (const kind of ["revoke", "malformed"]) {
+    const f = legacyApprovalFixture();
+    const previous = legacyComment(f)[0];
+    assert.ok(typeof previous.body === "string");
+    const body =
+      kind === "revoke"
+        ? previous.body.replace('"approve"', '"revoke"')
+        : previous.body.replace(":v1", ":v2");
+    legacyComment(f).push({ ...previous, id: 2, body });
+    const result = selectApprovedIssues(f);
+    expect(result.eligible).toEqual([]);
+    expect(result.held[0].reason).toBe(kind === "revoke" ? "approval_revoked" : "approval_invalid");
+  }
+});
+
+test("bundled qualified assignment legacy holds existing assignment, dependencies, priority conflicts and delivered work", () => {
+  const f = legacyApprovalFixture([1, 2, 3, 4, 5]);
+  f.excludedIssues = [1];
+  f.issues[1].assignees = [{ id: 7 }];
+  f.dependenciesByIssue.set(3, [{ state: "open" }]);
+  f.issues[3].labels.push({ name: "priority:high" }, { name: "priority:normal" });
+  f.issues[4].labels.push({ name: "factory:running" });
+  expect(selectApprovedIssues(f).held.map((issue) => issue.reason)).toEqual([
+    "existing_assignment",
+    "dependencies_unresolved",
+    "conflicting_priorities",
+  ]);
+  const delivered = legacyApprovalFixture([1, 2, 3]);
+  legacyComment(delivered).push({ body: "<!-- vorton-factory:status:v1:prior -->" });
+  assert.ok(delivered.timelinesByIssue);
+  delivered.timelinesByIssue.set(2, [
+    { event: "cross-referenced", source: { issue: { pull_request: { url: "fixture" } } } },
+  ]);
+  const result = selectApprovedIssues(delivered);
+  expect(result.eligible.map((issue) => issue.issueNumber)).toEqual([3]);
+  expect(result.held.map((issue) => issue.reason)).toEqual([
+    "prior_assignment_or_pr",
+    "prior_assignment_or_pr",
+  ]);
+  delivered.timelinesByIssue.delete(3);
+  expect(selectApprovedIssues(delivered).eligible).toEqual([]);
+  expect(selectApprovedIssues(delivered).held.at(-1)?.reason).toBe("timeline_unavailable");
+});
+
+test("bundled qualified assignment legacy discovery propagates read failure without returning an empty complete queue", async () => {
+  const f = legacyApprovalFixture();
+  const seen: string[] = [];
+  const api = async (endpoint: string) => {
+    seen.push(endpoint);
+    if (endpoint.includes("/comments?")) return legacyComment(f);
+    if (endpoint.includes("/dependencies/") || endpoint.includes("/timeline?")) return [];
+    return f.issues;
+  };
+  expect((await readApprovedFactoryQueue({ ...f, api })).eligible[0].issueNumber).toBe(1);
+  expect(seen).toHaveLength(4);
+  await expect(
+    readApprovedFactoryQueue({
+      ...f,
+      api: async () => {
+        throw new Error("offline");
+      },
+    }),
+  ).rejects.toThrow("offline");
+});
+
+test("bundled qualified assignment legacy preclaim recheck refuses changed eligibility and prior connected work", async () => {
+  const f = legacyApprovalFixture();
+  const selected = selectApprovedIssues(f).eligible[0];
+  const timeline: FactoryQueueTimeline[] = [];
+  const options = {
+    ...f,
+    selected,
+    readIssue: async () => f.issues[0],
+    api: async (endpoint: string) => {
+      if (endpoint.includes("/comments?")) return legacyComment(f);
+      if (endpoint.includes("/dependencies/")) return f.dependenciesByIssue.get(1);
+      if (endpoint.includes("/timeline?")) return timeline;
+      throw new Error("Unexpected fixture endpoint");
+    },
+  };
+  expect((await recheckFactoryAssignment(options)).issueNumber).toBe(1);
+  f.issues[0].body += " changed";
+  await expect(recheckFactoryAssignment(options)).rejects.toThrow("eligibility changed");
+  const prior = legacyApprovalFixture();
+  const priorSelected = selectApprovedIssues(prior).eligible[0];
+  await expect(
+    recheckFactoryAssignment({
+      ...prior,
+      selected: priorSelected,
+      readIssue: async () => prior.issues[0],
+      api: async (endpoint) => {
+        if (endpoint.includes("/comments?")) return legacyComment(prior);
+        if (endpoint.includes("/dependencies/")) return [];
+        return [{ event: "connected" }];
+      },
+    }),
+  ).rejects.toThrow("prior assignment or PR");
+});
+
+test("bundled qualified assignment reports unknown verification failure as a hold without granting work", async () => {
+  const f = qualifiedAssignmentFixture();
+  const verifier = createQualifiedAssignmentVerifier({
+    ...f.options,
+    authorize: async () => {
+      throw null;
+    },
+  });
+  expect(await verifier.readQueue()).toEqual({
+    eligible: [],
+    held: [{ issueNumber: 1, reason: "qualification_verification_failed" }],
+  });
+});
+
+test("bundled qualified assignment captures configured policy and exclusions independently of caller aliases", async () => {
+  const f = qualifiedAssignmentFixture();
+  const excludedIssues = [2];
+  const verifier = createQualifiedAssignmentVerifier({ ...f.options, excludedIssues });
+  f.policy.config.repository = "unverified/other";
+  excludedIssues.push(1);
+  const admitted = await verifier.admit(f.binding);
+  expect(admitted.approval.repository).toBe("example/product");
+  expect(f.reads.some((endpoint) => endpoint.includes("unverified/other"))).toBe(false);
+});
+
+interface MergeFixturePull {
+  number: number;
+  user: { id: number };
+  state: string;
+  merged: boolean;
+  draft: boolean;
+  head: { sha: string; ref: string; repo: { full_name: string } };
+  base: { ref: string; repo: { full_name: string } };
+  title: string;
+  body: string;
+  mergeable: boolean;
+  mergeable_state: string;
+  merge_commit_sha: string | null;
+  merged_at: string | null;
+}
+
+interface MergeFixtureCheck {
+  id: number;
+  name: string;
+  head_sha: string;
+  status: string;
+  conclusion: string | null;
+  app: { id: number };
+}
+
+function protectedMergeFixture() {
+  const repository = "example/product";
+  const head = "a".repeat(40);
+  const baseCommit = "b".repeat(40);
+  const mergeCommit = "c".repeat(40);
+  const candidate: FactoryMergeCandidate = {
+    number: 4,
+    commit: head,
+    branch: "fix/search",
+    operationId: crypto.randomUUID(),
+    publicationOperationId: crypto.randomUUID(),
+  };
+  const pull: MergeFixturePull = {
+    number: 4,
+    user: { id: 42 },
+    state: "open",
+    merged: false,
+    draft: false,
+    head: { sha: head, ref: candidate.branch, repo: { full_name: repository } },
+    base: { ref: "dev", repo: { full_name: repository } },
+    title: "fix: repair search",
+    body: `(AI Generated).\n\n<!-- vorton-factory:publication:v1:${candidate.publicationOperationId} -->\n\nReviewed.`,
+    mergeable: true,
+    mergeable_state: "clean",
+    merge_commit_sha: null,
+    merged_at: null,
+  };
+  const checks: MergeFixtureCheck[] = ["Feature validation", "Tooling smoke", "Windows native"].map(
+    (name, index) => ({
+      id: index + 1,
+      name,
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+      app: { id: 15368 },
+    }),
+  );
+  const rules = [
+    { type: "pull_request", ruleset_id: 1, parameters: { allowed_merge_methods: ["squash"] } },
+    {
+      type: "required_status_checks",
+      ruleset_id: 1,
+      parameters: {
+        strict_required_status_checks_policy: true,
+        required_status_checks: checks
+          .slice(0, 2)
+          .map((item) => ({ context: item.name, integration_id: 15368 })),
+      },
+    },
+  ];
+  const controls = {
+    allowed: true,
+    reviewed: true,
+    current: true,
+    bypass: false,
+    stale: false,
+    lost: false,
+    noApply: false,
+    treeWrong: false,
+    strict: true,
+    mergedAt: "2026-10-06T12:00:00Z",
+  };
+  const state: { saved: FactoryMergeState | null; puts: number; promotions: number } = {
+    saved: null,
+    puts: 0,
+    promotions: 0,
+  };
+  const request: typeof githubRequest = async (method, endpoint, body) => {
+    if (method === "PUT") {
+      state.puts++;
+      if (!state.saved?.intent) throw new Error("Intent must be durable before merge");
+      expect(endpoint).toBe(`repos/${repository}/pulls/4/merge`);
+      expect(body).toEqual({
+        sha: head,
+        merge_method: "squash",
+        commit_title: pull.title,
+        commit_message: pull.body,
+      });
+      if (controls.noApply) throw new Error("Unknown network outcome");
+      Object.assign(pull, {
+        state: "closed",
+        merged: true,
+        merge_commit_sha: mergeCommit,
+        merged_at: controls.mergedAt,
+      });
+      if (controls.lost) throw new Error("Lost merge response");
+      return { merged: true, sha: mergeCommit };
+    }
+    expect(method).toBe("GET");
+    if (endpoint.endsWith("/pulls/4")) return structuredClone(pull);
+    if (endpoint.endsWith("/rules/branches/dev")) {
+      const value = structuredClone(rules);
+      value[1].parameters.strict_required_status_checks_policy = controls.strict;
+      return value;
+    }
+    if (endpoint.endsWith("/rulesets/1"))
+      return { enforcement: "active", bypass_actors: controls.bypass ? [{ actor_id: 42 }] : [] };
+    if (endpoint.includes("/check-runs?"))
+      return { total_count: checks.length, check_runs: structuredClone(checks) };
+    if (endpoint.endsWith("/git/ref/heads/dev"))
+      return { object: { type: "commit", sha: pull.merged ? mergeCommit : baseCommit } };
+    if (endpoint.includes("/compare/"))
+      return {
+        status: controls.stale ? "diverged" : "ahead",
+        merge_base_commit: { sha: pull.merged ? mergeCommit : baseCommit },
+      };
+    if (endpoint.endsWith(`/git/commits/${mergeCommit}`))
+      return {
+        sha: mergeCommit,
+        parents: [{ sha: baseCommit }],
+        tree: { sha: (controls.treeWrong ? "f" : "d").repeat(40) },
+        message: pull.title + "\n\n" + pull.body,
+      };
+    if (endpoint.endsWith(`/git/commits/${head}`))
+      return { sha: head, tree: { sha: "d".repeat(40) } };
+    throw new Error(`Unexpected ${endpoint}`);
+  };
+  const options: FactoryMergeControllerOptions = {
+    authority: {
+      assertCurrent() {
+        if (!controls.current) throw new Error("Owner changed");
+      },
+    },
+    repository,
+    ownerId: 42,
+    requiredChecks: checks.map((item) => ({ name: item.name, appId: item.app.id })),
+    authorize: async () => controls.allowed,
+    verifyCandidate: async () => controls.reviewed,
+    promote: async () => {
+      state.promotions++;
+      pull.draft = false;
+    },
+    journal: {
+      read: async () => structuredClone(state.saved),
+      write: async (value) => {
+        state.saved = structuredClone(value);
+      },
+    },
+    request,
+  };
+  return { candidate, options, request, pull, checks, rules, controls, state };
+}
+
+test("bundled protected merge promotes and verifies one squash integration with original timestamp", async () => {
+  const f = protectedMergeFixture();
+  f.pull.draft = true;
+  const step = createFactoryMergeController(f.options);
+  const result = await step(f.candidate);
+  if (result.kind !== "merged") throw new Error("Expected verified merge");
+  expect(f.state.promotions).toBe(1);
+  expect(f.state.puts).toBe(1);
+  expect(f.state.saved?.receipt).toEqual(result.receipt);
+  expect(result.receipt.mergedAt).toBe("2026-10-06T12:00:00Z");
+  expect(
+    await verifyFactoryMergedReceipt({
+      receipt: result.receipt,
+      assertCurrent: f.options.authority.assertCurrent,
+      request: f.request,
+    }),
+  ).toBe(true);
+  expect((await step(f.candidate)).kind).toBe("merged");
+  expect(f.state.puts).toBe(1);
+});
+
+test("bundled protected merge reconciles a lost response without another PUT", async () => {
+  const f = protectedMergeFixture();
+  f.controls.lost = true;
+  await expect(createFactoryMergeController(f.options)(f.candidate)).rejects.toThrow(
+    "Lost merge response",
+  );
+  expect(f.state.saved?.intent?.baseCommit).toBe("b".repeat(40));
+  expect((await createFactoryMergeController(f.options)(f.candidate)).kind).toBe("merged");
+  expect(f.state.puts).toBe(1);
+});
+
+test("bundled protected merge holds an uncertain unmerged request and refuses replacement intent", async () => {
+  const f = protectedMergeFixture();
+  f.controls.noApply = true;
+  await expect(createFactoryMergeController(f.options)(f.candidate)).rejects.toThrow(
+    "Unknown network outcome",
+  );
+  f.controls.noApply = false;
+  expect(await createFactoryMergeController(f.options)(f.candidate)).toEqual({
+    kind: "held",
+    reason: "merge_response_unconfirmed",
+  });
+  await expect(
+    createFactoryMergeController(f.options)({ ...f.candidate, operationId: crypto.randomUUID() }),
+  ).rejects.toThrow("Another Factory merge intent");
+  expect(f.state.puts).toBe(1);
+});
+
+test("bundled protected merge distinguishes CI repair, owner holds, pending checks and stale base", async () => {
+  for (const conclusion of [
+    "failure",
+    "timed_out",
+    "cancelled",
+    "skipped",
+    "neutral",
+    "action_required",
+  ]) {
+    const f = protectedMergeFixture();
+    f.checks[0].conclusion = conclusion;
+    const kind = ["failure", "timed_out"].includes(conclusion) ? "repair_required" : "held";
+    expect(await createFactoryMergeController(f.options)(f.candidate)).toEqual({
+      kind,
+      reason: `required_check:${f.checks[0].name}:${conclusion}`,
+      evidence: {
+        head: f.candidate.commit,
+        checkId: 1,
+        name: f.checks[0].name,
+        appId: 15368,
+        conclusion,
+      },
+    });
+    expect(f.state.puts).toBe(0);
+  }
+  const pending = protectedMergeFixture();
+  pending.checks[0].status = "in_progress";
+  pending.checks[0].conclusion = null;
+  expect((await createFactoryMergeController(pending.options)(pending.candidate)).kind).toBe(
+    "waiting",
+  );
+  const stale = protectedMergeFixture();
+  stale.controls.stale = true;
+  expect(await createFactoryMergeController(stale.options)(stale.candidate)).toEqual({
+    kind: "repair_required",
+    reason: "reviewed_base_integration_required",
+    evidence: { head: stale.candidate.commit, base: "b".repeat(40) },
+  });
+  expect(stale.state.puts).toBe(0);
+});
+
+test("bundled protected merge refuses missing authenticated checks, bypass rules and absent owner review", async () => {
+  const changes: Array<(f: ReturnType<typeof protectedMergeFixture>) => void> = [
+    (f) => {
+      f.checks.pop();
+    },
+    (f) => {
+      f.checks[0].id = 0;
+    },
+    (f) => {
+      f.checks[0].id = -1;
+    },
+    (f) => {
+      f.checks[0].app.id = 1;
+    },
+    (f) => {
+      f.checks[0].head_sha = "e".repeat(40);
+    },
+    (f) => {
+      f.controls.bypass = true;
+    },
+    (f) => {
+      f.controls.strict = false;
+    },
+    (f) => {
+      f.controls.reviewed = false;
+    },
+    (f) => {
+      f.controls.allowed = false;
+    },
+    (f) => {
+      f.controls.current = false;
+    },
+  ];
+  for (const change of changes) {
+    const f = protectedMergeFixture();
+    change(f);
+    const result = await createFactoryMergeController(f.options)(f.candidate).catch(() => ({
+      kind: "refused",
+    }));
+    expect(result.kind).not.toBe("merged");
+    expect(f.state.puts).toBe(0);
+    expect(f.state.saved).toBeNull();
+  }
+});
+
+test("bundled protected merge rejects changed squash trees and does not attribute an external merge", async () => {
+  const f = protectedMergeFixture();
+  f.controls.treeWrong = true;
+  await expect(createFactoryMergeController(f.options)(f.candidate)).rejects.toThrow(
+    "expected squash integration",
+  );
+  expect(f.state.saved?.receipt).toBeNull();
+  const external = protectedMergeFixture();
+  external.pull.merged = true;
+  external.pull.state = "closed";
+  expect(await createFactoryMergeController(external.options)(external.candidate)).toEqual({
+    kind: "held",
+    reason: "merged_without_factory_intent",
+  });
+  expect(external.state.puts).toBe(0);
+});
+
+test("bundled protected merge abort after persisted intent stops PUT and retains reconciliation state", async () => {
+  const f = protectedMergeFixture();
+  const abort = new AbortController();
+  const step = createFactoryMergeController({
+    ...f.options,
+    signal: abort.signal,
+    journal: {
+      read: f.options.journal.read,
+      write: async (value) => {
+        await f.options.journal.write(value);
+        abort.abort();
+      },
+    },
+  });
+  await expect(step(f.candidate)).rejects.toThrow("merge stopped");
+  expect(f.state.puts).toBe(0);
+  expect(f.state.saved?.intent?.baseCommit).toBe("b".repeat(40));
+  expect(f.state.saved?.receipt).toBeNull();
+});
+
+test("bundled protected merge refuses malformed original timestamps before reporting shipment", async () => {
+  const f = protectedMergeFixture();
+  const receipt = {
+    repository: "example/product",
+    number: 4,
+    head: f.candidate.commit,
+    mergeCommit: "c".repeat(40),
+    mergedAt: "2026-10-06T12:00:00Z",
+    url: "https://github.com/example/product/pull/4",
+  };
+  for (const timestamp of [undefined, null, 2026, "2026", "2026-02-30T12:00:00Z"]) {
+    expect(() => assertFactoryMergeReceipt({ ...receipt, mergedAt: timestamp })).toThrow(
+      "Invalid Factory merge receipt",
+    );
+  }
+  for (const timestamp of ["2026", "2026-02-30T12:00:00Z"]) {
+    const bad = protectedMergeFixture();
+    bad.controls.mergedAt = timestamp;
+    await expect(createFactoryMergeController(bad.options)(bad.candidate)).rejects.toThrow(
+      "merge is unconfirmed",
+    );
+    expect(bad.state.puts).toBe(1);
+    expect(bad.state.saved?.receipt).toBeNull();
+  }
+});
+
+test("bundled protected merge verifier refuses caller receipt drift across asynchronous reads", async () => {
+  const f = protectedMergeFixture();
+  const result = await createFactoryMergeController(f.options)(f.candidate);
+  if (result.kind !== "merged") throw new Error("Expected verified merge");
+  const expected = structuredClone(result.receipt);
+  let changed = false;
+  const request: typeof githubRequest = async (...args) => {
+    const response = await f.request(...args);
+    if (!changed) {
+      result.receipt.mergeCommit = "e".repeat(40);
+      result.receipt.mergedAt = "2026";
+      changed = true;
+    }
+    return response;
+  };
+  await expect(
+    verifyFactoryMergedReceipt({
+      receipt: result.receipt,
+      assertCurrent: f.options.authority.assertCurrent,
+      request,
+    }),
+  ).rejects.toThrow("receipt changed during verification");
+  expect(f.state.saved?.receipt).toEqual(expected);
+});
+
+test("bundled protected merge journal preserves complete claim and rejects changed operation or intent", async () => {
+  const f = protectedMergeFixture();
+  await createFactoryMergeController(f.options)(f.candidate);
+  const value = f.state.saved;
+  if (!value) throw new Error("Missing merge intent");
+  const state: { current: FactoryMergeClaimState } = {
+    current: {
+      active: {
+        attemptId: "attempt-1",
+        workflow: { phase: "release", operation: { kind: "merge", id: f.candidate.operationId } },
+      },
+    },
+  };
+  const journal = createClaimMergeJournal({
+    attemptId: "attempt-1",
+    operationId: f.candidate.operationId,
+    claims: {
+      current: () => structuredClone(state.current),
+      replace(previous, nextActive) {
+        expect(previous).toEqual(state.current);
+        state.current.active = structuredClone(nextActive);
+      },
+    },
+  });
+  expect(await journal.read()).toBeNull();
+  await journal.write(value);
+  expect(await journal.read()).toEqual(value);
+  await expect(journal.write({ ...value, intent: null })).rejects.toThrow(
+    "intent cannot be replaced",
+  );
+  if (!state.current.active?.workflow.operation) throw new Error("Missing claim operation");
+  state.current.active.workflow.operation.id = crypto.randomUUID();
+  await expect(journal.read()).rejects.toThrow("operation changed");
+});
+
+test("bundled protected merge owner loss after receipt persistence fails with retained reconciliation evidence", async () => {
+  const f = protectedMergeFixture();
+  const step = createFactoryMergeController({
+    ...f.options,
+    journal: {
+      read: f.options.journal.read,
+      write: async (value) => {
+        await f.options.journal.write(value);
+        if (value.receipt) f.controls.current = false;
+      },
+    },
+  });
+  await expect(step(f.candidate)).rejects.toThrow("Owner changed");
+  expect(f.state.puts).toBe(1);
+  expect(f.state.saved?.receipt?.mergeCommit).toBe("c".repeat(40));
+});
+
+function nativeWorkflowFixture() {
+  const issue = {
+    number: 7,
+    title: "Bounded issue",
+    body: "Acceptance",
+    state: "open",
+    assignees: [],
+  };
+  const approvedIssue = structuredClone(issue);
+  const policy = {
+    trustedCommit: "a".repeat(40),
+    configSha256: "b".repeat(64),
+    config: {
+      repository: "example/product",
+      maxRepairAttempts: 2,
+      validation: [{ argv: ["node", "check.mjs"], timeoutSeconds: 60 }],
+    },
+  };
+  const active: FactoryWorkflowAttempt = {
+    attemptId: "attempt-1",
+    occurrenceId: "occurrence-1",
+    approval: {
+      schemaVersion: 1,
+      action: "approve",
+      repository: policy.config.repository,
+      issueNumber: 7,
+      issueContentSha256: issueContentDigest(issue),
+      baseCommit: policy.trustedCommit,
+      configSha256: policy.configSha256,
+      host: "linux-container",
+      delivery: "reviewed-draft-only",
+      scope: "Bounded fixture",
+    },
+    workflow: null,
+    executions: [],
+  };
+  const state: FactoryWorkflowClaimState = { active };
+  const control = {
+    current: true,
+    commit: "c".repeat(40),
+    failValidation: false,
+    failReview: false,
+    wrongReview: false,
+    interruptStage: false,
+    lostPublication: false,
+    settled: true,
+    wrongCustody: false,
+    publishCount: 0,
+    publishCalls: 0,
+    reconcileCalls: 0,
+  };
+  const events: string[] = [];
+  const publicationIds: string[] = [];
+  const published = new Map<string, FactoryWorkflowPublishedDraft>();
+  const authority = {
+    assertCurrent() {
+      if (!control.current) throw new Error("Owner changed");
+    },
+  };
+  function currentAttempt() {
+    if (!state.active) throw new Error("No active claim");
+    return state.active;
+  }
+  const options: FactoryWorkflowOptions = {
+    authority,
+    policy,
+    attemptId: active.attemptId,
+    claims: {
+      current: () => structuredClone(state),
+      updateWorkflow(attemptId, previous, next) {
+        authority.assertCurrent();
+        const attempt = currentAttempt();
+        expect(attemptId).toBe(attempt.attemptId);
+        expect(previous).toEqual(attempt.workflow);
+        attempt.workflow = structuredClone(assertFactoryWorkflow(next));
+      },
+      reconcile: async () => {
+        control.reconcileCalls++;
+        if (!control.settled) throw new Error("Custody remains unsettled");
+      },
+      release: async (attemptId, verify) => {
+        authority.assertCurrent();
+        expect(attemptId).toBe(active.attemptId);
+        if (!control.settled) throw new Error("Custody remains unsettled");
+        expect(await verify(structuredClone(currentAttempt()))).toBe(true);
+        state.active = null;
+      },
+    },
+    createStage: async ({ kind, operation, command, commit }) => {
+      expect(currentAttempt().workflow?.operation?.id).toBe(operation.id);
+      const executionId = crypto.randomUUID();
+      currentAttempt().executions.push({
+        identity: { executionId },
+        binding: { stage: kind, occurrenceId: "occurrence-1:" + operation.id },
+      });
+      return {
+        stop: async () => {
+          events.push("stop:" + kind);
+        },
+        run: async () => {
+          events.push(kind);
+          if (control.interruptStage) {
+            control.interruptStage = false;
+            throw new Error("Interrupted stage");
+          }
+          return {
+            executionId: control.wrongCustody ? "unknown-execution" : executionId,
+            result: {
+              validation: {
+                command,
+                exitCode: control.failValidation ? 1 : 0,
+                timedOut: false,
+                signal: null,
+              },
+              finalText: JSON.stringify({
+                commit: control.wrongReview ? "e".repeat(40) : commit,
+                approved: !control.failReview,
+                findings: control.failReview ? ["Unresolved defect"] : [],
+              }),
+            },
+          };
+        },
+      };
+    },
+    checkpoint: async (_attempt, operation) => {
+      expect(operation.kind).toBe("checkpoint");
+      events.push("checkpoint");
+      return control.commit;
+    },
+    assertCheckpoint: async (commit) => {
+      expect(commit).toBe(control.commit);
+    },
+    publish: async ({ operation, review, validations, commit, issue: publishedIssue }) => {
+      expect(review.approved).toBe(true);
+      expect(review.commit).toBe(commit);
+      expect(validations).toHaveLength(1);
+      expect(validations[0].commit).toBe(commit);
+      expect(publishedIssue).toEqual(approvedIssue);
+      control.publishCalls++;
+      publicationIds.push(operation.id);
+      if (!published.has(operation.id)) {
+        control.publishCount++;
+        events.push("publication");
+        published.set(operation.id, {
+          number: 9,
+          html_url: "https://github.com/example/product/pull/9",
+        });
+      }
+      if (control.lostPublication) {
+        control.lostPublication = false;
+        throw new Error("Lost publication response");
+      }
+      const draft = published.get(operation.id);
+      if (!draft) throw new Error("No publication identity");
+      return structuredClone(draft);
+    },
+    verifyDelivery: async (_attempt, workflow) =>
+      workflow.draft?.number === 9 &&
+      workflow.review?.approved === true &&
+      control.publishCount === 1,
+  };
+  return {
+    issue,
+    options,
+    state,
+    control,
+    events,
+    publicationIds,
+    workflow: () => new FactoryWorkflow(options),
+  };
+}
+
+test("bundled workflow advances only through custody-matched validation and independent review", async () => {
+  const f = nativeWorkflowFixture();
+  const result = await f.workflow().run(f.issue);
+  expect(result.kind).toBe("published");
+  expect(f.events).toEqual(["implementation", "checkpoint", "validation", "review", "publication"]);
+  expect(f.control.reconcileCalls).toBe(3);
+  expect(f.state.active).toBeNull();
+  expect(f.control.publishCount).toBe(1);
+});
+
+test("bundled workflow retains publication operation through response loss and explicit recovery", async () => {
+  const f = nativeWorkflowFixture();
+  f.control.lostPublication = true;
+  await expect(f.workflow().run(f.issue)).rejects.toThrow("Lost publication response");
+  const retained = structuredClone(f.state.active?.workflow);
+  const restarted = f.workflow();
+  await expect(restarted.run(f.issue)).rejects.toThrow("interrupted operation requires recovery");
+  expect(f.state.active?.workflow).toEqual(retained);
+  expect(f.control.publishCalls).toBe(1);
+  await restarted.recover(async () => "retry");
+  expect((await restarted.run(f.issue)).kind).toBe("published");
+  expect(f.control.publishCount).toBe(1);
+  expect(f.control.publishCalls).toBe(2);
+  expect(new Set(f.publicationIds).size).toBe(1);
+});
+
+test("bundled workflow persists repair budget and requires fresh validation after failed review", async () => {
+  const failed = nativeWorkflowFixture();
+  failed.control.failValidation = true;
+  expect((await failed.workflow().run(failed.issue)).kind).toBe("blocked");
+  expect(failed.state.active?.workflow?.repairAttempts).toBe(2);
+  expect(failed.control.publishCount).toBe(0);
+  expect((await failed.workflow().run(failed.issue)).kind).toBe("blocked");
+  const reviewed = nativeWorkflowFixture();
+  reviewed.control.failReview = true;
+  const create = reviewed.options.createStage;
+  reviewed.options.createStage = async (input) => {
+    if (input.kind === "repair") reviewed.control.failReview = false;
+    return create(input);
+  };
+  expect((await reviewed.workflow().run(reviewed.issue)).kind).toBe("published");
+  expect(reviewed.events).toEqual([
+    "implementation",
+    "checkpoint",
+    "validation",
+    "review",
+    "repair",
+    "checkpoint",
+    "validation",
+    "review",
+    "publication",
+  ]);
+});
+
+test("bundled workflow refuses wrong issue, wrong review commit and missing execution custody", async () => {
+  const wrongIssue = nativeWorkflowFixture();
+  await expect(wrongIssue.workflow().run({ ...wrongIssue.issue, body: "Changed" })).rejects.toThrow(
+    "approved scope",
+  );
+  const wrongReview = nativeWorkflowFixture();
+  wrongReview.control.wrongReview = true;
+  await expect(wrongReview.workflow().run(wrongReview.issue)).rejects.toThrow("another commit");
+  const wrongCustody = nativeWorkflowFixture();
+  wrongCustody.control.wrongCustody = true;
+  await expect(wrongCustody.workflow().run(wrongCustody.issue)).rejects.toThrow(
+    "matching execution custody",
+  );
+  expect(wrongIssue.control.publishCount).toBe(0);
+  expect(wrongReview.control.publishCount).toBe(0);
+  expect(wrongCustody.control.publishCount).toBe(0);
+});
+
+test("bundled workflow interrupted stage never implies success and requires settled recovery", async () => {
+  const f = nativeWorkflowFixture();
+  f.control.interruptStage = true;
+  await expect(f.workflow().run(f.issue)).rejects.toThrow("Interrupted stage");
+  expect(f.state.active?.workflow?.operation?.kind).toBe("implementation");
+  const restart = f.workflow();
+  f.control.settled = false;
+  await expect(restart.recover(async () => "repeat")).rejects.toThrow("unsettled");
+  f.control.settled = true;
+  await restart.recover(async () => "repeat");
+  expect((await restart.run(f.issue)).kind).toBe("published");
+  expect(f.control.publishCount).toBe(1);
+});
+
+test("bundled workflow does not replace an uncertain external operation with a new identity", async () => {
+  const f = nativeWorkflowFixture();
+  f.control.lostPublication = true;
+  await expect(f.workflow().run(f.issue)).rejects.toThrow("Lost publication response");
+  const retained = structuredClone(f.state.active?.workflow);
+  await expect(f.workflow().recover(async () => "repeat")).rejects.toThrow(
+    "external operation must retain",
+  );
+  expect(f.state.active?.workflow).toEqual(retained);
+  expect(f.control.publishCalls).toBe(1);
+});
+
+test("bundled workflow captures policy and issue scope independently of caller aliases", async () => {
+  const f = nativeWorkflowFixture();
+  f.options.progress = async () => {
+    f.issue.body = "Injected unapproved scope";
+  };
+  const workflow = f.workflow();
+  f.options.policy.config.validation.length = 0;
+  expect((await workflow.run(f.issue)).kind).toBe("published");
+  expect(f.events).toContain("validation");
+});
+
+test("bundled workflow checkpoint validator rejects malformed and mismatched merge identities", () => {
+  const initial = initialFactoryWorkflow();
+  expect(assertFactoryWorkflow(initial)).toEqual(initial);
+  expect(() => assertFactoryWorkflow({ ...initial, repairAttempts: 4 })).toThrow(
+    "Invalid Factory workflow checkpoint",
+  );
+  expect(() => assertFactoryWorkflow({ ...initial, phase: "publication" })).toThrow(
+    "Invalid Factory workflow checkpoint",
+  );
+  const receipt = {
+    repository: "example/product",
+    number: 9,
+    head: "c".repeat(40),
+    mergeCommit: "d".repeat(40),
+    mergedAt: "2026-10-06T12:00:00Z",
+    url: "https://github.com/example/product/pull/9",
+  };
+  const state = {
+    ...initial,
+    phase: "release",
+    commit: "c".repeat(40),
+    review: { approved: true, commit: "c".repeat(40) },
+    draft: { number: 9, url: receipt.url, mergeReceipt: { ...receipt, head: "e".repeat(40) } },
+  };
+  expect(() => assertFactoryWorkflow(state)).toThrow("merge identity differs");
+});
+
+test("bundled workflow retains verified merge and same Builds handoff after acknowledgment loss", async () => {
+  const f = nativeWorkflowFixture();
+  let merges = 0;
+  const acknowledgments: string[] = [];
+  f.options.merge = async ({ state, operation }) => {
+    if (!state.commit || !state.draft) throw new Error("Missing publication");
+    expect(operation.kind).toBe("merge");
+    merges++;
+    return {
+      repository: "example/product",
+      number: state.draft.number,
+      head: state.commit,
+      mergeCommit: "d".repeat(40),
+      mergedAt: "2026-10-06T12:00:00Z",
+      url: state.draft.url,
+    };
+  };
+  f.options.onMerged = async ({ receipt }) => {
+    acknowledgments.push(receipt.mergeCommit);
+    if (acknowledgments.length === 1) throw new Error("Lost Builds acknowledgment");
+  };
+  await expect(f.workflow().run(f.issue)).rejects.toThrow("Lost Builds acknowledgment");
+  expect(f.state.active?.workflow?.draft?.mergeReceipt?.mergeCommit).toBe("d".repeat(40));
+  const restarted = f.workflow();
+  await restarted.recover(async () => "held");
+  expect((await restarted.run(f.issue)).kind).toBe("merged");
+  expect(merges).toBe(1);
+  expect(acknowledgments).toEqual(["d".repeat(40), "d".repeat(40)]);
+  expect(f.state.active).toBeNull();
+});
+
+test("bundled workflow stop during recovery cannot be undone by a late decision or caller attempt edits", async () => {
+  const f = nativeWorkflowFixture();
+  f.control.interruptStage = true;
+  await expect(f.workflow().run(f.issue)).rejects.toThrow("Interrupted stage");
+  const workflow = f.workflow();
+  let decide: (value: "repeat") => void = () => {
+    throw new Error("Missing deferred decision");
+  };
+  let entered: () => void = () => {
+    throw new Error("Missing entry signal");
+  };
+  const entry = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const decision = new Promise<"repeat">((resolve) => {
+    decide = resolve;
+  });
+  const recovering = workflow.recover(async (_operation, attempt) => {
+    attempt.approval.scope = "Caller mutation must not change the captured claim";
+    entered();
+    return decision;
+  });
+  const rejected = expect(recovering).rejects.toThrow("recovery was stopped");
+  await entry;
+  expect(() => workflow.run(f.issue)).toThrow("recovery is running");
+  await workflow.stop();
+  decide("repeat");
+  await rejected;
+  expect(f.state.active?.approval.scope).toBe("Bounded fixture");
+  await expect(workflow.run(f.issue)).rejects.toThrow("stopped");
+  expect(f.control.publishCount).toBe(0);
+});
+
+function baseRevisionFixture() {
+  const workflow = initialFactoryWorkflow();
+  workflow.phase = "checkpoint";
+  workflow.operation = { id: randomUUID(), phase: "checkpoint", kind: "checkpoint" };
+  const approval: FactoryWorkflowAttempt["approval"] = {
+    schemaVersion: 1,
+    action: "approve",
+    repository: "example/product",
+    issueNumber: 7,
+    issueContentSha256: "a".repeat(64),
+    baseCommit: "b".repeat(40),
+    configSha256: "c".repeat(64),
+    host: "linux-container",
+    delivery: "reviewed-draft-only",
+    scope: "One fix",
+  };
+  const attempt = {
+    attemptId: randomUUID(),
+    schedulerRunId: randomUUID(),
+    statusOperationId: randomUUID(),
+    publicationOperationId: randomUUID(),
+    approvalCommentId: 10,
+    approval,
+    workflow,
+    executions: [{ identity: { executionId: randomUUID() }, directory: "prior-execution" }],
+    helpers: [{ identity: { executionId: randomUUID() }, directory: "prior-helper" }],
+  };
+  const input = {
+    id: randomUUID(),
+    receiptSha256: "e".repeat(64),
+    approval: { ...approval, baseCommit: "d".repeat(40) },
+    approvalCommentId: 11,
+  };
+  return { attempt, input };
+}
+
+test("bundled recovery records preserve prior custody and isolate a pristine base revision", () => {
+  const { attempt, input } = baseRevisionFixture();
+  const before = structuredClone(attempt);
+  const next = createPristineBaseRevision(attempt, input);
+  expect(attempt).toEqual(before);
+  expect(next.attemptId).toBe(attempt.attemptId);
+  expect(next.schedulerRunId).toBe(attempt.schedulerRunId);
+  expect(next.statusOperationId).toBe(attempt.statusOperationId);
+  expect(next.publicationOperationId).toBe(attempt.publicationOperationId);
+  expect(next.executions).toEqual(attempt.executions);
+  expect(next.helpers).toEqual(attempt.helpers);
+  expect(Object.hasOwn(next, "workflow")).toBe(false);
+  expect(next.baseRevision.previous.workflow).toEqual(attempt.workflow);
+  expect(next.baseRevision.previous.approval).toEqual(attempt.approval);
+  expect(factoryPreparationKey(next)).not.toBe(factoryPreparationKey(attempt));
+  expect(factoryPreparationOperationId(next)).toBe(input.id);
+  expect(factoryPublicationBranch(next.attemptId, 7, input.id)).not.toBe(
+    factoryPublicationBranch(attempt.attemptId, 7),
+  );
+  expect(hasOnlyPriorRevisionExecutions(next)).toBe(true);
+  next.executions.push({ identity: { executionId: randomUUID() }, directory: "new-execution" });
+  assertFactoryBaseRevision(next);
+  expect(hasOnlyPriorRevisionExecutions(next)).toBe(false);
+});
+
+test("bundled recovery records reject candidate scope, reused approval and repeated revision", () => {
+  const { attempt, input } = baseRevisionFixture();
+  const candidate = structuredClone(attempt);
+  candidate.workflow.commit = "f".repeat(40);
+  expect(() => createPristineBaseRevision(candidate, input)).toThrow("pristine workflow");
+  const repaired = structuredClone(attempt);
+  repaired.workflow.repairAttempts = 1;
+  expect(() => createPristineBaseRevision(repaired, input)).toThrow("pristine workflow");
+  const validating = structuredClone(attempt);
+  validating.workflow.phase = "validation";
+  expect(() => createPristineBaseRevision(validating, input)).toThrow();
+  for (const change of [
+    { scope: "Expanded" },
+    { configSha256: "f".repeat(64) },
+    { issueContentSha256: "f".repeat(64) },
+    { baseCommit: attempt.approval.baseCommit },
+  ]) {
+    expect(() =>
+      createPristineBaseRevision(attempt, {
+        ...input,
+        approval: { ...input.approval, ...change },
+      }),
+    ).toThrow("scope");
+  }
+  expect(() => createPristineBaseRevision(attempt, { ...input, approvalCommentId: 10 })).toThrow(
+    "revision",
+  );
+  const next = createPristineBaseRevision(attempt, input);
+  expect(() => createPristineBaseRevision(next, input)).toThrow("reconciliation");
+});
+
+test("bundled recovery records reject prior custody edits, truncation and injected identity", () => {
+  const { attempt, input } = baseRevisionFixture();
+  for (const collection of ["executions", "helpers"] as const) {
+    const changed = createPristineBaseRevision(attempt, input);
+    changed[collection][0].directory = "different";
+    expect(() => assertFactoryBaseRevision(changed)).toThrow("custody history");
+    changed[collection].length = 0;
+    expect(() => assertFactoryBaseRevision(changed)).toThrow("custody history");
+  }
+  expect(() => createPristineBaseRevision(attempt, { ...input, id: "../../old" })).toThrow(
+    "revision",
+  );
+  expect(() => createPristineBaseRevision(attempt, { ...input, receiptSha256: "unbound" })).toThrow(
+    "revision",
+  );
+});
+
+function retirementFixture() {
+  const receipt: FactoryExternalRetirement = {
+    reason: "completed_elsewhere",
+    attemptId: randomUUID(),
+    schedulerRunId: randomUUID(),
+    archiveSha256: "a".repeat(64),
+    repository: "example/product",
+    issueNumber: 4,
+    scheduleId: "schedule",
+    occurrenceId: "occurrence",
+    completion: { pullRequest: 8, mergeCommit: "b".repeat(40), devCommit: "c".repeat(40) },
+  };
+  const issue = {
+    number: 4,
+    state: "closed",
+    state_reason: "completed",
+    updated_at: "2026-10-08T12:00:00Z",
+  };
+  const pr = {
+    number: 8,
+    merged: true,
+    state: "closed",
+    base: { ref: "dev", repo: { full_name: "example/product" } },
+    merge_commit_sha: "b".repeat(40),
+  };
+  const reference = {
+    event: "cross-referenced",
+    source: {
+      issue: { pull_request: { url: "https://api.github.com/repos/example/product/pulls/8" } },
+    },
+  };
+  const control = { owned: true, issueReads: 0 };
+  let mutate: (result: unknown, endpoint: string, reads: number) => void = () => {};
+  const calls: string[] = [];
+  const authority = {
+    assertCurrent() {
+      if (!control.owned) throw new Error("Lost retained owner");
+    },
+  };
+  const verify = createFactoryExternalCompletionVerifier({
+    authority,
+    request: async (method, endpoint) => {
+      expect(method).toBe("GET");
+      calls.push(endpoint);
+      let result: unknown;
+      if (endpoint.endsWith("/issues/4")) {
+        control.issueReads++;
+        result = { ...issue };
+      } else if (endpoint.endsWith("/pulls/8")) result = structuredClone(pr);
+      else if (endpoint.includes("/timeline?")) result = [structuredClone(reference)];
+      else if (endpoint.endsWith("/git/ref/heads/dev"))
+        result = { object: { type: "commit", sha: "d".repeat(40) } };
+      else if (endpoint.includes("/compare/"))
+        result = { status: "ahead", merge_base_commit: { sha: "b".repeat(40) } };
+      else throw new Error(endpoint);
+      mutate(result, endpoint, control.issueReads);
+      return result;
+    },
+  });
+  return {
+    receipt,
+    issue,
+    pr,
+    reference,
+    control,
+    calls,
+    verify,
+    setMutate(fn: typeof mutate) {
+      mutate = fn;
+    },
+  };
+}
+
+test("bundled recovery records require a referenced external merge retained by both Dev observations", async () => {
+  const f = retirementFixture();
+  expect(await f.verify(f.receipt)).toBe(true);
+  expect(f.calls.filter((endpoint) => endpoint.includes("/compare/"))).toEqual([
+    `repos/example/product/compare/${"b".repeat(40)}...${"c".repeat(40)}`,
+    `repos/example/product/compare/${"b".repeat(40)}...${"d".repeat(40)}`,
+  ]);
+  for (const failure of ["closed", "merged", "repository", "reference", "ancestry"]) {
+    const bad = retirementFixture();
+    bad.setMutate((value, endpoint) => {
+      if (failure === "closed" && endpoint.endsWith("/issues/4"))
+        Object.assign(value ?? {}, { state_reason: "not_planned" });
+      if (failure === "merged" && endpoint.endsWith("/pulls/8"))
+        Object.assign(value ?? {}, { merged: false });
+      if (failure === "repository" && endpoint.endsWith("/pulls/8"))
+        Object.assign(value ?? {}, { base: { ref: "dev", repo: { full_name: "other/product" } } });
+      if (failure === "reference" && Array.isArray(value)) value.length = 0;
+      if (failure === "ancestry" && endpoint.includes("/compare/"))
+        Object.assign(value ?? {}, { status: "diverged" });
+    });
+    await expect(bad.verify(bad.receipt)).rejects.toThrow();
+  }
+});
+
+test("bundled recovery records reject changed or malformed external issue observations", async () => {
+  for (const invalid of [undefined, null, 2026, "2026", "2026-02-30T12:00:00Z"]) {
+    const f = retirementFixture();
+    f.setMutate((value, endpoint) => {
+      if (endpoint.endsWith("/issues/4")) Object.assign(value ?? {}, { updated_at: invalid });
+    });
+    await expect(f.verify(f.receipt)).rejects.toThrow("unconfirmed");
+    expect(f.calls).toHaveLength(1);
+  }
+  for (const field of ["state", "updated_at"]) {
+    const f = retirementFixture();
+    f.setMutate((value, endpoint, reads) => {
+      if (endpoint.endsWith("/issues/4") && reads === 2)
+        Object.assign(value ?? {}, { [field]: "changed" });
+    });
+    await expect(f.verify(f.receipt)).rejects.toThrow("changed during");
+  }
+});
+
+test("bundled recovery records reject receipt drift and owner loss after external reads", async () => {
+  for (const failure of ["receipt", "owner"]) {
+    const f = retirementFixture();
+    f.setMutate((_value, endpoint) => {
+      if (!endpoint.endsWith("/issues/4")) return;
+      if (failure === "receipt") f.receipt.completion.pullRequest = 9;
+      else f.control.owned = false;
+    });
+    await expect(f.verify(f.receipt)).rejects.toThrow();
+    expect(f.calls).toHaveLength(1);
+  }
+});
+
+function parkingFixture() {
+  const f = retirementFixture();
+  const body = `(AI Generated).\n\n<!-- factory:status:v1:${randomUUID()} -->\n\`\`\`json\n${JSON.stringify({ attemptId: f.receipt.attemptId, issueNumber: 4, stage: "blocked" })}\n\`\`\``;
+  const receipt: FactoryParkedRetirement = {
+    ...f.receipt,
+    reason: "blocked",
+    completion: {
+      blockerSha256: "c".repeat(64),
+      commentId: 2,
+      commentSha256: createHash("sha256").update(body).digest("hex"),
+      pull: { number: 8, head: "d".repeat(40) },
+    },
+  };
+  const comment = {
+    id: 2,
+    user: { id: 42 },
+    issue_url: "https://api.github.com/repos/example/product/issues/4",
+    body,
+  };
+  const pull = {
+    number: 8,
+    state: "open",
+    merged: false,
+    auto_merge: null,
+    user: { id: 42 },
+    head: { sha: "d".repeat(40), repo: { full_name: "example/product" } },
+    base: { ref: "dev", repo: { full_name: "example/product" } },
+  };
+  let afterRead: () => void = () => {};
+  const calls: string[] = [];
+  const verify = createFactoryParkingVerifier({
+    authority: {
+      assertCurrent() {
+        if (!f.control.owned) throw new Error("Lost retained owner");
+      },
+    },
+    ownerId: 42,
+    request: async (method, endpoint) => {
+      expect(method).toBe("GET");
+      calls.push(endpoint);
+      const result = structuredClone(endpoint.endsWith("/pulls/8") ? pull : comment);
+      afterRead();
+      return result;
+    },
+  });
+  return {
+    f,
+    receipt,
+    comment,
+    pull,
+    verify,
+    calls,
+    setAfterRead(fn: typeof afterRead) {
+      afterRead = fn;
+    },
+  };
+}
+
+test("bundled recovery records verify parked holds without presenting them as external completion", async () => {
+  const p = parkingFixture();
+  expect(await p.verify(p.receipt)).toBe(true);
+  await expect(p.f.verify(p.receipt)).rejects.toThrow("not external completion");
+  p.pull.merged = true;
+  await expect(p.verify(p.receipt)).rejects.toThrow("PR requires reconciliation");
+  p.pull.merged = false;
+  p.comment.body += "edited";
+  await expect(p.verify(p.receipt)).rejects.toThrow("status changed");
+  const withoutPull = parkingFixture();
+  withoutPull.receipt.completion.pull = null;
+  expect(await withoutPull.verify(withoutPull.receipt)).toBe(true);
+  expect(withoutPull.calls).toHaveLength(1);
+});
+
+test("bundled recovery records reject parked receipt drift and altered owner or PR identity", async () => {
+  const drift = parkingFixture();
+  drift.setAfterRead(() => {
+    drift.receipt.completion.commentId = 3;
+  });
+  await expect(drift.verify(drift.receipt)).rejects.toThrow("receipt changed");
+  expect(drift.calls).toHaveLength(1);
+  const owner = parkingFixture();
+  owner.comment.user.id = 43;
+  await expect(owner.verify(owner.receipt)).rejects.toThrow("status changed");
+  const head = parkingFixture();
+  head.pull.head.sha = "e".repeat(40);
+  await expect(head.verify(head.receipt)).rejects.toThrow("PR requires reconciliation");
+});
+
+test("bundled recovery records reject malformed retirement identities before GitHub reads", async () => {
+  const f = retirementFixture();
+  for (const malformed of [
+    { ...f.receipt, unexpected: true },
+    { ...f.receipt, attemptId: "../attempt" },
+    { ...f.receipt, attemptId: [f.receipt.attemptId] },
+    { ...f.receipt, schedulerRunId: [f.receipt.schedulerRunId] },
+    { ...f.receipt, archiveSha256: [f.receipt.archiveSha256] },
+    { ...f.receipt, repository: [f.receipt.repository] },
+    { ...f.receipt, completion: { ...f.receipt.completion, mergeCommit: ["b".repeat(40)] } },
+    { ...f.receipt, repository: "https://example/product" },
+    { ...f.receipt, completion: { ...f.receipt.completion, pullRequest: 0 } },
+  ]) {
+    expect(() => assertFactoryRetirement(malformed)).toThrow();
+  }
+  await expect(f.verify({ ...f.receipt, schedulerRunId: "unbound" })).rejects.toThrow(
+    "retirement receipt",
+  );
+  expect(f.calls).toHaveLength(0);
+});
+
+test("bundled recovery records reject coercible base identity and custody digest values", () => {
+  for (const field of ["id", "receiptSha256"]) {
+    const { attempt, input } = baseRevisionFixture();
+    const value = field === "id" ? input.id : input.receiptSha256;
+    Object.assign(input, { [field]: [value] });
+    expect(() => createPristineBaseRevision(attempt, input)).toThrow("revision");
+  }
+  for (const field of ["attemptId", "schedulerRunId"]) {
+    const { attempt, input } = baseRevisionFixture();
+    const value = field === "attemptId" ? attempt.attemptId : attempt.schedulerRunId;
+    Object.assign(attempt, { [field]: [value] });
+    expect(() => createPristineBaseRevision(attempt, input)).toThrow("retained attempt");
+    expect(() => assertFactoryBaseRevision(attempt)).toThrow("retained attempt");
+    expect(() => factoryPreparationKey(attempt)).toThrow("retained attempt");
+    expect(() => factoryPreparationOperationId(attempt)).toThrow("retained attempt");
+  }
+  for (const field of ["id", "receiptSha256"]) {
+    const { attempt, input } = baseRevisionFixture();
+    const next = createPristineBaseRevision(attempt, input);
+    const value = field === "id" ? next.baseRevision.id : next.baseRevision.receiptSha256;
+    Object.assign(next.baseRevision, { [field]: [value] });
+    expect(() => assertFactoryBaseRevision(next)).toThrow("revision");
+    expect(() => factoryPreparationOperationId(next)).toThrow("revision");
+  }
+  for (const field of ["executionsSha256", "helpersSha256"]) {
+    const { attempt, input } = baseRevisionFixture();
+    const next = createPristineBaseRevision(attempt, input);
+    const value =
+      field === "executionsSha256"
+        ? next.baseRevision.previous.executionsSha256
+        : next.baseRevision.previous.helpersSha256;
+    Object.assign(next.baseRevision.previous, { [field]: [value] });
+    expect(() => assertFactoryBaseRevision(next)).toThrow("custody history");
+  }
+  const { attempt, input } = baseRevisionFixture();
+  expect(() =>
+    Reflect.apply(factoryPublicationBranch, undefined, [[attempt.attemptId], 7]),
+  ).toThrow("publication identity");
+  expect(() =>
+    Reflect.apply(factoryPublicationBranch, undefined, [attempt.attemptId, 7, [input.id]]),
+  ).toThrow("publication identity");
+});
+
+async function nativeClaimFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-native-claims-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "factory-native-workspace-"));
+  roots.push(root, workspace);
+  await chmod(root, 0o700);
+  await chmod(workspace, 0o700);
+  await mkdir(path.join(root, "custody"), { mode: 0o700 });
+  const control = {
+    owned: true,
+    beforeSettlement: async (_directory: string, _identity: FactoryCustodyIdentity) => {},
+  };
+  const authority: FactoryClaimAuthority = {
+    root,
+    identity: { installationId: randomUUID(), epoch: 1 },
+    assertCurrent() {
+      if (!control.owned) throw new Error("Native owner revoked");
+    },
+  };
+  const readSettlement = async (directory: string, identity: FactoryCustodyIdentity) => {
+    const receipt: unknown = JSON.parse(
+      await readFile(path.join(directory, "receipt.json"), "utf8"),
+    );
+    expect(receipt).toEqual({ identity, settled: true });
+    await control.beforeSettlement(directory, identity);
+  };
+  const journal = new FactoryClaimJournal(authority, readSettlement);
+  const binding: FactoryClaimInput = {
+    approval: baseRevisionFixture().attempt.approval,
+    approvalCommentId: 10,
+    scheduleId: "schedule",
+    occurrenceId: "occurrence",
+  };
+  async function execution(attemptId: string): Promise<FactoryWorkerExecution> {
+    const directory = await mkdtemp(path.join(root, "custody", "execution-"));
+    const identity: FactoryCustodyIdentity = {
+      version: 1,
+      executionId: randomUUID(),
+      authenticationGeneration: "isolated-fixture",
+      attemptId,
+      ownershipGeneration: authority.identity.epoch,
+      nonce: randomUUID(),
+    };
+    await writeFile(path.join(directory, "intent.json"), JSON.stringify(identity), { mode: 0o600 });
+    return {
+      directory,
+      identity,
+      binding: {
+        account: { issuer: "isolated-fixture", accountId: "isolated-fixture" },
+        reservationId: randomUUID(),
+        providerId: "isolated-fixture",
+        occurrenceId: binding.occurrenceId,
+        stage: "implementation",
+        workspace,
+      },
+    };
+  }
+  const settle = async (custody: FactoryWorkerExecution) => {
+    await writeFile(
+      path.join(custody.directory, "receipt.json"),
+      JSON.stringify({ identity: custody.identity, settled: true }),
+      { mode: 0o600 },
+    );
+  };
+  return {
+    root,
+    workspace,
+    authority,
+    control,
+    binding,
+    journal,
+    execution,
+    settle,
+    readSettlement,
+  };
+}
+
+function activeNativeClaim(journal: FactoryClaimJournal) {
+  const attempt = journal.current().active;
+  if (!attempt) throw new Error("Missing native fixture claim");
+  return attempt;
+}
+
+function nativeReleaseCheckpoint() {
+  const workflow = initialFactoryWorkflow();
+  workflow.phase = "release";
+  workflow.commit = "d".repeat(40);
+  workflow.review = {
+    approved: true,
+    commit: workflow.commit,
+    executionId: randomUUID(),
+    operationId: randomUUID(),
+    findings: [],
+  };
+  workflow.draft = { number: 5, url: "https://github.com/example/product/pull/5" };
+  return workflow;
+}
+
+test("bundled native claims require explicit initialization and detach reads before full-record CAS", async () => {
+  const f = await nativeClaimFixture();
+  expect(() => f.journal.current()).toThrow("ENOENT");
+  f.journal.initialize();
+  expect(() => f.journal.initialize()).toThrow("already initialized");
+  const original = f.journal.current();
+  const read = f.journal.current();
+  read.revision = 90;
+  expect(f.journal.current()).toEqual(original);
+  const attempt = await f.journal.claim(f.binding);
+  attempt.approval.scope = "Caller alias";
+  expect(activeNativeClaim(f.journal).approval.scope).toBe("One fix");
+  expect(() => f.journal.replace(original, null)).toThrow("changed during");
+  const before = f.journal.current();
+  const invalid = activeNativeClaim(f.journal);
+  invalid.approval.action = "revoke";
+  expect(() => f.journal.replace(before, invalid)).toThrow("Invalid active");
+  expect(f.journal.current()).toEqual(before);
+});
+
+test("bundled native claims keep an omitted pre-binding run and fence scheduler adoption", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  expect(Object.hasOwn(attempt, "schedulerRunId")).toBe(false);
+  expect(factoryPreparationOperationId(attempt)).toBe(attempt.attemptId);
+  const execution = await f.execution(attempt.attemptId);
+  await expect(
+    f.journal.bindPreparationExecution(attempt.attemptId, execution, f.workspace),
+  ).rejects.toThrow("bound run before workflow");
+  const runId = randomUUID();
+  f.journal.bindScheduleRun(attempt.attemptId, runId);
+  const revision = f.journal.current().revision;
+  expect(f.journal.bindScheduleRun(attempt.attemptId, runId).schedulerRunId).toBe(runId);
+  expect(f.journal.current().revision).toBe(revision);
+  expect(() => f.journal.bindScheduleRun(randomUUID(), runId)).toThrow("attempt identity");
+  expect(() => f.journal.bindScheduleRun(attempt.attemptId, randomUUID())).toThrow(
+    "reconciliation",
+  );
+  await f.journal.bindPreparationExecution(attempt.attemptId, execution, f.workspace);
+  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+  expect(activeNativeClaim(restarted).helpers?.[0].binding.kind).toBe("preparation");
+  await expect(restarted.reconcile()).rejects.toThrow("ENOENT");
+  await f.settle(execution);
+  expect(await restarted.reconcile()).toBe("resume_required");
+});
+
+test("bundled native claims fence simultaneous admission and mutable input across settlement", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const outcomes = await Promise.allSettled([
+    f.journal.claim(f.binding),
+    f.journal.claim(f.binding),
+  ]);
+  expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+  const drift = await nativeClaimFixture();
+  drift.journal.initialize();
+  const historical = await drift.execution("historical-fixture");
+  await drift.settle(historical);
+  drift.control.beforeSettlement = async () => {
+    drift.binding.approval.scope = "Uncaptured edit";
+  };
+  await expect(drift.journal.claim(drift.binding)).rejects.toThrow("invocation changed");
+  expect(drift.journal.current().active).toBeNull();
+});
+
+test("bundled native claims preserve old execution identity and hold unsettled overlapping work", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  const first = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, first, first.binding);
+  const second = await f.execution(attempt.attemptId);
+  await expect(f.journal.bindExecution(attempt.attemptId, second, second.binding)).rejects.toThrow(
+    "ENOENT",
+  );
+  await f.settle(first);
+  await f.journal.bindExecution(attempt.attemptId, second, second.binding);
+  await f.settle(second);
+  f.authority.identity.epoch = 2;
+  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+  expect(activeNativeClaim(restarted).executions[0].identity.ownershipGeneration).toBe(1);
+  expect(await restarted.reconcile()).toBe("resume_required");
+  const read = activeNativeClaim(restarted);
+  read.executions[0].binding.account.accountId = "Alias edit";
+  expect(activeNativeClaim(restarted).executions[0].binding).toEqual(first.binding);
+});
+
+test("bundled native claims require exact helper operation and settlement before worker dispatch", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  const workflow = initialFactoryWorkflow();
+  workflow.phase = "checkpoint";
+  workflow.operation = { id: randomUUID(), kind: "checkpoint", phase: "checkpoint" };
+  f.journal.updateWorkflow(attempt.attemptId, null, workflow);
+  const helper = await f.execution(attempt.attemptId);
+  const binding = {
+    operationId: workflow.operation.id,
+    kind: "checkpoint",
+    workspace: f.workspace,
+  };
+  await expect(
+    f.journal.bindHelperExecution(attempt.attemptId, helper, {
+      ...binding,
+      kind: "checkpoint",
+      operationId: randomUUID(),
+    }),
+  ).rejects.toThrow("retained workflow operation");
+  await f.journal.bindHelperExecution(attempt.attemptId, helper, {
+    ...binding,
+    kind: "checkpoint",
+  });
+  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+  const worker = await f.execution(attempt.attemptId);
+  await expect(restarted.bindExecution(attempt.attemptId, worker, worker.binding)).rejects.toThrow(
+    "ENOENT",
+  );
+  await f.settle(helper);
+  await restarted.bindExecution(attempt.attemptId, worker, worker.binding);
+  await f.settle(worker);
+  expect(await restarted.reconcile()).toBe("resume_required");
+});
+
+test("bundled native claims refuse unbound native intent and missing retained custody", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  await f.execution("unbound-fixture");
+  await expect(f.journal.claim(f.binding)).rejects.toThrow("ENOENT");
+  expect(f.journal.current().active).toBeNull();
+  const missing = await nativeClaimFixture();
+  missing.journal.initialize();
+  const attempt = await missing.journal.claim(missing.binding);
+  const execution = await missing.execution(attempt.attemptId);
+  await missing.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+  await missing.settle(execution);
+  await rm(execution.directory, { recursive: true });
+  await expect(missing.journal.reconcile()).rejects.toThrow("directory is missing");
+});
+
+test("bundled native claims archive released delivery and retain exact scheduler identity across restart", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  const runId = randomUUID();
+  f.journal.bindScheduleRun(attempt.attemptId, runId);
+  const execution = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+  await f.settle(execution);
+  f.journal.updateWorkflow(attempt.attemptId, null, nativeReleaseCheckpoint());
+  const before = f.journal.current();
+  await f.journal.release(attempt.attemptId, async () => true);
+  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+  const released = restarted.current().lastReleased;
+  if (!released?.archiveSha256) throw new Error("Missing released fixture archive");
+  expect(released.schedulerRunId).toBe(runId);
+  expect(released.issueNumber).toBe(7);
+  expect(released.delivery?.commit).toBe("d".repeat(40));
+  const archive: unknown = JSON.parse(
+    await readFile(path.join(f.root, `delivered-${released.archiveSha256}.json`), "utf8"),
+  );
+  expect(archive).toEqual(before);
+  expect(await restarted.reconcile()).toBe("clear");
+  await writeFile(
+    restarted.path,
+    JSON.stringify({
+      ...restarted.current(),
+      lastReleased: { ...released, occurrenceId: undefined },
+    }),
+  );
+  expect(() => restarted.current()).toThrow("released execution receipt");
+});
+
+test("bundled native claims stop before archive persistence when delivery verification loses owner", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  const execution = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+  await f.settle(execution);
+  await expect(
+    f.journal.release(attempt.attemptId, async () => {
+      f.control.owned = false;
+      return true;
+    }),
+  ).rejects.toThrow("owner revoked");
+  expect((await readdir(f.root)).filter((name) => name.startsWith("delivered-"))).toHaveLength(0);
+  f.control.owned = true;
+  expect(activeNativeClaim(f.journal).attemptId).toBe(attempt.attemptId);
+});
+
+test("bundled native claims preserve external retirement archive across interrupted pointer persistence", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+  const execution = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+  const completion = { pullRequest: 12, mergeCommit: "d".repeat(40), devCommit: "e".repeat(40) };
+  const confirmed = async () => true;
+  await expect(
+    f.journal.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, confirmed),
+  ).rejects.toThrow("ENOENT");
+  await f.settle(execution);
+  await expect(
+    f.journal.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, async () => false),
+  ).rejects.toThrow("unsettled");
+  const before = f.journal.current();
+  const replace = f.journal.replace.bind(f.journal);
+  f.journal.replace = () => {
+    throw new Error("Interrupted pointer persistence");
+  };
+  await expect(
+    f.journal.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, confirmed),
+  ).rejects.toThrow("Interrupted pointer");
+  expect(f.journal.current()).toEqual(before);
+  f.journal.replace = replace;
+  const receipt = await f.journal.retireCompletedElsewhere(
+    attempt.attemptId,
+    completion,
+    confirmed,
+    confirmed,
+  );
+  expect(f.journal.current().active).toBeNull();
+  expect(f.journal.current().lastReleased).toBeNull();
+  const archive: unknown = JSON.parse(
+    await readFile(path.join(f.root, `retired-${receipt.archiveSha256}.json`), "utf8"),
+  );
+  expect(archive).toEqual(before);
+  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+  expect(
+    await restarted.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, confirmed),
+  ).toEqual(receipt);
+  await expect(
+    restarted.retireCompletedElsewhere(
+      attempt.attemptId,
+      { ...completion, pullRequest: 13 },
+      confirmed,
+      confirmed,
+    ),
+  ).rejects.toThrow("reused");
+  await rm(path.join(execution.directory, "receipt.json"));
+  await expect(restarted.verifyRetirement(receipt, confirmed, confirmed)).rejects.toThrow("ENOENT");
+});
+
+test("bundled native claims park blocked work without a shipment and reject receipt drift", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+  const execution = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+  await f.settle(execution);
+  const workflow = initialFactoryWorkflow();
+  workflow.phase = "blocked";
+  workflow.blocker = "Repair budget exhausted";
+  workflow.repairAttempts = 2;
+  f.journal.updateWorkflow(attempt.attemptId, null, workflow);
+  const audit = {
+    blockerSha256: createHash("sha256").update(workflow.blocker).digest("hex"),
+    commentId: 42,
+    commentSha256: "e".repeat(64),
+    pull: null,
+  };
+  const confirmed = async () => true;
+  const receipt = await f.journal.parkBlocked(attempt.attemptId, audit, confirmed, confirmed);
+  expect(receipt.reason).toBe("blocked");
+  expect(f.journal.current().lastReleased).toBeNull();
+  expect(await f.journal.verifyRetirement(receipt, confirmed, confirmed)).toBe(true);
+  f.control.beforeSettlement = async () => {
+    receipt.completion.commentId = 43;
+  };
+  await expect(f.journal.verifyRetirement(receipt, confirmed, confirmed)).rejects.toThrow(
+    "invocation changed",
+  );
+});
+
+test("bundled native claims retain prior revision custody before new preparation", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+  const old = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, old, old.binding);
+  f.journal.updateWorkflow(attempt.attemptId, null, initialFactoryWorkflow());
+  const before = f.journal.current();
+  const original = activeNativeClaim(f.journal);
+  const revised = createPristineBaseRevision(original, {
+    approval: { ...original.approval, baseCommit: "d".repeat(40) },
+    approvalCommentId: 11,
+    id: randomUUID(),
+    receiptSha256: "e".repeat(64),
+  });
+  f.journal.replace(before, revised);
+  const fresh = await f.execution(attempt.attemptId);
+  await expect(
+    f.journal.bindPreparationExecution(attempt.attemptId, fresh, f.workspace),
+  ).rejects.toThrow("ENOENT");
+  await f.settle(old);
+  await f.journal.bindPreparationExecution(attempt.attemptId, fresh, f.workspace);
+  expect(activeNativeClaim(f.journal).helpers?.at(-1)?.binding.operationId).toBe(
+    revised.baseRevision.id,
+  );
+  expect(activeNativeClaim(f.journal).executions).toEqual(original.executions);
+});
+
+test("bundled native claims reject unsafe files and malformed UTF-8 instead of silently repairing history", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const original = await readFile(f.journal.path);
+  await chmod(f.journal.path, 0o644);
+  expect(() => f.journal.current()).toThrow("Unsafe Factory claim record");
+  await chmod(f.journal.path, 0o600);
+  await writeFile(f.journal.path, Buffer.alloc(1024 * 1024 + 1));
+  expect(() => f.journal.current()).toThrow("Unsafe Factory claim record");
+  await writeFile(f.journal.path, Buffer.from([0x7b, 0x22, 0xff, 0x22, 0x7d]));
+  expect(() => f.journal.current()).toThrow("encoded data");
+  await writeFile(f.journal.path, original);
+  const saved = path.join(f.root, "saved-claim.json");
+  await rename(f.journal.path, saved);
+  await symlink(saved, f.journal.path);
+  expect(() => f.journal.current()).toThrow("ELOOP");
+});
+
+test("bundled native claims reject mutable custody binding during settlement before writing its entry", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  const first = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, first, first.binding);
+  await f.settle(first);
+  const second = await f.execution(attempt.attemptId);
+  f.control.beforeSettlement = async () => {
+    second.binding.reservationId = randomUUID();
+  };
+  await expect(f.journal.bindExecution(attempt.attemptId, second, second.binding)).rejects.toThrow(
+    "invocation changed",
+  );
+  expect(activeNativeClaim(f.journal).executions).toHaveLength(1);
+});
+
+test("bundled native claims run the approved workflow through real detached claim and custody files", async () => {
+  const f = await nativeClaimFixture();
+  const issue = { number: 7, title: "Fixture workflow", body: "One bounded fix" };
+  f.binding.approval.issueContentSha256 = issueContentDigest(issue);
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+  const commit = "d".repeat(40);
+  const events: string[] = [];
+  const options: FactoryWorkflowOptions = {
+    authority: f.authority,
+    claims: f.journal,
+    policy: {
+      trustedCommit: f.binding.approval.baseCommit,
+      configSha256: f.binding.approval.configSha256,
+      config: {
+        repository: f.binding.approval.repository,
+        validation: [{ argv: ["npm", "run", "typecheck"], timeoutSeconds: 60 }],
+      },
+    },
+    attemptId: attempt.attemptId,
+    createStage: async (input) => ({
+      stop: async () => {},
+      run: async () => {
+        events.push(input.kind);
+        const custody = await f.execution(attempt.attemptId);
+        custody.binding.stage = input.kind;
+        custody.binding.occurrenceId = `${attempt.occurrenceId}:${input.operation.id}`;
+        await f.journal.bindExecution(attempt.attemptId, custody, custody.binding);
+        await f.settle(custody);
+        if (input.kind === "validation") {
+          return {
+            executionId: custody.identity.executionId,
+            result: {
+              validation: { command: input.command, exitCode: 0, timedOut: false, signal: null },
+            },
+          };
+        }
+        if (input.kind === "review") {
+          return {
+            executionId: custody.identity.executionId,
+            result: { finalText: JSON.stringify({ commit, approved: true, findings: [] }) },
+          };
+        }
+        return { executionId: custody.identity.executionId, result: {} };
+      },
+    }),
+    checkpoint: async (_attempt, operation) => {
+      events.push("checkpoint");
+      const helper = await f.execution(attempt.attemptId);
+      await f.journal.bindHelperExecution(attempt.attemptId, helper, {
+        operationId: operation.id,
+        kind: "checkpoint",
+        workspace: f.workspace,
+      });
+      await f.settle(helper);
+      return commit;
+    },
+    assertCheckpoint: async (value) => {
+      expect(value).toBe(commit);
+    },
+    publish: async ({ operation }) => {
+      events.push("publication");
+      const helper = await f.execution(attempt.attemptId);
+      await f.journal.bindHelperExecution(attempt.attemptId, helper, {
+        operationId: operation.id,
+        kind: "publication",
+        workspace: f.workspace,
+      });
+      await f.settle(helper);
+      return { number: 5, html_url: "https://github.com/example/product/pull/5" };
+    },
+    verifyDelivery: async (_attempt, state) => {
+      expect(state.commit).toBe(commit);
+      expect(state.review?.approved).toBe(true);
+      expect(state.validations).toHaveLength(1);
+      return true;
+    },
+  };
+  expect((await new FactoryWorkflow(options).run(issue)).kind).toBe("published");
+  expect(events).toEqual(["implementation", "checkpoint", "validation", "review", "publication"]);
+  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+  expect(restarted.current().active).toBeNull();
+  expect(restarted.current().lastReleased?.delivery?.commit).toBe(commit);
+  expect(await restarted.reconcile()).toBe("clear");
+  expect((await readdir(path.join(f.root, "custody"))).length).toBe(5);
+});
+
+test("bundled native claims reject malformed stored custody and coercible released identities", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  const execution = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+  const pristine = f.journal.current();
+  for (const change of [
+    { identity: { ...execution.identity, nonce: [execution.identity.nonce] } },
+    { directory: f.workspace },
+  ]) {
+    const malformed = structuredClone(pristine);
+    if (!malformed.active) throw new Error("Missing corrupted fixture claim");
+    Object.assign(malformed.active.executions[0], change);
+    await writeFile(f.journal.path, JSON.stringify(malformed));
+    expect(() => f.journal.current()).toThrow("custody record");
+  }
+  await writeFile(f.journal.path, JSON.stringify(pristine));
+  await f.settle(execution);
+  f.journal.updateWorkflow(attempt.attemptId, null, nativeReleaseCheckpoint());
+  await f.journal.release(attempt.attemptId, async () => true);
+  const released = f.journal.current();
+  if (!released.lastReleased?.delivery) throw new Error("Missing released fixture delivery");
+  for (const field of ["commit", "repository"]) {
+    const malformed = structuredClone(released);
+    const delivery = malformed.lastReleased?.delivery;
+    if (!delivery) throw new Error("Missing delivery identity");
+    const value = field === "commit" ? delivery.commit : delivery.repository;
+    Object.assign(delivery, { [field]: [value] });
+    await writeFile(f.journal.path, JSON.stringify(malformed));
+    expect(() => f.journal.current()).toThrow("released delivery identity");
+  }
+  const malformed = structuredClone(released);
+  Object.assign(malformed.lastReleased ?? {}, { baseRevisionId: [randomUUID()] });
+  await writeFile(f.journal.path, JSON.stringify(malformed));
+  expect(() => f.journal.current()).toThrow("released execution receipt");
+});
+
+test("bundled native claims bind all released metadata to the exact archived claim", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+  f.journal.updateWorkflow(attempt.attemptId, null, initialFactoryWorkflow());
+  const original = f.journal.current();
+  const current = activeNativeClaim(f.journal);
+  const revised = createPristineBaseRevision(current, {
+    approval: { ...current.approval, baseCommit: "e".repeat(40) },
+    approvalCommentId: 11,
+    id: randomUUID(),
+    receiptSha256: "f".repeat(64),
+  });
+  f.journal.replace(original, revised);
+  const execution = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+  await f.settle(execution);
+  const workflow = nativeReleaseCheckpoint();
+  if (!workflow.draft || !workflow.commit) throw new Error("Missing release fixture");
+  workflow.draft.mergeReceipt = {
+    repository: "example/product",
+    number: workflow.draft.number,
+    head: workflow.commit,
+    mergeCommit: "a".repeat(40),
+    mergedAt: "2026-10-08T12:00:00Z",
+    url: workflow.draft.url,
+  };
+  f.journal.updateWorkflow(attempt.attemptId, null, workflow);
+  await f.journal.release(attempt.attemptId, async () => true);
+  const pristine = f.journal.current();
+  const released = pristine.lastReleased;
+  if (!released?.archiveSha256 || !released.delivery) throw new Error("Missing archive fixture");
+  const archivePath = path.join(f.root, `delivered-${released.archiveSha256}.json`);
+  const archiveBytes = await readFile(archivePath);
+  const pointerChanges = [
+    { schedulerRunId: randomUUID() },
+    { scheduleId: "another-schedule" },
+    { occurrenceId: "another-occurrence" },
+    { issueNumber: 99 },
+    { baseRevisionId: randomUUID() },
+    {
+      delivery: {
+        ...released.delivery,
+        commit: "e".repeat(40),
+        mergeReceipt: { ...workflow.draft.mergeReceipt, head: "e".repeat(40) },
+      },
+    },
+    {
+      delivery: {
+        ...released.delivery,
+        repository: "other/product",
+        draftUrl: "https://github.com/other/product/pull/5",
+        mergeReceipt: {
+          ...workflow.draft.mergeReceipt,
+          repository: "other/product",
+          url: "https://github.com/other/product/pull/5",
+        },
+      },
+    },
+    {
+      delivery: {
+        ...released.delivery,
+        draftNumber: 6,
+        draftUrl: "https://github.com/example/product/pull/6",
+        mergeReceipt: {
+          ...workflow.draft.mergeReceipt,
+          number: 6,
+          url: "https://github.com/example/product/pull/6",
+        },
+      },
+    },
+    {
+      delivery: {
+        ...released.delivery,
+        mergeReceipt: { ...workflow.draft.mergeReceipt, mergeCommit: "b".repeat(40) },
+      },
+    },
+    { delivery: { ...released.delivery, mergeReceipt: undefined } },
+    { delivery: undefined },
+    { baseRevisionId: undefined },
+    {
+      schedulerRunId: undefined,
+      scheduleId: undefined,
+      occurrenceId: undefined,
+      issueNumber: undefined,
+    },
+  ];
+  for (const change of pointerChanges) {
+    await writeFile(
+      f.journal.path,
+      JSON.stringify({ ...pristine, lastReleased: { ...released, ...change } }),
+    );
+    expect(() => f.journal.current()).toThrow("delivery archive changed");
+    expect(await readFile(archivePath)).toEqual(archiveBytes);
+  }
+  await writeFile(f.journal.path, JSON.stringify(pristine));
+  expect(new FactoryClaimJournal(f.authority, f.readSettlement).current()).toEqual(pristine);
+});
+
+test("bundled native claims preserve legacy pointers and identical archive-before-pointer retry", async () => {
+  const f = await nativeClaimFixture();
+  f.journal.initialize();
+  const attempt = await f.journal.claim(f.binding);
+  const execution = await f.execution(attempt.attemptId);
+  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+  await f.settle(execution);
+  f.journal.updateWorkflow(attempt.attemptId, null, nativeReleaseCheckpoint());
+  const before = f.journal.current();
+  const replace = f.journal.replace.bind(f.journal);
+  f.journal.replace = () => {
+    throw new Error("Interrupted delivery pointer persistence");
+  };
+  await expect(f.journal.release(attempt.attemptId, async () => true)).rejects.toThrow(
+    "Interrupted delivery pointer",
+  );
+  expect(f.journal.current()).toEqual(before);
+  const archiveNames = (await readdir(f.root)).filter((name) => name.startsWith("delivered-"));
+  expect(archiveNames).toHaveLength(1);
+  const archiveBytes = await readFile(path.join(f.root, archiveNames[0]));
+  f.journal.replace = replace;
+  await f.journal.release(attempt.attemptId, async () => true);
+  expect((await readdir(f.root)).filter((name) => name.startsWith("delivered-"))).toEqual(
+    archiveNames,
+  );
+  expect(await readFile(path.join(f.root, archiveNames[0]))).toEqual(archiveBytes);
+  const released = f.journal.current().lastReleased;
+  if (!released) throw new Error("Missing released fixture");
+  expect(released.schedulerRunId).toBeUndefined();
+  const legacy = {
+    attemptId: released.attemptId,
+    publicationOperationId: released.publicationOperationId,
+  };
+  await writeFile(f.journal.path, JSON.stringify({ ...f.journal.current(), lastReleased: legacy }));
+  expect(new FactoryClaimJournal(f.authority, f.readSettlement).current().lastReleased).toEqual(
+    legacy,
+  );
+});
+
+async function nativeSelectionFixture() {
+  const n = await nativeClaimFixture();
+  n.journal.initialize();
+  const q = qualifiedAssignmentFixture();
+  const calls: FactoryClaimAttempt[] = [];
+  const progress = {
+    calls,
+    fail: false,
+    after: (_attempt: FactoryClaimAttempt) => {},
+  };
+  const input: FactorySelectionOptions = {
+    authority: n.authority,
+    claims: n.journal,
+    policy: q.policy,
+    ownerId: 42,
+    excludedIssues: [],
+    qualified: q.verifier,
+    request: q.options.request,
+    delivery: {
+      async writeProgress(attempt, value) {
+        expect(value.stage).toBe("working");
+        expect(n.journal.current().active).toEqual(attempt);
+        progress.calls.push(structuredClone(attempt));
+        progress.after(attempt);
+        if (progress.fail) throw new Error("Lost status response");
+      },
+    },
+  };
+  return { n, q, input, progress, create: () => createFactorySelection(input) };
+}
+const nativeSelectionTime = "2026-10-09T00:35:00Z";
+
+test("bundled native selection admits a freshly qualified issue into a durable native claim", async () => {
+  const f = await nativeSelectionFixture();
+  const select = f.create();
+  const result = await select({ id: "native-schedule" }, nativeSelectionTime);
+  if (!result) throw new Error("Missing selected fixture claim");
+  expect(result.approval.issueNumber).toBe(1);
+  expect(result.qualification).toEqual(f.q.binding);
+  expect(result.occurrenceId).toBe(`native-schedule:${nativeSelectionTime}`);
+  expect(Object.hasOwn(result, "schedulerRunId")).toBe(false);
+  expect(f.progress.calls).toHaveLength(1);
+  expect(f.q.reads.filter((endpoint) => endpoint.includes("/comments?")).length).toBeGreaterThan(1);
+  result.approval.scope = "unverified caller edit";
+  expect(activeNativeClaim(f.n.journal).approval.scope).not.toBe(result.approval.scope);
+  expect(new FactoryClaimJournal(f.n.authority, f.n.readSettlement).current()).toEqual(
+    f.n.journal.current(),
+  );
+});
+
+test("bundled native selection preserves empty or withheld queue and refuses excluded or mismatched identity", async () => {
+  const empty = await nativeSelectionFixture();
+  empty.q.issue.labels = [];
+  expect(await empty.create()({ id: "schedule" }, nativeSelectionTime)).toBeNull();
+  expect(empty.n.journal.current().active).toBeNull();
+  expect(empty.progress.calls).toEqual([]);
+  const held = await nativeSelectionFixture();
+  held.q.control.allowed = false;
+  expect(await held.create()({ id: "schedule" }, nativeSelectionTime)).toBeNull();
+  expect(held.n.journal.current().active).toBeNull();
+  const excluded = await nativeSelectionFixture();
+  excluded.input.excludedIssues.push(1);
+  await expect(excluded.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+    "excluded issue",
+  );
+  expect(excluded.n.journal.current().active).toBeNull();
+  const mismatch = await nativeSelectionFixture();
+  const read = mismatch.q.verifier.readQueue;
+  mismatch.q.verifier.readQueue = async () => {
+    const queue = await read();
+    queue.eligible[0].issueNumber = 99;
+    return queue;
+  };
+  await expect(mismatch.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+    "identity differs",
+  );
+  expect(mismatch.progress.calls).toEqual([]);
+});
+
+test("bundled native selection holds retained work and unbound unsettled custody before queue reads", async () => {
+  const active = await nativeSelectionFixture();
+  await active.n.journal.claim(active.n.binding);
+  await expect(active.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+    "unfinished claim",
+  );
+  expect(active.q.reads).toEqual([]);
+  const unsettled = await nativeSelectionFixture();
+  await unsettled.n.execution(randomUUID());
+  await expect(unsettled.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+    "ENOENT",
+  );
+  expect(unsettled.q.reads).toEqual([]);
+  expect(unsettled.progress.calls).toEqual([]);
+});
+
+test("bundled native selection rejects changed occurrence and configuration after queue reads", async () => {
+  for (const change of ["occurrence", "policy", "exclusions"]) {
+    const f = await nativeSelectionFixture();
+    const schedule = { id: "schedule" };
+    const read = f.q.verifier.readQueue;
+    f.q.verifier.readQueue = async () => {
+      const queue = await read();
+      if (change === "occurrence") schedule.id = "unverified-schedule";
+      else if (change === "policy") f.input.policy.config.repository = "unverified/repository";
+      else f.input.excludedIssues.push(1);
+      return queue;
+    };
+    await expect(f.create()(schedule, nativeSelectionTime)).rejects.toThrow("changed");
+    expect(f.n.journal.current().active).toBeNull();
+    expect(f.progress.calls).toEqual([]);
+  }
+});
+
+test("bundled native selection rejects callback replacement and owner loss during admission", async () => {
+  for (const failure of ["callback", "owner"]) {
+    const f = await nativeSelectionFixture();
+    const admit = f.q.verifier.admit;
+    f.q.verifier.admit = async (binding) => {
+      const result = await admit(binding);
+      if (failure === "callback") f.input.delivery.writeProgress = async () => {};
+      else f.n.control.owned = false;
+      return result;
+    };
+    await expect(f.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow();
+    f.n.control.owned = true;
+    expect(f.n.journal.current().active).toBeNull();
+    expect(f.progress.calls).toEqual([]);
+  }
+});
+
+test("bundled native selection repeats fresh issue verification before retaining the claim", async () => {
+  const f = await nativeSelectionFixture();
+  const read = f.q.verifier.readQueue;
+  f.q.verifier.readQueue = async () => {
+    const queue = await read();
+    f.q.issue.body = "changed after discovery";
+    return queue;
+  };
+  await expect(f.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow();
+  expect(f.n.journal.current().active).toBeNull();
+  expect(f.progress.calls).toEqual([]);
+});
+
+test("bundled native selection retains a possibly published claim on status response loss without replay", async () => {
+  const f = await nativeSelectionFixture();
+  f.progress.fail = true;
+  const select = f.create();
+  await expect(select({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+    "Lost status response",
+  );
+  const retained = f.n.journal.current();
+  expect(retained.active?.approval.issueNumber).toBe(1);
+  const readCount = f.q.reads.length;
+  await expect(select({ id: "schedule" }, "2026-10-09T00:36:00Z")).rejects.toThrow(
+    "unfinished claim",
+  );
+  expect(f.progress.calls).toHaveLength(1);
+  expect(f.q.reads).toHaveLength(readCount);
+  expect(new FactoryClaimJournal(f.n.authority, f.n.readSettlement).current()).toEqual(retained);
+});
+
+test("bundled native selection serializes concurrent occurrences without duplicate ownership", async () => {
+  const f = await nativeSelectionFixture();
+  const select = f.create();
+  const results = await Promise.allSettled([
+    select({ id: "schedule" }, nativeSelectionTime),
+    select({ id: "schedule" }, "2026-10-09T00:36:00Z"),
+  ]);
+  expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+  expect(f.progress.calls).toHaveLength(1);
+  expect(activeNativeClaim(f.n.journal).occurrenceId).toBe(`schedule:${nativeSelectionTime}`);
+});
+
+test("bundled native selection isolates publisher aliases and rejects postclaim native identity drift", async () => {
+  const detached = await nativeSelectionFixture();
+  detached.progress.after = (attempt) => {
+    attempt.approval.scope = "publisher alias edit";
+  };
+  const result = await detached.create()({ id: "schedule" }, nativeSelectionTime);
+  expect(result?.approval.scope).not.toBe("publisher alias edit");
+  const changed = await nativeSelectionFixture();
+  changed.progress.after = (attempt) => {
+    changed.n.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+  };
+  await expect(changed.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+    "claim changed",
+  );
+  expect(activeNativeClaim(changed.n.journal).schedulerRunId).toBeDefined();
+  expect(changed.progress.calls).toHaveLength(1);
+});
+
+test("bundled native selection preserves genuine legacy owner-comment admission", async () => {
+  const f = await nativeSelectionFixture();
+  const legacy = legacyApprovalFixture();
+  f.input.qualified = undefined;
+  f.input.policy = legacy.policy;
+  f.input.request = async (method, endpoint) => {
+    expect(method).toBe("GET");
+    if (endpoint.includes("/comments?")) return structuredClone(legacyComment(legacy));
+    if (endpoint.includes("/dependencies/") || endpoint.includes("/timeline?")) return [];
+    if (endpoint.includes("/issues?")) return structuredClone(legacy.issues);
+    return structuredClone(legacy.issues[0]);
+  };
+  const result = await f.create()({ id: "schedule" }, nativeSelectionTime);
+  expect(result?.approvalCommentId).toBe(1);
+  expect(result?.qualification).toBeUndefined();
+  expect(result?.approval.issueContentSha256).toBe(issueContentDigest(legacy.issues[0]));
+  expect(f.progress.calls).toHaveLength(1);
+});
+
+test("bundled native selection rejects malformed scheduler timestamps and capped queue before claiming", async () => {
+  const f = await nativeSelectionFixture();
+  const select = f.create();
+  for (const timestamp of ["2026", "2026-02-30T12:00:00Z", "2026-10-09T00:35:00+00:00"]) {
+    await expect(select({ id: "schedule" }, timestamp)).rejects.toThrow("occurrence");
+  }
+  await expect(
+    Reflect.apply(select, undefined, [{ id: ["schedule"] }, nativeSelectionTime]),
+  ).rejects.toThrow("occurrence");
+  expect(f.q.reads).toEqual([]);
+  const capped = await nativeSelectionFixture();
+  const read = capped.q.verifier.readQueue;
+  capped.q.verifier.readQueue = async () => {
+    const queue = await read();
+    queue.eligible = Array.from({ length: 1001 }, () => queue.eligible[0]);
+    return queue;
+  };
+  await expect(capped.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+    "coverage is invalid",
+  );
+  expect(capped.n.journal.current().active).toBeNull();
+  expect(capped.progress.calls).toEqual([]);
+});
+
+function governedDeliveryFixture() {
+  const commit = "c".repeat(40);
+  const issue = {
+    number: 12,
+    title: "Fix bounded behavior",
+    body: "Acceptance criteria",
+    state: "open",
+  };
+  const policy: FactoryDeliveryOptions["policy"] = {
+    trustedCommit: "a".repeat(40),
+    configSha256: "b".repeat(64),
+    config: {
+      repository: "fixture/project",
+      baseBranch: "dev",
+      validation: [{ argv: ["npm", "test"], timeoutSeconds: 60 }],
+    },
+  };
+  const attempt: FactoryClaimAttempt = {
+    attemptId: randomUUID(),
+    controllerEpoch: 1,
+    scheduleId: "fixture",
+    occurrenceId: "fixture:occurrence",
+    statusOperationId: randomUUID(),
+    publicationOperationId: randomUUID(),
+    approvalCommentId: 1,
+    approval: {
+      schemaVersion: 1,
+      action: "approve",
+      repository: policy.config.repository,
+      issueNumber: issue.number,
+      issueContentSha256: issueContentDigest(issue),
+      baseCommit: policy.trustedCommit,
+      configSha256: policy.configSha256,
+      host: "linux-container",
+      delivery: "reviewed-draft-only",
+      scope: "One bounded correction",
+    },
+    executions: [],
+  };
+  for (const stage of ["implementation", "validation", "review"] as const) {
+    attempt.executions.push({
+      directory: `fixture-${stage}`,
+      identity: {
+        version: 1,
+        executionId: randomUUID(),
+        authenticationGeneration: "fixture",
+        attemptId: attempt.attemptId,
+        ownershipGeneration: 1,
+        nonce: randomUUID(),
+      },
+      binding: {
+        stage,
+        providerId: "fixture",
+        account: { issuer: "fixture", accountId: "fixture" },
+        reservationId: randomUUID(),
+        workspace: "fixture",
+        occurrenceId: attempt.occurrenceId,
+      },
+    });
+  }
+  const reviewer = attempt.executions[2];
+  const validator = attempt.executions[1];
+  const input: FactoryDraftPublication = {
+    attempt,
+    commit,
+    title: issue.title,
+    summary: "Correct the approved behavior.",
+    review: {
+      executionId: reviewer.identity.executionId,
+      operationId: randomUUID(),
+      commit,
+      approved: true,
+      findings: [],
+    },
+    validations: [
+      {
+        executionId: validator.identity.executionId,
+        operationId: randomUUID(),
+        commit,
+        command: policy.config.validation[0],
+        exitCode: 0,
+      },
+    ],
+  };
+  const comments: FactoryQueueComment[] = [
+    {
+      id: 1,
+      user: { id: 42 },
+      created_at: "2026-10-08T12:00:00Z",
+      body: approvalComment(attempt.approval),
+    },
+  ];
+  const pulls: FactoryDeliveryPull[] = [];
+  const publications: FactoryDeliveryNativePublication[] = [];
+  const writes: string[] = [];
+  const control = {
+    owned: true,
+    loseResponse: false,
+    active: structuredClone(attempt),
+    remote: commit,
+    beforePublish: async (_input: FactoryDeliveryNativePublication) => {},
+    afterRead: async (_endpoint: string) => {},
+  };
+  const options: FactoryDeliveryOptions = {
+    authority: {
+      assertCurrent() {
+        if (!control.owned) throw new Error("Native owner lost");
+      },
+    },
+    claims: {
+      current() {
+        return {
+          schemaVersion: 1,
+          installationId: "fixture",
+          revision: 1,
+          active: structuredClone(control.active),
+          lastReleased: null,
+        };
+      },
+      reconcile: async () => "resume_required",
+      bindHelperExecution: async (id, custody, binding) => {
+        expect(id).toBe(control.active.attemptId);
+        control.active.helpers = [
+          ...(control.active.helpers ?? []),
+          { ...structuredClone(custody), binding: structuredClone(binding) },
+        ];
+      },
+    },
+    policy,
+    ownerId: 42,
+    request: async (method, endpoint, body) => {
+      if (method === "GET") {
+        await control.afterRead(endpoint);
+        if (endpoint === "user") return { id: 42 };
+        if (endpoint.includes("/git/ref/"))
+          return { object: { type: "commit", sha: control.remote } };
+        if (endpoint.includes("/comments?")) return structuredClone(comments);
+        if (endpoint.includes("/pulls?")) return structuredClone(pulls);
+        if (endpoint.includes("/pulls/")) return structuredClone(pulls[0]);
+        return structuredClone(issue);
+      }
+      if (method !== "POST" && method !== "PATCH") throw new Error("Unexpected write");
+      if (endpoint.includes("/pulls")) throw new Error("Direct pull creation forbidden");
+      if (
+        typeof body !== "object" ||
+        body === null ||
+        !("body" in body) ||
+        typeof body.body !== "string"
+      )
+        throw new Error("Invalid comment body");
+      writes.push(endpoint);
+      const existing =
+        method === "PATCH"
+          ? comments.find((comment) => endpoint.endsWith(`/${comment.id}`))
+          : undefined;
+      const id = existing ? existing.id : comments.length + 1;
+      if (!id) throw new Error("Missing fixture comment identity");
+      const result = {
+        id,
+        user: { id: 42 },
+        body: body.body,
+        html_url: `https://github.com/fixture/project/issues/12#issuecomment-${id}`,
+      };
+      if (existing) Object.assign(existing, result);
+      else comments.push(result);
+      if (control.loseResponse) throw new Error("Response lost");
+      return result;
+    },
+    publish: async (publication) => {
+      publication.assertCurrent();
+      await control.beforePublish(publication);
+      publications.push(publication);
+      const pull: FactoryDeliveryPull = {
+        number: 25,
+        html_url: "https://github.com/fixture/project/pull/25",
+        user: { id: 42 },
+        state: "open",
+        draft: publication.draft,
+        auto_merge: null,
+        title: publication.title,
+        body: publication.body,
+        head: {
+          sha: publication.commit,
+          ref: publication.branch,
+          repo: { full_name: publication.repository },
+        },
+        base: { ref: publication.base },
+      };
+      if (pulls.length) Object.assign(pulls[0], pull);
+      else pulls.push(pull);
+      if (control.loseResponse) throw new Error("Response lost");
+      return undefined;
+    },
+  };
+  return {
+    options,
+    input,
+    policy,
+    comments,
+    pulls,
+    publications,
+    writes,
+    control,
+    create: () => createFactoryGitHubDelivery(options),
+  };
+}
+
+test("bundled governed delivery reconciles response loss without a second native publication", async () => {
+  const f = governedDeliveryFixture();
+  const delivery = f.create();
+  f.control.loseResponse = true;
+  await expect(delivery.publishDraft(f.input)).rejects.toThrow("Response lost");
+  f.control.loseResponse = false;
+  const result = await delivery.publishDraft(f.input);
+  expect(result.number).toBe(25);
+  expect(result.body.startsWith("(AI Generated).\n\n")).toBe(true);
+  expect(f.publications).toHaveLength(1);
+  expect(f.writes).toEqual([]);
+  const concurrent = await Promise.all([
+    delivery.publishDraft(f.input),
+    delivery.publishDraft(f.input),
+  ]);
+  expect(concurrent.map((pull) => pull.number)).toEqual([25, 25]);
+  expect(f.publications).toHaveLength(1);
+});
+
+test("bundled governed delivery captures serialized invocation data before caller mutation", async () => {
+  const f = governedDeliveryFixture();
+  const promise = f.create().publishDraft(f.input);
+  f.input.title = "Unreviewed caller replacement";
+  f.input.review.commit = "d".repeat(40);
+  const result = await promise;
+  expect(result.title).toBe("Fix bounded behavior");
+  expect(result.body).not.toContain("Unreviewed caller replacement");
+  expect(f.publications).toHaveLength(1);
+});
+
+test("bundled governed delivery rejects incomplete validation and self review before publication", async () => {
+  for (const failure of ["self", "validation", "commit", "coercion"]) {
+    const f = governedDeliveryFixture();
+    if (failure === "self")
+      f.input.review.executionId = f.input.attempt.executions[0].identity.executionId;
+    if (failure === "validation") f.input.validations = [];
+    if (failure === "commit") f.input.review.commit = "d".repeat(40);
+    if (failure === "coercion") Object.assign(f.input, { commit: [f.input.commit] });
+    await expect(f.create().publishDraft(f.input)).rejects.toThrow();
+    expect(f.publications).toEqual([]);
+  }
+});
+
+test("bundled governed delivery refuses missing native publisher without direct PR fallback", async () => {
+  const f = governedDeliveryFixture();
+  f.options.publish = undefined;
+  await expect(f.create().publishDraft(f.input)).rejects.toThrow("not installed");
+  expect(f.publications).toEqual([]);
+  expect(f.writes).toEqual([]);
+});
+
+test("bundled governed delivery rejects policy or native method drift and lost owner", async () => {
+  for (const failure of ["policy", "method", "owner"]) {
+    const f = governedDeliveryFixture();
+    f.control.afterRead = async () => {
+      if (failure === "policy") f.policy.config.baseBranch = "unreviewed";
+      if (failure === "method")
+        f.options.claims.current = () => {
+          throw new Error("Unverified replacement called");
+        };
+      if (failure === "owner") f.control.owned = false;
+    };
+    await expect(f.create().publishDraft(f.input)).rejects.toThrow();
+    expect(f.publications).toEqual([]);
+  }
+});
+
+test("bundled governed delivery retains exact helper custody and rejects unrelated claim mutation", async () => {
+  for (const failure of [false, true]) {
+    const f = governedDeliveryFixture();
+    f.control.beforePublish = async (publication) => {
+      await publication.retainHelper(
+        {
+          directory: "fixture-helper",
+          identity: {
+            version: 1,
+            executionId: randomUUID(),
+            authenticationGeneration: "fixture",
+            attemptId: f.input.attempt.attemptId,
+            ownershipGeneration: 1,
+            nonce: randomUUID(),
+          },
+        },
+        "fixture",
+      );
+      if (failure) f.control.active.approval.scope = "Unreviewed mutation";
+    };
+    const workflow = initialFactoryWorkflow();
+    workflow.phase = "publication";
+    workflow.operation = { id: randomUUID(), phase: "publication", kind: "publication" };
+    f.control.active.workflow = workflow;
+    f.input.attempt = structuredClone(f.control.active);
+    if (failure) await expect(f.create().publishDraft(f.input)).rejects.toThrow("attempt changed");
+    else expect((await f.create().publishDraft(f.input)).number).toBe(25);
+    expect(f.control.active.helpers).toHaveLength(1);
+  }
+});
+
+test("bundled governed delivery updates one status comment after response loss and refuses foreign markers", async () => {
+  const f = governedDeliveryFixture();
+  const delivery = f.create();
+  f.control.loseResponse = true;
+  await expect(delivery.writeProgress(f.input.attempt, { stage: "working" })).rejects.toThrow(
+    "Response lost",
+  );
+  f.control.loseResponse = false;
+  expect(
+    (await delivery.writeProgress(f.input.attempt, { stage: "reviewing", commit: f.input.commit }))
+      .id,
+  ).toBe(2);
+  expect(f.comments).toHaveLength(2);
+  f.comments[1].user = { id: 99 };
+  await expect(delivery.writeProgress(f.input.attempt, { stage: "blocked" })).rejects.toThrow(
+    "reconciliation",
+  );
+  expect(f.writes).toHaveLength(2);
+});
+
+test("bundled governed delivery requires canonical publication identity and held automatic merge", async () => {
+  for (const failure of ["url", "number", "auto", "body", "title"]) {
+    const f = governedDeliveryFixture();
+    const delivery = f.create();
+    const saved = await delivery.publishDraft(f.input);
+    const workflow = initialFactoryWorkflow();
+    workflow.commit = f.input.commit;
+    workflow.draft = {
+      number: saved.number,
+      url: saved.html_url,
+      commit: f.input.commit,
+      publicationSha256: createHash("sha256")
+        .update(JSON.stringify({ title: saved.title, body: saved.body }))
+        .digest("hex"),
+    };
+    f.control.active.workflow = workflow;
+    if (failure === "url") f.pulls[0].html_url = "https://untrusted.example/pull/25";
+    if (failure === "number") Object.assign(f.pulls[0], { number: "25" });
+    if (failure === "auto") f.pulls[0].auto_merge = {};
+    if (failure === "body") f.pulls[0].body += "unreviewed";
+    if (failure === "title") Object.assign(f.pulls[0], { title: 25 });
+    await expect(
+      delivery.verifyPublication(structuredClone(f.control.active), {
+        number: 25,
+        commit: f.input.commit,
+      }),
+    ).rejects.toThrow();
+    expect(f.publications).toHaveLength(1);
+  }
+});
+
+test("bundled governed delivery binds checkpoint custody and verifies actual remote head", async () => {
+  for (const mismatch of [false, true]) {
+    const f = governedDeliveryFixture();
+    const workflow = initialFactoryWorkflow();
+    workflow.phase = "checkpoint";
+    workflow.operation = { id: randomUUID(), phase: "checkpoint", kind: "checkpoint" };
+    f.control.active.workflow = workflow;
+    f.input.attempt = structuredClone(f.control.active);
+    let dispatched = 0;
+    f.options.checkpointPublisher = async (checkpoint) => {
+      checkpoint.assertCurrent();
+      expect(checkpoint.operationId).toBe(workflow.operation?.id);
+      await checkpoint.retainHelper(
+        {
+          directory: "fixture-checkpoint",
+          identity: {
+            version: 1,
+            executionId: randomUUID(),
+            authenticationGeneration: "fixture",
+            attemptId: f.input.attempt.attemptId,
+            ownershipGeneration: 1,
+            nonce: randomUUID(),
+          },
+        },
+        "fixture",
+      );
+      dispatched++;
+      f.control.remote = mismatch ? "d".repeat(40) : f.input.commit;
+    };
+    const result = f.create().pushCheckpoint({ attempt: f.input.attempt, commit: f.input.commit });
+    if (mismatch) await expect(result).rejects.toThrow("differs");
+    else expect(await result).toBe(f.input.commit);
+    expect(dispatched).toBe(1);
+    expect(f.control.active.helpers).toHaveLength(1);
+  }
+});
+
+test("bundled governed delivery READY recovery retains merge helper without another promotion", async () => {
+  const f = governedDeliveryFixture();
+  const delivery = f.create();
+  const saved = await delivery.publishDraft(f.input);
+  const workflow = initialFactoryWorkflow();
+  workflow.phase = "publication";
+  workflow.commit = f.input.commit;
+  workflow.draft = {
+    number: saved.number,
+    url: saved.html_url,
+    commit: f.input.commit,
+    publicationSha256: createHash("sha256")
+      .update(JSON.stringify({ title: saved.title, body: saved.body }))
+      .digest("hex"),
+  };
+  workflow.operation = { id: randomUUID(), phase: "publication", kind: "merge" };
+  f.control.active.workflow = workflow;
+  f.control.beforePublish = async (publication) => {
+    expect(publication.draft).toBe(false);
+    await publication.verifyRemote();
+    await publication.retainHelper(
+      {
+        directory: "fixture-merge",
+        identity: {
+          version: 1,
+          executionId: randomUUID(),
+          authenticationGeneration: "fixture",
+          attemptId: f.input.attempt.attemptId,
+          ownershipGeneration: 1,
+          nonce: randomUUID(),
+        },
+      },
+      "fixture",
+    );
+  };
+  f.control.loseResponse = true;
+  await expect(
+    delivery.promoteReviewed({
+      attempt: structuredClone(f.control.active),
+      candidate: { number: 25, commit: f.input.commit },
+    }),
+  ).rejects.toThrow("Response lost");
+  f.control.loseResponse = false;
+  const recovered = await delivery.promoteReviewed({
+    attempt: structuredClone(f.control.active),
+    candidate: { number: 25, commit: f.input.commit },
+  });
+  expect(recovered.draft).toBe(false);
+  expect(f.publications).toHaveLength(2);
+  expect(f.control.active.helpers).toHaveLength(1);
+});
+
+test("bundled governed delivery verifies exact released draft rather than trusting a release pointer", async () => {
+  const f = governedDeliveryFixture();
+  const saved = await f.create().publishDraft(f.input);
+  const receipt = {
+    attemptId: f.input.attempt.attemptId,
+    publicationOperationId: f.input.attempt.publicationOperationId,
+    schedulerRunId: randomUUID(),
+    scheduleId: f.input.attempt.scheduleId,
+    occurrenceId: f.input.attempt.occurrenceId,
+    issueNumber: f.input.attempt.approval.issueNumber,
+    delivery: {
+      repository: f.policy.config.repository,
+      commit: f.input.commit,
+      draftNumber: saved.number,
+      draftUrl: saved.html_url,
+    },
+  };
+  const verifier = {
+    authority: f.options.authority,
+    claims: {
+      current: () => ({
+        schemaVersion: 1 as const,
+        installationId: "fixture",
+        revision: 2,
+        active: null,
+        lastReleased: structuredClone(receipt),
+      }),
+    },
+    receipt,
+    ownerId: f.options.ownerId,
+    baseBranch: f.policy.config.baseBranch,
+    request: f.options.request,
+  };
+  expect(await verifyFactoryReleasedDelivery(verifier)).toBe(saved.html_url);
+  Object.assign(receipt.delivery, { commit: [receipt.delivery.commit] });
+  await expect(verifyFactoryReleasedDelivery(verifier)).rejects.toThrow("exact delivery");
+  expect(f.publications).toHaveLength(1);
+});
+
+test("bundled governed delivery rejects deferred candidate replacement instead of verifying an unshown commit", async () => {
+  const f = governedDeliveryFixture();
+  const delivery = f.create();
+  const saved = await delivery.publishDraft(f.input);
+  const workflow = initialFactoryWorkflow();
+  workflow.commit = f.input.commit;
+  workflow.draft = {
+    number: saved.number,
+    url: saved.html_url,
+    commit: f.input.commit,
+    publicationSha256: createHash("sha256")
+      .update(JSON.stringify({ title: saved.title, body: saved.body }))
+      .digest("hex"),
+  };
+  f.control.active.workflow = workflow;
+  let resume = () => {};
+  let started = () => {};
+  const waiting = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const reading = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.control.afterRead = async (endpoint) => {
+    if (endpoint.includes("/pulls?")) {
+      started();
+      await waiting;
+    }
+  };
+  const invocationCommit = "d".repeat(40);
+  const candidate = { number: saved.number, commit: invocationCommit };
+  const pending = delivery.verifyPublication(structuredClone(f.control.active), candidate);
+  const rejected = expect(pending).rejects.toThrow("read input changed");
+  await reading;
+  candidate.commit = f.input.commit;
+  resume();
+  await rejected;
+  expect(workflow.commit).toBe(f.input.commit);
+  expect(f.publications).toHaveLength(1);
+  expect(f.writes).toHaveLength(0);
+});
+
+test("bundled governed delivery rejects caller attempt drift across public lookup and checkpoint reads", async () => {
+  for (const method of ["findOwnedPull", "findDraft", "verifyRemoteCheckpoint"] as const) {
+    const f = governedDeliveryFixture();
+    const delivery = f.create();
+    await delivery.publishDraft(f.input);
+    const attempt = structuredClone(f.control.active);
+    let resume = () => {};
+    let started = () => {};
+    const waiting = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const reading = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    f.control.afterRead = async () => {
+      started();
+      await waiting;
+    };
+    const pending =
+      method === "findOwnedPull"
+        ? delivery.findOwnedPull(attempt)
+        : delivery[method](attempt, f.input.commit);
+    const rejected = expect(pending).rejects.toThrow("read input changed");
+    await reading;
+    attempt.publicationOperationId = randomUUID();
+    resume();
+    await rejected;
+    expect(f.control.active.publicationOperationId).toBe(f.input.attempt.publicationOperationId);
+    expect(f.publications).toHaveLength(1);
+    expect(f.writes).toHaveLength(0);
+  }
+});
+
+test("bundled governed delivery captures released receipts and participating native methods across reads", async () => {
+  for (const drift of ["receipt", "authority", "claims"] as const) {
+    const f = governedDeliveryFixture();
+    const saved = await f.create().publishDraft(f.input);
+    const receipt = {
+      attemptId: f.input.attempt.attemptId,
+      publicationOperationId: f.input.attempt.publicationOperationId,
+      schedulerRunId: randomUUID(),
+      scheduleId: f.input.attempt.scheduleId,
+      occurrenceId: f.input.attempt.occurrenceId,
+      issueNumber: f.input.attempt.approval.issueNumber,
+      delivery: {
+        repository: f.policy.config.repository,
+        commit: f.input.commit,
+        draftNumber: saved.number,
+        draftUrl: saved.html_url,
+      },
+    };
+    const retained = structuredClone(receipt);
+    const claims = {
+      current: () => ({
+        schemaVersion: 1 as const,
+        installationId: "fixture",
+        revision: 2,
+        active: null,
+        lastReleased: structuredClone(retained),
+      }),
+    };
+    f.control.afterRead = async () => {
+      if (drift === "receipt") receipt.delivery.commit = "d".repeat(40);
+      if (drift === "authority") f.options.authority.assertCurrent = () => {};
+      if (drift === "claims")
+        claims.current = () => {
+          throw new Error("Replacement must not run");
+        };
+    };
+    await expect(
+      verifyFactoryReleasedDelivery({
+        authority: f.options.authority,
+        claims,
+        receipt,
+        ownerId: f.options.ownerId,
+        baseBranch: f.policy.config.baseBranch,
+        request: f.options.request,
+      }),
+    ).rejects.toThrow("verification input changed");
+    expect(retained.delivery.commit).toBe(f.input.commit);
+    expect(f.publications).toHaveLength(1);
+    expect(f.writes).toHaveLength(0);
+  }
+});
+
+const governedStageChildren: ChildProcessWithoutNullStreams[] = [];
+afterEach(async () => {
+  await Promise.all(
+    governedStageChildren.splice(0).map(async (child) => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
+      child.kill("SIGKILL");
+      await exited;
+    }),
+  );
+});
+
+function governedStageFixture() {
+  const events: string[] = [];
+  const account = { issuer: "fixture", accountId: "fixture" };
+  const observation: QuotaObservation = { status: "unavailable", reason: "read_failed" };
+  let execution: GovernorExecution = {
+    generation: 0,
+    state: "reserved",
+    executionId: null,
+    authenticationGeneration: null,
+    pauseReason: null,
+    settlementId: null,
+  };
+  let child: ChildProcessWithoutNullStreams | undefined;
+  const control = {
+    settled: false,
+    owned: true,
+    mode: "normal",
+    finalizeHeld: false,
+    reads: 0,
+    beforeObservation: async () => {},
+    beforeTransition: async (_type: string) => {},
+    beforeRecord: async () => {},
+    beforeRun: async () => {},
+  };
+  const settlement = async () => {
+    if (!control.settled) throw new Error("Native settlement unconfirmed");
+  };
+  const settleChild = async (value: ChildProcessWithoutNullStreams) => {
+    expect(value).toBe(child);
+    if (value.exitCode === null && value.signalCode === null) {
+      const exited = new Promise<void>((resolve) => value.once("close", () => resolve()));
+      value.kill("SIGTERM");
+      await exited;
+    }
+    control.settled = true;
+    events.push("settled");
+  };
+  const options: FactoryGovernedStageOptions = {
+    authority: {
+      identity: { epoch: 1 },
+      assertCurrent() {
+        if (!control.owned) throw new Error("Owner lost");
+      },
+    },
+    account,
+    reservationId: randomUUID(),
+    providerId: "fixture",
+    occurrenceId: "fixture",
+    attemptId: randomUUID(),
+    stage: "implementation",
+    authenticationGeneration: "fixture",
+    assertAuthentication() {},
+    async readObservation() {
+      control.reads++;
+      await control.beforeObservation();
+      return observation;
+    },
+    async recordCustody() {
+      events.push("retained");
+      await control.beforeRecord();
+    },
+    sessionConfig: { provider: "codex", cwd: "fixture" },
+    custodyOptions: {
+      journalRoot: "fixture",
+      executable: "fixture",
+      pythonExecutable: "fixture",
+      cwd: "fixture",
+      env: {},
+    },
+    ConstructionCleanupError: QuotaConstructionCleanupError,
+    store: {
+      async execution() {
+        return structuredClone(execution);
+      },
+      async transition(input) {
+        await control.beforeTransition(input.event.type);
+        execution = advanceGovernorExecution(execution, input.expectedGeneration, input.event);
+        events.push(input.event.type);
+        if (control.mode === "persisted-start-error" && input.event.type === "start")
+          throw new Error("Persisted start response lost");
+        return { kind: "transitioned", execution: structuredClone(execution) };
+      },
+      async finalize() {
+        events.push("finalize");
+        if (control.finalizeHeld) return { kind: "deferred", reason: "observation_regressed" };
+        return { kind: "finalized" };
+      },
+    },
+    NativeCustody: {
+      async create(input) {
+        events.push("custody");
+        return {
+          directory: "fixture-custody",
+          identity: { ...input.identity, version: 1, nonce: randomUUID() },
+          async spawn() {
+            events.push("spawn");
+            child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
+              stdio: ["pipe", "pipe", "pipe"],
+            });
+            governedStageChildren.push(child);
+            if (control.mode === "cleanup")
+              throw new QuotaConstructionCleanupError(async () => {
+                events.push("retryCleanup");
+                if (!child) throw new Error("Missing retained fixture child");
+                await settleChild(child);
+              });
+            return child;
+          },
+          settle: settleChild,
+        };
+      },
+      readSettlement: settlement,
+      async readOutcome() {
+        await settlement();
+        return { exitCode: 0, signal: null };
+      },
+    },
+    client: {
+      assertCurrent() {},
+      async openSession(input) {
+        if (!input.processCustody) throw new Error("Missing custody");
+        await input.processCustody.spawn("fixture", []);
+        return {
+          async readQuotaObservation() {
+            return observation;
+          },
+          async run() {
+            events.push("run");
+            await control.beforeRun();
+            return { sessionId: "fixture", finalText: "Complete", timeline: [] };
+          },
+          async close() {
+            events.push("close");
+          },
+        };
+      },
+    },
+    QuotaSupervisor: {
+      prototype: {
+        async complete() {
+          return structuredClone(execution);
+        },
+      },
+      async attach(input) {
+        events.push("supervisor");
+        let freezing: Promise<GovernorExecution> | undefined;
+        const freeze = (reason: "manual" | "quota") => {
+          freezing ??= (async () => {
+            await options.store.transition({
+              account,
+              reservationId: options.reservationId,
+              expectedGeneration: execution.generation,
+              event: { type: "freeze", reason },
+            });
+            const receipt = await input.freezeAndSettle(input.executionId);
+            await options.store.transition({
+              account,
+              reservationId: options.reservationId,
+              expectedGeneration: execution.generation,
+              event: {
+                type: "settled",
+                executionId: input.executionId,
+                settlementId: receipt.settlementId,
+              },
+            });
+            return structuredClone(execution);
+          })();
+          return freezing;
+        };
+        return {
+          async guard() {
+            input.assertAuthority();
+            return { assertValidForDispatch: input.assertAuthority };
+          },
+          startMonitoring() {
+            events.push("monitoring");
+          },
+          freeze,
+          async reconcileFreeze() {
+            freezing = undefined;
+            return freeze("manual");
+          },
+          async complete() {
+            input.assertAuthority();
+            const receipt = await input.freezeAndSettle(input.executionId);
+            await options.store.transition({
+              account,
+              reservationId: options.reservationId,
+              expectedGeneration: execution.generation,
+              event: {
+                type: "complete",
+                executionId: input.executionId,
+                settlementId: receipt.settlementId,
+              },
+            });
+            return structuredClone(execution);
+          },
+        };
+      },
+    },
+  };
+  return {
+    options,
+    control,
+    events,
+    execution: () => structuredClone(execution),
+    seedExecution: (value: GovernorExecution) => {
+      execution = structuredClone(value);
+    },
+    create: () => createFactoryGovernedStage(options),
+  };
+}
+
+test("bundled governed stage retains custody before launch and completes native settlement before finalization", async () => {
+  const f = governedStageFixture();
+  const stage = f.create();
+  const result = await stage.run("Bounded implementation");
+  expect(result.executionId).toBe(stage.executionId);
+  expect(result.result.finalText).toBe("Complete");
+  expect(f.events).toEqual([
+    "start",
+    "custody",
+    "retained",
+    "spawn",
+    "supervisor",
+    "monitoring",
+    "started",
+    "run",
+    "settled",
+    "complete",
+    "finalize",
+    "close",
+  ]);
+  expect(f.execution().state).toBe("completed");
+  await stage.stop();
+  await expect(stage.run("Again")).rejects.toThrow("twice");
+});
+
+test("bundled governed stage captures invocation data and refuses native method drift before launch", async () => {
+  for (const drift of ["data", "method", "owner"] as const) {
+    const f = governedStageFixture();
+    f.control.beforeObservation = async () => {
+      if (drift === "data") f.options.sessionConfig.cwd = "changed";
+      if (drift === "method")
+        f.options.client.openSession = async () => {
+          throw new Error("Replacement must not run");
+        };
+      if (drift === "owner") f.control.owned = false;
+    };
+    await expect(f.create().run("Bounded")).rejects.toThrow();
+    expect(f.events).toEqual([]);
+    expect(f.execution().state).toBe("reserved");
+  }
+});
+
+test("bundled governed stage uses native construction cleanup and does not invent settlement", async () => {
+  const f = governedStageFixture();
+  f.control.mode = "cleanup";
+  await expect(f.create().run("Bounded")).rejects.toThrow("cleanup is unresolved");
+  expect(f.events).toContain("retryCleanup");
+  expect(f.control.settled).toBe(true);
+  expect(f.execution().state).toBe("frozen");
+  expect(f.events).not.toContain("run");
+  expect(f.events).not.toContain("finalize");
+});
+
+test("bundled governed stage holds unknown construction or persisted start outcomes for recovery", async () => {
+  for (const mode of ["no-custody", "persisted-start-error"] as const) {
+    const f = governedStageFixture();
+    f.control.mode = mode;
+    if (mode === "no-custody")
+      f.options.NativeCustody.create = async () => {
+        throw new Error("Construction unknown");
+      };
+    await expect(f.create().run("Bounded")).rejects.toThrow("retained for recovery");
+    expect(f.execution().state).toBe("freezing");
+    expect(f.control.settled).toBe(false);
+    expect(f.events).not.toContain("spawn");
+    expect(f.events).not.toContain("finalize");
+  }
+});
+
+test("bundled governed stage does not report success when native finalization is held", async () => {
+  const f = governedStageFixture();
+  f.control.finalizeHeld = true;
+  await expect(f.create().run("Bounded")).rejects.toThrow("finalization held");
+  expect(f.execution().state).toBe("completed");
+  expect(f.control.settled).toBe(true);
+  expect(f.events).toContain("close");
+});
+
+test("bundled governed stage observes committed start before a concurrent stop finishes", async () => {
+  const f = governedStageFixture();
+  let resume = () => {};
+  let started = () => {};
+  const waiting = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const reading = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.control.beforeTransition = async (type) => {
+    if (type === "start") {
+      started();
+      await waiting;
+    }
+  };
+  const stage = f.create();
+  const run = stage.run("Bounded");
+  const rejected = expect(run).rejects.toThrow();
+  await reading;
+  const stopping = stage.stop();
+  const held = expect(stopping).rejects.toThrow("custody reconciliation");
+  resume();
+  await Promise.all([rejected, held]);
+  expect(f.execution().state).toBe("freezing");
+  expect(f.events).toEqual(["start", "freeze"]);
+});
+
+test("bundled governed stage preserves captured cleanup when owner is lost after native session returns", async () => {
+  const f = governedStageFixture();
+  const open = f.options.client.openSession;
+  f.options.client.openSession = async (input) => {
+    const session = await open(input);
+    f.control.owned = false;
+    return session;
+  };
+  await expect(f.create().run("Bounded")).rejects.toThrow("Owner lost");
+  expect(f.control.settled).toBe(true);
+  expect(f.execution().state).toBe("frozen");
+  expect(f.events).toContain("close");
+  expect(f.events).not.toContain("run");
+});
+
+test("bundled governed stage retains supervisor cleanup when owner is lost during attachment", async () => {
+  const f = governedStageFixture();
+  const attach = f.options.QuotaSupervisor.attach;
+  f.options.QuotaSupervisor.attach = async (input) => {
+    const supervisor = await attach(input);
+    f.control.owned = false;
+    return supervisor;
+  };
+  await expect(f.create().run("Bounded")).rejects.toThrow("Owner lost");
+  expect(f.control.settled).toBe(true);
+  expect(f.execution().state).toBe("frozen");
+  expect(f.events).toContain("close");
+  expect(f.events).not.toContain("monitoring");
+});
+
+test("bundled governed stage stops admitted execution before reporting canceled provider result", async () => {
+  const f = governedStageFixture();
+  const open = f.options.client.openSession;
+  f.options.client.openSession = async (input) => {
+    const session = await open(input);
+    return {
+      ...session,
+      async run() {
+        return { sessionId: "fixture", finalText: "Canceled", timeline: [], canceled: true };
+      },
+    };
+  };
+  await expect(f.create().run("Bounded")).rejects.toThrow("cancelled");
+  expect(f.execution().state).toBe("frozen");
+  expect(f.control.settled).toBe(true);
+  expect(f.events).not.toContain("finalize");
+});
+
+test("bundled governed stage requires explicit reconciled resume and a fresh execution identity", async () => {
+  for (const allowed of [false, true]) {
+    const f = governedStageFixture();
+    const previousExecution = randomUUID();
+    f.seedExecution({
+      generation: 4,
+      state: "frozen",
+      executionId: previousExecution,
+      authenticationGeneration: "fixture",
+      pauseReason: "manual",
+      settlementId: randomUUID(),
+    });
+    f.options.resume = allowed;
+    f.options.manualResume = allowed;
+    const stage = f.create();
+    if (!allowed) {
+      await expect(stage.run("Bounded")).rejects.toThrow("reconciled resume");
+      expect(f.events).toEqual([]);
+      expect(f.execution().executionId).toBe(previousExecution);
+    } else {
+      const completed = await stage.run("Bounded");
+      expect(completed.executionId).not.toBe(previousExecution);
+      expect(f.events[0]).toBe("resume");
+      expect(f.execution().state).toBe("completed");
+    }
+  }
+});
+
+test("Factory stage quota capture retains native policy and detached account limits", () => {
+  const policy = controllerProjectionFixture().source.policy;
+  const captured = captureFactoryQuotaPolicy(policy);
+  expect(captured).toEqual(policy);
+  policy.account.accountId = "caller-changed";
+  policy.estimatedHourly = { bucketId: "weekly", windowId: "primary", maxConsumedPoints: 99 };
+  expect(captured.account.accountId).toBe("test-account");
+  expect(captured.estimatedHourly?.maxConsumedPoints).toBe(15);
+});
+
+test("Factory stage quota capture refuses missing hourly bound and fractional freshness", () => {
+  const policy = controllerProjectionFixture().source.policy;
+  const { estimatedHourly, ...withoutEstimate } = policy;
+  expect(estimatedHourly?.maxConsumedPoints).toBe(15);
+  expect(() => captureFactoryQuotaPolicy(withoutEstimate)).toThrow("bounded account consumption");
+  expect(() => captureFactoryQuotaPolicy({ ...policy, maxObservationAgeSeconds: 1.5 })).toThrow(
+    "fresh telemetry",
+  );
+});
+
+test("Factory stage quota capture delegates window and hysteresis validity to native parser", () => {
+  const policy = controllerProjectionFixture().source.policy;
+  expect(() => captureFactoryQuotaPolicy({ ...policy, freezeFloorPercent: 10 })).toThrow(
+    "Freeze floor",
+  );
+  expect(() =>
+    captureFactoryQuotaPolicy({
+      ...policy,
+      requiredWindows: [{ bucketId: "weekly", windowId: "primary", durationMinutes: 60 }],
+    }),
+  ).toThrow("weekly allowance window");
+  expect(() =>
+    captureFactoryQuotaPolicy({ ...policy, account: { issuer: "codex", accountId: [] } }),
+  ).toThrow();
+});
+
+test("Factory stage quota capture preserves native exhaustion and consumption rules", () => {
+  const policy = controllerProjectionFixture().source.policy;
+  expect(
+    captureFactoryQuotaPolicy({ ...policy, launchFloorPercent: 0, freezeFloorPercent: 0 }),
+  ).toMatchObject({
+    launchFloorPercent: 0,
+    freezeFloorPercent: 0,
+  });
+  const consumptionLimits: QuotaConsumptionLimit[] = [
+    {
+      meterId: "fixture-meter",
+      revision: "fixture-revision",
+      bucketId: "weekly",
+      unit: "weekly_quota_points",
+      period: { kind: "trailing_hour" },
+      throttleAt: 3,
+      holdAt: 2,
+      freezeAt: 4,
+    },
+  ];
+  expect(() => captureFactoryQuotaPolicy({ ...policy, consumptionLimits })).toThrow(
+    "throttle <= hold <= freeze",
+  );
+});
+
+function executionObservationFixture() {
+  const projection = controllerProjectionFixture();
+  const { estimatedHourlyUsage, ...raw } = projection.observation;
+  expect(estimatedHourlyUsage?.authenticationGeneration).toBe("auth-test");
+  const observe = vi.fn(
+    async (
+      input: Parameters<FactoryExecutionObservationOptions["store"]["observeEstimatedUsage"]>[0],
+    ): Promise<QuotaObservation> => {
+      if (input.observation.status !== "available")
+        throw new Error("Unavailable sample passed to native store");
+      return {
+        ...input.observation,
+        estimatedHourlyUsage: {
+          bucketId: input.bucketId,
+          windowId: input.windowId,
+          authenticationGeneration: input.authenticationGeneration,
+          observedAt: input.observation.observedAt,
+          coverageStart: input.observation.observedAt,
+          consumedPoints: null,
+        },
+      };
+    },
+  );
+  const options: FactoryExecutionObservationOptions = {
+    authority: { assertCurrent: vi.fn() },
+    client: { assertCurrent: vi.fn() },
+    authentication: { authenticationGeneration: "auth-test", assertCurrent: vi.fn() },
+    store: { observeEstimatedUsage: observe },
+    quotaPolicy: projection.source.policy,
+    readRawObservation: vi.fn(async () => raw),
+  };
+  return { options, observe, raw, fixture: projection };
+}
+
+test("Factory execution observation coalesces a sample and retains native measurement identity", async () => {
+  const f = executionObservationFixture();
+  const read = createFactoryObservationReader(f.options);
+  const first = read();
+  const second = read();
+  expect(second).toBe(first);
+  const retained = await first;
+  expect(f.options.readRawObservation).toHaveBeenCalledTimes(1);
+  expect(f.observe).toHaveBeenCalledTimes(1);
+  expect(retained).toMatchObject({
+    account: f.raw.account,
+    observedAt: f.raw.observedAt,
+    estimatedHourlyUsage: {
+      authenticationGeneration: "auth-test",
+      observedAt: f.raw.observedAt,
+      consumedPoints: null,
+    },
+  });
+  f.raw.account.accountId = "caller-mutated";
+  expect(retained).toMatchObject({ account: { accountId: "test-account" } });
+});
+
+test("Factory execution observation skips unavailable telemetry and refuses another account before writes", async () => {
+  const f = executionObservationFixture();
+  f.options.readRawObservation = vi.fn(async () => ({
+    status: "unavailable",
+    reason: "read_failed",
+  }));
+  await expect(createFactoryObservationReader(f.options)()).resolves.toEqual({
+    status: "unavailable",
+    reason: "read_failed",
+  });
+  expect(f.observe).not.toHaveBeenCalled();
+  f.options.readRawObservation = vi.fn(async () => ({
+    ...f.raw,
+    account: { issuer: "codex", accountId: "another-account" },
+  }));
+  await expect(createFactoryObservationReader(f.options)()).rejects.toThrow(
+    "telemetry account changed",
+  );
+  expect(f.observe).not.toHaveBeenCalled();
+});
+
+test("Factory execution observation refuses authentication drift while raw telemetry is pending", async () => {
+  const f = executionObservationFixture();
+  let release: (observation: QuotaObservation) => void = () => {
+    throw new Error("No pending sample");
+  };
+  const gate = new Promise<QuotaObservation>((resolve) => {
+    release = resolve;
+  });
+  f.options.readRawObservation = vi.fn(() => gate);
+  const pending = createFactoryObservationReader(f.options)();
+  await Promise.resolve();
+  expect(f.options.readRawObservation).toHaveBeenCalledTimes(1);
+  f.options.authentication.authenticationGeneration = "changed-auth";
+  release(f.raw);
+  await expect(pending).rejects.toThrow("binding changed");
+  expect(f.observe).not.toHaveBeenCalled();
+});
+
+test("Factory execution observation keeps possibly persisted method drift held without replay", async () => {
+  const f = executionObservationFixture();
+  f.observe.mockImplementationOnce(async (input) => {
+    f.options.readRawObservation = vi.fn(async () => f.raw);
+    return input.observation;
+  });
+  const read = createFactoryObservationReader(f.options);
+  const pending = read();
+  await expect(pending).rejects.toBeInstanceOf(FactoryExecutionObservationUncertainError);
+  await expect(pending).rejects.toMatchObject({
+    writeAttempted: true,
+    cause: { message: "Factory execution observation binding changed" },
+  });
+  await expect(read()).rejects.toBeInstanceOf(FactoryExecutionObservationUncertainError);
+  expect(f.observe).toHaveBeenCalledTimes(1);
+});
+
+test("Factory execution observation preserves native write rejection and rejects mismatched returned estimate", async () => {
+  const f = executionObservationFixture();
+  const cause = new Error("Native estimate save failed after persistence");
+  f.observe.mockRejectedValueOnce(cause);
+  const read = createFactoryObservationReader(f.options);
+  await expect(read()).rejects.toMatchObject({ writeAttempted: true, cause });
+  await expect(read()).rejects.toMatchObject({ writeAttempted: true, cause });
+  expect(f.observe).toHaveBeenCalledTimes(1);
+  const other = executionObservationFixture();
+  other.observe.mockResolvedValueOnce({
+    ...other.fixture.observation,
+    estimatedHourlyUsage: {
+      ...other.fixture.observation.estimatedHourlyUsage!,
+      authenticationGeneration: "other-auth",
+    },
+  });
+  await expect(createFactoryObservationReader(other.options)()).rejects.toMatchObject({
+    writeAttempted: true,
+    cause: { message: "Factory native estimate binding changed" },
+  });
+});
+
+test("Factory execution observation uses the actual native store without inventing hourly usage", async () => {
+  const f = executionObservationFixture();
+  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-observation-store-"));
+  try {
+    const store = new QuotaGovernorStore(directory, { nowMs: () => f.fixture.now });
+    f.options.store = store;
+    const read = createFactoryObservationReader(f.options);
+    const retained = await read();
+    expect(retained).toMatchObject({
+      account: f.raw.account,
+      observedAt: f.raw.observedAt,
+      estimatedHourlyUsage: {
+        bucketId: "weekly",
+        windowId: "primary",
+        authenticationGeneration: "auth-test",
+        observedAt: f.raw.observedAt,
+        coverageStart: f.raw.observedAt,
+        consumedPoints: null,
+      },
+    });
+    const saved = JSON.parse(
+      await readFile(store.accountPath(f.raw.account) + ".estimate", "utf8"),
+    );
+    expect(saved.account).toEqual(f.raw.account);
+    expect(saved.authenticationGeneration).toBe("auth-test");
+    expect(f.options.readRawObservation).toHaveBeenCalledTimes(1);
+    expect((await readdir(directory)).filter((name) => name.endsWith(".lock"))).toEqual([]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Factory execution observation assigns its pending read before a reentrant sample callback", async () => {
+  const f = executionObservationFixture();
+  let read: () => Promise<QuotaObservation> = () => {
+    throw new Error("Reader not constructed");
+  };
+  let reentered: Promise<QuotaObservation> | null = null;
+  f.options.readRawObservation = vi.fn(async () => {
+    reentered = read();
+    return f.raw;
+  });
+  read = createFactoryObservationReader(f.options);
+  const pending = read();
+  await pending;
+  expect(reentered).toBe(pending);
+  expect(f.options.readRawObservation).toHaveBeenCalledTimes(1);
+  expect(f.observe).toHaveBeenCalledTimes(1);
+});
+
+function factoryRecoveryFixture() {
+  const account = { issuer: "test", accountId: "recovery-test" };
+  const records = { current: () => ({ active: null }), reconcile: vi.fn(async () => "clear") };
+  const recover = vi.fn(
+    async (input: Parameters<QuotaGovernorStore["recoverAbandonedAccountLock"]>[0]) => {
+      await input.reconcileCustody({ account, ledger: null });
+      input.assertExclusiveWriter();
+      return "absent" as const;
+    },
+  );
+  const options: FactoryAccountRecoveryOptions = {
+    authority: { assertCurrent() {} },
+    claims: records,
+    store: { recoverAbandonedAccountLock: recover },
+    account,
+  };
+  return { options, records, recover };
+}
+
+test("Factory native recovery checks custody before reporting an absent account lock", async () => {
+  const f = factoryRecoveryFixture();
+  await expect(recoverFactoryAccount(f.options)).resolves.toBe("absent");
+  expect(f.records.reconcile).toHaveBeenCalledTimes(1);
+  expect(f.recover).toHaveBeenCalledTimes(1);
+});
+
+test("Factory native recovery refuses changed account input before native dispatch", async () => {
+  const f = factoryRecoveryFixture();
+  f.options.authority.assertCurrent = () => {
+    f.options.account.accountId = "other";
+  };
+  await expect(recoverFactoryAccount(f.options)).rejects.toThrow("invocation changed");
+  expect(f.recover).toHaveBeenCalledTimes(0);
+});
+
+test("Factory native recovery preserves uncertainty after a possibly committed lock recovery", async () => {
+  const f = factoryRecoveryFixture();
+  const cause = new Error("Directory fsync failed after removal");
+  f.recover.mockRejectedValueOnce(cause);
+  await expect(recoverFactoryAccount(f.options)).rejects.toMatchObject({
+    writeAttempted: true,
+    cause,
+    operation: "recoverAbandonedAccountLock",
+  });
+  expect(f.recover).toHaveBeenCalledTimes(1);
+});
+
+test("Factory native recovery rejects owner-method drift while custody reconciliation waits", async () => {
+  const f = factoryRecoveryFixture();
+  let release: () => void = () => {
+    throw new Error("Not waiting");
+  };
+  f.records.reconcile = vi.fn(
+    () =>
+      new Promise<string>((resolve) => {
+        release = () => resolve("clear");
+      }),
+  );
+  const pending = recoverFactoryAccount(f.options);
+  f.options.authority.assertCurrent = () => {};
+  release();
+  await expect(pending).rejects.toMatchObject({
+    writeAttempted: true,
+    cause: { message: "Factory recovery invocation changed" },
+  });
+});
+
+test("Factory native recovery uses the actual native lock protocol without creating accounting history", async () => {
+  const f = factoryRecoveryFixture();
+  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-recovery-store-"));
+  try {
+    const store = new QuotaGovernorStore(directory);
+    f.options.store = store;
+    const lock = store.accountPath(f.options.account) + ".lock";
+    await mkdir(lock, { mode: 0o700 });
+    await expect(recoverFactoryAccount(f.options)).resolves.toBe("recovered");
+    expect(await readdir(directory)).toEqual([]);
+    await expect(recoverFactoryAccount(f.options)).resolves.toBe("absent");
+    expect(f.records.reconcile).toHaveBeenCalledTimes(2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Factory native recovery reports clear claims without reading or mutating reservations", async () => {
+  const f = factoryRecoveryFixture();
+  const store = { reservationState: vi.fn(), transition: vi.fn(), finalize: vi.fn() };
+  await expect(
+    reconcileFactoryExecutionOwner({
+      authority: f.options.authority,
+      records: f.records,
+      store,
+      readObservation: async () => ({ status: "unavailable", reason: "read_failed" }),
+      authenticationGeneration: async () => "test-auth",
+    }),
+  ).resolves.toEqual({ kind: "clear" });
+  expect(store.reservationState).toHaveBeenCalledTimes(0);
+  expect(store.transition).toHaveBeenCalledTimes(0);
+  expect(store.finalize).toHaveBeenCalledTimes(0);
+});
+
+function factoryExecutionRecoveryFixture() {
+  const entry: FactoryWorkerExecution = {
+    directory: "/isolated/custody",
+    identity: {
+      version: 1,
+      executionId: randomUUID(),
+      authenticationGeneration: "recovery-auth",
+      attemptId: randomUUID(),
+      ownershipGeneration: 1,
+      nonce: randomUUID(),
+    },
+    binding: {
+      account: { issuer: "test", accountId: "test" },
+      reservationId: randomUUID(),
+      providerId: "test",
+      stage: "implementation",
+      workspace: "/isolated/workspace",
+      occurrenceId: "occurrence",
+    },
+  };
+  const active = { scheduleId: "schedule", occurrenceId: "occurrence", executions: [entry] };
+  let execution: GovernorExecution = {
+    generation: 2,
+    state: "running",
+    executionId: entry.identity.executionId,
+    authenticationGeneration: entry.identity.authenticationGeneration,
+    pauseReason: null,
+    settlementId: null,
+  };
+  const transition = vi.fn(async (input: Parameters<QuotaGovernorStore["transition"]>[0]) => {
+    expect(input.expectedGeneration).toBe(execution.generation);
+    execution = advanceGovernorExecution(execution, input.expectedGeneration, input.event);
+    return { kind: "transitioned" as const, execution };
+  });
+  const finalize = vi.fn<QuotaGovernorStore["finalize"]>();
+  const options: FactoryExecutionRecoveryOptions = {
+    authority: { assertCurrent() {} },
+    records: { reconcile: async () => "resume_required", current: () => ({ active }) },
+    store: {
+      reservationState: async () => ({
+        kind: "active",
+        execution,
+        providerId: "test",
+        policy: controllerProjectionFixture().source.policy,
+        observation: { status: "unavailable", reason: "read_failed" },
+        scheduleId: "schedule",
+        occurrenceId: "occurrence",
+      }),
+      transition,
+      finalize,
+    },
+    readObservation: async () => ({ status: "unavailable", reason: "read_failed" }),
+    authenticationGeneration: async () => "recovery-auth",
+  };
+  return { options, active, entry, transition, finalize };
+}
+
+test("Factory native recovery freezes and settles interrupted execution without resuming or releasing it", async () => {
+  const f = factoryExecutionRecoveryFixture();
+  const recovered = await reconcileFactoryExecutionOwner(f.options);
+  expect(recovered).toEqual({
+    kind: "resume_required",
+    attempt: f.active,
+    executions: [{ ...f.entry, kind: "resumable" }],
+  });
+  expect(f.transition.mock.calls.map(([input]) => input.event.type)).toEqual(["freeze", "settled"]);
+  expect(f.finalize).toHaveBeenCalledTimes(0);
+  expect(f.active.executions).toEqual([f.entry]);
+});
+
+test("Factory native recovery refuses a caller-changed execution after an awaited reservation read", async () => {
+  const f = factoryExecutionRecoveryFixture();
+  const read = f.options.store.reservationState;
+  f.options.store.reservationState = async (account, reservationId) => {
+    const saved = await read(account, reservationId);
+    f.entry.identity.executionId = randomUUID();
+    return saved;
+  };
+  await expect(reconcileFactoryExecutionOwner(f.options)).rejects.toThrow("claim changed");
+  expect(f.transition).toHaveBeenCalledTimes(0);
+});
+
+test("Factory native recovery retains typed uncertainty after transition persistence fails", async () => {
+  const f = factoryExecutionRecoveryFixture();
+  const cause = new Error("Transition persisted before directory fsync failed");
+  f.transition.mockRejectedValueOnce(cause);
+  await expect(reconcileFactoryExecutionOwner(f.options)).rejects.toMatchObject({
+    writeAttempted: true,
+    operation: "transition",
+    cause,
+  });
+  expect(f.transition).toHaveBeenCalledTimes(1);
+  expect(f.finalize).toHaveBeenCalledTimes(0);
 });

@@ -51,6 +51,15 @@ export const RestartRequestSchema = z.strictObject({
 export type RestartRequest = z.infer<typeof RestartRequestSchema>;
 
 export const RestartSummarySchema = z.object({
+  // COMPAT(nativeHelperMaintenance): older clients ignore helper-only counts.
+  nativeHelper: z
+    .object({
+      requested: z.number().int().nonnegative(),
+      queued: z.number().int().nonnegative(),
+      running: z.number().int().nonnegative(),
+      recovery: z.number().int().nonnegative(),
+    })
+    .optional(),
   requested: z.number().int().nonnegative(),
   queued: z.number().int().nonnegative(),
   running: z.number().int().nonnegative(),
@@ -104,7 +113,18 @@ export const SourceBatchSchema = z.strictObject({
 });
 export type SourceBatch = z.infer<typeof SourceBatchSchema>;
 
+// COMPAT(hostAutomaticRestarts): v224; returned only to clients opting into this receipt.
+export const AutomaticRestartApprovalSchema = z.strictObject({
+  policyActivatedAt: z.string().datetime(),
+  requestRevision: z.string().uuid(),
+  sourceSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+
 export const RestartJobSchema = RestartRequestSchema.extend({
+  automaticApproval: AutomaticRestartApprovalSchema.optional(),
   update: SourceUpdateSchema.optional(),
   sourceBatch: SourceBatchSchema.optional(),
   id: z.string().uuid(),

@@ -65,6 +65,7 @@ export async function delegateToContainer(
     case "send":
       await client.sendAgentMessage(request.agentId, request.text, {
         messageId: request.messageId,
+        origin: "agent",
       });
       return { sent: request.messageId, agentId: request.agentId };
     case "create": {
@@ -86,6 +87,7 @@ export async function delegateToContainer(
         workspaceId: request.workspaceId,
         title: request.title,
         initialPrompt: request.initialPrompt,
+        origin: "agent",
         idempotencyKey: request.idempotencyKey,
         model: request.model,
       });

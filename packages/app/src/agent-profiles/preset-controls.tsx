@@ -131,8 +131,8 @@ export function PresetControls({
     return () => clearInterval(timer);
   }, [active, hasLocalEndpoint, serverId]);
   useEffect(() => {
-    setOpen(false);
-  }, [serverId, active]);
+    if (!active) setOpen(false);
+  }, [active]);
   const selected = profiles.rows.find((row) => row.id === selectedProfileId);
   const compactName = useCompactProfileName(controlsRef, isCompact);
   const { triggerLabel, showWarning, showRing, remaining, statusLabel, accessibilityLabel } =

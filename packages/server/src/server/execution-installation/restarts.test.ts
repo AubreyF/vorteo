@@ -1727,3 +1727,340 @@ test("source batching uses shared ancestry instead of replaying the bundle prere
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("trusted Host policy finishes turns and persists approval before automatic dispatch", async () => {
+  const journal = new MemoryJournal();
+  const events: string[] = [];
+  let active = true;
+  const queue = new InstallationRestarts(
+    journal,
+    {
+      restart: async () => {
+        throw new Error("Immediate restart must not run");
+      },
+      holdCurrentTurns: async () => {
+        expect(journal.jobs[0]?.status).toBe("approved");
+        events.push("hold");
+      },
+      releaseCurrentTurns: async () => {
+        events.push("release");
+      },
+      inspect: async (target) => ({
+        target,
+        checkedAt: new Date(2000).toISOString(),
+        error: null,
+        idleRestartSupported: true,
+        pendingStarts: 0,
+        agents: active ? [{ id: "active-thread", title: "Task", status: "running" }] : [],
+      }),
+      restartWhenIdle: async () => {
+        events.push("restart");
+        return "ready";
+      },
+    },
+    () => 2000,
+    { hostRequestsAfter: new Date(1000).toISOString() },
+  );
+  const request = queue.request(
+    { target: "container-daemon", reason: "Validated update" },
+    "host-agent",
+  );
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "approved", finishCurrentTurns: true });
+  expect(events).toEqual(["hold"]);
+  active = false;
+  await queue.drain();
+  await queue.drain();
+  expect(events).toEqual(["hold", "hold", "restart", "release"]);
+  expect(queue.list()[0]).toMatchObject({
+    id: request.id,
+    status: "succeeded",
+    holdReleased: true,
+  });
+});
+
+function automaticFixture() {
+  const journal = new MemoryJournal();
+  const events: string[] = [];
+  let active = true;
+  const executor: RestartExecutor = {
+    restart: async () => {
+      throw new Error("Unexpected immediate restart");
+    },
+    holdCurrentTurns: async () => {
+      events.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      events.push("release");
+    },
+    inspect: async (target) => ({
+      target,
+      checkedAt: new Date(2000).toISOString(),
+      error: null,
+      idleRestartSupported: true,
+      pendingStarts: 0,
+      agents: active ? [{ id: "work", title: "Work", status: "running" }] : [],
+    }),
+    restartWhenIdle: async () => {
+      events.push("restart");
+      return "ready";
+    },
+    supportsUpdate: () => true,
+    sourceBase: () => "b".repeat(40),
+    sourceWeb: () => "b".repeat(40),
+    installUpdate: async () => {
+      events.push("install");
+      return "installed";
+    },
+    prepareUpdate: async (contributions) => ({
+      batch: {
+        status: "ready",
+        webCommit: "b".repeat(40),
+        contributions: contributions.map((item) => ({
+          ...item,
+          status: "included",
+          detail: "Included",
+        })),
+      },
+      update: {
+        sourceCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: "c".repeat(64),
+        bytes: 12,
+      },
+    }),
+  };
+  const policy = { hostRequestsAfter: new Date(1000).toISOString() };
+  const queue = new InstallationRestarts(journal, executor, () => 2000, policy);
+  return {
+    queue,
+    journal,
+    events,
+    executor,
+    policy,
+    idle: () => {
+      active = false;
+    },
+  };
+}
+
+test("automatic Host policy cannot approve a Dev request or a mixed source batch", async () => {
+  const f = automaticFixture();
+  const plain = f.queue.request(
+    { target: "host", reason: "Dev request", requester: "host-agent" },
+    "container-agent",
+  );
+  await f.queue.drain();
+  expect(f.queue.list()[0]?.status).toBe("pending");
+  f.queue.decide(plain.id, plain.revision, "reject");
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  f.queue.contribute(
+    { target: "host", reason: "Host changes" },
+    "host-agent",
+    update,
+    "10000000-0000-4000-8000-000000000001",
+  );
+  f.queue.contribute(
+    { target: "host", reason: "Dev changes" },
+    "container-agent",
+    update,
+    "10000000-0000-4000-8000-000000000002",
+  );
+  await f.queue.drain();
+  expect(f.queue.list().at(-1)).toMatchObject({
+    status: "pending",
+    sourceBatch: { status: "ready" },
+  });
+  expect(f.events).toEqual([]);
+});
+
+test("automatic source approval binds its prepared digest and remains cancellable before dispatch", async () => {
+  const f = automaticFixture();
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  f.queue.contribute(
+    { target: "host", reason: "Host changes" },
+    "host-agent",
+    update,
+    "10000000-0000-4000-8000-000000000003",
+  );
+  await f.queue.drain();
+  const approved = f.queue.list()[0]!;
+  expect(approved).toMatchObject({
+    status: "approved",
+    automaticApproval: {
+      policyActivatedAt: f.policy.hostRequestsAfter,
+      requestRevision: approved.revision,
+      sourceSha256: update.sha256,
+    },
+  });
+  f.queue.decide(approved.id, approved.revision, "cancel");
+  f.idle();
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold", "release"]);
+  expect(f.queue.list()[0]?.status).toBe("rejected");
+});
+
+test("automatic approval does not retroactively authorize older Host requests", async () => {
+  const f = automaticFixture();
+  const old = new InstallationRestarts(f.journal, f.executor, () => 500, f.policy);
+  old.request({ target: "host", reason: "Old manual request" }, "host-agent");
+  await old.drain();
+  expect(old.list()[0]?.status).toBe("pending");
+  expect(f.events).toEqual([]);
+});
+
+test("an automatically approved wait survives coordinator recovery without replaying completed restarts", async () => {
+  const f = automaticFixture();
+  f.queue.request({ target: "container-daemon", reason: "Prepared" }, "host-agent");
+  await f.queue.drain();
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 3000, f.policy);
+  f.idle();
+  await recovered.drain();
+  await recovered.drain();
+  const again = new InstallationRestarts(f.journal, f.executor, () => 4000, f.policy);
+  await again.drain();
+  expect(f.events.filter((event) => event === "restart")).toHaveLength(1);
+  expect(again.list()[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+});
+
+test("automatic Host approvals survive three replacement cycles without replay or Dev promotion", async () => {
+  const f = automaticFixture();
+  let queue = f.queue;
+  const pending = queue.request(
+    { target: "host", reason: "Dev request remains manual" },
+    "container-agent",
+  );
+  f.idle();
+  const completed: string[] = [];
+  for (let cycle = 0; cycle < 3; cycle++) {
+    const job = queue.request(
+      { target: "container-daemon", reason: `Host cycle ${cycle}` },
+      "host-agent",
+    );
+    await queue.drain();
+    // Reopen the journal before the release pass, as after coordinator replacement.
+    queue = new InstallationRestarts(f.journal, f.executor, () => 3000 + cycle, f.policy);
+    await queue.drain();
+    completed.push(job.id);
+    expect(queue.list().find((item) => item.id === job.id)).toMatchObject({
+      status: "succeeded",
+      holdReleased: true,
+    });
+    expect(queue.list().find((item) => item.id === pending.id)?.status).toBe("pending");
+    expect(f.events.filter((event) => event === "restart")).toHaveLength(cycle + 1);
+    expect(f.events.filter((event) => event === "release")).toHaveLength(cycle + 1);
+  }
+  expect(new Set(completed).size).toBe(3);
+  await queue.drain();
+  expect(f.events.filter((event) => event === "restart")).toHaveLength(3);
+});
+
+test("automatic approval refuses changed source after recovering an approved wait", async () => {
+  const f = automaticFixture();
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  f.queue.contribute(
+    { target: "host", reason: "Prepared source" },
+    "host-agent",
+    update,
+    crypto.randomUUID(),
+  );
+  await f.queue.drain();
+  const record = f.journal.jobs[0]!;
+  f.journal.jobs[0] = { ...record, update: { ...update, sha256: "d".repeat(64) } };
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 3000, f.policy);
+  f.idle();
+  await recovered.drain();
+  await recovered.drain();
+  expect(recovered.list()[0]).toMatchObject({ status: "failed", holdReleased: true });
+  expect(f.events).not.toContain("install");
+  expect(f.events).not.toContain("restart");
+});
+
+test("automatic policy leaves requests pending when safe activity inspection is unavailable", async () => {
+  const f = automaticFixture();
+  f.executor.inspect = undefined;
+  f.queue.request({ target: "host", reason: "Prepared" }, "host-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0]?.status).toBe("pending");
+  expect(f.events).toEqual([]);
+});
+
+test("bootstrap startup fence preserves journal and prevents reconciliation and dispatch until release", async () => {
+  const journal = new MemoryJournal();
+  const existing = new InstallationRestarts(journal, {
+    restart: async () => "unused",
+    restartWhenIdle: async () => null,
+  });
+  const request = existing.request(
+    { target: "host", reason: "Keep pending work" },
+    "container-agent",
+  );
+  existing.decide(request.id, request.revision, "approve-when-idle");
+  const before = journal.read();
+  const write = vi.spyOn(journal, "write");
+  const restart = vi.fn(async () => "ready");
+  const inspect = vi.fn();
+  const prepareUpdate = vi.fn();
+  const queue = new InstallationRestarts(
+    journal,
+    { restart, inspect, prepareUpdate },
+    Date.now,
+    {},
+    { fenced: true },
+  );
+  expect(queue.list()[0]?.status).toBe("approved");
+  await queue.drain();
+  await queue.prepareBatches();
+  await queue.refreshImpacts();
+  await expect(queue.impacts()).rejects.toThrow("fenced");
+  expect(() => queue.request({ target: "host", reason: "Disallowed" }, "host-agent")).toThrow(
+    "fenced",
+  );
+  expect(() => queue.decide(request.id, before[0]!.revision, "cancel")).toThrow("fenced");
+  expect(journal.read()).toEqual(before);
+  expect(write).not.toHaveBeenCalled();
+  expect(restart).not.toHaveBeenCalled();
+  expect(inspect).not.toHaveBeenCalled();
+  expect(prepareUpdate).not.toHaveBeenCalled();
+  queue.activate();
+  expect(write).toHaveBeenCalledTimes(1);
+  queue.activate();
+  expect(write).toHaveBeenCalledTimes(1);
+  expect(queue.list()[0]?.status).toBe("approved");
+});
+
+test("bootstrap startup refuses release after external journal change or failed persistence", () => {
+  const journal = new MemoryJournal();
+  const queue = new InstallationRestarts(
+    journal,
+    { restart: async () => "unused" },
+    Date.now,
+    {},
+    { fenced: true },
+  );
+  journal.failWrite = true;
+  expect(() => queue.activate()).toThrow("disk unavailable");
+  expect(() => queue.request({ target: "host", reason: "No release" }, "host-agent")).toThrow(
+    "fenced",
+  );
+  journal.failWrite = false;
+  const external = new InstallationRestarts(journal, { restart: async () => "unused" });
+  external.request({ target: "host", reason: "External change" }, "container-agent");
+  expect(() => queue.activate()).toThrow("changed while startup was fenced");
+  expect(journal.jobs).toHaveLength(1);
+});

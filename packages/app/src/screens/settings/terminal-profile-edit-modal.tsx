@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -212,7 +213,7 @@ export function TerminalProfileEditModal({
           </Text>
         ) : null}
 
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button
             variant="secondary"
             style={styles.actionButton}
@@ -233,7 +234,7 @@ export function TerminalProfileEditModal({
               ? t("settings.host.terminalProfiles.saving")
               : t("settings.host.terminalProfiles.save")}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );
@@ -251,7 +252,7 @@ const styles = StyleSheet.create((theme) => ({
     marginTop: theme.spacing[2],
   },
   actionButton: {
-    flex: 1,
+    flexShrink: 0,
   },
   submitError: {
     color: theme.colors.palette.red[300],

@@ -33,7 +33,10 @@ export async function subscribeQueue(
   agentId: string,
   subscribed: boolean,
 ): Promise<void> {
-  const result = await requireQueueClient(serverId).subscribeMessageQueue({ agentId, subscribed });
+  const result = await requireQueueClient(serverId).subscribeMessageQueue({
+    agentId,
+    subscribed,
+  });
   if (result.error || !result.snapshot)
     throw new Error(result.error?.message ?? "Queue subscription failed.");
   applyQueueSnapshot(serverId, result.snapshot);
@@ -72,15 +75,28 @@ export function requireQueueClient(serverId: string): DaemonClient {
 }
 
 export function applyQueueSnapshot(serverId: string, snapshot: QueueSnapshot): void {
-  queryClient.setQueryData<QueueSnapshot>(messageQueueKey(serverId, snapshot.agentId), (current) =>
-    current && current.revision > snapshot.revision ? current : snapshot,
+  const current = queryClient.getQueryData<QueueSnapshot>(
+    messageQueueKey(serverId, snapshot.agentId),
   );
+  if (current && current.revision > snapshot.revision) return;
+  queryClient.setQueryData(messageQueueKey(serverId, snapshot.agentId), snapshot);
+  void messageOutbox
+    .reconcile(serverId, snapshot)
+    .then(() => refreshMessageOutbox(serverId))
+    .catch((error: unknown) => {
+      queryClient.setQueryData(messageOutboxKey(serverId), {
+        records: null,
+        error: error instanceof Error ? error.message : "Queue recovery failed.",
+      });
+    });
 }
 
 export const messageOutbox = new QueueOutbox(createOutboxStorage(), {
   localChanged: notifyOutboxChange,
   async upload(serverId, attachment) {
-    const base64 = await queueAttachmentStore.encodeBase64({ attachment: attachment.metadata });
+    const base64 = await queueAttachmentStore.encodeBase64({
+      attachment: attachment.metadata,
+    });
     const binary = atob(base64);
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     const result = await requireQueueClient(serverId).uploadFile({
@@ -153,7 +169,10 @@ export function flushMessageOutbox(serverId: string): Promise<void> {
       try {
         await refreshMessageOutbox(serverId, message);
       } catch {
-        queryClient.setQueryData(messageOutboxKey(serverId), { records: null, error: message });
+        queryClient.setQueryData(messageOutboxKey(serverId), {
+          records: null,
+          error: message,
+        });
       }
     })
     .finally(() => {

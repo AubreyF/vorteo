@@ -63,7 +63,7 @@ describe("Claude authentication monitoring", () => {
     ).rejects.toMatchObject({
       code: "CHECK_FAILED",
       message:
-        "Could not verify Claude Code authentication. Run claude auth status in this host's container, then refresh the provider.",
+        "Could not verify Claude authentication. Check the connection in Providers settings, then refresh the provider.",
     });
   });
 

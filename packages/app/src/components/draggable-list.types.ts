@@ -37,7 +37,8 @@ export interface DraggableListProps<T> {
   data: T[];
   keyExtractor: (item: T, index: number) => string;
   renderItem: (info: DraggableRenderItemInfo<T>) => ReactElement;
-  onDragEnd: (data: T[]) => void;
+  /** Return the save promise to keep the dropped order visible until data acknowledges it. */
+  onDragEnd: (data: T[]) => void | Promise<unknown>;
   style?: StyleProp<ViewStyle>;
   /** Outer container style (useful for nested, non-scrolling lists). */
   containerStyle?: StyleProp<ViewStyle>;

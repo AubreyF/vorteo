@@ -987,49 +987,42 @@ function workerSidebarFixture() {
 }
 
 describe("managed worker sidebar placement", () => {
-  it.each([true, false])(
-    "keeps an explicitly moved worker in its chosen project with terminal presence %s",
-    (presence) => {
-      const fixture = workerSidebarFixture();
-      fixture.execution.projectMembership = { key: "misc-dev", name: "Misc Dev" };
-      fixture.projects[1] = project({
-        projectKey: "misc-dev",
-        projectName: "Misc Dev",
-        workspaceKeys: ["srv:execution"],
-        hosts: [
-          {
-            serverId: "dev",
-            projectId: "dev-project",
-            iconWorkingDir: "/dev",
-            worktreeSupport: "unsupported",
-          },
-        ],
-      });
-      for (const hydrated of [false, true, false, true]) {
-        fixture.session.hasHydratedAgents = hydrated;
-        const model = buildSidebarWorkspacePlacementModel({
+  it("keeps an explicitly moved worker in its chosen project across hydration", () => {
+    const fixture = workerSidebarFixture();
+    fixture.execution.projectMembership = { key: "misc-dev", name: "Misc Dev" };
+    fixture.projects[1] = project({
+      projectKey: "misc-dev",
+      projectName: "Misc Dev",
+      workspaceKeys: ["srv:execution"],
+      hosts: [
+        {
+          serverId: "dev",
+          projectId: "dev-project",
+          iconWorkingDir: "/dev",
+          worktreeSupport: "unsupported",
+        },
+      ],
+    });
+    for (const hydrated of [false, true, false, true]) {
+      fixture.session.hasHydratedAgents = hydrated;
+      const model = buildSidebarWorkspacePlacementModel({
+        projects: fixture.projects,
+        managedWorkspaces: collectManagedWorkspacePlacements({
           projects: fixture.projects,
-          managedWorkspaces: collectManagedWorkspacePlacements({
-            projects: fixture.projects,
-            sessions: [fixture.session],
-          }),
-          terminalPresence: new Map([["srv:execution", presence]]),
-        });
-        expect(model.projects.map((entry) => entry.viewKey)).toEqual([
-          "origin-project",
-          "misc-dev",
-        ]);
-        expect(model.projects[1]?.workspaces.map((entry) => entry.workspaceId)).toEqual([
-          "execution",
-        ]);
-        expect(
-          model.workspaces.find((entry) => entry.workspaceId === "execution")?.projectViewKey,
-        ).toBe("misc-dev");
-      }
-    },
-  );
+          sessions: [fixture.session],
+        }),
+      });
+      expect(model.projects.map((entry) => entry.viewKey)).toEqual(["origin-project", "misc-dev"]);
+      expect(model.projects[1]?.workspaces.map((entry) => entry.workspaceId)).toEqual([
+        "execution",
+      ]);
+      expect(
+        model.workspaces.find((entry) => entry.workspaceId === "execution")?.projectViewKey,
+      ).toBe("misc-dev");
+    }
+  });
 
-  it("still folds a worker that inherits its parent's chosen project", () => {
+  it("keeps a worker visible in its parent's chosen project", () => {
     const fixture = workerSidebarFixture();
     const membership = { key: "origin-project", name: "Origin" };
     fixture.origin.projectMembership = membership;
@@ -1045,12 +1038,11 @@ describe("managed worker sidebar placement", () => {
         projects: fixture.projects,
         sessions: [fixture.session],
       }),
-      terminalPresence: new Map([["srv:execution", false]]),
     });
-    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin"]);
+    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin", "execution"]);
     expect(model.workspaces[0]?.managedWorkspaceIds).toEqual(["execution"]);
   });
-  it("folds a confirmed worker-only worktree beneath its originating task and project", () => {
+  it("keeps a worker-only worktree visible under its originating project", () => {
     const fixture = workerSidebarFixture();
     const managedWorkspaces = collectManagedWorkspacePlacements({
       projects: fixture.projects,
@@ -1059,10 +1051,12 @@ describe("managed worker sidebar placement", () => {
     const model = buildSidebarWorkspacePlacementModel({
       projects: fixture.projects,
       managedWorkspaces,
-      terminalPresence: new Map([["srv:execution", false]]),
     });
     expect(model.projects.map((entry) => entry.viewKey)).toEqual(["origin-project"]);
-    expect(model.workspaces.map((entry) => entry.workspaceKey)).toEqual(["srv:origin"]);
+    expect(model.workspaces.map((entry) => entry.workspaceKey)).toEqual([
+      "srv:origin",
+      "srv:execution",
+    ]);
     expect(model.workspaces[0]?.managedWorkspaceIds).toEqual(["execution"]);
     expect(fixture.session.agents.get("worker")).toBe(fixture.worker);
     expect(fixture.worker.workspaceId).toBe("execution");
@@ -1090,7 +1084,7 @@ describe("managed worker sidebar placement", () => {
       }),
     ).toBe("running");
   });
-  it("folds inherited stopped script definitions beneath the originating task", () => {
+  it("keeps a worker workspace visible with stopped script definitions", () => {
     const fixture = workerSidebarFixture();
     fixture.execution.scripts = [
       "app",
@@ -1116,9 +1110,8 @@ describe("managed worker sidebar placement", () => {
         projects: fixture.projects,
         sessions: [fixture.session],
       }),
-      terminalPresence: new Map([["srv:execution", false]]),
     });
-    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin"]);
+    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin", "execution"]);
     expect(fixture.execution.scripts).toHaveLength(6);
   });
   it.each([
@@ -1144,47 +1137,9 @@ describe("managed worker sidebar placement", () => {
         projects: fixture.projects,
         sessions: [fixture.session],
       }),
-      terminalPresence: new Map([["srv:execution", false]]),
     });
     expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin", "execution"]);
     expect(model.workspaces[1]?.projectViewKey).toBe("origin-project");
-  });
-  it.each([true, undefined])("retains terminal access when presence is %s", (presence) => {
-    const fixture = workerSidebarFixture();
-    const managedWorkspaces = collectManagedWorkspacePlacements({
-      projects: fixture.projects,
-      sessions: [fixture.session],
-    });
-    const terminalPresence = new Map<string, boolean>();
-    if (presence !== undefined) terminalPresence.set("srv:execution", presence);
-    const model = buildSidebarWorkspacePlacementModel({
-      projects: fixture.projects,
-      managedWorkspaces,
-      terminalPresence,
-    });
-    expect(model.projects.map((entry) => entry.viewKey)).toEqual(["origin-project"]);
-    expect(model.workspaces.map((entry) => entry.workspaceKey)).toEqual([
-      "srv:origin",
-      "srv:execution",
-    ]);
-    expect(model.workspaces[1]?.workspaceId).toBe("execution");
-    expect(model.workspaces[1]?.projectViewKey).toBe("origin-project");
-  });
-  it("retains an open independent surface even with a confirmed empty terminal inventory", () => {
-    const fixture = workerSidebarFixture();
-    const model = buildSidebarWorkspacePlacementModel({
-      projects: fixture.projects,
-      managedWorkspaces: collectManagedWorkspacePlacements({
-        projects: fixture.projects,
-        sessions: [fixture.session],
-      }),
-      terminalPresence: new Map([["srv:execution", false]]),
-      preservedWorkspaceKeys: new Set(["srv:execution"]),
-    });
-    expect(model.workspaces.map((entry) => entry.workspaceKey)).toEqual([
-      "srv:origin",
-      "srv:execution",
-    ]);
   });
   it("keeps an independent task's worker worktree row under the originating project", () => {
     const fixture = workerSidebarFixture();
@@ -1199,7 +1154,6 @@ describe("managed worker sidebar placement", () => {
     const model = buildSidebarWorkspacePlacementModel({
       projects: fixture.projects,
       managedWorkspaces,
-      terminalPresence: new Map([["srv:execution", false]]),
     });
     expect(model.projects.map((entry) => entry.viewKey)).toEqual(["origin-project"]);
     expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin", "execution"]);
@@ -1286,7 +1240,7 @@ describe("managed worker sidebar placement", () => {
       ).toContain("execution");
     },
   );
-  it("folds nested execution workspaces beneath the same originating task", () => {
+  it("keeps nested execution workspaces visible under the same originating project", () => {
     const fixture = workerSidebarFixture();
     const nested = projectWorkspace("nested", "running");
     nested.projectId = "nested-project";
@@ -1312,15 +1266,16 @@ describe("managed worker sidebar placement", () => {
     const model = buildSidebarWorkspacePlacementModel({
       projects: fixture.projects,
       managedWorkspaces,
-      terminalPresence: new Map([
-        ["srv:execution", false],
-        ["srv:nested", false],
-      ]),
     });
     expect(model.projects.map((entry) => entry.viewKey)).toEqual(["origin-project"]);
+    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual([
+      "origin",
+      "execution",
+      "nested",
+    ]);
     expect(model.workspaces[0]?.managedWorkspaceIds).toEqual(["execution", "nested"]);
   });
-  it("does not fold a workspace while the agent directory is incomplete", () => {
+  it("retains original placement while the agent directory is incomplete", () => {
     const fixture = workerSidebarFixture();
     fixture.session.hasHydratedAgents = false;
     expect(

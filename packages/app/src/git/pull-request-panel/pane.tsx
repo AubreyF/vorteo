@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useMemo, useState } from "react";
 import { Image, Pressable, ScrollView, Text, View, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -877,7 +878,7 @@ function SingleActivityCard({
             <MarkdownRenderer text={activity.body} compact onLinkPress={handleMarkdownLinkPress} />
           </View>
           {attachEnabled && canAddPullRequestActivityToChat(activity) ? (
-            <View style={styles.cardFooter}>
+            <ActionFooter style={styles.cardFooter}>
               <Button
                 variant="ghost"
                 size="xs"
@@ -886,7 +887,7 @@ function SingleActivityCard({
               >
                 Add to chat
               </Button>
-            </View>
+            </ActionFooter>
           ) : null}
         </>
       )}
@@ -988,7 +989,7 @@ function ReviewCard({
             </View>
           ) : null}
           {attachEnabled && canAddPullRequestActivityToChat(review) ? (
-            <View style={styles.cardFooter}>
+            <ActionFooter style={styles.cardFooter}>
               <Button
                 variant="ghost"
                 size="xs"
@@ -997,7 +998,7 @@ function ReviewCard({
               >
                 Add to chat
               </Button>
-            </View>
+            </ActionFooter>
           ) : null}
           {threads.length > 0 ? (
             <View style={styles.nestedThreadsContainer}>
@@ -1117,7 +1118,7 @@ function ThreadBlock({
             </View>
           ) : null}
           {attachEnabled ? (
-            <View style={styles.cardFooter}>
+            <ActionFooter style={styles.cardFooter}>
               <Button
                 variant="ghost"
                 size="xs"
@@ -1126,7 +1127,7 @@ function ThreadBlock({
               >
                 Add to chat
               </Button>
-            </View>
+            </ActionFooter>
           ) : null}
         </>
       )}

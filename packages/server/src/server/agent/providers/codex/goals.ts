@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   AgentGoalSchema,
@@ -22,6 +23,7 @@ interface CodexGoalsOptions {
 export class CodexGoals {
   private threadId: string | null = null;
   private revision = 0;
+  private editRevision = randomUUID();
   private mutationTail: Promise<unknown> = Promise.resolve();
   private current: AgentGoalState = { status: "loading", goal: null };
 
@@ -116,6 +118,8 @@ export class CodexGoals {
       // Invalidate reads started before this mutation. Overlapping native
       // notifications need a post-write read to establish the final state.
       const revision = ++this.revision;
+      // Even a same-value owner write invalidates an earlier edit observation.
+      this.editRevision = randomUUID();
       try {
         const raw = await this.options.request(method, { threadId, ...input });
         let goal: AgentGoal | null = null;
@@ -147,7 +151,22 @@ export class CodexGoals {
 
   private accept(goal: AgentGoal | null): void {
     this.revision += 1;
-    this.publish({ status: "ready", goal, observedAt: new Date().toISOString() });
+    const previous = this.current.goal;
+    if (
+      this.current.status !== "ready" ||
+      !previous ||
+      !goal ||
+      (["threadId", "objective", "status", "tokenBudget", "createdAt"] as const).some(
+        (key) => previous[key] !== goal[key],
+      )
+    )
+      this.editRevision = randomUUID();
+    this.publish({
+      status: "ready",
+      goal,
+      observedAt: new Date().toISOString(),
+      editRevision: this.editRevision,
+    });
   }
 
   private publish(state: AgentGoalState): void {

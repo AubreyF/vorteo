@@ -1,6 +1,14 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { X } from "lucide-react-native";
 import { useCallback, useMemo, type ReactNode } from "react";
-import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+  type PressableStateCallbackType,
+} from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 
@@ -25,6 +33,20 @@ export interface SidebarCalloutProps {
   actions?: readonly SidebarCalloutAction[];
   onDismiss?: () => void;
   testID?: string;
+}
+
+/** All sidebar notices share one height budget and one scroll surface. */
+export function SidebarCalloutStack({ children }: { children: ReactNode }) {
+  const { height } = useWindowDimensions();
+  return (
+    <ScrollView
+      style={[styles.stack, { maxHeight: height * 0.33 }]}
+      contentContainerStyle={styles.stackContent}
+      testID="sidebar-callout-stack"
+    >
+      {children}
+    </ScrollView>
+  );
 }
 
 export function SidebarCalloutDescriptionText({ children }: { children: ReactNode }) {
@@ -99,7 +121,7 @@ export function SidebarCallout({
         ) : null}
 
         {visibleActions.length > 0 ? (
-          <View style={styles.actionRow} testID={testID ? `${testID}-actions` : undefined}>
+          <ActionFooter style={styles.actionRow} testID={testID ? `${testID}-actions` : undefined}>
             {visibleActions.map((action, index) => (
               <SidebarCalloutActionButton
                 key={action.label}
@@ -107,7 +129,7 @@ export function SidebarCallout({
                 testID={action.testID ?? (testID ? `${testID}-action-${index}` : undefined)}
               />
             ))}
-          </View>
+          </ActionFooter>
         ) : null}
       </View>
     </View>
@@ -151,9 +173,12 @@ function SidebarCalloutActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  stack: { flexGrow: 0, flexShrink: 0 },
+  stackContent: { flexGrow: 0 },
   container: {
+    flexShrink: 0,
     width: "100%",
-    paddingVertical: theme.spacing[3],
+    paddingVertical: theme.spacing[4],
     paddingHorizontal: theme.spacing[4],
     borderTopWidth: theme.borderWidth[1],
     borderTopColor: theme.colors.border,
@@ -210,7 +235,7 @@ const styles = StyleSheet.create((theme) => ({
     marginTop: theme.spacing[2],
   },
   actionButton: {
-    flex: 1,
+    flexShrink: 0,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
     borderRadius: theme.borderRadius.md,

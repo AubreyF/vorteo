@@ -156,6 +156,24 @@ export function installationProvidersSettled(
   );
 }
 
+/** A projected policy is not a complete account connection when an environment has no binding. */
+export function installationAccountBindingsComplete(
+  definitions: readonly InstallationProvider[],
+  serverId: string,
+  excludedIds: readonly string[] = [],
+): boolean {
+  return definitions.every((definition) => {
+    const inactive = definition.removed || definition.policy.enabled === false;
+    if (inactive || excludedIds.includes(definition.id)) return true;
+    const account =
+      definition.accountId !== undefined ||
+      definition.accountSetup !== undefined ||
+      definition.providerType === "codex" ||
+      definition.providerType === "claude";
+    return !account || Object.hasOwn(definition.bindings, serverId);
+  });
+}
+
 export function validateProviderAccountSetup(definition: InstallationProvider): void {
   const setup = definition.accountSetup;
   if (!setup) return;

@@ -960,6 +960,15 @@ describe("thread checklist MCP tools", () => {
         },
       });
       expect(created.isError).not.toBe(true);
+      const blocked = await client.callTool({
+        name: "update_checklist",
+        arguments: { mutation: { operation: "update", id: "verify", status: "blocked" } },
+      });
+      expect(blocked.isError).not.toBe(true);
+      expect(agentManager.readChecklist(agent.id)[0]).toMatchObject({
+        status: "blocked",
+        completed: false,
+      });
       const completed = await client.callTool({
         name: "update_checklist",
         arguments: { mutation: { operation: "update", id: "verify", status: "completed" } },

@@ -152,7 +152,7 @@ describe("workspace agent visibility", () => {
     expect(
       deriveWorkspaceAgentVisibility({ sessionAgents, workspaceId: child.workspaceId })
         .activeAgentIds,
-    ).toEqual(new Set());
+    ).toEqual(new Set(["worker"]));
     expect(child.workspaceId).toBe("worker-workspace");
     expect(child.cwd).toBe("/isolated/worktree");
   });
@@ -417,8 +417,8 @@ describe("managed worker presentation", () => {
     expect(origin.activeAgentIds).toEqual(new Set(["parent", "child", "grandchild"]));
     expect(origin.autoOpenAgentIds).toEqual(new Set(["parent"]));
     const worktree = deriveWorkspaceAgentVisibility({ sessionAgents, workspaceId: "worktree-one" });
-    expect(worktree.activeAgentIds).toEqual(new Set(["independent"]));
-    expect(worktree.autoOpenAgentIds).toEqual(new Set(["independent"]));
+    expect(worktree.activeAgentIds).toEqual(new Set(["child", "independent"]));
+    expect(worktree.autoOpenAgentIds).toEqual(new Set(["child", "independent"]));
     expect(grandchild.cwd).toBe("/worktrees/two");
     expect(grandchild.workspaceId).toBe("worktree-two");
   });
@@ -571,7 +571,13 @@ it("keeps execution-workspace recovery when the parent workspace remains availab
   const result = deriveWorkspaceAgentVisibility({
     sessionAgents,
     workspaceId: "execution",
-    workspaces: new Map([[origin.id, origin]]),
+    workspaces: new Map([
+      [origin.id, origin],
+      [
+        "execution",
+        { ...origin, id: "execution", workspaceDirectory: "/worktree", name: "execution" },
+      ],
+    ]),
   });
   expect(result.activeAgentIds).toEqual(new Set(["child"]));
   expect(result.autoOpenAgentIds).toEqual(new Set(["child"]));

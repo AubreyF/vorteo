@@ -1,9 +1,14 @@
 import { verifySkillSnapshot } from "../../../orchestration-skills/internal/policy.js";
-import { ClaudeLoginSession } from "./login.js";
+import { ClaudeSetupTokenLoginSession } from "./setup-token-login.js";
+import {
+  claudeSetupTokenStore,
+  readClaudeSetupToken,
+  claudeSetupTokenEnvironment,
+} from "./setup-token-runtime.js";
 import { requireClaudeAuthentication } from "./authentication.js";
 import { validateProviderOptions } from "../../provider-options.js";
 import type { ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { promises } from "node:fs";
 import path from "node:path";
@@ -1658,6 +1663,8 @@ export class ClaudeAgentClient implements AgentClient {
   }
 
   async openAccountLoginSession() {
+    if (process.env.VORTEO_INSTALLATION_CLIENT_CONFIG)
+      throw new Error("Connect Claude through the installation subscription controls.");
     const launch = await resolveProviderLaunch({
       commandConfig: this.runtimeSettings?.command,
       defaultBinary: "claude",
@@ -1667,11 +1674,13 @@ export class ClaudeAgentClient implements AgentClient {
       throw new Error("Install Claude Code on this host before signing in.");
     const env = createProviderEnv({ baseEnv: process.env, runtimeSettings: this.runtimeSettings });
     const scope = claudeConfigDir(env);
-    return new ClaudeLoginSession({
+    await promises.mkdir(scope, { recursive: true, mode: 0o700 });
+    return new ClaudeSetupTokenLoginSession({
       executable: available.resolvedPath,
       args: launch.args,
       scope,
       runtimeSettings: this.runtimeSettings,
+      saveToken: (token, signal) => claudeSetupTokenStore(scope).write(token, signal),
     });
   }
 
@@ -1698,9 +1707,15 @@ export class ClaudeAgentClient implements AgentClient {
         defaultBinary: "claude",
       });
       const availability = await checkProviderLaunchAvailable(launch);
-      const auth = availability.available
-        ? await resolveClaudeAuth(launch, availability, this.runtimeSettings)
-        : null;
+      const setupToken = await readClaudeSetupToken(
+        createProviderEnv({ runtimeSettings: this.runtimeSettings }),
+      );
+      let auth: string | null = null;
+      if (setupToken)
+        auth =
+          "Installation subscription credential saved. Account email is not exposed by setup-token.";
+      else if (availability.available)
+        auth = await resolveClaudeAuth(launch, availability, this.runtimeSettings);
 
       return {
         diagnostic: formatProviderDiagnostic("Claude Code", [
@@ -2145,6 +2160,7 @@ class ClaudeAgentSession implements AgentSession {
   >();
   private queryPumpPromise: Promise<void> | null = null;
   private queryRestartNeeded = false;
+  private queryCredentialDigest: string | null = null;
   private pendingInterruptAbort = false;
   private foregroundHasVisibleActivity = false;
   private activeTurnHasAssistantText = false;
@@ -3150,6 +3166,13 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private async ensureQuery(): Promise<Query> {
+    const setupToken = await readClaudeSetupToken(this.harnessEnvironment);
+    const credentialDigest = setupToken
+      ? createHash("sha256").update(setupToken.accessToken).digest("hex")
+      : null;
+    // Setup tokens are process-scoped. Renew by recreating the CLI while preserving its session ID.
+    if (this.query && credentialDigest !== this.queryCredentialDigest)
+      this.queryRestartNeeded = true;
     if (this.query && !this.queryRestartNeeded) {
       return this.query;
     }
@@ -3194,13 +3217,24 @@ class ClaudeAgentSession implements AgentSession {
 
     const input = createAsyncMessageInput<SDKUserMessage>();
     const options = await this.buildOptions();
+    const authEnv = setupToken
+      ? claudeSetupTokenEnvironment(setupToken, claudeConfigDir(this.harnessEnvironment))
+      : undefined;
+    if (authEnv) {
+      options.env = { ...options.env, ...authEnv };
+      if (typeof options.settings === "string")
+        throw new Error("Claude subscription connection requires inline runtime settings.");
+      options.settings = { ...options.settings, apiKeyHelper: "" };
+    }
     this.logger.debug({ options: summarizeClaudeOptionsForLog(options) }, "claude query");
     this.input = input;
+    this.queryCredentialDigest = credentialDigest;
     this.query = claudeQuery(
       { prompt: input.iterable, options },
       {
         runtimeSettings: this.runtimeSettings,
         launchEnv: this.launchEnv,
+        authEnv,
         queryFactory: this.queryFactory,
         onChildProcess: (child) => {
           this.childProcess = child;

@@ -9,6 +9,8 @@ Use the installed client command below. It carries a scoped agent credential. It
 
 `INSTALLATION_CLIENT_COMMAND`
 
+Where an owner has enabled the protected trusted Host approval policy and the installed coordinator advertises it, authenticated Host requests may receive automatic approval through this same tracked workflow. Inspect the recorded request decision rather than asking for a duplicate chat approval. Dev requests and mixed-origin batches still require the owner’s button approval. Do not enable the policy yourself, impersonate a Host requester, transfer Host credentials, or treat routine automatic approval as coordinator or supervisor maintenance authority. Until the updated coordinator and policy are installed, use the existing owner approval buttons.
+
 ## Restart requests
 
 ### Required restart control path

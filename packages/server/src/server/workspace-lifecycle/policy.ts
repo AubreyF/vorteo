@@ -67,6 +67,7 @@ export function setWorkspaceLifecycle(
   if (change.standing === undefined && change.protected === undefined) {
     throw new Error("Choose Standing or Protected to update.");
   }
+  if (change.protected === false) assertWorkspaceNotFactoryManaged(workspace);
   // Leaving Standing never silently removes an independently useful protection.
   const protectOnStanding = change.standing === true && !workspace.standing;
   return {

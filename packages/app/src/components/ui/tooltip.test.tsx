@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Pressable, Text } from "react-native";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const touchState = vi.hoisted(() => ({ enabled: false }));
+const touchState = vi.hoisted(() => ({ enabled: false, compact: false }));
 vi.mock("@/vorton-touch", () => ({ useVortonTouch: () => touchState.enabled }));
 import { Tooltip, TooltipTrigger } from "./tooltip";
 
@@ -14,7 +14,7 @@ vi.mock("@/constants/platform", () => ({
 }));
 
 vi.mock("@/constants/layout", () => ({
-  useIsCompactFormFactor: () => false,
+  useIsCompactFormFactor: () => touchState.compact,
 }));
 
 vi.mock("@gorhom/portal", () => ({
@@ -44,6 +44,7 @@ let container: HTMLElement | null = null;
 
 beforeEach(() => {
   touchState.enabled = false;
+  touchState.compact = false;
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
   vi.stubGlobal("React", React);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -99,8 +100,9 @@ function pressTrigger(): void {
 }
 
 describe("TooltipTrigger", () => {
-  it("opens an informational tooltip by tapping on a wide touch screen", () => {
-    touchState.enabled = true;
+  it.each(["wide touch", "compact"])("keeps a tapped tooltip open on a %s screen", (mode) => {
+    touchState.enabled = mode === "wide touch";
+    touchState.compact = mode === "compact";
     const changed = vi.fn();
     act(() =>
       root?.render(

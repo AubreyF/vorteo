@@ -1,3 +1,5 @@
+import { delegateToContainer } from "../execution-installation/delegation.js";
+import { TaskOwnerEvidenceStore } from "../authorization/task-owner-evidence.js";
 import { execFileSync } from "node:child_process";
 import type { z } from "zod";
 import { WebSocket } from "ws";
@@ -280,6 +282,76 @@ test("legacy keyed creation preserves checkout error codes", async () => {
     });
   } finally {
     peer.close();
+    await daemon.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60000);
+
+test("delegated creation and messages retain attribution without becoming owner evidence", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "delegated-provenance-"));
+  const daemon = await createTestPaseoDaemon({
+    auth: { password: "$2b$12$GMhF7pN4QnMlHOQXOqjd1OitKWPSmAO3FwB0PHzKtcZR/sAMryz76" },
+    agentClients: createTestAgentClients(),
+  });
+  const client = new DaemonClient({
+    url: `ws://127.0.0.1:${daemon.port}/ws`,
+    password: "shared-secret",
+  });
+  try {
+    await client.connect();
+    const workspace = await client.createWorkspace({
+      source: { kind: "directory", path: directory },
+    });
+    expect(workspace.error).toBeNull();
+    const created = await delegateToContainer(client, {
+      operation: "create",
+      workspaceId: workspace.workspace!.id,
+      provider: "codex",
+      title: "Delegated task",
+      initialPrompt: "First delegated message",
+      idempotencyKey: randomUUID(),
+    });
+    const agentId = (created as { id: string }).id;
+    const evidence = new TaskOwnerEvidenceStore(daemon.paseoHome);
+    const messages = async () => {
+      const timeline = await client.fetchAgentTimeline(agentId, {
+        limit: 0,
+        projection: "canonical",
+      });
+      return timeline.entries
+        .filter((entry) => entry.item.type === "user_message")
+        .map((entry) => entry.item);
+    };
+    await expect
+      .poll(messages)
+      .toEqual([expect.objectContaining({ text: "First delegated message", origin: "agent" })]);
+    expect(await evidence.list(agentId)).toEqual([]);
+    const request = {
+      operation: "send" as const,
+      agentId,
+      text: "Second delegated message",
+      messageId: randomUUID(),
+    };
+    await delegateToContainer(client, request);
+    await delegateToContainer(client, request);
+    await expect
+      .poll(messages)
+      .toEqual([
+        expect.objectContaining({ text: "First delegated message", origin: "agent" }),
+        expect.objectContaining({ text: "Second delegated message", origin: "agent" }),
+      ]);
+    await expect(
+      client.sendAgentMessage(agentId, request.text, { messageId: request.messageId }),
+    ).rejects.toThrow("agent_request_key_conflict");
+    expect(await evidence.list(agentId)).toEqual([]);
+    await client.sendAgentMessage(agentId, "Owner message", { messageId: randomUUID() });
+    await expect.poll(messages).toHaveLength(3);
+    expect((await messages())[2]).not.toHaveProperty("origin");
+    expect(await evidence.list(agentId)).toEqual([
+      expect.objectContaining({ text: "Owner message" }),
+    ]);
+  } finally {
+    await client.close();
     await daemon.close();
     await rm(directory, { recursive: true, force: true });
   }

@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { AgentProfilesSection } from "@/agent-profiles/settings/agent-profiles-section";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { CliUpdateWarning } from "@/provider-selection/cli-update-warning";
@@ -231,7 +232,7 @@ function AddCustomModelSubSheet({
           style={[sheetStyles.formInput, isWeb && { outlineStyle: "none" }]}
         />
         {error ? <Text style={sheetStyles.errorText}>{error}</Text> : null}
-        <View style={sheetStyles.formActions}>
+        <ActionFooter style={sheetStyles.formActions}>
           <Button variant="secondary" size="sm" onPress={onClose} disabled={saving}>
             {t("common.actions.cancel")}
           </Button>
@@ -244,7 +245,7 @@ function AddCustomModelSubSheet({
           >
             {saving ? t("settings.providers.models.adding") : t("settings.providers.models.add")}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );
@@ -451,7 +452,7 @@ function renderProviderSheetFooter({
       {fetchedAt || !isCompact ? (
         <ProviderUpdatedLabel fetchedAt={fetchedAt} isCompact={isCompact} />
       ) : null}
-      <View style={actionsStyle}>
+      <ActionFooter style={actionsStyle}>
         <Button
           variant="secondary"
           size="sm"
@@ -482,7 +483,7 @@ function renderProviderSheetFooter({
             ? t("settings.providers.diagnostic.refreshing")
             : t("settings.providers.diagnostic.refresh")}
         </Button>
-      </View>
+      </ActionFooter>
     </View>
   );
 }
@@ -892,9 +893,6 @@ const sheetStyles = StyleSheet.create((theme) => ({
   },
   footerContent: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     gap: theme.spacing[2],
   },
   compactFooterContent: {
@@ -918,7 +916,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   compactFooterButton: {
-    alignSelf: "stretch",
+    flexShrink: 0,
   },
   formGroup: {
     gap: theme.spacing[3],

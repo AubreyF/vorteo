@@ -149,7 +149,9 @@ export class FactoryControllerObservationProvider implements NativeFactoryObserv
 
   private account(input: unknown, now: number): FactorySnapshot["account"] {
     const parsed = QuotaObservationSchema.safeParse(input);
-    const limit = this.policy.estimatedHourly?.maxConsumedPoints ?? null;
+    const prepaid = this.prepaidEstimateActive(now);
+    let limit = this.policy.estimatedHourly?.maxConsumedPoints ?? null;
+    if (prepaid) limit = null;
     const unavailable = {
       usagePoints: null,
       limitPoints: limit,
@@ -172,6 +174,7 @@ export class FactoryControllerObservationProvider implements NativeFactoryObserv
     const measuredAt = Date.parse(measurement.observedAt);
     const age = now - measuredAt;
     const usable =
+      !prepaid &&
       age >= 0 &&
       age <= this.policy.maxObservationAgeSeconds * 1000 &&
       measurement.observedAt === observation.observedAt &&
@@ -182,6 +185,18 @@ export class FactoryControllerObservationProvider implements NativeFactoryObserv
       usagePoints: usable ? measurement.consumedPoints : null,
       observedAt: measurement.observedAt,
     };
+  }
+
+  private prepaidEstimateActive(now: number): boolean {
+    const prepaid = this.policy.prepaidAuthorization;
+    const estimate = this.policy.estimatedHourly;
+    if (!prepaid || !estimate) return false;
+    return (
+      prepaid.bucketId === estimate.bucketId &&
+      prepaid.windowId === estimate.windowId &&
+      now >= Date.parse(prepaid.startsAt) &&
+      now < Date.parse(prepaid.expiresAt)
+    );
   }
 
   private hasRequiredWindows(

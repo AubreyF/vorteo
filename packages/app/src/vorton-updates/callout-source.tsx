@@ -24,7 +24,7 @@ export function VortonUpdateCalloutSource() {
       }),
       priority: 10,
       actions: [
-        { label: t("settings.about.vortonUpdates.review"), onPress: review, variant: "primary" },
+        { label: t("settings.about.vortonUpdates.review"), onPress: review, variant: "secondary" },
       ],
       testID: "vorton-update-notice",
     });

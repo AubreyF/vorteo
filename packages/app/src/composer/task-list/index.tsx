@@ -1,9 +1,11 @@
-import { ChecklistProgressRing } from "@/task-checklist/progress-ring";
+import { CardDisclosure } from "@/agent-stream/card-disclosure";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import { ChecklistProgressFlower } from "@/task-checklist/progress-flower";
 import { checklistProgress } from "@/task-checklist/progress";
-import { useVortonTouch } from "@/vorton-touch";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
-import { memo, useMemo } from "react";
-import { Text, View } from "react-native";
+import { memo, useMemo, useState, useCallback } from "react";
+import { View } from "react-native";
+import { CountBadge } from "@/components/ui/count-badge";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
 import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
@@ -63,26 +65,40 @@ const styles = StyleSheet.create(() => ({
 /** Progress scrolls with the conversation, immediately before queued messages and goals. */
 function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   const { t } = useTranslation();
-  const touch = useVortonTouch();
-  const { completed, total } = checklistProgress(tasks);
+  const { completed, active, total } = checklistProgress(tasks);
+  const [expanded, setExpanded] = useState(true);
+  const countBadge = useMemo(
+    () => (
+      <CountBadge
+        label={`${completed} / ${total}`}
+        accessibilityLabel={t("message.todo.tasksProgress", { completed, total })}
+      />
+    ),
+    [completed, total, t],
+  );
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
   return (
-    <View style={taskCardStyles.container} testID="agent-task-progress-card">
-      <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-        <ChecklistProgressRing completed={completed} total={total} />
-        <Text style={taskCardStyles.heading}>
-          {t("message.todo.tasksProgress", { completed, total: tasks.length })}
-        </Text>
-      </View>
-      <View>
-        {tasks.map((task, index) => (
-          <View
-            key={task.id ?? `${index}:${task.text}`}
-            style={[taskCardStyles.item, index > 0 && taskCardStyles.separator]}
-          >
-            <TaskListRow compact task={task} />
-          </View>
-        ))}
-      </View>
-    </View>
+    <TaskCard testID="agent-task-progress-card" bodyVisible={expanded}>
+      <TaskCardHeader>
+        <ChecklistProgressFlower completed={completed} active={active} total={total} />
+        <CardDisclosure
+          title="Tasks"
+          expanded={expanded}
+          onPress={toggle}
+          count={countBadge}
+          testID="agent-task-list-toggle"
+        />
+      </TaskCardHeader>
+
+      {expanded ? (
+        <View>
+          {tasks.map((task, index) => (
+            <View key={task.id ?? `${index}:${task.text}`} style={taskCardStyles.item}>
+              <TaskListRow compact task={task} />
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </TaskCard>
   );
 }

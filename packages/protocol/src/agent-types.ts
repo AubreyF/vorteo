@@ -375,7 +375,7 @@ export interface AgentTaskItem {
   text: string;
   completed: boolean;
   id?: string;
-  status?: "pending" | "in_progress" | "completed";
+  status?: "pending" | "in_progress" | "blocked" | "completed";
   activeForm?: string;
   description?: string;
   owner?: string;

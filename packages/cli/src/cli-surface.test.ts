@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { createCli } from "./cli.js";
+import { admitOriginWithClient, type OriginCommandClient } from "./commands/daemon/origins.js";
+import type { DaemonOriginAdmissionInspectResponse } from "@getpaseo/protocol/messages";
 
 describe("canonical CLI surface", () => {
+  it("requires exact host, correlation and both approved lists for origin admission", () => {
+    const daemon = createCli().commands.find((command) => command.name() === "daemon");
+    const origins = daemon?.commands.find((command) => command.name() === "origins");
+    const admit = origins?.commands.find((command) => command.name() === "admit");
+    expect(admit?.helpInformation()).toContain("--expected-server-id");
+    expect(admit?.helpInformation()).toContain("--request-id");
+    expect(admit?.helpInformation()).toContain("--expected-persisted-origins");
+    expect(admit?.helpInformation()).toContain("--expected-active-origins");
+    expect(admit?.helpInformation()).toContain("--host");
+    expect(admit?.helpInformation()).not.toContain("--account");
+  });
+
   it("offers daemon host selection as a global option", () => {
     expect(createCli().helpInformation()).toContain("--host <host>");
   });
@@ -94,5 +108,106 @@ describe("canonical CLI surface", () => {
     expect(
       plugin?.commands.find((command) => command.name() === "install")?.helpInformation(),
     ).toContain("--id <id>");
+  });
+});
+
+const originInput = {
+  expectedServerId: "srv_cli",
+  requestId: "42a6ee89-33e5-4b1a-8b10-d299d49a5e6e",
+  origin: "https://preview.example",
+  expectedPersistedOrigins: [],
+  expectedActiveOrigins: [],
+};
+function originPort(mode: "applied" | "lost" | "uncertain" | "stale" = "applied") {
+  const calls: Parameters<OriginCommandClient["admitOrigin"]>[0][] = [];
+  const observation: DaemonOriginAdmissionInspectResponse["payload"] = {
+    requestId: "read",
+    serverId: "srv_cli",
+    observedAt: "2026-10-09T00:00:00Z",
+    state: "ready",
+    reason: null,
+    persistedOrigins: [],
+    activeOrigins: [],
+  };
+  if (mode === "stale") observation.persistedOrigins = ["https://other.example"];
+  const port: OriginCommandClient = {
+    getLastServerInfoMessage: () => ({
+      status: "server_info",
+      serverId: "srv_cli",
+      hostname: null,
+      version: null,
+      features: { guardedOriginAdmission: true },
+    }),
+    inspectOriginAdmission: async () => observation,
+    admitOrigin: async (input) => {
+      calls.push(structuredClone(input));
+      if (mode === "lost") throw new Error("response lost");
+      if (mode === "uncertain")
+        return {
+          requestId: input.requestId ?? "",
+          serverId: input.expectedServerId,
+          observedAt: "2026-10-09T00:00:00Z",
+          state: "uncertain",
+          code: "uncertain",
+          writeAttempted: true,
+          reason: "native reconciliation hold",
+        };
+      return {
+        requestId: input.requestId ?? "",
+        serverId: input.expectedServerId,
+        observedAt: "2026-10-09T00:00:00Z",
+        state: "applied",
+        origin: input.origin,
+        addedToPersisted: true,
+        addedToActive: true,
+        persistedOrigins: [input.origin],
+        activeOrigins: [input.origin],
+      };
+    },
+  };
+  return { port, calls, observation };
+}
+
+describe("guarded origin CLI transaction", () => {
+  it("dispatches once after the exact fresh preconditions", async () => {
+    const { port, calls } = originPort();
+    const result = await admitOriginWithClient(port, originInput);
+    expect(result.state).toBe("applied");
+    expect(calls).toEqual([originInput]);
+  });
+  it("refuses changed preconditions without dispatch", async () => {
+    const { port, calls } = originPort("stale");
+    await expect(admitOriginWithClient(port, originInput)).rejects.toMatchObject({
+      code: "ORIGIN_PRECONDITION_CHANGED",
+    });
+    expect(calls).toEqual([]);
+  });
+  it.each(["lost", "uncertain"] as const)(
+    "keeps %s uncertainty and sends no second mutation",
+    async (mode) => {
+      const { port, calls } = originPort(mode);
+      await expect(admitOriginWithClient(port, originInput)).rejects.toMatchObject({
+        code: "ORIGIN_ADMISSION_UNCERTAIN",
+      });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].requestId).toBe(originInput.requestId);
+    },
+  );
+  it("captures invocation before deferred inspection and rejects replaced native methods", async () => {
+    const { port, calls, observation } = originPort();
+    let resolve = (_value: DaemonOriginAdmissionInspectResponse["payload"]) => {};
+    port.inspectOriginAdmission = () =>
+      new Promise((done) => {
+        resolve = done;
+      });
+    const input = { ...originInput, expectedPersistedOrigins: [], expectedActiveOrigins: [] };
+    const result = admitOriginWithClient(port, input);
+    input.requestId = "52a6ee89-33e5-4b1a-8b10-d299d49a5e6e";
+    port.admitOrigin = async () => {
+      throw new Error("replacement must never execute");
+    };
+    resolve(observation);
+    await expect(result).rejects.toMatchObject({ code: "ORIGIN_PRECONDITION_CHANGED" });
+    expect(calls).toEqual([]);
   });
 });

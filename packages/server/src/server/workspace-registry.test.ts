@@ -124,6 +124,65 @@ describe("workspace registries", () => {
     });
   }
 
+  test.each(["archive", "remove"] as const)(
+    "%s preserves the workspace when native archive preflight refuses",
+    async (operation) => {
+      const calls: string[] = [];
+      const refusal = new Error("Standing schedule blocks archive");
+      workspaceRegistry = new FileBackedWorkspaceRegistry(
+        path.join(tmpDir, "projects", "workspaces.json"),
+        logger,
+        {
+          assertArchiveAllowed: async (workspaceId) => {
+            calls.push(workspaceId);
+            throw refusal;
+          },
+        },
+      );
+      const member = await factorySetup();
+      const mutate =
+        operation === "archive"
+          ? () => workspaceRegistry.archive(member.workspaceId, "2026-10-09T00:00:00.000Z")
+          : () => workspaceRegistry.remove(member.workspaceId);
+      await expect(mutate()).rejects.toBe(refusal);
+      expect(calls).toEqual([member.workspaceId]);
+      const reloaded = new FileBackedWorkspaceRegistry(
+        path.join(tmpDir, "projects", "workspaces.json"),
+        logger,
+      );
+      expect(await reloaded.get(member.workspaceId)).toEqual(member);
+    },
+  );
+
+  test.each(["archive", "remove"] as const)(
+    "%s refuses Factory membership acquired during native archive preflight",
+    async (operation) => {
+      let bindDuringPreflight: () => Promise<void> = async () => {};
+      workspaceRegistry = new FileBackedWorkspaceRegistry(
+        path.join(tmpDir, "projects", "workspaces.json"),
+        logger,
+        { assertArchiveAllowed: () => bindDuringPreflight() },
+      );
+      const workspace = await factorySetup();
+      bindDuringPreflight = async () => {
+        await membershipService().bind({ ...member, role: "factory" });
+      };
+      const mutate =
+        operation === "archive"
+          ? () => workspaceRegistry.archive(workspace.workspaceId, "2026-10-09T00:00:00.000Z")
+          : () => workspaceRegistry.remove(workspace.workspaceId);
+      await expect(mutate()).rejects.toThrow("belongs to Factory");
+      const retained = await workspaceRegistry.get(workspace.workspaceId);
+      expect(retained?.factoryMembership?.role).toBe("factory");
+      expect(retained?.archivedAt).toBe(workspace.archivedAt);
+      const reloaded = new FileBackedWorkspaceRegistry(
+        path.join(tmpDir, "projects", "workspaces.json"),
+        logger,
+      );
+      expect(await reloaded.get(workspace.workspaceId)).toEqual(retained);
+    },
+  );
+
   async function pendingInstallation() {
     await factorySetup();
     const expected = await projectRegistry.get("factory-project");
@@ -745,12 +804,15 @@ describe("workspace registries", () => {
     expect((await workspaceRegistry.get(f.builds.workspaceId))?.factoryMembership).toBeUndefined();
   });
 
-  test("Factory membership survives reload and generic unprotection cannot allow archive", async () => {
+  test("Factory membership survives reload and generic unprotection is refused", async () => {
     await factorySetup();
     const bound = await membershipService().bind({ ...member, role: "factory" });
-    await workspaceRegistry.update(bound.workspaceId, (record) =>
-      setWorkspaceLifecycle(record, { standing: false, protected: false }),
-    );
+    await expect(
+      workspaceRegistry.update(bound.workspaceId, (record) =>
+        setWorkspaceLifecycle(record, { standing: false, protected: false }),
+      ),
+    ).rejects.toThrow("Factory");
+    expect(await workspaceRegistry.get(bound.workspaceId)).toEqual(bound);
     const reloaded = new FileBackedWorkspaceRegistry(
       path.join(tmpDir, "projects", "workspaces.json"),
       logger,
@@ -763,6 +825,32 @@ describe("workspace registries", () => {
     });
     await expect(reloaded.archive(bound.workspaceId, bound.updatedAt)).rejects.toThrow("Factory");
     await expect(reloaded.remove(bound.workspaceId)).rejects.toThrow("Factory");
+  });
+
+  test("Factory lifecycle changes preserve protection until reconciled owner disable", async () => {
+    await factorySetup();
+    const service = membershipService();
+    const bound = await service.bind({ ...member, role: "factory" });
+    const protectedRecord = await workspaceRegistry.update(bound.workspaceId, (record) =>
+      setWorkspaceLifecycle(record, { protected: true, standing: true }),
+    );
+    expect(protectedRecord?.protected).toBe(true);
+    const nonStanding = await workspaceRegistry.update(bound.workspaceId, (record) =>
+      setWorkspaceLifecycle(record, { standing: false }),
+    );
+    expect(nonStanding?.protected).toBe(true);
+    expect(nonStanding?.factoryMembership).toEqual(bound.factoryMembership);
+    await expect(
+      workspaceRegistry.update(bound.workspaceId, (record) =>
+        setWorkspaceLifecycle(record, { protected: false }),
+      ),
+    ).rejects.toThrow("Factory");
+    await service.retire({ ...member, action: "disable" });
+    const unprotected = await workspaceRegistry.update(bound.workspaceId, (record) =>
+      setWorkspaceLifecycle(record, { protected: false }),
+    );
+    expect(unprotected?.protected).toBe(false);
+    expect(unprotected?.factoryMembership).toBeUndefined();
   });
 
   test("Factory worker cleanup releases only the reconciled relationship and preserves identity", async () => {

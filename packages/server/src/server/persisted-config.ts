@@ -2,6 +2,7 @@ import { InstallationResourceBindingsSchema } from "@getpaseo/protocol/installat
 import { PluginRegistriesSchema } from "@getpaseo/protocol/plugin-registry";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { ConfigWriterError, withConfigWriter } from "./config-writer.js";
 import { z } from "zod";
 
 import {
@@ -16,6 +17,8 @@ import { PluginIdSchema, PluginSourceSchema } from "@getpaseo/protocol/plugin-co
 import { TerminalProfileSchema } from "@getpaseo/protocol/terminal-profile";
 import { SharedProviderPreferencesSchema } from "@getpaseo/protocol/provider-preferences";
 import { PaseoServicePortAllocationSchema } from "@getpaseo/protocol/paseo-config-schema";
+
+const observedConfigBytes = new WeakMap<PersistedConfig, { home: string; bytes: string | null }>();
 
 export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
 export const LogFormatSchema = z.enum(["pretty", "json"]);
@@ -420,16 +423,14 @@ export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): Per
   const configPath = getConfigPath(paseoHome);
 
   if (!existsSync(configPath)) {
-    try {
-      writePrivateFileAtomicSync(
-        configPath,
-        JSON.stringify(DEFAULT_PERSISTED_CONFIG, null, 2) + "\n",
-      );
-      log?.info(`Initialized config file at ${configPath}`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`[Config] Failed to initialize ${configPath}: ${message}`, { cause: err });
-    }
+    withPersistedConfigWriter(
+      paseoHome,
+      (writer) => {
+        // Another initializer may have completed before ownership was acquired.
+        if (!existsSync(configPath)) writer.save(structuredClone(DEFAULT_PERSISTED_CONFIG));
+      },
+      logger,
+    );
   }
 
   let raw: string;
@@ -444,6 +445,7 @@ export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): Per
   }
 
   const config = parseConfigFile(configPath, raw);
+  observedConfigBytes.set(config, { home: path.resolve(paseoHome), bytes: raw });
   log?.info(`Loaded from ${configPath}`);
   return config;
 }
@@ -458,11 +460,16 @@ export function readPersistedConfig(
   try {
     raw = readFileSync(configPath, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      return options.defaultsIfMissing ? structuredClone(DEFAULT_PERSISTED_CONFIG) : {};
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      const config = options.defaultsIfMissing ? structuredClone(DEFAULT_PERSISTED_CONFIG) : {};
+      observedConfigBytes.set(config, { home: path.resolve(paseoHome), bytes: null });
+      return config;
+    }
     throw error;
   }
-  return parseConfigFile(configPath, raw);
+  const config = parseConfigFile(configPath, raw);
+  observedConfigBytes.set(config, { home: path.resolve(paseoHome), bytes: raw });
+  return config;
 }
 
 function parseConfigFile(configPath: string, raw: string): PersistedConfig {
@@ -531,26 +538,30 @@ export function editPersistedConfig(
   if (field === "daemon.auth" || field.startsWith("daemon.auth.")) {
     throw new Error("Use daemon set-password to change the daemon password.");
   }
-  const config = readPersistedConfig(paseoHome, { defaultsIfMissing: true });
-  let object = config as Record<string, unknown>;
-  for (const part of parts.slice(0, -1)) {
-    object[part] ??= {};
-    object = object[part] as Record<string, unknown>;
-  }
-  const key = parts.at(-1)!;
-  if (field === "daemon") {
-    const previousAuth = config.daemon?.auth;
-    const nextAuth =
-      "value" in edit && edit.value && typeof edit.value === "object"
-        ? (edit.value as Record<string, unknown>).auth
-        : undefined;
-    if (JSON.stringify(previousAuth) !== JSON.stringify(nextAuth))
-      throw new Error("Use daemon set-password to change the daemon password.");
-  }
-  if ("unset" in edit) delete object[key];
-  else object[key] = edit.value;
-  savePersistedConfig(paseoHome, config);
-  return config;
+  return mutatePersistedConfig(
+    paseoHome,
+    (config) => {
+      let object = config as Record<string, unknown>;
+      for (const part of parts.slice(0, -1)) {
+        object[part] ??= {};
+        object = object[part] as Record<string, unknown>;
+      }
+      const key = parts.at(-1)!;
+      if (field === "daemon") {
+        const previousAuth = config.daemon?.auth;
+        const nextAuth =
+          "value" in edit && edit.value && typeof edit.value === "object"
+            ? (edit.value as Record<string, unknown>).auth
+            : undefined;
+        if (JSON.stringify(previousAuth) !== JSON.stringify(nextAuth))
+          throw new Error("Use daemon set-password to change the daemon password.");
+      }
+      if ("unset" in edit) delete object[key];
+      else object[key] = edit.value;
+      return config;
+    },
+    { defaultsIfMissing: true },
+  );
 }
 
 export function savePersistedConfig(
@@ -558,24 +569,109 @@ export function savePersistedConfig(
   config: PersistedConfig,
   logger?: LoggerLike,
 ): void {
-  const log = getLogger(logger);
-  const configPath = getConfigPath(paseoHome);
+  const captured = structuredClone(config);
+  const observed = observedConfigBytes.get(config);
+  withPersistedConfigWriter(
+    paseoHome,
+    (writer) => {
+      if (
+        observed &&
+        (observed.home !== path.resolve(paseoHome) ||
+          readConfigBytes(getConfigPath(paseoHome)) !== observed.bytes)
+      ) {
+        throw new ConfigWriterError("stale_input", false);
+      }
+      writer.save(captured);
+      observedConfigBytes.set(config, {
+        home: path.resolve(paseoHome),
+        bytes: readConfigBytes(getConfigPath(paseoHome)),
+      });
+    },
+    logger,
+  );
+}
 
-  const result = PersistedConfigSchema.safeParse(config);
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
-      .join("\n");
-    throw new Error(`[Config] Invalid config to save:\n${issues}`);
-  }
+export interface PersistedConfigWriter {
+  read(options?: { defaultsIfMissing?: boolean }): PersistedConfig;
+  save(config: PersistedConfig): void;
+}
 
+function readConfigBytes(configPath: string): string | null {
   try {
-    writePrivateFileAtomicSync(configPath, JSON.stringify(result.data, null, 2) + "\n");
-    log?.info(`Saved to ${configPath}`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`[Config] Failed to write ${configPath}: ${message}`, {
-      cause: err,
-    });
+    return readFileSync(configPath, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw error;
   }
+}
+
+/** Own the entire read, persist, live apply and conditional rollback interval. */
+export function withPersistedConfigWriter<T>(
+  paseoHome: string,
+  operation: (writer: PersistedConfigWriter) => T,
+  logger?: LoggerLike,
+): T {
+  const configPath = getConfigPath(paseoHome);
+  let writeAttempted = false;
+  try {
+    return withConfigWriter(paseoHome, (ownership) => {
+      let expected = readConfigBytes(configPath);
+      function assertUnchanged(): void {
+        ownership.assertCurrent();
+        if (readConfigBytes(configPath) !== expected) {
+          throw new ConfigWriterError("stale_input", writeAttempted);
+        }
+      }
+      const writer: PersistedConfigWriter = {
+        read(options = {}) {
+          assertUnchanged();
+          if (expected === null)
+            return options.defaultsIfMissing ? structuredClone(DEFAULT_PERSISTED_CONFIG) : {};
+          return parseConfigFile(configPath, expected);
+        },
+        save(config) {
+          const result = PersistedConfigSchema.safeParse(config);
+          if (!result.success) {
+            const issues = result.error.issues
+              .map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`)
+              .join("\n");
+            throw new Error(`[Config] Invalid config to save:\n${issues}`);
+          }
+          const bytes = JSON.stringify(result.data, null, 2) + "\n";
+          assertUnchanged();
+          writeAttempted = true;
+          try {
+            writePrivateFileAtomicSync(configPath, bytes);
+            expected = bytes;
+            assertUnchanged();
+            getLogger(logger)?.info(`Saved to ${configPath}`);
+          } catch (cause) {
+            throw new ConfigWriterError("uncertain", true, { cause });
+          }
+        },
+      };
+      const result = operation(writer);
+      assertUnchanged();
+      return result;
+    });
+  } catch (cause) {
+    if (!writeAttempted) throw cause;
+    if (!(cause instanceof ConfigWriterError))
+      throw new ConfigWriterError("uncertain", true, { cause });
+    if (!cause.writeAttempted) throw new ConfigWriterError(cause.code, true, { cause });
+    throw cause;
+  }
+}
+
+/** Rebase selected fields on the current owned file, rather than an earlier prompt snapshot. */
+export function mutatePersistedConfig(
+  paseoHome: string,
+  update: (current: PersistedConfig) => PersistedConfig,
+  options: { defaultsIfMissing?: boolean } = {},
+): PersistedConfig {
+  return withPersistedConfigWriter(paseoHome, (writer) => {
+    const next = update(writer.read(options));
+    writer.save(next);
+    return structuredClone(next);
+  });
 }

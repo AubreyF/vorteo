@@ -1,3 +1,8 @@
+import {
+  ActionFooter,
+  ActionFooterLeading,
+  ActionFooterTrailing,
+} from "@/components/ui/action-footer";
 import { useCallback, useMemo, useReducer } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -15,19 +20,26 @@ interface ChecklistEditorProps {
   task: AgentTaskItem | null;
   tasks: AgentTaskItem[];
   canMutate: boolean;
+  supportsBlocked: boolean;
   pending: boolean;
   error: string | null;
   mutate: (mutation: ChecklistMutation) => Promise<unknown>;
   onClose: () => void;
 }
 
-const statuses = ["pending", "in_progress", "completed"] as const;
-const statusLabels = { pending: "Pending", in_progress: "In progress", completed: "Completed" };
+const statuses = ["pending", "in_progress", "blocked", "completed"] as const;
+const statusLabels = {
+  pending: "Pending",
+  in_progress: "In progress",
+  completed: "Completed",
+  blocked: "Blocked",
+};
 
 export function ChecklistEditor({
   task,
   tasks,
   canMutate,
+  supportsBlocked,
   pending,
   error,
   mutate,
@@ -141,17 +153,19 @@ export function ChecklistEditor({
         {task ? (
           <Field label="Status">
             <View style={styles.actions}>
-              {statusChoices.map(({ status, onPress }) => (
-                <Button
-                  key={status}
-                  size={size}
-                  variant={form.status === status ? "secondary" : "ghost"}
-                  disabled={disabled}
-                  onPress={onPress}
-                >
-                  {statusLabels[status]}
-                </Button>
-              ))}
+              {statusChoices
+                .filter(({ status }) => status !== "blocked" || supportsBlocked)
+                .map(({ status, onPress }) => (
+                  <Button
+                    key={status}
+                    size={size}
+                    variant={form.status === status ? "secondary" : "ghost"}
+                    disabled={disabled}
+                    onPress={onPress}
+                  >
+                    {statusLabels[status]}
+                  </Button>
+                ))}
             </View>
           </Field>
         ) : null}
@@ -177,28 +191,32 @@ export function ChecklistEditor({
             {error}
           </Text>
         ) : null}
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions} testID="checklist-editor-actions">
           {task && !readOnly ? (
-            <Button size={size} variant="outline" disabled={disabled} onPress={remove}>
-              Delete task
-            </Button>
+            <ActionFooterLeading>
+              <Button size={size} variant="destructive" disabled={disabled} onPress={remove}>
+                Delete task
+              </Button>
+            </ActionFooterLeading>
           ) : null}
-          <Button size={size} variant="ghost" onPress={onClose}>
-            Close
-          </Button>
-          {!readOnly ? (
-            <Button
-              size={size}
-              variant="default"
-              disabled={disabled || !form.text.trim()}
-              loading={pending}
-              onPress={save}
-              testID="checklist-save"
-            >
-              Save task
+          <ActionFooterTrailing>
+            <Button size={size} variant="ghost" onPress={onClose}>
+              Close
             </Button>
-          ) : null}
-        </View>
+            {!readOnly ? (
+              <Button
+                size={size}
+                variant="default"
+                disabled={disabled || !form.text.trim()}
+                loading={pending}
+                onPress={save}
+                testID="checklist-save"
+              >
+                Save task
+              </Button>
+            ) : null}
+          </ActionFooterTrailing>
+        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

@@ -1,20 +1,12 @@
-import { taskCardStyles } from "@/agent-stream/task-card-styles";
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import {
-  Pressable,
-  Text,
-  View,
-  type StyleProp,
-  type TextStyle,
-  type ViewStyle,
-} from "react-native";
+import { Text, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import { type ASTNode } from "react-native-markdown-display";
-import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { MarkdownRenderer } from "@/components/markdown/renderer";
-import { ChevronRight } from "lucide-react-native";
-import { isWeb } from "@/constants/platform";
-import type { Theme } from "@/styles/theme";
 import { getMarkdownListMarker } from "@/utils/markdown-list";
 import { createMarkdownParser } from "@/utils/markdown-parser";
 
@@ -203,8 +195,6 @@ interface PlanCardProps {
   testID?: string;
 }
 
-const ThemedChevron = withUnistyles(ChevronRight);
-const chevronColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const markdownRules = createPlanMarkdownRules();
 
 export function PlanCard(props: PlanCardProps) {
@@ -230,41 +220,24 @@ function PlanCardContent({
     canceled: t("agentStream.permission.canceledPlan"),
   };
   const resolvedTitle = labels[outcome ?? "pending"];
-  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
-  const webExpandedState = useMemo(
-    () => (isWeb ? ({ "aria-expanded": expanded } as const) : null),
-    [expanded],
-  );
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
-  const containerStyle = useMemo(
-    () => [
-      taskCardStyles.surface,
-      styles.container,
-      taskCardStyles.contentInsets,
-      disableOuterSpacing && styles.containerCompact,
-    ],
-    [disableOuterSpacing],
-  );
-  const chevronStyle = useMemo(
-    () => [styles.chevron, expanded && styles.chevronExpanded],
-    [expanded],
-  );
 
   return (
-    <View testID={testID} style={containerStyle}>
-      <Pressable
-        {...webExpandedState}
-        accessibilityRole="button"
-        accessibilityLabel={resolvedTitle}
-        accessibilityState={accessibilityState}
-        onPress={toggleExpanded}
-        style={styles.header}
-      >
-        <View style={chevronStyle}>
-          <ThemedChevron size={16} uniProps={chevronColor} />
-        </View>
-        <Text style={styles.title}>{resolvedTitle}</Text>
-      </Pressable>
+    <TaskCard
+      testID={testID}
+      bodyVisible={expanded || !!footer}
+      style={!disableOuterSpacing && styles.outerSpacing}
+    >
+      <TaskCardHeader>
+        <TaskCardIcon kind="plan" />
+        <CardDisclosure
+          title={resolvedTitle}
+          expanded={expanded}
+          onPress={toggleExpanded}
+          testID={`${testID ?? "plan-card"}-toggle`}
+        />
+      </TaskCardHeader>
+
       {expanded ? (
         <View style={styles.body}>
           {description ? <Text style={styles.description}>{description}</Text> : null}
@@ -272,34 +245,13 @@ function PlanCardContent({
         </View>
       ) : null}
       {footer ? <View style={styles.footer}>{footer}</View> : null}
-    </View>
+    </TaskCard>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  container: {
-    marginVertical: theme.spacing[3],
-    padding: theme.spacing[3],
-    gap: theme.spacing[2],
-  },
-  containerCompact: {
-    marginVertical: 0,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    minHeight: 24,
-  },
-  chevron: {},
-  chevronExpanded: { transform: [{ rotate: "90deg" }] },
+  outerSpacing: { marginVertical: theme.spacing[3] },
   body: { gap: theme.spacing[2] },
-  title: {
-    color: theme.colors.foreground,
-    flexShrink: 1,
-    fontSize: theme.fontSize.base,
-    lineHeight: 22,
-  },
   description: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,

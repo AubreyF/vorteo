@@ -2,11 +2,7 @@ import path from "node:path";
 import type { Command } from "commander";
 import { isCancel, password as passwordPrompt } from "@clack/prompts";
 import { hashDaemonPassword } from "@getpaseo/server/auth";
-import {
-  readPersistedConfig,
-  savePersistedConfig,
-  type PersistedConfig,
-} from "@getpaseo/server/configuration";
+import { mutatePersistedConfig } from "@getpaseo/server/configuration";
 import { resolvePaseoHome } from "@getpaseo/server/daemon-control";
 import type {
   CommandError,
@@ -94,19 +90,17 @@ export async function setDaemonPasswordInConfig(
 ): Promise<SetPasswordResult> {
   const paseoHome = resolvePaseoHome({ PASEO_HOME: options.home });
   const configPath = path.join(paseoHome, CONFIG_FILENAME);
-  const persisted = readPersistedConfig(paseoHome);
-  const nextConfig: PersistedConfig = {
+  const password = hashDaemonPassword(newPassword);
+  mutatePersistedConfig(paseoHome, (persisted) => ({
     ...persisted,
     daemon: {
       ...persisted.daemon,
       auth: {
         ...persisted.daemon?.auth,
-        password: hashDaemonPassword(newPassword),
+        password,
       },
     },
-  };
-
-  savePersistedConfig(paseoHome, nextConfig);
+  }));
 
   return {
     action: "password_set",

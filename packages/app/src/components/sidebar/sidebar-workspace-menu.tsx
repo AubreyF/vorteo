@@ -19,6 +19,7 @@ import {
   Circle,
   CircleCheck,
   Copy,
+  Factory,
   FolderInput,
   MoreVertical,
   Pencil,
@@ -27,6 +28,16 @@ import {
   Tag,
 } from "lucide-react-native";
 import { isWeb } from "@/constants/platform";
+import { router } from "expo-router";
+import { useInstalledPlugins } from "@/plugins/registry";
+import { buildPluginSurfaceRoute } from "@/plugins/routes";
+import {
+  useFactoryMembership,
+  selectFactoryMembership,
+  FACTORY_MANAGED_EXPLANATION,
+} from "@/workspace/lifecycle/factory-membership";
+import { useSessionStore } from "@/stores/session-store";
+import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
 import { useProjectMoveRequest } from "@/workspace/project-move/request";
 import { useWorkspaceRenameDoubleClick } from "./workspace-rename-press";
 import { getForgePresentation, normalizeForge } from "@/git/forge";
@@ -77,6 +88,8 @@ const ThemedPin = withUnistyles(Pin);
 const ThemedPinOff = withUnistyles(PinOff);
 const ThemedTag = withUnistyles(Tag);
 const ThemedFolderInput = withUnistyles(FolderInput);
+const ThemedFactory = withUnistyles(Factory);
+const factoryLeadingIcon = <ThemedFactory size={14} uniProps={foregroundMutedColorMapping} />;
 const moveLeadingIcon = <ThemedFolderInput size={14} uniProps={foregroundMutedColorMapping} />;
 
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
@@ -169,7 +182,12 @@ function WorkspaceArchiveMenuItem({
   | "archiveShortcutKeys"
 > & { surface: MenuSurface }) {
   const { t } = useTranslation();
-  const archiveBlockReason = useWorkspaceArchiveBlockReason(serverId ?? "", workspaceId ?? "");
+  const membership = useFactoryMembership(serverId ?? "", workspaceId ?? "");
+  const nativeArchiveBlockReason = useWorkspaceArchiveBlockReason(
+    serverId ?? "",
+    workspaceId ?? "",
+  );
+  const archiveBlockReason = membership ? FACTORY_MANAGED_EXPLANATION : nativeArchiveBlockReason;
   const archiveProtected = archiveBlockReason !== null;
   const compact = useIsCompactFormFactor();
   const touch = useVortonTouch();
@@ -189,7 +207,7 @@ function WorkspaceArchiveMenuItem({
       tooltip={archiveProtected ? (archiveBlockReason ?? undefined) : undefined}
       status={archiveStatus}
       pendingLabel={archivePendingLabel}
-      onSelect={onArchive}
+      onSelect={archiveProtected ? undefined : onArchive}
     >
       {archiveLabel ?? t("sidebar.workspace.actions.archive")}
     </WorkspaceMenuItem>
@@ -216,6 +234,7 @@ function SidebarWorkspaceMenuItems({
   openInFileManagerPath,
 }: SidebarWorkspaceMenuItemsProps & { surface: MenuSurface }): ReactNode {
   const { t } = useTranslation();
+  const membership = useFactoryMembership(serverId ?? "", workspaceId ?? "");
   const moveProject = useCallback(() => {
     if (serverId && workspaceId) useProjectMoveRequest.getState().open({ serverId, workspaceId });
   }, [serverId, workspaceId]);
@@ -226,6 +245,9 @@ function SidebarWorkspaceMenuItems({
 
   return (
     <>
+      {serverId && workspaceId ? (
+        <WorkspaceLifecycleMenuItems serverId={serverId} workspaceId={workspaceId} />
+      ) : null}
       {onCopyPath ? (
         <WorkspaceMenuItem
           surface={surface}
@@ -256,7 +278,7 @@ function SidebarWorkspaceMenuItems({
           {t("sidebar.workspace.actions.rename")}
         </WorkspaceMenuItem>
       ) : null}
-      {serverId && workspaceId ? (
+      {serverId && workspaceId && !membership ? (
         <WorkspaceMenuItem
           surface={surface}
           testID={`sidebar-workspace-menu-move-project-${workspaceKey}`}
@@ -310,6 +332,93 @@ function SidebarWorkspaceMenuItems({
         path={openInFileManagerPath}
         testID={`sidebar-workspace-menu-open-folder-${workspaceKey}`}
       />
+      <FactoryWorkspaceMenuActions
+        surface={surface}
+        workspaceKey={workspaceKey}
+        serverId={serverId}
+        workspaceId={workspaceId}
+        membership={membership}
+        onArchive={onArchive}
+        archiveLabel={archiveLabel}
+        archiveStatus={archiveStatus}
+        archivePendingLabel={archivePendingLabel}
+        archiveShortcutKeys={archiveShortcutKeys}
+      />
+    </>
+  );
+}
+
+interface FactoryWorkspaceMenuActionsProps extends Pick<
+  SidebarWorkspaceMenuItemsProps,
+  | "workspaceKey"
+  | "serverId"
+  | "workspaceId"
+  | "onArchive"
+  | "archiveLabel"
+  | "archiveStatus"
+  | "archivePendingLabel"
+  | "archiveShortcutKeys"
+> {
+  surface: MenuSurface;
+  membership: ReturnType<typeof useFactoryMembership>;
+}
+
+function FactoryWorkspaceMenuActions({
+  surface,
+  workspaceKey,
+  serverId,
+  workspaceId,
+  membership,
+  onArchive,
+  archiveLabel,
+  archiveStatus,
+  archivePendingLabel,
+  archiveShortcutKeys,
+}: FactoryWorkspaceMenuActionsProps) {
+  const plugins = useInstalledPlugins();
+  const hasOverview = plugins.some(
+    (plugin) =>
+      plugin.serverId === serverId &&
+      plugin.id === "factory" &&
+      plugin.surfaces.some((contribution) => contribution.id === "overview"),
+  );
+  const openFactory = useCallback(() => {
+    if (!serverId || !workspaceId || !membership || !hasOverview) return;
+    const current = selectFactoryMembership(useSessionStore.getState(), serverId, workspaceId);
+    if (
+      current?.installationId !== membership.installationId ||
+      current.projectId !== membership.projectId
+    )
+      return;
+    router.navigate(
+      buildPluginSurfaceRoute(
+        serverId,
+        "factory",
+        { kind: "surface", id: "overview" },
+        {
+          projectId: membership.projectId,
+        },
+      ),
+    );
+  }, [serverId, workspaceId, membership, hasOverview]);
+  return (
+    <>
+      {membership ? (
+        <WorkspaceMenuItem
+          surface={surface}
+          testID={`sidebar-workspace-menu-factory-${workspaceKey}`}
+          leading={factoryLeadingIcon}
+          description={
+            hasOverview
+              ? "Turn Factory off and reconcile retained work before removal."
+              : "Factory overview is unavailable on this host. Ordinary archive and deletion remain unavailable."
+          }
+          disabled={!hasOverview}
+          onSelect={openFactory}
+        >
+          Open Factory
+        </WorkspaceMenuItem>
+      ) : null}
       {onArchive ? (
         <WorkspaceArchiveMenuItem
           surface={surface}

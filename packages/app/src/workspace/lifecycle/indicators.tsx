@@ -1,24 +1,36 @@
 import { useCallback } from "react";
 import { View, Pressable, type GestureResponderEvent } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { LockKeyhole, Repeat2 } from "lucide-react-native";
+import { Factory, LockKeyhole, Repeat2 } from "lucide-react-native";
 import { router } from "expo-router";
 import { useVortonTouch } from "@/vorton-touch";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useWorkspaceScheduleState } from "./scheduled";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import type { Theme } from "@/styles/theme";
+import { FACTORY_MANAGED_EXPLANATION, useFactoryMembership } from "./factory-membership";
 
 const Shield = withUnistyles(LockKeyhole);
 const Repeat = withUnistyles(Repeat2);
+const FactoryIcon = withUnistyles(Factory);
 const muted = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const shield = <Shield size={12} uniProps={muted} />;
 const repeat = <Repeat size={12} uniProps={muted} />;
+const factory = <FactoryIcon size={12} uniProps={muted} />;
+
+function FactoryManagedIndicator() {
+  return (
+    <View style={styles.badgeSlot} accessible accessibilityLabel={FACTORY_MANAGED_EXPLANATION}>
+      <StatusBadge label="Managed" leading={factory} size="xs" shape="row" />
+    </View>
+  );
+}
 
 export function WorkspaceLifecycleIndicators({ workspace }: { workspace: SidebarWorkspaceEntry }) {
   const touch = useVortonTouch();
   const scheduled = useWorkspaceScheduleState(workspace.serverId, workspace.workspaceId);
+  const membership = useFactoryMembership(workspace.serverId, workspace.workspaceId);
   const label = scheduled === "paused" ? "Paused" : "Scheduled";
   const openSchedules = useCallback(
     (event: GestureResponderEvent) => {
@@ -30,10 +42,11 @@ export function WorkspaceLifecycleIndicators({ workspace }: { workspace: Sidebar
     },
     [workspace.serverId, workspace.workspaceId],
   );
-  if (!scheduled && !workspace.protected) return null;
+  if (!scheduled && !workspace.protected && !membership) return null;
   return (
     <>
-      {workspace.protected ? (
+      {membership ? <FactoryManagedIndicator /> : null}
+      {workspace.protected && !membership ? (
         <View
           style={styles.badgeSlot}
           accessible

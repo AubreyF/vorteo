@@ -3,9 +3,7 @@ import { transferTaskAttachments } from "@/task-environments/attachments";
 import {
   readExecutionInstallation,
   installationDefaultServerId,
-  findInstallationEnvironment,
 } from "@/execution-installation/policy";
-import { confirmDialog } from "@/utils/confirm-dialog";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardTranslateView } from "@/keyboard/shift";
@@ -1953,17 +1951,7 @@ export function NewWorkspaceScreen({
   );
 
   const handleSelectWorkspaceHost = useCallback(
-    async (id: string) => {
-      const environment = findInstallationEnvironment(readExecutionInstallation(), id);
-      if (environment?.kind === "host" && id !== selectedServerId) {
-        const approved = await confirmDialog({
-          title: "Run on the host?",
-          message:
-            "Agents and terminals here have full access to your host account, including its files and credentials.",
-          confirmLabel: "Use host",
-        });
-        if (!approved) return;
-      }
+    (id: string) => {
       if (
         id !== selectedServerId &&
         chatDraft.attachments.some(

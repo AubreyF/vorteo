@@ -1,3 +1,5 @@
+import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
+import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
 import type {
   ProfileSharingStatus,
   RestartJob,
@@ -17,6 +19,8 @@ interface InstallationPanelState {
   error: string | null;
   notice: string | null;
   jobs: RestartJob[];
+  helperJobs: NativeHelperJob[];
+  helperError: string | null;
   pendingJobs: RestartJob[];
   profileSharing: ProfileSharingStatus | null;
   passwordFile: string | null;
@@ -35,6 +39,8 @@ export class InstallationPanelModel {
     error: null,
     notice: null,
     jobs: [],
+    helperJobs: [],
+    helperError: null,
     pendingJobs: [],
     profileSharing: null,
     passwordFile: null,
@@ -50,6 +56,8 @@ export class InstallationPanelModel {
       InstallationClient,
       | "unlock"
       | "listRestarts"
+      | "listHelpers"
+      | "decideHelper"
       | "restartSummary"
       | "decide"
       | "profileSharingStatus"
@@ -97,6 +105,8 @@ export class InstallationPanelModel {
         lastUpdatedAt: null,
         password: "",
         jobs: [],
+        helperJobs: [],
+        helperError: null,
         pendingJobs: [],
         profileSharing: null,
       });
@@ -146,9 +156,10 @@ export class InstallationPanelModel {
       const restartSummary = await this.client.restartSummary();
       this.publish({ restartSummary });
       if (!this.state.unlocked) return;
-      const [jobs, profileSharing] = await Promise.all([
+      const [jobs, profileSharing, helperJobs] = await Promise.all([
         this.client.listRestarts(),
         this.client.profileSharingStatus(),
+        this.client.listHelpers(),
       ]);
       if (generation !== this.accessGeneration) return;
       const targets = new Set(
@@ -165,6 +176,7 @@ export class InstallationPanelModel {
       });
       this.publish({
         jobs,
+        helperJobs,
         pendingJobs: pending,
         profileSharing,
         lastUpdatedAt: new Date().toISOString(),
@@ -174,6 +186,45 @@ export class InstallationPanelModel {
       this.fail(error);
     } finally {
       this.refreshing = false;
+    }
+  }
+
+  dismissHelperError(): void {
+    this.publish({ helperError: null });
+  }
+
+  async decideHelper(job: NativeHelperJob, action: HelperReviewAction): Promise<void> {
+    if (this.state.busy) return;
+    const current = this.state.helperJobs.find((item) => item.id === job.id);
+    if (!current || current.revision !== job.revision || current.planSha256 !== job.planSha256) {
+      this.publish({
+        helperError: "Helper request changed. Refresh and review the current artifact.",
+      });
+      return;
+    }
+    const reason = helperActionDisabledReason(current, action, this.state);
+    if (reason) {
+      this.publish({ helperError: reason });
+      return;
+    }
+    this.publish({ busy: true, error: null, helperError: null, notice: null });
+    try {
+      const result = await this.client.decideHelper(current, action);
+      this.publish({
+        helperJobs: this.state.helperJobs.map((item) => (item.id === result.id ? result : item)),
+      });
+      await this.refresh();
+    } catch (error) {
+      this.fail(error);
+      this.publish({
+        error: null,
+        helperError:
+          error instanceof Error
+            ? error.message
+            : "Helper decision unconfirmed. Refresh before retrying.",
+      });
+    } finally {
+      this.publish({ busy: false });
     }
   }
 
@@ -227,6 +278,8 @@ export class InstallationPanelModel {
         lastUpdatedAt: null,
         password: "",
         jobs: [],
+        helperJobs: [],
+        helperError: null,
         pendingJobs: [],
         profileSharing: null,
       });
@@ -271,7 +324,7 @@ export function restartBannerTitle(job: RestartJob): string {
   if (job.status === "approved") return `${target} restart queued`;
   if (job.sourceBatch && job.sourceBatch.status !== "ready") {
     const labels = {
-      conflict: "update needs correction",
+      conflict: "update awaiting agent repair",
       preparing: "update is being checked",
       waiting: "update is waiting",
     };
@@ -286,4 +339,55 @@ export function restartBlockingReason(job: RestartJob): string | null {
     .filter((item) => item.status === "invalid" || item.status === "conflict")
     .map((item) => item.detail.split("\n")[0]!);
   return [...new Set(reasons)].join("; ") || job.detail;
+}
+
+export function restartRepairGuidance(job: RestartJob): string | null {
+  if (!restartBlockingReason(job)) return null;
+  return "The requesting agent must repair this update before you can approve it. Leave it queued for repair, or choose Cancel update if you no longer want it. Your running version is unchanged.";
+}
+
+export function restartActionDisabledReason(
+  job: RestartJob,
+  action: "install" | "idle" | "finish",
+  busy: boolean,
+  supported = true,
+): string | null {
+  if (busy)
+    return "Another installation action is in progress. Wait for it to finish, then try again.";
+  if (action !== "install") {
+    return supported
+      ? null
+      : "This restart mode is unavailable because the environment is disconnected or does not support it. Restore its connection or update its restart support, then retry.";
+  }
+  const blocker = restartBlockingReason(job);
+  if (blocker) {
+    const remedy = /release notes/i.test(blocker)
+      ? "The submitting agent must reconcile the release-note history and resubmit the corrected source. Open Details to identify the blocked contributions."
+      : "The submitting agent must resolve the listed source errors and resubmit. Open Details to identify the blocked contributions.";
+    return `${restartRepairGuidance(job)} ${remedy}`;
+  }
+  if (job.sourceBatch?.status === "preparing")
+    return "The coordinator is checking and combining the submitted source. Wait for preparation to finish; this button enables when the update is ready.";
+  if (job.sourceBatch?.status === "waiting")
+    return "This update is waiting for an earlier installation. Let that installation finish or cancel it in Installation controls, then review this request.";
+  if (!job.update)
+    return "No validated installation artifact is ready. The submitting agent must finish preparation and resubmit the update.";
+  return null;
+}
+
+export function restartRequestSummary(job: RestartJob): string {
+  const dev = job.sourceBatch?.contributions.find(
+    (item) => item.status !== "superseded" && item.requestedBy === "container-agent",
+  );
+  const reason = restartExplanation(dev?.reason ?? job.reason).summary;
+  if (dev || job.requestedBy === "container-agent") {
+    const origin =
+      dev && job.requestedBy !== "container-agent"
+        ? "Includes a Dev container request"
+        : "Requested by a Dev container";
+    const review = job.status === "pending" ? "; your approval is required" : "";
+    return `${origin}${review}. ${reason}`;
+  }
+  if (job.automaticApproval) return `Automatically approved for a trusted Host thread. ${reason}`;
+  return reason;
 }

@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { Text, View } from "react-native";
 import { ArrowLeftToLine, RotateCw, Settings } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -56,14 +57,14 @@ export function AgentRouteResolutionView({
           <Text style={styles.title}>{t("agentPanel.states.failedToLoad")}</Text>
           <Text style={styles.error}>{resolution.error}</Text>
         </View>
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button size="sm" variant="default" leftIcon={RotateCw} onPress={onRetry}>
             {t("common.actions.retry")}
           </Button>
           <Button size="sm" variant="outline" leftIcon={ArrowLeftToLine} onPress={onBack}>
             {t("common.actions.back")}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     );
   }
@@ -94,14 +95,14 @@ export function AgentRouteResolutionView({
         {lastHostError ? <Text style={styles.error}>{lastHostError}</Text> : null}
       </View>
       {!isConnecting ? (
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button size="sm" variant="default" leftIcon={RotateCw} onPress={onRetry}>
             {t("common.actions.retry")}
           </Button>
           <Button size="sm" variant="outline" leftIcon={Settings} onPress={onManageHost}>
             {t("workspace.route.manageHost")}
           </Button>
-        </View>
+        </ActionFooter>
       ) : null}
     </View>
   );

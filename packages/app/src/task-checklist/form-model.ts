@@ -7,7 +7,7 @@ export interface ChecklistForm {
   description: string;
   owner: string;
   activeForm: string;
-  status: "pending" | "in_progress" | "completed";
+  status: "pending" | "in_progress" | "blocked" | "completed";
   blockedBy: string[];
 }
 
