@@ -258,7 +258,6 @@
         color: var(--boot-ring-color, #a9b5ad);
       }
       #boot-help {
-        animation: boot-reveal 240ms ease-out;
         margin-top: 20px;
         font-size: 13px;
         line-height: 1.5;
@@ -320,10 +319,35 @@
         width: 72px;
         height: 72px;
       }
+      #boot-status[data-expanded="true"] {
+        margin: 0 auto;
+        height: 100%;
+        scrollbar-gutter: stable;
+      }
+      #boot-status {
+        --boot-reveal-duration: 320ms;
+        --boot-reveal-easing: cubic-bezier(0.2, 0.7, 0.2, 1);
+      }
+      #boot-status[data-revealing="true"] .boot-emblem {
+        transform-origin: top left;
+        animation: boot-emblem-reveal var(--boot-reveal-duration) var(--boot-reveal-easing) both;
+      }
+      #boot-status[data-revealing="true"] #boot-help {
+        animation: boot-reveal var(--boot-reveal-duration) var(--boot-reveal-easing) both;
+      }
+      @keyframes boot-emblem-reveal {
+        from {
+          transform: translate(var(--boot-emblem-x), var(--boot-emblem-y))
+            scale(var(--boot-emblem-scale));
+        }
+        to {
+          transform: translate(0, 0) scale(1);
+        }
+      }
       @keyframes boot-reveal {
         from {
           opacity: 0;
-          transform: translateY(10px);
+          transform: translateY(var(--boot-help-y));
         }
         to {
           opacity: 1;
@@ -401,7 +425,8 @@
       }
       @media (prefers-reduced-motion: reduce) {
         .boot-spinner,
-        #boot-help {
+        #boot-status[data-revealing="true"] .boot-emblem,
+        #boot-status[data-revealing="true"] #boot-help {
           animation: none;
         }
       }
@@ -890,10 +915,24 @@
           renderBootDiagnostics();
         }
       }
-      function bootCheckDelay() {
-        if (bootFinished || Date.now() - bootStarted < 15000) return;
+      var bootRevealDelay = 10000;
+      function bootRevealDiagnostics() {
+        var status = document.getElementById("boot-status");
+        if (status.dataset.expanded === "true") return;
+        var emblem = status.querySelector(".boot-emblem");
+        var before = emblem.getBoundingClientRect();
         document.getElementById("boot-help").hidden = false;
-        document.getElementById("boot-status").dataset.expanded = "true";
+        status.dataset.expanded = "true";
+        var after = emblem.getBoundingClientRect();
+        status.style.setProperty("--boot-emblem-x", before.left - after.left + "px");
+        status.style.setProperty("--boot-emblem-y", before.top - after.top + "px");
+        status.style.setProperty("--boot-emblem-scale", String(before.width / after.width));
+        status.style.setProperty("--boot-help-y", before.bottom - after.bottom + "px");
+        status.dataset.revealing = "true";
+      }
+      function bootCheckDelay() {
+        if (bootFinished || Date.now() - bootStarted < bootRevealDelay) return;
+        bootRevealDiagnostics();
         if (bootEndpointProbe.attempts === 0 || bootEndpointProbe.state === "offline_deferred")
           bootCheckEndpoint("automatic");
       }
@@ -907,7 +946,7 @@
         bootCheckDelay();
         renderBootDiagnostics();
       }, 1000);
-      var bootDelayTimer = setTimeout(bootCheckDelay, 15000);
+      var bootDelayTimer = setTimeout(bootCheckDelay, bootRevealDelay);
       window.addEventListener("online", bootResumeChecks);
       window.addEventListener("pageshow", bootResumeChecks);
       document.addEventListener("visibilitychange", bootResumeChecks);

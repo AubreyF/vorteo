@@ -1,5 +1,25 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Three POSIX-only coordinator test suites now skip on Windows, like the other installation suites. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): startup diagnostics share a ten-second reveal and automatic-check threshold. The V mark moves and shrinks in sync with the content reveal, with an immediate final layout for reduced motion. Eighteen scoped Chromium tests cover the loader, including intermediate geometry at compact and desktop sizes; separate motion-preference checks cover both layouts. Publication and physical-device acceptance are pending. README overview and onboarding are unchanged.
+
+Startup diagnostics operate before the interface bundle and automatically check installation reachability after 10 seconds, using the same threshold as the expanded display. The existing V mark shrinks and moves from its original position while the diagnostic content fades and slides into place on the same timeline. Reduced motion settles immediately. They use bounded requests, defer offline checks until resume, distinguish completed browser resource timings from unknown in-flight progress, and show only the coordinator's existing public restart-request counts. Counts cannot establish an active component restart, its initiation time, or the cause of a connection failure. The themed app shell dismisses the overlay after local settings load and two paint frames; daemon connection and session readiness remain separate stages. Production exports preload their original entry script with matching security attributes and embed validated source/version metadata. The compact diagnostic reveal uses inline CSS and system fonts, with no additional downloaded assets.
+
+Maintenance review (2026-10-25): source update tooling admission pins all six scripts the Host installer runs or imports, and the Lucide import plugin always emits an explicitly relative path. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Disposable processes in the preclaim native-proof test now exit when the test worker goes away. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): test-only change. Long-running coordinator test fixtures now exit when the test worker goes away or after a fixed limit. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): on resume, skills the inventory could not fully inspect claim their frontmatter name, read directly from SKILL.md, and an unreadable SKILL.md drops all bundled skills. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): resuming a restricted Claude session inventories the account's own `CLAUDE_CONFIG_DIR` skills and its plugin cache, marketplace and synced folders for claims on bundled skill names, and keeps no bundled skills when a root cannot be read. The package selector check keeps its earlier scope. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): restricted Claude sessions keep the skills Claude labels as built in, read from Claude's skill list at launch and recorded in an optional `builtins` list in the frozen skill snapshot. A name shared with any other skill, including a `plugin:name` suffix, is left out, and a package that later claims a name turns it off. Checked against the real Claude 2.1.285 CLI with a forced exclusion. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): restricted Claude and Codex skill selections leave out provider defaults that have no package on disk, such as Claude's bundled skills, instead of refusing the launch. This fixes Claude launches whenever a personal skill is unshared or excluded. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): Host installs now apply the guarded build's script preloads and build metadata, both web exports run with an 8 GB worker heap, and the Lucide import plugin emits a root-independent path, so shared Metro caches stay valid across builds. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): the shared Lucide test fixture now exports every common icon imported by the deferred plugin-icon adapter. The four affected files collect and all fifteen tests pass with their original assertions and per-test mocks. Production behavior, README overview and onboarding are unchanged.

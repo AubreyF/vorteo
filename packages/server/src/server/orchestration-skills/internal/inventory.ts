@@ -192,9 +192,28 @@ export async function inspectSkill(directory: string, root: SkillRoot): Promise<
   return result;
 }
 export async function inventorySkills(
-  options: { home?: string; cwd?: string } = {},
+  options: { home?: string; cwd?: string; claudeConfigDir?: string } = {},
 ): Promise<SkillInventory> {
-  const roots = await skillRoots(options.home ?? os.homedir(), options.cwd);
+  const home = options.home ?? os.homedir();
+  const roots = await skillRoots(home, options.cwd);
+  // Claude loads skills and plugins from its config folder, which an account sets with
+  // CLAUDE_CONFIG_DIR. Plugins also load in place from marketplace and synced folders.
+  if (options.claudeConfigDir) {
+    const config = path.resolve(options.claudeConfigDir);
+    const extra: SkillRoot[] = [
+      { path: path.join(config, "skills"), owner: "personal", providers: ["claude"], depth: 2 },
+      ...["cache", "marketplaces", "synced"].map(
+        (folder): SkillRoot => ({
+          path: path.join(config, "plugins", folder),
+          owner: "plugin",
+          providers: ["claude"],
+          depth: 7,
+        }),
+      ),
+    ];
+    for (const root of extra)
+      if (!roots.some((existing) => existing.path === root.path)) roots.push(root);
+  }
   const inventory: SkillInventory = {
     observedAt: new Date().toISOString(),
     skills: [],

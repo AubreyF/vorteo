@@ -3093,7 +3093,9 @@ test.runIf(process.platform === "darwin").each(["normal", "before-first-freeze"]
     const runtime = path.join(root, "runtime");
     mkdirSync(runtime, { mode: 0o700 });
     const entrypoint = path.join(runtime, "entry.mjs");
-    writeFileSync(entrypoint, "setInterval(() => {}, 1000);", { mode: 0o600 });
+    // The test needs a launchd-style orphan (parent PID 1), so no IPC channel can end
+    // it. It exits on its own well after the 30 s test timeout instead.
+    writeFileSync(entrypoint, "setTimeout(() => {}, 120_000);", { mode: 0o600 });
     writeFileSync(
       path.join(runtime, ".installation-source.json"),
       JSON.stringify({ sourceCommit: "e".repeat(40) }),

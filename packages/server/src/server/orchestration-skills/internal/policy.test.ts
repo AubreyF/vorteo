@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm, cp } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, writeFile, rm, cp, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -231,4 +231,166 @@ it("does not admit unshared personal packages and refuses missing canonical cont
       installation: { definitions: [], excludedIdentities: [skill.identity] },
     }),
   ).rejects.toThrow("no verified");
+});
+
+it("launches restricted sessions when the provider lists defaults without packages", async () => {
+  const { home, skill, config } = await setup();
+  delete config.profileLaunch;
+  const definition = {
+    name: "example",
+    identity: skill.identity,
+    sha256: skill.sha256!,
+    source: null,
+  };
+  const personal = path.join(home, ".claude/skills/unshared");
+  await mkdir(personal, { recursive: true });
+  await writeFile(path.join(personal, "SKILL.md"), "---\nname: unshared\ndescription: t\n---\nT");
+  await captureSkillPolicy(config, "claude", {
+    home,
+    nativeDefaults: ["example", "unshared", "claude-api", "simplify", "synced", "tools:lint"],
+    // Only skills Claude labels as bundled are kept; a name an observed package uses, such as
+    // the unshared personal skill, and plugin-qualified names never are.
+    providerBuiltins: async () => ["claude-api", "simplify", "unshared", "tools:lint"],
+    installation: { definitions: [definition], excludedIdentities: [] },
+  });
+  expect(await verifySkillSnapshot(config)).toEqual(["example", "claude-api", "simplify"]);
+  const shadow = path.join(home, ".claude/skills/simplify");
+  await mkdir(shadow, { recursive: true });
+  await writeFile(path.join(shadow, "SKILL.md"), "---\nname: simplify\ndescription: t\n---\nT");
+  expect(await verifySkillSnapshot(config)).toEqual(["example", "claude-api"]);
+});
+
+async function bundledSetup() {
+  const { home, skill, config } = await setup();
+  delete config.profileLaunch;
+  const definition = {
+    name: "example",
+    identity: skill.identity,
+    sha256: skill.sha256!,
+    source: null,
+  };
+  await captureSkillPolicy(config, "claude", {
+    home,
+    nativeDefaults: ["example", "claude-api", "simplify"],
+    providerBuiltins: async () => ["claude-api", "simplify"],
+    installation: { definitions: [definition], excludedIdentities: ["another-identity"] },
+  });
+  return { home, config, account: path.join(home, "account") };
+}
+async function writeSkill(directory: string, name: string) {
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, "SKILL.md"), `---\nname: ${name}\ndescription: t\n---\nT`);
+}
+
+it("turns off a built-in name claimed later by a plugin in the account's config folder", async () => {
+  const { config, account } = await bundledSetup();
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual([
+    "example",
+    "claude-api",
+    "simplify",
+  ]);
+  // Claude's allowlist would match the plugin skill "tools:simplify" by its suffix.
+  await writeSkill(path.join(account, "plugins/cache/market/tools/1.0.0/skills/s"), "simplify");
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual([
+    "example",
+    "claude-api",
+  ]);
+  // Marketplace plugins load in place without a cache copy.
+  await writeSkill(
+    path.join(account, "plugins/marketplaces/official/plugins/api/skills/a"),
+    "claude-api",
+  );
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+});
+
+it("does not refuse a resume because the account folder has a same-named copy of a package", async () => {
+  const { config, account } = await bundledSetup();
+  // Synced account skills often share a name with a shared package; only built-in names
+  // are checked against the account folder.
+  await writeSkill(path.join(account, "skills/synced/example"), "example");
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual([
+    "example",
+    "claude-api",
+    "simplify",
+  ]);
+});
+
+it("turns off a built-in name claimed later by frontmatter in the account's skill folder", async () => {
+  const { config, account } = await bundledSetup();
+  await writeSkill(path.join(account, "skills/api-helper"), "claude-api");
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual([
+    "example",
+    "simplify",
+  ]);
+});
+
+it("reads the claimed name of a skill the inventory could not fully inspect", async () => {
+  const { config, account } = await bundledSetup();
+  // A symlinked file stops the package read, so inventory records only the folder name.
+  const linked = path.join(account, "skills/helper");
+  await writeSkill(linked, "simplify");
+  await symlink(path.join(linked, "SKILL.md"), path.join(linked, "linked.md"));
+  // More files than a package may hold has the same effect.
+  const large = path.join(account, "skills/large");
+  await writeSkill(large, "claude-api");
+  for (let index = 0; index < 257; index++)
+    await writeFile(path.join(large, `file-${index}.txt`), "x");
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+});
+
+it("keeps no built-ins when a skill's frontmatter cannot be read", async () => {
+  const { config, account } = await bundledSetup();
+  const unreadable = path.join(account, "skills/locked");
+  await writeSkill(unreadable, "other");
+  await chmod(path.join(unreadable, "SKILL.md"), 0o000);
+  try {
+    expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+  } finally {
+    await chmod(path.join(unreadable, "SKILL.md"), 0o644);
+  }
+});
+
+it("keeps no built-ins when an account skill folder cannot be read", async () => {
+  const { config, account } = await bundledSetup();
+  await mkdir(account, { recursive: true });
+  // A file where the skills folder belongs fails to read with ENOTDIR.
+  await writeFile(path.join(account, "skills"), "not a directory");
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+});
+
+it("resumes a snapshot recorded before built-ins existed with packaged skills only", async () => {
+  const { config } = await bundledSetup();
+  delete config.skillSnapshot!.builtins;
+  expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+});
+
+it("leaves built-ins out of selected-only profiles", async () => {
+  const { home, skill, config } = await setup();
+  await captureSkillPolicy(config, "claude", {
+    home,
+    providerBuiltins: async () => ["claude-api"],
+  });
+  expect(config.profileLaunch?.skillSnapshot?.builtins).toBeUndefined();
+  expect(await verifySkillSnapshot(config)).toEqual([skill.name]);
+});
+
+it("treats a package's folder name as a claim on a built-in name", async () => {
+  const { home, skill, config } = await setup();
+  delete config.profileLaunch;
+  const definition = {
+    name: "example",
+    identity: skill.identity,
+    sha256: skill.sha256!,
+    source: null,
+  };
+  const renamed = path.join(home, ".claude/skills/dataviz");
+  await mkdir(renamed, { recursive: true });
+  await writeFile(path.join(renamed, "SKILL.md"), "---\nname: charts\ndescription: t\n---\nT");
+  await captureSkillPolicy(config, "claude", {
+    home,
+    nativeDefaults: ["example", "charts", "dataviz"],
+    providerBuiltins: async () => ["dataviz"],
+    installation: { definitions: [definition], excludedIdentities: [] },
+  });
+  expect(await verifySkillSnapshot(config)).toEqual(["example"]);
 });
