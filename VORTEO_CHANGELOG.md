@@ -4,6 +4,199 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.806 - 2026-10-23
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.805 - 2026-10-22
+
+### Maintenance
+
+- Merge the two-option Add project flow: Choose a folder in the Projects folder or Clone from GitHub, with a folder browser that creates folders inline
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Maintenance
+
+- Merge main into the two-option Add project branch. Main contributed the live Projects folder work (aliases, kept paths, git trust, projects in every environment and per-project exclusions) and the settings and provider pages; there were no textual code conflicts. Both sides had added the Projects folder to the stored server info, so the duplicate is dropped, and Add project now reads the folder through main's shared helper and formats folder errors with main's error wording. Both changelog and customization histories are kept in full.
+
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Added
+
+- Clone from GitHub on hosts with a Projects folder clones into Projects/<repository> with one click. Change location opens the same folder browser, whose footer button reads Clone here, and New folder works there too. The clone runs on the installation's Host daemon.
+
+### Maintenance
+
+- Tests cover the default clone destination, changing it in the folder browser, cloning into a nested or new folder, and the earlier methods on hosts without a Projects folder. This supersedes the work-in-progress note in 0.11.0-beta.3.vorteo.766.
+
+### Known limitations
+
+- Not installed. The browser end-to-end checks for this flow have not been run, so layout and keyboard behaviour are unverified in a real browser.
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Added
+
+- Add project offers two choices on hosts with a Projects folder: Choose a folder and Clone from GitHub. There is no host step and no Search for directory, New project folder or Choose in Finder option. Hosts without a Projects folder keep the earlier flow.
+- The folder browser starts in the Projects folder with a breadcrumb. Its list only moves between folders; a fixed footer names what it will add, and Add is disabled at the Projects folder itself. New folder creates a folder in place without making it a project and opens it. Git checkouts have an inline Add button, registered projects show a Project badge, and the last folder is remembered per host.
+
+## 0.11.0-beta.3.vorteo.804 - 2026-10-22
+
+### Maintenance
+
+- Merge the Playwright helper fix: waiting for a connected host checks Settings > Environments > Connections, and opening Settings waits for the toolbar button
+
+## 0.11.0-beta.3.vorteo.800 - 2026-10-22
+
+### Fixed
+
+- The browser test helper that opens Settings waits up to five seconds for the toolbar Settings button before falling back to the overflow menu, which no longer lists Settings. Specs that opened Settings right after a reload used to time out.
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Fixed
+
+- Browser tests that wait for a second host no longer time out. `waitForConnectedHost` now checks the host's endpoint in Settings > Environments > Connections and returns to the workspace, instead of opening the sidebar Hosts control that was removed on 2026-10-06. This affects the Add project, host appearance and project grouping specs.
+- The sidebar footer check no longer expects the removed Hosts control.
+
+## 0.11.0-beta.3.vorteo.803 - 2026-10-22
+
+### Maintenance
+
+- Merge the Main CI repair: onboarding no longer requests a retired pairing offer, the sidebar stops re-rendering on every status change, test daemons honor PASEO_SYSTEM_PROJECT, provider key order no longer reads as a change, plugin calls survive reconnects, plugin dark themes get status colors, What's New keys are unique, account routes mount behind one provider-neutral function; stale tests repaired or retired and CI jobs build what they test
+
+## 0.11.0-beta.3.vorteo.802 - 2026-10-23
+
+### Maintenance
+
+- Windows server CI skips the whole session host directory, which is POSIX-only by design, so new session host suites no longer need listing one by one. A provider secret test that checks private file modes is skipped on Windows.
+
+## 0.11.0-beta.3.vorteo.801 - 2026-10-22
+
+### Maintenance
+
+- Restore the connection check phone screenshot, which a local browser test run rewrote and the previous commit picked up by mistake.
+
+## 0.11.0-beta.3.vorteo.800 - 2026-10-22
+
+### Maintenance
+
+- Repair macOS-only server tests that Linux CI never runs. Two native recovery suites found the process inspector script from the working directory, and the port allocator test compared a temporary path with its canonical form behind the macOS /var symlink.
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Maintenance
+
+- Merge main at 0.11.0-beta.3.vorteo.797 into the CI repair branch. The provider-neutral installation account mount now also covers the Host-refreshed Claude sign-in and provider secret deliveries, sharing one catalog refresh callback.
+
+## 0.11.0-beta.3.vorteo.790 - 2026-10-22
+
+### Maintenance
+
+- Settle a timing-dependent agent skills test. It created a new query client on every render and kept stale shared settings after a save, so a refetch could report the old selection.
+
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Fixed
+
+- Plugin calls no longer fail with "Plugin daemon identity is unavailable" while a plugin's connection to its daemon reconnects. The plugin process keeps the identity of the one daemon it serves.
+
+### Maintenance
+
+- A CLI lifecycle test waits for the daemon lock file's contents, which are written after the file is created, as product readers already do.
+
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Fixed
+
+- New Codex threads on accounts with remote plugins no longer fail with "Provider skill catalog changed during this task". Codex finishes syncing remote plugin skills after its first skill listing, so the next listing grew, for example from 20 to 64 entries on Codex 1. The check now compares only the selected skills. Each turn still sends a filter rebuilt from the current listing, which keeps plugin skills that appear later disabled.
+
+- Merge main at 0.11.0-beta.3.vorteo.787 into the CI repair branch so it integrates cleanly with the next batch.
+
+## 0.11.0-beta.3.vorteo.784 - 2026-10-22
+
+### Fixed
+
+- Removing a full sign-in Claude account no longer runs Claude's sign-out when the account has no configuration directory of its own. A daemon started from an agent shell inherits another account's directory, so that sign-out could have signed out a different account.
+
+- Stop two server test races. The Host module contract pins every ancestor directory, so its tests retry when a parallel suite touches a shared ancestor mid-inspection. A message queue test waits for its last write before deleting its directory.
+- The browser test helper opens New workspace from the sidebar overflow menu, since it is no longer a default sidebar row.
+
+## 0.11.0-beta.3.vorteo.785 - 2026-10-22
+
+### Fixed
+
+- `PASEO_SYSTEM_PROJECT=0` now reaches the daemon. The configuration allowlist dropped it, so every test daemon, including the browser test harness, seeded the System project and its standing agent.
+- A daemon config reload no longer reports and reapplies provider settings that only changed key order.
+
+### Maintenance
+
+- CI stops a hung Playwright shard after 90 minutes and the app job after 30, instead of holding runners for hours. The app browser run pre-bundles `react/jsx-dev-runtime` so Vite no longer reloads mid-run.
+- Retire the desktop relay pairing E2E spec; the pairing modal it drove was removed with device pairing.
+- CLI lifecycle tests expect a daemon whose address is held by another process to wait as not ready, as listen reclaim intends, and stop it.
+
+## 0.11.0-beta.3.vorteo.783 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+- Skip server suites for POSIX-only Vorteo features on Windows CI: the installation coordinator, session host, Host account delivery and Host process custody, plus `*.posix.test.ts` as the testing guide already promised. Upstream suites keep running there; individual Vorteo cases inside them that need POSIX modes, signals or symlink swaps are gated case by case.
+- Two bootstrap suites now start daemons without the System project, like every other test daemon. On Windows a handle stayed open on its directory after the daemon stopped.
+- The preview monitor test retains its own Node copy, and the Dev installer check runs only for Dev's in-root release layout, matching Linux CI.
+
+## 0.11.0-beta.3.vorteo.783 - 2026-10-22
+
+### Fixed
+
+- Running `paseo` onboarding no longer crashes after starting the daemon. It still asked for a device pairing offer, which the daemon has refused since pairing was retired; it now ends with direct-connection guidance.
+- A workspace status change no longer re-renders the whole sidebar. The sidebar subscribed to every host's workspace map to place managed worktrees; it now subscribes to the placements themselves.
+- What's New keeps distinct list keys when parallel branches publish the same version on the same date.
+
+### Changed
+
+- Plugin dark themes use the same lifted status colors as the built-in appearances, restoring the parity their tests require.
+
+### Maintenance
+
+- Repair app, browser, CLI and desktop tests for CI. Two browser suites hung CI's app job forever: their layout mock awaited a module that now imports itself back through the zoom and shortcut stores. Other suites now wait for entering animations, use desktop viewports where menus became compact sheets, follow retired pairing, the System project, neutral label colors and the status ring, and stop writing screenshots outside the workspace.
+
+## 0.11.0-beta.3.vorteo.774 - 2026-10-22
+
+### Added
+
+- Switch a thread to another account or profile without leaving it. Choosing a profile on another account for an existing thread now offers Switch in this thread by default, with a warning that switching uses extra tokens; New task instead keeps the reviewed successor. The quota notice gains a Switch account button.
+- The daemon closes the thread's native session, starts one on the target account with up to 30 recent messages as session instructions, clears the quota pause and keeps the thread's ID, goal, checklist, journal and questions. Busy threads are refused.
+- A compaction-style marker names both accounts and models. History before each switch is retained, so reloads replay every segment in order.
+- Requires the daemon's `agentProfileSwitch` capability; older interfaces don't receive the marker. Tool results and provider-private state don't carry over, and automatic pooled switching remains planned. See the [profile switching plan](docs/plans/profile-switching.md).
+
+- Merge main at 0.11.0-beta.3.vorteo.781 into the CI repair branch so it integrates cleanly with the next batch; the authorization test keeps main's stronger unknown-observation check.
+
+## 0.11.0-beta.3.vorteo.777 - 2026-10-22
+
+### Maintenance
+
+- Repair the installation test suites that failed on Linux CI. Server tests now use a private temporary root when the system one is shared, because installation custody rightly refuses world-writable ancestors such as Linux /tmp. Tests that read the native macOS launcher, LaunchAgents or Host observer run only on macOS. The server test job builds the server, which the supervisor suites execute. A retained v682 Dev provisioner is now a captured fixture rather than a reconstruction from today's generator, and still verifies.
+
+## 0.11.0-beta.3.vorteo.776 - 2026-10-22
+
+### Maintenance
+
+- Repair the server test suites that failed CI on Linux. The server's own Factory contract imports now resolve to source in tests, so suites load without a server build. Test fakes gain the archive guards, origin admission and per-client capability checks the server now calls. Tests follow deliberate changes: uncertain config writes, saved compaction summaries, shared skill selection, retired device pairing. Built-in plugin fixtures use canonical temporary paths, which the Factory custody checks require on macOS.
+
+### Changed
+
+- Installation account delivery routes mount through one provider-neutral function, keeping Claude-specific wiring out of the daemon bootstrap.
+
+## 0.11.0-beta.3.vorteo.775 - 2026-10-22
+
+### Maintenance
+
+- Format the Builds push guard script and its test, which failed the CI format check on main.
+
 ## 0.11.0-beta.3.vorteo.798 - 2026-10-22
 
 ### Maintenance

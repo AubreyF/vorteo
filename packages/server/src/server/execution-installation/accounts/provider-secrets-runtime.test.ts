@@ -15,6 +15,9 @@ import {
   type ProviderSecretsDelivery,
 } from "./provider-secrets-delivery.js";
 
+// These cases need POSIX file modes, signals or rename semantics; Windows cannot run them.
+const posixTest = test.skipIf(process.platform === "win32");
+
 const KEY = `sk-synthetic-${"d".repeat(32)}`;
 const directories: string[] = [];
 afterEach(() => {
@@ -110,47 +113,50 @@ function harness(
   return { stateDir, runtime, deliveries, authorizations, call, close: () => server.close() };
 }
 
-test("owner routes store a key once, deliver it to both daemons and never return it", async () => {
-  const h = harness();
-  try {
-    const saved = await h.call("set", {
-      definitionId: "openai",
-      name: "OPENAI_API_KEY",
-      value: KEY,
-    });
-    expect(saved.status).toBe(200);
-    expect(saved.text).not.toContain(KEY);
-    await h.runtime.reconcile();
-    const read = await h.call("read", { definitionId: "openai" });
-    expect(read.text).not.toContain(KEY);
-    const [status] = ProviderSecretsReadResponseSchema.parse(JSON.parse(read.text)).definitions;
-    expect(status).toMatchObject({
-      definitionId: "openai",
-      ready: true,
-      secrets: [{ name: "OPENAI_API_KEY", last4: "dddd", source: "owner" }],
-      environments: [
-        { serverId: "host", kind: "host", status: "delivered" },
-        { serverId: "dev", kind: "container", status: "delivered" },
-      ],
-    });
-    expect(h.deliveries.map((item) => item.serverId).sort()).toEqual(["dev", "host"]);
-    expect(h.authorizations.sort()).toEqual([
-      "http://127.0.0.1:1/api/installation/provider-secrets Bearer synthetic-host-password",
-      "http://127.0.0.1:2/api/installation/provider-secrets Bearer synthetic-dev-password",
-    ]);
-    const file = join(h.stateDir, "provider-secrets", "state.json");
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(readFileSync(file, "utf8")).toContain(KEY);
+posixTest(
+  "owner routes store a key once, deliver it to both daemons and never return it",
+  async () => {
+    const h = harness();
+    try {
+      const saved = await h.call("set", {
+        definitionId: "openai",
+        name: "OPENAI_API_KEY",
+        value: KEY,
+      });
+      expect(saved.status).toBe(200);
+      expect(saved.text).not.toContain(KEY);
+      await h.runtime.reconcile();
+      const read = await h.call("read", { definitionId: "openai" });
+      expect(read.text).not.toContain(KEY);
+      const [status] = ProviderSecretsReadResponseSchema.parse(JSON.parse(read.text)).definitions;
+      expect(status).toMatchObject({
+        definitionId: "openai",
+        ready: true,
+        secrets: [{ name: "OPENAI_API_KEY", last4: "dddd", source: "owner" }],
+        environments: [
+          { serverId: "host", kind: "host", status: "delivered" },
+          { serverId: "dev", kind: "container", status: "delivered" },
+        ],
+      });
+      expect(h.deliveries.map((item) => item.serverId).sort()).toEqual(["dev", "host"]);
+      expect(h.authorizations.sort()).toEqual([
+        "http://127.0.0.1:1/api/installation/provider-secrets Bearer synthetic-host-password",
+        "http://127.0.0.1:2/api/installation/provider-secrets Bearer synthetic-dev-password",
+      ]);
+      const file = join(h.stateDir, "provider-secrets", "state.json");
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(readFileSync(file, "utf8")).toContain(KEY);
 
-    const cleared = await h.call("clear", { definitionId: "openai", name: "OPENAI_API_KEY" });
-    expect(JSON.parse(cleared.text).definitions[0].secrets).toEqual([]);
-    await h.runtime.reconcile();
-    expect(h.deliveries.slice(-2).map((item) => item.values)).toEqual([{}, {}]);
-    expect(readFileSync(file, "utf8")).not.toContain(KEY);
-  } finally {
-    h.close();
-  }
-});
+      const cleared = await h.call("clear", { definitionId: "openai", name: "OPENAI_API_KEY" });
+      expect(JSON.parse(cleared.text).definitions[0].secrets).toEqual([]);
+      await h.runtime.reconcile();
+      expect(h.deliveries.slice(-2).map((item) => item.values)).toEqual([{}, {}]);
+      expect(readFileSync(file, "utf8")).not.toContain(KEY);
+    } finally {
+      h.close();
+    }
+  },
+);
 
 test("rejects invalid input without echoing it and reports unknown definitions", async () => {
   const h = harness();

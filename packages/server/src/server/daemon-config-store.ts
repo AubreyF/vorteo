@@ -260,8 +260,24 @@ function getValueAtPath(config: MutableDaemonConfig, path: string): unknown {
     .reduce<unknown>((value, segment) => (isRecord(value) ? value[segment] : undefined), config);
 }
 
+/** JSON equality that ignores object key order, so a reordered provider map is not a change. */
 function isEqualValue(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return canonicalJson(a) === canonicalJson(b);
+}
+
+function canonicalJson(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, entry: unknown) =>
+    entry && typeof entry === "object" && !Array.isArray(entry)
+      ? Object.fromEntries(
+          Object.entries(entry).sort(([left], [right]) => compareKeys(left, right)),
+        )
+      : entry,
+  );
+}
+
+function compareKeys(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
 }
 
 const RELOADABLE_PATHS = [

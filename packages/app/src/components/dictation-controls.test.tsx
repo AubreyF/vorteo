@@ -13,7 +13,11 @@ vi.mock("@/constants/layout", () => ({
 }));
 vi.mock("./volume-meter", () => ({ VolumeMeter: () => null }));
 vi.mock("@/components/ui/loading-spinner", () => ({ LoadingSpinner: () => null }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("react-i18next", () => ({
+  // The i18n module registers this plugin when a dependency imports it.
+  initReactI18next: { type: "3rdParty", init: () => {} },
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
 
 let root: Root;
 let host: HTMLDivElement;

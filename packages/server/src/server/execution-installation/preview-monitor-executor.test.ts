@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, writeFile, rm, realpath } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, writeFile, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
@@ -221,7 +221,11 @@ test("real retained Node executable and built readers parse monitor in fenced me
   const f = await fixture();
   const { readFile } = await import("node:fs/promises");
   try {
-    const executable = await realpath(process.execPath);
+    // Retain a private copy, as the installer does: a shared toolchain directory such as
+    // the CI tool cache cannot satisfy the recovery executable's custody checks.
+    const executable = path.join(await realpath(f.dir), "retained-node");
+    await copyFile(process.execPath, executable);
+    await chmod(executable, 0o755);
     const dist = path.resolve(
       import.meta.dirname,
       "../../../dist/server/server/execution-installation",

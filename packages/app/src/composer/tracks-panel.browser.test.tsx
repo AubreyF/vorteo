@@ -2,6 +2,7 @@ import React, { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Pressable, Text } from "react-native";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { page } from "vitest/browser";
 import { ComposerTrackPill, ComposerTrackRow, type ComposerTrackPillSegment } from "./tracks";
 
 const SUBAGENT_SEGMENTS: ComposerTrackPillSegment[] = [{ bucket: null, text: "3 subagents" }];
@@ -65,6 +66,11 @@ function isPanelOpen(): boolean {
 }
 
 describe("composer track panel", () => {
+  // Below 500px the panel opens as a bottom sheet; these cover the desktop popover.
+  beforeEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
   it("dismisses itself when a row is chosen", () => {
     const onPress = vi.fn();
     mount(

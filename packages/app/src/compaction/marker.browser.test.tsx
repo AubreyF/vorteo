@@ -73,7 +73,10 @@ test.each([1280, 375])(
       expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     }
     expect(container.getBoundingClientRect().right).toBeLessThanOrEqual(width);
-    await page.screenshot({ path: `/tmp/compaction-inspector-${width}.png` });
+    // The browser server only writes inside the workspace; output/playwright is ignored by Git.
+    await page.screenshot({
+      path: `../../../../output/playwright/compaction-inspector-${width}.png`,
+    });
     await click("Context automatically compacted");
     expect(container.querySelector('[data-testid="compaction-summary"]')).toBeNull();
   },
