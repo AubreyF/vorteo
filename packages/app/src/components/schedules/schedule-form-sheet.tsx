@@ -59,6 +59,7 @@ import { toErrorMessage } from "@/utils/error-messages";
 import { getDeviceTimeZone } from "@/utils/device-timezone";
 
 export interface ScheduleFormSheetProps {
+  agentId?: string;
   serverId?: string;
   visible: boolean;
   onClose: () => void;
@@ -109,7 +110,7 @@ function openKey(props: ScheduleFormSheetProps): string {
   if (props.mode === "edit") {
     return `edit:${props.serverId ?? ""}:${props.schedule?.id ?? ""}`;
   }
-  return `create:${props.serverId ?? ""}`;
+  return `create:${props.serverId ?? ""}:${props.agentId ?? ""}`;
 }
 
 function selectScheduleHosts(
@@ -125,6 +126,7 @@ function selectScheduleHosts(
 }
 
 function buildSnapshot(input: {
+  agentId?: string;
   mode: "create" | "edit";
   serverId: string | undefined;
   schedule: ScheduleSummary | undefined;
@@ -138,6 +140,7 @@ function buildSnapshot(input: {
     : undefined;
   return {
     mode: input.mode,
+    agentId: input.agentId,
     schedule,
     hosts: input.hosts,
     defaults: {
@@ -233,6 +236,7 @@ export function ScheduleFormSheet(props: ScheduleFormSheetProps): ReactElement |
 
 function OpenScheduleFormSheet({
   serverId,
+  agentId,
   visible,
   onClose,
   onDismiss,
@@ -255,13 +259,14 @@ function OpenScheduleFormSheet({
       buildSnapshot({
         mode,
         serverId,
+        agentId,
         schedule,
         hosts,
         projectTargets,
         preferences,
         timezone,
       }),
-    [hosts, mode, preferences, projectTargets, schedule, serverId, timezone],
+    [hosts, mode, preferences, projectTargets, schedule, serverId, agentId, timezone],
   );
   const model = useScheduleFormModel(snapshot);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
@@ -277,18 +282,16 @@ function OpenScheduleFormSheet({
     state.cadence.type === "cron" ? validateCron(state.cadence.expression) : null;
   const canSubmit = state.canSubmit && cadenceError === null && !isSubmitting;
   const agentTargetLabel = useMemo(() => {
-    if (!schedule || schedule.target.type !== "agent") {
-      return null;
-    }
-    const { agentId } = schedule.target;
+    const targetId = schedule?.target.type === "agent" ? schedule.target.agentId : agentId;
+    if (!targetId) return null;
     const agent = agents.find(
-      (entry) => entry.serverId === (state.selectedServerId ?? serverId) && entry.id === agentId,
+      (entry) => entry.serverId === (state.selectedServerId ?? serverId) && entry.id === targetId,
     );
     if (!agent) {
       return "Agent unavailable";
     }
     return agent.title?.trim() || "Untitled agent";
-  }, [agents, schedule, serverId, state.selectedServerId]);
+  }, [agents, agentId, schedule, serverId, state.selectedServerId]);
 
   const persistPreferences = useCallback(async () => {
     const provider = state.selectedProvider;
@@ -315,16 +318,39 @@ function OpenScheduleFormSheet({
   ]);
 
   const submitAgentTarget = useCallback(async (): Promise<boolean> => {
-    if (!schedule || !state.submitCadence) {
+    if (!state.submitCadence) {
       return false;
     }
+    if (mode === "create" && agentId) {
+      await createSchedule({
+        name: state.name.trim() || null,
+        prompt: state.prompt.trim(),
+        target: { type: "agent", agentId },
+        cadence: state.submitCadence,
+        maxRuns: parseMaxRuns(state.maxRuns) ?? undefined,
+        runOnCreate: false,
+      });
+      return true;
+    }
+    if (!schedule) return false;
     await updateSchedule({
       id: schedule.id,
       expectedConfigurationRevision: state.initialConfigurationRevision,
       cadence: state.submitCadence,
     });
     return true;
-  }, [schedule, state.initialConfigurationRevision, state.submitCadence, updateSchedule]);
+  }, [
+    agentId,
+    mode,
+    createSchedule,
+    schedule,
+    state.name,
+    state.prompt,
+    state.maxRuns,
+    state.initialConfigurationRevision,
+    state.submitCadence,
+    updateSchedule,
+  ]);
 
   const submitNewAgent = useCallback(async (): Promise<boolean> => {
     const provider = state.selectedProvider;
@@ -476,7 +502,7 @@ function ScheduleFormFields({
   cadenceError,
   mutationServerId,
 }: ScheduleFormFieldsProps): ReactElement {
-  if (state.targetKind === "agent") {
+  if (state.targetKind === "agent" && state.mode === "edit") {
     return (
       <>
         <ScheduleAgentTargetField label={agentTargetLabel} size={controlSize} />
@@ -521,14 +547,18 @@ function ScheduleFormFields({
         />
       </Field>
 
-      <ScheduleTargetFields
-        model={model}
-        state={state}
-        providerSnapshot={providerSnapshot}
-        agentTargetLabel={null}
-        controlSize={controlSize}
-        mutationServerId={mutationServerId}
-      />
+      {state.targetKind === "agent" ? (
+        <ScheduleAgentTargetField label={agentTargetLabel} size={controlSize} />
+      ) : (
+        <ScheduleTargetFields
+          model={model}
+          state={state}
+          providerSnapshot={providerSnapshot}
+          agentTargetLabel={null}
+          controlSize={controlSize}
+          mutationServerId={mutationServerId}
+        />
+      )}
 
       <CadenceEditor
         value={state.cadence}

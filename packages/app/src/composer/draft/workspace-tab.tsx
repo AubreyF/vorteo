@@ -661,13 +661,20 @@ export function WorkspaceDraftAgentTab({
     focusInputRef.current?.();
   }, []);
   const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
+  const selectEnvironment = useCallback(
+    (destinationServerId: string) => {
+      void environment.model.select(destinationServerId);
+    },
+    [environment.model],
+  );
   const composerAgentControls = useMemo(
     () => ({
       ...composerState.agentControls,
       onDropdownClose: handleDropdownCloseFocus,
+      onSelectEnvironment: selectEnvironment,
       disabled: isSubmitting,
     }),
-    [composerState.agentControls, handleDropdownCloseFocus, isSubmitting],
+    [composerState.agentControls, handleDropdownCloseFocus, isSubmitting, selectEnvironment],
   );
   const dockContent = (
     <View style={styles.contentContainer}>

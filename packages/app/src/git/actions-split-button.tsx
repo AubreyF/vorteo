@@ -1,3 +1,6 @@
+import { useIsCompactFormFactor } from "@/constants/layout";
+import { useVortonTouch } from "@/vorton-touch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useCallback, useMemo } from "react";
 import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
@@ -42,13 +45,16 @@ function GitActionMenuItem({
   showSeparator,
   closeOnSelect,
 }: GitActionMenuItemProps) {
+  const compact = useIsCompactFormFactor();
+  const touch = useVortonTouch();
+  const showHint = compact || touch;
   const handleSelect = useCallback(() => onSelect(action), [onSelect, action]);
   const trailing = useMemo(
     () =>
-      action.id === "archive-workspace" && archiveShortcutKeys ? (
+      action.id === "archive-workspace" && !action.disabled && archiveShortcutKeys ? (
         <Shortcut chord={archiveShortcutKeys} />
       ) : undefined,
-    [action.id, archiveShortcutKeys],
+    [action.id, action.disabled, archiveShortcutKeys],
   );
   return (
     <View>
@@ -62,6 +68,8 @@ function GitActionMenuItem({
         leading={action.icon}
         trailing={trailing}
         disabled={action.disabled}
+        tooltip={action.tooltip}
+        description={showHint ? action.tooltip : undefined}
         muted={Boolean(action.unavailableMessage)}
         status={action.status}
         pendingLabel={action.pendingLabel}
@@ -180,10 +188,10 @@ export function GitActionsSplitButton({
     return null;
   }
 
-  return (
-    <View style={styles.row}>
-      {gitActions.primary ? (
-        <View style={styles.splitButton}>
+  const primaryButton = gitActions.primary ? (
+    <Tooltip enabledOnDesktop={Boolean(gitActions.primary.tooltip)} enabledOnMobile={false}>
+      <TooltipTrigger asChild>
+        <View>
           <Pressable
             testID="changes-primary-cta"
             style={primaryPressableStyle}
@@ -209,6 +217,19 @@ export function GitActionsSplitButton({
               </View>
             )}
           </Pressable>
+        </View>
+      </TooltipTrigger>
+      <TooltipContent>
+        <Text style={styles.tooltipText}>{gitActions.primary.tooltip}</Text>
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+
+  return (
+    <View style={styles.row}>
+      {gitActions.primary ? (
+        <View style={styles.splitButton}>
+          {primaryButton}
           {gitActions.secondary.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -269,6 +290,7 @@ export function GitActionsSplitButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  tooltipText: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -288,6 +310,7 @@ const styles = StyleSheet.create((theme) => ({
     overflow: "hidden",
   },
   splitButtonPrimary: {
+    flex: 1,
     paddingHorizontal: {
       xs: theme.spacing[3],
       md: theme.spacing[2],

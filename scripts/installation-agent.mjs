@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -13,6 +13,8 @@ const { values, positionals } = parseArgs({
     target: { type: "string" },
     update: { type: "boolean" },
     repository: { type: "string" },
+    "contribution-id": { type: "string" },
+    replaces: { type: "string" },
     requester: { type: "string" },
     "reason-file": { type: "string" },
     "request-file": { type: "string" },
@@ -37,6 +39,11 @@ switch (positionals[0]) {
       ...(values.requester ? { requester: values.requester } : {}),
     };
     break;
+  case "contribution-status":
+    if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? ""))
+      throw new Error("A contribution ID is required");
+    resource = `/api/installation/source-contributions/${positionals[1]}`;
+    break;
   case "restart-status":
     if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
     resource = `/api/installation/restart-requests/${positionals[1]}`;
@@ -54,6 +61,7 @@ switch (positionals[0]) {
 }
 let upload;
 let metadata;
+const contributionId = values["contribution-id"] ?? randomUUID();
 if (values.update) {
   if (positionals[0] !== "request-restart" || values.target !== "host")
     throw new Error("--update supports request-restart --target host only");
@@ -75,7 +83,12 @@ if (values.update) {
     throw new Error("Invalid Host update source descriptor");
   const repository = path.resolve(values.repository ?? process.cwd());
   const git = (args) =>
-    execFileSync("git", args, { cwd: repository, encoding: "utf8", maxBuffer: 8192 }).trim();
+    execFileSync("git", args, {
+      cwd: repository,
+      encoding: "utf8",
+      maxBuffer: 8192,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
   if (git(["status", "--porcelain"]))
     throw new Error("Commit changes in a clean integration checkout before requesting an update");
   const sourceCommit = git(["rev-parse", "HEAD"]);
@@ -83,26 +96,49 @@ if (values.update) {
     throw new Error("Checkout must match the installation integration branch");
   if (sourceCommit === source.baseCommit)
     throw new Error("This source revision is already installed");
-  git(["merge-base", "--is-ancestor", source.baseCommit, sourceCommit]);
+  let baseCommit = source.baseCommit;
+  if (source.sourceBatches && Array.isArray(source.baseCandidates)) {
+    const known = source.baseCandidates.find((candidate) => {
+      if (typeof candidate !== "string" || !/^[a-f0-9]{40}$/.test(candidate)) return false;
+      try {
+        git(["merge-base", "--is-ancestor", candidate, sourceCommit]);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (!known)
+      throw new Error("Checkout must contain a known installed source base before upload");
+    baseCommit = known;
+  } else git(["merge-base", "--is-ancestor", baseCommit, sourceCommit]);
   const temporary = mkdtempSync(path.join(tmpdir(), "vorteo-source-update-"));
   try {
     const file = path.join(temporary, "source.bundle");
-    git(["bundle", "create", file, `${source.baseCommit}..${source.integrationRef}`]);
+    git(["bundle", "create", file, `${baseCommit}..${source.integrationRef}`]);
     if (statSync(file).size > Math.min(source.maxBytes, 128 * 1024 * 1024))
       throw new Error("Source bundle exceeds the upload limit");
     upload = readFileSync(file);
     metadata = Buffer.from(
       JSON.stringify({
         request: body,
+        ...(source.sourceBatches
+          ? {
+              contributionId: contributionId,
+              ...(values.replaces ? { replaces: values.replaces } : {}),
+            }
+          : {}),
         update: {
           sourceCommit,
-          baseCommit: source.baseCommit,
+          baseCommit,
           sha256: createHash("sha256").update(upload).digest("hex"),
           bytes: upload.length,
         },
       }),
     ).toString("base64");
-    resource = "/api/installation/source-update-requests";
+    if ((values.replaces || values["contribution-id"]) && !source.sourceBatches)
+      throw new Error("Coordinator does not support source contributions");
+    if (source.sourceBatches) process.stderr.write(`Contribution receipt: ${contributionId}\n`);
+    resource = `/api/installation/source-update-requests${source.sourceBatches ? "?sourceBatches=1" : ""}`;
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
@@ -127,11 +163,15 @@ if (!response.ok) {
   throw new Error(`Installation rejected the request (${response.status})${detail}`);
 }
 const result = await response.json();
-if (positionals[0] === "request-restart" || positionals[0] === "restart-status") {
+if (
+  positionals[0] === "request-restart" ||
+  positionals[0] === "restart-status" ||
+  positionals[0] === "contribution-status"
+) {
   const publicOrigin = config.publicOrigin ?? config.origin;
   const approval = new URL("/settings/general", new URL(publicOrigin).origin);
   approval.searchParams.set("installation", "1");
-  approval.searchParams.set("restart", result.id);
+  approval.searchParams.set("restart", result.batch?.id ?? result.id);
   result.approvalUrl = approval.href;
 }
 process.stdout.write(JSON.stringify(result, null, 2) + "\n");

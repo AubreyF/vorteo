@@ -517,10 +517,13 @@ export class FileBackedWorkspaceRegistry
     (mutation: WorkspaceMutation) => void | Promise<void>
   >();
 
+  private readonly assertArchiveAllowed?: (workspaceId: string) => Promise<void>;
+
   constructor(
     filePath: string,
     logger: Logger,
     options?: {
+      assertArchiveAllowed?: (workspaceId: string) => Promise<void>;
       writeRecords?: (
         filePath: string,
         records: readonly PersistedWorkspaceRecord[],
@@ -535,6 +538,7 @@ export class FileBackedWorkspaceRegistry
       component: "workspaces",
       writeRecords: options?.writeRecords,
     });
+    this.assertArchiveAllowed = options?.assertArchiveAllowed;
   }
 
   subscribeToMutations(
@@ -573,6 +577,7 @@ export class FileBackedWorkspaceRegistry
     archivedAt: string,
     context?: WorkspaceArchiveContext,
   ): Promise<void> {
+    await this.assertArchiveAllowed?.(workspaceId);
     const workspace = await super.update(workspaceId, (existing) => {
       assertWorkspaceUnprotected(existing);
       return {
@@ -589,6 +594,7 @@ export class FileBackedWorkspaceRegistry
   }
 
   override async remove(workspaceId: string): Promise<void> {
+    await this.assertArchiveAllowed?.(workspaceId);
     const workspace = await this.mutateCache((records) => {
       const existing = records.get(workspaceId);
       if (!existing) return null;

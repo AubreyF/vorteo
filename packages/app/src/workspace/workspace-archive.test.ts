@@ -1,3 +1,6 @@
+import { queryClient } from "@/data/query-client";
+import type { Agent } from "@/stores/session-store";
+import type { ScheduleSummary } from "@getpaseo/protocol/schedule/types";
 import { removeProjectFromHosts } from "@/projects/project-remove";
 import { seedSessionHosts } from "@/test/seed-session";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -61,8 +64,12 @@ function target(input?: Partial<WorkspaceArchiveTarget>): WorkspaceArchiveTarget
 
 function createClient(
   archiveWorkspace: DaemonClient["archiveWorkspace"],
-): Pick<DaemonClient, "archiveWorkspace"> {
-  return { archiveWorkspace };
+  schedules: ScheduleSummary[] = [],
+): Pick<DaemonClient, "archiveWorkspace" | "scheduleList"> {
+  return {
+    archiveWorkspace,
+    scheduleList: async () => ({ schedules, error: null, requestId: "schedule-list" }),
+  };
 }
 
 function deferred<T>(): {
@@ -88,11 +95,13 @@ function storedWorkspace(id: string): WorkspaceDescriptor | undefined {
 }
 
 beforeEach(() => {
+  queryClient.clear();
   seedSessionHosts([SERVER_ID, SECOND_SERVER_ID]);
   useSessionStore.getState().initializeSession(SERVER_ID, {} as DaemonClient);
 });
 
 afterEach(() => {
+  queryClient.clear();
   seedSessionHosts([]);
   clearWorkspaceArchivePending({ serverId: SERVER_ID, workspaceId: "workspace-1" });
   clearWorkspaceArchivePending({ serverId: SERVER_ID, workspaceId: "workspace-2" });
@@ -102,6 +111,38 @@ afterEach(() => {
 });
 
 describe("archiveWorkspaceOptimistically", () => {
+  it.each([{ protected: true }, { standing: true, protected: true }])(
+    "keeps a locked workspace visible without sending an archive request: %j",
+    async (lifecycle) => {
+      const locked = workspace(lifecycle);
+      getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [locked]);
+      const calls: string[] = [];
+      const client = createClient(async (workspaceId) => {
+        calls.push(workspaceId);
+        return archivePayload({ workspaceId });
+      });
+      await expect(archiveWorkspaceOptimistically({ client, workspace: target() })).rejects.toThrow(
+        "Unprotect to archive",
+      );
+      expect(calls).toEqual([]);
+      expect(storedWorkspace(locked.id)).toEqual(locked);
+      expect(isWorkspaceArchivePending({ serverId: SERVER_ID, workspaceId: locked.id })).toBe(
+        false,
+      );
+    },
+  );
+  it("does not turn a legacy Standing flag into explicit archive protection", async () => {
+    const ordinary = workspace({ standing: true, protected: false });
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [ordinary]);
+    const calls: string[] = [];
+    const client = createClient(async (workspaceId) => {
+      calls.push(workspaceId);
+      return archivePayload({ workspaceId });
+    });
+    await archiveWorkspaceOptimistically({ client, workspace: target() });
+    expect(calls).toEqual([ordinary.id]);
+    expect(storedWorkspace(ordinary.id)).toBeUndefined();
+  });
   it("hides the workspace and marks the archive pending while the daemon call runs", async () => {
     const archived = workspace();
     getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [archived]);
@@ -113,7 +154,7 @@ describe("archiveWorkspaceOptimistically", () => {
       workspace: target(),
     });
 
-    expect(storedWorkspace(archived.id)).toBeUndefined();
+    await vi.waitFor(() => expect(storedWorkspace(archived.id)).toBeUndefined());
     expect(
       isWorkspaceArchivePending({
         serverId: SERVER_ID,
@@ -335,11 +376,97 @@ it("preflights protected companion workspaces before any archive call", async ()
   try {
     await expect(
       archiveWorkspaceOptimistically({ workspace: target(), client: createClient(archive) }),
-    ).rejects.toThrow("protected");
+    ).rejects.toThrow("Unprotect to archive");
     expect(archive).not.toHaveBeenCalled();
     expect(storedWorkspace(original.id)).toEqual(original);
     expect(storedWorkspaceOn(SECOND_SERVER_ID, "workspace-2")).toBeDefined();
   } finally {
     getClient.mockRestore();
   }
+});
+
+it("refreshes a stale scheduled companion before archiving any environment", async () => {
+  const original = workspace();
+  const membership = { key: "project-1", name: "Project", environmentOwner: target() };
+  const ordinary = workspace({ id: "workspace-2", projectMembership: membership });
+  const scheduled = workspace({ id: "workspace-scheduled", projectMembership: membership });
+  getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [original]);
+  useSessionStore.getState().initializeSession(SECOND_SERVER_ID, null);
+  getHostRuntimeStore().acceptWorkspaceSnapshots(SECOND_SERVER_ID, [ordinary, scheduled]);
+  const timestamp = new Date("2026-10-07T00:00:00Z");
+  const agent: Agent = {
+    id: "schedule-target",
+    serverId: SECOND_SERVER_ID,
+    workspaceId: scheduled.id,
+    provider: "codex",
+    status: "idle",
+    turn: { phase: "idle", cancellationRequestId: null },
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    lastUserMessageAt: null,
+    lastActivityAt: timestamp,
+    capabilities: {
+      supportsStreaming: true,
+      supportsSessionPersistence: true,
+      supportsDynamicModes: true,
+      supportsMcpServers: true,
+      supportsReasoningStream: true,
+      supportsToolInvocations: true,
+    },
+    currentModeId: null,
+    availableModes: [],
+    pendingPermissions: [],
+    persistence: null,
+    title: null,
+    cwd: "/repo",
+    model: null,
+    parentAgentId: null,
+    labels: {},
+  };
+  useSessionStore.getState().setAgents(SECOND_SERVER_ID, new Map([[agent.id, agent]]));
+  queryClient.setQueryData(["schedules", "workspace-indicators", SECOND_SERVER_ID], []);
+  const schedule: ScheduleSummary = {
+    id: "new-schedule",
+    name: null,
+    prompt: "Review",
+    cadence: { type: "every", everyMs: 60_000 },
+    target: { type: "agent", agentId: agent.id },
+    status: "paused",
+    createdAt: timestamp.toISOString(),
+    updatedAt: timestamp.toISOString(),
+    nextRunAt: null,
+    lastRunAt: null,
+    pausedAt: timestamp.toISOString(),
+    expiresAt: null,
+    maxRuns: null,
+  };
+  const archived: string[] = [];
+  let started = false;
+  const owner = createClient(async (id) => {
+    archived.push(id);
+    return archivePayload({ workspaceId: id });
+  });
+  const companion = createClient(
+    async (id) => {
+      archived.push(id);
+      return archivePayload({ workspaceId: id });
+    },
+    [schedule],
+  );
+  await expect(
+    archiveWorkspaceOptimistically({
+      client: owner,
+      workspace: target(),
+      getCompanionClient: () => companion,
+      onArchiveStarted: () => {
+        started = true;
+      },
+    }),
+  ).rejects.toThrow("Remove schedules to archive");
+  expect(archived).toEqual([]);
+  expect(started).toBe(false);
+  expect(storedWorkspace(original.id)).toEqual(original);
+  expect(storedWorkspaceOn(SECOND_SERVER_ID, ordinary.id)).toEqual(ordinary);
+  expect(storedWorkspaceOn(SECOND_SERVER_ID, scheduled.id)).toEqual(scheduled);
+  expect(isWorkspaceArchivePending(target())).toBe(false);
 });

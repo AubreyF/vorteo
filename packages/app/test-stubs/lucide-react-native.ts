@@ -103,6 +103,7 @@ export const SquarePen = StubIcon;
 export const SquareTerminal = StubIcon;
 export const Star = StubIcon;
 export const Sun = StubIcon;
+export const Tag = StubIcon;
 export const Terminal = StubIcon;
 export const Trash2 = StubIcon;
 export const TriangleAlert = StubIcon;

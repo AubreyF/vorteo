@@ -18,6 +18,7 @@ export interface LifecycleAgentManager {
     options?: { reason: "manual" },
   ): Promise<AgentRunCancellationResult>;
   clearAgentAttention(agentId: string): Promise<void>;
+  assertAgentArchiveAllowed(agentId: string): Promise<void>;
   archiveAgent(agentId: string): Promise<{ archivedAt: string }>;
   archiveSnapshot(agentId: string, archivedAt: string): Promise<StoredAgentRecord>;
   closeAgent(agentId: string): Promise<void>;
@@ -125,6 +126,8 @@ export async function archiveAgentCommand(
   dependencies: AgentLifecycleCommandDependencies,
   agentId: string,
 ): Promise<ArchiveAgentResult> {
+  // Refuse before cancellation so a protected caller can receive the guardian response.
+  await dependencies.agentManager.assertAgentArchiveAllowed(agentId);
   const liveAgent = dependencies.agentManager.getAgent(agentId);
   let record: StoredAgentRecord | null;
   if (liveAgent) {

@@ -31,6 +31,7 @@ export interface GitAction {
   disabled: boolean;
   status: ActionStatus;
   unavailableMessage?: string;
+  tooltip?: string;
   icon?: ReactElement;
   /** When true, a menu separator should be rendered before this item. */
   startsGroup: boolean;
@@ -44,6 +45,7 @@ export interface GitActions {
 }
 
 interface GitActionRuntimeState {
+  tooltip?: string;
   disabled: boolean;
   status: ActionStatus;
   icon?: ReactElement;
@@ -288,6 +290,7 @@ export function buildGitActions(input: BuildGitActionsInput): GitActions {
     pendingLabel: i18n.t("workspace.git.actions.archive.pending"),
     successLabel: i18n.t("workspace.git.actions.archive.success"),
     disabled: input.runtime["archive-workspace"].disabled,
+    tooltip: input.runtime["archive-workspace"].tooltip,
     status: input.runtime["archive-workspace"].status,
     icon: input.runtime["archive-workspace"].icon,
     startsGroup: true,

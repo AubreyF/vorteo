@@ -9,6 +9,7 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { settingsStyles } from "@/styles/settings";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-badge";
 import { SidebarCallout } from "@/components/sidebar-callout";
+import { confirmDialog } from "@/utils/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { Theme } from "@/styles/theme";
@@ -55,11 +56,7 @@ export function InstallationControls({ requestId = null }: { requestId?: string 
   const registryLoaded = useHostRegistryLoaded();
   const model = getInstallationPanel(registryLoaded);
   if (!model) return null;
-  return requestId ? (
-    <LinkedInstallationPanel key={requestId} model={model} requestId={requestId} />
-  ) : (
-    <InstallationPanel model={model} />
-  );
+  return <InstallationPanel model={model} requestId={requestId} />;
 }
 
 // Session restoration stays app-wide. Setup routes to the inline controls once;
@@ -93,6 +90,15 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
 function restartStatus(job: RestartJob, historical = false) {
   if (job.status === "pending") {
     if (historical) return { label: "Superseded", variant: "muted" as const };
+    const batchStatus = job.sourceBatch?.status;
+    if (batchStatus && batchStatus !== "ready") {
+      const labels = {
+        preparing: "Combining source",
+        waiting: "Next batch",
+        conflict: "Needs correction",
+      };
+      return { label: labels[batchStatus], variant: "warning" as const };
+    }
     return { label: "Approval needed", variant: "warning" as const };
   }
   let approvedLabel = "Approved";
@@ -111,62 +117,13 @@ function restartStatus(job: RestartJob, historical = false) {
   return { label: labels[job.status], variant };
 }
 
-function LinkedInstallationPanel({
+function InstallationPanel({
   model,
   requestId,
 }: {
   model: InstallationPanelModel;
-  requestId: string;
+  requestId: string | null;
 }) {
-  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
-  const router = useRouter();
-  const showAll = useCallback(() => router.replace("/settings/general?installation=1"), [router]);
-  const selected = state.jobs.find((job) => job.id === requestId);
-  const pending = state.pendingJobs.some((job) => job.id === requestId);
-  const active = pending || selected?.status === "approved" || selected?.status === "running";
-  return (
-    <SettingsSection title="Installation" testID="installation-panel">
-      <View style={settingsStyles.card} testID="installation-card">
-        <InstallationOwnerAccess model={model} state={state} />
-        {state.error ? (
-          <Text accessibilityRole="alert" style={[styles.textInset, styles.error]}>
-            {state.error}
-          </Text>
-        ) : null}
-        {state.unlocked ? (
-          <>
-            {selected ? (
-              <RestartRequest
-                key={`${selected.id}:${selected.revision}`}
-                job={selected}
-                model={model}
-                busy={state.busy}
-                historical={!active}
-                linked
-              />
-            ) : (
-              <Text accessibilityLiveRegion="polite" style={[styles.textInset, styles.text]}>
-                {state.lastUpdatedAt
-                  ? "This restart request is no longer available."
-                  : "Loading restart request…"}
-              </Text>
-            )}
-            {state.notice ? (
-              <Text accessibilityLiveRegion="polite" style={[styles.textInset, styles.text]}>
-                {state.notice}
-              </Text>
-            ) : null}
-            <Button variant="ghost" onPress={showAll}>
-              All restart requests
-            </Button>
-          </>
-        ) : null}
-      </View>
-    </SettingsSection>
-  );
-}
-
-function InstallationPanel({ model }: { model: InstallationPanelModel }) {
   const controlSize = useVortonTouch() ? "md" : "sm";
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const [historyVisible, setHistoryVisible] = useState(false);
@@ -179,6 +136,9 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
     .toReversed();
   const activeIds = new Set(active.map((job) => job.id));
   const history = state.jobs.filter((job) => !activeIds.has(job.id)).toReversed();
+  const selectedHistory = history.find((job) => job.id === requestId);
+  const missingRequest =
+    requestId && state.lastUpdatedAt && !state.jobs.some((job) => job.id === requestId);
   const conflicts = Object.values(state.profileSharing?.sources ?? {}).some(
     (source) => source.error || source.conflicts.length,
   );
@@ -207,8 +167,23 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
                 job={job}
                 model={model}
                 busy={state.busy}
+                linked={job.id === requestId}
               />
             ))}
+            {selectedHistory ? (
+              <RestartRequest
+                job={selectedHistory}
+                model={model}
+                busy={state.busy}
+                historical
+                linked
+              />
+            ) : null}
+            {missingRequest ? (
+              <Text style={[styles.textInset, styles.text]}>
+                This restart request is no longer available.
+              </Text>
+            ) : null}
             {state.lastUpdatedAt && active.length === 0 ? (
               <Text style={[styles.textInset, styles.text]}>No pending restart requests</Text>
             ) : null}
@@ -253,6 +228,7 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
               </View>
               {historyVisible
                 ? history
+                    .filter((job) => job.id !== selectedHistory?.id)
                     .slice(0, 20)
                     .map((job) => (
                       <RestartRequest
@@ -485,32 +461,6 @@ function ProfileSharingEnvironment({
   );
 }
 
-function restartRequestCopy(job: RestartJob) {
-  if (job.update)
-    return {
-      confirm: "Install update and restart Host?",
-      approve: "Install update and restart",
-      review: "Review update",
-    };
-  return {
-    confirm: `Restart ${job.target === "host" ? "host" : "dev container"} daemon?`,
-    approve: "Restart now",
-    review: "Review restart",
-  };
-}
-
-function SourceUpdateDetails({ job }: { job: RestartJob }) {
-  if (!job.update) return null;
-  return (
-    <Text selectable style={styles.text}>
-      Install interface and Host daemon from source {job.update.sourceCommit}
-      {"\n"}Bundle SHA-256: {job.update.sha256}
-      {"\n"}Approval allows this code and its build scripts to run on Host. The coordinator and Dev
-      container are not updated.
-    </Text>
-  );
-}
-
 function RestartRequest({
   job,
   model,
@@ -524,33 +474,15 @@ function RestartRequest({
   historical?: boolean;
   linked?: boolean;
 }) {
-  const copy = restartRequestCopy(job);
-  const idleRestarts = readExecutionInstallation()?.idleRestarts === true;
   const status = restartStatus(job, historical);
-  const canDecide = !historical && job.status === "pending";
-  const [reviewing, setReviewing] = useState(linked);
+  const source = Boolean(job.update || job.sourceBatch);
   useEffect(() => {
     if (!linked || !isWeb) return;
     const frame = requestAnimationFrame(() => {
-      const target = canDecide ? `restart-confirm-${job.id}` : `restart-request-${job.id}`;
-      document.getElementById(target)?.scrollIntoView({ block: "center" });
+      document.getElementById(`restart-request-${job.id}`)?.scrollIntoView({ block: "center" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [linked, canDecide, job.id]);
-  const review = useCallback(() => setReviewing(true), []);
-  const cancel = useCallback(() => setReviewing(false), []);
-  const approve = useCallback(() => {
-    void model.decide(job, "approve");
-  }, [job, model]);
-  const queue = useCallback(() => {
-    void model.decide(job, "approve-when-idle");
-  }, [job, model]);
-  const cancelQueued = useCallback(() => {
-    void model.decide(job, "cancel");
-  }, [job, model]);
-  const reject = useCallback(() => {
-    void model.decide(job, "reject");
-  }, [job, model]);
+  }, [linked, job.id]);
   return (
     <View
       style={settingsStyles.rowBorder}
@@ -560,199 +492,212 @@ function RestartRequest({
       <View style={styles.cardBody}>
         <View style={styles.requestHeader}>
           <Text style={settingsStyles.rowTitle}>
-            {job.target === "host" ? "Host: full account access" : "Dev container"}
+            {job.target === "host" ? "Host" : "Dev container"}
           </Text>
           <StatusBadge {...status} />
         </View>
-        <RestartExplanation reason={job.reason} />
-        <SourceUpdateDetails job={job} />
-        <GracefulRestartActions job={job} model={model} busy={busy} onReview={cancel} />
+        <Text style={styles.text}>{restartExplanation(job.reason).summary}</Text>
         {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}
-        {!historical && (reviewing || job.status === "approved" || job.status === "running") ? (
-          <RestartActivity job={job} />
+        {source ? <SourceUpdateDetails job={job} /> : null}
+        {!historical && !source ? (
+          <>
+            <Text style={styles.text}>Restarts the installed runtime</Text>
+            <RestartActivity job={job} />
+          </>
         ) : null}
-        {job.status === "approved" && job.whenIdle ? (
-          <Button variant="outline" disabled={busy} onPress={cancelQueued}>
-            Cancel queued restart
-          </Button>
-        ) : null}
-        {canDecide && reviewing ? (
-          <View style={styles.details} testID={`restart-confirmation-${job.id}`}>
-            <Text style={settingsStyles.rowTitle}>{copy.confirm}</Text>
-            <Text style={styles.text}>
-              Running agents and terminals may be interrupted. This approves only the request shown
-              above.
-            </Text>
-            {!job.update ? (
-              <Text style={styles.text}>
-                Restart when idle waits for all active tasks to finish. Terminals may still
-                disconnect.
-              </Text>
-            ) : null}
-            <View style={styles.actions}>
-              {idleRestarts && !job.update ? (
-                <RestartQueueButton job={job} busy={busy} onPress={queue} />
-              ) : null}
-              <Button
-                variant="destructive"
-                disabled={busy}
-                onPress={approve}
-                nativeID={`restart-confirm-${job.id}`}
-                testID={`restart-confirm-${job.id}`}
-              >
-                {copy.approve}
-              </Button>
-              <Button variant="ghost" disabled={busy} onPress={cancel}>
-                Cancel
-              </Button>
-            </View>
-          </View>
-        ) : null}
-        {canDecide && !reviewing ? (
-          <View style={styles.actions}>
-            <Button
-              variant="outline"
-              disabled={busy}
-              onPress={review}
-              testID={`restart-approve-${job.id}`}
-            >
-              {copy.review}
-            </Button>
-            <Button variant="ghost" disabled={busy} onPress={reject}>
-              Reject
-            </Button>
-          </View>
-        ) : null}
+        <RestartActions job={job} model={model} busy={busy} historical={historical} />
       </View>
     </View>
   );
 }
 
-function GracefulRestartActions({
+function RestartActions({
   job,
   model,
   busy,
-  onReview,
+  historical,
 }: {
   job: RestartJob;
   model: InstallationPanelModel;
   busy: boolean;
-  onReview: () => void;
+  historical: boolean;
 }) {
-  const [confirmation, setConfirmation] = useState<"finish" | "now" | null>(null);
-  const reviewFinish = useCallback(() => {
-    onReview();
-    setConfirmation("finish");
-  }, [onReview]);
-  const reviewNow = useCallback(() => {
-    onReview();
-    setConfirmation("now");
-  }, [onReview]);
-  const cancel = useCallback(() => setConfirmation(null), []);
-  const confirm = useCallback(() => {
-    void model.decide(job, confirmation === "finish" ? "finish-current-turns" : "approve");
-    setConfirmation(null);
-  }, [model, job, confirmation]);
-  const requestAgain = useCallback(() => {
-    void model.decide(job, "request-again");
-  }, [model, job]);
-  if (job.update || !readExecutionInstallation()?.gracefulRestarts) return null;
-  if (job.status === "rejected")
-    return (
-      <Button variant="outline" disabled={busy} onPress={requestAgain}>
-        Request again
-      </Button>
-    );
-  if (job.status !== "pending" && job.status !== "approved") return null;
-  if (confirmation)
-    return (
-      <View style={styles.details} testID={`restart-finish-confirmation-${job.id}`}>
-        <Text style={styles.text}>
-          {confirmation === "finish"
-            ? "Hold new work, ask active threads to save and finish their current turns, then restart? Terminals may disconnect."
-            : "Restart immediately? Running tasks and terminals may be interrupted."}
-        </Text>
+  const installation = readExecutionInstallation();
+  const pending = job.status === "pending";
+  const queued = job.status === "approved" && job.whenIdle;
+  const source = Boolean(job.update || job.sourceBatch);
+  const install = useCallback(() => {
+    void model.decide(job, "approve");
+  }, [job, model]);
+  const queue = useCallback(() => {
+    void model.decide(job, "approve-when-idle");
+  }, [job, model]);
+  const finish = useCallback(() => {
+    void model.decide(job, "finish-current-turns");
+  }, [job, model]);
+  const cancel = useCallback(() => {
+    void model.decide(job, pending ? "reject" : "cancel");
+  }, [job, model, pending]);
+  if (historical) return null;
+  return (
+    <>
+      {pending && source ? (
         <View style={styles.actions}>
           <Button
             variant="destructive"
-            disabled={busy}
-            onPress={confirm}
-            testID={`restart-finish-confirm-${job.id}`}
+            disabled={
+              busy || !job.update || Boolean(job.sourceBatch && job.sourceBatch.status !== "ready")
+            }
+            onPress={install}
+            testID={`restart-install-${job.id}`}
           >
-            {confirmation === "finish" ? "Finish current turns and restart" : "Restart now"}
+            Install update and restart
           </Button>
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
         </View>
-      </View>
-    );
-  return (
-    <View style={styles.details}>
-      {job.finishCurrentTurns ? <Text style={styles.text}>{job.detail}</Text> : null}
-      <View style={styles.actions}>
-        {!job.finishCurrentTurns ? (
-          <Button
-            variant="outline"
-            disabled={busy || !job.impact?.gracefulRestartSupported}
-            onPress={reviewFinish}
-            testID={`restart-finish-${job.id}`}
-          >
-            Finish current turns and restart
-          </Button>
-        ) : null}
-        {job.status === "approved" ? (
-          <Button variant="outline" disabled={busy} onPress={reviewNow}>
-            Restart now
-          </Button>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-function RestartExplanation({ reason }: { reason: string }) {
-  const [detailsVisible, setDetailsVisible] = useState(false);
-  const toggleDetails = useCallback(() => setDetailsVisible((value) => !value), []);
-  const explanation = restartExplanation(reason);
-  return (
-    <>
-      <Text style={styles.text}>{explanation.summary}</Text>
-      {explanation.details ? (
+      ) : null}
+      {pending && !source ? (
         <>
-          <Button variant="ghost" onPress={toggleDetails} {...disclosureProps(detailsVisible)}>
-            {detailsVisible ? "Hide details" : "Details"}
-          </Button>
-          {detailsVisible ? <Text style={styles.text}>{explanation.details}</Text> : null}
+          <Text style={styles.text}>
+            Wait for idle, or hold new work while current turns finish.
+          </Text>
+          <View style={styles.actions}>
+            <Button
+              variant="outline"
+              disabled={busy || !installation?.idleRestarts || !job.impact?.idleRestartSupported}
+              onPress={queue}
+              testID={`restart-queue-${job.id}`}
+            >
+              Restart when idle
+            </Button>
+            <Button
+              variant="outline"
+              disabled={
+                busy || !installation?.gracefulRestarts || !job.impact?.gracefulRestartSupported
+              }
+              onPress={finish}
+              testID={`restart-finish-${job.id}`}
+            >
+              Finish turns and restart
+            </Button>
+            <Button variant="ghost" disabled={busy} onPress={cancel}>
+              Cancel
+            </Button>
+          </View>
         </>
+      ) : null}
+      {queued ? (
+        <View style={styles.actions}>
+          <Button variant="ghost" disabled={busy} onPress={cancel}>
+            Cancel
+          </Button>
+          <ForceRestartButton job={job} model={model} busy={busy} />
+        </View>
       ) : null}
     </>
   );
 }
 
-function RestartQueueButton({
+function SourceContribution({
+  item,
+}: {
+  item: NonNullable<RestartJob["sourceBatch"]>["contributions"][number];
+}) {
+  return (
+    <View>
+      <Text style={styles.text}>
+        {item.reason} ({item.status})
+      </Text>
+      <Text selectable style={styles.text}>
+        {item.update.sourceCommit}
+      </Text>
+      {item.status === "conflict" || item.status === "invalid" ? (
+        <Text selectable style={styles.error}>
+          {item.detail}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function SourceUpdateDetails({ job }: { job: RestartJob }) {
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const toggleHistory = useCallback(() => setHistoryVisible((value) => !value), []);
+  const controlSize = useVortonTouch() ? "md" : "sm";
+  const contributions = job.sourceBatch?.contributions ?? [];
+  const current = contributions.filter((item) => item.status !== "superseded");
+  const history = contributions.filter((item) => item.status === "superseded");
+  return (
+    <View style={styles.details}>
+      {job.sourceBatch ? (
+        <>
+          <Text style={styles.text}>{job.detail}</Text>
+          {current.map((item) => (
+            <SourceContribution key={item.id} item={item} />
+          ))}
+          {history.length ? (
+            <View>
+              <Button
+                variant="ghost"
+                size={controlSize}
+                onPress={toggleHistory}
+                {...disclosureProps(historyVisible)}
+                testID={`source-history-${job.id}`}
+              >
+                {`Previous submissions (${history.length})`}
+              </Button>
+              {historyVisible
+                ? history.map((item) => <SourceContribution key={item.id} item={item} />)
+                : null}
+            </View>
+          ) : null}
+        </>
+      ) : null}
+      {job.update ? (
+        <Text selectable style={styles.text}>
+          Install interface and Host daemon from source {job.update.sourceCommit}
+          {"\n"}Bundle SHA-256: {job.update.sha256}
+          {"\n"}Approval allows this code and its build scripts to run on Host. The coordinator and
+          Dev container are not updated.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function ForceRestartButton({
   job,
+  model,
   busy,
-  onPress,
 }: {
   job: RestartJob;
+  model: InstallationPanelModel;
   busy: boolean;
-  onPress: () => void;
 }) {
-  const supported = job.impact?.idleRestartSupported === true;
+  const force = useCallback(async () => {
+    const confirmed = await confirmDialog({
+      title: `Force restart ${job.target === "host" ? "host" : "dev container"}?`,
+      message: "Running tasks will be interrupted and terminals may disconnect.",
+      confirmLabel: "Force restart now",
+      destructive: true,
+    });
+    if (confirmed) await model.decide(job, "approve");
+  }, [job, model]);
   return (
     <Button
-      variant="outline"
-      disabled={busy || !supported}
-      onPress={onPress}
-      testID={`restart-queue-${job.id}`}
+      variant="destructive"
+      disabled={busy}
+      onPress={force}
+      testID={`restart-force-${job.id}`}
     >
-      Approve restart when idle
+      Force restart now
     </Button>
   );
 }
 
-function RestartActivity({ job, compact = false }: { job: RestartJob; compact?: boolean }) {
+function RestartActivity({ job }: { job: RestartJob }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (job.status !== "approved" || !job.whenIdle) return;
@@ -773,14 +718,8 @@ function RestartActivity({ job, compact = false }: { job: RestartJob; compact?: 
         <>
           <Text style={styles.text}>
             {job.impact.error ||
-              `Active tasks: ${job.impact.agents.length} · Starting operations: ${job.impact.pendingStarts}`}
+              `${job.impact.agents.length} active tasks · ${job.impact.pendingStarts} starting`}
           </Text>
-          {!compact &&
-            job.impact.agents.map((agent) => (
-              <Text selectable key={agent.id} style={styles.text}>
-                {agent.title} · {agent.status}
-              </Text>
-            ))}
           {!job.impact.idleRestartSupported && !job.impact.error ? (
             <Text style={styles.text}>
               This daemon needs an update before queued idle restarts can run.
@@ -803,7 +742,10 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const router = useRouter();
   const open = useCallback(() => router.push("/settings/general?installation=1"), [router]);
-  const jobs = state.jobs.filter((job) => ["pending", "approved", "running"].includes(job.status));
+  const pendingIds = new Set(state.pendingJobs.map((job) => job.id));
+  const jobs = state.jobs.filter(
+    (job) => pendingIds.has(job.id) || job.status === "approved" || job.status === "running",
+  );
   if (!state.unlocked && state.restartSummary) {
     const summary = state.restartSummary;
     if (!summary.requested && !summary.queued && !summary.running) return null;
@@ -814,7 +756,7 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
           description={`${summary.requested} requested · ${summary.queued} queued · ${summary.running} restarting. Unlock controls to review details.`}
         />
         <Button variant="outline" onPress={open}>
-          Open Installation controls
+          Review restart
         </Button>
       </View>
     );
@@ -824,17 +766,33 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
     <ScrollView style={styles.banner} testID="installation-restart-banner">
       {state.error ? (
         <Text accessibilityRole="alert" style={styles.error}>
-          Status refresh failed. Showing last known activity.
+          {state.error}
         </Text>
       ) : null}
       {jobs.map((job, index) => (
-        <RestartBannerItem key={job.id} job={job} showTopBorder={index > 0} />
+        <RestartBannerItem
+          key={job.id}
+          job={job}
+          model={model}
+          busy={state.busy}
+          showTopBorder={index > 0}
+        />
       ))}
     </ScrollView>
   );
 }
 
-function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBorder: boolean }) {
+function RestartBannerItem({
+  job,
+  model,
+  busy,
+  showTopBorder,
+}: {
+  job: RestartJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+  showTopBorder: boolean;
+}) {
   const router = useRouter();
   const open = useCallback(
     () =>
@@ -849,14 +807,19 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
       <View style={styles.details}>
         <Text style={styles.text}>{restartExplanation(job.reason).summary}</Text>
         {job.status === "approved" || job.status === "running" ? (
-          <RestartActivity job={job} compact />
+          <RestartActivity job={job} />
         ) : null}
-        <Button variant="outline" onPress={open}>
-          Review in Installation controls
-        </Button>
+        <View style={styles.actions}>
+          {job.status !== "running" && !job.update && !job.sourceBatch ? (
+            <ForceRestartButton job={job} model={model} busy={busy} />
+          ) : null}
+          <Button variant="outline" onPress={open}>
+            Review restart
+          </Button>
+        </View>
       </View>
     ),
-    [job, open],
+    [job, open, model, busy],
   );
   const target = job.target === "host" ? "Host daemon" : "Dev daemon";
   let title = `${target} restart needs approval`;
@@ -884,12 +847,7 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
 }
 
 const styles = StyleSheet.create((theme) => ({
-  banner: {
-    maxHeight: 280,
-    flexGrow: 0,
-    borderTopWidth: theme.borderWidth[1],
-    borderTopColor: theme.colors.border,
-  },
+  banner: { maxHeight: 280, flexGrow: 0, borderTopWidth: 1, borderTopColor: theme.colors.border },
   details: { gap: theme.spacing[2] },
   unlockRow: {
     flexDirection: "row",

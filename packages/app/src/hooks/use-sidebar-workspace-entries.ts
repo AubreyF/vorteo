@@ -1,5 +1,6 @@
 import { useMemo, useRef } from "react";
 import { useStoreWithEqualityFn } from "zustand/traditional";
+import { useCheckoutGitActionsStore, isCheckoutPrMergePending } from "@/git/actions-store";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { useSessionStore } from "@/stores/session-store";
 import {
@@ -32,6 +33,9 @@ export function useSidebarWorkspaceEntries(
   const pendingCreateAttempts = useCreateFlowStore((state) =>
     enabled ? state.pendingByDraftId : EMPTY_PENDING_CREATE_ATTEMPTS,
   );
+  const gitActionStatuses = useCheckoutGitActionsStore((state) =>
+    enabled ? state.statusByCheckout : EMPTY_PENDING_CREATE_ATTEMPTS,
+  );
   const previousEntriesRef = useRef<ReadonlyMap<string, SidebarWorkspaceEntry>>(EMPTY_ENTRIES);
 
   // Collection ownership is intentional: retained sidebars have one cheap
@@ -48,10 +52,12 @@ export function useSidebarWorkspaceEntries(
     const entries = buildSidebarWorkspaceEntries({
       placements,
       sessions,
+      isPrMergePending: (serverId, cwd) =>
+        isCheckoutPrMergePending(gitActionStatuses, serverId, cwd),
       pendingCreateAttempts,
       previousEntries: previousEntriesRef.current,
     });
     previousEntriesRef.current = entries;
     return entries;
-  }, [enabled, pendingCreateAttempts, placements, sessions]);
+  }, [enabled, gitActionStatuses, pendingCreateAttempts, placements, sessions]);
 }

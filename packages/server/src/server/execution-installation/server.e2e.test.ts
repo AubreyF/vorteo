@@ -350,6 +350,10 @@ async function fixture(
       path.join(release, ".installation-source.json"),
       JSON.stringify({ sourceCommit: "b".repeat(40) }),
     );
+    writeFileSync(
+      path.join(root, "release.json"),
+      JSON.stringify({ sourceCommit: "b".repeat(40) }),
+    );
     const link = path.join(root, "current");
     symlinkSync(release, link);
     config.sourceUpdates = {
@@ -638,6 +642,44 @@ test("guest credentials can request a restart but cannot unlock, approve, or add
       )
     ).status,
   ).toBe(403);
+  expect(calls).toEqual([]);
+});
+
+test("both request credentials join and observe the same target receipt without approving it", async () => {
+  const { request, calls } = await fixture();
+  const first = RestartJobSchema.parse(
+    await (
+      await request("/api/installation/restart-requests", "host-agent-test-token", {
+        target: "host",
+        reason: "Prepared first update",
+      })
+    ).json(),
+  );
+  const joined = RestartJobSchema.parse(
+    await (
+      await request("/api/installation/restart-requests", "guest-agent-test-token", {
+        target: "host",
+        reason: "Prepared complementary update",
+      })
+    ).json(),
+  );
+  expect(joined).toEqual(first);
+  for (const token of ["host-agent-test-token", "guest-agent-test-token"]) {
+    const response = await request(`/api/installation/restart-requests/${first.id}`, token);
+    expect(response.status).toBe(200);
+    expect(RestartJobSchema.parse(await response.json()).status).toBe("pending");
+    expect(
+      (
+        await request(`/api/installation/owner/restarts/${first.id}/decision`, token, {
+          revision: first.revision,
+          decision: "approve",
+        })
+      ).status,
+    ).toBe(401);
+  }
+  expect(
+    (await request(`/api/installation/restart-requests/${first.id}`, "invalid-token")).status,
+  ).toBe(401);
   expect(calls).toEqual([]);
 });
 
@@ -937,4 +979,117 @@ test("old coordinators refuse source upload explicitly and a changed bundle neve
       await request("/api/installation/owner/restarts/query", "owner-test-password", {})
     ).json(),
   ).toEqual([]);
+});
+
+test("batch uploads retain scoped receipts and require a batch-aware exact owner approval", async () => {
+  const install = vi
+    .spyOn(InstallationSourceUpdates.prototype, "install")
+    .mockResolvedValue("installed");
+  const prepare = vi
+    .spyOn(InstallationSourceUpdates.prototype, "prepare")
+    .mockImplementation(async (contributions) => ({
+      batch: {
+        webCommit: "b".repeat(40),
+        status: "ready",
+        contributions: contributions.map((item) => ({ ...item, status: "included" })),
+      },
+      update: { ...contributions[0]!.update, sha256: String(contributions.length).repeat(64) },
+    }));
+  try {
+    const { request, url } = await fixture(undefined, undefined, undefined, true);
+    const bundle = Buffer.from("inert source contribution");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: createHash("sha256").update(bundle).digest("hex"),
+      bytes: bundle.length,
+    };
+    const firstId = crypto.randomUUID();
+    const secondId = crypto.randomUUID();
+    const upload = (id: string, token = "guest-agent-test-token") =>
+      fetch(`${url}/api/installation/source-update-requests?sourceBatches=1`, {
+        method: "POST",
+        headers: {
+          Host: "owner.example.test",
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/octet-stream",
+          "x-vorteo-update": Buffer.from(
+            JSON.stringify({
+              request: { target: "host", reason: id },
+              update,
+              contributionId: id,
+            }),
+          ).toString("base64"),
+        },
+        body: bundle,
+      });
+    const replies = await Promise.all([upload(firstId), upload(secondId)]);
+    expect(replies.map((reply) => reply.status)).toEqual([201, 201]);
+    const [first, second] = await Promise.all(replies.map((reply) => reply.json()));
+    expect(first.batch.id).toBe(second.batch.id);
+    const receiptPath = `/api/installation/source-contributions/${firstId}`;
+    expect((await request(receiptPath, "bad-token")).status).toBe(401);
+    const read = async () => (await request(receiptPath, "guest-agent-test-token")).json();
+    // A periodic drain retries preparation invalidated by the second upload.
+    await vi.waitFor(async () => {
+      const response = await request(
+        "/api/installation/owner/restarts/query?sourceUpdates=1&sourceBatches=1",
+        "owner-test-password",
+        {},
+      );
+      const jobs = await response.json();
+      expect(jobs[0].sourceBatch.contributions).toHaveLength(2);
+    });
+    // Trigger the same durable preparation path used by the coordinator's interval.
+    const old = await read();
+    if (old.batch.sourceBatch.status !== "ready") {
+      // Idempotent retries retain the receipt and schedule another preparation.
+      expect((await upload(firstId)).status).toBe(201);
+    }
+    await vi.waitFor(async () => expect((await read()).batch.sourceBatch.status).toBe("ready"));
+    const receipt = await read();
+    expect(receipt.contribution.update).toEqual(update);
+    const decisionPath = `/api/installation/owner/restarts/${receipt.batch.id}/decision`;
+    const exact = {
+      revision: receipt.batch.revision,
+      decision: "approve",
+      updateSha256: receipt.batch.update.sha256,
+    };
+    expect(
+      (await request(`${decisionPath}?sourceUpdates=1`, "owner-test-password", exact)).status,
+    ).toBe(409);
+    expect(
+      (
+        await request(`${decisionPath}?sourceBatches=1`, "owner-test-password", {
+          ...exact,
+          revision: first.batch.revision,
+        })
+      ).status,
+    ).toBe(409);
+    expect(install).not.toHaveBeenCalled();
+    const legacy = await (
+      await request("/api/installation/owner/restarts/query", "owner-test-password", {})
+    ).json();
+    expect(legacy[0].sourceBatch).toBeUndefined();
+    expect(legacy[0].update).toBeUndefined();
+    expect(
+      (
+        await request(
+          `${decisionPath}?sourceBatches=1&sourceUpdates=1`,
+          "owner-test-password",
+          exact,
+        )
+      ).status,
+    ).toBe(200);
+    await vi.waitFor(() => expect(install).toHaveBeenCalledOnce());
+    expect((await read()).batch.status).toBe("succeeded");
+    expect((await upload(firstId)).status).toBe(201);
+    expect(install).toHaveBeenCalledOnce();
+    const next = await (await upload(crypto.randomUUID())).json();
+    expect(next.batch.id).not.toBe(receipt.batch.id);
+    expect(next.batch.status).toBe("pending");
+  } finally {
+    install.mockRestore();
+    prepare.mockRestore();
+  }
 });

@@ -158,6 +158,7 @@ export class InstallationPanelModel {
       );
       const pending = jobs.toReversed().filter((job) => {
         if (job.status !== "pending") return false;
+        if (job.update || job.sourceBatch) return true;
         if (targets.has(job.target)) return false;
         targets.add(job.target);
         return true;
@@ -249,6 +250,9 @@ export function restartExplanation(reason: string): { summary: string; details: 
     .replace(/^this request\b/i, "This restart")
     .replace(/\b[0-9a-f]{40,64}\b/gi, "")
     .replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, "")
+    .replace(/,?\s*version\s+\d+(?:\.\d+)+(?:[-.][\w]+)*/gi, "")
+    .replace(/,?\s*source\s*(?=[.,;]|$)/gi, "")
+    .replace(/\s+([.,;])/g, "$1")
     .replace(/[ \t]+/g, " ")
     .trim();
   return {

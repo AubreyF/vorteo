@@ -18,6 +18,7 @@ import { useCompactProfileName } from "./use-compact-profile-name";
 import { canonicalProfileId } from "@getpaseo/protocol/provider-preferences";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { selectedPresetPresentation } from "./selected-preset-presentation";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 
 const PROFILE_SNAP_POINTS = ["90%"];
 const EMPTY_OPTIONS: { id: string; label: string }[] = [];
@@ -99,6 +100,7 @@ export function PresetControls({
   );
   const { width } = useWindowDimensions();
   const { profiles: definitions, accountIndependent } = useAgentProfiles(serverId);
+  const { entries } = useProvidersSnapshot(serverId, { cwd: null });
   const { config } = useDaemonConfig(serverId);
   const preferences = config?.sharedProviderPreferences;
   const selectedProfileId =
@@ -107,7 +109,7 @@ export function PresetControls({
       : storedProfileId;
   const hasLocalEndpoint = profiles.rows.some((row) => Boolean(row.localEndpoint));
   const active = panelActive;
-  const { view } = usePresetData(serverId, profiles, active);
+  const { view } = usePresetData(serverId, active);
   // Refresh visible usage in the background without gating the menu.
   const refreshRef = useRef(profiles.refreshStatus);
   refreshRef.current = profiles.refreshStatus;
@@ -141,6 +143,7 @@ export function PresetControls({
       currentProvider,
       selected,
       definitions,
+      entries,
       view,
       now,
     });

@@ -1015,6 +1015,8 @@ export const ko: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "초안",
           merged: "병합됨",
           closed: "닫힘",
@@ -1828,6 +1830,7 @@ export const ko: TranslationResources = {
     backdrop: "메뉴 배경",
   },
   subagents: {
+    ...en.subagents,
     title: "하위 에이전트",
     pillLabelOne: "하위 에이전트 1개",
     pillLabelMany: "하위 에이전트 {{count}}개",
@@ -1840,7 +1843,7 @@ export const ko: TranslationResources = {
     detachTooltip: "하위 에이전트 분리",
     archiveAction: "{{label}} 보관",
     archiveTooltip: "서브에이전트 보관",
-    archiveFinishedAction: "완료된 하위 에이전트 보관",
+    archiveFinishedAction: "완료 항목 정리",
     archiveFinishedRetry: "다시 시도 ({{failed}}/{{total}})",
   },
   panels: {

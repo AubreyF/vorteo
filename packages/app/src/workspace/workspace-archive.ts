@@ -1,4 +1,8 @@
-import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import {
+  getWorkspaceArchiveBlockReason,
+  refreshWorkspaceArchiveBlockReason,
+} from "./lifecycle/archive";
 import { workspaceEnvironmentMembers } from "@/task-environments/workspaces";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import {
@@ -14,7 +18,7 @@ export interface WorkspaceArchiveTarget {
   workspaceId: string;
 }
 
-interface WorkspaceArchiveClient {
+interface WorkspaceArchiveClient extends Pick<DaemonClient, "scheduleList"> {
   archiveWorkspace: (workspaceId: string) => Promise<{ error: string | null }>;
 }
 
@@ -84,14 +88,14 @@ async function archiveWorkspaceOrThrow(input: {
 export async function archiveWorkspaceOptimistically(input: {
   client: WorkspaceArchiveClient;
   workspace: WorkspaceArchiveTarget;
+  getCompanionClient?: (serverId: string) => WorkspaceArchiveClient | null;
+  onArchiveStarted?: () => void;
 }): Promise<void> {
-  const existing = selectWorkspace(
-    useSessionStore.getState(),
+  const reason = getWorkspaceArchiveBlockReason(
     input.workspace.serverId,
     input.workspace.workspaceId,
   );
-  if (existing?.protected)
-    throw new Error("This workspace is protected. Remove protection before archiving.");
+  if (reason) throw new Error(reason);
   const members = workspaceEnvironmentMembers(useSessionStore.getState().sessions, input.workspace);
   const isOwner =
     members[0]?.serverId === input.workspace.serverId &&
@@ -103,17 +107,29 @@ export async function archiveWorkspaceOptimistically(input: {
   );
   // Preflight every environment before archiving any member of the visible workspace.
   for (const workspace of companions) {
-    if (
-      selectWorkspace(useSessionStore.getState(), workspace.serverId, workspace.workspaceId)
-        ?.protected
-    )
-      throw new Error("This workspace is protected. Remove protection before archiving.");
+    const companionReason = getWorkspaceArchiveBlockReason(
+      workspace.serverId,
+      workspace.workspaceId,
+    );
+    if (companionReason) throw new Error(companionReason);
   }
+  const getCompanionClient =
+    input.getCompanionClient ?? ((serverId: string) => getHostRuntimeStore().getClient(serverId));
   const operations = companions.map((workspace) => {
-    const client = getHostRuntimeStore().getClient(workspace.serverId);
+    const client = getCompanionClient(workspace.serverId);
     if (!client) throw new Error("Reconnect all workspace environments before archiving.");
     return { client, workspace };
   });
+  // Refresh every member before the first irreversible archive, not just the selected owner.
+  for (const operation of [input, ...operations]) {
+    const freshReason = await refreshWorkspaceArchiveBlockReason(
+      operation.client,
+      operation.workspace.serverId,
+      operation.workspace.workspaceId,
+    );
+    if (freshReason) throw new Error(freshReason);
+  }
+  input.onArchiveStarted?.();
   for (const operation of operations) {
     await archiveWorkspaceOrThrow({
       client: operation.client,

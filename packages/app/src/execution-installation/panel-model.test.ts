@@ -247,3 +247,11 @@ test("legacy restart paragraphs show one sentence about the change", () => {
     restartExplanation("Maintenance was requested. Review the details. Wait until idle.").summary,
   ).toBe("Maintenance was requested.");
 });
+
+test("restart summaries omit version and source metadata without dangling labels", () => {
+  expect(
+    restartExplanation(
+      "Activate task environments, version 0.11.0-beta.3.vorteo.175, source 0123456789abcdef0123456789abcdef01234567.",
+    ).summary,
+  ).toBe("Activate task environments.");
+});

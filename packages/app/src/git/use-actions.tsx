@@ -308,7 +308,8 @@ function useWorkspaceScreenArchiveController({
   return {
     ...controller,
     isArchiving: workspaceDescriptor?.archivingAt != null || isHidingWorkspace,
-    canArchive: canArchiveWorkspace(workspaceDescriptor, archiveRisk),
+    canArchive:
+      !controller.archiveProtected && canArchiveWorkspace(workspaceDescriptor, archiveRisk),
   };
 }
 
@@ -791,6 +792,7 @@ export function useGitActions({ serverId, cwd, icons }: UseGitActionsInput): Use
         },
         "archive-workspace": {
           disabled: !archiveController.canArchive || archiveController.isArchiving,
+          tooltip: archiveController.archiveBlockReason ?? undefined,
           status: archiveController.isArchiving ? "pending" : "idle",
           icon: icons.archive,
           handler: handleArchiveWorkspace,
@@ -837,6 +839,7 @@ export function useGitActions({ serverId, cwd, icons }: UseGitActionsInput): Use
     mergeStatus,
     mergeFromBaseStatus,
     archiveController.canArchive,
+    archiveController.archiveBlockReason,
     archiveController.isArchiving,
     handleCommit,
     handlePull,

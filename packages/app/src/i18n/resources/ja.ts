@@ -1021,6 +1021,8 @@ export const ja: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "ドラフト",
           merged: "マージ済み",
           closed: "クローズ済み",
@@ -1837,6 +1839,7 @@ export const ja: TranslationResources = {
     backdrop: "メニューの背景",
   },
   subagents: {
+    ...en.subagents,
     title: "サブエージェント",
     pillLabelOne: "サブエージェント 1 件",
     pillLabelMany: "サブエージェント {{count}} 件",
@@ -1849,7 +1852,7 @@ export const ja: TranslationResources = {
     detachTooltip: "サブエージェントを切り離す",
     archiveAction: "{{label}}をアーカイブ",
     archiveTooltip: "サブエージェントをアーカイブ",
-    archiveFinishedAction: "完了したサブエージェントをアーカイブ",
+    archiveFinishedAction: "完了済みを片付ける",
     archiveFinishedRetry: "再試行 ({{failed}}/{{total}})",
   },
   panels: {

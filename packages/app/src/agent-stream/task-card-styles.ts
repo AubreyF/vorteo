@@ -1,3 +1,4 @@
+import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { StyleSheet } from "react-native-unistyles";
 
 export const TASK_CARD_ROW_HEIGHT = 40;
@@ -19,7 +20,8 @@ export const taskCardStyles = StyleSheet.create((theme) => {
   return {
     surface,
     contentInsets,
-    container: { ...surface, ...contentInsets },
+    // Header rows supply part of the top clearance; keep a small inset above them.
+    container: { ...surface, ...contentInsets, paddingTop: theme.spacing[1] },
     item: {
       minHeight: TASK_CARD_ROW_HEIGHT,
       paddingVertical: theme.spacing[1],
@@ -46,10 +48,12 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       gap: theme.spacing[2],
     },
     touchHeader: { minHeight: TASK_CARD_TOUCH_ROW_HEIGHT, height: TASK_CARD_TOUCH_ROW_HEIGHT },
+    touchAccordionTrigger: { minHeight: CONTROL_HEIGHTS.field, height: CONTROL_HEIGHTS.field },
     accordionTrigger: {
       flex: 1,
       minWidth: 0,
-      minHeight: TASK_CARD_ROW_HEIGHT,
+      minHeight: CONTROL_HEIGHTS.compact,
+      height: CONTROL_HEIGHTS.compact,
       justifyContent: "flex-start",
       paddingHorizontal: theme.spacing[2],
     },

@@ -1000,6 +1000,8 @@ export const zhCN: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Draft",
           merged: "已 merge",
           closed: "已关闭",
@@ -1796,6 +1798,7 @@ export const zhCN: TranslationResources = {
     backdrop: "菜单背景",
   },
   subagents: {
+    ...en.subagents,
     title: "Subagent",
     pillLabelOne: "1 个 subagent",
     pillLabelMany: "{{count}} 个 subagent",
@@ -1808,7 +1811,7 @@ export const zhCN: TranslationResources = {
     detachTooltip: "分离 subagent",
     archiveAction: "归档 {{label}}",
     archiveTooltip: "归档 subagent",
-    archiveFinishedAction: "归档已完成的 subagent",
+    archiveFinishedAction: "清理已完成项",
     archiveFinishedRetry: "重试 ({{failed}}/{{total}})",
   },
   panels: {

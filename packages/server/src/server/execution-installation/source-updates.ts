@@ -5,8 +5,10 @@ import {
   mkdirSync,
   readFileSync,
   writeFileSync,
-  readdirSync,
-  unlinkSync,
+  existsSync,
+  openSync,
+  closeSync,
+  fsyncSync,
   realpathSync,
   symlinkSync,
   renameSync,
@@ -17,9 +19,12 @@ import {
   SourceUpdateSchema,
   type SourceUpdate,
   type RestartJob,
+  type SourceContribution,
 } from "@getpaseo/protocol/execution-installation";
 import type { InstallationConfig } from "./config.js";
 import { RestartRequestError, type RestartExecutor } from "./restarts.js";
+
+import { prepareSourceBatch } from "./source-batches.js";
 
 const execute = promisify(execFile);
 const ReceiptSchema = z.object({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/) });
@@ -40,27 +45,60 @@ export class InstallationSourceUpdates {
         readFileSync(path.join(settings.currentReleaseLink, ".installation-source.json"), "utf8"),
       ),
     );
+    const web = ReceiptSchema.parse(
+      JSON.parse(readFileSync(path.join(settings.webDirectory, "release.json"), "utf8")),
+    );
     return {
+      webCommit: web.sourceCommit,
       baseCommit: receipt.sourceCommit,
       integrationRef: settings.integrationRef,
+      sourceBatches: true,
       maxBytes: 128 * 1024 * 1024,
     };
   }
 
-  stage(input: SourceUpdate, bundle: Buffer): void {
+  stage(input: SourceUpdate, bundle: Buffer, batching = false): void {
     const update = SourceUpdateSchema.parse(input);
-    if (this.source().baseCommit !== update.baseCommit)
+    if (!batching && this.source().baseCommit !== update.baseCommit)
       throw new RestartRequestError("Installed source changed. Prepare a new update.");
     if (
       bundle.length !== update.bytes ||
       createHash("sha256").update(bundle).digest("hex") !== update.sha256
     )
       throw new RestartRequestError("Source bundle does not match its digest and size");
-    // The caller excludes active Host jobs before staging. Keep upload storage bounded.
-    for (const file of readdirSync(this.directory)) {
-      if (/^[a-f0-9]{64}\.bundle$/.test(file)) unlinkSync(path.join(this.directory, file));
+    const file = this.bundlePath(update);
+    if (existsSync(file)) {
+      if (!readFileSync(file).equals(bundle))
+        throw new RestartRequestError("Stored bundle is corrupt");
+      return;
     }
-    writeFileSync(this.bundlePath(update), bundle, { mode: 0o600, flag: "wx" });
+    const temporary = `${file}.${randomUUID()}.tmp`;
+    writeFileSync(temporary, bundle, { mode: 0o600, flag: "wx" });
+    const fd = openSync(temporary, "r");
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(temporary, file);
+    const directory = openSync(this.directory, "r");
+    try {
+      fsyncSync(directory);
+    } finally {
+      closeSync(directory);
+    }
+  }
+
+  prepare(contributions: SourceContribution[]) {
+    return prepareSourceBatch({
+      directory: this.directory,
+      repository: this.settings().sourceRepository,
+      integrationRef: this.settings().integrationRef,
+      baseCommit: this.source().baseCommit,
+      webCommit: this.source().webCommit,
+      contributions,
+      stage: (update, bundle) => this.stage(update, bundle, true),
+    });
   }
 
   async install(job: RestartJob, restart: RestartExecutor["restart"]): Promise<string> {
@@ -68,6 +106,10 @@ export class InstallationSourceUpdates {
     const settings = this.settings();
     if (job.target !== "host" || this.source().baseCommit !== update.baseCommit)
       throw new Error("Installed source changed. No update was installed; request a new approval.");
+    if (job.sourceBatch && job.sourceBatch.webCommit !== this.source().webCommit)
+      throw new Error(
+        "Published source changed. Review a newly prepared batch before installation.",
+      );
     const previous = realpathSync(settings.currentReleaseLink);
     const webReceipt = readFileSync(path.join(settings.webDirectory, "release.json"));
     const webIndex = readFileSync(path.join(settings.webDirectory, "index.html"));

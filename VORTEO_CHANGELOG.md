@@ -4,7 +4,117 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+
+## 0.11.0-beta.3.vorteo.186 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.185 - 2026-10-07
+
+### Fixed
+
+- Show current source-update submissions once in installation review. Keep superseded submissions in collapsed history while retaining current conflicts and the exact approval digest.
+
+## 0.11.0-beta.3.vorteo.184 - 2026-10-07
+
+### Fixed
+
+- Accept source contributions that already integrate the published interface, preserving their reviewed release history instead of merging it again against an older runtime. Divergent contributions retain metadata conflict checks and every update still requires exact-source approval.
+- Cover an installed interface with reconciled historical notes and a submitted descendant, including preserved ancestry and refusal of an unresolved divergent contribution.
+
+## 0.11.0-beta.3.vorteo.183 - 2026-10-07
+
+### Maintenance
+
+- Integrate the latest main publication with the reviewed workspace and profile refinements. Preserve both source histories and reconcile release notes and version metadata without changing the validated implementation.
+
+## 0.11.0-beta.3.vorteo.182 - 2026-10-07
+
+### Changed
+
+- Show the selected account beside both expanded and compact profile captions.
+- Restore environment, account and profile selection in three desktop columns and compact sections while retaining draft text, files and directory choices.
+- Balance conversation-card top spacing at four pixels and match accordion controls to adjacent actions on desktop and touch layouts.
+- Align Standing disclosure arrows with workspace status indicators and use the standard collapsed count badge.
+
+### Fixed
+
+- Block workspace and thread archival for explicit protection and active or paused schedules. Explain the blockers with a disabled lock action and guard archive shortcuts.
+- Refuse blocked agent archive requests before cancelling the running turn, and preflight companion workspaces before archival.
+- Preserve current main changes, preview-globe styling and verified-preview recovery source. Add the label icon to browser test fixtures.
+
+### Added
+
+- Integrate reviewed Dev source uploads and digest-bound Host daemon and interface installation into main, preserving current preview and interface changes.
+
+### Maintenance
+
+- Preserve the installed source-update commit in main history and reconcile version metadata and release notes.
+
+## 0.11.0-beta.3.vorteo.181 - 2026-10-07
+
+### Fixed
+
+- Keep sidebar preview globes neutral across healthy and unhealthy services, and inset them four pixels from the right edge to align with neighboring content. Service health remains available in accessible labels.
+
+## 0.11.0-beta.3.vorteo.180 - 2026-10-07
+
+### Added
+
+- Combine pending Host source contributions into one reviewed release with immutable receipts, preserved provenance and one exact-source installation approval
+- Freeze approved batches and queue later submissions separately; retain conflicts for explicit correction
+
+### Changed
+
+- Separate Vorteo workers from provider subagents, explain missing model metadata and distinguish dismissal from archival
+- Smooth the sidebar action overlay with an eased fade that matches its row background
+
+### Fixed
+
+- Share plain restart requests per target and show Host and Dev controls together with explicit force confirmation
+- Restore account reset counters when shared profiles name a provider family
+- Preserve newer published interface source and reconcile generated release versions, internal pins, lock entries and appended release notes during inert preparation
+
+### Maintenance
+
+- Integrate Standing and schedule controls, pull request activity, card spacing and repository links with the reviewed Host update workflow
+
+- Cover Git integration, release metadata, hostile configuration, concurrency, recovery and approval races; coordinator installation remains separate from source validation
+
+### Added
+
+- Opt-in recovery of previously verified workspace previews after daemon restarts, retaining their private HTTPS reservations and rechecking service, listener and certificate identity.
+- Bounded retry coverage and installer controls that preserve existing policy when omitted. Explicit stops, archived or changed workspaces, and unrecognized replacement processes remain protected.
+
+### Maintenance
+
+- Update preview operation, host acceptance and customization documentation. Real restart acceptance remains a separate installation check.
+
+## 0.11.0-beta.3.vorteo.179 - 2026-10-07
+
+### Fixed
+
+- Remove redundant top padding from goal, task progress, message queue and subagent cards while preserving header heights and touch targets.
+- Update desktop and compact conversation-card spacing assertions and the shared design guidance.
+
+## 0.11.0-beta.3.vorteo.178 - 2026-10-07
+
+### Changed
+
+- Replace the Star, Sponsor and Community footers in Settings and Open Project with one GitHub icon and link to `AubreyF/vorteo`
+
 ## 0.11.0-beta.3.vorteo.177 - 2026-10-07
+
+### Changed
+
+- Extend the sidebar PR link with Awaiting merge for GitHub auto-merge or queue membership and Merging while a client-submitted merge is pending.
+- Align Standing headings with workspace dots, match workspace title size, show the count as a badge only while collapsed, and use a full-row highlight with a leading disclosure arrow.
+- Derive Standing membership from workspace schedules and archive protection, retaining paused schedules with a Paused badge.
+- Open workspace-scoped schedules from Tag As and sidebar badges, with explicit thread selection for new schedules.
+- Keep existing custom labels visible and distinguish reserved names; remove the empty custom-label heading.
+- Cover schedule state, thread schedule creation, protection and menu behavior with focused tests.
 
 ### Added
 

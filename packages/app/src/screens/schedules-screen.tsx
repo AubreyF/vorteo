@@ -6,6 +6,8 @@ import {
   useSyncExternalStore,
   type ReactElement,
 } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { SelectField } from "@/components/ui/select-field";
 import { ScrollView, Text, View } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { CalendarClock, Plus } from "lucide-react-native";
@@ -54,18 +56,35 @@ const EMPTY_SCHEDULES: AggregatedSchedule[] = [];
 
 export function SchedulesScreen(): ReactElement {
   const isFocused = useIsFocused();
+  const scope = useLocalSearchParams<{ serverId?: string; workspaceId?: string }>();
 
   if (!isFocused) {
     return <View style={styles.container} />;
   }
 
-  return <SchedulesScreenContent />;
+  return <SchedulesScreenContent key={`${scope.serverId ?? ""}:${scope.workspaceId ?? ""}`} />;
 }
 
 function SchedulesScreenContent(): ReactElement {
+  const scope = useLocalSearchParams<{ serverId?: string; workspaceId?: string }>();
+  const scoped = !!scope.serverId && !!scope.workspaceId;
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const { loadState, hostErrors, isError, refetch } = useSchedules();
   const schedules = loadState.status === "loaded" ? loadState.data : EMPTY_SCHEDULES;
   const { agents } = useAggregatedAgents({ includeArchived: true });
+  const workspaceAgents = agents.filter(
+    (agent) =>
+      agent.serverId === scope.serverId &&
+      agent.workspaceId === scope.workspaceId &&
+      !agent.archivedAt,
+  );
+  const agentId = workspaceAgents.length === 1 ? workspaceAgents[0].id : selectedAgentId;
+  const agentOptions = workspaceAgents.map((agent) => ({
+    id: agent.id,
+    value: agent.id,
+    label: agent.title || "Untitled agent",
+  }));
+  const selectedAgent = agentOptions.find((agent) => agent.id === agentId);
   const { projects } = useProjects();
   const hosts = useHosts();
   const runtime = getHostRuntimeStore();
@@ -92,7 +111,7 @@ function SchedulesScreenContent(): ReactElement {
   }, [hosts, runtime, runtimeVersion]);
 
   const [form, setForm] = useState<FormState>({ mode: "closed" });
-  const [selectedHost, setSelectedHost] = useState(ALL_HOSTS_OPTION_ID);
+  const [selectedHost, setSelectedHost] = useState(scope.serverId ?? ALL_HOSTS_OPTION_ID);
   const [statusFilter, setStatusFilter] = useState<ScheduleBucket>("runnable");
 
   useEffect(() => {
@@ -104,7 +123,10 @@ function SchedulesScreenContent(): ReactElement {
     }
   }, [hosts, selectedHost]);
 
-  const openCreate = useCallback(() => setForm({ mode: "create" }), []);
+  const openCreate = useCallback(() => {
+    if (scoped && !selectedAgent) return;
+    setForm({ mode: "create" });
+  }, [scoped, selectedAgent]);
   const openEdit = useCallback((schedule: AggregatedSchedule) => {
     setForm({ mode: "edit", serverId: schedule.serverId, schedule });
   }, []);
@@ -147,7 +169,13 @@ function SchedulesScreenContent(): ReactElement {
       .filter(
         ({ schedule, resolved }) =>
           (selectedHost === ALL_HOSTS_OPTION_ID || schedule.serverId === selectedHost) &&
-          resolved.bucket === statusFilter,
+          resolved.bucket === statusFilter &&
+          (!scoped ||
+            (schedule.serverId === scope.serverId &&
+              schedule.target.type === "agent" &&
+              workspaceAgents.some(
+                (agent) => schedule.target.type === "agent" && agent.id === schedule.target.agentId,
+              ))),
       )
       .sort((a, b) => Date.parse(b.schedule.createdAt) - Date.parse(a.schedule.createdAt))
       .map(({ schedule, resolved }) => ({
@@ -158,14 +186,41 @@ function SchedulesScreenContent(): ReactElement {
         serverName: schedule.serverName,
         singleHost,
       }));
-  }, [resolvedRows, selectedHost, statusFilter, hosts.length]);
+  }, [
+    resolvedRows,
+    selectedHost,
+    statusFilter,
+    hosts.length,
+    scoped,
+    scope.serverId,
+    workspaceAgents,
+  ]);
 
   const showLoadError = isError && loadState.status !== "loaded";
-  const showHostFilter = hosts.length > 1;
+  const showHostFilter = !scoped && hosts.length > 1;
 
   return (
     <View style={styles.container}>
-      <MenuHeader title="Schedules" />
+      <MenuHeader title={scoped ? "Workspace schedules" : "Schedules"} />
+      {scoped ? (
+        <View style={styles.filterRow}>
+          {agentOptions.length > 0 ? (
+            <SelectField
+              label="Schedule a thread"
+              value={agentId}
+              options={agentOptions}
+              selectedDisplay={selectedAgent ?? null}
+              onChange={setSelectedAgentId}
+              emptyText="No threads"
+              placeholder="Choose a thread"
+            />
+          ) : (
+            <Text style={styles.message}>
+              Create a thread in this workspace before adding a schedule.
+            </Text>
+          )}
+        </View>
+      ) : null}
       <SchedulesScreenBody
         rows={visibleRows}
         loadState={loadState}
@@ -178,11 +233,13 @@ function SchedulesScreenContent(): ReactElement {
         selectedHost={selectedHost}
         onSelectHost={setSelectedHost}
         onRetry={refetch}
+        canCreate={!scoped || !!selectedAgent}
         onCreate={openCreate}
         onEdit={openEdit}
       />
       <ScheduleFormSheet
-        serverId={form.mode === "edit" ? form.serverId : undefined}
+        serverId={form.mode === "edit" ? form.serverId : scope.serverId}
+        agentId={scoped && form.mode === "create" ? agentId : undefined}
         visible={form.mode === "create" || form.mode === "edit"}
         onClose={closeForm}
         mode={form.mode === "edit" ? "edit" : "create"}
@@ -205,6 +262,7 @@ function SchedulesScreenBody({
   onSelectHost,
   onRetry,
   onCreate,
+  canCreate,
   onEdit,
 }: {
   rows: ScheduleRowView[];
@@ -219,6 +277,7 @@ function SchedulesScreenBody({
   onSelectHost: (serverId: string) => void;
   onRetry: () => void;
   onCreate: () => void;
+  canCreate: boolean;
   onEdit: (schedule: AggregatedSchedule) => void;
 }): ReactElement {
   const bodyState = resolveSchedulesScreenBodyState({ loadState, showLoadError });
@@ -246,7 +305,7 @@ function SchedulesScreenBody({
     return (
       <View style={styles.centered}>
         {hostErrors.length > 0 ? <ScheduleHostErrorsBanner errors={hostErrors} /> : null}
-        <SchedulesEmptyState onCreate={onCreate} testID="schedules-empty" />
+        <SchedulesEmptyState canCreate={canCreate} onCreate={onCreate} testID="schedules-empty" />
       </View>
     );
   }
@@ -259,7 +318,7 @@ function SchedulesScreenBody({
   } else {
     schedulesContent = (
       <View style={styles.filterEmpty}>
-        <SchedulesEmptyState onCreate={onCreate} testID="schedules-empty" />
+        <SchedulesEmptyState canCreate={canCreate} onCreate={onCreate} testID="schedules-empty" />
       </View>
     );
   }
@@ -287,6 +346,7 @@ function SchedulesScreenBody({
         <Button
           variant="outline"
           leftIcon={Plus}
+          disabled={!canCreate}
           onPress={onCreate}
           size="sm"
           testID="schedules-new"
@@ -309,9 +369,11 @@ function SchedulesScreenBody({
 }
 
 function SchedulesEmptyState({
+  canCreate,
   onCreate,
   testID,
 }: {
+  canCreate: boolean;
   onCreate: () => void;
   testID?: string;
 }): ReactElement {
@@ -323,7 +385,13 @@ function SchedulesEmptyState({
         <Text style={styles.emptyDescription}>Schedules run agents on a cadence.</Text>
         <ExternalLink href="https://paseo.sh/docs/schedules" label="See docs" />
       </View>
-      <Button variant="outline" leftIcon={Plus} onPress={onCreate} testID="schedules-empty-new">
+      <Button
+        disabled={!canCreate}
+        variant="outline"
+        leftIcon={Plus}
+        onPress={onCreate}
+        testID="schedules-empty-new"
+      >
         New schedule
       </Button>
     </View>

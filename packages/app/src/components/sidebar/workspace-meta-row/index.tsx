@@ -44,7 +44,6 @@ const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
 
 const foregroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
-const dangerMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
 
 /**
  * The subtitle under a workspace title: which host it lives on, its change request, that
@@ -189,6 +188,8 @@ function PullRequestItem({ hint }: { hint: PrHint }) {
   const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
   const presentation = getForgePresentation(normalizeForge(hint.forge));
+  const labelState = hint.state === "open" ? hint.activity : hint.state;
+  const statusLabel = labelState ? t(PR_STATE_LABEL_KEYS[labelState]) : "";
 
   const handlePress = useCallback(
     (event: GestureResponderEvent) => {
@@ -204,10 +205,15 @@ function PullRequestItem({ hint }: { hint: PrHint }) {
   return (
     <Pressable
       accessibilityRole="link"
-      accessibilityLabel={t("workspace.git.pr.accessibility.pullRequest", {
-        number: hint.number,
-        context: presentation.changeRequestContext,
-      })}
+      accessibilityLabel={[
+        t("workspace.git.pr.accessibility.pullRequest", {
+          number: hint.number,
+          context: presentation.changeRequestContext,
+        }),
+        statusLabel,
+      ]
+        .filter(Boolean)
+        .join(", ")}
       hitSlop={4}
       onPressIn={handlePressIn}
       onPress={handlePress}
@@ -222,9 +228,7 @@ function PullRequestItem({ hint }: { hint: PrHint }) {
       )}
       <Text style={isHovered ? styles.prTextHovered : styles.prText} numberOfLines={1}>
         {hint.number}
-        {/* An open change request is the unremarkable case and says nothing extra; a merged
-            or closed one is why the row still looks like it has work in it. */}
-        {hint.state === "open" ? "" : ` ${t(PR_STATE_LABEL_KEYS[hint.state])}`}
+        {statusLabel ? ` ${statusLabel}` : ""}
       </Text>
     </Pressable>
   );
@@ -278,8 +282,7 @@ const CHECK_STATE_ACCESSIBLE_KEYS = {
  * else is a number, a short word, or a host label the user already picked — so it is also the
  * only one allowed to shrink, and it truncates rather than pushing the line past the row.
  *
- * A failed health check turns the whole item danger, glyph and name together. Colouring only the
- * glyph would leave the name reading as fine, and the name is the part you look at.
+ * The globe stays neutral. The service name and accessible label report its health.
  */
 export function ServiceItem({
   summary,
@@ -296,7 +299,7 @@ export function ServiceItem({
       accessibilityLabel={t(workspaceServiceLabelKey(summary), { name: summary.name })}
       testID={unhealthy ? "workspace-service-unhealthy" : "workspace-service"}
     >
-      <ThemedGlobe size={META_ICON_SIZE} uniProps={unhealthy ? dangerMapping : successMapping} />
+      <ThemedGlobe size={META_ICON_SIZE} uniProps={mutedMapping} />
       {!iconOnly && (
         <Text
           style={unhealthy ? styles.serviceNameUnhealthy : styles.serviceName}
@@ -309,9 +312,9 @@ export function ServiceItem({
   );
 }
 
-const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
-
 const PR_STATE_LABEL_KEYS = {
+  awaiting_merge: "workspace.git.pr.states.awaitingMerge",
+  merging: "workspace.git.pr.states.merging",
   merged: "workspace.git.pr.states.merged",
   closed: "workspace.git.pr.states.closed",
 } as const;
@@ -321,7 +324,11 @@ function pressableItemStyle({ pressed }: { pressed: boolean }) {
 }
 
 const styles = StyleSheet.create((theme) => ({
-  serviceIcon: { height: 20 },
+  serviceIcon: {
+    height: 20,
+    // Inset the globe's ink to match the sidebar's trailing content.
+    paddingRight: theme.spacing[1],
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",

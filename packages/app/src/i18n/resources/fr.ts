@@ -1040,6 +1040,8 @@ export const fr: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Brouillon",
           merged: "Fusionné",
           closed: "Fermé",
@@ -1870,6 +1872,7 @@ export const fr: TranslationResources = {
     backdrop: "Toile de fond du menu",
   },
   subagents: {
+    ...en.subagents,
     title: "Sous-agents",
     pillLabelOne: "1 sous-agent",
     pillLabelMany: "{{count}} sous-agents",
@@ -1882,7 +1885,7 @@ export const fr: TranslationResources = {
     detachTooltip: "Detacher le sous-agent",
     archiveAction: "Archiver{{label}}",
     archiveTooltip: "Sous-agent d'archivage",
-    archiveFinishedAction: "Archiver les sous-agents terminés",
+    archiveFinishedAction: "Retirer les terminés",
     archiveFinishedRetry: "Réessayer ({{failed}}/{{total}})",
   },
   panels: {

@@ -1031,6 +1031,8 @@ export const ptBR: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Rascunho",
           merged: "Mergeada",
           closed: "Fechada",
@@ -1851,6 +1853,7 @@ export const ptBR: TranslationResources = {
     backdrop: "Fundo do menu",
   },
   subagents: {
+    ...en.subagents,
     title: "Subagentes",
     pillLabelOne: "1 subagente",
     pillLabelMany: "{{count}} subagentes",
@@ -1863,7 +1866,7 @@ export const ptBR: TranslationResources = {
     detachTooltip: "Desanexar subagente",
     archiveAction: "Arquivar {{label}}",
     archiveTooltip: "Arquivar subagente",
-    archiveFinishedAction: "Arquivar subagentes concluídos",
+    archiveFinishedAction: "Limpar concluídos",
     archiveFinishedRetry: "Tentar novamente ({{failed}}/{{total}})",
   },
   panels: {

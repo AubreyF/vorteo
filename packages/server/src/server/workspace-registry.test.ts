@@ -66,6 +66,33 @@ describe("workspace registries", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  test.each(["archive", "remove"] as const)(
+    "schedule preflight refuses registry %s without changing the record",
+    async (operation) => {
+      const registry = new FileBackedWorkspaceRegistry(path.join(tmpDir, "guarded.json"), logger, {
+        assertArchiveAllowed: async () => {
+          throw new Error("Remove schedules to archive");
+        },
+      });
+      const record = createPersistedWorkspaceRecord({
+        workspaceId: "scheduled",
+        projectId: "project",
+        cwd: tmpDir,
+        kind: "directory",
+        displayName: "Scheduled",
+        createdAt: "2026-10-07T00:00:00Z",
+        updatedAt: "2026-10-07T00:00:00Z",
+      });
+      await registry.upsert(record);
+      const mutation =
+        operation === "archive"
+          ? registry.archive(record.workspaceId, record.updatedAt)
+          : registry.remove(record.workspaceId);
+      await expect(mutation).rejects.toThrow("Remove schedules to archive");
+      expect(await registry.get(record.workspaceId)).toEqual(record);
+    },
+  );
+
   test("protected workspaces survive archive attempts and retain protection after reload", async () => {
     const record = createPersistedWorkspaceRecord({
       workspaceId: "standing",

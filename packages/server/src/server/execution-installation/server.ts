@@ -70,7 +70,22 @@ function matchesToken(token: string | null, hash: string): boolean {
 }
 
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
-function restartReply(job: RestartJob, details: boolean, graceful = false, sourceUpdates = false) {
+function restartReply(
+  job: RestartJob,
+  details: boolean,
+  graceful = false,
+  sourceUpdates = false,
+  sourceBatches = false,
+) {
+  if (job.sourceBatch && !sourceBatches) {
+    const { sourceBatch: _batch, ...compatible } = job;
+    return restartReply(
+      { ...compatible, detail: "Source batch pending. Reload Vorteo to review contributions." },
+      details,
+      graceful,
+      sourceUpdates,
+    );
+  }
   // COMPAT(sourceUpdates): added in v177; retain until older restart-only clients are retired.
   if (job.update && !sourceUpdates) {
     const { update: _update, ...restart } = job;
@@ -113,7 +128,13 @@ export function createInstallationServer(
   const journal = path.join(config.stateDir, "restart-jobs.json");
   const updates = config.sourceUpdates ? new InstallationSourceUpdates(config) : null;
   const restartExecutor: RestartExecutor = updates
-    ? { ...executor, installUpdate: (job) => updates.install(job, executor.restart) }
+    ? {
+        ...executor,
+        sourceBase: () => updates.source().baseCommit,
+        sourceWeb: () => updates.source().webCommit,
+        prepareUpdate: (items) => updates.prepare(items),
+        installUpdate: (job) => updates.install(job, executor.restart),
+      }
     : executor;
   const restarts = new InstallationRestarts(
     {
@@ -192,7 +213,7 @@ export function createInstallationServer(
     res.setHeader("Cache-Control", "no-store");
     next();
   });
-  let uploading = false;
+  let uploads = 0;
   function authenticateUpdate(req: Request, res: Response, next: NextFunction) {
     const token = extractHttpBearerToken(req.header("authorization"));
     const host = matchesToken(token, config.hostAgentTokenHash);
@@ -213,27 +234,40 @@ export function createInstallationServer(
       res.sendStatus(503);
       return;
     }
-    res.json(updates.source());
+    const source = updates.source();
+    const previousBases = restarts
+      .list()
+      .filter(
+        (job) => job.update && ["approved", "running", "succeeded", "failed"].includes(job.status),
+      )
+      .toReversed()
+      .map((job) => job.update!.baseCommit);
+    res.json({ ...source, baseCandidates: [...new Set([source.baseCommit, ...previousBases])] });
   });
   app.post(
     "/api/installation/source-update-requests",
     authenticateUpdate,
-    (_req, res, next) => {
+    (req, res, next) => {
+      const batching = req.query.sourceBatches === "1";
+      if (uploads >= 2) {
+        res.status(429).json({ error: "Upload capacity reached. Retry the same contribution ID." });
+        return;
+      }
       const active = restarts
         .list()
         .some(
           (job) => job.target === "host" && ["pending", "approved", "running"].includes(job.status),
         );
-      if (uploading || active) {
+      if (!batching && (uploads > 0 || active)) {
         res.status(409).json({ error: "A Host request or source upload is already active" });
         return;
       }
-      uploading = true;
+      uploads++;
       let released = false;
       const release = () => {
         if (!released) {
           released = true;
-          uploading = false;
+          uploads--;
         }
       };
       res.once("finish", release);
@@ -248,7 +282,12 @@ export function createInstallationServer(
         return;
       }
       const input = z
-        .strictObject({ request: RestartRequestSchema, update: SourceUpdateSchema })
+        .strictObject({
+          request: RestartRequestSchema,
+          update: SourceUpdateSchema,
+          contributionId: z.string().uuid().optional(),
+          replaces: z.string().uuid().optional(),
+        })
         .parse(JSON.parse(Buffer.from(metadata, "base64").toString("utf8")));
       if (input.request.target !== "host") {
         res.sendStatus(400);
@@ -260,7 +299,12 @@ export function createInstallationServer(
         .some(
           (job) => job.target === "host" && ["pending", "approved", "running"].includes(job.status),
         );
-      if (active) {
+      const batching = req.query.sourceBatches === "1";
+      if (batching && !input.contributionId) {
+        res.status(400).json({ error: "Contribution ID required" });
+        return;
+      }
+      if (active && !batching) {
         res.sendStatus(409);
         return;
       }
@@ -268,11 +312,29 @@ export function createInstallationServer(
         res.sendStatus(503);
         return;
       }
-      updates.stage(input.update, req.body);
+      updates.stage(input.update, req.body, batching);
       const requester = z.enum(["host-agent", "container-agent"]).parse(res.locals.updateRequester);
-      res.status(201).json(restarts.request(input.request, requester, input.update));
+      if (batching && input.contributionId) {
+        const receipt = restarts.contribute(
+          input.request,
+          requester,
+          input.update,
+          input.contributionId,
+          input.replaces,
+        );
+        res.status(201).json(receipt);
+        void drainRestarts();
+      } else res.status(201).json(restarts.request(input.request, requester, input.update));
     },
   );
+  app.get("/api/installation/source-contributions/:id", authenticateUpdate, (req, res) => {
+    const receipt = restarts.contribution(req.params.id);
+    if (!receipt) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(receipt);
+  });
   app.use(express.json({ limit: "1mb" }));
   app.get("/api/installation/health", (_req, res) =>
     res.json({ installationId: config.public.installationId }),
@@ -358,15 +420,14 @@ export function createInstallationServer(
       res.sendStatus(401);
       return;
     }
-    const requestedBy = host ? "host-agent" : "container-agent";
-    const job = restarts
-      .list()
-      .find((candidate) => candidate.id === req.params.id && candidate.requestedBy === requestedBy);
+    // Both installation credentials can request either target and share its queue.
+    // A caller joining an existing request must be able to observe that receipt.
+    const job = restarts.list().find((candidate) => candidate.id === req.params.id);
     if (!job) {
       res.sendStatus(404);
       return;
     }
-    res.json(job);
+    res.json(restartReply(job, true, true, true, req.query.sourceBatches === "1"));
   });
 
   app.post("/api/installation/container-agents", (req, res, next) => {
@@ -557,6 +618,7 @@ export function createInstallationServer(
             req.query.idleRestarts === "1",
             req.query.gracefulRestarts === "1",
             req.query.sourceUpdates === "1",
+            req.query.sourceBatches === "1",
           ),
         ),
     );
@@ -577,6 +639,11 @@ export function createInstallationServer(
   );
   app.post("/api/installation/owner/restarts/:id/decision", (req, res) => {
     const decision = RestartDecisionSchema.parse(req.body);
+    const reviewed = restarts.list().find((item) => item.id === req.params.id);
+    if (reviewed?.sourceBatch && req.query.sourceBatches !== "1" && decision.decision !== "reject")
+      throw new RestartRequestError(
+        "Reload Vorteo to review all source contributions before approval",
+      );
     const job = restarts.decide(
       req.params.id,
       decision.revision,
@@ -589,6 +656,7 @@ export function createInstallationServer(
         req.query.idleRestarts === "1",
         req.query.gracefulRestarts === "1",
         req.query.sourceUpdates === "1",
+        req.query.sourceBatches === "1",
       ),
     );
     void restarts

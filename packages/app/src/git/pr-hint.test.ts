@@ -41,3 +41,42 @@ describe("selectPrHintFromStatus", () => {
     ).toBeNull();
   });
 });
+
+describe("PR merge activity", () => {
+  it.each([
+    [{ autoMergeRequest: {} }, "awaiting_merge"],
+    [{ isInMergeQueue: true }, "awaiting_merge"],
+    [{ isMergeQueueEnabled: true }, undefined],
+    [{ mergeStateStatus: "BLOCKED" }, undefined],
+    [{ autoMergeRequest: null, isInMergeQueue: false }, undefined],
+    [{ isInMergeQueue: "true" }, undefined],
+    [null, undefined],
+  ])("uses verified auto-merge or queue membership: %j", (github, activity) => {
+    expect(selectPrHintFromStatus({ ...githubStatus, github })?.activity).toBe(activity);
+  });
+
+  it("shows a pending direct merge ahead of auto-merge, and clears it afterwards", () => {
+    const status = { ...githubStatus, github: { autoMergeRequest: {} } };
+    expect(selectPrHintFromStatus(status, "github", true)?.activity).toBe("merging");
+    expect(selectPrHintFromStatus(status, "github", false)?.activity).toBe("awaiting_merge");
+    expect(selectPrHintFromStatus(githubStatus, "github", false)?.activity).toBeUndefined();
+  });
+
+  it.each(["merged", "closed"])("never overrides a confirmed %s result", (state) => {
+    expect(
+      selectPrHintFromStatus(
+        { ...githubStatus, state, github: { isInMergeQueue: true } },
+        "github",
+        true,
+      ),
+    ).toMatchObject({ state, activity: undefined });
+  });
+
+  it("does not treat another forge's payload as GitHub evidence", () => {
+    expect(
+      selectPrHintFromStatus({ ...gitlabStatus, github: { autoMergeRequest: {} } }, "gitlab")
+        ?.activity,
+    ).toBeUndefined();
+    expect(selectPrHintFromStatus(gitlabStatus, "gitlab", true)?.activity).toBe("merging");
+  });
+});
