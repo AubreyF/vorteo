@@ -14,8 +14,8 @@ export function projectMoveBlockedReason(
 /**
  * The local project to move along with the group, if any. A group should use one local project per
  * host; otherwise New workspace cannot tell which folder the group means there. Move it only when
- * the target group has exactly one placement on this host, and never for a worktree, which stays
- * with its repository's project.
+ * the target group has exactly one placement on this host, and only for plain folders: repository
+ * checkouts and worktrees stay with their repository's project.
  */
 export function placementForProjectMove(input: {
   workspace: Pick<WorkspaceDescriptor, "projectId" | "workspaceKind"> | null | undefined;
@@ -23,7 +23,7 @@ export function placementForProjectMove(input: {
   serverId: string;
 }): string | undefined {
   const { workspace } = input;
-  if (!workspace || workspace.workspaceKind === "worktree") return undefined;
+  if (!workspace || workspace.workspaceKind !== "directory") return undefined;
   const projectId = getHostProjectId(input.target, input.serverId);
   return projectId && projectId !== workspace.projectId ? projectId : undefined;
 }

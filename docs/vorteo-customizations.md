@@ -703,6 +703,10 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 20, 2026: The card column measures collapsed tiles against the grid in one batched pass after any tile or column resize, so tiles on one line count as one row and open cards fill the space below the right-hand cards. README overview and onboarding are unchanged.
+
+October 20, 2026: Follow-up fixes from the progress review: completion requires passed checks, progress can be cleared, only plain folders move their local project with a group, a lone project is preselected, and repeated check texts keep distinct keys. Demo data gains two simulated workers. README overview and onboarding are unchanged.
+
 October 20, 2026: Rebuilt the Add project flow around one folder browser for open, create and clone destinations, replacing the separate search page, host-folder toggle and parent-then-name pages on capable hosts. Folder creation now starts from a listed folder, which removes the late "Parent directory not found" failure. No protocol or daemon change. README Power Tools are unchanged because Add project is upstream onboarding behavior refined in place.
 
 October 19, 2026: Integration merges checklist progress and project placement work with the installed Open questions and restart continuation source. Feature behavior is unchanged by the merge; README overview and onboarding are unchanged.

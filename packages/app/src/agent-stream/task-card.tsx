@@ -73,15 +73,20 @@ function CardBodyBoundary({ children }: { children: ReactNode }) {
 function useCardTile(bodyVisible: boolean) {
   const grid = useContext(CardGridContext);
   const [width, setWidth] = useState(Infinity);
-  const [row, setRow] = useState(0);
-  const onGridLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
-    if (event.nativeEvent.layout.width > 0) setRow(Math.round(event.nativeEvent.layout.y));
-  }, []);
   const column = useContext(CardColumnContext);
   const compact = grid && !bodyVisible && !column?.allCollapsed;
   const tile = useMemo(() => ({ compact, width }), [compact, width]);
   const rootStyle = [grid && cardGridExpandedStyle, compact && cardGridCollapsedStyle];
-  return { tile, setWidth, rootStyle, row, onGridLayout };
+  return { tile, setWidth, rootStyle };
+}
+
+/** Every tile reports, so a resize anywhere re-measures the collapsed rows it may have moved. */
+function useTileLayout(id: string) {
+  const tileLayout = useContext(CardColumnContext)?.onTileLayout;
+  return useCallback(
+    (event: import("react-native").LayoutChangeEvent) => tileLayout?.(id, event),
+    [tileLayout, id],
+  );
 }
 
 function cardHeight({
@@ -126,7 +131,7 @@ function TaskCardView({
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }) {
-  const { tile, setWidth, rootStyle, row, onGridLayout } = useCardTile(bodyVisible);
+  const { tile, setWidth, rootStyle } = useCardTile(bodyVisible);
   const compact = tile.compact;
   const divider = useScrollDivider();
   const { inset: panelInset, onLayout: onPanelLayout } = usePanelSpacing();
@@ -157,8 +162,8 @@ function TaskCardView({
   const bodySpace = bodyVisible ? (panelDemand ?? bodyHeight) : 0;
   const naturalHeight = headerHeight + insets + bodySpace;
   useLayoutEffect(() => {
-    measure?.(id, retainedActive ? naturalHeight : null, compact ? row : undefined, bodyVisible);
-  }, [measure, id, naturalHeight, retainedActive, compact, row, bodyVisible]);
+    measure?.(id, retainedActive ? naturalHeight : null, compact, bodyVisible);
+  }, [measure, id, naturalHeight, retainedActive, compact, bodyVisible]);
   useLayoutEffect(() => () => measure?.(id, null), [measure, id]);
   const onHeaderLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
@@ -188,6 +193,7 @@ function TaskCardView({
     }),
     [maxHeight],
   );
+  const onGridLayout = useTileLayout(id);
   const parentDrag = useContext(QueueDragScrollContext);
   const { scrollEnabled, onDragActive } = useQueueDragScroll(true);
   const setDragging = useCallback(

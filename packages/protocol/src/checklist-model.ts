@@ -123,7 +123,7 @@ export function mutateChecklist(
     mutation = { ...mutation, text };
   }
   if (mutation.operation === "create") {
-    const { operation: _operation, id = platform.createId(), ...fields } = mutation;
+    const { operation: _operation, id = platform.createId(), progress, ...fields } = mutation;
     if (items.some((item) => item.id === id)) {
       throw new ChecklistError("duplicate", `Task ${id} already exists. Read it before retrying.`);
     }
@@ -133,6 +133,7 @@ export function mutateChecklist(
       ...items,
       normalizeTaskProgress({
         ...fields,
+        ...(progress === null || progress === undefined ? {} : { progress }),
         id,
         source: "vorteo",
         status: "pending",
@@ -188,6 +189,38 @@ export function mutateChecklist(
   return updateTask(items, current, mutation);
 }
 
+/** Apply an explicit progress value or clearing, and drop derived progress when checks are emptied. */
+function applyProgressFields(
+  current: AgentTaskItem,
+  updated: AgentTaskItem,
+  progress: number | null | undefined,
+  checks: AgentTaskItem["checks"],
+): AgentTaskItem {
+  const next = { ...updated };
+  if (progress === null) delete next.progress;
+  else if (progress !== undefined) next.progress = progress;
+  // Emptying the checks also drops the value they derived, unless a new estimate came with it.
+  if (checks !== undefined && checks.length === 0) {
+    delete next.checks;
+    if (progress === undefined && current.checks?.length) delete next.progress;
+  }
+  return next;
+}
+
+/** Completion requires every acceptance check to pass. Older completed items stay editable. */
+function assertChecksPassedForCompletion(
+  updated: AgentTaskItem,
+  fields: { status?: AgentTaskItem["status"]; checks?: AgentTaskItem["checks"] },
+): void {
+  const completingOrRechecking = fields.status === "completed" || fields.checks !== undefined;
+  if (completingOrRechecking && updated.completed && updated.checks?.some((check) => !check.done)) {
+    throw new ChecklistError(
+      "invalid",
+      "Mark every acceptance check done before completing this task, or update its checks.",
+    );
+  }
+}
+
 function updateTask(
   items: readonly AgentTaskItem[],
   current: AgentTaskItem,
@@ -199,10 +232,13 @@ function updateTask(
     expectedTask: _expectedTask,
     addBlocks,
     addBlockedBy,
+    progress,
     ...fields
   } = mutation;
   const status = fields.status ?? current.status ?? "pending";
   let updated: AgentTaskItem = { ...current, ...fields, status, completed: status === "completed" };
+  updated = applyProgressFields(current, updated, progress, fields.checks);
+  assertChecksPassedForCompletion(updated, fields);
   if (fields.metadata !== undefined)
     updated.metadata = mergeTaskMetadata(current.metadata, fields.metadata);
   if (addBlockedBy !== undefined)

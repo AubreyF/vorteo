@@ -9913,7 +9913,10 @@ describe("moving a workspace's local project with its group", () => {
     updatedAt: "2026-10-18T00:00:00.000Z",
   });
 
-  function setup(kind: "directory" | "worktree", projects: Record<string, typeof target>) {
+  function setup(
+    kind: "directory" | "worktree" | "local_checkout",
+    projects: Record<string, typeof target>,
+  ) {
     const emitted: SessionOutboundMessage[] = [];
     const session = createSessionForWorkspaceTests({
       onMessage: (message) => emitted.push(message),
@@ -9958,7 +9961,8 @@ describe("moving a workspace's local project with its group", () => {
         "Restore",
       ],
       ["directory", {}, "no longer exists"],
-      ["worktree", { "vorteo-local": target }, "Worktrees"],
+      ["worktree", { "vorteo-local": target }, "worktrees stay"],
+      ["local_checkout", { "vorteo-local": target }, "Repository checkouts"],
     ] as const) {
       const { emitted, session, current } = setup(kind, projects);
       const before = current();

@@ -92,6 +92,8 @@ import {
   InstallationSettingsNotInitialized,
   type InstallationSettingsService,
 } from "./settings/service.js";
+import type { InstructionRequestEnvironment } from "@getpaseo/protocol/instruction-requests";
+import { InstructionRequestError, InstructionRequests } from "./settings/instruction-requests.js";
 
 import { inspectContainerSource } from "./container-updates.js";
 import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
@@ -309,6 +311,12 @@ export function createInstallationServer(
   claudeOAuth?: ClaudeOAuthRuntime,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
+  const instructionRequests = new InstructionRequests(
+    path.join(config.stateDir, "shared-settings"),
+    settings,
+    () => new Date(),
+    (message) => logger.warn(message),
+  );
   const updates = {
     host: config.sourceUpdates ? new InstallationSourceUpdates(config) : null,
     "container-daemon": config.containerSourceUpdates
@@ -1143,6 +1151,43 @@ export function createInstallationServer(
     });
   });
 
+  // Agents may propose shared agent instructions. Request-only credentials never apply them.
+  const instructionRequester = (req: Request): InstructionRequestEnvironment | null => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (matchesToken(token, config.hostAgentTokenHash)) return "host";
+    if (matchesToken(token, config.containerAgentTokenHash)) return "container";
+    return null;
+  };
+  app.post("/api/installation/instruction-requests", (req, res) => {
+    const environment = instructionRequester(req);
+    if (!environment) {
+      res.sendStatus(401);
+      return;
+    }
+    res.status(201).json(instructionRequests.submit(req.body, environment));
+  });
+  app.get("/api/installation/instruction-requests/:id", (req, res) => {
+    const environment = instructionRequester(req);
+    if (!environment) {
+      res.sendStatus(401);
+      return;
+    }
+    const request = instructionRequests.get(req.params.id, environment);
+    if (!request) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(request);
+  });
+  app.post("/api/installation/instruction-requests/:id/cancel", (req, res) => {
+    const environment = instructionRequester(req);
+    if (!environment) {
+      res.sendStatus(401);
+      return;
+    }
+    res.json(instructionRequests.cancel(req.params.id, environment));
+  });
+
   app.get("/api/installation/monitor-selection", (req, res, next) => {
     if (
       !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
@@ -1535,6 +1580,17 @@ export function createInstallationServer(
     res.json(job);
     void restarts.drain().catch(() => logger.error("Monitor lifecycle journal failed"));
   });
+  app.post("/api/installation/owner/instruction-requests/query", (_req, res) => {
+    const snapshot = settings.snapshot();
+    res.json({
+      revision: snapshot.revision,
+      appendSystemPrompt: snapshot.settings?.appendSystemPrompt ?? null,
+      requests: instructionRequests.list(),
+    });
+  });
+  app.post("/api/installation/owner/instruction-requests/decision", (req, res, next) => {
+    void instructionRequests.decide(req.body).then((request) => res.json(request), next);
+  });
   app.post("/api/installation/owner/helpers/query", (_req, res) => {
     res.json({ jobs: restarts.listHelpers() });
   });
@@ -1876,6 +1932,10 @@ export function createInstallationServer(
     }
     if (error instanceof ProviderPreferencesValidationError) {
       res.status(400).json({ error: error.message, reference: error.reference });
+      return;
+    }
+    if (error instanceof InstructionRequestError) {
+      res.status(error.status).json({ error: error.message });
       return;
     }
     if (error instanceof InstallationSettingsInvalidUpdate) {

@@ -206,6 +206,20 @@ describe("when nothing remembered can be used", () => {
     expect(result.current.selectedSourceDirectory).toBeNull();
   });
 
+  it("preselects the only project instead of asking", () => {
+    const { result } = renderHook(() =>
+      useNewWorkspaceProjectPicker({
+        selectedServerId: "host",
+        projects: [chosen],
+        routeProject: null,
+        routeProjectContextViewKey: null,
+        lastActiveProject: null,
+        allowAllProjects: true,
+      }),
+    );
+    expect(result.current.projectTriggerLabel).toBe("Chosen");
+  });
+
   it("remembers a manual choice", () => {
     const remembered: string[] = [];
     const { result } = renderHook(() =>

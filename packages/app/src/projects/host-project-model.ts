@@ -280,8 +280,8 @@ export function resolveHostProjectCandidate(input: {
 
 /**
  * The project New workspace starts with: the routed project, then the one the owner came from,
- * then their last manual choice. With none usable on this host it returns null so the picker
- * asks, rather than silently choosing whichever project happens to sort first.
+ * then their last manual choice, then the only project when there is just one. Otherwise it
+ * returns null so the picker asks, rather than choosing whichever project happens to sort first.
  */
 export function resolveInitialWorkspaceProject(input: {
   routeProject: HostProjectListItem | null;
@@ -316,7 +316,17 @@ export function resolveInitialWorkspaceProject(input: {
     }
   }
 
-  return null;
+  // With a single usable project there is nothing to ask.
+  const [only, ...others] = input.projects;
+  return only &&
+    others.length === 0 &&
+    canCreateWorkspaceForHostProject({
+      project: only,
+      serverId: input.serverId,
+      allowAllProjects: input.allowAllProjects,
+    })
+    ? only
+    : null;
 }
 
 export function resolveInitialWorktreeProject(input: {

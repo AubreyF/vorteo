@@ -33,8 +33,8 @@ const TaskFields = {
   owner: z.string().max(200).optional(),
   blockedBy: z.array(z.string().min(1)).max(500).optional(),
   metadata: z.record(z.string(), JsonWireValueSchema).optional(),
-  /** An estimate from 0 to 100. Ignored when the item has checks. */
-  progress: z.number().min(0).max(100).optional(),
+  /** An estimate from 0 to 100, or null to stop tracking progress. Ignored when checks exist. */
+  progress: z.number().min(0).max(100).nullable().optional(),
   checks: z
     .array(z.object({ text: z.string().min(1).max(300), done: z.boolean() }).strict())
     .max(20)

@@ -90,6 +90,8 @@ if (
       install: { type: "boolean" },
       remove: { type: "boolean" },
       reason: { type: "string" },
+      "instructions-file": { type: "string" },
+      "base-revision": { type: "string" },
     },
   });
   if (
@@ -343,6 +345,31 @@ if (
         throw new Error("A request ID is required");
       resource = `/api/installation/restart-requests/${positionals[1]}`;
       break;
+    case "read-instructions":
+      // Prints the shared agent instructions and the revision a change must be based on.
+      resource = "/api/installation/settings/admission";
+      break;
+    case "request-instructions": {
+      if (!values["instructions-file"] || !values["base-revision"] || !values.reason?.trim())
+        throw new Error(
+          "Use --instructions-file with the complete new instructions, --base-revision from read-instructions, and --reason",
+        );
+      if (!/^\d+$/.test(values["base-revision"]))
+        throw new Error("--base-revision must be the revision printed by read-instructions");
+      resource = "/api/installation/instruction-requests";
+      body = {
+        appendSystemPrompt: readFileSync(values["instructions-file"], "utf8"),
+        baseRevision: Number(values["base-revision"]),
+        reason: values.reason.trim(),
+        requester: values.requester?.trim() || `${config.kind} through the installation client`,
+      };
+      break;
+    }
+    case "instructions-status":
+      if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? ""))
+        throw new Error("A request ID is required");
+      resource = `/api/installation/instruction-requests/${positionals[1]}`;
+      break;
     case "container-agents":
       if (config.kind !== "host-agent")
         throw new Error("Container agents cannot address another environment");
@@ -353,7 +380,7 @@ if (
       break;
     default:
       throw new Error(
-        "Commands: capabilities, request-worker-launch, worker-launch-status, request-restart, restart-status, contribution-status, request-coordinator, coordinator-status, request-helper, helper-status, request-session-host --install|--remove, session-host-status, container-agents (Host only)",
+        "Commands: capabilities, request-worker-launch, worker-launch-status, request-restart, restart-status, contribution-status, request-coordinator, coordinator-status, request-helper, helper-status, request-session-host --install|--remove, session-host-status, read-instructions, request-instructions, instructions-status, container-agents (Host only)",
       );
   }
   let upload;
@@ -510,6 +537,20 @@ if (
       planSha256: result.planSha256,
       approvalUrl: review.href,
     };
+  }
+  if (positionals[0] === "read-instructions") {
+    result = { revision: result.revision, appendSystemPrompt: result.settings?.appendSystemPrompt };
+  }
+  if (["request-instructions", "instructions-status"].includes(positionals[0])) {
+    // The owner reviews the full text in Installation controls and presses Approve.
+    const review = new URL(
+      "/settings/general",
+      new URL(config.publicOrigin ?? config.origin).origin,
+    );
+    review.searchParams.set("installation", "1");
+    review.searchParams.set("instructions", result.id);
+    const { appendSystemPrompt: _text, ...summary } = result;
+    result = { ...summary, approvalUrl: review.href };
   }
   if (["request-coordinator", "coordinator-status"].includes(positionals[0])) {
     const approval = new URL(
