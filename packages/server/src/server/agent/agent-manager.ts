@@ -2026,6 +2026,15 @@ export class AgentManager {
     return this.timelineStore.fetch(id, options);
   }
 
+  async fetchSavedTimeline(
+    id: string,
+    options?: AgentTimelineFetchOptions,
+  ): Promise<AgentTimelineFetchResult> {
+    // Reading committed history must not require starting its original provider.
+    if (!this.durableTimelineStore) throw new Error("Saved timeline storage is unavailable");
+    return this.durableTimelineStore.fetchCommitted(id, options);
+  }
+
   listProviderSubagents(parentAgentId: string): ProviderSubagentDescriptor[] {
     this.requirePublicAgent(parentAgentId);
     return this.providerSubagents.list(parentAgentId);
@@ -3582,6 +3591,7 @@ export class AgentManager {
     if (options?.clientMessageId) {
       this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, {
         intent: handler.intent,
+        origin: options.origin,
       });
       this.emitState(agent);
     }
@@ -3803,6 +3813,7 @@ export class AgentManager {
         this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, {
           messageId: options.clientMessageId,
           intent: options.intent,
+          origin: options.origin,
           queuedMessage: options.queuedMessage,
           turnId,
           providerMessageId:
@@ -3978,6 +3989,7 @@ export class AgentManager {
           options?.clientMessageId,
           expectedTurnId,
           options?.intent,
+          options?.origin,
         );
       }
       return admission;
@@ -4015,6 +4027,7 @@ export class AgentManager {
               options?.clientMessageId,
               expectedTurnId,
               options?.intent,
+              options?.origin,
             );
           }
           return admission;
@@ -4121,6 +4134,7 @@ export class AgentManager {
     clientMessageId: string | undefined,
     expectedTurnId: string,
     intent?: "goal",
+    origin?: "agent",
   ): Promise<void> {
     if (!clientMessageId) {
       return;
@@ -4129,6 +4143,7 @@ export class AgentManager {
       messageId: clientMessageId,
       turnId: expectedTurnId,
       intent,
+      origin,
     });
     this.emitState(agent);
   }
@@ -6144,13 +6159,14 @@ export class AgentManager {
     agent: ActiveManagedAgent,
     prompt: AgentPromptInput,
     clientMessageId: string,
-    options?: {
+    options: {
       messageId?: string;
       providerMessageId?: string;
       turnId?: string;
       intent?: "goal";
+      origin?: "agent";
       queuedMessage?: QueueItem;
-    },
+    } = {},
   ): void {
     if (this.timelineStore.getSubmittedUserMessage(agent.id, clientMessageId)) {
       return;
@@ -6159,8 +6175,8 @@ export class AgentManager {
     agent.lastUserMessageAt = new Date();
     const item: AgentTimelineItem = {
       type: "user_message",
-      text: options?.queuedMessage ? options.queuedMessage.text : submittedPromptText(prompt),
-      ...(options?.queuedMessage
+      text: options.queuedMessage ? options.queuedMessage.text : submittedPromptText(prompt),
+      ...(options.queuedMessage
         ? {
             queue: {
               attachments: options.queuedMessage.attachments,
@@ -6168,14 +6184,15 @@ export class AgentManager {
             },
           }
         : {}),
-      ...(options?.intent ? { intent: options.intent } : {}),
+      ...(options.intent ? { intent: options.intent } : {}),
+      ...(options.origin ? { origin: options.origin } : {}),
       clientMessageId,
-      ...(options?.messageId ? { messageId: options.messageId } : {}),
+      ...(options.messageId ? { messageId: options.messageId } : {}),
     };
-    if (options?.queuedMessage && options.providerMessageId) {
+    if (options.queuedMessage && options.providerMessageId) {
       this.persistQueuedPromptIdentity(agent.id, clientMessageId, options.providerMessageId);
     }
-    if (options?.intent === "goal") {
+    if (options.intent === "goal") {
       agent.goalSubmissions = [
         ...(agent.goalSubmissions ?? []),
         {
@@ -6189,7 +6206,7 @@ export class AgentManager {
       ];
       this.enqueueBackgroundPersist(agent);
     }
-    this.recordAndDispatchTimelineItem(agent.id, item, agent.provider, options?.turnId, options);
+    this.recordAndDispatchTimelineItem(agent.id, item, agent.provider, options.turnId, options);
   }
 
   private reconcileSubmittedPromptEcho(

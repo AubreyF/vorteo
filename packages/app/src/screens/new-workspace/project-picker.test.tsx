@@ -28,6 +28,81 @@ function project(input: {
 }
 
 describe("useNewWorkspaceProjectPicker", () => {
+  it("lists projects without a Host placement and preserves the chosen project", () => {
+    const local = project({
+      viewKey: "local",
+      projectKey: null,
+      projectId: "local",
+      projectName: "Local",
+    });
+    const remote = {
+      ...project({
+        viewKey: "remote",
+        projectKey: null,
+        projectId: "remote",
+        projectName: "Remote",
+      }),
+      hosts: [
+        {
+          serverId: "dev",
+          projectId: "remote",
+          iconWorkingDir: "/dev/remote",
+          worktreeSupport: "supported" as const,
+        },
+      ],
+    };
+    const projects = [local, remote];
+    const { result } = renderHook(() =>
+      useNewWorkspaceProjectPicker({
+        selectedServerId: "host",
+        projects,
+        routeProject: null,
+        routeProjectContextViewKey: null,
+        lastActiveProject: null,
+        allowAllProjects: true,
+      }),
+    );
+    expect(result.current.projectPickerOptions.map((option) => option.label)).toEqual([
+      "Local",
+      "Remote",
+    ]);
+    act(() => result.current.handleSelectProjectOption("project:remote"));
+    expect(result.current.selectedProject?.viewKey).toBe("remote");
+    expect(result.current.selectedSourceDirectory).toBeNull();
+  });
+
+  it("keeps a logical project distinct from another project using the same Host directory", () => {
+    const aubos = project({
+      viewKey: "aubos",
+      projectKey: null,
+      projectId: "shared-directory",
+      projectName: "AubOS",
+    });
+    const vorteo = {
+      ...aubos,
+      viewKey: "vorteo",
+      projectName: "Vorteo",
+      membership: { key: "vorteo", name: "Vorteo" },
+    };
+    const { result, rerender } = renderHook(
+      ({ projects }) =>
+        useNewWorkspaceProjectPicker({
+          selectedServerId: "host",
+          projects,
+          routeProject: null,
+          routeProjectContextViewKey: null,
+          lastActiveProject: aubos,
+          allowAllProjects: true,
+        }),
+      { initialProps: { projects: [aubos, vorteo] } },
+    );
+    act(() => result.current.handleSelectProjectOption("project:vorteo"));
+    expect(result.current.selectedProject?.viewKey).toBe("vorteo");
+    rerender({ projects: [{ ...aubos }, { ...vorteo }] });
+    expect(result.current.selectedProject?.membership).toEqual(vorteo.membership);
+    expect(result.current.selectedProjectOptionId).toBe("project:vorteo");
+  });
+
   it("preserves a manual choice when the routed project hydrates", () => {
     const routePlacement = project({
       viewKey: '["host","route-local"]',

@@ -5,6 +5,37 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.209 - 2026-10-09
+
+### Maintenance
+
+- Combine 4 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.208 - 2026-10-08
+
+### Fixed
+
+- Restore installation profile admission for paired managed Dev workers by discovering their validated private pairing client when supervisor inheritance is missing. Retain exact coordinator identity checks and the installed Factory source.
+
+## 0.11.0-beta.3.vorteo.207 - 2026-10-08
+
+### Changed
+
+- Preserve explicit provenance for local agent sends, worker creation and steering, and draw shorter conversation navigation marks for these messages. Integrate the reviewed source without changing Factory code or existing release notes.
+
+## 0.11.0-beta.3.vorteo.206 - 2026-10-08
+
+### Fixed
+
+- Allow edited agent drafts to retry confirmed pre-creation failures with their reserved identity. Preserve conflict protection for ambiguous or completed attempts and retain installed source and prior history repairs.
+
+## 0.11.0-beta.3.vorteo.205 - 2026-10-08
+
+### Fixed
+
+- Keep unarchived saved threads and scheduled workspace associations visible when a provider is unavailable. Read durable history without starting the provider.
+- Preserve logical project identity and resolve the chosen environment folder at submission. Retain the installed Dev source and Factory integration.
+
 ## 0.11.0-beta.3.vorteo.204 - 2026-10-08
 
 ### Maintenance
