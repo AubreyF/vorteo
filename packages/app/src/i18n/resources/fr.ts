@@ -2251,6 +2251,8 @@ export const fr: TranslationResources = {
       title: "À propos",
       appVersion: "Version de l'application",
       whatsNewHint: "Notes de version pour chaque release",
+      github: "GitHub",
+      githubHint: "Code source, tickets et versions",
       thisDevice: "Cet appareil",
       connectedHosts: "Hôtes connectés",
       offline: "Hors ligne",

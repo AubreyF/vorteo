@@ -35,7 +35,7 @@ interface RuntimeOverrides {
 
 /**
  * Owner-only coordinator service for full sign-in Claude accounts with Host-owned refresh.
- * Created only when the installation config enables `claudeHostRefresh`. It stores no token:
+ * Created only when the installation config sets `claudeHostRefresh: true`. It stores no token:
  * the Host account's own CLI storage holds the grant, and Dev receives access-only projections.
  */
 export function createClaudeOAuthRuntime(

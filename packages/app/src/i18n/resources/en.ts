@@ -2415,6 +2415,8 @@ export const en = {
       title: "About",
       appVersion: "App version",
       whatsNewHint: "Release notes for every version",
+      github: "GitHub",
+      githubHint: "Source code, issues and releases",
       thisDevice: "This device",
       connectedHosts: "Connected hosts",
       offline: "Offline",
