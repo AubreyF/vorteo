@@ -338,7 +338,7 @@ test("sidebar distinguishes blocked source updates from owner approval", () => {
     detail: "Contributions need correction",
     sourceBatch: { status: "conflict", contributions: [] },
   };
-  expect(restartBannerTitle(job)).toBe("Host daemon update needs correction");
+  expect(restartBannerTitle(job)).toBe("Host daemon update awaiting agent repair");
   expect(restartBlockingReason(job)).toBe("Contributions need correction");
   for (const [status, title] of [
     ["preparing", "update is being checked"],
@@ -350,7 +350,7 @@ test("sidebar distinguishes blocked source updates from owner approval", () => {
     expect(restartBlockingReason(changed)).toBeNull();
   }
   expect(restartBannerTitle({ ...job, target: "container-daemon" })).toBe(
-    "Dev daemon update needs correction",
+    "Dev daemon update awaiting agent repair",
   );
 });
 
@@ -369,6 +369,12 @@ test("disabled restart actions explain their blocker and recovery without enabli
   };
   expect(restartActionDisabledReason(job, "install", false)).toContain(
     "reconcile the release-note history and resubmit",
+  );
+  expect(restartActionDisabledReason(job, "install", false)).toContain(
+    "The requesting agent must repair",
+  );
+  expect(restartActionDisabledReason(job, "install", false)).toContain(
+    "Cancel update if you no longer want it",
   );
   expect(restartActionDisabledReason(job, "install", true)).toContain("Wait for it to finish");
   expect(restartActionDisabledReason(job, "finish", false, false)).toContain(

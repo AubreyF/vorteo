@@ -76,6 +76,7 @@ export function toStoredAgentRecord(
 
   return {
     ...(agent.tasks === undefined ? {} : { tasks: agent.tasks }),
+    ...(agent.journal === undefined ? {} : { journal: agent.journal }),
     goalSubmissions: agent.goalSubmissions,
     queueGoalHold: agent.queueGoalHold,
     id: agent.id,
@@ -135,6 +136,7 @@ export function toAgentPayload(
 
   const payload: AgentSnapshotPayload = {
     ...(agent.tasks === undefined ? {} : { tasks: agent.tasks }),
+    ...(agent.journal === undefined ? {} : { journal: agent.journal }),
     id: agent.id,
     ...projectLaunchMetadata(agent.config),
     provider: agent.provider,
@@ -249,6 +251,7 @@ export function buildStoredAgentPayload(
 
   return {
     ...(record.tasks === undefined ? {} : { tasks: record.tasks }),
+    ...(record.journal === undefined ? {} : { journal: record.journal }),
     id: record.id,
     ...projectLaunchMetadata(record.config),
     provider: record.provider,

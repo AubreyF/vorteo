@@ -35,6 +35,15 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
     ownerSessions: AbsolutePathSchema,
   }),
   hostRequestsAfter: z.string().datetime().nullable(),
+  recoveredFrom: z
+    .strictObject({
+      id: z.string().uuid(),
+      revision: z.string().uuid(),
+      generation: z.string().uuid(),
+      planSha256: DigestSchema,
+    })
+    .optional(),
+  automaticRecovery: z.literal("restore-previous").optional(),
   nativeHelperConfiguration: NativeHelperConfigurationSchema.nullable().optional(),
 });
 export type CoordinatorBootstrapPlan = z.infer<typeof CoordinatorBootstrapPlanSchema>;
@@ -54,6 +63,8 @@ export const CoordinatorBootstrapStageSchema = z.enum([
   "resume_pending",
   "resumed",
   "recovery_required",
+  "rollback_pending",
+  "rolled_back",
 ]);
 export type CoordinatorBootstrapStage = z.infer<typeof CoordinatorBootstrapStageSchema>;
 
@@ -72,6 +83,7 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
       generation: z.string().uuid(),
       stage: CoordinatorBootstrapStageSchema,
       updatedAt: z.string().datetime(),
+      rollbackAttemptedAt: z.string().datetime().optional(),
     })
     .optional(),
 });

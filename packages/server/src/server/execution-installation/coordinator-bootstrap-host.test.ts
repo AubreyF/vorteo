@@ -136,6 +136,10 @@ test.runIf(process.platform === "darwin")(
         createNativeBootstrapServiceReader({ ...options, writableMountRoots: [root] }),
       ).rejects.toThrow("mount");
       const reader = await createNativeBootstrapServiceReader(options);
+      const audited = await reader.inspectAuditedProcess(child.pid!);
+      expect(audited.identity).toEqual(identity);
+      expect(audited.auditToken).toHaveLength(8);
+      expect(await reader.inspectAuditedProcess(child.pid!)).toEqual(audited);
       writeFileSync(helperPath, 'raise RuntimeError("unreviewed replacement")');
       expect(await reader.inspectProcess(child.pid!)).toEqual(identity);
       expect(await reader.inspectRunningProcess(child.pid!)).toEqual({
@@ -653,6 +657,9 @@ test.runIf(process.platform === "darwin")(
     const reader = {
       readService: async () => `${service} = {\n\tpid = 123\n}`,
       inspectProcess: async () => processIdentity,
+      inspectAuditedProcess: async () => {
+        throw new Error("Audit inspection is outside this fixture");
+      },
       inspectStoppedProcess: async () => ({
         ...processIdentity,
         stopped: true as const,
@@ -954,3 +961,52 @@ test("executor acknowledgement allows artifact verification beyond one minute", 
     await closed;
   }
 });
+
+test.runIf(process.platform === "darwin").each(["term", "kill", "stale"])(
+  "automatic watchdog fences only the bound updater and waits for lock release: %s",
+  async (mode) => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "bootstrap-deadline-")));
+    roots.push(root);
+    const helper = path.resolve("../../scripts/run-coordinator-owner.py");
+    const inspector = path.resolve("../../scripts/inspect-coordinator-process.py");
+    const probe = `
+import ctypes,importlib.util,os,signal,subprocess,sys
+
+def load(name,path):
+ spec=importlib.util.spec_from_file_location(name,path)
+ module=importlib.util.module_from_spec(spec)
+ spec.loader.exec_module(module)
+ return module
+owner=load('owner',sys.argv[1]); inspector=load('inspector',sys.argv[2])
+mode=sys.argv[3]; lock=sys.argv[4]
+source="import fcntl,signal,sys,time; f=open(sys.argv[1],'w'); fcntl.flock(f,fcntl.LOCK_EX); "
+if mode=='kill': source+="signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+source+="print('ready',flush=True); time.sleep(30)"
+child=subprocess.Popen([sys.executable,'-c',source,lock],stdout=subprocess.PIPE,text=True)
+try:
+ assert child.stdout.readline().strip()=='ready'
+ library=ctypes.CDLL('/usr/lib/libSystem.B.dylib',use_errno=True)
+ token=inspector.audit_token(library,child.pid)
+ if mode=='stale': token[7]=(token[7]+1)&0xffffffff
+ with open(lock) as descriptor:
+  if mode=='stale':
+   try: owner.wait_for_executor(descriptor,token,timeout=0.05,grace=0.05)
+   except ValueError: pass
+   else: raise AssertionError('stale identity acquired ownership')
+   assert child.poll() is None
+  else:
+   owner.wait_for_executor(descriptor,token,timeout=0.05,grace=0.05)
+   assert child.wait(timeout=2)==(-signal.SIGKILL if mode=='kill' else -signal.SIGTERM)
+ print('verified')
+finally:
+ if child.poll() is None: child.kill()
+ child.wait(timeout=2)
+`;
+    const result = await promisify(execFile)(
+      "/usr/bin/python3",
+      ["-I", "-B", "-c", probe, helper, inspector, mode, path.join(root, "lock")],
+      { timeout: 10000 },
+    );
+    expect(result.stdout.trim()).toBe("verified");
+  },
+);

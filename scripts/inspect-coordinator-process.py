@@ -53,6 +53,30 @@ def arguments_digest(data):
     return hashlib.sha256(encoded).hexdigest()
 
 
+def audit_token(library, pid):
+    # TASK_AUDIT_TOKEN includes the kernel PID version. A PID alone cannot bind
+    # a later signal to the same process lifetime after exit or exec.
+    task_self = ctypes.c_uint.in_dll(library, "mach_task_self_").value
+    port = ctypes.c_uint(0)
+    library.task_name_for_pid.argtypes = [ctypes.c_uint, ctypes.c_int, ctypes.POINTER(ctypes.c_uint)]
+    library.task_name_for_pid.restype = ctypes.c_int
+    if library.task_name_for_pid(task_self, pid, ctypes.byref(port)) != 0:
+        raise InspectionError("Process audit identity is unavailable")
+    try:
+        token = (ctypes.c_uint32 * 8)()
+        count = ctypes.c_uint32(8)
+        library.task_info.argtypes = [ctypes.c_uint, ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        library.task_info.restype = ctypes.c_int
+        if library.task_info(port.value, 15, ctypes.byref(token), ctypes.byref(count)) != 0 or count.value != 8:
+            raise InspectionError("Process audit identity is unavailable")
+        return list(token)
+    finally:
+        library.mach_port_deallocate.argtypes = [ctypes.c_uint, ctypes.c_uint]
+        library.mach_port_deallocate.restype = ctypes.c_int
+        if library.mach_port_deallocate(task_self, port.value) != 0:
+            raise InspectionError("Process audit inspection could not release ownership")
+
+
 def inspect(pid, mode="identity"):
     require_stopped = mode == "--require-stopped"
     if sys.platform != "darwin" or pid <= 0:
@@ -99,6 +123,7 @@ def inspect(pid, mode="identity"):
         return result.raw[:size.value]
 
     before = read_info()
+    audited = audit_token(library, pid) if mode == "--audit-token" else None
     boot = named(b"kern.bootsessionuuid", 128).rstrip(b"\0").decode("ascii")
     argmax = struct.unpack("=i", named(b"kern.argmax", 4))[0]
     if argmax < 1 or argmax > 16 * 1024 * 1024:
@@ -156,12 +181,16 @@ def inspect(pid, mode="identity"):
         result["childPids"] = children
     if mode == "--require-running":
         result["stopped"] = False
+    if mode == "--audit-token":
+        if audit_token(library, pid) != audited or read_info() != before:
+            raise InspectionError("Process audit identity changed during inspection")
+        return {"identity": result, "auditToken": audited}
     return result
 
 
 if __name__ == "__main__":
     try:
-        if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] not in ("--require-stopped", "--require-running", "--require-exited")):
+        if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] not in ("--require-stopped", "--require-running", "--require-exited", "--audit-token")):
             raise InspectionError("Expected a process ID and optional stopped inspection")
         print(json.dumps(inspect(int(sys.argv[1]), sys.argv[2] if len(sys.argv) == 3 else "identity"), separators=(",", ":")))
     except (InspectionError, ValueError, OSError):

@@ -19,11 +19,13 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 - **Track a build across threads.** Each thread keeps its checklist below the conversation. The workspace flower combines task progress across its active threads, and planning instructions carry accepted checklist items into implementation. Updated daemons and clients also support agent tools and manual editing with dependencies and completion criteria. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
 
+- **Keep a decision journal.** Agents can record critical decisions and verified progress in a timestamped accordion beneath the conversation. Entries are append-only and stay in their original order. Requires an updated daemon. See [thread journals](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
+
 - **Cross-device, server-managed message queuing.** Line up your task messages with files or images - then edit, reorder, pause, and send them from any connected device. The daemon in each environment will continue executing queued work even if your client is offline.
 
 <img width="400" alt="Server managed cross-device message queuing." src="https://github.com/user-attachments/assets/59dfdb03-e1ec-40d2-b66e-9683134e3811" />
 
-- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed; Dev source installation requires your approval. An optional protected Host policy lets trusted Host threads approve their own routine updates through the same tracked controls; it requires an updated coordinator. Host-prepared Dev supervisor repairs use the same visible review and cancellation controls. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
+- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed; Dev source installation requires your approval. An optional protected Host policy lets trusted Host threads approve their own routine updates through the same tracked controls; it requires an updated coordinator. Host-prepared Dev supervisor repairs use the same visible review and cancellation controls. Coordinator updates can include automatic restoration of the verified previous release if replacement fails or stalls. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
 
 <img width="400" alt="Queued daemon upgrades" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
 

@@ -119,3 +119,5 @@ export const Users = StubIcon;
 export const Wrench = StubIcon;
 export const X = StubIcon;
 export const XCircle = StubIcon;
+
+export const BookOpen = StubIcon;

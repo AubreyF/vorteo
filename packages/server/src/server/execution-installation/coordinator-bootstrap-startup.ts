@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lstatSync } from "node:fs";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { z } from "zod";
@@ -5,7 +6,11 @@ import {
   CoordinatorBootstrapRequestSchema,
   type CoordinatorBootstrapRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
-import { BootstrapRequestConflict, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
+import {
+  assertRecoveredBootstrapBase,
+  BootstrapRequestConflict,
+  coordinatorPlanDigest,
+} from "./coordinator-bootstrap.js";
 
 const StartupIdentitySchema = z.strictObject({
   installationId: z.string().uuid(),
@@ -18,6 +23,23 @@ export type CoordinatorStartupIdentity = z.infer<typeof StartupIdentitySchema>;
 export type CoordinatorStartupAdmission =
   | { kind: "ordinary" }
   | { kind: "fenced"; request: CoordinatorBootstrapRequest };
+
+function replacedBootstrapRequests(requests: CoordinatorBootstrapRequest[]): Set<string> {
+  const replaced = new Set<string>();
+  for (const request of requests) {
+    if (!request.execution) continue;
+    let previous = assertRecoveredBootstrapBase(request.plan, requests);
+    const seen = new Set<string>([request.id]);
+    while (previous) {
+      if (seen.has(previous.id))
+        throw new BootstrapRequestConflict("Cyclic bootstrap startup history");
+      seen.add(previous.id);
+      replaced.add(previous.id);
+      previous = assertRecoveredBootstrapBase(previous.plan, requests);
+    }
+  }
+  return replaced;
+}
 
 /** Evaluate before constructing any queue, reconciliation service or writable
  * journal. The caller must use canonical native executable/configuration paths.
@@ -40,7 +62,8 @@ export function coordinatorStartupAdmission(
     )
       throw new BootstrapRequestConflict("Bootstrap startup evidence does not match installation");
   }
-  const dispatched = requests.filter((request) => request.execution);
+  const replaced = replacedBootstrapRequests(requests);
+  const dispatched = requests.filter((request) => request.execution && !replaced.has(request.id));
   if (dispatched.length > 1)
     throw new BootstrapRequestConflict("Multiple bootstrap ownership generations require recovery");
   const request = dispatched[0];
@@ -51,7 +74,17 @@ export function coordinatorStartupAdmission(
     current.configuration === release.configuration.path;
   // Completed history cannot pin all future routine coordinator releases to
   // this one-time candidate. A waiting process still checks its generation.
-  if (["resumed", "succeeded"].includes(request.execution.stage)) return { kind: "ordinary" };
+  if (["resumed", "succeeded", "rolled_back"].includes(request.execution.stage))
+    return { kind: "ordinary" };
+  const previousArguments = createHash("sha256")
+    .update(JSON.stringify([current.node, current.entrypoint, current.configuration]))
+    .digest("hex");
+  const matchesPrevious =
+    current.node === request.plan.previous.node.path &&
+    current.entrypoint === request.plan.previous.entrypoint.path &&
+    previousArguments === request.plan.expectedProcess.argumentsSha256;
+  if (request.execution.stage === "rollback_pending" && matchesPrevious)
+    return { kind: "ordinary" };
   if (!matches(request.plan.candidate))
     throw new BootstrapRequestConflict("Coordinator startup does not match selected candidate");
   if (!["start_pending", "started", "verifying"].includes(request.execution.stage))

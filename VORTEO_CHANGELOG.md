@@ -5,6 +5,80 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.267 - 2026-10-09
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.266 - 2026-10-09
+
+### Maintenance
+
+- Integrate the published card-header hover padding with automatic coordinator recovery, preserving both source histories and release notes.
+
+## 0.11.0-beta.3.vorteo.264 - 2026-10-09
+
+### Maintenance
+
+- Preserve the currently published installation controls and journal integration while delivering padded card heading hover backgrounds.
+
+## 0.11.0-beta.3.vorteo.261 - 2026-10-09
+
+### Fixed
+
+- Give card disclosure hover backgrounds horizontal padding while preserving title alignment with the other card headings.
+
+## 0.11.0-beta.3.vorteo.265 - 2026-10-09
+
+### Fixed
+
+- Restore the previous coordinator when a failed replacement has already exited, verifying the loaded service arguments before removing its stopped job.
+
+## 0.11.0-beta.3.vorteo.264 - 2026-10-09
+
+### Fixed
+
+- Add approval-bound automatic coordinator recovery: independently fence stalled updater processes, restore the verified previous release once, and retain task state and failed-update history. Show restoration progress and outcome in installation controls.
+
+## 0.11.0-beta.3.vorteo.263 - 2026-10-09
+
+### Maintenance
+
+- Integrate the reviewed append-only thread journal with the deployed installation interface and goal controls. Preserve all historical release entries and keep journal rendering gated by daemon support.
+
+## 0.11.0-beta.3.vorteo.260 - 2026-10-09
+
+### Added
+
+- Add persistent thread journals for critical decisions and verified progress, with caller-scoped read and append tools, server timestamps, fixed append order and safe retries.
+- Show journal entries in a shared accordion card with compact left timestamps, selectable text and live updates. Preserve entries across reloads and reject edits, backdating and reordering.
+
+## 0.11.0-beta.3.vorteo.262 - 2026-10-09
+
+### Fixes
+
+- Refresh coordinator status while an approval is being processed. Show recorded approval and allow cancellation before dispatch without waiting for the original response; ignore late responses after a newer decision.
+
+## 0.11.0-beta.3.vorteo.261 - 2026-10-09
+
+### Maintenance
+
+- Integrate the exact installed Host batch before publishing the clearer installation review, preserving deployed implementation and complete release history.
+
+## 0.11.0-beta.3.vorteo.260 - 2026-10-09
+
+### Fixes
+
+- Explain that the requesting agent repairs blocked installation updates, while the owner can leave them queued or cancel an unwanted update. Keep technical diagnostics in Details and disabled-action explanations.
+- Use the shared compact sidebar action layout for coordinator and daemon update reviews.
+
+## 0.11.0-beta.3.vorteo.259 - 2026-10-09
+
+### Maintenance
+
+- Publish the validated blocked checklist status and retain the complete installed release history, including concurrent goal-edit and interface corrections.
+
 ## 0.11.0-beta.3.vorteo.259 - 2026-10-09
 
 ### Maintenance

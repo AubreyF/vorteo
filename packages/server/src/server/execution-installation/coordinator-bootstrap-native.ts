@@ -1,3 +1,6 @@
+import { ProcessObservationSchema } from "./coordinator-bootstrap-process.js";
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout } from "node:timers/promises";
@@ -7,6 +10,8 @@ import type {
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { BootstrapRequestConflict, CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
 import {
+  loadedCoordinatorPid,
+  isStoppedBootstrapCandidate,
   verifyLoadedBootstrapService,
   verifyBootstrapReplacement,
   verifyBootstrapServiceIdentity,
@@ -18,7 +23,10 @@ import {
   preserveBootstrapState,
   verifyBootstrapState,
 } from "./coordinator-bootstrap-state.js";
-import { selectBootstrapLauncher } from "./coordinator-bootstrap-selection.js";
+import {
+  restoreBootstrapLauncher,
+  selectBootstrapLauncher,
+} from "./coordinator-bootstrap-selection.js";
 import {
   readBootstrapPreparedFile,
   verifyBootstrapReleaseArtifacts,
@@ -194,6 +202,143 @@ export function createBootstrapNativeLifecycle(
       if (JSON.stringify(await context.writableMountRoots()) !== JSON.stringify(roots))
         throw new BootstrapRequestConflict("Writable mounts changed before startup");
       await command.run(["bootstrap", `gui/${uid}`, context.launcherFile]);
+    },
+    async restorePrevious(request: CoordinatorBootstrapRequest) {
+      await requireStage(request, "rollback_pending");
+      const roots = await context.writableMountRoots();
+      await verifyBootstrapReleaseArtifacts(request.plan.previous, roots);
+      await verifyBootstrapState({ request, writableMountRoots: roots });
+      let service: string | null = null;
+      try {
+        service = await context.reader.readService(request.plan.service);
+      } catch {
+        await context.reader.verifyServiceAbsent(request.plan.service);
+      }
+      if (service !== null && isStoppedBootstrapCandidate(request.plan, service)) {
+        await readBootstrapPreparedFile(
+          { path: context.launcherFile, sha256: request.plan.candidate.launcher.sha256 },
+          roots,
+        );
+        await requireStage(request, "rollback_pending");
+        if (
+          !isStoppedBootstrapCandidate(
+            request.plan,
+            await context.reader.readService(request.plan.service),
+          )
+        )
+          throw new BootstrapRequestConflict("Stopped coordinator started during recovery");
+        await command.run(["bootout", request.plan.service]);
+        await waitFor(() => context.reader.verifyServiceAbsent(request.plan.service));
+        service = null;
+      }
+      if (service !== null) {
+        const pid = loadedCoordinatorPid(request.plan.service, service);
+        if (pid === request.plan.expectedProcess.pid) {
+          // An interrupted bootout may have left the original writer frozen.
+          // Resume only that exact process; never start another writer beside it.
+          await verify(request);
+          await readBootstrapPreparedFile(
+            { path: context.launcherFile, sha256: request.plan.previous.launcher.sha256 },
+            roots,
+          );
+          await requireStage(request, "rollback_pending");
+          await command.run(["kill", "SIGCONT", request.plan.service]);
+          await waitFor(async () => {
+            await verifyState(request, false);
+            const health = await context.readHealth();
+            if (
+              !health ||
+              typeof health !== "object" ||
+              !("installationId" in health) ||
+              health.installationId !== request.plan.installationId
+            )
+              throw new BootstrapRequestConflict("Resumed coordinator health identity changed");
+          });
+          await requireStage(request, "rollback_pending");
+          return;
+        }
+        const observed = ProcessObservationSchema.parse(await context.reader.inspectProcess(pid));
+        const candidate = request.plan.candidate;
+        const digest = createHash("sha256")
+          .update(
+            JSON.stringify([
+              candidate.node.path,
+              candidate.entrypoint.path,
+              candidate.configuration.path,
+            ]),
+          )
+          .digest("hex");
+        if (
+          observed.uid !== uid ||
+          observed.parentPid !== 1 ||
+          observed.bootId !== request.plan.expectedProcess.bootId ||
+          observed.executable !== candidate.node.path ||
+          observed.argumentsSha256 !== digest
+        )
+          throw new BootstrapRequestConflict("Rollback refuses an unrelated loaded coordinator");
+        await requireStage(request, "rollback_pending");
+        if (
+          !isDeepStrictEqual(observed, await context.reader.inspectProcess(pid)) ||
+          loadedCoordinatorPid(
+            request.plan.service,
+            await context.reader.readService(request.plan.service),
+          ) !== pid
+        )
+          throw new BootstrapRequestConflict("Rollback candidate identity changed");
+        await command.run(["bootout", request.plan.service]);
+        await waitFor(async () => {
+          await context.reader.verifyProcessExited(pid);
+          await context.reader.verifyServiceAbsent(request.plan.service);
+        });
+      }
+      await context.reader.verifyProcessExited(request.plan.expectedProcess.pid);
+      const authorizeSelection = async () => {
+        await requireStage(request, "rollback_pending");
+        await context.reader.verifyServiceAbsent(request.plan.service);
+        if (JSON.stringify(await context.writableMountRoots()) !== JSON.stringify(roots))
+          throw new BootstrapRequestConflict("Writable mounts changed during rollback");
+      };
+      await restoreBootstrapLauncher({
+        plan: request.plan,
+        launcherFile: context.launcherFile,
+        configurationFile: context.configurationFile,
+        writableMountRoots: roots,
+        authorizeSelection,
+      });
+      await verifyBootstrapState({ request, writableMountRoots: roots });
+      await authorizeSelection();
+      await command.run(["bootstrap", `gui/${uid}`, context.launcherFile]);
+      await waitFor(async () => {
+        const output = await context.reader.readService(request.plan.service);
+        const pid = loadedCoordinatorPid(request.plan.service, output);
+        const observed = ProcessObservationSchema.parse(await context.reader.inspectProcess(pid));
+        if (observed.bootId !== request.plan.expectedProcess.bootId)
+          throw new BootstrapRequestConflict("Host boot changed during recovery");
+        verifyBootstrapServiceIdentity({
+          plan: { ...request.plan, expectedProcess: observed },
+          launchctlOutput: output,
+          process: observed,
+          hostUid: uid,
+          configurationFile: context.configurationFile,
+        });
+        const health = await context.readHealth();
+        if (
+          !health ||
+          typeof health !== "object" ||
+          !("installationId" in health) ||
+          health.installationId !== request.plan.installationId
+        )
+          throw new BootstrapRequestConflict("Restored coordinator health identity changed");
+        if (
+          !isDeepStrictEqual(observed, await context.reader.inspectProcess(pid)) ||
+          loadedCoordinatorPid(
+            request.plan.service,
+            await context.reader.readService(request.plan.service),
+          ) !== pid
+        )
+          throw new BootstrapRequestConflict("Restored coordinator changed during readiness");
+      });
+      await requireStage(request, "rollback_pending");
     },
     async freeze(request: CoordinatorBootstrapRequest) {
       await requireStage(request, "freeze_pending");

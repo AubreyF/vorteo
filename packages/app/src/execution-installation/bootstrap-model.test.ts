@@ -9,6 +9,7 @@ import {
   bootstrapDecisionDisabledReason,
   bootstrapNeedsAttention,
   bootstrapStatus,
+  currentBootstrapRequests,
 } from "./bootstrap-model";
 
 function request(): CoordinatorBootstrapRequest {
@@ -165,4 +166,69 @@ test("late status cannot overwrite a cancellation decision", async () => {
   expect(bootstrapDecisionDisabledReason(recovery, { busy: false, hasPassword: true })).toContain(
     "separate reviewed request",
   );
+});
+
+test("recorded approval unlocks status and cancellation while a late decision response is ignored", async () => {
+  const item = request();
+  const approved: CoordinatorBootstrapRequest = {
+    ...item,
+    revision: randomUUID(),
+    status: "approved",
+  };
+  const canceled: CoordinatorBootstrapRequest = {
+    ...approved,
+    revision: randomUUID(),
+    status: "canceled",
+  };
+  let current = item;
+  let reject!: (error: Error) => void;
+  let calls = 0;
+  const pending = new Promise<CoordinatorBootstrapRequest[]>((_, fail) => {
+    reject = fail;
+  });
+  const model = new BootstrapPanelModel(() => ({
+    listCoordinatorBootstrapRequests: async () => [current],
+    decideCoordinatorBootstrap: async () => (++calls === 1 ? pending : [canceled]),
+  }));
+  await model.refresh();
+  model.setPassword("fixture");
+  const decision = model.decide(item, "approve");
+  await model.refresh(true);
+  expect(model.getState().busy).toBe(true);
+  await model.decide(item, "approve");
+  expect(calls).toBe(1);
+  current = approved;
+  await model.refresh(true);
+  expect(model.getState().requests).toEqual([approved]);
+  expect(model.getState().busy).toBe(false);
+  model.setPassword("fixture");
+  expect(bootstrapDecisionDisabledReason(approved, model.getState())).toBeNull();
+  await model.decide(approved, "cancel");
+  reject(new Error("Late transport timeout"));
+  await decision;
+  expect(model.getState().requests).toEqual([canceled]);
+  expect(model.getState().error).toBeNull();
+  expect(model.getState().busy).toBe(false);
+});
+
+test("rollback outcome is distinct from success and fresh review replaces only its recovered callout", () => {
+  const failed = request();
+  failed.status = "approved";
+  failed.execution = {
+    generation: randomUUID(),
+    stage: "rolled_back",
+    updatedAt: new Date().toISOString(),
+  };
+  expect(bootstrapStatus(failed)).toBe("Previous coordinator restored; update not installed");
+  expect(bootstrapNeedsAttention(failed)).toBe(false);
+  const next = request();
+  next.plan.recoveredFrom = {
+    id: failed.id,
+    revision: failed.revision,
+    planSha256: failed.planSha256,
+    generation: failed.execution.generation,
+  };
+  expect(currentBootstrapRequests([failed, next])).toEqual([next]);
+  next.status = "canceled";
+  expect(currentBootstrapRequests([failed, next])).toEqual([failed, next]);
 });

@@ -13,15 +13,10 @@ import {
 
 const execute = promisify(execFile);
 
-const ProcessObservationSchema = z.strictObject({
-  pid: z.number().int().positive(),
-  parentPid: z.number().int().positive(),
-  uid: z.number().int().nonnegative(),
-  bootId: z.string().uuid(),
-  startIdentity: z.string().regex(/^\d+:\d+$/),
-  argumentsSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  executable: z.string().startsWith("/"),
-});
+import {
+  ProcessObservationSchema,
+  AuditedProcessObservationSchema,
+} from "./coordinator-bootstrap-process.js";
 
 const RunningProcessObservationSchema = ProcessObservationSchema.extend({
   stopped: z.literal(false),
@@ -44,6 +39,7 @@ export interface BootstrapServiceReader {
 }
 
 export interface NativeBootstrapServiceReader extends BootstrapServiceReader {
+  inspectAuditedProcess(pid: number): Promise<z.infer<typeof AuditedProcessObservationSchema>>;
   inspectRunningProcess(pid: number): Promise<z.infer<typeof RunningProcessObservationSchema>>;
   verifyProcessExited(pid: number): Promise<void>;
   verifyServiceAbsent(service: string): Promise<void>;
@@ -233,6 +229,15 @@ export async function createNativeBootstrapServiceReader(input: {
       );
       return ProcessObservationSchema.parse(JSON.parse(result.stdout));
     },
+    async inspectAuditedProcess(pid) {
+      z.number().int().positive().parse(pid);
+      const result = await execute(
+        "/usr/bin/python3",
+        ["-I", "-B", "-c", source, String(pid), "--audit-token"],
+        options,
+      );
+      return AuditedProcessObservationSchema.parse(JSON.parse(result.stdout));
+    },
   };
 }
 
@@ -268,6 +273,36 @@ export function loadedCoordinatorPid(service: string, output: string): number {
   if (!Number.isSafeInteger(pid))
     throw new BootstrapRequestConflict("Loaded coordinator PID is invalid");
   return pid;
+}
+
+/** A stopped launch job has no process to inspect. Bind its loaded arguments
+ * before removing it; the selected plist alone does not prove loaded identity. */
+export function isStoppedBootstrapCandidate(
+  plan: CoordinatorBootstrapPlan,
+  output: string,
+): boolean {
+  if (!output.startsWith(`${plan.service} = {\n`) || !output.trimEnd().endsWith("\n}"))
+    throw new BootstrapRequestConflict("Loaded coordinator service identity does not match");
+  if (/^\tpid = /m.test(output)) return false;
+  const argumentBlocks = [...output.matchAll(/^\targuments = \{\n([\s\S]*?)^\t\}$/gm)];
+  const expected = [
+    plan.candidate.node.path,
+    plan.candidate.entrypoint.path,
+    plan.candidate.configuration.path,
+  ];
+  const args = argumentBlocks[0]?.[1]
+    ?.trim()
+    .split("\n")
+    .map((line) => line.trim());
+  const programs = [...output.matchAll(/^\tprogram = (.+)$/gm)];
+  if (
+    argumentBlocks.length !== 1 ||
+    programs.length !== 1 ||
+    programs[0]?.[1] !== expected[0] ||
+    !isDeepStrictEqual(args, expected)
+  )
+    throw new BootstrapRequestConflict("Stopped coordinator does not match approved candidate");
+  return true;
 }
 
 /** The output and kernel observation come from trusted read-only Host collectors.

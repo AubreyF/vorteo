@@ -74,8 +74,44 @@ const transitions: Record<CoordinatorBootstrapStage, readonly CoordinatorBootstr
   resume_pending: ["resumed", "recovery_required"],
   resumed: [],
   succeeded: [],
-  recovery_required: [],
+  recovery_required: ["rollback_pending"],
+  rollback_pending: ["rolled_back", "recovery_required"],
+  rolled_back: [],
 };
+
+/** A fresh review can follow verified restoration without rewriting failed history. */
+export function assertRecoveredBootstrapBase(
+  plan: CoordinatorBootstrapPlan,
+  records: CoordinatorBootstrapRequest[],
+): CoordinatorBootstrapRequest | null {
+  const reference = plan.recoveredFrom;
+  if (!reference) return null;
+  const previous = records.find((request) => request.id === reference.id);
+  const sameFailure =
+    previous?.revision === reference.revision &&
+    previous.planSha256 === reference.planSha256 &&
+    previous.execution?.generation === reference.generation &&
+    ["recovery_required", "rolled_back", "resumed"].includes(previous.execution.stage);
+  if (!previous || !sameFailure)
+    throw new BootstrapRequestConflict("Recovered coordinator history changed");
+  const old = previous.plan.previous;
+  const current = plan.previous;
+  if (
+    old.directory !== current.directory ||
+    old.sourceCommit !== current.sourceCommit ||
+    old.artifactSha256 !== current.artifactSha256 ||
+    old.node.path !== current.node.path ||
+    old.node.sha256 !== current.node.sha256 ||
+    old.entrypoint.path !== current.entrypoint.path ||
+    old.entrypoint.sha256 !== current.entrypoint.sha256 ||
+    old.configuration.sha256 !== current.configuration.sha256 ||
+    old.launcher.sha256 !== current.launcher.sha256 ||
+    previous.plan.service !== plan.service ||
+    previous.plan.installationId !== plan.installationId
+  )
+    throw new BootstrapRequestConflict("Fresh review must retain the verified restored release");
+  return previous;
+}
 
 export function coordinatorPlanDigest(value: unknown): string {
   // Zod emits the declared key order, independent of a caller's object key order.
@@ -112,7 +148,14 @@ export class CoordinatorBootstrapRequests {
         throw new BootstrapRequestConflict("This request ID already names different prepared work");
       return existing;
     }
-    if (expected.some((item) => item.status !== "canceled"))
+    const recovered = assertRecoveredBootstrapBase(input.plan, expected);
+    const superseded = new Set<string>();
+    for (let old = recovered; old; old = assertRecoveredBootstrapBase(old.plan, expected)) {
+      if (superseded.has(old.id))
+        throw new BootstrapRequestConflict("Cyclic bootstrap recovery history");
+      superseded.add(old.id);
+    }
+    if (expected.some((item) => item.status !== "canceled" && !superseded.has(item.id)))
       throw new BootstrapRequestConflict("A coordinator bootstrap request is already open");
     await this.verifyPreparedBytes(input.plan);
     this.requireSameBinding(binding, input.plan);
@@ -209,10 +252,24 @@ export class CoordinatorBootstrapRequests {
       throw new BootstrapRequestConflict("Bootstrap dispatch ownership changed");
     if (!transitions[request.execution.stage].includes(stage))
       throw new BootstrapRequestConflict("Invalid bootstrap dispatch transition");
+    if (
+      stage === "rollback_pending" &&
+      (request.plan.automaticRecovery !== "restore-previous" ||
+        request.execution.rollbackAttemptedAt)
+    )
+      throw new BootstrapRequestConflict("Automatic rollback requires unused exact plan approval");
+    const updatedAt = new Date(this.now()).toISOString();
+    const rollbackAttemptedAt =
+      stage === "rollback_pending" ? updatedAt : request.execution.rollbackAttemptedAt;
     const next: CoordinatorBootstrapRequest = {
       ...request,
       revision: randomUUID(),
-      execution: { ...request.execution, stage, updatedAt: new Date(this.now()).toISOString() },
+      execution: {
+        ...request.execution,
+        stage,
+        updatedAt,
+        ...(rollbackAttemptedAt ? { rollbackAttemptedAt } : {}),
+      },
     };
     this.journal.replace(
       expected,

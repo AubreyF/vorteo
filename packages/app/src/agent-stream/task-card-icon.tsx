@@ -1,5 +1,6 @@
 import {
   FileText,
+  BookOpen,
   MessageCircleQuestion,
   MessagesSquare,
   ShieldCheck,
@@ -14,6 +15,7 @@ import type { Theme } from "@/styles/theme";
 const palette = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const icons = {
+  journal: withUnistyles(BookOpen),
   messages: withUnistyles(MessagesSquare),
   goal: withUnistyles(Target),
   subagents: withUnistyles(Users),
