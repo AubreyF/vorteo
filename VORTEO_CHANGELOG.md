@@ -4,6 +4,26 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.850 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.849 - 2026-10-25
+
+### Maintenance
+
+- Merge install web export fixes: Host install exports get script preloads and the build tag, an 8 GB worker heap, and a portable lucide context import
+
+## 0.11.0-beta.3.vorteo.848 - 2026-10-25
+
+### Fixed
+
+- Host installs publish the interface with the same script preloads and build metadata as guarded web builds. Before, every Host install republished it without the per-script preloads added for weak networks.
+- The web export in Host installs and guarded web builds runs with an 8 GB worker heap. One Host install failed when a Metro transform worker ran out of memory at the default limit of about 4 GB.
+- Web builds no longer fail when Metro reuses transform output from another build of the same commit. The Lucide import plugin wrote an absolute path to the icon context module into cached output, which pointed later builds at another build's folder. It now writes a path relative to the importing file.
+
 ## 0.11.0-beta.3.vorteo.847 - 2026-10-25
 
 ### Maintenance

@@ -221,7 +221,8 @@ test.each(["host", "container-daemon"])(
       );
       put(
         "packages/expo/cli.cjs",
-        "#!/usr/bin/env node\nconst fs=require('fs'); const path=require('path'); const out=process.argv[process.argv.indexOf('--output-dir')+1]; fs.mkdirSync(out,{recursive:true}); fs.writeFileSync(path.join(out,'index.html'),'<script src=\"/app.js\"></script>'); fs.writeFileSync(path.join(out,'app.js'),'console.log(1)');",
+        // Records the heap option the export ran with, as Metro's workers inherit it.
+        "#!/usr/bin/env node\nconst fs=require('fs'); const path=require('path'); const out=process.argv[process.argv.indexOf('--output-dir')+1]; fs.mkdirSync(path.join(out,'_expo/static/js/web'),{recursive:true}); fs.writeFileSync(path.join(out,'index.html'),'<html><head></head><body><script src=\"/_expo/static/js/web/entry-abc123.js\" defer></script></body></html>'); fs.writeFileSync(path.join(out,'_expo/static/js/web/entry-abc123.js'),'console.log(1)'); fs.writeFileSync(path.join(out,'node-options.txt'),process.env.NODE_OPTIONS||'');",
       );
       await run(
         "npm",
@@ -350,6 +351,17 @@ test.each(["host", "container-daemon"])(
         JSON.parse(readFileSync(path.join(prepared.exported, ".build-manifest.json"), "utf8"))
           .deployment.expectedRelease,
       ).toEqual(expect.any(String));
+      // Installs publish the same entry preloads and build metadata as guarded web builds.
+      const entry = readFileSync(path.join(prepared.exported, "index.html"), "utf8");
+      expect(entry).toContain(
+        '<link rel="preload" as="script" href="/_expo/static/js/web/entry-abc123.js">',
+      );
+      expect(entry).toContain(
+        `<meta name="vorteo-build" content="1.0.0 (${sourceCommit.slice(0, 12)})">`,
+      );
+      expect(readFileSync(path.join(prepared.exported, "node-options.txt"), "utf8")).toMatch(
+        /--max-old-space-size=8192$/,
+      );
       expect(readFileSync(path.join(prepared.release, "packages/expo/native-built"), "utf8")).toBe(
         `${process.platform}/${process.arch}`,
       );
