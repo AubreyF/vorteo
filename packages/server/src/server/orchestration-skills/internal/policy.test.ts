@@ -348,17 +348,21 @@ it("reads the claimed name of a skill the inventory could not fully inspect", as
   expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
 });
 
-it("keeps no built-ins when a skill's frontmatter cannot be read", async () => {
-  const { config, account } = await bundledSetup();
-  const unreadable = path.join(account, "skills/locked");
-  await writeSkill(unreadable, "other");
-  await chmod(path.join(unreadable, "SKILL.md"), 0o000);
-  try {
-    expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
-  } finally {
-    await chmod(path.join(unreadable, "SKILL.md"), 0o644);
-  }
-});
+// chmod cannot make a path unreadable on Windows, so the fail-closed path never runs there.
+it.skipIf(process.platform === "win32")(
+  "keeps no built-ins when a skill's frontmatter cannot be read",
+  async () => {
+    const { config, account } = await bundledSetup();
+    const unreadable = path.join(account, "skills/locked");
+    await writeSkill(unreadable, "other");
+    await chmod(path.join(unreadable, "SKILL.md"), 0o000);
+    try {
+      expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+    } finally {
+      await chmod(path.join(unreadable, "SKILL.md"), 0o644);
+    }
+  },
+);
 
 it("turns off built-in names claimed in the account's synced skill layout", async () => {
   const { config, account } = await bundledSetup();
@@ -369,17 +373,21 @@ it("turns off built-in names claimed in the account's synced skill layout", asyn
   ]);
 });
 
-it("keeps no built-ins when a folder inside a plugin root cannot be read", async () => {
-  const { config, account } = await bundledSetup();
-  const locked = path.join(account, "plugins/marketplaces/market/plugins/locked");
-  await mkdir(locked, { recursive: true });
-  await chmod(locked, 0o000);
-  try {
-    expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
-  } finally {
-    await chmod(locked, 0o755);
-  }
-});
+// chmod cannot make a path unreadable on Windows, so the fail-closed path never runs there.
+it.skipIf(process.platform === "win32")(
+  "keeps no built-ins when a folder inside a plugin root cannot be read",
+  async () => {
+    const { config, account } = await bundledSetup();
+    const locked = path.join(account, "plugins/marketplaces/market/plugins/locked");
+    await mkdir(locked, { recursive: true });
+    await chmod(locked, 0o000);
+    try {
+      expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual(["example"]);
+    } finally {
+      await chmod(locked, 0o755);
+    }
+  },
+);
 
 it("turns off built-in names claimed by custom commands added after launch", async () => {
   const { home, config, account } = await bundledSetup();
@@ -404,6 +412,56 @@ it("turns off built-in names claimed by commands in the user's home folder", asy
   await mkdir(path.join(userHome, ".claude/commands"), { recursive: true });
   await writeFile(path.join(userHome, ".claude/commands/claude-api.md"), "Call the API");
   expect(await verifySkillSnapshot(config)).toEqual(["example", "simplify"]);
+});
+
+// chmod cannot make a path unreadable on Windows, so the fail-closed path never runs there.
+it.skipIf(process.platform === "win32")(
+  "keeps no built-ins when only a commands folder cannot be read",
+  async () => {
+    const { home, config } = await bundledSetup();
+    const commands = path.join(home, ".claude/commands");
+    await mkdir(commands, { recursive: true });
+    await chmod(commands, 0o000);
+    try {
+      expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+    } finally {
+      await chmod(commands, 0o755);
+    }
+  },
+);
+
+it("keeps no built-ins when commands are nested deeper than the check reads", async () => {
+  const { home, config } = await bundledSetup();
+  const deep = path.join(home, ".claude/commands/a/b/c/d");
+  await mkdir(deep, { recursive: true });
+  await writeFile(path.join(deep, "simplify.md"), "Simplify");
+  expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+});
+
+it("ignores dependency folders and file symlinks inside plugin roots", async () => {
+  const { config, account } = await bundledSetup();
+  const plugin = path.join(account, "plugins/cache/market/tools/1.0.0");
+  const dependency = path.join(plugin, "node_modules/helper/commands");
+  await mkdir(dependency, { recursive: true });
+  await writeFile(path.join(dependency, "simplify.md"), "Not a Claude command");
+  await mkdir(path.join(plugin, "bin"), { recursive: true });
+  await writeFile(path.join(plugin, "bin/tool.js"), "");
+  await symlink(path.join(plugin, "bin/tool.js"), path.join(plugin, "tool"));
+  await symlink(path.join(plugin, "removed"), path.join(plugin, "dangling"));
+  expect(await verifySkillSnapshot(config, { claudeConfigDir: account })).toEqual([
+    "example",
+    "claude-api",
+    "simplify",
+  ]);
+});
+
+it("reads commands inside a commands folder named like a dependency folder", async () => {
+  const { home, config } = await bundledSetup();
+  // Claude lists this as "node_modules:simplify", which the allowlist matches by suffix.
+  const nested = path.join(home, ".claude/commands/node_modules");
+  await mkdir(nested, { recursive: true });
+  await writeFile(path.join(nested, "simplify.md"), "Simplify");
+  expect(await verifySkillSnapshot(config)).toEqual(["example", "claude-api"]);
 });
 
 it("keeps no built-ins when an account skill folder cannot be read", async () => {
