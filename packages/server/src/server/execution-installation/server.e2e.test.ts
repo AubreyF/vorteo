@@ -1,7 +1,25 @@
+import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
+import type { WorkerLaunchLookup } from "./maintenance/worker-launch-lookup.js";
+import { InstallationRestarts } from "./restarts.js";
+import { standingRestartPlanDigest } from "./maintenance/restart-admission.js";
+import {
+  FileEnrollmentJournal,
+  enrollInstallation,
+  enrollmentManifestDigest,
+  changeStandingGrant,
+} from "./maintenance/authorization.js";
+import type { InstallationEnrollmentManifest } from "@getpaseo/protocol/installation-enrollment";
+import type { MaintenanceServiceExecutor } from "./maintenance/service-execution.js";
 import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
+import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { InstallationEnrollmentStatusSchema } from "@getpaseo/protocol/installation-enrollment";
 import { DaemonAutomation } from "./daemon-automation.js";
-import type { BootstrapReconciliationLedger } from "./coordinator-bootstrap.js";
+import {
+  coordinatorPlanDigest,
+  type BootstrapReconciliationLedger,
+} from "./coordinator-bootstrap.js";
+import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import type { RestartExecutor } from "./restarts.js";
@@ -51,6 +69,265 @@ import {
 } from "@getpaseo/protocol/execution-installation";
 
 const cleanups: Array<() => Promise<void>> = [];
+// Validate the allocated source-only optional field without rebuilding shared declarations.
+vi.mock(
+  "@getpaseo/protocol/execution-installation",
+  () => import("../../../../protocol/src/execution-installation.js"),
+);
+
+test("supervisor effect remains private in legacy restart replies", async () => {
+  const id = randomUUID(),
+    revision = randomUUID(),
+    now = "2026-10-17T00:00:00.000Z",
+    sha = "a".repeat(64);
+  const native = {
+    pid: 123,
+    parentPid: 1,
+    uid: 501,
+    bootId: randomUUID(),
+    startIdentity: "1:1",
+    argumentsSha256: sha,
+    auditToken: [0, 1, 2, 3, 4, 5, 6, 7],
+    executable: { path: "/fixture/node", sha256: sha },
+    entrypoint: { path: "/fixture/entry", sha256: sha },
+    artifactSha256: sha,
+  };
+  const job = RestartJobSchema.parse({
+    id,
+    revision,
+    requestedBy: "host-agent",
+    target: "container-daemon",
+    reason: "Private projection fixture",
+    createdAt: now,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "failed",
+    detail: "Observation only",
+    approvedAt: now,
+    supervisorPlanSha256: sha,
+    supervisorEffect: {
+      phase: "reserved",
+      reservedAt: now,
+      binding: {
+        requestId: id,
+        requestRevision: revision,
+        approvedAt: now,
+        decisionSha256: sha,
+        requestPlanSha256: sha,
+        supervisorPlanSha256: sha,
+        registrationPlanSha256: sha,
+        operation: "replace",
+        preparationNonce: randomUUID(),
+        original: null,
+        generation: randomUUID(),
+        candidateSha256: sha,
+        grantId: randomUUID(),
+        grantRevision: randomUUID(),
+        manifestSha256: sha,
+        stepId: randomUUID(),
+        activationGeneration: randomUUID(),
+        sourceCommit: "b".repeat(40),
+        artifactSha256: sha,
+        nativeIdentitySha256: sha,
+        preconditionSha256: sha,
+        settlementSha256: sha,
+        controller: native,
+      },
+    },
+  });
+  if (job.supervisorEffect?.phase !== "reserved") throw new Error("Fixture reservation missing");
+  const binding = job.supervisorEffect.binding;
+  const requestPlanSha256 = standingRestartPlanDigest(job);
+  job.standingDecision = {
+    grantId: binding.grantId,
+    grantRevision: binding.grantRevision,
+    manifestSha256: binding.manifestSha256,
+    planSha256: requestPlanSha256,
+    targetIdentitySha256: binding.nativeIdentitySha256,
+    authoritySha256: sha,
+    policyActivatedAt: now,
+    requestRevision: revision,
+  };
+  binding.requestPlanSha256 = requestPlanSha256;
+  binding.decisionSha256 = createHash("sha256")
+    .update(JSON.stringify(job.standingDecision))
+    .digest("hex");
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      writeFileSync(path.join(config.stateDir, "restart-jobs.json"), JSON.stringify([job]), {
+        mode: 0o600,
+      });
+    },
+  );
+  const legacy = await (
+    await f.request("/api/installation/restart-requests/" + id, "host-agent-test-token")
+  ).json();
+  expect(legacy).not.toHaveProperty("supervisorEffect");
+  expect(RestartJobSchema.omit({ supervisorEffect: true }).parse(legacy).id).toBe(id);
+  const owner = await (
+    await f.request(
+      "/api/installation/owner/restarts/query?supervisorMaintenance=1",
+      "owner-test-password",
+      {},
+    )
+  ).json();
+  expect(owner[0]).not.toHaveProperty("supervisorEffect");
+  expect(
+    JSON.parse(readFileSync(path.join(f.root, "restart-jobs.json"), "utf8"))[0].supervisorEffect,
+  ).toEqual(job.supervisorEffect);
+  expect(f.calls).toEqual([]);
+});
+
+test("recovery bookmark discovery is owner-only, read-only and installation-bound", async () => {
+  let installationId = "";
+  let calls = 0;
+  let foreign = false;
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    {
+      observeRecoveryAccess: async () => {
+        calls++;
+        return {
+          installationId: foreign ? randomUUID() : installationId,
+          url: "https://machine.tail123.ts.net:8443",
+          observedAt: new Date().toISOString(),
+        };
+      },
+    },
+    (config) => {
+      installationId = config.public.installationId;
+    },
+  );
+  const route = "/api/installation/owner/recovery-access/query";
+  for (const credential of [undefined, "host-agent-test-token", "guest-agent-test-token"])
+    expect((await f.request(route, credential, {})).status).toBe(401);
+  expect(
+    (await f.request(route, "owner-test-password", {}, "https://foreign.example.test")).status,
+  ).toBe(403);
+  expect(calls).toBe(0);
+  const response = await f.request(route, "owner-test-password", {});
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    installationId,
+    status: "verified",
+    url: "https://machine.tail123.ts.net:8443",
+  });
+  foreign = true;
+  expect(await (await f.request(route, "owner-test-password", {})).json()).toMatchObject({
+    status: "unverified",
+    url: null,
+  });
+  expect(f.calls).toEqual([]);
+  expect(existsSync(path.join(f.root, "maintenance-enrollment.json"))).toBe(false);
+});
+
+test("recovery bookmark discovery does not invent an address without native support", async () => {
+  const f = await fixture();
+  const response = await f.request(
+    "/api/installation/owner/recovery-access/query",
+    "owner-test-password",
+    {},
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ status: "unverified", url: null });
+  expect(f.calls).toEqual([]);
+});
+
+test("service maintenance status and cancellation require owner access", async () => {
+  const f = await fixture();
+  const query = "/api/installation/owner/maintenance-services/query";
+  const cancel = "/api/installation/owner/maintenance-services/cancel";
+  const agentRequests = "/api/installation/service-maintenance-requests";
+  expect((await f.request(agentRequests, undefined, {})).status).toBe(401);
+  expect((await f.request(agentRequests, "guest-agent-test-token", {})).status).toBe(403);
+  expect((await f.request(agentRequests, "host-agent-test-token", {})).status).toBe(503);
+  const capabilities = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(capabilities.maintenanceServices).toEqual({ available: false, operations: [] });
+  for (const credential of [undefined, "host-agent-test-token", "guest-agent-test-token"]) {
+    expect((await f.request(query, credential, {})).status).toBe(401);
+    expect((await f.request(cancel, credential, {})).status).toBe(401);
+  }
+  const response = await f.request(query, "owner-test-password", {});
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ available: false, jobs: [] });
+  const missing = await f.request(cancel, "owner-test-password", {
+    id: randomUUID(),
+    revision: randomUUID(),
+  });
+  expect(missing.status).toBe(409);
+  const job = MaintenanceServiceJobSchema.parse({
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "maintenance-controller",
+    operation: "replacement",
+    proposal: {
+      id: randomUUID(),
+      installationId: randomUUID(),
+      requestedBy: "host-agent",
+      target: "maintenance-controller",
+      operation: "replacement",
+      identitySha256: "a".repeat(64),
+      planSha256: "b".repeat(64),
+      repository: "https://example.test/private-repository",
+      sourceCommit: "c".repeat(40),
+      artifactSha256: "d".repeat(64),
+      previous: null,
+    },
+    reason: "Private operator reason",
+    createdAt: new Date().toISOString(),
+    status: "pending",
+    detail: "Awaiting native inspection",
+    evidence: [],
+  });
+  job.proposal.id = job.id;
+  new FileBootstrapRequestJournal(f.root).writeLifecycle([job]);
+  const publicResponse = await f.request("/api/installation/restart-summary");
+  const summary = await publicResponse.json();
+  expect(summary).toMatchObject({
+    serviceMaintenance: { requested: 1, queued: 0, unverified: 0, attention: 0 },
+  });
+  expect(JSON.stringify(summary)).not.toContain("Private operator reason");
+  const listing = await (await f.request(query, "owner-test-password", {})).json();
+  expect(listing.jobs[0]).toMatchObject({ id: job.id, revision: job.revision, cancelable: true });
+  expect(listing.jobs[0]).not.toHaveProperty("proposal");
+  expect(listing.jobs[0]).not.toHaveProperty("evidence");
+  const agentView = await (
+    await f.request(`${agentRequests}/${job.id}`, "host-agent-test-token")
+  ).json();
+  expect(agentView).toEqual(listing.jobs[0]);
+  expect((await f.request(`${agentRequests}/${job.id}`, "guest-agent-test-token")).status).toBe(
+    403,
+  );
+  const cancelled = await f.request(cancel, "owner-test-password", {
+    id: job.id,
+    revision: job.revision,
+  });
+  expect(cancelled.status).toBe(200);
+  expect(await cancelled.json()).toMatchObject({
+    id: job.id,
+    status: "rejected",
+    cancelable: false,
+  });
+  expect(
+    (await f.request(cancel, "owner-test-password", { id: job.id, revision: job.revision })).status,
+  ).toBe(409);
+  expect(f.calls).toEqual([]);
+});
 
 test("enrollment status is owner-only and reading it cannot approve or dispatch maintenance", async () => {
   const f = await fixture();
@@ -360,7 +637,12 @@ async function fixture(
   startupFence?: InstallationStartupFence,
   helperExecutor?: Pick<
     RestartExecutor,
-    "validateHelperPlan" | "installHelper" | "verifyHelperRecovery"
+    | "validateHelperPlan"
+    | "installHelper"
+    | "verifyHelperRecovery"
+    | "discoverMaintenanceServices"
+    | "observeRecoveryAccess"
+    | "reconcileInitialHostActivation"
   >,
   initialize?: (config: InstallationConfig) => void,
   coordinatorRequests?: BootstrapReconciliationLedger,
@@ -1644,6 +1926,79 @@ test("Claude setup login accepts only owner access and sanitizes code failures",
   });
   expect(rejected.status).toBe(409);
   expect(JSON.stringify(await rejected.json())).not.toContain("synthetic-private-code");
+});
+
+test("a future pending plan does not disable HTTP after the exact promoted startup completes", async () => {
+  const retained = coordinatorStatusRequest();
+  retained.execution!.stage = "started";
+  let fence: InstallationStartupFence | undefined;
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    {
+      generation: retained.execution!.generation,
+      released() {
+        if (!fence) throw new Error("Fixture startup fence was not initialized");
+        return fence.released();
+      },
+    },
+    undefined,
+    (config) => {
+      retained.plan.installationId = config.public.installationId;
+      retained.plan.state.directory = config.stateDir;
+      retained.planSha256 = coordinatorPlanDigest(retained.plan);
+      writeFileSync(
+        path.join(config.stateDir, "coordinator-bootstrap.json"),
+        JSON.stringify({ version: 1, requests: [retained] }),
+        { mode: 0o600 },
+      );
+      const futurePlan = { ...retained.plan, futureMaintenanceTooling: true };
+      const future = {
+        ...retained,
+        id: randomUUID(),
+        revision: randomUUID(),
+        status: "pending",
+        execution: undefined,
+        plan: futurePlan,
+        planSha256: createHash("sha256").update(JSON.stringify(futurePlan)).digest("hex"),
+      };
+      writeFileSync(
+        path.join(config.stateDir, "coordinator-bootstrap-pending.json"),
+        JSON.stringify({ version: 1, requests: [future], promotions: [] }),
+        { mode: 0o600 },
+      );
+      fence = loadCoordinatorStartupFence({
+        installationId: config.public.installationId,
+        stateDirectory: config.stateDir,
+        node: retained.plan.candidate.node.path,
+        entrypoint: retained.plan.candidate.entrypoint.path,
+        configuration: retained.plan.candidate.configuration.path,
+      });
+    },
+  );
+  const pendingPath = path.join(f.root, "coordinator-bootstrap-pending.json");
+  const before = readFileSync(pendingPath);
+  expect((await (await f.request("/api/installation/health")).json()).bootstrap.fenced).toBe(true);
+  retained.execution!.stage = "succeeded";
+  writeFileSync(
+    path.join(f.root, "coordinator-bootstrap.json"),
+    JSON.stringify({ version: 1, requests: [retained] }),
+    { mode: 0o600 },
+  );
+  const health = await f.request("/api/installation/health");
+  expect(health.status).toBe(200);
+  expect(await health.json()).not.toHaveProperty("bootstrap");
+  const page = await f.request("/");
+  expect(page.status).toBe(200);
+  expect(await page.text()).toContain("trusted application");
+  await f.drain();
+  expect(f.calls).toEqual([]);
+  expect(readFileSync(pendingPath)).toEqual(before);
+  expect(() => new FileBootstrapRequestJournal(f.root).read()).toThrow("futureMaintenanceTooling");
 });
 
 test("bootstrap HTTP readiness stays fenced without journal writes or admitted operations", async () => {
@@ -3010,5 +3365,500 @@ test("the scoped Host client can require manual supervisor review", async () => 
     supervisorPlanSha256: "a".repeat(64),
   });
   await f.drain();
+  expect(f.calls).toEqual([]);
+});
+
+function unusedMaintenanceExecutor(): MaintenanceServiceExecutor {
+  async function refuse(): Promise<never> {
+    throw new Error("This discovery test must not invoke native effects");
+  }
+  return { inspect: refuse, execute: refuse, observe: refuse };
+}
+
+test("Host activation retains the drain across a slow call and blocks discovery until resolved", async () => {
+  let resolve!: (result: "idle" | "unresolved") => void;
+  const held = new Promise<"idle" | "unresolved">((done) => {
+    resolve = done;
+  });
+  const reconcile = vi.fn(() => held);
+  const discover = vi.fn(async () => unusedMaintenanceExecutor());
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    reconcileInitialHostActivation: reconcile,
+    discoverMaintenanceServices: discover,
+  });
+  const first = f.drain();
+  await f.drain();
+  expect(reconcile).toHaveBeenCalledTimes(1);
+  expect(discover).not.toHaveBeenCalled();
+  resolve("unresolved");
+  await first;
+  expect(discover).not.toHaveBeenCalled();
+  reconcile.mockResolvedValue("idle");
+  await f.drain();
+  expect(reconcile).toHaveBeenCalledTimes(2);
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(f.calls).toEqual([]);
+});
+
+test("Host activation refusal prevents discovery and the next drain may reconcile", async () => {
+  const reconcile = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("Retained child still running"))
+    .mockResolvedValue("verified");
+  const discover = vi.fn(async () => unusedMaintenanceExecutor());
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    reconcileInitialHostActivation: reconcile,
+    discoverMaintenanceServices: discover,
+  });
+  await f.drain();
+  expect(discover).not.toHaveBeenCalled();
+  await f.drain();
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(f.calls).toEqual([]);
+});
+
+test("service discovery does not block reconciliation and accepts one verified construction", async () => {
+  let resolve!: (native: MaintenanceServiceExecutor) => void;
+  const discovery = new Promise<MaintenanceServiceExecutor>((done) => {
+    resolve = done;
+  });
+  const discover = vi.fn(() => discovery);
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    discoverMaintenanceServices: discover,
+  });
+  await Promise.all([f.drain(), f.drain()]);
+  expect(discover).toHaveBeenCalledTimes(1);
+  const capabilities = async () =>
+    (await (await f.request("/api/installation/capabilities", "host-agent-test-token")).json())
+      .maintenanceServices;
+  expect(await capabilities()).toEqual({ available: false, operations: [] });
+  resolve(unusedMaintenanceExecutor());
+  await vi.waitFor(async () => {
+    expect(await capabilities()).toEqual({ available: true, operations: ["replacement"] });
+  });
+  await f.drain();
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(f.calls).toEqual([]);
+});
+
+test("service discovery discards expired construction and retries only after it settles", async () => {
+  let resolve!: (native: MaintenanceServiceExecutor) => void;
+  const discovery = new Promise<MaintenanceServiceExecutor>((done) => {
+    resolve = done;
+  });
+  const discover = vi
+    .fn()
+    .mockImplementationOnce(() => discovery)
+    .mockResolvedValue(unusedMaintenanceExecutor());
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    discoverMaintenanceServices: discover,
+  });
+  const now = Date.now();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  vi.setSystemTime(now);
+  try {
+    await f.drain();
+    await vi.advanceTimersByTimeAsync(25_000);
+    await f.drain();
+    expect(discover).toHaveBeenCalledTimes(1);
+    resolve(unusedMaintenanceExecutor());
+    await vi.advanceTimersByTimeAsync(0);
+    const expired = await f.request("/api/installation/capabilities", "host-agent-test-token");
+    expect((await expired.json()).maintenanceServices).toEqual({
+      available: false,
+      operations: [],
+    });
+    await f.drain();
+    expect(discover).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    await f.drain();
+    expect(discover).toHaveBeenCalledTimes(2);
+    expect(Date.now()).toBe(now + 30_000);
+  } finally {
+    vi.useRealTimers();
+  }
+  const response = await f.request("/api/installation/capabilities", "host-agent-test-token");
+  expect((await response.json()).maintenanceServices).toEqual({
+    available: true,
+    operations: ["replacement"],
+  });
+  expect(f.calls).toEqual([]);
+});
+
+test("service discovery retries a refused registration without restarting the coordinator", async () => {
+  const discover = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("Enrollment registration pending"))
+    .mockResolvedValue(unusedMaintenanceExecutor());
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    discoverMaintenanceServices: discover,
+  });
+  const now = Date.now();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  vi.setSystemTime(now);
+  try {
+    await f.drain();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(discover).toHaveBeenCalledTimes(1);
+    const absent = await f.request("/api/installation/capabilities", "host-agent-test-token");
+    expect((await absent.json()).maintenanceServices).toEqual({ available: false, operations: [] });
+    await vi.advanceTimersByTimeAsync(5000);
+    await f.drain();
+    expect(discover).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+  const ready = await f.request("/api/installation/capabilities", "host-agent-test-token");
+  expect((await ready.json()).maintenanceServices).toEqual({
+    available: true,
+    operations: ["replacement"],
+  });
+  expect(f.calls).toEqual([]);
+});
+
+function enrollDashboardFixture(config: InstallationConfig) {
+  const manifest: InstallationEnrollmentManifest = {
+    version: 1,
+    operation: "installation-enrollment",
+    installationId: config.public.installationId,
+    revision: randomUUID(),
+    createdAt: new Date().toISOString(),
+    targets: [
+      {
+        target: "maintenance-controller",
+        identitySha256: "a".repeat(64),
+        operations: ["replacement"],
+      },
+      { target: "recovery-launcher", identitySha256: "b".repeat(64), operations: ["replacement"] },
+      { target: "host", identitySha256: "c".repeat(64), operations: ["restart"] },
+    ],
+    trustedRepositories: ["https://example.test/repository.git"],
+    provisioning: null,
+    interruption: { finishTurnsSeconds: 60, terminateGraceSeconds: 5 },
+    retryLimit: 3,
+    rollback: "previous-compatible-runtime",
+    recovery: "after-login",
+    steps: [
+      {
+        id: randomUUID(),
+        target: "maintenance-controller",
+        operation: "replacement",
+        planSha256: "d".repeat(64),
+        candidate: { sourceCommit: "e".repeat(40), artifactSha256: "f".repeat(64) },
+        previous: null,
+        dependsOn: [],
+      },
+    ],
+  };
+  enrollInstallation(new FileEnrollmentJournal(config.stateDir), {
+    manifest,
+    approval: {
+      operation: "installation-enrollment",
+      requestId: randomUUID(),
+      reviewRevision: manifest.revision,
+      manifestSha256: enrollmentManifestDigest(manifest),
+      approvedAt: new Date().toISOString(),
+    },
+  });
+}
+
+test("native dashboard readiness is owner-only and uses authority read after inspection", async () => {
+  const read = vi.fn(async () => {
+    const journal = new FileEnrollmentJournal(f.root);
+    const state = journal.read();
+    if (state.status !== "enrolled") throw new Error("Expected enrolled fixture");
+    changeStandingGrant(journal, {
+      expectedRevision: state.grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+    return [
+      {
+        target: "maintenance-controller" as const,
+        identitySha256: "a".repeat(64),
+        readiness: "ready" as const,
+        reason: "Native runtime verified",
+        observedAt: new Date().toISOString(),
+        selectedSource: "e".repeat(40),
+      },
+    ];
+  });
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    { observeMaintenanceServices: read },
+    enrollDashboardFixture,
+  );
+  const route = "/api/installation/owner/enrollment/query";
+  for (const token of [undefined, "host-agent-test-token", "guest-agent-test-token"])
+    expect((await f.request(route, token, {})).status).toBe(401);
+  expect(read).not.toHaveBeenCalled();
+  const result = await f.request(route, "owner-test-password", {});
+  expect(result.status).toBe(200);
+  const status = InstallationEnrollmentStatusSchema.parse(await result.json());
+  expect(status.authority).toBe("revoked");
+  expect(
+    status.services.find((service) => service.target === "maintenance-controller"),
+  ).toMatchObject({
+    enabled: false,
+    readiness: "ready",
+    selectedSource: "e".repeat(40),
+  });
+  expect(status.services.find((service) => service.target === "recovery-launcher")).toMatchObject({
+    readiness: "unknown",
+    selectedSource: null,
+  });
+  read.mockRejectedValueOnce(new Error("Native inspection unavailable"));
+  const failed = await f.request(route, "owner-test-password", {});
+  expect(failed.status).toBe(200);
+  const stale = InstallationEnrollmentStatusSchema.parse(await failed.json());
+  expect(
+    stale.services.find((service) => service.target === "maintenance-controller"),
+  ).toMatchObject({
+    readiness: "unknown",
+    selectedSource: null,
+  });
+  expect(f.calls).toEqual([]);
+});
+
+async function workerLaunchLookupHttpFixture() {
+  let lookup: WorkerLaunchLookup | undefined;
+  let activationChecks = 0;
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    {
+      generation: randomUUID(),
+      released() {
+        activationChecks += 1;
+        throw new Error("Read-only lookup reached activation");
+      },
+    },
+    undefined,
+    (config) => {
+      config.containerSourceUpdates = {
+        sourceRepository: config.stateDir,
+        toolingDirectory: config.stateDir,
+        integrationRef: "refs/heads/main",
+        receiptFile: path.join(config.stateDir, "unused-source"),
+        docker: "/unused/docker",
+        containerId: "d".repeat(64),
+        user: "unit",
+        node: "/unused/node",
+        home: "/unit/state",
+        releaseRoot: "/unit/releases",
+        currentReleaseLink: "/unit/current",
+      };
+      const targetIdentitySha256 = retainEnrollmentNativeIdentity(config.stateDir, {
+        version: 1,
+        installationId: config.public.installationId,
+        custodyOwnerUid: process.getuid!(),
+        installationRoot: config.stateDir,
+        stateDirectory: config.stateDir,
+        environment: "container",
+        target: "container-daemon",
+        containerId: "d".repeat(64),
+        containerUid: 1000,
+        containerGid: 1000,
+        containerHome: "/home/unit",
+        containerStateDirectory: "/unit/state",
+        launcherPath: "/opt/unit/start",
+        selectionPath: "/unit/current",
+      });
+      const supervisor = {
+        pid: 123,
+        parentPid: 1,
+        uid: 1000,
+        bootId: randomUUID(),
+        startTicks: "12345",
+      };
+      const hints = {
+        profileSha256: "a".repeat(64),
+        supervisorPid: 123,
+        cause: { kind: "startup" as const, registrationGeneration: randomUUID() },
+      };
+      lookup = {
+        installationId: config.public.installationId,
+        serverId: "guest-id",
+        targetIdentitySha256,
+        supervisor,
+        hints,
+      };
+      const id = randomUUID();
+      const job = RestartJobSchema.parse({
+        id,
+        revision: randomUUID(),
+        target: "container-daemon",
+        requestedBy: "host-agent",
+        reason: "maintenance parent",
+        status: "running",
+        createdAt: "2026-10-17T00:00:00.000Z",
+        expiresAt: "9999-12-31T23:59:59.999Z",
+        detail: "Private Host executor diagnostics",
+        workerLaunch: {
+          phase: "uncertain",
+          reservedAt: "2026-10-17T00:00:00.000Z",
+          consumedAt: "2026-10-17T00:00:01.000Z",
+          binding: {
+            requestId: id,
+            approvalRevision: randomUUID(),
+            generation: randomUUID(),
+            grantId: randomUUID(),
+            grantRevision: randomUUID(),
+            manifestSha256: "a".repeat(64),
+            profileSha256: hints.profileSha256,
+            targetIdentitySha256,
+            sourceCommit: "a".repeat(40),
+            artifactSha256: "a".repeat(64),
+            publicationSha256: "a".repeat(64),
+            cause: { ...hints.cause, registrationSha256: "a".repeat(64) },
+            supervisor,
+          },
+        },
+      });
+      new FileBootstrapRequestJournal(config.stateDir).writeLifecycle([job]);
+    },
+  );
+  if (!lookup) throw new Error("Missing HTTP lookup fixture");
+  const route = (value: WorkerLaunchLookup) =>
+    `/api/installation/worker-launch-lookup?workerLaunch=1&lookup=${encodeURIComponent(JSON.stringify(value))}`;
+  return {
+    ...f,
+    lookup,
+    route,
+    activationChecks: () => activationChecks,
+    bytes: () => readFileSync(path.join(f.root, "restart-jobs.json"), "utf8"),
+  };
+}
+
+test("worker launch lookup HTTP is read-only while startup is fenced and omits Host parent diagnostics", async () => {
+  const f = await workerLaunchLookupHttpFixture();
+  const before = f.bytes();
+  const request = vi.spyOn(InstallationRestarts.prototype, "request");
+  const activate = vi.spyOn(InstallationRestarts.prototype, "activate");
+  const dispatch = vi.spyOn(InstallationRestarts.prototype, "drain");
+  const mutate = vi.spyOn(FileBootstrapRequestJournal.prototype, "mutateLifecycle");
+  try {
+    const response = await f.request(f.route(f.lookup), "guest-agent-test-token");
+    expect(response.status).toBe(200);
+    const value = await response.json();
+    expect(Object.keys(value)).toEqual(["id", "revision", "status", "detail", "workerLaunch"]);
+    expect(value.workerLaunch.binding.supervisor).toEqual(f.lookup.supervisor);
+    expect(JSON.stringify(value)).not.toContain("Private Host executor diagnostics");
+    expect(f.bytes()).toBe(before);
+    expect(f.activationChecks()).toBe(0);
+    expect(f.calls).toEqual([]);
+    expect(request).not.toHaveBeenCalled();
+    expect(activate).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
+  } finally {
+    request.mockRestore();
+    activate.mockRestore();
+    dispatch.mockRestore();
+    mutate.mockRestore();
+  }
+});
+
+test("worker launch lookup HTTP authenticates configured Dev requester before malformed query or protected reads", async () => {
+  const f = await workerLaunchLookupHttpFixture();
+  const read = vi.spyOn(FileBootstrapRequestJournal.prototype, "withRecoveryTransaction");
+  try {
+    const malformed = "/api/installation/worker-launch-lookup?workerLaunch=1&lookup=%7B";
+    expect((await f.request(malformed)).status).toBe(401);
+    expect((await f.request(malformed, "host-agent-test-token")).status).toBe(403);
+    expect(read).not.toHaveBeenCalled();
+    expect(f.activationChecks()).toBe(0);
+    expect((await f.request(malformed, "guest-agent-test-token")).status).toBe(400);
+    expect(read).not.toHaveBeenCalled();
+  } finally {
+    read.mockRestore();
+  }
+});
+
+test("worker launch lookup HTTP rejects duplicate selectors and refuses another supervisor lifetime or configured server", async () => {
+  const f = await workerLaunchLookupHttpFixture();
+  const before = f.bytes();
+  expect(
+    (await f.request(`${f.route(f.lookup)}&workerLaunch=1`, "guest-agent-test-token")).status,
+  ).toBe(400);
+  expect(
+    (
+      await f.request(
+        f.route({ ...f.lookup, supervisor: { ...f.lookup.supervisor, startTicks: "99999" } }),
+        "guest-agent-test-token",
+      )
+    ).status,
+  ).toBe(404);
+  expect(
+    (await f.request(f.route({ ...f.lookup, serverId: "host-id" }), "guest-agent-test-token"))
+      .status,
+  ).toBe(403);
+  expect(f.bytes()).toBe(before);
+  expect(f.activationChecks()).toBe(0);
+  expect(f.calls).toEqual([]);
+});
+
+test("missing independent Dev readiness disables ordinary capabilities without blocking Host", async () => {
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    true,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      config.container.persistentRegistration = {
+        receiptFile: path.join(config.stateDir, "not-published.json"),
+        sha256: "a".repeat(64),
+      };
+    },
+  );
+  const response = await f.request("/api/installation/capabilities", "host-agent-test-token");
+  expect(response.status).toBe(200);
+  const capabilities = await response.json();
+  expect(capabilities.targets).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ target: "host", restart: true }),
+      expect.objectContaining({
+        target: "container-daemon",
+        restart: false,
+        hostAutomaticRestarts: false,
+        sourceUpdate: expect.objectContaining({ available: false }),
+      }),
+    ]),
+  );
+  expect(capabilities.supervisorMaintenance.available).toBe(false);
+  expect(capabilities.factoryRuntimeAdoption.available).toBe(false);
+  const created = await f.request("/api/installation/restart-requests", "host-agent-test-token", {
+    target: "container-daemon",
+    reason: "Manual request must not bypass registration readiness",
+  });
+  expect(created.status).toBe(201);
+  const pending = RestartJobSchema.parse(await created.json());
+  expect(pending.status).toBe("pending");
+  const refused = await f.request(
+    `/api/installation/owner/restarts/${pending.id}/decision`,
+    "owner-test-password",
+    {
+      revision: pending.revision,
+      decision: "approve",
+    },
+  );
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ error: expect.stringContaining("registration") });
+  expect(new FileBootstrapRequestJournal(f.root).readLifecycle()).toEqual([pending]);
   expect(f.calls).toEqual([]);
 });

@@ -17,6 +17,7 @@ import { createTestLogger } from "../../test-utils/test-logger.js";
 import {
   AgentManager,
   AgentManagerShuttingDownError,
+  RestartCheckpointError,
   commandMayHaveChangedExternalState,
   type AgentManagerEvent,
   type ManagedAgent,
@@ -13219,6 +13220,310 @@ test("idle restart waits for registering sessions and closes admission before ne
   await manager.closeAgent(agent.id);
 });
 
+test("maintenance interruption preserves restart goal continuation and waits for actual settlement", async () => {
+  const fixture = await createControlledInterruptFixture({
+    name: "maintenance-goal",
+    agentId: randomUUID(),
+    turnId: "maintenance-turn",
+    interrupt: async (session) => {
+      session.pushEvent({
+        type: "turn_completed",
+        provider: session.provider,
+        turnId: "maintenance-turn",
+      });
+    },
+  });
+  let goal: AgentGoal = {
+    threadId: "thread",
+    objective: "Continue after restart",
+    status: "active",
+    tokenBudget: null,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const goals = new CodexGoals({
+    request: async (method, input) => {
+      if (method === "thread/goal/set") {
+        const status = Reflect.get(input, "status");
+        if (status !== "paused" && status !== "blocked" && status !== "active")
+          throw new Error("Unexpected status");
+        goal = { ...goal, status, updatedAt: goal.updatedAt + 1 };
+      }
+      return { goal };
+    },
+    onChange: () => {},
+  });
+  goals.bind("thread");
+  Object.defineProperty(fixture.session, "goals", { value: goals });
+  try {
+    await fixture.startForegroundRun();
+    const id = randomUUID();
+    fixture.manager.beginRestartDrain(id);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    const hold = structuredClone(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold);
+    expect(hold).toMatchObject({ phase: "held", reason: "restart", goal: { status: "blocked" } });
+    const impact = fixture.manager.getRestartImpact();
+    const input = {
+      requestId: id,
+      generation: randomUUID(),
+      workerPid: impact.workerPid,
+      workerInstanceId: impact.workerInstanceId,
+      terminateAt: Date.now() + 1000,
+    };
+    await fixture.manager.interruptRestartDrain(input);
+    expect(fixture.session.interruptCalled).toBe(true);
+    expect(fixture.manager.getAgent(fixture.agentId)?.lifecycle).toBe("idle");
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold).toEqual(hold);
+    expect(goal.status).toBe("blocked");
+    expect(fixture.manager.getRestartImpact().restartDrainId).toBe(id);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("maintenance interruption deadline does not synthesize settlement or replay provider cancellation", async () => {
+  let interrupts = 0;
+  const fixture = await createControlledInterruptFixture({
+    name: "maintenance-unsettled",
+    agentId: randomUUID(),
+    turnId: "unsettled-maintenance",
+    interrupt: async () => {
+      interrupts++;
+    },
+  });
+  try {
+    await fixture.startForegroundRun();
+    const id = randomUUID();
+    fixture.manager.beginRestartDrain(id);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    vi.useFakeTimers();
+    const impact = fixture.manager.getRestartImpact();
+    const input = {
+      requestId: id,
+      generation: randomUUID(),
+      workerPid: impact.workerPid,
+      workerInstanceId: impact.workerInstanceId,
+      terminateAt: Date.now() + 100,
+    };
+    const result = fixture.manager.interruptRestartDrain(input);
+    const refused = expect(result).rejects.toMatchObject({ code: "deadline_exceeded" });
+    const sameAttempt = expect(fixture.manager.interruptRestartDrain(input)).rejects.toMatchObject({
+      code: "deadline_exceeded",
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await refused;
+    await sameAttempt;
+    expect(interrupts).toBe(1);
+    expect(fixture.manager.hasInFlightRun(fixture.agentId)).toBe(true);
+    expect(fixture.manager.getAgent(fixture.agentId)?.lifecycle).toBe("running");
+    await expect(
+      fixture.manager.interruptRestartDrain({
+        ...input,
+        generation: randomUUID(),
+        terminateAt: Date.now() + 100,
+      }),
+    ).rejects.toMatchObject({ code: "different_attempt" });
+    expect(interrupts).toBe(1);
+    fixture.session.pushEvent({
+      type: "turn_completed",
+      provider: fixture.session.provider,
+      turnId: "unsettled-maintenance",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(result).rejects.toMatchObject({ code: "deadline_exceeded" });
+  } finally {
+    vi.useRealTimers();
+    await fixture.cleanup();
+  }
+});
+
+test("maintenance interruption refuses changed lifetime and hold release during provider cancellation", async () => {
+  const pending = deferred<void>();
+  let interrupts = 0;
+  const fixture = await createControlledInterruptFixture({
+    name: "maintenance-release",
+    agentId: randomUUID(),
+    turnId: "released-maintenance",
+    interrupt: async () => {
+      interrupts++;
+      await pending.promise;
+    },
+  });
+  try {
+    await fixture.startForegroundRun();
+    const id = randomUUID();
+    fixture.manager.beginRestartDrain(id);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    const impact = fixture.manager.getRestartImpact();
+    const input = {
+      requestId: id,
+      generation: randomUUID(),
+      workerPid: impact.workerPid,
+      workerInstanceId: impact.workerInstanceId,
+      terminateAt: Date.now() + 1000,
+    };
+    await expect(
+      fixture.manager.interruptRestartDrain({ ...input, workerInstanceId: randomUUID() }),
+    ).rejects.toMatchObject({ code: "different_worker" });
+    expect(interrupts).toBe(0);
+    vi.useFakeTimers();
+    const result = fixture.manager.interruptRestartDrain(input);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(interrupts).toBe(1);
+    expect(fixture.manager.cancelRestartDrain(id)).toBe(true);
+    const refused = expect(result).rejects.toMatchObject({ code: "hold_released" });
+    pending.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    await refused;
+    expect(fixture.manager.hasInFlightRun(fixture.agentId)).toBe(true);
+    expect(interrupts).toBe(1);
+  } finally {
+    vi.useRealTimers();
+    pending.resolve();
+    await fixture.cleanup();
+  }
+});
+
+test("maintenance checkpoint deadline rejects a hanging flush and fences its late completion", async () => {
+  vi.useFakeTimers();
+  try {
+    const manager = new AgentManager({ clients: {}, logger });
+    const pending = deferred<void>();
+    const flush = vi.spyOn(manager, "flushForShutdown").mockReturnValue(pending.promise);
+    const id = randomUUID();
+    expect(manager.beginRestartDrain(id)).toBe(true);
+    const checkpoint = manager.checkpointRestartDrain({
+      requestId: id,
+      terminateAt: Date.now() + 100,
+    });
+    const refused = expect(checkpoint).rejects.toMatchObject({
+      code: "deadline_exceeded",
+      requestId: id,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await refused;
+    pending.resolve();
+    await Promise.resolve();
+    await expect(checkpoint).rejects.toBeInstanceOf(RestartCheckpointError);
+    expect(flush).toHaveBeenCalledTimes(1);
+    expect(manager.getRestartImpact().restartDrainId).toBe(id);
+    expect(manager.cancelRestartDrain(id)).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("maintenance checkpoint refuses a hold cancelled during asynchronous persistence", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const pending = deferred<void>();
+  vi.spyOn(manager, "flushForShutdown").mockReturnValue(pending.promise);
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  const checkpoint = manager.checkpointRestartDrain({
+    requestId: id,
+    terminateAt: Date.now() + 1000,
+  });
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  const next = randomUUID();
+  expect(manager.beginRestartDrain(next)).toBe(true);
+  pending.resolve();
+  await expect(checkpoint).rejects.toMatchObject({ code: "hold_released", requestId: id });
+  expect(manager.getRestartImpact().restartDrainId).toBe(next);
+  expect(manager.cancelRestartDrain(next)).toBe(true);
+});
+
+test("maintenance checkpoint validates exact hold and deadline before starting persistence", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const flush = vi.spyOn(manager, "flushForShutdown");
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  await expect(
+    manager.checkpointRestartDrain({ requestId: randomUUID(), terminateAt: Date.now() + 1000 }),
+  ).rejects.toMatchObject({ code: "hold_released" });
+  await expect(
+    manager.checkpointRestartDrain({ requestId: id, terminateAt: Date.now() - 1 }),
+  ).rejects.toMatchObject({ code: "deadline_exceeded" });
+  await expect(
+    manager.checkpointRestartDrain({ requestId: id, terminateAt: Infinity }),
+  ).rejects.toMatchObject({ code: "invalid_deadline" });
+  expect(flush).not.toHaveBeenCalled();
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+});
+
+test("maintenance checkpoint completion preserves the hold and legacy checkpoint calls", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const flush = vi.spyOn(manager, "flushForShutdown");
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  await expect(
+    manager.checkpointRestartDrain({ requestId: id, terminateAt: Date.now() + 1000 }),
+  ).resolves.toBeUndefined();
+  expect(manager.getRestartImpact().restartDrainId).toBe(id);
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  await expect(manager.checkpointRestartDrain()).resolves.toBeUndefined();
+  expect(flush).toHaveBeenCalledTimes(2);
+});
+
+test("maintenance checkpoint captures its request and deadline before awaiting persistence", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const pending = deferred<void>();
+  vi.spyOn(manager, "flushForShutdown").mockReturnValue(pending.promise);
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  const input = { requestId: id, terminateAt: Date.now() + 1000 };
+  const checkpoint = manager.checkpointRestartDrain(input);
+  input.requestId = randomUUID();
+  input.terminateAt = Date.now() - 1;
+  pending.resolve();
+  await expect(checkpoint).resolves.toBeUndefined();
+  expect(manager.getRestartImpact().restartDrainId).toBe(id);
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+});
+
+test("held idle restart binds the exact lifetime and makes release observation-only after dispatch", () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  const impact = manager.getRestartImpact();
+  const identity = {
+    requestId: id,
+    workerPid: impact.workerPid,
+    workerInstanceId: impact.workerInstanceId,
+    terminateAt: Date.now() + 1000,
+  };
+  expect(manager.prepareHeldIdleRestart({ ...identity, workerInstanceId: randomUUID() })).toBe(
+    false,
+  );
+  expect(manager.prepareHeldIdleRestart({ ...identity, workerPid: impact.workerPid + 1 })).toBe(
+    false,
+  );
+  expect(manager.prepareHeldIdleRestart({ ...identity, terminateAt: Date.now() - 1 })).toBe(false);
+  expect(manager.prepareHeldIdleRestart(identity)).toBe(true);
+  expect(manager.cancelRestartDrain(id)).toBe(false);
+  expect(manager.getRestartImpact().restartDrainId).toBe(id);
+  expect(manager.prepareHeldIdleRestart(identity)).toBe(false);
+  expect(() => manager.streamAgent(randomUUID(), "new work")).toThrow("held");
+});
+
+test("held idle restart refuses a hold released after checkpoint completion", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  const impact = manager.getRestartImpact();
+  await manager.checkpointRestartDrain({ requestId: id, terminateAt: Date.now() + 1000 });
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  expect(
+    manager.prepareHeldIdleRestart({
+      requestId: id,
+      workerPid: impact.workerPid,
+      workerInstanceId: impact.workerInstanceId,
+      terminateAt: Date.now() + 1000,
+    }),
+  ).toBe(false);
+});
+
 test("restart drain warns once without interrupting and rejects new turns until cancellation", async () => {
   const session = new SteeringTestSession({ provider: "codex", cwd: process.cwd() });
   const client = new (class extends TestAgentClient {
@@ -13250,6 +13555,7 @@ test("restart drain warns once without interrupting and rejects new turns until 
   await manager.waitForAgentRunStart(agent.id);
   const id = randomUUID();
   expect(manager.beginRestartDrain(id)).toBe(true);
+  expect(manager.getRestartImpact().restartDrainId).toBe(id);
   await expect.poll(() => manager.getRestartImpact().pendingStarts).toBe(0);
   expect(continuations).toEqual([agent.id]);
   expect(session.steerCount).toBe(1);
@@ -13260,6 +13566,7 @@ test("restart drain warns once without interrupting and rejects new turns until 
   expect(session.steerCount).toBe(1);
   expect(manager.cancelRestartDrain(id)).toBe(true);
   expect(manager.isRestartDraining()).toBe(false);
+  expect(manager.getRestartImpact().restartDrainId).toBeNull();
   expect(manager.beginRestartDrain(id)).toBe(false);
   await manager.cancelAgentRun(agent.id);
   await consume;
@@ -13448,7 +13755,13 @@ test("restart drain leaves loaded archived history out of preparation", async ()
     expect(manager.getAgent(agent.id)).toBeDefined();
     const id = randomUUID();
     expect(manager.beginRestartDrain(id)).toBe(true);
-    expect(manager.getRestartImpact()).toEqual({ agents: [], pendingStarts: 0 });
+    expect(manager.getRestartImpact()).toEqual({
+      agents: [],
+      pendingStarts: 0,
+      restartDrainId: id,
+      workerPid: process.pid,
+      workerInstanceId: expect.any(String),
+    });
     expect(manager.cancelRestartDrain(id)).toBe(true);
   } finally {
     for (const agent of manager.listAgents()) await manager.closeAgent(agent.id);

@@ -13,7 +13,11 @@ import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
-import { BootstrapRequestConflict, CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
+import {
+  BootstrapRequestConflict,
+  CoordinatorBootstrapRequests,
+  coordinatorPlanDigest,
+} from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
   BootstrapAdmissionSetupSchema,
@@ -22,6 +26,7 @@ import {
   type BootstrapAdmissionHost,
   createBootstrapReviewService,
   inspectBootstrapWritableMountRoots,
+  verifyBootstrapPlanInChild,
 } from "./coordinator-bootstrap-host.js";
 import {
   readBootstrapPreparedFile,
@@ -34,6 +39,7 @@ import {
   inspectBootstrapPythonExecutable,
   verifyRetainedProcessExited,
   loadedCoordinatorPid,
+  type NativeBootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
 import {
   verifyBootstrapRecoveryArtifacts,
@@ -45,6 +51,8 @@ import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.j
 import {
   readBootstrapHealth,
   createBootstrapNativeOperations,
+  createBootstrapSupervisionNativeOperations,
+  createBootstrapSupervisionControl,
 } from "./coordinator-bootstrap-runtime.js";
 import {
   executeCoordinatorBootstrap,
@@ -155,20 +163,45 @@ export const BootstrapRunnerSetupSchema = z.strictObject({
   runtimeDirectory: z.string().startsWith("/"),
   runtimeSha256: z.string().regex(/^[a-f0-9]{64}$/),
   renewal: BootstrapRenewalSchema.optional(),
+  supervision: z
+    .strictObject({
+      requestId: z.string().uuid(),
+      configuration: FileSchema,
+    })
+    .optional(),
+  maintenance: z
+    .strictObject({
+      installationRoot: z.string().startsWith("/"),
+      admissionSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .optional(),
 });
 
 /** The watchdog acknowledges its pre-lock wait; the executor acknowledges a
  * durable claim with its watchdog armed. Neither message proves completion. */
 export function waitForBootstrapWatchdog(
   child: ChildProcess,
-  role: "watchdog" | "executor" = "watchdog",
+  observation:
+    | "watchdog"
+    | "executor"
+    | { role: "watchdog" | "executor"; timeoutMs: number } = "watchdog",
 ): Promise<void> {
-  const expected = role === "watchdog" ? "waiting\n" : "dispatched\n";
+  const options =
+    typeof observation === "string"
+      ? { role: observation, timeoutMs: observation === "watchdog" ? 10_000 : 15 * 60_000 }
+      : observation;
+  if (
+    !Number.isSafeInteger(options.timeoutMs) ||
+    options.timeoutMs <= 0 ||
+    options.timeoutMs > 15 * 60_000
+  )
+    throw new BootstrapRequestConflict("Invalid bootstrap observation deadline");
+  const expected = options.role === "watchdog" ? "waiting\n" : "dispatched\n";
   return new Promise((resolve, reject) => {
     let bytes = "";
     // Full installed dependency trees can take minutes to verify. This bounds
     // observation only; expiration never proves the executor stopped.
-    const timer = setTimeout(() => finish(false), role === "watchdog" ? 10_000 : 15 * 60_000);
+    const timer = setTimeout(() => finish(false), options.timeoutMs);
     const failed = () => finish(false);
     const data = (chunk: Buffer) => {
       bytes += chunk.toString("utf8");
@@ -193,7 +226,7 @@ export function waitForBootstrapWatchdog(
   });
 }
 
-function nativeRunnerUid(): number {
+export function nativeRunnerUid(): number {
   const uid = process.getuid?.();
   if (process.platform !== "darwin" || uid === undefined)
     throw new BootstrapRequestConflict("Native Host runner required");
@@ -220,9 +253,14 @@ function runnerRenewal(
   trace: ReturnType<typeof createBootstrapRunnerEvidence>["run"],
 ) {
   const uid = process.getuid!();
-  const effectiveAdmission = setup.renewal
-    ? { ...admission, configurationFile: setup.renewal.configuration.path }
-    : admission;
+  let effectiveAdmission = admission;
+  if (setup.renewal)
+    effectiveAdmission = { ...admission, configurationFile: setup.renewal.configuration.path };
+  if (setup.supervision) {
+    if (setup.renewal || setup.maintenance)
+      throw new BootstrapRequestConflict("Supervision setup cannot reuse a renewal or enrollment");
+    effectiveAdmission = { ...admission, configurationFile: setup.supervision.configuration.path };
+  }
   let armed = role === "watchdog";
   let dispatched: CoordinatorBootstrapRequest | undefined;
   const verifyRenewal = async () => {
@@ -237,6 +275,12 @@ function runnerRenewal(
         retainRenewalGeneration({ setup, setupFile, request: retained, watchdog: true }),
       );
     if (!armed) {
+      if (setup.maintenance) {
+        const { verifyMaintenanceBeforeDispatch } =
+          await import("./coordinator-bootstrap-maintenance-runtime.js");
+        await trace("renewal-derive", () => verifyMaintenanceBeforeDispatch(setup));
+        return;
+      }
       const original = BootstrapRunnerSetupSchema.parse(
         readPrivateBootstrapConfiguration(renewal.originalSetup.path, uid),
       );
@@ -263,16 +307,32 @@ function runnerRenewal(
       dispatched = request;
       armed = true;
     },
-    options: setup.renewal
-      ? {
-          setup: effectiveAdmission,
-          verify: async (plan: CoordinatorBootstrapRequest["plan"]) => {
-            await verifyRenewal();
-            await trace("renewal-plan", () => verifyRenewalPlan(setup, plan));
-          },
-        }
-      : undefined,
+    options:
+      setup.renewal || setup.supervision
+        ? {
+            setup: effectiveAdmission,
+            verifyPrepared: setup.supervision
+              ? (plan: CoordinatorBootstrapRequest["plan"], host: BootstrapAdmissionHost) =>
+                  verifyBootstrapPlanInChild({ plan, host, node: setup.node.path })
+              : undefined,
+            verify: async (plan: CoordinatorBootstrapRequest["plan"]) => {
+              if (setup.supervision) {
+                if (
+                  !plan.supervisionRecovery ||
+                  plan.previous.configuration.sha256 !== setup.supervision.configuration.sha256
+                )
+                  throw new BootstrapRequestConflict(
+                    "Supervision preparation changed its selected configuration",
+                  );
+                return;
+              }
+              await verifyRenewal();
+              await trace("renewal-plan", () => verifyRenewalPlan(setup, plan));
+            },
+          }
+        : undefined,
     async verifyApproval(request: CoordinatorBootstrapRequest) {
+      if (setup.supervision) return;
       await trace("renewal-retained", () =>
         verifyRetainedRenewal(setup, request, role === "watchdog"),
       );
@@ -290,7 +350,7 @@ function runnerRenewal(
       record: z.infer<typeof BootstrapExecutorRecordSchema>,
       request: CoordinatorBootstrapRequest,
     ) {
-      if (!setup.renewal) return;
+      if (!setup.renewal && !setup.supervision) return;
       if (
         record.planSha256 !== request.planSha256 ||
         record.process?.pid !== record.pid ||
@@ -302,7 +362,90 @@ function runnerRenewal(
   };
 }
 
+/** Validate the pinned launch even after the review process has gone away.
+ * Only an unclaimed executor still needs its original native parent alive. */
+export async function verifyBootstrapSupervisionRunner(input: {
+  setup: RunnerSetup;
+  setupFile: string;
+  request: CoordinatorBootstrapRequest;
+  role: "executor" | "watchdog" | "boot-watchdog";
+  reader: Pick<NativeBootstrapServiceReader, "inspectProcess">;
+  writableMountRoots: readonly string[];
+}): Promise<void> {
+  const { setup, setupFile, request, role } = input;
+  if (!setup.supervision && !request.plan.supervisionRecovery) return;
+  const { reservation, supervision } = requireSupervisionSetupBinding({
+    setup,
+    setupFile,
+    request,
+  });
+  const bytes = await readBootstrapPreparedFile(reservation.setup, input.writableMountRoots);
+  if (
+    !isDeepStrictEqual(BootstrapRunnerSetupSchema.parse(JSON.parse(bytes.toString("utf8"))), setup)
+  )
+    throw new BootstrapRequestConflict("Supervision runner setup changed");
+  await readBootstrapPreparedFile(supervision.configuration, input.writableMountRoots);
+  const own = ProcessObservationSchema.parse(await input.reader.inspectProcess(process.pid));
+  const identifier = role === "watchdog" ? request.execution?.generation : request.id;
+  const args = [setup.node.path, setup.entrypoint.path, setupFile, role, identifier];
+  const digest = createHash("sha256").update(JSON.stringify(args)).digest("hex");
+  if (
+    own.pid !== process.pid ||
+    own.uid !== process.getuid!() ||
+    own.executable !== setup.node.path ||
+    own.argumentsSha256 !== digest
+  )
+    throw new BootstrapRequestConflict("Supervision runner native identity changed");
+  if (role === "executor" && !request.execution) {
+    const parent = ProcessObservationSchema.parse(
+      await input.reader.inspectProcess(reservation.parent.pid),
+    );
+    if (
+      !isDeepStrictEqual(parent, reservation.parent) ||
+      own.parentPid !== parent.pid ||
+      own.uid !== parent.uid ||
+      own.bootId !== parent.bootId ||
+      parent.bootId !== request.plan.expectedProcess.bootId
+    )
+      throw new BootstrapRequestConflict("Supervision launch parent changed before claim");
+  } else if (!request.execution) {
+    throw new BootstrapRequestConflict("Supervision observation requires a retained generation");
+  }
+}
+
+function requireSupervisionSetupBinding(input: {
+  setup: RunnerSetup;
+  setupFile: string;
+  request: CoordinatorBootstrapRequest;
+}) {
+  const { setup, setupFile, request } = input;
+  const reservation = request.supervisionDispatch;
+  const supervision = setup.supervision;
+  if (
+    !supervision ||
+    !request.plan.supervisionRecovery ||
+    !reservation ||
+    setup.renewal ||
+    setup.maintenance ||
+    request.status !== "approved" ||
+    request.planSha256 !== coordinatorPlanDigest(request.plan) ||
+    supervision.requestId !== request.id ||
+    reservation.setup.path !== setupFile ||
+    supervision.configuration.sha256 !== request.plan.previous.configuration.sha256
+  )
+    throw new BootstrapRequestConflict("Supervision runner does not match its reserved setup");
+  return { reservation, supervision };
+}
+
+export function assertSupervisionHelpers(setup: z.infer<typeof BootstrapRunnerSetupSchema>): void {
+  if (!setup.supervision) return;
+  for (const helper of [setup.ownerLauncher, setup.ownershipVerifier, setup.entrypoint])
+    if (!helper.path.startsWith(setup.runtimeDirectory + path.sep))
+      throw new BootstrapRequestConflict("Supervision helper is outside the reviewed runtime");
+}
+
 function verifyRunnerExecutable(setup: RunnerSetup): void {
+  assertSupervisionHelpers(setup);
   if (
     realpathSync(process.execPath) !== setup.node.path ||
     fileURLToPath(import.meta.url) !== setup.entrypoint.path
@@ -374,21 +517,19 @@ export async function runNativeBootstrap(
       await trace("boot-artifacts", () => verifyBootstrapRecoveryArtifacts(request.plan, roots));
     }
     await trace("approval", () => renewal.verifyApproval(request));
-    if (
-      request.plan.candidate.directory !== setup.runtimeDirectory ||
-      request.plan.candidate.artifactSha256 !== setup.runtimeSha256 ||
-      !isDeepStrictEqual(request.plan.candidate.node, setup.node)
-    )
-      throw new BootstrapRequestConflict("Runner does not belong to the approved candidate");
+    await verifyBootstrapExecutionRuntime({ request, setupFile, setup, writableMountRoots: roots });
     // The watchdog must not depend on reading the failed candidate tree to restore service.
     if (role === "executor")
       await trace("candidate-artifacts", () =>
-        verifyBootstrapReleaseArtifacts(request.plan.candidate, roots),
+        setup.supervision
+          ? verifyBootstrapPlanInChild({ plan: request.plan, host, node: setup.node.path })
+          : verifyBootstrapReleaseArtifacts(request.plan.candidate, roots),
       );
     const lockFile = path.join(
       request.plan.state.directory,
       "coordinator-bootstrap-execution.lock",
     );
+    const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
     const verifySetup = async () =>
       trace("setup-files", async () => {
         if (
@@ -401,6 +542,18 @@ export async function runNativeBootstrap(
           )
         )
           throw new BootstrapRequestConflict("Bootstrap runner setup changed");
+        if (setup.supervision || request.plan.supervisionRecovery) {
+          const current = requests.list().find((record) => record.id === request.id);
+          if (!current) throw new BootstrapRequestConflict("Supervision request disappeared");
+          await verifyBootstrapSupervisionRunner({
+            setup,
+            setupFile,
+            request: current,
+            role,
+            reader,
+            writableMountRoots: await inspectBootstrapWritableMountRoots(host),
+          });
+        }
         await trace("renewal-validation", () => renewal.verify());
       });
     const requireOwnership = async () => {
@@ -418,7 +571,6 @@ export async function runNativeBootstrap(
       );
     };
     await requireOwnership();
-    const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
     const executorFile = (generation: string) =>
       path.join(request.plan.state.directory, `coordinator-executor-${generation}.json`);
     const removeCompletedRecovery = async (terminal: CoordinatorBootstrapRequest) => {
@@ -482,6 +634,15 @@ export async function runNativeBootstrap(
         launcherFile: host.launcherFile,
         writableMountRoots: () => inspectBootstrapWritableMountRoots(host),
         requireOwnership,
+        manualPrevious: setup.supervision
+          ? createBootstrapSupervisionControl({
+              requests,
+              host,
+              ownerLauncher: setup.ownerLauncher,
+              descriptor,
+              requireOwnership,
+            })
+          : undefined,
         recoveryBootId: changedBoot ? runnerIdentity.bootId : undefined,
         readHealth: async () => {
           const config = readPrivateBootstrapConfiguration(
@@ -608,8 +769,12 @@ export async function runNativeBootstrap(
       await requireOwnership();
       acknowledgeBootstrapDispatch();
     };
+    const createOperations = setup.supervision
+      ? createBootstrapSupervisionNativeOperations
+      : createBootstrapNativeOperations;
     const operations: BootstrapExecutorOperations = await trace("native-operations", () =>
-      createBootstrapNativeOperations({
+      createOperations({
+        ownerLauncher: setup.ownerLauncher,
         requests,
         approved: request,
         host,
@@ -731,7 +896,94 @@ export async function runNativeBootstrap(
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [, , setup, role, identifier] = process.argv;
-  if (setup && identifier && role === "claimed-repair-control") {
+  if (
+    setup &&
+    (role === "maintenance-recovery-registration" || role === "maintenance-recovery-observation")
+  ) {
+    void import("./coordinator-bootstrap-maintenance-recovery-activation.js")
+      .then(({ runNativeRecoveryActivation }) =>
+        runNativeRecoveryActivation(
+          setup,
+          process.argv.slice(4),
+          role === "maintenance-recovery-observation" ? { observationOnly: true } : undefined,
+        ),
+      )
+      .then((observation) => process.stdout.write(JSON.stringify(observation) + "\n"))
+      .catch((error: unknown) => {
+        const failure =
+          error instanceof BootstrapRequestConflict ? error.message : "Unverified startup error";
+        process.stderr.write(
+          `Recovery registration requires retained generation observation: ${failure}\n`,
+        );
+        process.exitCode = 1;
+      });
+  } else if (setup && identifier && role === "supervision-control") {
+    void import("./coordinator-bootstrap-supervision-control.js")
+      .then(({ runBootstrapSupervisionControl }) =>
+        runBootstrapSupervisionControl(setup, identifier),
+      )
+      .then(({ url, binding }) =>
+        process.stdout.write(
+          JSON.stringify({ url, binding, pageLoadApprovesNothing: true }) + "\n",
+        ),
+      )
+      .catch(() => {
+        process.stderr.write("Supervision review could not verify its protected runtime.\n");
+        process.exitCode = 1;
+      });
+  } else if (setup && role === "maintenance-service") {
+    void import("./coordinator-bootstrap-maintenance-service-runner.js")
+      .then(({ runNativeMaintenanceService }) =>
+        runNativeMaintenanceService(setup, process.argv.slice(4)),
+      )
+      .catch(() => {
+        process.stderr.write("Native maintenance attempt requires retained observation.\n");
+        process.exitCode = 1;
+      });
+  } else if (setup && role === "maintenance-launcher" && process.argv.length === 4) {
+    void import("./coordinator-bootstrap-maintenance-controller.js")
+      .then(({ runPersistentMaintenanceController }) => runPersistentMaintenanceController(setup))
+      .catch((error: unknown) => {
+        const failure =
+          error instanceof BootstrapRequestConflict ? error.message : "Unverified startup error";
+        process.stderr.write(
+          `Selected maintenance controller could not establish readiness: ${failure}\n`,
+        );
+        process.exitCode = 1;
+      });
+  } else if (setup && identifier && role === "maintenance-control") {
+    void import("./coordinator-bootstrap-maintenance-controller.js")
+      .then(({ runMaintenanceControl }) =>
+        runMaintenanceControl({
+          installationRoot: setup,
+          admissionSha256: identifier,
+          ...(process.argv[5] ? { enrollmentSha256: process.argv[5] } : {}),
+        }),
+      )
+      .catch(() => {
+        process.stderr.write("Maintenance controls could not establish readiness.\n");
+        process.exitCode = 1;
+      });
+  } else if (setup && identifier && role === "preclaim-repair-control") {
+    void import("./coordinator-bootstrap-preclaim-control.js")
+      .then(({ runProvisionedPreclaimRepairControl }) =>
+        runProvisionedPreclaimRepairControl({
+          installationRoot: setup,
+          admissionSha256: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/)
+            .parse(identifier),
+        }),
+      )
+      .then(({ url, descriptor }) => {
+        process.stdout.write(JSON.stringify({ url, descriptor, recoveryDispatched: false }) + "\n");
+        return undefined;
+      })
+      .catch(() => {
+        process.stderr.write("Provisioned preclaim controls could not establish readiness.\n");
+        process.exitCode = 1;
+      });
+  } else if (setup && identifier && role === "claimed-repair-control") {
     void import("./coordinator-bootstrap-claimed-control.js")
       .then(({ runProvisionedClaimedRepairControl }) =>
         runProvisionedClaimedRepairControl({
@@ -812,11 +1064,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     });
 }
 
-export async function verifyBootRunnerBinding(
-  request: CoordinatorBootstrapRequest,
-  setupFile: string,
+async function readReviewedBootstrapSetup(
+  request: Pick<CoordinatorBootstrapRequest, "id" | "plan">,
   setup: RunnerSetup,
-): Promise<void> {
+) {
   const recovery = request.plan.bootRecovery;
   if (
     !recovery ||
@@ -831,12 +1082,32 @@ export async function verifyBootRunnerBinding(
   const prepared = BootstrapRunnerSetupSchema.parse(
     JSON.parse((await readBootstrapPreparedFile(recovery.setup, [])).toString("utf8")),
   );
+  return { recovery, prepared };
+}
+
+export async function verifyBootRunnerBinding(
+  request: CoordinatorBootstrapRequest,
+  setupFile: string,
+  setup: RunnerSetup,
+): Promise<void> {
+  const { recovery, prepared } = await readReviewedBootstrapSetup(request, setup);
   if (!setup.renewal?.request) {
     if (setupFile !== recovery.setup.path || !isDeepStrictEqual(prepared, setup))
       throw new BootstrapRequestConflict("Startup setup differs from approved preparation");
     return;
   }
   const { request: approval, ...renewal } = setup.renewal;
+  let inertSetup: RunnerSetup = { ...setup, renewal };
+  if (setup.maintenance) {
+    // The admission digest includes the plan, whose boot descriptor pins this
+    // inert setup. Avoid a digest cycle by retaining admission only in the later
+    // approval snapshot, and independently verify it before accepting that delta.
+    const { verifyMaintenanceRetainedRuntime } =
+      await import("./coordinator-bootstrap-maintenance-runtime.js");
+    await verifyMaintenanceRetainedRuntime({ setup, request, watchdog: true, historical: false });
+    const { maintenance: _admission, ...preparedRuntime } = inertSetup;
+    inertSetup = preparedRuntime;
+  }
   const expectedPath = path.join(
     request.plan.state.directory,
     `coordinator-renewal-${approval.id}-${approval.revision}.json`,
@@ -845,9 +1116,46 @@ export async function verifyBootRunnerBinding(
     setupFile !== expectedPath ||
     approval.id !== request.id ||
     approval.planSha256 !== request.planSha256 ||
-    !isDeepStrictEqual(prepared, { ...setup, renewal })
+    !isDeepStrictEqual(prepared, inertSetup)
   )
     throw new BootstrapRequestConflict("Startup renewal differs from approved preparation");
+}
+
+/** Ordinary runners stay candidate-bound. A separate recovery executor must be
+ * addressed by this request's existing boot-recovery descriptor, never inferred
+ * from a local path or borrowed renewal/maintenance authority. */
+export async function verifyBootstrapExecutionRuntime(input: {
+  request: Pick<
+    CoordinatorBootstrapRequest,
+    "id" | "plan" | "automaticSubmission" | "automaticApproval" | "standingAuthority" | "enrollment"
+  >;
+  setupFile: string;
+  setup: RunnerSetup;
+  writableMountRoots: readonly string[];
+}) {
+  const { setup, request } = input;
+  const candidate = request.plan.candidate;
+  if (
+    candidate.directory === setup.runtimeDirectory &&
+    candidate.artifactSha256 === setup.runtimeSha256 &&
+    isDeepStrictEqual(candidate.node, setup.node)
+  )
+    return;
+  if (setup.renewal || setup.maintenance || setup.supervision)
+    throw new BootstrapRequestConflict("Independent executor cannot borrow another runner role");
+  if (
+    request.automaticSubmission ||
+    request.automaticApproval ||
+    request.standingAuthority ||
+    request.enrollment
+  )
+    throw new BootstrapRequestConflict(
+      "Independent coordinator replacement requires exact manual approval",
+    );
+  const { recovery, prepared } = await readReviewedBootstrapSetup(request, setup);
+  if (input.setupFile !== recovery.setup.path || !isDeepStrictEqual(prepared, setup))
+    throw new BootstrapRequestConflict("Independent executor differs from approved preparation");
+  await verifyBootstrapRecoveryArtifacts(request.plan, input.writableMountRoots);
 }
 
 /** Resolve the already retained generation without deriving from a new Host

@@ -59,7 +59,7 @@ import { FileClaimedRecoveryReviewJournal } from "./coordinator-bootstrap-claime
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
-import { CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
+import { CoordinatorBootstrapRequests, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
 import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 import { preserveBootstrapState, verifyBootstrapState } from "./coordinator-bootstrap-state.js";
 import { requireBootstrapOwnership } from "./coordinator-bootstrap-ownership.js";
@@ -581,6 +581,84 @@ test("bootstrap configuration preserves credentials, service targets and state w
   expect(verify).toThrow("no longer matches");
 });
 
+test("Dev registration configuration requires an explicit coordinator adoption transition", () => {
+  const f = fixture();
+  const previousFile = path.join(f.root, "previous.json");
+  const candidateFile = path.join(f.root, "candidate.json");
+  const operation = InstallationConfigSchema.parse({
+    ...f.config,
+    containerSourceUpdates: {
+      sourceRepository: path.join(f.root, "source"),
+      toolingDirectory: path.join(f.root, "tooling"),
+      integrationRef: "refs/heads/main",
+      receiptFile: path.join(f.root, "source-update-receipt.json"),
+      docker: "/usr/local/bin/docker",
+      containerId: "a".repeat(64),
+      user: "dev",
+      node: "/tmp/original-node/bin/node",
+      home: "/home/dev/.vorteo",
+      releaseRoot: "/home/dev/.vorteo/releases",
+      currentReleaseLink: "/home/dev/.vorteo/current",
+    },
+  });
+  const save = (file: string, value: unknown) =>
+    writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
+  save(f.file, operation);
+  save(previousFile, operation);
+  save(candidateFile, operation);
+  const file = { path: f.file, sha256: "a".repeat(64) };
+  const release = {
+    directory: f.root,
+    sourceCommit: "a".repeat(40),
+    artifactSha256: "a".repeat(64),
+    node: file,
+    entrypoint: file,
+    launcher: file,
+    configuration: file,
+  };
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: operation.public.installationId,
+    service: operation.host.launchdService.replace(/\.host$/, ".installation"),
+    expectedProcess: {
+      pid: 1,
+      bootId: "fixture",
+      startIdentity: "fixture",
+      argumentsSha256: "a".repeat(64),
+    },
+    previous: { ...release, configuration: { ...file, path: previousFile } },
+    candidate: { ...release, configuration: { ...file, path: candidateFile } },
+    state: {
+      directory: operation.stateDir,
+      restartJournal: path.join(operation.stateDir, "restart-jobs.json"),
+      ownerSessions: path.join(operation.stateDir, "owner-sessions.json"),
+    },
+    hostRequestsAfter: null,
+  });
+  const verify = () =>
+    verifyBootstrapConfiguration({ plan, configurationFile: f.file, daemonId: "host-id" });
+  expect(verify).not.toThrow();
+  const registered = InstallationConfigSchema.parse({
+    ...operation,
+    containerSourceUpdates: {
+      ...operation.containerSourceUpdates,
+      node: "/opt/vorteo/dev/node/bin/node",
+    },
+    container: {
+      ...operation.container,
+      persistentRegistration: {
+        receiptFile: path.join(f.root, "dev-registration.json"),
+        sha256: "b".repeat(64),
+      },
+    },
+  });
+  save(candidateFile, registered);
+  expect(verify).toThrow("Candidate changes configuration outside its approved policy");
+  save(f.file, registered);
+  expect(verify).toThrow("Previous coordinator configuration no longer matches");
+});
+
 test("coordinator reconciliation revokes protected submissions after credential rotation", async () => {
   const f = fixture();
   const binding = () => readBootstrapHostBinding(f.file, "host-id").binding;
@@ -775,9 +853,11 @@ test.runIf(process.platform === "darwin")(
       };
     });
     const verifyProcessExited = vi.fn(async (_pid: number) => {});
+    const verifyServiceAbsent = vi.fn(async (_service: string) => {});
     vi.spyOn(serviceCollector, "createNativeBootstrapServiceReader").mockResolvedValue({
       readService: async () => `${service} = {\n\tpid = 123\n}`,
       inspectProcess,
+      verifyServiceAbsent,
       verifyProcessExited,
     });
     await expect(verifyBootstrapPlan(plan, host)).resolves.toBeUndefined();
@@ -849,6 +929,50 @@ test.runIf(process.platform === "darwin")(
     await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("claimed recovery");
     journalRead.mockReturnValueOnce([recovered, { ...recovered, id: randomUUID() }]);
     await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("another successor");
+    const canceledPlan = { ...successorPlan, candidate: previous };
+    const canceled = CoordinatorBootstrapRequestSchema.parse({
+      ...recovered,
+      id: randomUUID(),
+      revision: randomUUID(),
+      status: "canceled",
+      plan: canceledPlan,
+      planSha256: coordinatorPlanDigest(canceledPlan),
+      execution: undefined,
+    });
+    const sourceFile = path.join(candidate.directory, ".installation-source.json");
+    const oldSource = readFileSync(sourceFile);
+    save(sourceFile, { sourceCommit: "c".repeat(40) });
+    const newReader = {
+      ...candidate,
+      sourceCommit: "c".repeat(40),
+      artifactSha256: await digestBootstrapArtifact(candidate.directory),
+    };
+    const manualPlan = {
+      ...successorPlan,
+      candidate: newReader,
+      compatibleRecovery: newReader,
+      automaticRecovery: "restore-compatible" as const,
+      supervisionRecovery: {
+        canceledRequest: {
+          id: canceled.id,
+          revision: canceled.revision,
+          planSha256: canceled.planSha256,
+        },
+        terminateFrozen: "SIGKILL" as const,
+      },
+    };
+    journalRead.mockReturnValue([recovered, canceled]);
+    inspectProcess.mockClear();
+    await expect(verifyBootstrapPlan(manualPlan, host)).resolves.toBeUndefined();
+    expect(verifyServiceAbsent).toHaveBeenCalledTimes(6);
+    expect(inspectProcess).toHaveBeenCalledTimes(4);
+    verifyServiceAbsent.mockRejectedValueOnce(new Error("Service unexpectedly registered"));
+    await expect(verifyBootstrapPlan(manualPlan, host)).rejects.toThrow("unexpectedly registered");
+    journalRead.mockReturnValueOnce([recovered]);
+    await expect(verifyBootstrapPlan(manualPlan, host)).rejects.toThrow(
+      "canceled migration changed",
+    );
+    writeFileSync(sourceFile, oldSource);
     journalRead.mockRestore();
     claimedRead.mockRestore();
     reviewRead.mockRestore();
@@ -1150,6 +1274,26 @@ finally:
       await firstClosed;
       const [ready] = await secondReady;
       expect(String(ready)).toBe("owned\n");
+      const inspector = path.resolve(
+        import.meta.dirname,
+        "../../../../../scripts/inspect-coordinator-process.py",
+      );
+      const observed = JSON.parse(
+        (await promisify(execFile)("/usr/bin/python3", [inspector, String(second.pid)])).stdout,
+      );
+      expect(observed.argumentsSha256).toBe(
+        createHash("sha256")
+          .update(
+            JSON.stringify([
+              realpathSync(process.execPath),
+              entry,
+              setup,
+              "watchdog",
+              second.spawnargs.at(-1),
+            ]),
+          )
+          .digest("hex"),
+      );
       second.stdin!.end();
       const [code] = await secondClosed;
       expect(code).toBe(0);
@@ -1931,6 +2075,7 @@ test
       },
     },
   );
+  const beforeRecovery = { stopped, launcher: readFileSync(launcherFile) };
   const result = await recoverAbandonedBootstrap(
     requests,
     { id: record.id, generation: record.execution!.generation },
@@ -1946,34 +2091,55 @@ test
   );
   if (
     [
-      "busy-children",
       "busy-journal",
-      "busy-during-freeze",
-      "busy-ownership-lost",
       "invalid-journal",
       "reboot-busy-journal",
       "reboot-invalid-journal",
-      "reboot-changed-journal",
       "reboot-stopped-previous-busy",
+      "reboot-running-busy",
+    ].includes(interruption)
+  ) {
+    // Shared admission refuses promotion before native recovery can begin.
+    // Failure bookkeeping must not claim that rollback or resume was attempted.
+    expect(result.execution!.stage).toBe("recovery_required");
+    expect(result.execution!.generation).toBe(record.execution!.generation);
+    expect(result.execution!.rollbackAttemptedAt).toBeUndefined();
+    expect(result.plan).toEqual(record.plan);
+    expect(effects).toEqual([]);
+    expect(stopped).toBe(beforeRecovery.stopped);
+    expect(readFileSync(launcherFile)).toEqual(beforeRecovery.launcher);
+    const effect = vi.fn();
+    const observed = await recoverAbandonedBootstrap(
+      requests,
+      { id: record.id, generation: record.execution!.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        resumePrevious: effect,
+        restorePrevious: effect,
+      },
+    );
+    expect(observed.revision).toBe(result.revision);
+    expect(effect).not.toHaveBeenCalled();
+    return;
+  }
+  if (
+    [
+      "busy-children",
+      "busy-during-freeze",
+      "busy-ownership-lost",
+      "reboot-changed-journal",
       "reboot-stopped-unrelated",
       "reboot-stopped-starts",
-      "reboot-running-busy",
       "reboot-running-unrelated",
       "reboot-running-wrong-boot",
     ].includes(interruption)
   ) {
     expect(result.execution!.stage).toBe("recovery_required");
     expect(result.execution!.rollbackAttemptedAt).toBeTruthy();
-    const resumed = [
-      "busy-children",
-      "busy-journal",
-      "busy-during-freeze",
-      "reboot-running-busy",
-    ].includes(interruption);
+    const resumed = ["busy-children", "busy-during-freeze"].includes(interruption);
     expect(effects).toEqual([
-      ...(["busy-during-freeze", "reboot-running-busy"].includes(interruption)
-        ? [["kill", "SIGSTOP", serviceName]]
-        : []),
+      ...(interruption === "busy-during-freeze" ? [["kill", "SIGSTOP", serviceName]] : []),
       ...(resumed ? [["kill", "SIGCONT", serviceName]] : []),
     ]);
     expect(stopped).toBe(!resumed && !runningJob);
@@ -2631,3 +2797,233 @@ function runningBootIdentity(interruption: string, oldBoot: string) {
     ...(interruption === "reboot-running-wrong-boot" ? { bootId: oldBoot } : {}),
   };
 }
+
+async function boundedMountReadFixture() {
+  const { inspectBootstrapWritableMountRoots } = await import("./coordinator-bootstrap-host.js");
+  const input = {
+    docker: "/protected/docker",
+    socket: "/private/docker.sock",
+    containerId: "a".repeat(64),
+  };
+  const controller = new AbortController();
+  let now = 0;
+  let onRead: (
+    args: readonly string[],
+    limits: import("./coordinator-bootstrap-host.js").BootstrapMountInspectionReadLimits,
+  ) => void = () => {};
+  let onReserve: () => void = () => {};
+  const reservations: number[] = [];
+  const calls: Array<{
+    file: string;
+    args: readonly string[];
+    limits: import("./coordinator-bootstrap-host.js").BootstrapMountInspectionReadLimits;
+  }> = [];
+  const collection = {
+    signal: controller.signal,
+    remaining(bound = 0) {
+      expect(this).toBe(collection);
+      reservations.push(bound);
+      onReserve();
+      return 30_000 - now;
+    },
+  };
+  const command: import("./coordinator-bootstrap-host.js").BootstrapMountInspectionCommand = {
+    async execute(file, args, limits) {
+      expect(this).toBe(command);
+      calls.push({ file, args, limits });
+      onRead(args, limits);
+      const payload =
+        args[2] === "container"
+          ? {
+              Id: "a".repeat(64),
+              State: { Running: true },
+              Mounts: [
+                { Type: "bind", Source: "/private/guest", RW: true },
+                { Type: "volume", Name: "state", RW: true },
+                { Type: "volume", Name: "state", RW: true },
+                { Type: "volume", Name: "cache", RW: true },
+              ],
+            }
+          : { Name: args.at(-1), Driver: "local", Scope: "local", Options: null };
+      return { stdout: JSON.stringify(payload) };
+    },
+  };
+  const options = { collection, command };
+  return {
+    input,
+    options,
+    collection,
+    command,
+    controller,
+    calls,
+    reservations,
+    inspect: () => inspectBootstrapWritableMountRoots(input, options),
+    legacy: () => inspectBootstrapWritableMountRoots(input, { command }),
+    advance(ms: number) {
+      now += ms;
+    },
+    onRead(callback: typeof onRead) {
+      onRead = callback;
+    },
+    onReserve(callback: typeof onReserve) {
+      onReserve = callback;
+    },
+  };
+}
+
+test.runIf(process.platform === "darwin")(
+  "bounded mount reads preserve fixed commands, original receivers and full read bounds",
+  async () => {
+    const f = await boundedMountReadFixture();
+    expect(await f.inspect()).toEqual(["/private/guest"]);
+    expect(f.reservations).toEqual([10_000, 0, 10_000, 0, 10_000, 0, 0]);
+    expect(f.calls.map((call) => call.args)).toEqual([
+      [
+        "--host",
+        "unix:///private/docker.sock",
+        "container",
+        "inspect",
+        "--format",
+        '{"Id":{{json .Id}},"State":{"Running":{{json .State.Running}}},"Mounts":{{json .Mounts}}}',
+        "a".repeat(64),
+      ],
+      [
+        "--host",
+        "unix:///private/docker.sock",
+        "volume",
+        "inspect",
+        "--format",
+        "{{json .}}",
+        "state",
+      ],
+      [
+        "--host",
+        "unix:///private/docker.sock",
+        "volume",
+        "inspect",
+        "--format",
+        "{{json .}}",
+        "cache",
+      ],
+    ]);
+    for (const call of f.calls) {
+      expect(call.file).toBe("/protected/docker");
+      expect(call.limits).toEqual({
+        env: { PATH: "/usr/bin:/bin" },
+        encoding: "utf8",
+        timeout: 10_000,
+        maxBuffer: 1024 * 1024,
+        signal: f.controller.signal,
+      });
+      expect(Object.isFrozen(call.limits)).toBe(true);
+      expect(Object.isFrozen(call.limits.env)).toBe(true);
+      expect(Object.isFrozen(call.args)).toBe(true);
+    }
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "bounded mount reads do not start a volume read without the full ten seconds",
+  async () => {
+    const f = await boundedMountReadFixture();
+    f.onRead(() => f.advance(21_000));
+    await expect(f.inspect()).rejects.toThrow("deadline exceeded");
+    expect(f.calls).toHaveLength(1);
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "bounded mount reads reject a late container result before starting another command",
+  async () => {
+    const f = await boundedMountReadFixture();
+    f.onRead(() => f.advance(30_000));
+    await expect(f.inspect()).rejects.toThrow("deadline exceeded");
+    expect(f.calls).toHaveLength(1);
+  },
+);
+
+test.runIf(process.platform === "darwin").each(["before", "during"] as const)(
+  "bounded mount reads retain caller cancellation %s native return",
+  async (phase) => {
+    const f = await boundedMountReadFixture();
+    if (phase === "before") f.controller.abort(new Error("cancel mount observation"));
+    else
+      f.onRead(() => {
+        if (f.calls.length === 2) f.controller.abort(new Error("cancel mount observation"));
+      });
+    await expect(f.inspect()).rejects.toThrow("cancel mount observation");
+    expect(f.calls).toHaveLength(phase === "before" ? 0 : 2);
+  },
+);
+
+test
+  .runIf(process.platform === "darwin")
+  .each(["reader", "remaining", "collection", "signal", "target", "socket"] as const)(
+  "bounded mount reads reject retained %s substitution",
+  async (change) => {
+    const f = await boundedMountReadFixture();
+    f.onRead(() => {
+      if (change === "reader") f.command.execute = async () => ({ stdout: "{}" });
+      if (change === "remaining") f.collection.remaining = () => 60_000;
+      if (change === "collection") f.options.collection = { ...f.collection };
+      if (change === "signal") f.collection.signal = new AbortController().signal;
+      if (change === "target") f.input.containerId = "b".repeat(64);
+      if (change === "socket") f.input.socket = "/private/other.sock";
+    });
+    await expect(f.inspect()).rejects.toThrow("bindings changed");
+    expect(f.calls).toHaveLength(1);
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "bounded mount reads recheck callback mutations before invoking the command",
+  async () => {
+    const f = await boundedMountReadFixture();
+    f.onReserve(() => {
+      f.command.execute = async () => ({ stdout: "{}" });
+    });
+    await expect(f.inspect()).rejects.toThrow("bindings changed");
+    expect(f.calls).toHaveLength(0);
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "bounded mount reads keep declared command limits immutable",
+  async () => {
+    const f = await boundedMountReadFixture();
+    f.onRead((_args, limits) => {
+      limits.timeout = 60_000;
+    });
+    await expect(f.inspect()).rejects.toThrow(TypeError);
+    expect(f.calls).toHaveLength(1);
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "bounded mount reads preserve the reference-absent command behavior",
+  async () => {
+    const f = await boundedMountReadFixture();
+    expect(await f.legacy()).toEqual(["/private/guest"]);
+    expect(f.reservations).toEqual([]);
+    expect(f.calls).toHaveLength(3);
+    expect(f.calls[0].limits).toEqual({
+      env: { PATH: "/usr/bin:/bin" },
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    });
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "bounded mount reads retain the original signal assertion",
+  async () => {
+    const f = await boundedMountReadFixture();
+    f.onRead(() => {
+      f.controller.signal.throwIfAborted = () => undefined;
+      f.controller.abort(new Error("cancelled with substituted signal assertion"));
+    });
+    await expect(f.inspect()).rejects.toThrow("bindings changed");
+    expect(f.calls).toHaveLength(1);
+  },
+);

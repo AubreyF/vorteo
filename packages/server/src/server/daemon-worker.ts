@@ -10,6 +10,8 @@ import { createRootLogger } from "./logger.js";
 import type { DaemonLifecycleIntent } from "./bootstrap.js";
 import { getProcessDiagnostics } from "./process-diagnostics.js";
 import { loadGovernedScheduleRuntimeFactory } from "./schedule/governed-runtime.js";
+import { createWorkerShutdown } from "./worker-shutdown.js";
+import { createMaintenanceRestartChannel } from "./maintenance-restart-channel.js";
 
 // Managed updates and Host renewal verify the entrypoint through OS arguments.
 // Changing the title overwrites that evidence on macOS.
@@ -159,6 +161,33 @@ async function main() {
 
   applyCliFlagOverrides(config);
 
+  const maintenanceRestart = createMaintenanceRestartChannel({
+    workerPid: process.pid,
+    parentPid: process.ppid,
+    currentParentPid: () => process.ppid,
+    connected: () => process.connected === true,
+    now: Date.now,
+    send: (message) => {
+      if (typeof process.send !== "function") throw new Error("Supervisor IPC is unavailable");
+      process.send(message);
+    },
+  });
+
+  const workerShutdown = createWorkerShutdown({
+    now: Date.now,
+    stop: async () => {
+      if (!daemon) throw new Error("Shutdown requested before daemon initialization completed");
+      await daemon.stop();
+    },
+    forceExit: () => {
+      logger.warn(
+        getProcessDiagnostics(),
+        "Worker shutdown deadline expired; cleanup is incomplete",
+      );
+      process.exit(1);
+    },
+  });
+
   const installExitHook = () => {
     if (exitHookInstalled || !shutdownPromise) {
       return;
@@ -174,6 +203,7 @@ async function main() {
     options?: {
       reason?: string;
       successExitCode?: number;
+      terminateAt?: number;
     },
   ) => {
     const reason = options?.reason ?? `worker_received_${signal}`;
@@ -184,31 +214,20 @@ async function main() {
       );
 
       shutdownPromise = (async () => {
-        const forceExit = setTimeout(() => {
-          logger.warn(
-            { signal, reason, ...getProcessDiagnostics() },
-            "Forcing shutdown - HTTP server didn't close in time",
-          );
-          process.exit(1);
-        }, 10000);
-
         try {
-          if (!daemon) {
-            logger.error("Shutdown requested before daemon initialization completed");
-            clearTimeout(forceExit);
-            return 1;
-          }
-          await daemon.stop();
-          clearTimeout(forceExit);
+          await workerShutdown.begin(options?.terminateAt);
           logger.info("Server closed");
           return options?.successExitCode ?? 0;
         } catch (err) {
-          clearTimeout(forceExit);
           logger.error({ err }, "Shutdown failed");
           return 1;
         }
       })();
     } else {
+      // Duplicate shutdown requests may shorten the budget, never extend it.
+      void workerShutdown.begin(options?.terminateAt).catch((err: unknown) => {
+        logger.error({ err }, "Shutdown deadline update failed");
+      });
       logger.info(
         { signal, reason, ...getProcessDiagnostics() },
         `${signal} received while shutdown is already in progress`,
@@ -292,6 +311,7 @@ async function main() {
     };
 
     process.on("message", (message: unknown) => {
+      maintenanceRestart.observe(message);
       if (typeof message !== "object" || message === null || !("type" in message)) {
         return;
       }
@@ -302,8 +322,19 @@ async function main() {
       }
       if (type === "paseo:graceful-shutdown") {
         const reason = (message as { reason?: unknown }).reason;
+        const terminateAt = (message as { terminateAt?: unknown }).terminateAt;
+        if (
+          terminateAt !== undefined &&
+          (typeof terminateAt !== "number" ||
+            !Number.isSafeInteger(terminateAt) ||
+            terminateAt > Date.now() + 300_000)
+        ) {
+          logger.error("Supervisor supplied an invalid shutdown deadline");
+          return;
+        }
         beginShutdown("Supervisor shutdown request", {
           reason: typeof reason === "string" ? reason : "supervisor_requested_shutdown",
+          ...(typeof terminateAt === "number" ? { terminateAt } : {}),
         });
       }
     });
@@ -339,6 +370,7 @@ async function main() {
       {
         ...config,
         onLifecycleIntent: handleLifecycleIntent,
+        maintenanceRestart,
       },
       logger,
       { createGovernedScheduleRuntime },

@@ -60,11 +60,23 @@ export function lockedMaintenanceSummary(summary: RestartSummary): string | null
   const monitorCount = monitor
     ? monitor.requested + monitor.queued + monitor.running + monitor.recovery
     : 0;
-  if (!summary.requested && !summary.queued && !summary.running && !helperCount && !monitorCount)
+  const service = summary.serviceMaintenance;
+  const serviceCount = service ? service.requested + service.queued + service.unverified : 0;
+  if (
+    !summary.requested &&
+    !summary.queued &&
+    !summary.running &&
+    !helperCount &&
+    !monitorCount &&
+    !serviceCount
+  )
     return null;
   let description = `${summary.requested} requested · ${summary.queued} queued · ${summary.running} restarting.`;
   if (helperCount) description += ` ${helperCount} helper maintenance requests need attention.`;
   if (monitorCount) description += ` ${monitorCount} preview monitor requests need attention.`;
+  if (serviceCount) description += ` ${serviceCount} controller or launcher maintenance requests.`;
+  if (service?.attention)
+    description += ` ${service.attention} require attention; effects will not be repeated.`;
   return description + " Unlock controls to review details.";
 }
 

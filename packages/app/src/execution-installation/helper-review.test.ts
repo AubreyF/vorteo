@@ -80,3 +80,15 @@ test("rollback review identifies the retained selected release even without an o
     `Retained rollback source: ${previous.sourceCommit}\nRollback artifact: ${previous.artifactSha256}`,
   );
 });
+
+test("locked summary reports service uncertainty without claiming a live restart", () => {
+  const text = lockedMaintenanceSummary({
+    requested: 0,
+    queued: 0,
+    running: 0,
+    serviceMaintenance: { requested: 0, queued: 0, unverified: 1, attention: 1 },
+  });
+  expect(text).toContain("1 controller or launcher maintenance requests.");
+  expect(text).toContain("effects will not be repeated");
+  expect(text).toContain("0 restarting");
+});

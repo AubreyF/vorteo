@@ -25,6 +25,8 @@ export interface ClaudeQueryContext {
   queryFactory?: ClaudeQueryFactory;
   /** Called with the spawned child process so the caller can tree-kill it on close. */
   onChildProcess?: (child: ChildProcess) => void;
+  /** Synchronous session admission immediately before creating a native child. */
+  assertCanSpawn?: () => void;
 }
 
 function isChildProcessWithStreams(child: ChildProcess): child is ChildProcessWithoutNullStreams {
@@ -86,6 +88,7 @@ function applyRuntimeSettingsToClaudeOptions(
         : null;
       const command = selfNodeCommand?.command ?? resolved.command;
       const args = selfNodeCommand?.args ?? resolved.args;
+      context.assertCanSpawn?.();
       const child = spawnProcess(command, args, {
         cwd: spawnOptions.cwd,
         ...(selfNodeCommand

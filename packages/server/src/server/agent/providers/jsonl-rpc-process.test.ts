@@ -2,7 +2,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import pino from "pino";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { JsonlRpcProcess, type JsonlRpcExit } from "./jsonl-rpc-process.js";
 
@@ -301,6 +301,64 @@ describe("JsonlRpcProcess", () => {
     await expect(transport.requestStopWork({ type: "abort" })).rejects.toThrow(
       "JSONL RPC process is closed",
     );
+  });
+
+  test("close preserves uncertain child cleanup across concurrent and repeated calls without another signal", async () => {
+    vi.useFakeTimers();
+    const child = createInMemoryChildProcess();
+    const signals: Array<NodeJS.Signals | number | undefined> = [];
+    child.kill = (signal) => {
+      signals.push(signal);
+      return true;
+    };
+    const transport = startProcess({ child });
+    try {
+      const first = expect(transport.close()).rejects.toThrow("process cleanup remains unverified");
+      const concurrent = expect(transport.close()).rejects.toThrow(
+        "process cleanup remains unverified",
+      );
+      const both = Promise.all([first, concurrent]);
+      await vi.advanceTimersByTimeAsync(3000);
+      await both;
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+      await expect(transport.close()).rejects.toThrow("process cleanup remains unverified");
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("automatic stdin cleanup retains its failure for explicit observation without repeating signals", async () => {
+    vi.useFakeTimers();
+    const child = createInMemoryChildProcess();
+    const signals: Array<NodeJS.Signals | number | undefined> = [];
+    child.kill = (signal) => {
+      signals.push(signal);
+      return true;
+    };
+    const transport = startProcess({ child });
+    try {
+      child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      await vi.advanceTimersByTimeAsync(3000);
+      await expect(transport.close()).rejects.toThrow("process cleanup remains unverified");
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("explicit close cleans a still-live child after transport failure", async () => {
+    const child = createInMemoryChildProcess();
+    const signals: Array<NodeJS.Signals | number | undefined> = [];
+    child.kill = (signal) => {
+      signals.push(signal);
+      queueMicrotask(() => child.emit("exit", null, signal ?? null));
+      return true;
+    };
+    const transport = startProcess({ child });
+    child.emit("error", new Error("transport failed before process exit"));
+    await transport.close();
+    expect(signals).toEqual(["SIGTERM"]);
   });
 
   test("stdin error events close the transport instead of becoming uncaught exceptions", async () => {

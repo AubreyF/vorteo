@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { filterArchivedRestartErrors } from "./restart-impact.js";
 import { runSupervisorMaintenance, supervisorPlanDigest } from "./supervisor-maintenance.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
@@ -216,8 +218,107 @@ async function reportRestartTimeout(
   );
 }
 
-export function createInstallationRestartExecutor(config: InstallationConfig): RestartExecutor {
+export function createInstallationRegistrationAdmission(
+  config: InstallationConfig,
+  assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
+): (target: RestartJob["target"]) => void {
+  const configuration = structuredClone(config);
+  const registrationRequired = configuration.container.persistentRegistration !== undefined;
+  return function assertReady(target: RestartJob["target"]): void {
+    if (target !== "container-daemon") return;
+    if (!registrationRequired && config.container.persistentRegistration === undefined) return;
+    if (!registrationRequired || !isDeepStrictEqual(config, configuration))
+      throw new Error("Dev registration configuration changed");
+    if (
+      !assertRegistrationReadiness ||
+      assertRegistrationReadiness(target) !== undefined ||
+      !isDeepStrictEqual(config, configuration)
+    )
+      throw new Error("Verified Dev registration readiness is unavailable");
+  };
+}
+
+export function createInstallationRestartExecutor(
+  config: InstallationConfig,
+  assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
+): RestartExecutor {
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
+  function retainedHeldRestart(job: RestartJob) {
+    const current = new FileBootstrapRequestJournal(config.stateDir)
+      .readLifecycle()
+      .find((item) => item.id === job.id);
+    if (
+      !current ||
+      (current.target !== "host" && current.target !== "container-daemon") ||
+      current.status !== "running" ||
+      current.revision !== job.revision ||
+      current.target !== job.target ||
+      !isDeepStrictEqual(current.standingDecision, job.standingDecision) ||
+      !isDeepStrictEqual(current.update, job.update) ||
+      !isDeepStrictEqual(current.sourceBatch, job.sourceBatch) ||
+      !current.standingInterruption ||
+      !isDeepStrictEqual(current.standingInterruption, job.standingInterruption)
+    )
+      throw new Error("Exact durable interruption reservation is unavailable");
+    return current.standingInterruption.held;
+  }
+
+  async function restartHeld(job: RestartJob): Promise<string> {
+    assertReady(job.target);
+    const held = retainedHeldRestart(job);
+    const kind = job.target === "host" ? "host" : "container";
+    const client = await connectInstallationDaemon(config, kind);
+    try {
+      retainedHeldRestart(job);
+      assertReady(job.target);
+      await client.restartServer("approved_exact_held_restart", undefined, {
+        timeout: 5000,
+        idleMode: "restart",
+        restartDrainId: job.id,
+        heldRestart: held,
+      });
+    } catch (error) {
+      const lostReply =
+        error instanceof Error &&
+        "code" in error &&
+        ["DAEMON_CONNECTION_LOST", "DAEMON_REQUEST_TIMEOUT"].includes(String(error.code));
+      if (!lostReply) throw error;
+      // Observe this same generation after a lost reply. Never send again.
+    } finally {
+      await client.close();
+    }
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      await delay(1000);
+      let observed: DaemonClient | null = null;
+      try {
+        observed = await connectInstallationDaemon(config, kind);
+        const response = await observed.restartServer(undefined, undefined, {
+          idleMode: "inspect",
+          timeout: 5000,
+        });
+        const impact = response.impact;
+        if (
+          impact?.workerPid &&
+          impact.workerPid !== held.workerPid &&
+          impact.workerInstanceId &&
+          impact.workerInstanceId !== held.workerInstanceId &&
+          impact.restartDrainId === null
+        )
+          return `Replacement worker ${impact.workerPid} is ready; retained generation observed without replay`;
+      } catch {
+        // Readiness may be temporarily unavailable; this loop has no effects.
+      } finally {
+        await observed?.close();
+      }
+    }
+    throw new Error(
+      "Held restart readiness remains unverified; retain the generation without replay",
+    );
+  }
+
   async function restart(target: RestartJob["target"], whenIdle = false): Promise<string | null> {
+    assertReady(target);
     const kind = target === "host" ? "host" : "container";
     let previousPid: number | null = null;
     let before: DaemonClient | null = null;
@@ -241,6 +342,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
         return null;
       }
       try {
+        assertReady(target);
         const result = await client.restartServer("owner_approved_idle_restart", undefined, {
           timeout: 5000,
           idleMode: "restart",
@@ -259,6 +361,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
       const client = await connectInstallationDaemon(config, kind);
       try {
         // The container and its supervisor remain in place. Never recreate it.
+        assertReady(target);
         await client.restartServer("owner_approved_installation_restart", undefined, {
           timeout: 5000,
         });
@@ -292,8 +395,14 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
     return reportRestartTimeout(config, target);
   }
   return {
+    restartHeld,
     factoryRuntimePlan: () => factoryRuntimePlanDigest(config.container.factoryRuntimeAdoption),
     async adoptFactoryRuntime(job) {
+      assertReady("container-daemon");
+      if (config.container.persistentRegistration)
+        throw new Error(
+          "Dev Factory adoption requires independently verified transition-phase readiness",
+        );
       const plan = config.container.factoryRuntimeAdoption;
       const environment = config.public.environments.find((entry) => entry.kind === "container");
       if (!plan || !environment || job.factoryRuntimePlanSha256 !== factoryRuntimePlanDigest(plan))
@@ -306,6 +415,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
         await before.close();
       }
       const phase = { plan, job, serverId: environment.serverId, previousPid };
+      assertReady("container-daemon");
       await runFactoryRuntimePhase({ ...phase, phase: "stage", replacementPid: null });
       // This is the existing tracked restart executor, after exact adoption approval.
       // Once staging starts, failure retains this request; it never requeues or rolls state back.
@@ -324,6 +434,9 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
     },
     supervisorPlan: () => supervisorPlanDigest(config.container.supervisorMaintenance),
     async restartSupervisor(job) {
+      assertReady("container-daemon");
+      if (config.container.persistentRegistration)
+        throw new Error("Dev supervisor maintenance requires an independently bound operation");
       const plan = config.container.supervisorMaintenance;
       if (!plan || job.target !== "container-daemon" || job.supervisorPlanSha256 !== plan.sha256)
         throw new Error("Supervisor maintenance plan is unavailable or changed");
@@ -334,6 +447,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
       } finally {
         await before.close();
       }
+      assertReady("container-daemon");
       await runSupervisorMaintenance(plan, job);
       const deadline = Date.now() + 120_000;
       while (Date.now() < deadline) {
@@ -358,8 +472,8 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
         target === "host" ? "host" : "container",
       );
       try {
-        const idleRestartSupported =
-          client.getLastServerInfoMessage()?.features?.idleRestart === true;
+        const features = client.getLastServerInfoMessage()?.features;
+        const idleRestartSupported = features?.idleRestart === true;
         if (idleRestartSupported) {
           const response = await client.restartServer(undefined, undefined, {
             idleMode: "inspect",
@@ -375,8 +489,9 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
             ...response.impact,
             agents,
             idleRestartSupported,
-            gracefulRestartSupported:
-              client.getLastServerInfoMessage()?.features?.gracefulRestart === true,
+            gracefulRestartSupported: features?.gracefulRestart === true,
+            restartDrainObservationSupported: features?.restartDrainObservation === true,
+            heldIdleRestartSupported: features?.heldIdleRestart === true,
             error: null,
           };
         }
@@ -412,11 +527,13 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
       }
     },
     async holdCurrentTurns(target, requestId) {
+      assertReady(target);
       const client = await connectInstallationDaemon(
         config,
         target === "host" ? "host" : "container",
       );
       try {
+        assertReady(target);
         const result = await client.restartServer(undefined, undefined, {
           timeout: 5000,
           idleMode: "drain",

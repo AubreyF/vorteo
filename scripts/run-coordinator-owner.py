@@ -10,6 +10,8 @@ import errno
 import json
 import hashlib
 import signal
+import subprocess
+import re
 import time
 import fcntl
 import os
@@ -19,6 +21,12 @@ import uuid
 
 
 class PreclaimProofError(ValueError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
+class SupervisionProofError(ValueError):
     def __init__(self, code):
         self.code = code
         super().__init__(code)
@@ -36,14 +44,14 @@ def private_path(value, directory=False):
     return info
 
 
-def private_document(file):
+def private_document(file, maximum=4 * 1024 * 1024):
     private_path(file)
     descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         before = os.fstat(descriptor)
         if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
                 or before.st_nlink != 1 or before.st_mode & 0o077
-                or before.st_size > 4 * 1024 * 1024):
+                or before.st_size > maximum):
             raise ValueError("Invalid preclaim journal")
         with os.fdopen(os.dup(descriptor), "r", encoding="utf-8") as stream:
             value = json.load(stream)
@@ -215,16 +223,16 @@ def preclaim_terminal_ownership(state, request_id, revision, generation, digest,
 
 
 
-def preclaim_protected_bytes(file, digest):
+def preclaim_protected_bytes(file, digest, maximum=1024 * 1024):
     private_path(file)
     descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         before = os.fstat(descriptor)
-        if (before.st_size > 1024 * 1024 or not stat.S_ISREG(before.st_mode)
+        if (before.st_size > maximum or not stat.S_ISREG(before.st_mode)
                 or before.st_uid != os.getuid() or before.st_nlink != 1 or before.st_mode & 0o022):
             raise ValueError("Preclaim dependency is too large")
         with os.fdopen(os.dup(descriptor), "rb") as stream:
-            source = stream.read(1024 * 1024 + 1)
+            source = stream.read(maximum + 1)
         after = os.fstat(descriptor)
         current = os.lstat(file)
         fields = lambda item: (item.st_dev, item.st_ino, item.st_mode, item.st_uid,
@@ -267,6 +275,176 @@ def preclaim_boot_nanoseconds():
     if library.mach_timebase_info(ctypes.byref(base)) != 0 or base.denom == 0:
         raise ValueError("Native grace clock unavailable")
     return library.mach_absolute_time() * base.numer // base.denom
+
+
+def supervision_effect(state, request_id, revision, generation, digest, effect,
+                       inspector, inspector_digest, configuration, launcher, deadline_ms):
+    """Internal exact-generation handoff, never a general PID signal endpoint."""
+    if (effect not in ("freeze", "terminate-frozen")
+            or any(str(uuid.UUID(value)) != value for value in (request_id, revision, generation))):
+        raise ValueError("Invalid supervision effect")
+    deadline = int(deadline_ms)
+    remaining = deadline - time.time_ns() // 1000000
+    if remaining <= 0 or remaining > 25000:
+        raise SupervisionProofError("deadline_elapsed")
+    monotonic_deadline = time.monotonic_ns() + remaining * 1000000
+
+    def check_deadline():
+        if time.time_ns() // 1000000 >= deadline or time.monotonic_ns() >= monotonic_deadline:
+            raise SupervisionProofError("deadline_elapsed")
+
+    lock = os.path.join(state, "coordinator-bootstrap-execution.lock")
+    if private_path(state, directory=True).st_mode & 0o077:
+        raise ValueError("Supervision state must be private")
+    verify_owned_descriptor(lock, 3)
+    main_snapshot = private_document(os.path.join(state, "coordinator-bootstrap.json"), 16 * 1024 * 1024)
+    records = main_snapshot["requests"]
+    matches = [record for record in records if record["id"] == request_id]
+    if len(matches) != 1:
+        raise SupervisionProofError("approval_changed")
+    request = matches[0]
+    plan = request["plan"]
+    encode = lambda value: json.dumps(value, ensure_ascii=False, separators=(",", ":"),
+                                       allow_nan=False).encode("utf-8")
+    stages = {"freeze": ("freeze_pending", "rollback_pending"),
+              "terminate-frozen": ("unload_pending", "rollback_pending")}
+    if (request["revision"] != revision or request["status"] != "approved"
+            or not request.get("decisionAt") or "automaticApproval" in request
+            or "automaticSubmission" in request or request["planSha256"] != digest
+            or hashlib.sha256(encode(plan)).hexdigest() != digest
+            or request["execution"]["generation"] != generation
+            or request["execution"]["stage"] not in stages[effect]
+            or plan["operation"] != "coordinator-bootstrap" or plan["version"] != 1
+            or plan["state"]["directory"] != state
+            or plan["supervisionRecovery"]["terminateFrozen"] != "SIGKILL"
+            or plan["automaticRecovery"] != "restore-compatible"):
+        raise SupervisionProofError("approval_changed")
+    reference = plan["supervisionRecovery"]["canceledRequest"]
+    pending = private_document(os.path.join(state, "coordinator-bootstrap-pending.json"), 16 * 1024 * 1024)
+    # The caller has strictly validated promotion receipts. A promoted record is
+    # current authority; its retained pre-promotion copy is historical evidence.
+    main_ids = {record["id"] for record in records}
+    combined = records + [record for record in pending["requests"] if record["id"] not in main_ids]
+    canceled = [record for record in combined if record["id"] == reference["id"]]
+    if (not canceled or any(record != canceled[0] for record in canceled)
+            or canceled[0]["revision"] != reference["revision"]
+            or canceled[0]["planSha256"] != reference["planSha256"]
+            or canceled[0]["status"] != "canceled" or not canceled[0].get("decisionAt")
+            or "automaticApproval" in canceled[0] or "automaticSubmission" in canceled[0]
+            or canceled[0].get("execution") is not None
+            or canceled[0]["plan"].get("recoveredFrom") != plan.get("recoveredFrom")):
+        raise ValueError("Supervision cancellation changed")
+    prior = plan["recoveredFrom"]
+    ancestors = [record for record in combined if record["id"] == prior["id"]]
+    if (not ancestors or any(record != ancestors[0] for record in ancestors)
+            or ancestors[0]["revision"] != prior["revision"]
+            or ancestors[0]["planSha256"] != prior["planSha256"]
+            or hashlib.sha256(encode(ancestors[0]["plan"])).hexdigest() != prior["planSha256"]
+            or ancestors[0]["plan"]["service"] != plan["service"]
+            or ancestors[0]["plan"]["installationId"] != plan["installationId"]
+            or ancestors[0]["execution"]["generation"] != prior["generation"]
+            or ancestors[0]["execution"]["stage"] not in ("recovery_required", "rolled_back", "resumed")):
+        raise ValueError("Supervision ancestry changed")
+    restored = canceled[0]["plan"]["candidate"]
+    same_source = all(plan["previous"][key] == restored[key]
+                      for key in ("sourceCommit", "directory", "artifactSha256", "node", "entrypoint"))
+    same_files = all(plan["previous"][key]["sha256"] == restored[key]["sha256"]
+                     for key in ("configuration", "launcher"))
+    if (not same_source or not same_files
+            or canceled[0]["planSha256"] != hashlib.sha256(encode(canceled[0]["plan"])).hexdigest()
+            or plan["service"] != canceled[0]["plan"]["service"]
+            or plan["installationId"] != canceled[0]["plan"]["installationId"]
+            or plan["hostRequestsAfter"] is not None
+            or any(key in plan for key in ("sourceUpdateTooling", "nativeHelperConfiguration",
+                                           "previewMonitorConfiguration", "factoryRuntimeAdoptionConfiguration"))
+            or any(plan[key]["sourceCommit"] == plan["previous"]["sourceCommit"]
+                   or plan[key]["configuration"]["sha256"] != plan["previous"]["configuration"]["sha256"]
+                   for key in ("candidate", "compatibleRecovery"))):
+        raise ValueError("Supervision scope changed")
+    source = preclaim_protected_bytes(inspector, inspector_digest)
+    scope = {"__name__": "supervision_native_inspector"}
+    exec(compile(source, inspector, "exec"), scope)
+    def inspect(pid, mode):
+        try:
+            return scope["inspect"](pid, mode)
+        except scope["InspectionError"]:
+            raise SupervisionProofError("process_changed") from None
+    expected = dict(plan["expectedProcess"], uid=os.getuid(), parentPid=1,
+                    executable=plan["previous"]["node"]["path"])
+    arguments = [expected["executable"], plan["previous"]["entrypoint"]["path"], configuration]
+    if hashlib.sha256(encode(arguments)).hexdigest() != expected["argumentsSha256"]:
+        raise SupervisionProofError("process_changed")
+    service = plan["service"]
+    domain, uid, label = service.split("/", 2)
+    if domain != "gui" or uid != str(os.getuid()) or not re.fullmatch(
+            r"local\.vorteo\.[a-zA-Z0-9.-]+\.installation", label):
+        raise ValueError("Supervision service changed")
+    missing = 'Bad request.\nCould not find service "' + label + '" in domain for user gui: ' + uid
+
+    def verify():
+        check_deadline()
+        verify_owned_descriptor(lock, 3)
+        if (private_document(os.path.join(state, "coordinator-bootstrap.json"), 16 * 1024 * 1024) != main_snapshot
+                or private_document(os.path.join(state, "coordinator-bootstrap-pending.json"), 16 * 1024 * 1024) != pending):
+            raise ValueError("Supervision history changed")
+        try:
+            output = subprocess.run(["/bin/launchctl", "print", service], timeout=2,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                    text=True, env={"PATH": "/usr/bin:/bin"})
+        except subprocess.SubprocessError:
+            raise ValueError("Supervision service absence unproven") from None
+        if output.returncode != 113 or output.stderr.strip() != missing:
+            raise ValueError("Supervision service absence unproven")
+        preclaim_protected_bytes(configuration, plan["previous"]["configuration"]["sha256"])
+        preclaim_protected_bytes(launcher, plan["previous"]["launcher"]["sha256"])
+        observed = inspect(expected["pid"], "--audit-token")
+        if observed["identity"] != expected:
+            raise SupervisionProofError("process_changed")
+        if effect == "terminate-frozen":
+            stopped = inspect(expected["pid"], "--require-stopped")
+            if stopped != dict(expected, stopped=True, childPids=[]):
+                raise SupervisionProofError("not_frozen")
+            try:
+                transfer = private_document(os.path.join(state, "coordinator-transfer-" + generation + ".json"))
+            except FileNotFoundError:
+                raise SupervisionProofError("transfer_unavailable") from None
+            if (transfer["version"] != 1 or transfer["requestId"] != request_id
+                    or transfer["generation"] != generation or transfer["planSha256"] != digest):
+                raise ValueError("Supervision transfer changed")
+            for key, name in (("restartJournal", "restart-jobs.json"),
+                              ("ownerSessions", "owner-sessions.json")):
+                file = os.path.join(state, name)
+                if plan["state"][key] != file:
+                    raise ValueError("Supervision state path changed")
+                if transfer[key] is None:
+                    if os.path.lexists(file):
+                        raise SupervisionProofError("state_changed")
+                else:
+                    try:
+                        preclaim_protected_bytes(file, transfer[key], 16 * 1024 * 1024)
+                    except (OSError, ValueError):
+                        raise SupervisionProofError("state_changed") from None
+        check_deadline()
+        return observed["auditToken"]
+
+    token = verify()
+    dispatch = os.path.join(state, "coordinator-supervision-effect-" + generation + "-" + effect + ".json")
+    try:
+        preclaim_write_once(dispatch, {"requestId": request_id, "revision": revision,
+            "generation": generation, "planSha256": digest, "effect": effect,
+            "process": expected, "auditToken": token})
+    except FileExistsError:
+        raise SupervisionProofError("effect_consumed") from None
+    if verify() != token:
+        raise ValueError("Supervision audit identity changed")
+    library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+    library.proc_signal_with_audittoken.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    library.proc_signal_with_audittoken.restype = ctypes.c_int
+    audit = (ctypes.c_uint32 * 8)(*token)
+    check_deadline()
+    requested_signal = signal.SIGSTOP if effect == "freeze" else signal.SIGKILL
+    if library.proc_signal_with_audittoken(ctypes.byref(audit), requested_signal) != 0:
+        raise SupervisionProofError("effect_uncertain")
 
 
 def preclaim_effect(state, request_id, revision, generation, digest, effect, inspector, inspector_digest):
@@ -743,6 +921,9 @@ def read_executor_stage(parent, record):
 
 
 def main():
+    if sys.platform == "darwin" and len(sys.argv) == 13 and sys.argv[1] == "supervision-effect":
+        supervision_effect(*sys.argv[2:])
+        return
     if sys.platform == "darwin" and len(sys.argv) == 3 and sys.argv[1] == "preclaim-isolated":
         pid = int(sys.argv[2])
         if (pid <= 1 or os.getpgid(pid) != pid or os.getsid(pid) != pid
@@ -826,7 +1007,10 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, KeyError, TypeError) as error:
-        if len(sys.argv) > 1 and sys.argv[1] in ("preclaim-verify", "preclaim-effect", "claimed-effect", "claimed-verify"):
+        if len(sys.argv) > 1 and sys.argv[1] == "supervision-effect":
+            code = error.code if isinstance(error, SupervisionProofError) else "verification_failed"
+            print("supervision:" + code, file=sys.stderr)
+        elif len(sys.argv) > 1 and sys.argv[1] in ("preclaim-verify", "preclaim-effect", "claimed-effect", "claimed-verify"):
             code = error.code if isinstance(error, PreclaimProofError) else "verification_failed"
             print("preclaim:" + code, file=sys.stderr)
         else:

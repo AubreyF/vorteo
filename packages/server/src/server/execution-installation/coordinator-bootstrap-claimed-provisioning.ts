@@ -160,6 +160,44 @@ async function verifyProvisioningReceipt(
   receipt: z.infer<typeof ClaimedRepairProvisioningSchema>,
 ) {
   const plan = validateClaimedRecoveryPlan(input.plan);
+  const original = plan.original;
+  if (
+    !isDeepStrictEqual(receipt.original, {
+      id: original.id,
+      revision: original.revision,
+      generation: original.execution!.generation,
+      planSha256: original.planSha256,
+    }) ||
+    receipt.recoveryPlanSha256 !== claimedRecoveryPlanDigest(plan)
+  )
+    throw new BootstrapRequestConflict("Repair admission does not match this exact claim");
+  await verifyRepairRuntimeReceipt({
+    ...input,
+    installationId: original.plan.installationId,
+    service: original.plan.service,
+    stateDirectory: original.plan.state.directory,
+    runtimeDirectoryName: "claimed-repair-runtimes",
+    receipt,
+  });
+}
+
+interface RepairRuntimeReceiptInput {
+  installationRoot: string;
+  installationId: string;
+  service: string;
+  stateDirectory: string;
+  runtimeDirectoryName: "claimed-repair-runtimes" | "preclaim-repair-runtimes";
+  writableMountRoots: readonly string[];
+  receipt: Pick<
+    z.infer<typeof ClaimedRepairProvisioningSchema>,
+    "installationId" | "installationRecord" | "runtime"
+  >;
+}
+
+/** Shared artifact custody only. Each recovery kind must separately bind its
+ * exact original operation, provisioning consent and native effect admission. */
+export async function verifyRepairRuntimeReceipt(input: RepairRuntimeReceiptInput) {
+  const receipt = input.receipt;
   const root = input.installationRoot;
   if ((await realpath(root)) !== root)
     throw new BootstrapRequestConflict("Repair installation root must be canonical");
@@ -176,24 +214,16 @@ async function verifyProvisioningReceipt(
         ).toString("utf8"),
       ),
     );
-  const original = plan.original;
   if (
     record.root !== root ||
     record.installationId !== receipt.installationId ||
-    record.installationId !== original.plan.installationId ||
-    record.coordinatorService !== original.plan.service ||
-    original.plan.state.directory !== path.join(root, "state/coordinator") ||
-    !isDeepStrictEqual(receipt.original, {
-      id: original.id,
-      revision: original.revision,
-      generation: original.execution!.generation,
-      planSha256: original.planSha256,
-    }) ||
-    receipt.recoveryPlanSha256 !== claimedRecoveryPlanDigest(plan)
+    record.installationId !== input.installationId ||
+    record.coordinatorService !== input.service ||
+    input.stateDirectory !== path.join(root, "state/coordinator")
   )
     throw new BootstrapRequestConflict("Repair admission does not match this exact claim");
   const runtime = receipt.runtime;
-  const runtimeRoot = path.join(root, "claimed-repair-runtimes", runtime.sourceCommit);
+  const runtimeRoot = path.join(root, input.runtimeDirectoryName, runtime.sourceCommit);
   if (runtime.directory !== runtimeRoot || (await realpath(runtimeRoot)) !== runtimeRoot)
     throw new BootstrapRequestConflict("Repair runtime escaped its provisioned directory");
   const files = [

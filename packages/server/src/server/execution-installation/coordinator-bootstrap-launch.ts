@@ -1,3 +1,4 @@
+import { reserveEnrolledBootstrapLaunch } from "./coordinator-bootstrap-maintenance-dispatch.js";
 import { verifyCoordinatorSubmission } from "./daemon-automation.js";
 import { createHash } from "node:crypto";
 import { lstatSync, constants, realpathSync, readdirSync } from "node:fs";
@@ -39,11 +40,12 @@ import {
 import {
   BootstrapRunnerSetupSchema,
   waitForBootstrapWatchdog,
+  verifyBootstrapExecutionRuntime,
 } from "./coordinator-bootstrap-runner.js";
 import {
   BootstrapRenewalSchema,
   deriveBootstrapRenewal,
-  terminalBootstrapRelease,
+  bootstrapReleaseHistory,
   persistRenewalSetup,
   verifyRenewalPlan,
   verifyRetainedRenewal,
@@ -82,6 +84,11 @@ interface PreclaimRuntimeInput {
   daemonId: string;
   original: CoordinatorBootstrapRequest;
   ownerCancellation?: CoordinatorBootstrapRequest;
+  plan?: BootstrapPreclaimRecoveryPlan;
+  provisioning?: Pick<
+    z.infer<typeof PreclaimProvisioningContextSchema>,
+    "installationRoot" | "admissionSha256" | "controlProcess"
+  >;
   ports?: NonNullable<Parameters<typeof deriveBootstrapRenewal>[0]["ports"]> & {
     moduleFile: string;
     hostProcessId?: number;
@@ -90,11 +97,11 @@ interface PreclaimRuntimeInput {
 
 function unclaimedPreclaimRequests(
   records: CoordinatorBootstrapRequest[],
-  identity: Parameters<typeof terminalBootstrapRelease>[1],
+  identity: Parameters<typeof bootstrapReleaseHistory>[1],
 ) {
-  // Failed generations remain in history after an exact successor recovers them.
-  // Validate that complete chain before excluding executed records from admission.
-  terminalBootstrapRelease(records, identity);
+  // A failed predecessor is valid recovery input, not a completed renewal.
+  // Native renewal verification remains required before review or effects.
+  bootstrapReleaseHistory(records, identity);
   return records.filter((record) => record.status !== "canceled" && !record.execution);
 }
 
@@ -140,9 +147,24 @@ function readPreclaimRuntimeAnchor(input: PreclaimRuntimeInput) {
   return { request, uid, setup, admission, verifyOriginal };
 }
 
-export async function derivePreclaimHostRuntime(
-  input: PreclaimRuntimeInput,
-): Promise<z.infer<typeof BootstrapRunnerSetupSchema>> {
+export async function derivePreclaimHostRuntime(input: PreclaimRuntimeInput): Promise<
+  z.infer<typeof BootstrapRunnerSetupSchema> & {
+    provisioning?: z.infer<typeof PreclaimProvisioningContextSchema>;
+  }
+> {
+  if (input.provisioning) {
+    if (input.ports || !input.plan || !isDeepStrictEqual(input.plan.original, input.original))
+      throw new BootstrapRequestConflict(
+        "Provisioned preclaim repair requires its exact native plan",
+      );
+    const { deriveProvisionedPreclaimHostRuntime } =
+      await import("./coordinator-bootstrap-preclaim-provisioned-host.js");
+    return deriveProvisionedPreclaimHostRuntime({
+      ...input,
+      plan: input.plan,
+      provisioning: input.provisioning,
+    });
+  }
   const { request, uid, setup, admission, verifyOriginal } = readPreclaimRuntimeAnchor(input);
   verifyOriginal();
   const derived = await deriveBootstrapRenewal({
@@ -415,11 +437,11 @@ export async function createManagedPreclaimRecoveryReview(
   };
 }
 
-async function verifyManagedPreclaimPreparation(
+export async function verifyManagedPreclaimPreparation(
   input: PreclaimRuntimeInput,
   plan: BootstrapPreclaimRecoveryPlan,
 ) {
-  const runtime = await derivePreclaimHostRuntime(input);
+  const runtime = await derivePreclaimHostRuntime({ ...input, plan });
   const renewal = runtime.renewal!;
   const admission = BootstrapAdmissionSetupSchema.parse(
     JSON.parse((await readBootstrapPreparedFile(renewal.originalAdmission, [])).toString("utf8")),
@@ -462,6 +484,13 @@ async function verifyManagedPreclaimPreparation(
   if (observed === "alive") await verifyPreclaimPreparationIsolation(context);
 }
 
+export const PreclaimProvisioningContextSchema = z.strictObject({
+  installationRoot: z.string().startsWith("/"),
+  admissionSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  hostRuntime: BootstrapRunnerSetupSchema,
+  controlProcess: ProcessObservationSchema,
+});
+
 export const PreclaimRunnerSetupSchema = BootstrapRunnerSetupSchema.extend({
   version: z.literal(1),
   kind: z.literal("bootstrap-preclaim-recovery"),
@@ -471,6 +500,7 @@ export const PreclaimRunnerSetupSchema = BootstrapRunnerSetupSchema.extend({
   renewal: BootstrapRenewalSchema,
   inspector: BootstrapRunnerSetupSchema.shape.entrypoint,
   selectedLauncherFile: z.string().startsWith("/"),
+  provisioning: PreclaimProvisioningContextSchema.optional(),
 });
 
 /** A fresh execution snapshot does not edit the installed runner/admission.
@@ -529,6 +559,7 @@ async function persistPreclaimLaunchSnapshot(
   refuseAttempt();
   const setup = await derivePreclaimHostRuntime({
     ...input,
+    plan: request.plan,
     original: request.plan.original,
     ownerCancellation: request.plan.ownerCancellation,
   });
@@ -809,7 +840,11 @@ export async function retainPreclaimExecutorBirth(input: {
     setup,
     input.setupFile,
     executor,
-    ProcessObservationSchema.parse(await reader.inspectProcess(setup.renewal.hostProcess.pid)),
+    ProcessObservationSchema.parse(
+      await reader.inspectProcess(
+        setup.provisioning?.controlProcess.pid ?? setup.renewal.hostProcess.pid,
+      ),
+    ),
   );
   if (!isDeepStrictEqual(setup, readPrivateBootstrapConfiguration(input.setupFile, uid)))
     throw new BootstrapRequestConflict("Recovery launch snapshot changed before birth retention");
@@ -870,7 +905,7 @@ function verifyPreclaimBirthObservation(
     identity.planSha256,
   ];
   const uid = process.getuid!();
-  const host = setup.renewal.hostProcess;
+  const host = setup.provisioning?.controlProcess ?? setup.renewal.hostProcess;
   if (
     executor.identity.pid !== process.pid ||
     executor.identity.parentPid !== host.pid ||
@@ -918,11 +953,31 @@ export async function runNativePreclaimRecovery(
   );
   const roots = await inspectBootstrapWritableMountRoots(admission);
   await assertBootstrapPathsProtected([input.setupFile, setup.stateDirectory], roots);
+  const retainedReview = new FileBootstrapPreclaimJournal(setup.stateDirectory)
+    .readReviews()
+    .find((request) => request.id === setup.request.id);
+  if (!retainedReview || retainedReview.planSha256 !== setup.request.planSha256)
+    throw new BootstrapRequestConflict("Retained preclaim review changed");
+  const verifyRuntimeAdmission = async (retained: boolean) => {
+    if (setup.provisioning) {
+      const { verifyProvisionedPreclaimRuntime } =
+        await import("./coordinator-bootstrap-preclaim-provisioned-host.js");
+      await verifyProvisionedPreclaimRuntime({
+        setup,
+        plan: retainedReview.plan,
+        writableMountRoots: roots,
+        retained,
+      });
+    } else {
+      await verifyRetainedRenewal(setup, undefined, retained);
+    }
+  };
+  if (setup.provisioning) await verifyRuntimeAdmission(observationGeneration !== undefined);
   // Retain native birth before either runtime's expensive complete-tree digest.
   const birth = observationGeneration
     ? await verifyPreclaimObserver(input, setup, observationGeneration, roots)
     : await retainPreclaimExecutorBirth({ ...input, writableMountRoots: roots });
-  await verifyRetainedRenewal(setup, undefined, observationGeneration !== undefined);
+  if (!setup.provisioning) await verifyRuntimeAdmission(observationGeneration !== undefined);
   const nativeReader = await createNativeBootstrapServiceReader({
     helperPath: setup.inspector.path,
     helperSha256: setup.inspector.sha256,
@@ -943,13 +998,14 @@ export async function runNativePreclaimRecovery(
   };
   const verifyRuntime = async () => {
     await readBootstrapPreparedFile(birth.setup, roots);
-    await verifyRetainedRenewal(setup, undefined, true);
+    await verifyRuntimeAdmission(true);
     const config = InstallationConfigSchema.parse(
       readPrivateBootstrapConfiguration(setup.renewal.configuration.path, uid),
     );
     if (
       !config.sourceUpdates ||
-      realpathSync(config.sourceUpdates.currentReleaseLink) !== setup.runtimeDirectory ||
+      realpathSync(config.sourceUpdates.currentReleaseLink) !==
+        (setup.provisioning?.hostRuntime.runtimeDirectory ?? setup.runtimeDirectory) ||
       !isDeepStrictEqual(await inspectBootstrapWritableMountRoots(admission), roots)
     )
       throw new BootstrapRequestConflict("Recovery selected Host or mount boundaries changed");
@@ -1415,15 +1471,44 @@ export async function createManagedBootstrapReview(
         }
       : undefined,
   );
-  const verifyCandidate = async (request: Pick<CoordinatorBootstrapRequest, "plan">) => {
+  return createDispatchingBootstrapReview({
+    setup,
+    setupFile,
+    requests,
+    verifySetup,
+    automatic: {
+      configurationFile: setup.renewal?.configuration.path ?? admission.configurationFile,
+      uid,
+    },
+  });
+}
+
+/** Shared exact-plan launch path. Independent maintenance omits automatic
+ * authority and must obtain its own owner decision before this path launches. */
+export function createDispatchingBootstrapReview(options: {
+  setup: z.infer<typeof BootstrapRunnerSetupSchema>;
+  setupFile: string;
+  requests: Awaited<ReturnType<typeof createBootstrapReviewService>>;
+  verifySetup(): Promise<string[]>;
+  automatic?: { configurationFile: string; uid: number };
+  enrollment?: boolean;
+  dispatchWaitTimeoutMs?: number;
+}): BootstrapReviewService & {
+  dispatchEnrolled(request: CoordinatorBootstrapRequest): Promise<CoordinatorBootstrapRequest>;
+} {
+  const { setup, setupFile, requests, verifySetup, automatic: automaticPolicy } = options;
+  if (
+    options.dispatchWaitTimeoutMs !== undefined &&
+    (!Number.isSafeInteger(options.dispatchWaitTimeoutMs) ||
+      options.dispatchWaitTimeoutMs <= 0 ||
+      options.dispatchWaitTimeoutMs > 15 * 60_000)
+  )
+    throw new BootstrapRequestConflict("Invalid bootstrap dispatch observation deadline");
+  const verifyCandidate = async (request: Pick<CoordinatorBootstrapRequest, "id" | "plan">) => {
     const candidate = request.plan.candidate;
-    if (
-      candidate.directory !== setup.runtimeDirectory ||
-      candidate.artifactSha256 !== setup.runtimeSha256 ||
-      !isDeepStrictEqual(candidate.node, setup.node)
-    )
-      throw new BootstrapRequestConflict("Bootstrap request does not match the installed runner");
-    await verifyBootstrapReleaseArtifacts(candidate, await verifySetup());
+    const roots = await verifySetup();
+    await verifyBootstrapExecutionRuntime({ request, setupFile, setup, writableMountRoots: roots });
+    await verifyBootstrapReleaseArtifacts(candidate, roots);
     await verifyRenewalPlan(setup, request.plan);
   };
   const dispatch = async (request: CoordinatorBootstrapRequest, automatic: boolean) => {
@@ -1435,6 +1520,11 @@ export async function createManagedBootstrapReview(
         revision: request.revision,
         planSha256: request.planSha256,
       });
+    if (request.enrollment) {
+      if (!options.enrollment || !setup.maintenance || automatic)
+        throw new BootstrapRequestConflict("Exact admitted enrollment launch required");
+      request = reserveEnrolledBootstrapLaunch(request);
+    }
     const current = requests.list().find((item) => item.id === request.id);
     if (!current || current.revision !== request.revision || current.execution)
       throw new BootstrapRequestConflict("Bootstrap decision changed before launch");
@@ -1459,7 +1549,12 @@ export async function createManagedBootstrapReview(
     );
     child.on("error", () => {});
     try {
-      await waitForBootstrapWatchdog(child, "executor");
+      await waitForBootstrapWatchdog(
+        child,
+        options.dispatchWaitTimeoutMs === undefined
+          ? "executor"
+          : { role: "executor", timeoutMs: options.dispatchWaitTimeoutMs },
+      );
     } catch {
       // An observation failure is not permission to signal or relaunch a child.
       throw new BootstrapRequestConflict(
@@ -1475,6 +1570,11 @@ export async function createManagedBootstrapReview(
     return dispatched;
   };
   return {
+    dispatchEnrolled: async (request) => {
+      if (!options.enrollment || !request.enrollment)
+        throw new BootstrapRequestConflict("Enrollment launch unavailable");
+      return dispatch(request, false);
+    },
     list: () => requests.list(),
     prepare: async (input) => {
       const prepared = CoordinatorBootstrapPreparationSchema.parse(input);
@@ -1492,40 +1592,44 @@ export async function createManagedBootstrapReview(
       if (request.status !== "approved") return request;
       return dispatch(request, false);
     },
-    automatic: {
-      prepare: async (input, proof) => {
-        const prepared = CoordinatorBootstrapPreparationSchema.parse(input);
-        const config = InstallationConfigSchema.parse(
-          readPrivateBootstrapConfiguration(
-            setup.renewal?.configuration.path ?? admission.configurationFile,
-            uid,
-          ),
-        );
-        const authority = verifyCoordinatorSubmission(config, prepared, proof);
-        await verifyCandidate(prepared);
-        return requests.prepareAutomatic(prepared, authority);
-      },
-      reconcile: async (id) => {
-        requests.revokeAutomatic();
-        const request = requests.list().find((item) => item.id === id);
-        if (!request?.automaticSubmission)
-          throw new BootstrapRequestConflict("Authenticated coordinator submission required");
-        if (request.status === "canceled" || request.execution || request.automaticDispatch)
-          return request;
-        requests.requireAutomaticReconciliation(request);
-        if (request.status === "pending") {
-          await verifyCandidate(request);
-          return requests.approveAutomatic({
-            id: request.id,
-            revision: request.revision,
-            planSha256: request.planSha256,
-          });
+    automatic: automaticPolicy
+      ? {
+          prepare: async (input, proof) => {
+            const prepared = CoordinatorBootstrapPreparationSchema.parse(input);
+            const config = InstallationConfigSchema.parse(
+              readPrivateBootstrapConfiguration(
+                automaticPolicy.configurationFile,
+                automaticPolicy.uid,
+              ),
+            );
+            const authority = verifyCoordinatorSubmission(config, prepared, proof);
+            await verifyCandidate(prepared);
+            return requests.prepareAutomatic(prepared, authority);
+          },
+          reconcile: async (id) => {
+            requests.revokeAutomatic();
+            const request = requests.list().find((item) => item.id === id);
+            if (!request?.automaticSubmission)
+              throw new BootstrapRequestConflict("Authenticated coordinator submission required");
+            if (request.status === "canceled" || request.execution || request.automaticDispatch)
+              return request;
+            requests.requireAutomaticReconciliation(request);
+            if (request.status === "pending") {
+              await verifyCandidate(request);
+              return requests.approveAutomatic({
+                id: request.id,
+                revision: request.revision,
+                planSha256: request.planSha256,
+              });
+            }
+            if (!request.automaticApproval)
+              throw new BootstrapRequestConflict(
+                "Manual approval cannot authorize automatic dispatch",
+              );
+            if (Date.now() < Date.parse(request.automaticApproval.dispatchAfter)) return request;
+            return dispatch(request, true);
+          },
         }
-        if (!request.automaticApproval)
-          throw new BootstrapRequestConflict("Manual approval cannot authorize automatic dispatch");
-        if (Date.now() < Date.parse(request.automaticApproval.dispatchAfter)) return request;
-        return dispatch(request, true);
-      },
-    },
+      : undefined,
   };
 }

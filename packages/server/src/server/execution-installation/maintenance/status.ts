@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   InstallationEnrollmentStatusSchema,
   type EnrollmentTarget,
@@ -11,6 +12,54 @@ export interface EnrollmentServiceObservation extends Omit<
   "enabled"
 > {
   identitySha256: string;
+}
+
+export type MaintenanceServiceObservationReader = (
+  signal: AbortSignal,
+) => Promise<EnrollmentServiceObservation[]>;
+
+const NativeServiceObservationsSchema = z
+  .array(
+    InstallationEnrollmentStatusSchema.shape.services.element.omit({ enabled: true }).extend({
+      target: z.enum(["maintenance-controller", "recovery-launcher"]),
+      identitySha256: z.string().regex(/^[a-f0-9]{64}$/),
+    }),
+  )
+  .max(2);
+
+/** Failed inspection clears health instead of reusing an earlier successful
+ * result. The endpoint remains bounded even if a native reader ignores abort. */
+export async function readMaintenanceServiceObservations(
+  read: MaintenanceServiceObservationReader | undefined,
+): Promise<EnrollmentServiceObservation[]> {
+  if (!read) return [];
+  const controller = new AbortController();
+  const expiresAt = Date.now() + 10_000;
+  // Select the Node overload even when client ambient timer types are present.
+  const scheduleTimeout: (callback: () => void, delay: number) => NodeJS.Timeout = setTimeout;
+  let timer: ReturnType<typeof scheduleTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      Promise.resolve().then(() => read(controller.signal)),
+      new Promise<never>((_resolve, reject) => {
+        timer = scheduleTimeout(() => {
+          controller.abort();
+          reject(new BootstrapRequestConflict("Native service readiness timed out"));
+        }, 10_000);
+        timer.unref();
+      }),
+    ]);
+    if (controller.signal.aborted || Date.now() >= expiresAt) return [];
+    const observations = NativeServiceObservationsSchema.parse(result);
+    if (new Set(observations.map((observation) => observation.target)).size !== observations.length)
+      return [];
+    return observations;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
 }
 
 interface EnrollmentStatusInput {

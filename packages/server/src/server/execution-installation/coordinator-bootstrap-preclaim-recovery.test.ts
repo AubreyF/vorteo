@@ -34,6 +34,14 @@ import {
 } from "./coordinator-bootstrap-launch.js";
 import { afterEach, expect, test } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
+import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { assertPreclaimControlBinding } from "./coordinator-bootstrap-preclaim-provisioned-host.js";
+import {
+  PreclaimRepairProvisioningSchema,
+  provisionPreclaimRepair,
+  verifyPreclaimRepairProposal,
+  verifyPreclaimRepairProvisioning,
+} from "./coordinator-bootstrap-preclaim-provisioning.js";
 import type { BootstrapPreclaimRecoveryRequest } from "@getpaseo/protocol/coordinator-bootstrap";
 import { CoordinatorBootstrapRequests, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
 import { createNativeBootstrapServiceReader } from "./coordinator-bootstrap-service.js";
@@ -232,6 +240,158 @@ afterEach(() => {
 });
 const password = "disposable-review-owner";
 const ownerPasswordHash = hashSync(password, 4);
+
+test.each(["exact", "host", "executor", "coordinator", "argv", "boot", "uid", "executable"])(
+  "independent preclaim control binds its distinct native role (%s)",
+  (mode) => {
+    const plan = fixture().plan;
+    const setup = { node: plan.runner.node, entrypoint: plan.executorEntrypoint };
+    const root = "/protected";
+    const admissionSha256 = "a".repeat(64);
+    const args = [
+      setup.node.path,
+      setup.entrypoint.path,
+      root,
+      "preclaim-repair-control",
+      admissionSha256,
+    ];
+    const controlProcess = {
+      ...plan.hostProcess,
+      pid: 99,
+      argumentsSha256: createHash("sha256").update(JSON.stringify(args)).digest("hex"),
+    };
+    if (mode === "host") controlProcess.pid = plan.hostProcess.pid;
+    if (mode === "executor") controlProcess.pid = plan.executor.identity.pid;
+    if (mode === "coordinator") controlProcess.pid = plan.coordinatorProcess.pid;
+    if (mode === "argv") controlProcess.argumentsSha256 = "b".repeat(64);
+    if (mode === "boot") controlProcess.bootId = randomUUID();
+    if (mode === "uid") controlProcess.uid++;
+    if (mode === "executable") controlProcess.executable = "/other/node";
+    const inspect = () =>
+      assertPreclaimControlBinding({
+        setup,
+        plan,
+        provision: { installationRoot: root, admissionSha256, controlProcess },
+      });
+    if (mode === "exact") expect(inspect).not.toThrow();
+    else expect(inspect).toThrow("control binding changed");
+  },
+);
+
+test("independent preclaim provisioning preserves approval and requires owner authentication", async () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "preclaim-provision-")));
+  roots.push(root);
+  const state = path.join(root, "state/coordinator");
+  mkdirSync(state, { recursive: true, mode: 0o700 });
+  const plan = fixture(state).plan;
+  function write(relative: string, contents: string) {
+    const file = path.join(root, relative);
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    writeFileSync(file, contents, { mode: 0o600 });
+    return { path: file, sha256: createHash("sha256").update(contents).digest("hex") };
+  }
+  const configuration = write(
+    "selected.json",
+    JSON.stringify({
+      public: { installationId: plan.original.plan.installationId },
+      ownerPasswordHash,
+    }),
+  );
+  plan.original.plan.previous.configuration = configuration;
+  plan.selectedConfiguration = configuration;
+  plan.original.planSha256 = coordinatorPlanDigest(plan.original.plan);
+  plan.canceled = { ...plan.original, status: "canceled", revision: randomUUID() };
+  delete plan.canceled.decisionAt;
+  const installationRecord = write(
+    "installation.json",
+    JSON.stringify({
+      root,
+      installationId: plan.original.plan.installationId,
+      coordinatorService: plan.original.plan.service,
+    }),
+  );
+  const relative = "preclaim-repair-runtimes/" + "a".repeat(40);
+  const entrypoint = write(
+    relative +
+      "/packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+    "disposable pinned review runner",
+  );
+  const ownerLauncher = write(relative + "/scripts/run-coordinator-owner.py", "fixture owner");
+  const ownershipVerifier = write(
+    relative + "/scripts/verify-coordinator-owner.py",
+    "fixture verifier",
+  );
+  const directory = path.join(root, relative);
+  const receipt = PreclaimRepairProvisioningSchema.parse({
+    version: 1,
+    operation: "provision-preclaim-repair",
+    installationId: plan.original.plan.installationId,
+    installationRecord,
+    original: {
+      id: plan.original.id,
+      revision: plan.original.revision,
+      planSha256: plan.original.planSha256,
+    },
+    recoveryPlanSha256: preclaimRecoveryPlanDigest(plan),
+    runtime: {
+      directory,
+      sourceCommit: "a".repeat(40),
+      artifactSha256: await digestBootstrapArtifact(directory),
+      entrypoint,
+      ownerLauncher,
+      ownershipVerifier,
+    },
+  });
+  const bytes = JSON.stringify(receipt);
+  const admissionSha256 = createHash("sha256").update(bytes).digest("hex");
+  const prefix = "claimed-repair-admissions/" + admissionSha256;
+  write(prefix + "/claimed-repair-proposal.json", bytes);
+  const legacy = new FileBootstrapRequestJournal(state);
+  legacy.replace([], [plan.original]);
+  const before = legacy.read();
+  const input = { installationRoot: root, admissionSha256, plan, writableMountRoots: [] };
+  expect((await verifyPreclaimRepairProposal(input)).receipt).toEqual(receipt);
+  const admission = path.join(root, prefix, "claimed-repair-admission.json");
+  await expect(provisionPreclaimRepair({ ...input, ownerPassword: "wrong" })).rejects.toThrow(
+    "authentication",
+  );
+  expect(() => readFileSync(admission)).toThrow();
+  const admitted = await provisionPreclaimRepair({ ...input, ownerPassword: password });
+  expect(admitted.receipt).toEqual(receipt);
+  expect(legacy.read()).toEqual(before);
+  expect(new FileBootstrapPreclaimJournal(state).readReviews()).toEqual([]);
+  expect(await provisionPreclaimRepair({ ...input, ownerPassword: password })).toEqual(admitted);
+  expect(legacy.read()).toEqual(before);
+  const admissionBytes = readFileSync(admission);
+  const substituted = structuredClone(plan);
+  substituted.signalPolicy.escalation = "SIGKILL";
+  await expect(verifyPreclaimRepairProposal({ ...input, plan: substituted })).rejects.toThrow(
+    "exact approval",
+  );
+  expect(
+    PreclaimRepairProvisioningSchema.safeParse({
+      ...receipt,
+      operation: "provision-claimed-repair",
+    }).success,
+  ).toBe(false);
+  expect(
+    PreclaimRepairProvisioningSchema.safeParse({
+      ...receipt,
+      original: { ...receipt.original, generation: randomUUID() },
+    }).success,
+  ).toBe(false);
+  const changed = { ...plan.original, revision: randomUUID() };
+  legacy.replace(before, [changed]);
+  await expect(provisionPreclaimRepair({ ...input, ownerPassword: password })).rejects.toThrow(
+    "target changed",
+  );
+  expect(legacy.read()).toEqual([changed]);
+  expect(readFileSync(admission)).toEqual(admissionBytes);
+  writeFileSync(entrypoint.path, "substituted artifact", { mode: 0o600 });
+  await expect(verifyPreclaimRepairProvisioning(input)).rejects.toThrow("digest changed");
+  expect(readFileSync(admission)).toEqual(admissionBytes);
+});
+
 function reviewFixture() {
   const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "preclaim-review-")));
   roots.push(directory);
@@ -2223,7 +2383,12 @@ execFileSync('/usr/bin/python3',['-I','-B','-c',${JSON.stringify(probe)},${JSON.
   20000,
 );
 
-test.each(["unknown-source", "missing-observation"])(
+test.each([
+  "unknown-source",
+  "missing-observation",
+  "current-missing-observation",
+  "current-wrong-artifact",
+])(
   "legacy runner admission refuses unsupported provenance before file access (%s)",
   async (mode) => {
     const { verifySupportedPreclaimRunner } =
@@ -2232,6 +2397,10 @@ test.each(["unknown-source", "missing-observation"])(
     if (mode === "missing-observation") {
       plan.runner.sourceCommit = "853b193e69c48260366635610501912efff73a0c";
       plan.original.plan.candidate.sourceCommit = plan.runner.sourceCommit;
+    } else if (mode.startsWith("current-")) {
+      plan.runner.sourceCommit = "e9922b953658ad7873bf921bb5837a84686f9475";
+      plan.original.plan.candidate.sourceCommit = plan.runner.sourceCommit;
+      if (mode === "current-wrong-artifact") plan.retainedObservation = plan.setup;
     } else plan.retainedObservation = plan.setup;
     plan.original.planSha256 = coordinatorPlanDigest(plan.original.plan);
     plan.canceled = { ...plan.original, revision: randomUUID(), status: "canceled" };
@@ -2248,7 +2417,11 @@ test.each(["unknown-source", "missing-observation"])(
         },
         writableMountRoots: [],
       }),
-    ).rejects.toThrow("not supported for preclaim recovery");
+    ).rejects.toThrow(
+      mode === "current-wrong-artifact"
+        ? "not the reviewed preclaim release"
+        : "not supported for preclaim recovery",
+    );
   },
 );
 

@@ -1,8 +1,13 @@
+import {
+  BootstrapRequestConflict,
+  BootstrapAuthenticationRequired,
+  BootstrapCoordinatorBusy,
+} from "./coordinator-bootstrap-errors.js";
 import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { compare } from "bcryptjs";
 import { z } from "zod";
-import { parseLifecycleJournal } from "./lifecycle-journal.js";
+import { parseLifecycleJournal, isSupervisorEffectSettled } from "./lifecycle-journal.js";
 import {
   CoordinatorBootstrapPlanSchema,
   CoordinatorBootstrapPreparationSchema,
@@ -33,10 +38,11 @@ const BindingSchema = z.strictObject({
 });
 export type BootstrapHostBinding = z.infer<typeof BindingSchema>;
 
-export class BootstrapRequestConflict extends Error {}
-export class BootstrapAuthenticationRequired extends Error {}
-/** Positive busy evidence only; parsing or identity failures must never use this type. */
-export class BootstrapCoordinatorBusy extends BootstrapRequestConflict {}
+export {
+  BootstrapRequestConflict,
+  BootstrapAuthenticationRequired,
+  BootstrapCoordinatorBusy,
+} from "./coordinator-bootstrap-errors.js";
 
 export type BootstrapReconciliationLedger = Pick<
   CoordinatorBootstrapRequests,
@@ -103,6 +109,8 @@ export function assertCoordinatorLifecycleIdle(journal: unknown): void {
 
 export function coordinatorLifecycleWork(journal: unknown) {
   return parseLifecycleJournal(journal).filter((job) => {
+    if (job.target === "maintenance-controller" || job.target === "recovery-launcher")
+      return job.status === "approved" || job.status === "running";
     if (job.target === "native-helper" || job.target === "preview-monitor") {
       return (
         ["approved", "running"].includes(job.status) ||
@@ -110,10 +118,14 @@ export function coordinatorLifecycleWork(journal: unknown) {
         job.stage === "recovery_required"
       );
     }
-    const active = job.status === "approved" || job.status === "running";
-    const held = job.finishCurrentTurns === true && job.holdReleased !== true;
-    const preparing = job.sourceBatch?.status === "preparing";
-    return active || held || preparing;
+    if (job.target === "host" || job.target === "container-daemon") {
+      const active = job.status === "approved" || job.status === "running";
+      const held = job.finishCurrentTurns === true && job.holdReleased !== true;
+      const preparing = job.sourceBatch?.status === "preparing";
+      const registration = job.supervisorEffect && !isSupervisorEffectSettled(job.supervisorEffect);
+      return active || held || preparing || registration;
+    }
+    return false;
   });
 }
 
@@ -182,7 +194,11 @@ export function assertRecoveredBootstrapBase(
   records: CoordinatorBootstrapRequest[],
 ): CoordinatorBootstrapRequest | null {
   const reference = plan.recoveredFrom;
-  if (!reference) return null;
+  if (!reference) {
+    if (plan.supervisionRecovery)
+      throw new BootstrapRequestConflict("Supervision recovery requires failed migration history");
+    return null;
+  }
   const previous = records.find((request) => request.id === reference.id);
   const sameFailure =
     previous?.revision === reference.revision &&
@@ -191,10 +207,11 @@ export function assertRecoveredBootstrapBase(
     ["recovery_required", "rolled_back", "resumed"].includes(previous.execution.stage);
   if (!previous || !sameFailure)
     throw new BootstrapRequestConflict("Recovered coordinator history changed");
-  const old =
+  let old =
     previous.execution?.stage === "rolled_back"
       ? bootstrapRecoveryRelease(previous.plan)
       : previous.plan.previous;
+  if (plan.supervisionRecovery) old = supervisionRecoveryRelease(plan, records);
   const current = plan.previous;
   const { configuration: oldConfiguration, launcher: oldLauncher, ...oldExecutable } = old;
   const {
@@ -211,6 +228,61 @@ export function assertRecoveredBootstrapBase(
   )
     throw new BootstrapRequestConflict("Fresh review must retain the verified restored release");
   return previous;
+}
+
+/** A canceled migration never proves that it executed. It can only identify
+ * the prepared bytes independently found running after manual restoration.
+ * Native absence/process checks and a fresh owner decision still gate effects. */
+function supervisionRecoveryRelease(
+  plan: CoordinatorBootstrapPlan,
+  records: CoordinatorBootstrapRequest[],
+) {
+  const recovery = plan.supervisionRecovery!;
+  const reference = recovery.canceledRequest;
+  const canceled = records.find((record) => record.id === reference.id);
+  if (
+    !canceled ||
+    canceled.status !== "canceled" ||
+    !canceled.decisionAt ||
+    canceled.execution ||
+    canceled.automaticApproval ||
+    canceled.automaticSubmission ||
+    canceled.revision !== reference.revision ||
+    canceled.planSha256 !== reference.planSha256 ||
+    canceled.planSha256 !== coordinatorPlanDigest(canceled.plan) ||
+    canceled.plan.service !== plan.service ||
+    canceled.plan.installationId !== plan.installationId ||
+    !isDeepStrictEqual(canceled.plan.recoveredFrom, plan.recoveredFrom)
+  )
+    throw new BootstrapRequestConflict("Supervision recovery canceled migration changed");
+  assertSupervisionRecoveryScope(plan);
+  return canceled.plan.candidate;
+}
+
+function assertSupervisionRecoveryScope(plan: CoordinatorBootstrapPlan): void {
+  const sameConfiguration =
+    plan.candidate.configuration.sha256 === plan.previous.configuration.sha256 &&
+    plan.compatibleRecovery?.configuration.sha256 === plan.previous.configuration.sha256;
+  if (
+    plan.automaticRecovery !== "restore-compatible" ||
+    !plan.compatibleRecovery ||
+    !sameConfiguration ||
+    plan.hostRequestsAfter !== null ||
+    plan.sourceUpdateTooling !== undefined ||
+    plan.nativeHelperConfiguration !== undefined ||
+    plan.previewMonitorConfiguration !== undefined ||
+    plan.factoryRuntimeAdoptionConfiguration !== undefined
+  )
+    throw new BootstrapRequestConflict(
+      "Supervision recovery requires a separate exact compatible runtime without configuration changes",
+    );
+  if (
+    plan.candidate.sourceCommit === plan.previous.sourceCommit ||
+    plan.compatibleRecovery.sourceCommit === plan.previous.sourceCommit
+  )
+    throw new BootstrapRequestConflict(
+      "Supervision recovery requires a distinct replacement source",
+    );
 }
 
 export function bootstrapRecoveryRelease(plan: CoordinatorBootstrapPlan) {
@@ -244,6 +316,7 @@ function assertAutomaticCoordinatorPlan(plan: CoordinatorBootstrapPlan): void {
     plan.candidate.configuration.sha256 !== plan.previous.configuration.sha256 ||
     plan.compatibleRecovery.configuration.sha256 !== plan.previous.configuration.sha256 ||
     plan.recoveredFrom ||
+    plan.supervisionRecovery ||
     plan.sourceUpdateTooling ||
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||
@@ -653,6 +726,10 @@ export class CoordinatorBootstrapRequests {
       request.execution
     )
       throw new BootstrapRequestConflict("Exact undispatched bootstrap approval required");
+    if (request.plan.supervisionRecovery && !request.supervisionDispatch)
+      throw new BootstrapRequestConflict(
+        "Supervision dispatch must reserve its exact native launch",
+      );
     const binding = this.readBinding(request.plan);
     await this.verifyPreparedBytes(request.plan);
     this.requireSameBinding(binding, request.plan);

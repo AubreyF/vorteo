@@ -18,6 +18,7 @@ export const EnrollmentOperationSchema = z.enum([
   "recovery",
   "rollback",
   "credential-renewal",
+  "worker-launch",
 ]);
 export type EnrollmentOperation = z.infer<typeof EnrollmentOperationSchema>;
 
@@ -33,7 +34,7 @@ export const EnrollmentTargetBindingSchema = z.strictObject({
   target: EnrollmentTargetSchema,
   // Digest of the protected native target descriptor, not a user-supplied label.
   identitySha256: DigestSchema,
-  operations: z.array(EnrollmentOperationSchema).min(1).max(8),
+  operations: z.array(EnrollmentOperationSchema).min(1).max(9),
 });
 
 export const EnrollmentStepSchema = z.strictObject({
@@ -66,6 +67,21 @@ export const InstallationEnrollmentManifestSchema = z.strictObject({
     finishTurnsSeconds: z.number().int().min(1).max(3600),
     terminateGraceSeconds: z.number().int().min(1).max(300),
   }),
+  // Explicit protected Linux closure, never implied by ordinary restart authority.
+  workerLaunchProfile: z
+    .strictObject({
+      profileSha256: DigestSchema,
+      registrationSha256: DigestSchema,
+      helperClosureSha256: DigestSchema,
+      pythonSha256: DigestSchema,
+      workloadUid: z.literal(1000),
+      workloadGid: z.literal(1000),
+      dropSupplementaryGroups: z.literal(true),
+      noNewPrivileges: z.literal(true),
+      descriptors: z.literal("same-node-ipc-and-factory-ofd-v1"),
+      sourcePolicy: z.literal("protected-selected-or-exact-parent-candidate"),
+    })
+    .optional(),
   retryLimit: z.literal(3),
   rollback: z.literal("previous-compatible-runtime"),
   recovery: z.literal("after-login"),
@@ -115,6 +131,72 @@ export const EnrollmentStepProgressSchema = z.discriminatedUnion("status", [
 ]);
 export type EnrollmentStepProgress = z.infer<typeof EnrollmentStepProgressSchema>;
 
+export const HostContinuationBindingSchema = z.strictObject({
+  planSha256: DigestSchema,
+  identitySha256: DigestSchema,
+  candidate: EnrollmentArtifactSchema,
+  previous: EnrollmentArtifactSchema,
+  interruption: InstallationEnrollmentManifestSchema.shape.interruption,
+});
+
+const hostContinuationClaim = z.strictObject({
+  reservationSha256: DigestSchema,
+  intentSha256: DigestSchema,
+  claimSha256: DigestSchema,
+  // Exact native lifetime, retained in the independently protected child claim.
+  executorSha256: DigestSchema,
+  consumedAt: z.string().datetime(),
+});
+const hostContinuationObservation = z.strictObject({
+  outcome: z.enum(["legacy-restored", "candidate-ready", "recovery_required"]),
+  observationSha256: DigestSchema,
+  childExitSha256: DigestSchema,
+  observedAt: z.string().datetime(),
+});
+const hostContinuationChild = {
+  generation: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  reservedAt: z.string().datetime(),
+  claim: hostContinuationClaim.optional(),
+  observation: hostContinuationObservation.optional(),
+};
+export const HostRestorationEvidenceSchema = z.strictObject({
+  failedChildExitSha256: DigestSchema,
+  publicationSnapshotSha256: DigestSchema,
+  targetAbsenceSha256: DigestSchema,
+});
+export const HostCandidateEvidenceSchema = z.strictObject({
+  restorationGeneration: z.string().uuid(),
+  restorationObservationSha256: DigestSchema,
+  restorationChildExitSha256: DigestSchema,
+  publicationSnapshotSha256: DigestSchema,
+  // Fresh native predecessor binding for the restored legacy runtime. It does
+  // not replace the original reviewed plan's precondition.
+  preconditionSha256: DigestSchema,
+});
+export const HostContinuationSchema = z.strictObject({
+  stepId: z.string().uuid(),
+  binding: HostContinuationBindingSchema,
+  original: z.strictObject({
+    failed: EnrollmentStepProgressSchema.options[2].extend({
+      status: z.literal("recovery_required"),
+    }),
+    manifestSha256: DigestSchema,
+    grantId: z.string().uuid(),
+    intentSha256: DigestSchema,
+    claimSha256: DigestSchema,
+    executorSha256: DigestSchema,
+  }),
+  restoration: z.strictObject({
+    ...hostContinuationChild,
+    evidence: HostRestorationEvidenceSchema,
+  }),
+  candidate: z
+    .strictObject({ ...hostContinuationChild, evidence: HostCandidateEvidenceSchema })
+    .optional(),
+});
+export type HostContinuation = z.infer<typeof HostContinuationSchema>;
+
 export const InstallationActivationSchema = z.strictObject({
   id: z.string().uuid(),
   manifestSha256: DigestSchema,
@@ -137,6 +219,8 @@ export const InstallationActivationSchema = z.strictObject({
       }),
     )
     .max(32),
+  // Compatibility: absent for enrollments created before linked Host recovery.
+  hostContinuations: z.array(HostContinuationSchema).max(32).optional(),
 });
 export type InstallationActivation = z.infer<typeof InstallationActivationSchema>;
 
@@ -203,3 +287,31 @@ export const InstallationEnrollmentStatusSchema = z.strictObject({
     .max(32),
 });
 export type InstallationEnrollmentStatus = z.infer<typeof InstallationEnrollmentStatusSchema>;
+
+/** Separate owner HTTP response; existing enrollment and WebSocket shapes stay unchanged. */
+export const InstallationRecoveryOriginSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && url.origin === value && url.hostname.endsWith(".ts.net");
+});
+const recoveryAccessStatus = {
+  version: z.literal(1),
+  installationId: z.string().uuid(),
+  checkedAt: z.string().datetime(),
+};
+export const InstallationRecoveryAccessStatusSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    ...recoveryAccessStatus,
+    status: z.literal("verified"),
+    url: InstallationRecoveryOriginSchema,
+    validUntil: z.string().datetime(),
+  }),
+  z.strictObject({
+    ...recoveryAccessStatus,
+    status: z.literal("unverified"),
+    url: z.null(),
+    validUntil: z.null(),
+  }),
+]);
+export type InstallationRecoveryAccessStatus = z.infer<
+  typeof InstallationRecoveryAccessStatusSchema
+>;

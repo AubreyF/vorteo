@@ -5,25 +5,1015 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.687 - 2026-10-18
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.686 - 2026-10-18
+
+### Maintenance
+
+- Integrate the served web tooltip dismissal fix with the prepared installation runtime source, retaining both complete parent release histories. This merge preserves existing interface behavior and does not activate maintenance.
+- Restore three historical release entries and retain the later source annotations below instead of editing published history.
+- Select Node timer types explicitly in three maintenance deadline functions so the combined app and server source typechecks with React Native declarations. Keep the existing deadlines, timer cleanup and event-loop behavior.
+
+### Retained maintenance source notes
+
+These annotations were previously appended to older entries. Their validation statements describe retained source evidence, not new validation or installed behavior in this merge.
+
+- Add controller and recovery-launcher jobs to the existing lifecycle journal with exact standing approval, a visible cancellation interval and one reserved generation. Native execution consumes a durable intent; lost replies and reopened generations permit observation only.
+- Expose owner-only maintenance status and exact cancellation in General controls, with public sidebar counts that omit private evidence. Distinguish recorded outcomes from current service health.
+- Validate native evidence, source and artifact identity, approved revisions, shared lifecycle exclusion and observation chronology under the existing journal lock.
+- Bound native callback waits and retries so an unavailable response cannot wedge queue reconciliation. Reconcile revocation before retry limits and retain uncertain execution without replay.
+- Preserve plain restart timing when optional native verification is absent. Clear busy state and private maintenance data on expired owner access, allowing sign-in again.
+- Focused queue, admission, owner HTTP, client, model and responsive browser checks pass. Persistent native startup, production execution, recovery and installed acceptance remain incomplete. This source checkpoint enables no native maintenance capability.
+- Wire standing daemon decisions through the existing shared lifecycle journal, independently inspected native identity and protected source provenance. Recheck built candidates before hold and selection.
+- Support a reserved initial migration against older drain APIs through a durable acknowledgment tied to the daemon lifetime. Lost acknowledgments remain fenced, and release invalidates the retained authority before its RPC.
+- Project fresh native Host observations into installation health and expire unavailable observations. Refuse Dev identity until its persistent profile launcher is independently proven.
+- Prepare later coordinator standing approvals and one-shot launch reservations with a synchronous custody recheck under the existing lifecycle lock.
+- Retain the tested dual-slot launcher and startup-verification checkpoint without registering its unfinished runner role.
+- Focused tests cover shared-lock admission, source custody, initial migration, cancellation, changed process lifetime and stale health. Packaged browser fixtures use the compiled native coordinator boundary. Persistent recovery, Dev profile registration and installed acceptance remain open; this checkpoint does not activate maintenance.
+
+## 0.11.0-beta.3.vorteo.685 - 2026-10-17
+
+### Maintenance
+
+- Prepare separate immutable Dev predecessor, replacement, rollback and selected-coordinator configurations. Verify their exact deterministic projection under coordinator policy, retain approved Docker and Host Node bindings, and publish only the registration receipt. Historical attempts remain observation-only.
+- Resolve selected successor configuration through approved coordinator history without rewriting the original admission anchor. Retain native, configuration and release custody after callbacks, carry absolute and monotonic collection bounds through nested reads, and preserve raw read ownership after timeout.
+- Require independent registration readiness for ordinary Dev work, including manual restart approval, outbound dispatch, profile/settings synchronization and credential delivery. Credential withdrawal remains available. Configured source updates, Factory adoption and generic supervisor execution refuse before mutation because their transition proofs remain unavailable.
+- Add configuration projection, publication-custody, successor-budget, readiness and HTTP approval regressions. Native launch and workload closure, Dev final root admission and settlement, combined activation and installed acceptance remain unfinished. Nothing is installed or enabled.
+
+## 0.11.0-beta.3.vorteo.684 - 2026-10-17
+
+### Maintenance
+
+- Prepare initial Host construction from the approved selected coordinator, complete retained runtime and independently audited controller. Retain the original child and descriptor writer, bind its protected claim to an independent native observation, and queue release only through the existing constructor and admission. Bounded notices are hints; delivery and settlement remain unknown.
+- Reopen recovery registration through owner enrollment controls before a coordinator request exists, including after revocation. Preserve the original generation and revision without new registration, provisioning or coordinator dispatch. Retain control files before reads and complete runtime custody through invocation and observation.
+- Add real-journal launcher admission and replay cases, unseeded owner HTTP enrollment composition, preparation substitution regressions and large-executable file verification. Native effects remain synthetic in these tests; the fixed Host child, genuine workload closure, native acceptance and installed activation remain unfinished. No capability is enabled.
+
+## 0.11.0-beta.3.vorteo.683 - 2026-10-17
+
+### Maintenance
+
+- Bind initial Host launch arrangements to the approved coordinator runtime and actual reserved generation. Mint local constructor and child handles only after exclusive intent or claim synchronization; burn construction before spawn and require the original active child span for effects. Historical records remain observation-only.
+- Replace initial Host asynchronous command dispatch with separate durable interruption, retirement and bootstrap queue attempts under fresh locked admission. Keep original-incumbent scope distinct from the sealed fallback, retain native owner and proof callbacks, and require exact bootstrap evidence before modern candidate observation. Queueing proves neither delivery nor workload closure; production native owners remain unavailable.
+- Share retained child, descriptor-gate and bounded-output mechanics with the Dev launcher while preserving its registration authority checks. Add a fixed read-only Host invoker for protected Dev root-exit observation, with approved runtime membership, exact Host-child exit, endpoint and container custody, bounded reads and retained local I/O ownership. It supplies no workload settlement or readiness proof.
+- Require reviewed Docker executable bytes and size for new Dev registration preparation and fresh replacement or rollback. Preserve exact historical scripts for verification and route retained effects to observation without repinning. Native transport, final root admission, workload settlement and installed activation remain unfinished; no capability is enabled.
+
+## 0.11.0-beta.3.vorteo.682 - 2026-10-17
+
+### Maintenance
+
+- Fence each Host continuation command with an exclusive durable queue-attempt record and fresh locked admission immediately before synchronous enqueue. Retain the original native owner, channel and command bindings across callbacks and share canonical record validation with observers. A queue attempt proves neither delivery nor workload settlement; native command factories remain unavailable.
+- Bind candidate continuation to protected restoration evidence and a separately captured late predecessor, preserving the original reviewed plan. Consume the exact child before returning a local one-use publication continuation, retain separate command fences, and require exact child exit, bootstrap-attempt evidence and ordinary strict candidate readiness before completion. Route retained continuation observation before initial-generation lookup. Native launch election, closure, proof composition and installed acceptance remain unfinished.
+
+## 0.11.0-beta.3.vorteo.681 - 2026-10-17
+
+### Maintenance
+
+- Compose fenced Host legacy restoration with the existing continuation ledger, addressed file publications and a separate bootstrap attempt. Retain immutable proof callbacks, recheck absence after final admission synchronization, and observe fresh legacy readiness without completing candidate activation. Native launch election, proof factories and production command wiring remain required.
+- Add exact enrolled Host service-absence inspection without widening maintenance-label permissions. Bind both asynchronous and synchronous launchd reads to the enrolled account, domain and label; registration absence does not prove runtime or workload cleanup.
+- Collect protected Dev registration witnesses and outcomes with a separate fixed read-only native program. Check same-boot root-executor exit before mutable outcomes and retain witness custody; new rollback attempts now record their root lifetime before effects. Privileged invocation, authenticated readiness and workload settlement remain unavailable.
+
+## 0.11.0-beta.3.vorteo.680 - 2026-10-17
+
+### Maintenance
+
+- Construct read-only Dev registration executor proofs from the protected Host runtime, complete reviewed release, exact gated script and actual audited controller and child lifetimes. Retain callback identity, file custody, freshness and bounded synchronous native rechecks. No production caller, root dispatch or settlement authority is supplied.
+- Recheck the exact active consumed Host continuation claim inside shared lifecycle admission before and after a synchronous addressed action. Refuse reserved, observed, superseded or changed child bindings and expire the retained assertion when admission returns. Publication and bootstrap still require the existing native owner's independent one-use fences; uncertain synchronization never permits replay.
+
+## 0.11.0-beta.3.vorteo.679 - 2026-10-17
+
+### Maintenance
+
+- Track one Host restoration and at most one linked candidate generation inside the existing enrollment ledger. Preserve the original failed dispatch, fence historical completion from restoration reservation, and keep legacy restoration incomplete until the fresh candidate independently succeeds. Shared lifecycle and activation-child admission retain unresolved lineage exclusion.
+- Add a retained Dev registration child launcher with a reviewed pre-body descriptor gate, minimal environment, independent Host runtime and child-proof dependencies, bounded diagnostics and one local release attempt. Include the gate in whole-script hashes before enrollment; queued delivery, native root admission and workload settlement remain unverified. Add a synchronous audited-process read using the existing verified native inspector for later lock-held child custody. Production callers and native factories remain unfinished, and no capability is enabled.
+- Keep reviewed Host schemas, plan validation and canonical publication records in a data-only module. Separate the gated native launcher from the legacy supervisor utility so app typechecking does not import native execution code.
+
+## 0.11.0-beta.3.vorteo.678 - 2026-10-17
+
+### Maintenance
+
+- Collect initial Host publication state after exact child exit, retaining protected control files, missing addressed records, launcher bytes and the selector's lifetime, literal text and canonical target. Incomplete images remain unresolved without runtime or readiness collection; complete candidates still require strict independent verification.
+- Retain one raw Host observation read across timeouts, including anchor construction and candidate collection. Refuse another scan before constructing tools until the original read settles, discard late results and retain caller cancellation in successful proofs. This adds read-only recovery inspection; fallback effects and installed acceptance remain unfinished.
+
+## 0.11.0-beta.3.vorteo.677 - 2026-10-17
+
+### Maintenance
+
+- Separate fixed Dev registration artifacts from later enrollment authority, removing the script/manifest digest cycle. Reserve the controller before one gated launch and consume the exact child claim before release; observing a child after a lost acknowledgment cannot create consumption authority.
+- Guard both lifecycle snapshots in ordinary restart writers and maintenance-service claims. Unsettled registration retains exclusion even on failed or succeeded parents; only independently verified terminal settlement releases the fence. Keep the private effect record out of legacy and owner restart replies.
+- Retain immutable observation, readiness and child-claim data across synchronous custody callbacks before persistence, publication and gate release. The execution path still requires trusted injected ports; native child launch, final root admission, workload settlement and installed registration remain unavailable.
+
+## 0.11.0-beta.3.vorteo.676 - 2026-10-17
+
+### Maintenance
+
+- Connect initial Host observation to the selected coordinator's existing drain. Retain drain ownership through slow callbacks, keep discovery behind activation, and observe claimed generations after revocation without constructing an effect executor. Missing claims remain unresolved; missing production interruption and child-launch custody leave pending work untouched.
+- Check the exact protected Host plan, interruption limits and lifecycle competitors before reservation. Share canonical publication records between the publisher, candidate observer and partial-publication classifier, preserving existing bytes and one-use attempt fences.
+- Add pure classification of addressed initial Host publication states, retaining captured control-file bytes and rejecting duplicate JSON keys, unrelated paths and substituted selector text. Classification grants no restoration authority. Production effects, fallback continuation and installed acceptance remain unfinished.
+
+## 0.11.0-beta.3.vorteo.675 - 2026-10-17
+
+### Maintenance
+
+- Bound initial Host retirement verification to one thirty-second read-only collection after a consumed bootout. Require both exact process lifetimes to exit and the service to be absent before publication; timeout retains uncertainty and revocation blocks the next effect. A failed disposable native attempt is preserved separately from passing source checks.
+- Admit exact reserved supervisor replacements through the existing activation-child validator and shared lifecycle journal, preserving daemon source-update behavior. Bind the reviewed supervisor script, immutable request plan, enrolled candidate and standing decision through queue progress.
+- Integrate the disabled supervisor worker-launch adapter and authenticated read-only cause lookup. Retain one request across lost replies, distinguish transport and worker identity, require native settlement before a successor, and preserve borrowed lifetime descriptors. Lookup cannot submit or dispatch and remains available for retained observation while startup is fenced. Production launch, native attachment, root custody and descriptor transfer remain unavailable.
+- Prepare Dev rollback for a newly recorded registration attempt whose candidate service is stopped. Require exact original-job and publication records, repeated native absence checks and pointer identity before restoring the declared original pointer. Existing attempts without these records refuse; production effect admission, late claim binding, descendant settlement and restored readiness remain unfinished.
+
+## 0.11.0-beta.3.vorteo.674 - 2026-10-17
+
+### Maintenance
+
+- Separate prepared Host runtime verification from the live incumbent launcher precondition. Initial effects still retain and verify the original launcher before and after preparation; observation verifies the pinned immutable fallback launcher and original semantics after publication.
+- Add read-only candidate collection using exact claim-bound publication attempts, phase receipt, live candidate plist and selector, complete prepared runtime custody, strict native daemon inspection and fresh mount bindings. Retain bounded synchronous service, loaded-environment and process-lifetime checks through the final observation. Add substitution coverage for every publication record and another claim. The collector must remain behind executor-exit verification; native transition, active-provider custody, fallback continuation and installed delivery remain unfinished.
+
+- Integrate reviewed Dev registration source: optional protected receipt reference, strict startup/file/selector and account bindings, exact registration preparation preserving Factory behavior, guarded receipt/config publication, and streamed Node verification. Preserve existing selector, release root, account and home. No production registration caller, root worker-launch capability or native execution is enabled; lifecycle admission, retirement and rollback acceptance remain open.
+
+- Integrate worker-launch requester and shared-journal admission preparation using optional hints, exact protected profile and cause binding, locked one-use consumption, causal deduplication and observation-only reopening. Legacy replies omit the new fields and legacy digests stay unchanged. Production advertises unavailable; protected Linux execution and active-provider interruption remain unimplemented.
+
+## 0.11.0-beta.3.vorteo.673 - 2026-10-17
+
+### Maintenance
+
+- Compose the claimed initial Host transition with exact retirement custody, verified native absence, fenced launcher and selector publication, and candidate readiness. Recheck absence immediately before bootstrap and bind the written readiness receipt to an immutable observation snapshot.
+- Add independent observation after executor exit, including lost bootstrap replies, grant revocation and repeated reopening without service replay. Preserve exact result bytes and retry their synchronization. Focused tests use injected native ports; production proof construction, interruption custody, fallback continuation and installed transition acceptance remain unfinished.
+
+## 0.11.0-beta.3.vorteo.672 - 2026-10-17
+
+### Maintenance
+
+- Bind an initial Host migration's durable intent to one exclusive native child claim under current enrollment and shared lifecycle exclusion. Retain uncertain claim writes as replay fences.
+- Connect that claim to launcher-first, selector-second publication through the existing file publisher. Both attempts bind the same claim; synchronous native and prepared-file custody, exact final selector lifetime, launcher bytes and addressed artifacts must remain valid. Preserve partial publication for independent reconciliation rather than replay. This prepares the file phase, not native service transition or installed activation.
+
+## 0.11.0-beta.3.vorteo.671 - 2026-10-17
+
+### Maintenance
+
+- Bind initial Host migration to the configured managed release root, an exact candidate-only launcher environment change and an immutable copy of the original fallback launcher. Preserve all other launcher settings and reject releases outside their declared root.
+- Support a protected Host release selector outside the release directory while retaining canonical root, parent and selector custody. Add focused substitution and launcher-binding coverage plus compiled supervisor selection checks. These changes prepare migration; no installed service or standing authority changes.
+
+## 0.11.0-beta.3.vorteo.670 - 2026-10-17
+
+### Maintenance
+
+- Add fenced symlink publication to the existing maintenance file publisher for the Host release selector. Persist the addressed attempt before atomic selection, retain exact previous target, directory and staged-link custody, and reject replaced attempt files before publication.
+- Preserve substituted files during cleanup and retain the selected target after uncertain directory synchronization. Focused filesystem cases cover replay, substitution, path and custody failures. This supplies a file-selection primitive, not lifecycle authority or installed Host migration.
+
+## 0.11.0-beta.3.vorteo.669 - 2026-10-17
+
+### Maintenance
+
+- Persist an initial Host migration intent for the exact existing activation reservation under shared lifecycle exclusion. Bind current enrollment, reviewed plan, native precondition, artifact custody and fresh observation before creating a private exclusive file and synchronizing it and its directory.
+- Refuse conflicting lifecycle work, stale or substituted proofs, revoked authority, duplicate intent creation and symlink substitution. An uncertain synchronization retains the intent as a replay fence. This slice writes no service commands and does not establish migration execution, complete startup compatibility or final activation readiness.
+
+## 0.11.0-beta.3.vorteo.668 - 2026-10-17
+
+### Maintenance
+
+- Generate a bounded data-only initial Host module contract after compiled server and CLI builds. Trace supervisor, daemon and forked worker modules without filesystem-glob expansion or warning exclusions; retain package-resolution metadata and workspace links. Unknown warnings and changes to audited optional-load implementations refuse generation.
+- Replace the initial migration's hand-picked module comparisons with exact trusted-build contract matching and retained reference/candidate custody. Record lookup absences and package-scope metadata, reject nearer-package shadows and optional dependencies becoming present, and retain those predicates through final custody. Add real-filesystem regressions for module, metadata, link and declaration substitution and cancellation. This proves module-file compatibility only; filesystem assets, external configuration, runtime readiness, native effect admission and installed migration remain separate unfinished gates.
+
+## 0.11.0-beta.3.vorteo.667 - 2026-10-17
+
+### Maintenance
+
+- Bind initial Host migration plans to an addressed sealed-copy provenance document. Verify the legacy source, critical incumbent hashes, complete destination file/link inventory, both sides' bytes and retained source, manifest and runtime custody. Candidate startup-contract checks remain separate from legacy fallback restoration.
+- Add focused plan and real-filesystem copy regressions for changed, missing, duplicate and escaping inventory, source substitutions, internal links, retained custody and cancellation. Source-copy hard links require every physical name inside the protected inventory; ordinary external dependencies remain single-link. A compiled read-only check verifies the actual sealed legacy copy. This proves copy integrity only; dependency completeness, compatible execution, tracked migration and installed acceptance remain open. Legacy restoration must keep activation in recovery required.
+
+## 0.11.0-beta.3.vorteo.666 - 2026-10-17
+
+### Maintenance
+
+- Connect initial Host migration plans to complete candidate/fallback release custody and a pinned compiled launch contract. Compare the helpers actually imported by supervisor scripts separately from worker-side copies, including argument preservation, selectors, locks and private-file persistence. Preserve exact persistent launcher bytes before runtime inspection.
+- Add two plan regressions and a disposable compiled artifact check covering coherently repinned helper/worker substitutions, changed fallback launcher, mount overlap, cancellation and retained custody. These checks establish artifact integrity and the compared contract only. Complete startup compatibility, runnable fallback, fresh native admission, single-use intent and installed migration remain open.
+
+## 0.11.0-beta.3.vorteo.665 - 2026-10-17
+
+### Maintenance
+
+- Retain complete release proofs across source-receipt verification, external runtime dependencies and the full artifact tree. Capture declarations and limits before collection, reject changes during final synchronous custody and preserve the original caller cancellation after successful collection.
+- Preserve the existing verification API while making its custody proof available to initial migration preparation. Seventeen owning cases cover dependency, receipt, directory, declaration, cancellation and final-deadline changes. Compatibility, fresh native admission and installed migration remain unfinished.
+
+## 0.11.0-beta.3.vorteo.664 - 2026-10-17
+
+### Maintenance
+
+- Expose retained custody for complete verified runtime artifacts, preserving the existing artifact digest. Final synchronous assertions reject changed dependencies, directory entries and canonical roots while retaining the original caller cancellation signal.
+- End the collection deadline after successful verification without extending admission freshness. Fourteen artifact cases cover scanner behavior, later substitutions and cancellation-option replacement. This supplies an internal prerequisite for initial Host migration; compatibility checks, locked intent and installed delivery remain unfinished.
+
+## 0.11.0-beta.3.vorteo.663 - 2026-10-17
+
+### Maintenance
+
+- Define the exact initial Host supervisor migration plan, including its service-custody precondition, stable identity, candidate, distinct compatible fallback and interruption limits. Both releases preserve the pinned Node and installation configuration and name the canonical supervisor entry.
+- Bind that plan to the active enrollment, exact reserved step and generation, reviewed release digests and completed dependencies. Revocation, pause, disabled Host scope, competing reservations and terminal steps refuse. This read-only scope validator does not verify runtime artifacts, consume intent or authorize service effects.
+
+## 0.11.0-beta.3.vorteo.662 - 2026-10-17
+
+### Maintenance
+
+- Add a distinct initial Host supervisor migration precondition inspector. It pins protected configuration and observed launch files, exact registered environment, actual supervisor lifetime and overwritten argument digest, authenticated worker instance and parent relationship, and selected source. It returns a digest and bounded synchronous custody proof without ordinary standing evidence, reservations or effects.
+- Keep an unsupported legacy worker-instance field explicitly null, bound to authenticated capability evidence and an independently verified kernel lifetime. Advertised inspection failures remain refusals.
+- Recheck protected files, proof identity and freshness after native custody commands. Owning regressions preserve the ordinary strict supervisor check and reject file, registration, process and expiry changes. Incumbent evidence establishes service custody and observed files, not running-runtime provenance. Candidate/fallback integrity, activation binding and installed migration remain unfinished.
+
+## 0.11.0-beta.3.vorteo.661 - 2026-10-17
+
+### Fixed
+
+- Preserve native launch arguments for managed supervisors and the existing installation-client and bootstrap profiles. Changing a process title erases the executable and entrypoint evidence used by maintenance inspection. Unmanaged supervisors retain their existing display title, and these markers grant no authority.
+- Exercise the compiled supervisor through worker replacement and three installation profiles, checking the actual OS parent command and stable supervisor PID. Canonicalize the temporary selector root and keep the Linux-only installer collector on Linux while retaining native argument checks on macOS.
+- Preserve the original title failures and fixture failures as evidence. Source and disposable process validation do not establish installed Host or Dev registration, provisioning, or final activation readiness.
+
+## 0.11.0-beta.3.vorteo.660 - 2026-10-17
+
+### Fixed
+
+- Match an initial supervisor maintenance request to its enrolled supervisor step while retaining the existing container-daemon queue target. Use the same effective target for enrollment identity, operation and exact reserved activation-step checks.
+- Extend the initial migration regression to cover supervisor admission and reject daemon-step or daemon-identity substitution. Native supervisor evidence and persistent Dev registration remain unavailable until independently verified; this correction does not enable either.
+- The preceding compiled package passed fresh-process queue observation of a revoked running rollback without effect construction or execution. Its disposable cleanup passed; installed coordinator restart, reboot, private HTTPS and remote owner acceptance remain open.
+
+## 0.11.0-beta.3.vorteo.659 - 2026-10-17
+
+### Fixed
+
+- Construct retained maintenance observation from the protected installation configuration, enrolled coordinator identity and native admission anchor. A fresh consumer can obtain inspection tools without resolving an unresolved selected maintenance executor. Recollect mount evidence for every observation and retain anchor custody through the final locked write, including after revocation.
+- Keep observation tools separate from effect discovery and cached executors. Fresh inspection and execution retain canonical role resolution and reserved proof checks; construction and native read exclusion survive caller timeouts. Production remains replacement-only.
+- Disposable native evidence from the preceding source completed four single-execution queue requests through controller recovery, page replacement, linked page recovery and rollback using actual persisted absence receipts. Cold-process native acceptance and installed activation remain open; no README delivered-feature claim is added.
+
+## 0.11.0-beta.3.vorteo.658 - 2026-10-17
+
+### Maintenance
+
+- Retain an exclusive private diagnostic for the initial recovery-page registration child. Derive its name from validated enrollment identifiers and a fresh nonce. Registration still launches only once per durable reservation; read-only reopening creates no automatic diagnostic stream.
+- Preserve controlled recovery conflict messages in private runner stderr and keep unknown errors generic. Real subprocess cases verify both outputs without creating enrollment state. Launch, custody, approval and uncertainty behavior are unchanged.
+- Preserve two unsuccessful linked-launcher fixtures and their cleanup evidence. Neither proves the original refusal's cause or installed readiness; linked native acceptance remains open.
+
+## 0.11.0-beta.3.vorteo.657 - 2026-10-17
+
+### Maintenance
+
+- Add explicit opt-in routing for linked recovery-launcher recovery and rollback through the verified controller. Require the existing linked-recovery mode and exact predecessor link, preserve reserved executor-role checks, and keep production disabled.
+- Test controller-only routing, disabled refusal, missing-link refusal and wrong reserved executor rejection for both operations. Native consumed-replacement absence passed separately; compiled linked launcher dispatch and installed activation remain open.
+
+## 0.11.0-beta.3.vorteo.656 - 2026-10-17
+
+### Fixed
+
+- Collect independently verified native absence for an exact consumed maintenance generation, including replacement and linked recovery. Verify executor exit before counter-role discovery or runtime hashing, preserve full history and partial file receipts, and retain synchronous absence, inventory and identity custody.
+- Address the unknown observation to its retained reservation with null observed source and artifact. Keep the generation running and its consumed intent unchanged; a successor still requires fresh linked admission. A live service continues through strong readiness verification, and inspection errors never count as absence.
+- Exercise original and linked consumed absence in the owning fixture, including live-executor, reappearing-service and changed-history refusal. Correct older controller-readiness fixtures to name the controller role. This is source validation, not installed recovery or final activation readiness.
+
+## 0.11.0-beta.3.vorteo.655 - 2026-10-17
+
+### Maintenance
+
+- Add an explicit construction opt-in for controller-driven recovery-launcher replacement, retaining exact reserved executor binding and replacement linkage checks. Production leaves it unset. Launcher recovery and rollback remain refused, and operation advertisement is unchanged.
+- Test disabled refusal and enabled controller inspection without native effects. This prepares compiled launcher replacement acceptance; it does not enable installed maintenance or establish final activation readiness.
+
+## 0.11.0-beta.3.vorteo.654 - 2026-10-17
+
+### Fixed
+
+- Verify recovery-launcher readiness through its selected native process, exact loopback socket and reviewed page assets. Keep controller descriptor readiness unchanged. Package data-only asset lengths and hashes from the actual compiled page, retain protected metadata custody before reads, and compare response bytes without executing target modules in the observer.
+- Combine caller cancellation with bounded native HTTP probes and retain the existing five-second listener freshness. Legacy pages without metadata require an exact match to the observer's known asset module. Registration and bookmark inspection use selected asset proof too.
+- The preceding disposable compiled queue recovered one consumed controller generation after timeout and revocation without replay. Launcher replacement, Dev and installed activation acceptance remain open; no recovery capability or installation is enabled by this source change.
+
+## 0.11.0-beta.3.vorteo.653 - 2026-10-17
+
+### Maintenance
+
+- Record fixed private recovery phases around consumed intent, slot publication, executor verification, native bootstrap and candidate observation. These diagnostics locate uncertain native waits without changing admission, deadlines, replay fencing or outcomes.
+- The preceding compiled queue fixture consumed intent and preserved one generation through revocation and five observations, but did not establish readiness. Its native timeout and complete fixture cleanup remain retained evidence. Full queue and installed acceptance remain open.
+
+## 0.11.0-beta.3.vorteo.652 - 2026-10-17
+
+### Fixed
+
+- Preserve selected maintenance startup across queue check bookkeeping without ignoring authority, evidence, intent, status or resolution. Recovery startup retains its exact ancestor proof through final native verification; successful collection clears its deadline.
+- Revalidate fresh enrollment and retained selection synchronously after asynchronous reads and again in final custody. Existing retained-selection validators permit revocation for observation while refusing changed grant identity or manifest. Effect admission remains separate and lock-held.
+- Retain setup, selection, plan and initial intent custody before reading. Keep the public startup result data-only, and assert both internal proofs after the last native await. Add real-file interleavings for bookkeeping, revocation, selection, intent, manifest and ancestor changes.
+- Report controlled controller startup refusals in its private diagnostic while keeping unknown errors generic. The prior full-queue native attempt consumed intent but did not establish candidate readiness; exact scoped cleanup and final native inventory passed. Nothing is installed, and full queue acceptance remains open.
+
+## 0.11.0-beta.3.vorteo.651 - 2026-10-17
+
+### Fixed
+
+- Preserve native claim and recovery custody across queue status-check bookkeeping. Only the exact current request's revision, detail and reconciliation may change; authority, reservation, evidence, intent, status, resolution, ancestors and other records remain exact.
+- Readdress fresh evidence to the current revision inside the existing lifecycle transaction, without changing its timestamp or native proof. Admission and intent use the same digest, and the claim preserves the latest bookkeeping. Current grant, global exclusion, freshness and native custody remain required.
+- Retain strict claim behavior for existing callers. Native invocation and postclaim checks preserve the same narrow bookkeeping boundary. Full queue/native acceptance and installed delivery remain open; the preceding fixture refused before intent and was cleaned up without replay.
+
+## 0.11.0-beta.3.vorteo.650 - 2026-10-17
+
+### Changed
+
+- Route maintenance service tools through one adapter behind the existing queue. Replacement uses the controller; explicitly enabled linked controller recovery uses the registered recovery page. Reserved work keeps its addressed executor, and launcher-target effects remain refused pending readiness acceptance.
+- Keep one constructor across roles and retain native inspection, observation and dispatch ownership until the underlying call settles, including after caller timeout. Late results cannot become admission evidence or permit overlapping adapter construction and effects.
+- Preserve consumed legacy observation through cached tools without construction or new authority. Production discovery remains replacement-only. Forty producer and routing cases pass; full queue/native composition, Dev registration and installed activation remain open. Nothing is installed.
+
+## 0.11.0-beta.3.vorteo.649 - 2026-10-17
+
+### Fixed
+
+- Defer external unclaimed recovery inspection while a protected generation diagnostic records a child whose PID has not been proved absent. Check the exact current reservation before and after this refusal gate, before opening shared runtime artifacts.
+- Treat malformed, duplicate or unsafe diagnostic records as uncertainty. Missing records and verified PID absence grant no authority; full retained contract, native absence and locked terminal fencing remain required. Consumed observation retains its exact executor-lifetime check.
+- Thirty producer cases pass, including recorded live or reused PIDs, inconclusive native checks, exited and missing diagnostics, invalid records and symlinks. The native fixture passed unclaimed fencing and delayed-child refusal but its fresh successor refused before intent; full native recovery remains unaccepted. The missing-entry window and other-reader interference remain open. Nothing is installed.
+
+## 0.11.0-beta.3.vorteo.648 - 2026-10-17
+
+### Fixed
+
+- Reconcile an unclaimed service recovery only after fresh native absence and verification of its reserved runner's claim-before-effects contract. Persist failed status and addressed absence atomically; a winning claim refuses that write, while a winning terminal write refuses a late claim.
+- Preserve consumed executor exit checks through mixed consumed and unclaimed recovery ancestry. New linked generations still require current authority and fresh native custody; ordinary unknown outcomes remain running and consumed legacy observation retains its requirements.
+- Keep native-only reconciliation markers out of stored observations. Verify protected executor setup, plan, runtime and claim dependencies, retain custody before authoritative reads, and clear successful collection deadlines.
+- Cover journal races, reopening after revocation, changed retained runner bytes and continued legacy observation. Compiled native acceptance of unclaimed fencing, full queue composition, Dev registration and installed activation remain open. Nothing is installed by this source change.
+
+## 0.11.0-beta.3.vorteo.647 - 2026-10-16
+
+- Verify the enrolled coordinator's selected release, registered native lifetime and retained installer/transfer proofs before exempting it from recovery runtime absence checks. Keep the two-executor limit and refuse unrelated readers.
+- Recheck coordinator custody under existing lifecycle exclusion without nesting enrollment locks. Unrelated selected Node files need no live coordinator witness; revocation preserves read-only custody checks.
+- Seven witness cases, twenty-nine producer/inventory cases and eleven recovery cases pass. Actual shared-runtime native recovery and installed acceptance remain open; no recovery capability or service is enabled.
+
+## 0.11.0-beta.3.vorteo.646 - 2026-10-16
+
+### Fixed
+
+- Refuse fresh external maintenance-role discovery while its exactly selected recovery generation remains running. The gate follows full wrapper, selection and history validation, suppressing new health and producer artifact reads until reconciliation finishes. Candidate startup and the executing child's readiness keep their direct verified paths.
+- Allow an explicitly reviewed Standard scheduling policy only for controller slots using the canonical runner. Interactive remains limited to standalone owner pages, omitted policy retains Background, and previous launcher bytes remain unchanged. This enables a scheduling experiment after three-minute background startup failed to establish readiness; it is not a claimed throttle fix.
+- Cover controller scheduling digests, retained bytes, KeepAlive and invalid roles, plus running-recovery discovery refusal alongside direct startup success and resolved recovery/rollback discovery. This is not global reader exclusion: earlier readers, other shared-runtime readers and failed-but-live executors remain separate acceptance work. No installed service or capability changes.
+
+## 0.11.0-beta.3.vorteo.645 - 2026-10-16
+
+### Fixed
+
+- Continue read-only reconciliation for a running native service reservation after its three-check counter saturates. Each callback keeps its deadline and retained generation; subsequent checks honor the persisted forty-five-second backoff without executing again. Pending and approved inspection retain the three-check limit.
+- Show sustained uncertainty as continuing status checks, preserving approval, reservation and intent. A whole-queue regression times out execution, refuses repeated observations, reopens after grant revocation, respects backoff and settles the same generation when readiness appears. One execution is retained throughout; no installed service or capability changes.
+
+## 0.11.0-beta.3.vorteo.644 - 2026-10-16
+
+### Maintenance
+
+- Load the daemon client only when native renewal actually needs a Host process lookup. Persistent controller imports no longer pull the client and its large generated WebSocket validator through renewal. Connection authentication, status lookup and close behavior are unchanged.
+- Preserve native startup failure evidence separately: controller selection and launch succeeded in disposable recovery, but readiness was not established. Cold import tracing proves the eager dependency, not the cause of the native readiness failure. Full native recovery and installed activation remain open; no service or capability changes.
+
+## 0.11.0-beta.3.vorteo.643 - 2026-10-16
+
+### Fixed
+
+- Defer external recovery observation artifact reads until the consumed intent's exact executor lifetime is proven exited. An observer hashing the target executable could otherwise interfere with the running child's native absence inventory. Live or unproven executors refuse observation without reading readiness or changing history.
+- Keep the executing child's post-bootstrap readiness collection under its existing retained claim, native custody and final readiness verifier. It does not use the external exit-first path or acquire permission to skip an exit check.
+- Reproduce artifact inspection before exit proof and cover same-generation readiness after exit and revocation. Eleven focused recovery cases pass with native ports simulated. Concurrent health/discovery artifact readers, full compiled linked recovery and installed activation remain open; no installed service or capability changes.
+
+## 0.11.0-beta.3.vorteo.642 - 2026-10-16
+
+### Fixed
+
+- Stop internal collection timers after successful native maintenance inspection. Completed proofs retain their custody checks and existing admission freshness; failure, timeout and synchronous budget overruns still abort. Parent inspection, child inspection and recovery absence collection share this behavior without extending execution deadlines.
+- Resolve controllers selected by a completed recovery or rollback through their exact recovery wrapper digest and retained slot. Startup still verifies consumed intent, all ancestors and the ready resolution leaf, and discovery rejects a changed selection. Ordinary dispatch remains replacement-only by default.
+- Add successful-proof lifetime, hanging collection, custody change and monotonic-overrun regressions, plus resolved controller recovery/rollback discovery with missing and forged history refusal. Full compiled linked recovery, Dev registration and installed activation remain open. No installed service or capability changes.
+
+## 0.11.0-beta.3.vorteo.641 - 2026-10-16
+
+### Maintenance
+
+- Retain private per-generation stderr for native service launches. Exclusive creation refuses an existing file or symlink, records the guarded launch attempt and leaves the detached child running after a parent timeout. Diagnostics grant no authority and do not change the effect journal, deadline or replay rules.
+- Record recovery child entry and verified invocation/evidence stages. Recovery-entry failures retain controlled policy messages or an error class, avoiding parser source bytes. Public failure responses remain generic; private diagnostics are not returned through owner or agent endpoints.
+- Add actual subprocess checks for private file permissions, refusal preservation, duplicate launch refusal, symlink safety and continued child observation after a descriptor-close failure. Full compiled recovery dispatch remains unaccepted after a retained timeout before effect intent; no installed service, capability or README availability claim changes.
+
+## 0.11.0-beta.3.vorteo.640 - 2026-10-16
+
+### Fixed
+
+- Accept separately addressed native approval and reservation evidence. Each queue transition inspects a different current revision, so requiring identical evidence digests rejected valid replacement, recovery and rollback reservations.
+- Validate both retained dispatch proofs independently for unique address, digest, request, plan, identity and reviewed candidate. Approval proof remains bound to its reviewed revision; reservation proof can follow later bookkeeping. Preserve grant, manifest, proposal, approved revision, cancellation interval and reserved executor checks. Legacy consumed observation gains no new dispatch requirement.
+- Reproduce the refusal with real queue transitions and a file journal, then cover separate recovery and rollback proofs, missing or altered evidence, duplicate receipts, changed executor refusal and legacy observation. Native-port fixtures now retain distinct inspection records instead of fabricating one shared digest. Full compiled recovery dispatch and installed activation remain open; no service or capability changes.
+
+## 0.11.0-beta.3.vorteo.639 - 2026-10-16
+
+### Maintenance
+
+- Let the existing native service producer resolve an explicitly configured recovery-launcher role. Its default remains controller-bound and replacement-only. A selected page must declare exact service execution, match protected enrollment and runtime custody, and contain the same compiled page and child runner before inspection or launch.
+- Restrict new effects through the recovery-page producer to exact linked controller recovery or rollback. Retained observation stays separate from new-effect eligibility and active grants. Parent and child continue binding the reserved executor, and the existing total invocation deadline, one launch and durable child intent remain unchanged.
+- Add a file-journal producer regression for listener-only refusal before native setup, and retain thirteen existing producer and subprocess checks. Full compiled page-producer dispatch, queue composition and final activation remain open; no installed service, capability or route changes. README recovery delivery remains pending.
+
+## 0.11.0-beta.3.vorteo.638 - 2026-10-16
+
+### Maintenance
+
+- Add an explicit reviewed recovery-page service-executor contract. A selected standalone page can supply native executor proof only when its pinned setup declares version one and the fully digested runtime metadata supports it. Older listener-only setups remain refused. Final custody includes the runtime metadata as well as native process, launcher, selector and pinned files.
+- Route the standalone entry point's exact service-generation arguments to the existing native child. Listener startup keeps its separate path without loading lifecycle history; execution still requires the child's exact retained reservation, runtime and process identity, fresh evidence and shared-lock effect admission. Page supervision does not retry service work.
+- Add protected-filesystem and HTTP checks for supported and unsupported contracts, default controller-role refusal, metadata mutation, missing execution custody and listener availability with broken journals. Native process ports are simulated. Producer role discovery and compiled complete recovery dispatch remain unfinished, recovery is unadvertised, and nothing is installed. README recovery delivery remains open.
+
+## 0.11.0-beta.3.vorteo.637 - 2026-10-16
+
+### Fixed
+
+- Reconcile exact retained enrollment consent through a no-change update under the existing lifecycle lock before acknowledging success. A previous rename with failed directory synchronization cannot produce an idempotent success until journal synchronization succeeds. Return current revocation and activation progress without replacing consent or repeating authentication.
+- Add a real file-journal regression that fails directory synchronization after publication, refuses the retry, then succeeds with byte-identical enrollment after synchronization recovers. Thirteen focused consent and provisioning cases cover the change; native proposal inspection remains an explicit fixture port. This is source only, not a complete final consent gate or installed activation; README recovery delivery remains open.
+
+## 0.11.0-beta.3.vorteo.636 - 2026-10-16
+
+### Maintenance
+
+- Add a distinct owner-authenticated HTTP operation that saves only the exact enrollment consent. Unsupported controls refuse the operation instead of treating it as immediate enrollment. Retained review identifiers and manifest digest remain required; foreign origins, invalid owner authentication and changed decisions are refused.
+- Serialize consent storage with the existing enrollment and provisioning control. The one-operation controller rereads its protected exact review before recording consent and returns an explicit acknowledgment that activation has not started. Existing enrollment response bytes and effectful enrollment behavior remain unchanged.
+- Add real HTTP authentication, duplicate-submit, cross-operation exclusion, unsupported-control and private-error checks. These tests do not establish the complete native save-consent composition, readiness-gated continuation, a frozen final manifest or a usable owner approval page. Nothing is installed; README recovery availability remains pending delivery.
+
+## 0.11.0-beta.3.vorteo.635 - 2026-10-16
+
+### Maintenance
+
+- Separate exact owner-authenticated enrollment persistence from provisioning. The consent operation verifies the pinned review, native context and owner configuration, then records the unchanged manifest with pending initial steps. It does not prepare admission files, lifecycle requests or service effects. Reopening preserves the original consent, progress and revocation.
+- Keep the existing combined enrollment action effectful: it calls the consent operation and then its existing grant-checked provisioning path. No current button becomes a save-only action implicitly.
+- Add consent-only real file-journal and bcrypt checks for invalid authentication, context changes, changed manifests, lost responses and retained revocation. Native proposal observation is an explicit fixture port. These checks do not establish a remote save-consent control, readiness-gated continuation, a complete final manifest or installed activation. README recovery availability remains pending tracked delivery.
+
+## 0.11.0-beta.3.vorteo.634 - 2026-10-16
+
+### Maintenance
+
+- Use one target-evidence inspector in the selected native producer and one-generation child. Replacement verifies the running target; recovery and rollback require protected retained history, independent absence and the selected executor's current-boot witness. Aborted inspection cannot return admission evidence.
+- Make the producer consume the child's exact request, approved revision, generation and plan binding before launch, including recovery wrappers. Preserve the refreshed selected executor check, total execution deadline, locked intent admission and observation-only handling after uncertain replies.
+- Keep operation advertisement replacement-only and recovery listeners outside generic executor authority. Focused filesystem/native-port and producer subprocess checks validate source composition; explicit launcher-role integration, compiled combined recovery, Dev custody, installed delivery and remote acceptance remain open. No service, route, credentials or approval changes. README recovery availability remains pending delivery.
+
+## 0.11.0-beta.3.vorteo.633 - 2026-10-16
+
+### Maintenance
+
+- Let an unconsumed replacement reservation observe only its independently verified previous slot, with evidence collected after reservation. Reconciliation uses the existing exact journal transaction and shared native admission, including after grant revocation. It never dispatches or treats the candidate as successful without an intent.
+- Add real file-journal races: previous readiness can terminalize the unclaimed replacement and block a late child claim; a child claim that wins first prevents terminalization and retains its intent. Candidate evidence without an intent is refused. Native process ports are simulated and no service command is issued in these cases.
+- Preserve consumed-intent observation and previous-executor exit requirements. Absent or unready targets, first installation without a previous slot and unclaimed recovery wrappers still need their exact reconciliation paths. This is source only; final combined activation and installed acceptance remain open. README recovery availability is unchanged.
+
+## 0.11.0-beta.3.vorteo.632 - 2026-10-16
+
+### Maintenance
+
+- Route an exact reserved recovery or rollback generation through the existing native service child. Load its protected recovery plan, verify original artifacts and child custody, inspect target absence and retained history, then use the existing shared admission and exclusive effect claim. Replacement keeps its controller-only execution role.
+- Validate the approved revision independently of the later journal revision and reject a consumed generation before another child effect. Twenty focused filesystem and native-port cases pass, with workspace types, lint and server/CLI compilation. Process ports are simulated; this does not establish compiled recovery dispatch or installed acceptance.
+- Keep recovery dispatch unadvertised until selected executor roles, preclaim reconciliation and compiled acceptance are complete. No installed service, selection, route, credentials or owner decision changes. The final combined activation and primary README recovery feature remain pending.
+
+## 0.11.0-beta.3.vorteo.631 - 2026-10-16
+
+### Maintenance
+
+- Refuse readiness returned after its existing thirty-second observation budget even when synchronous native validation delays timer delivery. Compare the monotonic clock after the awaited result, abort the observation signal on refusal and preserve the consumed operation without replay.
+- Add a regression that models native validation exhausting the budget before the timer runs. It must reject the late result, abort its signal, leave the lifecycle journal unchanged and issue no additional native command. This is deadline logic with simulated native ports, not active-provider cleanup or installed acceptance.
+- No service, route, selection, credentials or standing authority changes. Permanent recovery delivery and the primary README feature remain open.
+
+## 0.11.0-beta.3.vorteo.630 - 2026-10-16
+
+### Maintenance
+
+- Add observation-only reopening for consumed native recovery and rollback generations. The existing producer routes retained recovery observations through exact generation, selected slot, protected artifact and native lifetime checks without granting new dispatch support or requiring an active grant. A total thirty-second observation bound discards late results; final custody checks reject changed journals and files.
+- Preserve an independently verified selected process with readiness false as an unready observation. Successful execution still requires readiness. A rollback job identifies its restored slot as that new job's candidate, without rewriting the failed predecessor as successful.
+- Hash the verified reviewed launcher shape for native registration evidence. The actual HTTP readiness regression exposed a mismatch caused by plist dictionary key order; exact decoded equality and launcher byte digests remain required. Retained evidence is never rewritten.
+- Focused filesystem and actual HTTP cases cover lost start replies, revocation, recovery and rollback slots, unready observation, refusal of unready execution, journal changes and timeout. Native process ports are simulated. Compiled native recovery dispatch, installed delivery, permanent private HTTPS and remote owner acceptance remain open; the README recovery feature remains a delivery gate.
+
+## 0.11.0-beta.3.vorteo.629 - 2026-10-16
+
+### Maintenance
+
+- Give the independent recovery page explicit repair-required and unverified rollback messages. A retained fallback receipt is labeled as a recorded result, separate from candidate success and current application usability.
+- Disable new rollback preparation until authenticated retained status is available, while a request remains unresolved, and after a failed refresh. Lock and rejected authentication clear private state. Existing server admission, exact approval and replay checks remain unchanged.
+- Validate these controls in a real Chromium fixture with owner authentication and file-backed retained history. Native effects are disabled in this browser case; it does not establish native fallback-failure recovery or installed availability. Permanent routing, remote owner acceptance and the primary README feature remain delivery gates.
+
+## 0.11.0-beta.3.vorteo.628 - 2026-10-16
+
+### Maintenance
+
+- Make the existing two-minute retained-renewal verification timeout use SIGKILL for its isolated read-only child. A child that ignores SIGTERM must not leave the native installer or recovery runner waiting indefinitely. The child receives no execution lock or effect authority; verification, approval and replay checks remain unchanged.
+- Add a real subprocess regression whose reader proves it ignored SIGTERM. It must be refused within the existing deadline, leave no reader process, and preserve fixture journal bytes. A fixture-owned emergency exit bounds failed-test cleanup without changing the production timeout.
+- No installed service, route, credential or selection changes. README recovery availability remains pending tracked delivery and owner acceptance.
+
+## 0.11.0-beta.3.vorteo.627 - 2026-10-16
+
+### Maintenance
+
+- Prepare newly reviewed independent rollback startup runners with responsive macOS scheduling. The policy remains pinned by the reviewed launcher digest; retained launchers keep their exact Background bytes. Artifact limits, exclusive ownership and replay fences are unchanged.
+- A real disposable executor crash after selection recovered through its existing watchdog in about ten seconds. A second native case killed that watchdog after fallback bootstrap and exposed startup artifact verification failure under Background scheduling. The same read-only artifact check passed in a foreground process. The scheduling correction still requires compiled native acceptance; nothing is installed by this commit.
+- Focused launcher checks cover retained bytes, the new reviewed policy and refusal of changed startup settings. The primary README recovery feature remains pending installed delivery and remote owner acceptance.
+
+## 0.11.0-beta.3.vorteo.626 - 2026-10-16
+
+### Tests
+
+- Exercise a real subprocess dying after the rollback attempt and fixture selection are durably written. Reopening preserves the original approval, plan, generation and attempt marker without repeating rollback effects.
+- Verify that independently confirmed fallback readiness records rollback, while unverified readiness remains recovery-required. Seven focused crash and adjacent reconciliation cases pass. Journal storage and subprocess termination are real; native service commands and custody ports remain simulated, so full service and installed acceptance are still open.
+- No production behavior or README availability claim changes.
+
+## 0.11.0-beta.3.vorteo.625 - 2026-10-16
+
+### Documentation
+
+- Reconcile the installation architecture with implemented independent rollback reviews, authenticated application diagnostics and the dedicated supervision handoff. Preserve the distinction between disposable native acceptance, installed delivery and remote owner acceptance.
+- Document the existing 120-second isolated preparation bound and temporary authenticated SSH forwarding for loopback operator reviews. Native acceptance measured refusal after 120.007 seconds with a deliberately hung child that ignored graceful termination; the exact child was gone and fixture history stayed unchanged. This covers the production parent timeout boundary, not full plan verification, the broader failure matrix or installed recovery.
+- No service, private route, credential or runtime selection changes in this documentation update. The primary README feature paragraph remains pending delivered recovery and remote acceptance.
+
+## 0.11.0-beta.3.vorteo.624 - 2026-10-16
+
+### Maintenance
+
+- Add authenticated application-path diagnostics to the independent recovery page. Checks cover installation health, the owner API, the application document and entry scripts, without reading maintenance history or creating an app session. Green health is reported separately from missing scripts or rejected authentication; full browser usability remains unverified.
+- Bound probe time and response bytes, refuse redirects and browser-selected destinations, and send owner authentication only to the configured application after matching installation health. Concurrent checks share exclusion, failed authentication and Lock clear private results, and reports omit credentials and response bodies.
+- This remains source awaiting tracked installation and remote owner acceptance. It does not change the running installation, approve maintenance or enable the permanent recovery address. The primary README feature paragraph remains a delivery requirement.
+
+## 0.11.0-beta.3.vorteo.623 - 2026-10-16
+
+### Maintenance
+
+- Add an owner-authenticated recovery-bookmark query. Native discovery verifies the selected recovery listener, protected assets and exact private HTTPS route before returning its non-secret origin. Missing, foreign, stale or failed proof returns no address. One in-flight inspection and a ten-second response deadline prevent repeated refreshes from multiplying a hung reader.
+- Add General installation controls for opening and copying a verified recovery address, with bookmark guidance, expiry and explicit action failures. Older coordinators retain their existing HTTP and WebSocket contracts. These controls await tracked installation and remote owner acceptance; no service, route or standing authority is enabled by discovery.
+
+## 0.11.0-beta.3.vorteo.622 - 2026-10-16
+
+### Maintenance
+
+- Permit an explicitly reviewed interactive macOS process policy for a standalone owner recovery-page slot. The registered Background-page fixture exposed slow native artifact inspection and socket-check timeouts; native comparison of the new policy remains required. The policy enters the immutable plan digest and is refused for ordinary controller or execution-launcher slots.
+- Preserve the exact Background launcher for retained slots without a scheduling field, including an unchanged previous slot during replacement. Focused checks cover the reviewed digest, candidate policy, previous launcher bytes and role restrictions.
+- This remains source awaiting native acceptance and installation. The permanent page, remote owner rollback, private HTTPS routing, General bookmark discovery and README feature delivery are still unfinished.
+
+## 0.11.0-beta.3.vorteo.621 - 2026-10-16
+
+### Fixed
+
+- Wait for independently verified recovery-listener startup after native service registration, within the existing sixty-second activation budget. Repeat only observation while the executable, arguments or loopback socket settle; never repeat registration or selection effects.
+- Keep exact grant and native custody checks before private routing. Startup timeout retains the same intent without configuring a route, and revocation during the wait refuses the next effect. Focused regressions cover temporary process/socket refusal, expiration, replay refusal and revocation.
+- This corrects a startup race found in disposable native acceptance. Permanent page rollback, actual private HTTPS installation, remote owner testing and the broader failure matrix remain unfinished. No installed service or README availability claim changes.
+
+## 0.11.0-beta.3.vorteo.620 - 2026-10-16
+
+### Maintenance
+
+- Connect standalone recovery controls to exact manual coordinator rollback preparation, approval and cancellation. The owner reviews the current, target and fallback sources plus the full pinned plan. Reopening reconstructs only an undecided manual review from retained history and protected setup; approved or uncertain work is never redispatched.
+- Keep recovery-page startup independent of enrollment and lifecycle parsing. Effectful modules load only behind owner authentication. The HTTP preparation request accepts no browser-selected plan or runtime, excludes concurrent preparation and preserves safe domain errors.
+- Show lost decision replies as unverified, prevent automatic resubmission, and clear private state and the password on Lock. The independent path uses a twenty-five-second dispatch observation deadline without killing or retrying a child; that deadline does not prove execution stopped.
+- Focused reopening and HTTP tests plus an isolated Chromium flow cover authentication, exact review, a recorded approval with a lost reply, reload without replay, cancellation and Lock. Native listener asset checks still pass. Native rollback preparation and effect acceptance, real private HTTPS routing, the remaining failure matrix and installed owner review remain open. README and General availability claims are unchanged.
+
+## 0.11.0-beta.3.vorteo.619 - 2026-10-16
+
+### Maintenance
+
+- Add independent coordinator rollback preparation using the selected recovery listener's native custody and the existing manual request, decision and execution path. The target comes only from the successful coordinator's explicitly reviewed compatible fallback. Preparation preserves configuration and history, refuses unresolved work, and does not consult basic health as permission to deny owner recovery.
+- Pin the independent executor separately from the rollback target through the existing startup-recovery descriptor. Preparation has a two-minute response deadline and a final expiry check before request persistence; a late preparation cannot create new approval authority. Prepared files are synchronized and retained after failure.
+- Nine selection regressions cover exact retained compatibility, open reviews, uncertain and rolled-back history, missing fallback, changed configuration, reused source, altered plan digest and another installation. Eight existing independent-runtime cases still pass. Native preparation and reopening, permanent HTTP controls, remote-browser acceptance and installed delivery remain unfinished. README and General availability claims are unchanged.
+
+## 0.11.0-beta.3.vorteo.618 - 2026-10-16
+
+### Maintenance
+
+- Separate native recovery-page review custody from lifecycle executor authority. The review proof binds the protected selected plan, launcher, process lifetime and assets, remains observable after revocation, and grants no execution permission. The native composition requires the actual selected listener process and runtime module.
+- Require the exact standalone HTML and JavaScript during native listener verification. A matching title or a long substituted script no longer passes inspection. Focused cases cover changed assets, revoked observation, changed native custody and continued executor refusal.
+- This is an uninstalled prerequisite for permanent owner rollback controls. Exact rollback preparation and decisions, private HTTPS delivery and remote owner acceptance remain unfinished. README and General availability claims are unchanged.
+
+## 0.11.0-beta.3.vorteo.617 - 2026-10-16
+
+### Fixed
+
+- Require the pinned independent coordinator executor to declare its versioned runtime contract before review or dispatch. A valid artifact hash alone cannot establish that an older installer supports a separate target release. The declaration is part of the existing hashed server package metadata; it grants no authority or installed availability.
+- A focused regression retains valid older runtime bytes while omitting contract support and verifies refusal. Runtime identity, exact manual approval, artifact custody and native acceptance remain separate requirements. Permanent rollback controls and installed delivery remain unfinished; README and General availability claims are unchanged.
+
+## 0.11.0-beta.3.vorteo.616 - 2026-10-16
+
+### Maintenance
+
+- Permit an exact manually reviewed coordinator replacement to use the independent executor already pinned by its existing startup-recovery descriptor. The executor's setup, Node, scripts and complete runtime remain hash-verified and separate from the target release. This removes the candidate-runtime dependency that prevented a newer repair runtime from installing an older compatible coordinator.
+- Ordinary runners remain candidate-bound. A separate executor refuses borrowed renewal, enrollment or automatic authority, another request, changed prepared setup, changed runtime bytes and guest-writable paths. No shared journal field, queue, credential or installed service changes.
+- Focused filesystem and legacy startup-review regressions cover these bindings. This is an uninstalled execution prerequisite, not completed permanent rollback controls or native rollback acceptance. Exact owner review, native custody, exclusive claims and existing startup recovery still apply; README and General availability claims remain unchanged.
+
+## 0.11.0-beta.3.vorteo.615 - 2026-10-16
+
+### Maintenance
+
+- Require the initial independent recovery page to be a verified prerequisite of combined coordinator activation. The protected enrollment controller validates its reviewed native plan, runtime and setup before reserving the existing activation step and launching one exact child. No new queue, authority store or credential is introduced.
+- Reopening a reserved generation uses an explicit observation-only native role, including when no child intent exists. Lost launch replies never authorize another registration attempt. Native custody and lifecycle exclusion are checked under the shared reservation lock; child exit alone does not permit coordinator migration.
+- Focused regressions cover ordered activation, lost replies before and after intent, revocation before reservation, asynchronous custody refusal, missing prerequisites and unchanged retained state after refusal. This is source integration, not installed recovery or full combined native acceptance. Private HTTPS delivery, exact rollback controls, remote owner acceptance and README/General availability remain unfinished.
+
+## 0.11.0-beta.3.vorteo.614 - 2026-10-16
+
+### Maintenance
+
+- Add a bounded one-generation native recovery-registration role. Four enrollment identifiers select the protected initial plan; verify its runtime, exact native arguments, process custody, writable mounts and current reserved activation before registration. This adds no queue, dispatcher or execution credential.
+- Reopen retained effects through observation only, including after revocation. Retain synchronized addressed native receipts and settle the existing activation under shared exclusion with a synchronous final custody check. Verified reconciliation preserves failed history instead of resetting a generation.
+- Focused orchestration and journal tests cover one-time effects, lost start and route replies, revocation, malformed intents, another generation, immutable invocation fields and changed or asynchronous custody. This is source wiring, not compiled native acceptance or installed recovery. Combined activation invocation, compatible rollback controls and owner remote-browser acceptance remain open; README and General availability claims are unchanged.
+
+## 0.11.0-beta.3.vorteo.613 - 2026-10-16
+
+### Fixed
+
+- Verify that the independent recovery listener can bind its reviewed loopback port before consuming initial registration authority, publishing its launcher or starting a service. Repeat the bounded kernel availability probe at the native command boundary; a conflict or incomplete probe refuses registration without disturbing the existing listener.
+- Native socket and enrollment-journal regressions cover occupied and released ports, invalid port values and refusal before intent or selection publication. This does not install the recovery page or change any route. Production invocation, rollback controls, General bookmark discovery and remote owner acceptance remain open; README availability claims are unchanged.
+
+## 0.11.0-beta.3.vorteo.612 - 2026-10-16
+
+### Fixed
+
+- Recover a manual-to-supervised coordinator handoff interrupted before its first freeze. The exact rollback generation may consume its first audited freeze intent, preserve unchanged state and retire the frozen process before starting the reviewed compatible fallback. Existing or uncertain freeze attempts remain non-repeatable.
+- Treat an independently verified changed boot as proof that the original manual lifetime ended. Reused numeric PIDs are neither inspected as the original process nor signaled; missing or inconsistent boot proof still refuses recovery.
+- Ten focused cases pass, including real disposable native freeze and retirement from both normal dispatch and interrupted recovery. These are source and fixture checks, not installed supervision, real reboot acceptance or a new owner approval. The README continues to omit uninstalled recovery claims.
+
+## 0.11.0-beta.3.vorteo.611 - 2026-10-16
+
+### Maintenance
+
+- Add the protected supervision-review parent for one exact recorded request. Reuse the installation owner password, existing request journal and one launch reservation; verify native parent custody under shared exclusion before forking the existing executor. Reopening a reserved launch observes instead of forking again.
+- Keep native helper and runner code inside the reviewed runtime. Bound parent acknowledgement observation to twenty-five seconds without killing or retrying the installer; preserve existing observation defaults for other callers.
+- Show the target, running source, replacement, compatible fallback and explicit frozen SIGKILL in the independent review. Keep cancellation available before claim, clear passwords after decisions, and label a reserved launch unverified rather than completed. Canceled requests retain audit data without displaying an active launch.
+- Eleven focused authentication, cancellation, reservation and deadline cases pass. Review scripts are syntax-checked, and an isolated Chromium fixture verifies visible release details, authentication failure, password clearing, one-time submission and cancellation. Types, lint and compilation pass. Full compiled native handoff and rollback acceptance remain open; no real review, route or service was installed.
+
+## 0.11.0-beta.3.vorteo.610 - 2026-10-16
+
+### Fixed
+
+- Match supervision watchdog identity to the Node arguments actually executed by the ownership launcher. Its automatic-recovery option belongs to Python and is consumed before exec, so requiring it in the Node process would incorrectly reject recovery. Update retained-reopening coverage to use that exact boundary. An owned macOS process also verifies the kernel argument digest after the real launcher exec. Compiled native delivery acceptance remains open; no installed process changed.
+
+## 0.11.0-beta.3.vorteo.609 - 2026-10-16
+
+### Maintenance
+
+- Wire protected supervision setup into the existing coordinator executor and watchdog. Before claim, verify the reserved setup digest, exact native runner arguments, selected configuration and original parent lifetime. After claim, retain observation and recovery without requiring the review process to remain alive.
+- Route only that explicit mode through audited manual-process control; ordinary installation dispatch still refuses it. Require its durable launch reservation at claim and preserve existing generation, ownership, state-transfer, selection and watchdog checks.
+- Run full supervision preparation in a separate read-only process with a two-minute bound and exact input acknowledgement. It receives no execution-lock descriptor and does not enter the legacy retained renewal derivation.
+- Ten focused cases cover setup and parent substitution, claimed reopening, missing launch reservation and verifier acknowledgement; two native supervision regressions also pass. Workspace types, lint and compilation pass. Full compiled runner acceptance, production parent and exact owner review packaging remain open; nothing is installed or advertised.
+
+## 0.11.0-beta.3.vorteo.608 - 2026-10-16
+
+### Maintenance
+
+- Connect the supervision control port to the audited native helper with the inherited execution descriptor and exact retained request, revision and generation. Validation and helper execution share a twenty-five-second deadline; late validation cannot launch an effect, and failures require retained observation rather than retry.
+- Permit native preparation of the explicitly reviewed manual-restoration path using independent service absence and exact process identity. Recheck canceled migration history before and after preparation; ordinary migration still requires its registered service.
+- Four control cases cover the exact native invocation, generation changes, deadline expiry and private error redaction. The full admission fixture verifies manual restoration, unexpected service registration and missing canceled history. Production runner selection, compiled end-to-end acceptance, owner review packaging and installed supervision remain open; no capability is enabled.
+
+## 0.11.0-beta.3.vorteo.607 - 2026-10-16
+
+### Maintenance
+
+- Reserve one supervision runner launch in the existing bootstrap journal before forking. Bind the original approved revision, protected setup digest and native parent identity while rereading current requests and lifecycle exclusion under the shared lock.
+- Require a synchronous native custody check before persistence. Preserve the immutable reservation and reviewed plan through progress and cancellation; reopening a lost launch response refuses a second reservation. Ordinary journal writes cannot mint this authority.
+- Focused regressions cover reopening, duplicate and forged reservations, lock contention, asynchronous or changed custody, unchanged history and owner cancellation before dispatch. Production runner integration, exact review packaging and installed supervision remain unfinished. No installed capability is enabled.
+
+## 0.11.0-beta.3.vorteo.606 - 2026-10-16
+
+### Maintenance
+
+- Add the internal audited supervision effect helper under the existing coordinator execution lock. Bind every effect to the current approved revision, generation, canceled migration, failed ancestry, selected files and kernel process lifetime; consume an exclusive attempt before signaling.
+- Require a frozen coordinator without children and unchanged fsynced state before retirement. Bound the helper with a twenty-five-second deadline and report fixed failure categories without private command output. State transfer checks allow sixteen MiB while legacy dependency-read defaults remain unchanged.
+- A disposable macOS process verifies expired and wrong-generation refusal, actual freeze, replay refusal, missing and changed transfer refusal, recovery-stage retirement, unchanged session bytes and exact-lifetime cleanup. Production controller invocation, independent review packaging and installed supervision remain unfinished; no installed capability is enabled.
+
+## 0.11.0-beta.3.vorteo.605 - 2026-10-16
+
+### Maintenance
+
+- Retain manually restored coordinator history through an explicit supervision recovery plan, bound to the exact canceled migration and failed predecessor. Require a fresh owner decision, unchanged configuration and a reader-aware compatible replacement instead of reusing the old approval or claiming the migration succeeded.
+- Preserve the exact canceled ancestor during startup without parsing unrelated newer pending proposals. Add a process-bound native lifecycle interface for verified freeze, state preservation and frozen-process retirement; ordinary native dispatch refuses this mode until the dedicated executor is supplied.
+- Focused journal, native-port and registered-service regressions pass. Audited native effect dispatch, independent review packaging, full rollback acceptance and installed supervision remain unfinished. No live request, service, capability or README availability claim changes.
+
+## 0.11.0-beta.3.vorteo.604 - 2026-10-16
+
+### Maintenance
+
+- Add read-only preparation for restoring coordinator supervision after manual recovery. Require repeated native service absence and exact process birth, boot, owner, parent, executable and launch arguments without fabricating a loaded service.
+- Preserve ordinary registered-service admission and its strict checks. This preparation grants no lifecycle authority; tracked handoff execution, interrupted recovery and installed supervision remain unfinished. The README has no new availability claim.
+
+## 0.11.0-beta.3.vorteo.603 - 2026-10-16
+
+- Add native recovery registration adapters with protected process inspection, exact loopback socket ownership, bounded page asset checks and complete routing custody. Require a private immutable Node runtime for orphan detection and verify actual activation lineage before excluding any process.
+- Recheck retained intent and current grant before native commands, preserve read-only construction after revocation and carry the activation deadline through final dispatch validation. Collect fresh listener evidence after artifact preparation, preserve the configured Host header in native HTTP requests and select headless Tailscale CLI mode explicitly.
+- Seventeen native-helper cases, fourteen owning cases and compiled read-only acceptance pass without changing installed routing or services. Production invocation, full native registration, compatible rollback and owner remote-browser acceptance remain open; no installed capability or README feature claim is enabled.
+
+## 0.11.0-beta.3.vorteo.602 - 2026-10-16
+
+- Add initial independent recovery registration through the existing exact enrollment activation intent. Publish immutable selected files before native service and private HTTPS routing effects; recheck grant, generation and synchronous native custody under shared exclusion while keeping native commands outside the lock.
+- Bound the complete activation to sixty seconds and read-only reconciliation to ten seconds. Lost replies, timeout and partial writes retain their generation without replay; observation after revocation verifies the selected native lifetime, listener and complete routing result without claiming remote owner acceptance.
+- Twelve focused temporary-filesystem and simulated-native regressions pass. Production native ports, invocation wiring, compiled registration, rollback controls and installed remote-browser acceptance remain unfinished. No installed capability or README feature claim is enabled.
+
+## 0.11.0-beta.3.vorteo.601 - 2026-10-16
+
+- Bind optional private recovery routing preparation to the existing launcher plan, protected Tailscale executable, complete previous Serve snapshot and exact candidate setup. Preserve all existing and unknown routing settings; refuse occupied ports, configuration drift and mismatched private machine identity.
+- Verify the pinned routing CLI with explicit Host-or-root custody for system-installed binaries. Keep Host-only ownership as the existing dependency default, with digest, canonical path, write protection, mount exclusion and streaming limits preserved.
+- Add focused preparation regressions without performing any live routing or lifecycle operation. Native route execution, uncertainty reconciliation, installed registration, rollback and remote-browser acceptance remain unfinished. General bookmark discovery and README feature advertising remain delivery requirements.
+
+## 0.11.0-beta.3.vorteo.600 - 2026-10-16
+
+- Bind standalone recovery access to the existing exact launcher plan. Verify its native identity, source, owner configuration and shared lifecycle directory; compatible access slots retain their bookmarked origin and port. Reject access configuration paired with the older entry point.
+- Render exact standalone arguments with throttled OS supervision for the read-only page. Preserve existing controller launch behavior and reject the access listener as an effect executor until native execution support is implemented and accepted.
+- All 87 launcher tests, 15 control HTTP tests, workspace types, lint and server compilation pass. Permanent HTTPS routing, installed registration, rollback controls and remote-browser acceptance remain unfinished. README feature copy and General bookmark discovery remain delivery requirements.
+
+## 0.11.0-beta.3.vorteo.599 - 2026-10-16
+
+- Add a standalone read-only recovery entry point using protected recovery-launcher configuration and a fixed loopback port. Start its page independently of enrollment, lifecycle parsing and the primary coordinator entry point; defer inspection until owner authentication.
+- Share the existing private configuration reader and error identities without changing their custody checks. Preserve the existing launcher setup and add optional recovery access configuration. Read-only access cannot prepare, approve or dispatch maintenance.
+- Fifteen control HTTP cases, two focused configuration checks, full workspace types, lint and server compilation pass. Disposable compiled fixtures preserve broken journal bytes and remain renderable with journal/review modules absent. Permanent HTTPS registration, supervision, rollback controls and installed remote-browser acceptance remain open; the README feature claim stays pending.
+
+## 0.11.0-beta.3.vorteo.598 - 2026-10-16
+
+- Add a self-contained recovery status page to the existing maintenance listener when a separate protected HTTPS origin is explicitly configured. Page rendering does not read owner configuration, maintenance journals, service status or primary app assets.
+- Authenticate recovery inspection with the existing owner password, without relying on main-app cookies or session storage. Enforce the configured host and distinct origin, restrict script loading, bound browser inspection and clear access on lock or page exit.
+- Fourteen owning HTTP checks, workspace typecheck and lint pass. Permanent HTTPS provisioning, supervised installation, rollback controls and remote-browser acceptance remain unfinished. The primary README feature paragraph and General bookmark discovery will accompany delivered recovery, not this source foundation.
+
+## 0.11.0-beta.3.vorteo.597 - 2026-10-16
+
+- Keep exact native coordinator migration cancellation available after approval until execution is claimed. Require the displayed revision and owner authentication, preserve separate one-shot cancellation and approval fences, and reject claimed or stale requests.
+- Thirteen focused HTTP checks cover both native review scopes. This repair does not restart services, repeat dispatch or mark an interrupted migration successful. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.596 - 2026-10-16
+
+- Isolate retained renewal verification for native bootstrap roles in a bounded read-only child. Preserve the existing native, artifact and history checks, require an exact input-digest acknowledgement and successful exit, and reject timeout without repeating lifecycle effects.
+- The verifier child receives no execution lock or lifecycle operation. Other coordinator and maintenance-control roles retain their existing behavior. Server compilation passes; optional suites are omitted under the owner's emergency restoration instruction. Installed recovery and replacement acceptance remain open. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.595 - 2026-10-16
+
+- Permit tracked preclaim retirement of the exact reviewed coordinator runner launched by its already-admitted maintenance controller. Bind that parent to the protected admission, runtime, installation, argv, owner and boot while preserving the original Host renewal identity and exact owner recovery approval.
+- Preserve legacy Host-parent admission and refuse unrelated parents. This is a restoration repair; the stalled approved migration is unchanged until its separate recovery decision. No optional test suite was run under the owner's emergency instruction. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.594 - 2026-10-15
+
+- Allow a corrected owner password after a definite authentication refusal in either independent native review scope, while retaining one-shot behavior for uncertain replies. Migration approval still uses the exact native service and does not acquire the preclaim cancellation exception.
+- Extend the eleven owning HTTP checks to verify definite refusal leaves no decision and enables correction in both scopes. No native dispatch, configuration or standing authority changes; installed coordinator delivery remains pending. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.593 - 2026-10-15
+
+- Give the existing one-operation maintenance controller an independent loopback owner page when the normal installation interface is unavailable. Reuse the preclaim admission presentation and exact native review service, with separate runtime admission and migration decisions. Existing canonical maintenance APIs and enrollment roles remain unchanged.
+- Eleven owning HTTP checks pass, covering both review scopes, authentication refusal, origin and digest rejection, separate consent and no replay after lost replies. Native provisioning and dispatch still enforce their original protected configuration and lifecycle gates. This prepares a supported restoration route; no coordinator replacement is claimed. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.592 - 2026-10-15
+
+- Keep independent preclaim cancellation available against the displayed revision until native execution is claimed, while preserving one-shot approval and cancellation after uncertain replies. Definite authentication refusal permits a corrected password without repeating a recorded decision.
+- Seven focused HTTP checks cover separate approval and cancellation, stale revisions, authentication refusal and claimed-execution refusal. Compiled disposable retirement and reopening passed with preserved history; the retained installation executor remains unchanged until exact owner approval. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.591 - 2026-10-15
+
+- Add an independent preclaim controller role and separate owner provisioning and exact recovery pages. Recovery children bind to the admitted controller birth and immutable runtime while retaining the genuine selected Host snapshot. Existing journals, cancellation fencing, single-use launch attempts and observation remain in use.
+- Recognize the reviewed preclaim runner release only with its complete artifact and control-flow digests. Read-only native acceptance verified the retained target's setup, audited process, isolated group, selected coordinator and lock without changing its journal or sending signals.
+- Owning preclaim, parent-binding and HTTP checks pass, and a browser fixture verifies authentication refusal, separate consent and no decision replay after a lost reply. Compiled native retirement and controller reopening remain unaccepted; no live recovery or capability enablement is claimed. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.590 - 2026-10-15
+
+- Add owner-authenticated admission for an exact independent preclaim repair runtime, using existing addressed repair artifacts. Provisioning preserves the original unclaimed approval and creates no recovery decision or process effect; claimed-generation consent cannot substitute for preclaim consent.
+- Reuse protected runtime and installation verification across both repair kinds. Twenty-seven focused checks cover authentication, immutable admission, changed approvals, substituted policy and runtime bytes, repeat provisioning and existing claimed repair behavior. Native controller routing, exact runner compatibility and installed recovery remain unfinished; no capability is enabled. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.589 - 2026-10-15
+
+- Validate preclaim recovery history without requiring its failed predecessor to have completed ordinary renewal. Preserve the strict terminal-release selector and the independent retained native checks before recovery review or effects.
+- Twenty-nine focused history and preclaim checks pass, including an exact unpromoted failure, unresolved or substituted ancestry and unchanged journals. This correction is source only; independent recovery delivery and installed acceptance remain open. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.588 - 2026-10-15
+
+- Capture Claude's exact SDK query, input and child before asynchronous close. Concurrent and repeated close calls share the retained result; termination timeout preserves the child handle and reports incomplete cleanup instead of success.
+- Close admission synchronously and check again immediately before SDK process creation, preventing a late spawn after the session closes. Isolated runtime-exit, spawn and interruption regressions pass without live account dependencies. Query retirement, full native descendant proof and installed maintenance acceptance remain open; README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.587 - 2026-10-15
+
+- Retain OpenCode helper generations and their managed records when cleanup is unverified. Concurrent or repeated shutdowns share one termination attempt; known failed cleanup blocks new acquisitions until the owned process actually exits.
+- Preserve normal acquisition during ordinary cleanup in progress. Check cleanup state again before spawn and lease return, and observe shutdown failures without unhandled background rejections. Twenty-two focused tests pass, including release and shutdown failures, retained records, no repeated termination, and resumption after process exit. Complete native descendant cleanup and installed acceptance remain open; README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.586 - 2026-10-15
+
+- Preserve JSONL provider cleanup failures across concurrent and repeated close calls. A disposed transport no longer proves its child exited; termination timeout rejects explicitly and the retained result prevents another signal sequence.
+- Let explicit close clean a live child after transport failure. Automatic stdin-error cleanup logs its retained failure without losing it or creating an unhandled rejection. Twenty focused transport tests pass, including timeout and repeated-close cases. No installed service changes; complete provider descendant cleanup and maintenance dispatch acceptance remain open. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.585 - 2026-10-15
+
+- Preserve managed helper records when termination reports an unverified exit. Reopening keeps that evidence until a later inspection proves the process absent; a timed-out kill is no longer counted as successful cleanup.
+- Distinguish the exact empty POSIX no-match response from permission errors, command failures, signals and truncated execution. Sixteen focused registry and process-table tests pass, including actual inspection of an exited disposable process. No new cleanup store or installation effect is introduced; full provider descendant cleanup and installed acceptance remain open. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.584 - 2026-10-15
+
+- Refuse maintenance worker replacement when inherited worker streams remain open beyond the retained termination deadline. Worker exit alone no longer starts a maintenance replacement behind a descendant that retains those streams; late closure cannot revive the failed attempt.
+- Preserve legacy restart behavior and the existing absolute termination budget. Real disposable-process coverage verifies refusal and descendant cleanup. Closed streams remain only a necessary check, not proof that every provider process exited; full native cleanup and installed acceptance remain open. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.583 - 2026-10-15
+
+- Add internal cooperative restart interruption bound to the exact held worker and generation. Preserve restart-owned goal continuation, require observed turn settlement, retain uncertain attempts without repeating provider cancellation, and reject changed holds or expired budgets.
+- Keep this preparation separate from native provider-process cleanup and restart authority. The new path is not exposed or enabled; dispatch wiring, cleanup proof and installed acceptance remain open. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.582 - 2026-10-15
+
+- Extend the compiled idle-restart fixture through durable queue recovery. After real supervisor acceptance and worker replacement, reopen the actual lifecycle journal twice, preserve uncertainty, then verify the new worker lifetime and old process exit without another dispatch.
+- Keep registration and authority admission outside this fixture's acceptance claim. Native registration, active-provider cleanup, Dev and installed acceptance remain unfinished; no installed service or existing migration request changes. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.581 - 2026-10-15
+
+### Fixed
+
+- Keep unrelated pending plans from disabling the promoted coordinator's startup and web interface when a newer Host adds plan fields. Startup readers validate promoted records, exact recovery ancestors and their promotion evidence; other pending bodies remain untouched.
+- Preserve strict full journal reads and lifecycle effect admission. Unsupported required ancestry, promotion evidence and promoted records still refuse startup. Focused filesystem and real HTTP tests cover both availability and refusal. This source change does not alter the existing live migration request or installed runtime; README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.580 - 2026-10-15
+
+### Changed
+
+- Add a loopback-only owner review surface for an exact existing coordinator migration when the primary coordinator cannot serve its interface. The bridge uses the existing authenticated Host review service, pins request identity and revision, and never prepares another plan or supplies owner approval.
+- Require an explicit owner password and button decision, reject cross-origin or changed requests, and retain observation without retry after an uncertain reply. Focused real HTTP and disposable browser checks pass. Starting the review listener changes no daemon selection or installation journal; the migration still requires its exact owner decision.
+
+## 0.11.0-beta.3.vorteo.579 - 2026-10-15
+
+### Changed
+
+- Wire independent interruption observation into the existing queue. It checks the exact selected source and worker lifetime, independently proves the previous worker exited and repeats native inspection after source verification. Revocation permits observation without granting another effect.
+- Host update observation additionally verifies the reviewed runtime artifact, completed activation receipt, published build and interface bytes. Failed publication, changed assets, substituted source or changing native custody retain uncertainty without retrying a restart or publisher.
+
+### Validation and delivery
+
+- Focused filesystem and native-port regressions cover live old workers, PID reuse, boot changes, revocation, changing replacements and publication mismatches. Compiled queue acceptance, Dev launcher registration, active-provider cleanup and installed acceptance remain open. README overview and onboarding are unchanged; this source checkpoint changes no installed service.
+
+## 0.11.0-beta.3.vorteo.578 - 2026-10-15
+
+### Changed
+
+- Construct interruption reservations from a newly inspected authenticated worker and exact observed hold, current enrollment limits and verified candidate. Preparation records no effect and rejects released holds, revoked or paused authority, missing evidence and elapsed deadlines.
+- Retain hold identity through native inspection and reject a release or hold change during collection. Independent outcome verification and production dispatch wiring remain unfinished; no unattended effect is enabled. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.577 - 2026-10-15
+
+### Changed
+
+- Add queue support for exact interruption reservations before dispatch. Uncertain attempts survive reopening, block competing lifecycle work and permit observation after revocation without another restart. Observation retries retain bounded backoff across reopening.
+- Read the retained running request, approved source and generation before acknowledged execution. Source-update callbacks use that same held restart path. Enrolled worker operations refuse legacy fallback when transport or independent observation is unavailable; native plan operations and the exact initial migration retain their own admission paths.
+
+### Validation and delivery
+
+- Focused queue and shared-journal tests cover lost replies, revocation, retry-budget changes, target exclusion and retained request binding. Production reservation construction and independent native outcome verification are not yet connected, so this does not enable unattended effects or bounded forced interruption. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.576 - 2026-10-15
+
+### Changed
+
+- Define immutable interruption reservations in the existing lifecycle journal, binding the approved revision, grant, hold generation, native worker lifetime, candidate and enrolled deadlines. Locked admission rejects changed bindings and replay while retaining observations after revocation.
+- Retain authenticated worker lifetime in native inspection and bind candidate summaries to verified artifact receipts. Failed candidate revalidation clears the older cached proof. Private interruption evidence is omitted from legacy responses.
+
+### Validation and delivery
+
+- Real journal tests cover reopening, substitution, revocation and unchanged storage on refusal. Native inspection and candidate-integrity regressions pass, along with types, lint and client build. Queue dispatch and observation consumers, active-provider cleanup and installed acceptance remain open; no new effect is enabled. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.575 - 2026-10-15
+
+### Validation
+
+- Verify acknowledged held idle restart through the compiled client, real worker and real supervisor in an isolated fixture. The exact supervisor receipt precedes success, replacement changes both process and worker lifetime, and cleanup verifies both workers exited.
+- The fixture uses a private home and loopback listener without provider credentials or installation changes. Queue reservation integration, active-provider cleanup and installed delivery remain open. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.574 - 2026-10-15
+
+### Changed
+
+- Connect held idle restart requests to the running supervisor acknowledgement channel. Bind the request and generation to the observed worker lifetime, retain the absolute checkpoint and shutdown deadline, and report acceptance only after the supervisor accepts the exact attempt.
+- Fence hold release after dispatch admission. Clients reject legacy acknowledgements as proof and require the running supervisor capability before sending the new optional request fields. Existing restart messages remain compatible.
+
+### Validation and delivery
+
+- Twenty-two focused client, session and hold/checkpoint tests pass; full workspace types, lint and client build pass. Queue reservations, forced provider cleanup, compiled worker acceptance and installed delivery remain open. The new transport covers idle held workers and does not advertise bounded forced interruption. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.573 - 2026-10-15
+
+### Changed
+
+- Add exact hold and absolute deadline checks to maintenance checkpointing. A cancelled hold or elapsed budget reports an incomplete checkpoint; late persistence cannot advance the attempt. Capture the reviewed inputs before awaiting persistence and preserve existing unbounded legacy calls.
+
+### Validation and delivery
+
+- Five focused checkpoint regressions, full workspace types and lint pass. The acknowledged restart RPC, durable interruption reservation and provider cleanup remain unfinished; this checkpoint contract is not installed or advertised as bounded interruption. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.572 - 2026-10-15
+
+### Changed
+
+- Apply the supervisor's absolute maintenance deadline to worker shutdown. All daemon cleanup stages share that budget, duplicate requests cannot extend it, and an expired budget reports incomplete cleanup. Legacy shutdown retains its ten-second limit.
+
+### Validation and delivery
+
+- Four worker budget regressions and thirteen existing supervisor/transport cases pass. Full workspace types and lint pass. Exact held-instance dispatch, checkpoint budgeting and provider cleanup remain unfinished; bounded interruption is not advertised or installed. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.571 - 2026-10-15
+
+### Added
+
+- Add private supervisor acknowledgement for an exact maintenance request, generation, worker and absolute termination deadline. Duplicate accepted intents retain the same decision during shutdown and do not repeat effects or extend the budget.
+- Add worker transport checks for the running supervisor handshake, current parent and exact acknowledgement. Lost replies remain uncertain; an explicit refusal permits a different tracked generation without replaying the previous one.
+
+### Validation and delivery
+
+- Thirteen focused supervisor and transport cases pass, including disposable subprocess deadline checks. Public restart capabilities remain unchanged. Worker/session integration, durable interruption admission, checkpoint budgeting and provider cleanup are unfinished; bounded interruption is not advertised or installed. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.570 - 2026-10-15
+
+### Maintenance
+
+- Preserve the installed Host and published interface ancestry in the reliability source. Retain both release histories and the newer native recovery implementation; incoming package differences are workspace version metadata only.
+- Installed Host Claude acceptance is complete. Coordinator, Dev and autonomous maintenance installation remain separate and unfinished. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.569 - 2026-10-15
+
+### Added
+
+- Execute one reviewed recovery or rollback generation for a proven absent maintenance service through the existing lifecycle journal. Recheck retained history and native custody before recording the effect intent, publishing the exact slot and starting the service once.
+- Verify recovery readiness against the consumed generation, selected artifacts and native boot. Lost startup replies retain uncertainty and cannot replay effects.
+
+### Validation and delivery
+
+- All 74 launcher tests, server types, lint and server/CLI build pass. Native commands use simulated ports in the recovery cases; production recovery routing, launcher execution and compiled recovery acceptance remain open. Recovery stays unadvertised. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.568 - 2026-10-15
+
+### Fixed
+
+- Retain the reviewed Host or Dev candidate selection and activation intent after an unconfirmed restart or failed readiness check. An exception cannot prove that startup stopped; native reconciliation must precede selector rollback.
+- Refuse installation replay before preparation at the public entrypoint, including requests without a preparation flag. Preserve the inner target-specific activation fences.
+- Verify retained recovery startup after ancestor resolution without reopening fresh recovery authority. Pin the selected recovery wrapper, original slot and exact addressed readiness evidence.
+
+### Added
+
+- Integrate bounded native runtime-file inventory, explicit recovery-launcher executor identity and verified one-generation child custody. Same-boot absence requires independent process evidence, while changed-boot witnesses remain tied to the selected executor.
+
+### Validation and delivery
+
+- Host and Dev uncertainty regressions, native inventory, recovery startup and read-only child identity checks pass. Server build, types and lint pass. Native recovery effects, compiled recovery acceptance, bounded daemon interruption and installed activation remain open; no recovery capability or live installation is enabled by this checkpoint.
+
+## 0.11.0-beta.3.vorteo.567 - 2026-10-15
+
+### Added
+
+- Bind controller recovery and rollback to each immediate consumed predecessor in the existing lifecycle journal, with original runtime slots and a chain-wide retry limit. Permit the enrolled recovery launcher only for these exact linked operations.
+- Record verified recovery and resolution of every ancestor in one transaction. Preserve original approvals, execution intents, observations and evidence; historical attempts remain failed rather than becoming false successes.
+- Integrate protected native recovery history, explicit role discovery, bounded service-absence checks and custody-bound boot witnesses. Failed inspection stays uncertain; ambiguous same-boot target lifetimes remain refused.
+
+### Fixed
+
+- Follow the valid recovery generation while retaining all ancestors and competing lifecycle work. Capability checks select the next job without hiding retained history, and reopened generations remain observable after revocation or reduced executor support.
+
+### Validation and delivery
+
+- Focused journal and queue checks cover recovery links, sibling exclusion, revocation, atomic history resolution, lost replies and compatible observation. Native prerequisite and existing restart tests pass with types and lint. Recovery and rollback remain unadvertised until native execution acceptance; nothing is installed by this source checkpoint. Actual reboot acceptance and launcher recovery remain open.
+
+## 0.11.0-beta.3.vorteo.566 - 2026-10-15
+
+### Maintenance
+
+- Preserve the published conversation queue placement and draft-retention changes alongside installation maintenance. Retain both source histories; this merge performs no publication or runtime activation.
+
+## 0.11.0-beta.3.vorteo.565 - 2026-10-15
+
+### Added
+
+- Connect verified native service discovery to coordinator reconciliation. Availability requires protected registration and compatible runner artifacts; grant and exact reservation admission still control every effect.
+- Feed controller readiness into owner installation status through protected native identity, selected runtime and its process-owned health listener. Bound inspection, discard late results and clear failed health to unknown; launcher readiness remains unknown.
+
+### Fixed
+
+- Read current enrollment authority after asynchronous health inspection so concurrent revocation is reflected without declaring a running service unhealthy.
+
+### Validation and delivery
+
+- Focused owner HTTP, timeout and native adapter tests pass with full types, lint and server build. Disposable compiled producer and health checks verify replacement, retained observation, replay refusal and readiness after revocation. Enrollment setup and Docker/daemon endpoints are simulated in those native checks; installed activation, launcher recovery and complete rollout remain open.
+
+## 0.11.0-beta.3.vorteo.564 - 2026-10-15
+
+### Fixed
+
+- Refresh selected maintenance-controller registration before inspection and bind the executor's selected runtime to reservation and child intent. Preserve compatible replacement without treating mutable queue bookkeeping as runtime identity.
+- Bound the complete native execution wait, including validation and observation. Refuse a late launch and discard late results without killing or retrying a child.
+- Discover the native executor through existing coordinator reconciliation without blocking daemon work. Serialize read-only construction, reject expired results and retry settled registration failures.
+
+### Validation and delivery
+
+- Focused tests cover executor evidence, native replacement, total deadlines, read-only discovery and retained observation. Compiled producer acceptance and production wiring remain open; capability stays disabled.
+
+## 0.11.0-beta.3.vorteo.563 - 2026-10-15
+
+### Maintenance
+
+- Integrate the published connection diagnostics with the prepared maintenance source, preserving both histories and the existing runtime boundaries. No service capability or installation is activated by this merge.
+
 ## 0.11.0-beta.3.vorteo.562 - 2026-10-16
 
 ### Maintenance
 
 - Combine 1 source contributions; retain their release notes below
 
-## 0.11.0-beta.3.vorteo.561 - 2026-10-15
+## 0.11.0-beta.3.vorteo.562 - 2026-10-15
 
-### Changed
+### Fixed
 
-- Keep the message queue at the bottom of the primary conversation whether the details sidebar is open or closed. Preserve inline editing across sidebar toggles and keep queue review, saving and sending controls in that location.
+- Bind new controller and launcher maintenance effects to the selected executor's native identity, runtime, setup and artifacts. Require target and executor evidence from the same boot, and preserve the reserved executor through native intent admission.
+- Keep legacy receipts readable for observation after revocation. Mutable queue bookkeeping does not change executor identity.
 
-## 0.11.0-beta.3.vorteo.560 - 2026-10-15
+### Validation and delivery
 
-### Changed
+- Focused journal tests cover missing executor proof, changed custody, cross-boot evidence, changed executor after reservation and legacy observation. Native producer refresh and installed acceptance remain open; capability remains disabled.
 
-- Expand General connection diagnostics with independent health HTTP, WebSocket handshake, cross-origin response and enforced browser content-policy evidence. Keep hidden DNS, TLS, VPN and device-permission failures explicitly unknown.
-- Compare saved app addresses and authentication with the installation endpoints; include device network hints, exposed local-network permission and interface source in a copyable report without credentials or storage contents.
-- Provide one-click browser error pages and a selectable report when clipboard access fails. Validate real HTTP, WebSocket, cross-origin failure and responsive rendering without daemon changes.
+## 0.11.0-beta.3.vorteo.559 - 2026-10-15
+
+### Added
+
+- Connect the exact enrollment decision to coordinator provisioning, native claim reservations and observation of the reviewed candidate.
+- Retain private native identity descriptors through atomic publication and reconcile interrupted publication without replacing an enrolled identity.
+- Bind standing queue decisions to source provenance, target identity and exact activation children. Reserve holds before effects, reconcile lost replies and preserve exact manual supersession after revocation.
+- Verify Host runtime and interface bytes, and Dev runtime bytes, before a hold and before selection. Bound artifact verification and cancel active checks when the owner cancels a queued request.
+
+### Validation and delivery
+
+- Focused queue, enrollment and artifact tests and disposable Linux candidate checks cover changed bytes, source mismatch, lost replies, revocation and external aliases. This checkpoint is source only; native admission wiring, persistent recovery and installed acceptance remain open.
 
 ## 0.11.0-beta.3.vorteo.558 - 2026-10-15
 
@@ -4324,3 +5314,23 @@ This baseline summarizes custom features and fixes present through this version,
 ### Changed
 
 - Apply accepted task-status guidance to the installed Dev source: require in-progress updates before execution, current status at work transitions, and verified completion. Preserve installed Factory code and complete release history from both source branches.
+
+## 0.11.0-beta.3.vorteo.563 - 2026-10-16
+
+### Fixed
+
+- Remove web tooltips directly on dismissal so interrupted animations cannot leave small floating boxes behind. Preserve hover, keyboard focus and native tooltip fades; add browser regression coverage with the real animation library.
+
+## 0.11.0-beta.3.vorteo.561 - 2026-10-15
+
+### Changed
+
+- Keep the message queue at the bottom of the primary conversation whether the details sidebar is open or closed. Preserve inline editing across sidebar toggles and keep queue review, saving and sending controls in that location.
+
+## 0.11.0-beta.3.vorteo.560 - 2026-10-15
+
+### Changed
+
+- Expand General connection diagnostics with independent health HTTP, WebSocket handshake, cross-origin response and enforced browser content-policy evidence. Keep hidden DNS, TLS, VPN and device-permission failures explicitly unknown.
+- Compare saved app addresses and authentication with the installation endpoints; include device network hints, exposed local-network permission and interface source in a copyable report without credentials or storage contents.
+- Provide one-click browser error pages and a selectable report when clipboard access fails. Validate real HTTP, WebSocket, cross-origin failure and responsive rendering without daemon changes.

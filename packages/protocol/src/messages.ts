@@ -1,4 +1,7 @@
 import { SidebarStateChangeSchema, SidebarStateSnapshotSchema } from "./sidebar-state.js";
+import { HeldRestartSchema } from "./maintenance-interruption.js";
+export { HeldRestartSchema } from "./maintenance-interruption.js";
+export type { HeldRestart } from "./maintenance-interruption.js";
 import {
   AgentTaskItemSchema,
   ChecklistGetRequestSchema,
@@ -2072,6 +2075,7 @@ export const RestartServerRequestMessageSchema = z.object({
   type: z.literal("restart_server_request"),
   idleMode: z.enum(["inspect", "restart", "drain", "cancel-drain"]).optional(),
   restartDrainId: z.string().uuid().optional(),
+  heldRestart: HeldRestartSchema.optional(),
   reason: z.string().optional(),
   requestId: z.string(),
 });
@@ -3948,6 +3952,10 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; retain until the daemon floor supports the admission barrier.
         idleRestart: z.boolean().optional(),
         gracefulRestart: z.boolean().optional(),
+        // COMPAT(restartDrainObservation): added v558; retain until 2027-04-15.
+        restartDrainObservation: z.boolean().optional(),
+        // COMPAT(heldIdleRestart): added v574; retain until daemon floor includes v574.
+        heldIdleRestart: z.boolean().optional(),
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: z.boolean().optional(),
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -4168,11 +4176,15 @@ export const RestartRequestedStatusPayloadSchema = z.object({
     .object({
       agents: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
       pendingStarts: z.number().int().nonnegative(),
+      restartDrainId: z.string().uuid().nullable().optional(),
+      workerInstanceId: z.string().uuid().optional(),
+      workerPid: z.number().int().positive().optional(),
     })
     .optional(),
   clientId: z.string(),
   reason: z.string().optional(),
   requestId: z.string(),
+  heldRestart: HeldRestartSchema.optional(),
 });
 
 export const ShutdownRequestedStatusPayloadSchema = z.object({

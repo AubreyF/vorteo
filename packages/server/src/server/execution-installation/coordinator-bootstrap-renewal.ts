@@ -1,4 +1,7 @@
+import { performance } from "node:perf_hooks";
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { constants, closeSync, fsyncSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -27,6 +30,7 @@ import {
   assertBootstrapPathsProtected,
   digestBootstrapArtifact,
   readBootstrapPreparedFile,
+  inspectBootstrapReleaseArtifacts,
   verifyBootstrapReleaseArtifacts,
 } from "./coordinator-bootstrap-artifact.js";
 import {
@@ -44,7 +48,8 @@ import {
 } from "./coordinator-bootstrap-process.js";
 import { InstallationConfigSchema, type InstallationConfig } from "./config.js";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
-import { connectInstallationDaemon } from "./daemon.js";
+import { EnrollmentNativeIdentitySchema } from "./maintenance/native-identity.js";
+import type { MaintenanceServiceInspectionPorts } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import type { BootstrapRunnerSetupSchema } from "./coordinator-bootstrap-runner.js";
 
 const FileSchema = z.strictObject({
@@ -138,6 +143,20 @@ export function terminalBootstrapRelease(
   input: unknown,
   identity: { installationId: string; stateDirectory: string; service: string },
 ) {
+  const history = bootstrapReleaseHistory(input, identity);
+  if (history && !isCompletedBootstrap(history.request))
+    throw new BootstrapRequestConflict(
+      "Coordinator renewal is unavailable until its bootstrap recovery is terminal",
+    );
+  return history;
+}
+
+/** Structural history validation does not establish recovery completion.
+ * Preclaim admission separately verifies retained native renewal evidence. */
+export function bootstrapReleaseHistory(
+  input: unknown,
+  identity: { installationId: string; stateDirectory: string; service: string },
+) {
   const records = orderBootstrapHistory(z.array(CoordinatorBootstrapRequestSchema).parse(input));
   const ids = new Set<string>();
   const generations = new Set<string>();
@@ -183,10 +202,6 @@ export function terminalBootstrapRelease(
     selected = terminalRelease(request);
   }
   if (!terminal) return undefined;
-  if (!isCompletedBootstrap(terminal))
-    throw new BootstrapRequestConflict(
-      "Coordinator renewal is unavailable until its bootstrap recovery is terminal",
-    );
   return { request: terminal, release: selected! };
 }
 
@@ -251,6 +266,7 @@ async function nativePorts(
   return {
     reader: await createNativeBootstrapServiceReader({ ...admission, writableMountRoots: roots }),
     async hostPid(config) {
+      const { connectInstallationDaemon } = await import("./daemon.js");
       const client = await connectInstallationDaemon(config, "host");
       try {
         return (await client.getDaemonStatus({ timeout: 30_000 })).pid;
@@ -359,7 +375,7 @@ async function readRenewalAuthority(input: RenewalInput) {
   };
 }
 
-function verifyAdmissionDocker(
+export function verifyAdmissionDocker(
   config: InstallationConfig,
   admission: z.infer<typeof BootstrapAdmissionSetupSchema>,
 ) {
@@ -429,7 +445,18 @@ async function readSelectedHost(
   return { root, node, settings };
 }
 
-async function verifyTerminalProcess(authority: RenewalAuthority, ports: BootstrapRenewalPorts) {
+interface TerminalCoordinatorAuthority {
+  uid: number;
+  anchor: { binding: { service: string }; stateDirectory: string };
+  terminal: NonNullable<ReturnType<typeof terminalBootstrapRelease>>;
+  selected: Release;
+  configurationFile: string;
+}
+
+async function verifyTerminalProcess(
+  authority: TerminalCoordinatorAuthority,
+  ports: Pick<BootstrapRenewalPorts, "reader">,
+) {
   const { uid, anchor, terminal, selected, configurationFile } = authority;
   const coordinatorPid = loadedCoordinatorPid(
     anchor.binding.service,
@@ -512,6 +539,323 @@ async function verifyTerminalProcess(authority: RenewalAuthority, ports: Bootstr
     )
       throw new BootstrapRequestConflict("Terminal coordinator preservation receipt changed");
   }
+  return coordinator;
+}
+
+/** Collection limits are read ownership, not native evidence or effect authority. */
+export interface CoordinatorObservationLimits {
+  signal?: AbortSignal;
+  deadline?: number;
+  timeoutMs?: number;
+  /** Internal absolute cutoff shared by nested collections. */
+  monotonicDeadline?: number;
+  now?(): number;
+}
+
+export function createCoordinatorObservationCollection(input: CoordinatorObservationLimits = {}) {
+  const caller = input.signal;
+  const now = input.now ?? Date.now;
+  const requestedDeadline = input.deadline;
+  const timeoutMs = input.timeoutMs ?? 60_000;
+  const inheritedMonotonicDeadline = input.monotonicDeadline;
+  const monotonicStarted = performance.now();
+  const started = now();
+  if (
+    !Number.isFinite(started) ||
+    !Number.isInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > 60_000 ||
+    (requestedDeadline !== undefined && !Number.isFinite(requestedDeadline)) ||
+    (inheritedMonotonicDeadline !== undefined && !Number.isFinite(inheritedMonotonicDeadline))
+  )
+    throw new BootstrapRequestConflict("Coordinator observation collection deadline is invalid");
+  const deadline = Math.min(requestedDeadline ?? Infinity, started + timeoutMs);
+  const monotonicDeadline = Math.min(
+    inheritedMonotonicDeadline ?? Infinity,
+    monotonicStarted + deadline - started,
+  );
+  const controller = new AbortController();
+  const signal = caller ? AbortSignal.any([caller, controller.signal]) : controller.signal;
+  let finished = false;
+  const expired = () =>
+    new BootstrapRequestConflict("Coordinator observation collection deadline exceeded");
+  const timer = setTimeout(
+    () => controller.abort(expired()),
+    Math.max(0, Math.min(deadline - started, monotonicDeadline - performance.now())),
+  );
+  timer.unref();
+  function retained() {
+    caller?.throwIfAborted();
+    signal.throwIfAborted();
+    if (!finished && performance.now() >= monotonicDeadline) {
+      controller.abort(expired());
+      signal.throwIfAborted();
+    }
+  }
+  function remaining(reserveMs = 0) {
+    retained();
+    if (finished) return Infinity;
+    const wallRemaining = deadline - now();
+    // The clock callback may consume time or move backwards. Reserve against
+    // the monotonic window only after that callback has returned.
+    const left = Math.min(wallRemaining, monotonicDeadline - performance.now());
+    if (!Number.isFinite(left) || left <= 0 || left < reserveMs) {
+      controller.abort(expired());
+      signal.throwIfAborted();
+    }
+    retained();
+    const finalRemaining = Math.min(left, monotonicDeadline - performance.now());
+    if (finalRemaining <= 0 || finalRemaining < reserveMs) {
+      controller.abort(expired());
+      signal.throwIfAborted();
+    }
+    return finalRemaining;
+  }
+  return {
+    signal,
+    limits: Object.freeze({ signal, deadline, monotonicDeadline, now }),
+    remaining,
+    assertRetained: retained,
+    async read<T>(read: () => Promise<T>, reserveMs = 0): Promise<T> {
+      if (finished)
+        throw new BootstrapRequestConflict("Coordinator observation collection is finished");
+      remaining(reserveMs);
+      // Never race the raw promise. The caller's existing latch/drain owns it
+      // through settlement, even if its outward deadline has already refused.
+      const result = await read();
+      remaining();
+      return result;
+    },
+    sync<T>(read: () => T, reserveMs: number): T {
+      remaining(reserveMs);
+      const result = read();
+      remaining();
+      return result;
+    },
+    finish(success: boolean) {
+      clearTimeout(timer);
+      if (!success && !signal.aborted) controller.abort(expired());
+      finished = true;
+    },
+  };
+}
+
+interface SelectedCoordinatorRuntimeInput {
+  identity: unknown;
+  executables: readonly string[];
+  writableMountRoots: readonly string[];
+  collection?: CoordinatorObservationLimits;
+  ports: {
+    reader: BootstrapServiceReader & Pick<NativeBootstrapServiceReader, "verifyProcessExited">;
+    assertCurrent: MaintenanceServiceInspectionPorts["assertCurrent"];
+  };
+}
+
+export async function inspectSelectedCoordinatorRuntime(input: SelectedCoordinatorRuntimeInput) {
+  const collection = createCoordinatorObservationCollection(input.collection);
+  let success = false;
+  try {
+    collection.remaining();
+    const result = await collectSelectedCoordinatorRuntime(input, collection);
+    collection.remaining();
+    result?.assertRetained();
+    success = true;
+    return result;
+  } finally {
+    collection.finish(success);
+  }
+}
+
+/** A registered selected coordinator can share the maintenance Node executable.
+ * Its exemption is bound to retained transfer history and native service custody,
+ * never to a caller-selected PID or health response. */
+async function collectSelectedCoordinatorRuntime(
+  input: SelectedCoordinatorRuntimeInput,
+  collection: ReturnType<typeof createCoordinatorObservationCollection>,
+) {
+  const { retainServiceFiles } =
+    await import("./coordinator-bootstrap-maintenance-service-inspection.js");
+  const identity = EnrollmentNativeIdentitySchema.parse(input.identity);
+  const ports = input.ports;
+  const assertNative = ports.assertCurrent;
+  const reader = ports.reader;
+  const readService = reader.readService;
+  const inspectProcess = reader.inspectProcess;
+  const verifyProcessExited = reader.verifyProcessExited;
+  function assertReader() {
+    if (
+      ports.reader !== reader ||
+      reader.readService !== readService ||
+      reader.inspectProcess !== inspectProcess ||
+      reader.verifyProcessExited !== verifyProcessExited
+    )
+      throw new BootstrapRequestConflict("Coordinator observation reader changed");
+  }
+  const boundedReader = {
+    readService: (service: string) =>
+      collection.read(async () => {
+        assertReader();
+        try {
+          return await readService.call(reader, service);
+        } finally {
+          assertReader();
+        }
+      }, 10_000),
+    inspectProcess: (pid: number) =>
+      collection.read(async () => {
+        assertReader();
+        try {
+          return await inspectProcess.call(reader, pid);
+        } finally {
+          assertReader();
+        }
+      }, 10_000),
+    verifyProcessExited: (pid: number) =>
+      collection.read(async () => {
+        assertReader();
+        try {
+          return await verifyProcessExited.call(reader, pid);
+        } finally {
+          assertReader();
+        }
+      }, 10_000),
+  };
+  const uid = process.getuid!();
+  if (
+    identity.environment !== "host" ||
+    identity.target !== "coordinator" ||
+    identity.custodyOwnerUid !== uid ||
+    identity.serviceDomain !== `gui/${uid}`
+  )
+    throw new BootstrapRequestConflict(
+      "Shared runtime witness requires the enrolled native coordinator",
+    );
+  const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
+  const journal = new FileBootstrapRequestJournal(identity.stateDirectory);
+  const binding = {
+    installationId: identity.installationId,
+    stateDirectory: identity.stateDirectory,
+    service,
+  };
+  const readTerminal = () => terminalBootstrapRelease(journal.readStartupHistory(), binding);
+  const terminal = readTerminal();
+  if (!terminal)
+    throw new BootstrapRequestConflict("Shared runtime coordinator has no terminal history");
+  const selected = terminal.release;
+  if (!input.executables.includes(selected.node.path)) return undefined;
+  const files = [
+    identity.launcherPath,
+    selected.node.path,
+    selected.entrypoint.path,
+    selected.configuration.path,
+    selected.launcher.path,
+    path.join(selected.directory, ".installation-source.json"),
+    path.join(
+      identity.stateDirectory,
+      `coordinator-executor-${terminal.request.execution!.generation}.json`,
+    ),
+    ...(terminal.request.execution!.stage === "resumed"
+      ? []
+      : [
+          path.join(
+            identity.stateDirectory,
+            `coordinator-transfer-${terminal.request.execution!.generation}.json`,
+          ),
+        ]),
+  ];
+  await collection.read(() => assertBootstrapPathsProtected(files, input.writableMountRoots));
+  const assertFiles = retainServiceFiles(files);
+  const artifact = await collection.read(() =>
+    inspectBootstrapReleaseArtifacts(selected, input.writableMountRoots, {
+      signal: collection.signal,
+      timeoutMs: collection.remaining(),
+    }),
+  );
+  const launcher = z
+    .object({ Label: z.string(), ProgramArguments: z.tuple([z.string(), z.string(), z.string()]) })
+    .parse(
+      await collection.read(() =>
+        readBootstrapLauncher(
+          { path: identity.launcherPath, sha256: selected.launcher.sha256 },
+          input.writableMountRoots,
+        ),
+      ),
+    );
+  if (
+    launcher.Label !== identity.serviceLabel ||
+    !isDeepStrictEqual(launcher.ProgramArguments, [
+      selected.node.path,
+      selected.entrypoint.path,
+      selected.configuration.path,
+    ])
+  )
+    throw new BootstrapRequestConflict(
+      "Shared runtime coordinator launcher differs from selected release",
+    );
+  const config = InstallationConfigSchema.parse(
+    JSON.parse(
+      (
+        await collection.read(() =>
+          readBootstrapPreparedFile(selected.configuration, input.writableMountRoots),
+        )
+      ).toString("utf8"),
+    ),
+  );
+  if (
+    config.public.installationId !== identity.installationId ||
+    config.stateDir !== identity.stateDirectory
+  )
+    throw new BootstrapRequestConflict(
+      "Shared runtime coordinator configuration differs from enrollment",
+    );
+  const observed = await verifyTerminalProcess(
+    {
+      uid,
+      anchor: { binding: { service }, stateDirectory: identity.stateDirectory },
+      terminal,
+      selected,
+      configurationFile: selected.configuration.path,
+    },
+    { reader: boundedReader },
+  );
+  const processData = structuredClone(observed);
+  const workingProcess = structuredClone(processData);
+  const returnedProcess = structuredClone(processData);
+  const returnedRelease = structuredClone(selected);
+  const assertRetained = () => {
+    collection.assertRetained();
+    assertReader();
+    assertFiles();
+    artifact.assertCurrent();
+    if (
+      !isDeepStrictEqual(readTerminal(), terminal) ||
+      input.ports !== ports ||
+      ports.assertCurrent !== assertNative ||
+      !isDeepStrictEqual(workingProcess, processData) ||
+      !isDeepStrictEqual(returnedProcess, processData) ||
+      !isDeepStrictEqual(returnedRelease, selected)
+    )
+      throw new BootstrapRequestConflict("Shared runtime coordinator selection or custody changed");
+    collection.assertRetained();
+  };
+  const assertCurrent = () => {
+    assertRetained();
+    // The native assertion performs two separately bounded 2s reads.
+    if (
+      collection.sync(() => assertNative.call(ports, service, workingProcess), 4_000) !== undefined
+    )
+      throw new BootstrapRequestConflict("Shared runtime coordinator native custody changed");
+    assertRetained();
+  };
+  assertCurrent();
+  return {
+    target: "coordinator" as const,
+    installationId: identity.installationId,
+    process: returnedProcess,
+    release: returnedRelease,
+    assertCurrent,
+    assertRetained,
+  };
 }
 
 async function readRenewalHistory(
@@ -725,6 +1069,12 @@ async function observeExecutable(file: string, roots: readonly string[]) {
 /** Renewed runners retain the selected Host reader and validate declared configuration
  * changes through the maintenance validator. Compatible rollback retains the old configuration. */
 export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBootstrapPlan) {
+  if (setup.maintenance) {
+    const { verifyMaintenanceRunnerPlan } =
+      await import("./coordinator-bootstrap-maintenance-runtime.js");
+    await verifyMaintenanceRunnerPlan(setup, plan);
+    return;
+  }
   if (!setup.renewal) return;
   const renewal = setup.renewal;
   if (
@@ -780,7 +1130,62 @@ export async function verifyRetainedRenewal(
   request?: CoordinatorBootstrapRequest,
   watchdog = false,
 ) {
+  // Repeated verification in the native executor has left an unresolved wait
+  // with no active I/O. A fresh reader preserves every check and bounds failure;
+  // it receives no lock, lifecycle command or authority to change the journal.
+  const nativeRunner = fileURLToPath(new URL("./coordinator-bootstrap-runner.js", import.meta.url));
+  if (
+    process.argv[1] === nativeRunner &&
+    ["executor", "watchdog", "boot-watchdog"].includes(process.argv[3])
+  ) {
+    await verifyRetainedRenewalInChild(setup, request, watchdog);
+    return;
+  }
   await verifyRenewalEvidence({ setup, request, watchdog, historical: false });
+}
+
+async function verifyRetainedRenewalInChild(
+  setup: RunnerSetup,
+  request: CoordinatorBootstrapRequest | undefined,
+  watchdog: boolean,
+): Promise<void> {
+  const payload = JSON.stringify({ setup, request, watchdog });
+  if (Buffer.byteLength(payload) > 1024 * 1024)
+    throw new BootstrapRequestConflict("Retained verification input exceeds its bound");
+  const expected = `verified:${sha(payload)}\n`;
+  const source = `
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { verifyRetainedRenewal } from ${JSON.stringify(import.meta.url)};
+const bytes = readFileSync(0);
+if (bytes.length > 1048576) throw Error("Retained verification input exceeds its bound");
+const input = JSON.parse(bytes.toString("utf8"));
+await verifyRetainedRenewal(input.setup, input.request, input.watchdog);
+process.stdout.write("verified:" + createHash("sha256").update(bytes).digest("hex") + "\\n");
+`;
+  await new Promise<void>((resolve, reject) => {
+    let output = "";
+    const fail = () =>
+      reject(new BootstrapRequestConflict("Bounded retained verification did not complete"));
+    const child = spawn(setup.node.path, ["--input-type=module", "--eval", source], {
+      env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
+      stdio: ["pipe", "pipe", "ignore"],
+      timeout: 120_000,
+      // This isolated reader holds no lifecycle lock or effect authority. Its
+      // timeout must terminate even when graceful signals cannot make progress.
+      killSignal: "SIGKILL",
+    });
+    child.stdin.on("error", () => {});
+    child.stdout.on("data", (bytes: Buffer) => {
+      output = (output + bytes.toString("utf8")).slice(0, 128);
+    });
+    child.once("error", fail);
+    child.once("close", (code, signal) => {
+      if (code === 0 && signal === null && output === expected) resolve();
+      else fail();
+    });
+    child.stdin.end(payload);
+  });
 }
 
 async function verifyRenewalEvidence(input: {
@@ -790,6 +1195,12 @@ async function verifyRenewalEvidence(input: {
   historical: boolean;
 }) {
   const { setup, request, watchdog, historical } = input;
+  if (setup.maintenance) {
+    const { verifyMaintenanceRetainedRuntime } =
+      await import("./coordinator-bootstrap-maintenance-runtime.js");
+    await verifyMaintenanceRetainedRuntime(input);
+    return;
+  }
   const renewal = setup.renewal;
   if (!renewal) return;
   const uid = process.getuid!();

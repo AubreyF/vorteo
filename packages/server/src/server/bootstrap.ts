@@ -428,6 +428,7 @@ export type DaemonLifecycleIntent =
     };
 
 export interface PaseoDaemonConfig {
+  maintenanceRestart?: import("./maintenance-restart-channel.js").MaintenanceRestartBridge;
   listen: string;
   paseoHome: string;
   daemonVersion?: string;
@@ -1922,6 +1923,7 @@ export async function createPaseoDaemon(
               mcpBaseUrl,
               {
                 coordinatorBootstrap,
+                maintenanceRestart: config.maintenanceRestart,
                 getAllowedOrigins: () => allowedOrigins,
                 getHostnames: () => configuredHostnames,
                 daemonStatusRpc: dependencies.serverFeatureOverrides?.daemonStatusRpc,

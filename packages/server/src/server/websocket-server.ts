@@ -165,6 +165,7 @@ interface WebSocketConnectionIdentity {
 }
 
 interface WebSocketServerConfig {
+  maintenanceRestart?: SessionOptions["maintenanceRestart"];
   coordinatorBootstrap?: SessionOptions["coordinatorBootstrap"];
   allowedOrigins?: Set<string>;
   hostnames?: HostnamesConfig;
@@ -601,6 +602,7 @@ export class VoiceAssistantWebSocketServer {
     | null;
   private serverCapabilities: ServerCapabilities | undefined;
   private readonly coordinatorBootstrap: SessionOptions["coordinatorBootstrap"];
+  private readonly maintenanceRestart: SessionOptions["maintenanceRestart"];
   private readonly runtimeMetrics = new WebSocketRuntimeMetricsWindow();
   private lastRuntimeMetricsSnapshot: WebSocketRuntimeDiagnosticPayload | null = null;
   private runtimeMetricsInterval: ReturnType<typeof setInterval> | null = null;
@@ -697,6 +699,7 @@ export class VoiceAssistantWebSocketServer {
     this.logger = logger.child({ module: "websocket-server" });
     this.workspaceSetupRuntime = workspaceSetupRuntime;
     this.coordinatorBootstrap = wsConfig.coordinatorBootstrap;
+    this.maintenanceRestart = wsConfig.maintenanceRestart;
     this.advertiseDaemonStatusRpc = wsConfig.daemonStatusRpc !== false;
     this.advertiseRelayConfig = wsConfig.relayConfig !== false;
     this.connectionLifecycle = wsConfig.startPaused === true ? "starting" : "accepting";
@@ -1593,6 +1596,7 @@ export class VoiceAssistantWebSocketServer {
     return new Session({
       sidebarState: this.supportsSidebarState() ? this.sidebarState : undefined,
       coordinatorBootstrap: this.coordinatorBootstrap,
+      maintenanceRestart: this.maintenanceRestart,
       browserToolsBroker: this.browserToolsBroker,
       clientId: options.clientId,
       principalId: options.principalId,
@@ -2032,6 +2036,8 @@ export class VoiceAssistantWebSocketServer {
         workspaceTaskEnvironments: true,
         idleRestart: true,
         gracefulRestart: true,
+        restartDrainObservation: true,
+        heldIdleRestart: this.maintenanceRestart?.supported() === true,
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: true,
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.

@@ -29,6 +29,13 @@ export const OPENCODE_EVENT_STREAM_READY_TIMEOUT_MS = 45_000;
 const OPENCODE_SERVER_GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000;
 const OPENCODE_SERVER_FORCE_SHUTDOWN_TIMEOUT_MS = 1_000;
 
+class OpenCodeCleanupUnverifiedError extends Error {
+  constructor(readonly pid: number | null) {
+    super("OpenCode helper cleanup remains unverified");
+    this.name = "OpenCodeCleanupUnverifiedError";
+  }
+}
+
 export interface OpenCodeServerAcquisition {
   environment: Record<string, string>;
   server: { port: number; url: string };
@@ -44,6 +51,11 @@ export interface OpenCodeServerManagerLike {
   shutdown(): Promise<void>;
 }
 
+interface OpenCodeCleanupAttempt {
+  status: "running" | "failed";
+  result: Promise<void>;
+}
+
 export interface OpenCodeServerGeneration {
   environment: Record<string, string>;
   process: ChildProcess;
@@ -53,6 +65,7 @@ export interface OpenCodeServerGeneration {
   retired: boolean;
   ready: Promise<void>;
   events: OpenCodeEventConsumer;
+  cleanup?: OpenCodeCleanupAttempt;
   managedProcessId?: string;
   managedProcessRecord?: Promise<{ id: string } | null>;
 }
@@ -150,7 +163,10 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
 
     const cleanup = () => {
       const instance = OpenCodeServerManager.instance;
-      void instance?.shutdown();
+      if (!instance) return;
+      void instance.shutdown().catch((failure: unknown) => {
+        instance.logger.warn({ err: failure }, "OpenCode shutdown cleanup remains unverified");
+      });
     };
 
     process.on("exit", cleanup);
@@ -159,6 +175,7 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
   }
 
   async acquireCurrent(signal?: AbortSignal): Promise<OpenCodeServerAcquisition> {
+    this.assertCleanupSettled();
     signal?.throwIfAborted();
     const server = await waitForServerAcquisition(this.getCurrentServer(), signal);
     signal?.throwIfAborted();
@@ -166,6 +183,7 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
   }
 
   async acquireNew(signal?: AbortSignal): Promise<OpenCodeServerAcquisition> {
+    this.assertCleanupSettled();
     signal?.throwIfAborted();
     const server = await waitForServerAcquisition(this.getNewServer(), signal);
     signal?.throwIfAborted();
@@ -173,12 +191,15 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
   }
 
   async acquireDedicated(env: Record<string, string>): Promise<OpenCodeServerAcquisition> {
+    this.assertCleanupSettled();
     const server = await this.startServer(env);
     server.retired = true;
     this.retiredServers.add(server);
     const acquisition = this.acquireServer(server);
     try {
       await server.ready;
+      this.assertCleanupSettled();
+      if (server.cleanup) throw new OpenCodeCleanupUnverifiedError(server.process.pid ?? null);
       return acquisition;
     } catch (error) {
       await acquisition.release();
@@ -187,6 +208,7 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
   }
 
   acquireExisting(url: string): OpenCodeServerAcquisition | null {
+    this.assertCleanupSettled();
     const server = this.findLiveServerByUrl(url);
     return server ? this.acquireServer(server) : null;
   }
@@ -201,6 +223,7 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
 
   private isServerLive(server: OpenCodeServerGeneration): boolean {
     return (
+      !server.cleanup &&
       !server.process.killed &&
       server.process.exitCode === null &&
       server.process.signalCode === null
@@ -208,6 +231,8 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
   }
 
   private acquireServer(server: OpenCodeServerGeneration): OpenCodeServerAcquisition {
+    this.assertCleanupSettled();
+    if (server.cleanup) throw new OpenCodeCleanupUnverifiedError(server.process.pid ?? null);
     server.refCount += 1;
     let releasePromise: Promise<void> | null = null;
     return {
@@ -238,7 +263,6 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
       return;
     }
 
-    this.retiredServers.delete(server);
     this.logger.info(generationLogContext(server), "OpenCode server generation released");
     await this.killServer(server);
   }
@@ -340,6 +364,7 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
       runtimeSettings: this.runtimeSettings,
       overlays: [launchEnv, bridgeEnv],
     });
+    this.assertCleanupSettled();
     const serverProcess = this.spawnServerProcess(launchPrefix.command, serverArgs, {
       cwd: serverCwd,
       detached: process.platform !== "win32",
@@ -493,14 +518,45 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
     const cleanup: Promise<void>[] = [];
     for (const server of Array.from(this.retiredServers)) {
       if (server.refCount === 0) {
-        this.retiredServers.delete(server);
         cleanup.push(this.killServer(server));
       }
     }
     await Promise.all(cleanup);
   }
 
-  private async killServer(server: OpenCodeServerGeneration): Promise<void> {
+  private assertCleanupSettled(): void {
+    for (const server of this.retiredServers) {
+      if (server.cleanup?.status === "failed" && !serverProcessExited(server))
+        throw new OpenCodeCleanupUnverifiedError(server.process.pid ?? null);
+    }
+  }
+
+  private killServer(server: OpenCodeServerGeneration): Promise<void> {
+    if (server.cleanup && !serverProcessExited(server)) return server.cleanup.result;
+    server.retired = true;
+    this.retiredServers.add(server);
+    const attempt: OpenCodeCleanupAttempt = {
+      status: "running",
+      result: Promise.resolve()
+        .then(() => this.stopServer(server))
+        .then(
+          () => {
+            this.retiredServers.delete(server);
+            return undefined;
+          },
+          (failure: unknown) => {
+            attempt.status = "failed";
+            throw failure;
+          },
+        ),
+    };
+    // Reserve before callbacks or native work. Failed attempts retain custody;
+    // only actual process exit permits observation to clear the failed result.
+    server.cleanup = attempt;
+    return attempt.result;
+  }
+
+  private async stopServer(server: OpenCodeServerGeneration): Promise<void> {
     await server.events.close();
     if (
       (server.process.exitCode !== null && server.process.exitCode !== undefined) ||
@@ -518,12 +574,8 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
         );
       },
     });
-    if (result === "kill-timeout") {
-      this.logger.warn(
-        { timeoutMs: OPENCODE_SERVER_FORCE_SHUTDOWN_TIMEOUT_MS },
-        "OpenCode server did not report exit after SIGKILL",
-      );
-    }
+    if (result === "kill-timeout")
+      throw new OpenCodeCleanupUnverifiedError(server.process.pid ?? null);
     if (server.managedProcessId) {
       await this.removeManagedProcessId(server.managedProcessId);
       server.managedProcessId = undefined;
@@ -590,6 +642,13 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
       this.logger.warn({ err: error, id }, "Failed to remove OpenCode helper process record");
     }
   }
+}
+
+function serverProcessExited(server: OpenCodeServerGeneration): boolean {
+  return (
+    (server.process.exitCode !== null && server.process.exitCode !== undefined) ||
+    (server.process.signalCode !== null && server.process.signalCode !== undefined)
+  );
 }
 
 function generationLogContext(server: OpenCodeServerGeneration): Record<string, unknown> {

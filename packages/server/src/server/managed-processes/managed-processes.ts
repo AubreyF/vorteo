@@ -37,6 +37,13 @@ const WindowsProcessSnapshotSchema = z.object({
   CreationDate: z.string().nullable().optional(),
 });
 
+class ManagedProcessExitUnverifiedError extends Error {
+  constructor(readonly pid: number) {
+    super("Managed helper process exit remains unverified");
+    this.name = "ManagedProcessExitUnverifiedError";
+  }
+}
+
 export interface ManagedProcessSnapshot {
   pid: number;
   commandLine: string | null;
@@ -156,9 +163,9 @@ class SystemManagedProcessTable implements ManagedProcessTable {
         "command=",
       ]));
     } catch (error) {
-      // `ps -p <pid>` exits non-zero when no process matches the pid; a numeric
-      // exit code means ps ran and found nothing, distinct from ps failing to run.
-      return isCommandExitFailure(error) ? { status: "not-found" } : { status: "error", error };
+      // Only the exact empty no-match result proves absence. Failed inspection
+      // must preserve uncertainty and its retained helper record.
+      return isPosixNoMatch(error) ? { status: "not-found" } : { status: "error", error };
     }
 
     const line = stdout.trimEnd();
@@ -297,7 +304,7 @@ class FileBackedManagedProcessRegistry implements ManagedProcessRegistry {
           continue;
         }
 
-        await this.terminateProcess(createPidTarget(entry.record.pid), {
+        const termination = await this.terminateProcess(createPidTarget(entry.record.pid), {
           gracefulTimeoutMs: MANAGED_PROCESS_GRACEFUL_SHUTDOWN_TIMEOUT_MS,
           forceTimeoutMs: MANAGED_PROCESS_FORCE_SHUTDOWN_TIMEOUT_MS,
           onForceSignal: () => {
@@ -311,6 +318,8 @@ class FileBackedManagedProcessRegistry implements ManagedProcessRegistry {
             );
           },
         });
+        if (termination === "kill-timeout")
+          throw new ManagedProcessExitUnverifiedError(entry.record.pid);
         await fs.rm(entry.path, { force: true });
         result.terminated += 1;
         result.removed += 1;
@@ -438,11 +447,16 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-function isCommandExitFailure(error: unknown): boolean {
-  // execFile rejects with a numeric `code` (the process exit status) when the
-  // command ran and exited non-zero; a string `code` (e.g. "ENOENT") means it
-  // never ran.
-  return typeof (error as { code?: unknown })?.code === "number";
+function isPosixNoMatch(error: unknown): boolean {
+  return z
+    .object({
+      code: z.literal(1),
+      stdout: z.literal(""),
+      stderr: z.literal(""),
+      signal: z.null().optional(),
+      killed: z.literal(false).optional(),
+    })
+    .safeParse(error).success;
 }
 
 function isNodeErrorWithCode(error: unknown, code: string): boolean {

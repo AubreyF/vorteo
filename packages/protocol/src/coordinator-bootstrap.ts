@@ -2,11 +2,49 @@ import { PreviewMonitorConfigurationSchema } from "./preview-monitor-maintenance
 import { NativeHelperConfigurationSchema } from "./native-helper-maintenance.js";
 import { FactoryRuntimeAdoptionConfigurationSchema } from "./execution-installation.js";
 import { z } from "zod";
+import { StandingMaintenanceProposalSchema } from "./installation-enrollment.js";
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const CommitSchema = z.string().regex(/^[a-f0-9]{40}$/);
 const AbsolutePathSchema = z.string().startsWith("/").min(2).max(4096);
 const FileIdentitySchema = z.strictObject({ path: AbsolutePathSchema, sha256: DigestSchema });
+export const CoordinatorMaintenanceProvisionRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.provision.request"),
+  admissionSha256: DigestSchema,
+  ownerPassword: z.string().min(1).max(4096),
+});
+export const CoordinatorMaintenanceEnrollmentRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.enroll.request"),
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  manifestSha256: DigestSchema,
+  ownerPassword: z.string().min(1).max(4096).optional(),
+});
+// Separate HTTP operation: old controls must refuse consent-only requests,
+// never interpret them as the existing effectful enrollment action.
+export const CoordinatorMaintenanceSaveConsentRequestSchema =
+  CoordinatorMaintenanceEnrollmentRequestSchema.extend({
+    type: z.literal("installation.maintenance.enrollment.save_consent.request"),
+  });
+export const CoordinatorMaintenanceObserveRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.observe.request"),
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  manifestSha256: DigestSchema,
+});
+export const CoordinatorMaintenanceStatusSchema = z.strictObject({
+  version: z.literal(1),
+  installationId: z.string().uuid(),
+  available: z.boolean(),
+  phase: z.enum(["unprovisioned", "validating", "ready", "unavailable"]),
+  requests: z.number().int().nonnegative(),
+  provisioning: z.strictObject({
+    admissionSha256: DigestSchema,
+    sourceCommit: CommitSchema,
+    artifactSha256: DigestSchema,
+    requestId: z.string().uuid(),
+  }),
+});
 const ReleaseIdentitySchema = z.strictObject({
   sourceCommit: CommitSchema,
   directory: AbsolutePathSchema,
@@ -43,6 +81,18 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
       revision: z.string().uuid(),
       generation: z.string().uuid(),
       planSha256: DigestSchema,
+    })
+    .optional(),
+  // Manual restoration is not terminal migration evidence. A new exact owner
+  // review retains the canceled proposal and the failed predecessor separately.
+  supervisionRecovery: z
+    .strictObject({
+      canceledRequest: z.strictObject({
+        id: z.string().uuid(),
+        revision: z.string().uuid(),
+        planSha256: DigestSchema,
+      }),
+      terminateFrozen: z.literal("SIGKILL"),
     })
     .optional(),
   // Exact reviewed startup configuration for the independent recovery service.
@@ -106,6 +156,27 @@ export const CoordinatorAutomaticCheckSchema = z.strictObject({
   outcome: z.enum(["running", "unconfirmed"]),
 });
 
+export const CoordinatorEnrollmentAuthoritySchema = z.strictObject({
+  grantId: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  manifestSha256: DigestSchema,
+  reviewId: z.string().uuid(),
+  reviewRevision: z.string().uuid(),
+  admissionSha256: DigestSchema,
+  stepId: z.string().uuid(),
+  generation: z.string().uuid(),
+});
+
+export const BootstrapProcessIdentitySchema = z.strictObject({
+  pid: z.number().int().positive(),
+  parentPid: z.number().int().positive(),
+  uid: z.number().int().nonnegative(),
+  bootId: z.string().uuid(),
+  startIdentity: z.string().regex(/^\d+:\d+$/),
+  argumentsSha256: DigestSchema,
+  executable: z.string().startsWith("/"),
+});
+
 export const CoordinatorBootstrapRequestSchema = z.strictObject({
   id: z.string().uuid(),
   revision: z.string().uuid(),
@@ -116,6 +187,40 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
   planSha256: DigestSchema,
   status: z.enum(["pending", "approved", "canceled"]),
   decisionAt: z.string().datetime().optional(),
+  standingAuthority: z
+    .strictObject({
+      grantId: z.uuid(),
+      grantRevision: z.uuid(),
+      manifestSha256: DigestSchema,
+      proposal: StandingMaintenanceProposalSchema,
+      nativeEvidenceSha256: DigestSchema,
+      decidedAt: z.string().datetime(),
+      dispatchAfter: z.string().datetime(),
+    })
+    .optional(),
+  standingDispatch: z
+    .strictObject({
+      approvedRevision: z.uuid(),
+      requestedAt: z.string().datetime(),
+      nativeEvidenceSha256: DigestSchema,
+    })
+    .optional(),
+  supervisionDispatch: z
+    .strictObject({
+      approvedRevision: z.string().uuid(),
+      requestedAt: z.string().datetime(),
+      setup: FileIdentitySchema,
+      parent: BootstrapProcessIdentitySchema,
+    })
+    .optional(),
+  // Separate standing consent; never inferred from legacy approval or policy flags.
+  enrollment: CoordinatorEnrollmentAuthoritySchema.optional(),
+  enrollmentDispatch: z
+    .strictObject({
+      approvedRevision: z.string().uuid(),
+      requestedAt: z.string().datetime(),
+    })
+    .optional(),
   automaticCheck: CoordinatorAutomaticCheckSchema.optional(),
   // Protected provenance is minted by scoped Host admission, never by plan input.
   automaticSubmission: CoordinatorAutomaticAuthoritySchema.extend({
@@ -166,6 +271,52 @@ export const CoordinatorBootstrapRequestViewSchema = CoordinatorBootstrapRequest
   automaticStatus: CoordinatorAutomaticStatusSchema.optional(),
 });
 export type CoordinatorBootstrapRequestView = z.infer<typeof CoordinatorBootstrapRequestViewSchema>;
+
+// Independent recovery HTTP only. The browser never supplies a plan or runtime path.
+export const RecoveryApplicationDiagnosticsRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.application_diagnostics.request"),
+  requestId: z.string().min(1).max(128),
+});
+export const RecoveryApplicationDiagnosticsSchema = z.strictObject({
+  version: z.literal(1),
+  installationId: z.string().uuid(),
+  applicationOrigin: z.url(),
+  checkedAt: z.string().datetime(),
+  scope: z.literal("recovery-host"),
+  browserUsability: z.literal("unverified"),
+  checks: z
+    .array(
+      z.strictObject({
+        id: z.enum(["health", "owner-api", "document", "scripts"]),
+        state: z.enum(["reached", "failed", "unverified"]),
+        detail: z.string().max(500),
+        httpStatus: z.number().int().min(100).max(599).nullable(),
+      }),
+    )
+    .length(4),
+});
+export type RecoveryApplicationDiagnostics = z.infer<typeof RecoveryApplicationDiagnosticsSchema>;
+export const RecoveryApplicationDiagnosticsResponseSchema = z.strictObject({
+  type: z.literal("installation.maintenance.application_diagnostics.response"),
+  payload: z.strictObject({
+    requestId: z.string(),
+    report: RecoveryApplicationDiagnosticsSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const CoordinatorMaintenanceRollbackPrepareRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.rollback.prepare.request"),
+  requestId: z.string().min(1).max(128),
+});
+export const CoordinatorMaintenanceRollbackPrepareResponseSchema = z.strictObject({
+  type: z.literal("installation.maintenance.rollback.prepare.response"),
+  payload: z.strictObject({
+    requestId: z.string(),
+    requests: z.array(CoordinatorBootstrapRequestViewSchema).nullable(),
+    error: z.string().nullable(),
+  }),
+});
 
 export const CoordinatorBootstrapPreparationSchema = z.strictObject({
   id: z.string().uuid(),
@@ -265,15 +416,6 @@ export type CoordinatorBootstrapOutbound = z.infer<
 >;
 
 // Separate recovery records leave historical bootstrap requests readable by old hosts.
-export const BootstrapProcessIdentitySchema = z.strictObject({
-  pid: z.number().int().positive(),
-  parentPid: z.number().int().positive(),
-  uid: z.number().int().nonnegative(),
-  bootId: z.string().uuid(),
-  startIdentity: z.string().regex(/^\d+:\d+$/),
-  argumentsSha256: DigestSchema,
-  executable: z.string().startsWith("/"),
-});
 export const BootstrapAuditedProcessSchema = z.strictObject({
   identity: BootstrapProcessIdentitySchema,
   auditToken: z.array(z.number().int().min(0).max(0xffffffff)).length(8),

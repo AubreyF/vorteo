@@ -1,5 +1,8 @@
 import { helperReviewFixture } from "./helper-review.fixture";
-import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
+import type {
+  InstallationEnrollmentStatus,
+  InstallationRecoveryAccessStatus,
+} from "@getpaseo/protocol/installation-enrollment";
 import { InstallationRouteUnavailable } from "./client";
 import { expect, test, vi } from "vitest";
 import { InstallationClient, hasInstallationConnections } from "./client";
@@ -447,5 +450,116 @@ test("enrollment status binds the installation and distinguishes missing routes 
     resources
       .filter((resource) => resource !== "unlock")
       .every((resource) => resource === "enrollment/query"),
+  ).toBe(true);
+});
+
+test("maintenance queue binds installation identity and cancellation uses the reviewed revision", async () => {
+  const job = {
+    id: "00000000-0000-4000-8000-000000000001",
+    revision: "00000000-0000-4000-8000-000000000002",
+    target: "maintenance-controller",
+    operation: "replacement",
+    reason: "Install reviewed controller",
+    createdAt: "2026-10-15T20:00:00.000Z",
+    status: "approved",
+    detail: "Waiting for cancellation interval",
+    cancelable: true,
+    dispatchAfter: "2026-10-15T20:00:30.000Z",
+    generation: null,
+    outcome: null,
+    observedAt: null,
+  } as const;
+  let wrongInstallation = false;
+  let failCancellation = false;
+  const calls: { path: string; body: unknown }[] = [];
+  const client = new InstallationClient(installation, {
+    request: async (path, _password, body) => {
+      calls.push({ path, body });
+      if (path === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) => ({
+            kind: environment.kind,
+            serverId: environment.serverId,
+            endpoint: environment.endpoint,
+            useTls: environment.useTls,
+            password: "fixture",
+          })),
+        };
+      if (path === "maintenance-services/query")
+        return {
+          installationId: wrongInstallation
+            ? "00000000-0000-4000-8000-000000000099"
+            : installation.installationId,
+          available: true,
+          jobs: [job],
+        };
+      if (failCancellation) throw new Error("Maintenance changed before cancellation");
+      return { ...job, status: "rejected", cancelable: false };
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.maintenanceServices()).rejects.toThrow("Unlock");
+  await client.unlock("owner-password");
+  expect((await client.maintenanceServices()).jobs).toEqual([job]);
+  wrongInstallation = true;
+  await expect(client.maintenanceServices()).rejects.toThrow("another installation");
+  expect((await client.cancelMaintenanceService(job)).status).toBe("rejected");
+  expect(calls.at(-1)).toEqual({
+    path: "maintenance-services/cancel",
+    body: { id: job.id, revision: job.revision },
+  });
+  failCancellation = true;
+  await expect(client.cancelMaintenanceService(job)).rejects.toThrow("changed before cancellation");
+  await expect(
+    client.cancelMaintenanceService({ ...job, status: "running", cancelable: false }),
+  ).rejects.toThrow("already dispatched");
+});
+
+test("recovery bookmark binds the installation and distinguishes missing routes from later failures", async () => {
+  let outcome: "old" | "ready" | "wrong-installation" = "old";
+  const status: InstallationRecoveryAccessStatus = {
+    version: 1,
+    installationId: installation.installationId,
+    checkedAt: new Date().toISOString(),
+    status: "verified",
+    url: "https://machine.tail123.ts.net:8443",
+    validUntil: new Date(Date.now() + 30_000).toISOString(),
+  };
+  const resources: string[] = [];
+  const client = new InstallationClient(installation, {
+    request: async (resource) => {
+      resources.push(resource);
+      if (resource === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) => ({
+            kind: environment.kind,
+            serverId: environment.serverId,
+            endpoint: environment.endpoint,
+            useTls: environment.useTls,
+            password: "fixture",
+          })),
+        };
+      if (outcome === "old") throw new InstallationRouteUnavailable("Route unavailable");
+      if (outcome === "wrong-installation")
+        return { ...status, installationId: "00000000-0000-4000-8000-000000000099" };
+      return status;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.recoveryAccess()).rejects.toThrow("Unlock");
+  await client.unlock("owner-password");
+  expect(await client.recoveryAccess()).toBeNull();
+  outcome = "ready";
+  expect(await client.recoveryAccess()).toEqual(status);
+  outcome = "old";
+  await expect(client.recoveryAccess()).rejects.toThrow("Route unavailable");
+  outcome = "wrong-installation";
+  await expect(client.recoveryAccess()).rejects.toThrow("another installation");
+  expect(
+    resources
+      .filter((resource) => resource !== "unlock")
+      .every((resource) => resource === "recovery-access/query"),
   ).toBe(true);
 });

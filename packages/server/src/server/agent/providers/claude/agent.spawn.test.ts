@@ -37,6 +37,10 @@ function createQueryMock(events: unknown[]): Query {
 function createChildProcessStub(): ChildProcess {
   const child = new EventEmitter() as ChildProcess;
   child.stderr = new EventEmitter() as ChildProcess["stderr"];
+  child.kill = (signal) => {
+    queueMicrotask(() => child.emit("exit", null, signal ?? "SIGTERM"));
+    return true;
+  };
   return child;
 }
 
