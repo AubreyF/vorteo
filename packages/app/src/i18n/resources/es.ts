@@ -1910,6 +1910,7 @@ export const es: TranslationResources = {
         cursor: "Línea {{line}}, columna {{column}}",
         preview: "Vista previa",
         source: "Código fuente",
+        copyAll: "Copiar todo",
         deletedTitle: "Archivo eliminado del disco",
         checkFailedTitle: "No se pudo comprobar el archivo en disco",
         preservedDescription: "La copia abierta se ha conservado.",

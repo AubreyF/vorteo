@@ -5,6 +5,173 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+
+## 0.11.0-beta.3.vorteo.288 - 2026-10-10
+
+### Maintenance
+
+- Combine 4 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.287 - 2026-10-10
+
+### Added
+
+- Expose pause, resume and stop through the installed native Factory adapter and built-in interface. Bind actions to the selected host, project, installation and revision; show refused or uncertain outcomes without automatic retries. Startup-owned control ports and live operating acceptance remain required.
+- Cover native control provenance, changed identities, lost responses and desktop/compact control rendering through the plugin loaders and isolated daemon.
+
+## 0.11.0-beta.3.vorteo.286 - 2026-10-10
+
+### Added
+
+- Let reconciled native Factory startup restore observation for an exact completed installation without rebinding coordinators or admitting execution. Verify method provenance and reject reconciliation holds raised during restoration. Private startup wiring and operating acceptance remain separate.
+
+## 0.11.0-beta.3.vorteo.285 - 2026-10-10
+
+### Added
+
+- Add an exact-plan Factory startup adoption request to Installation controls, with Host-only submission, owner approval, cancellation, staged-source verification and no automatic replay.
+- Allow trusted controller startup to reuse its retained native accounting directory without changing the daemon home.
+- Bind adoption configuration changes to a reviewed coordinator maintenance plan. Preserve failed-adoption recovery fences and require a fresh linked approval before lifecycle dispatch; shared errors omit private script diagnostics.
+
+## 0.11.0-beta.3.vorteo.284 - 2026-10-09
+
+### Fixed
+
+- Keep questions in the left conversation column while other cards remain on the right.
+
+## 0.11.0-beta.3.vorteo.283 - 2026-10-09
+
+### Fixed
+
+- Managed installations welcome new devices with one owner-password field that connects Host and Dev automatically
+- Removed the misleading Tailscale connection button from installation onboarding
+
+## 0.11.0-beta.3.vorteo.282 - 2026-10-09
+
+### Improved
+
+- Integrate journal unread markers and retained seen history with the current goal controls and conversation navigation repair.
+
+## 0.11.0-beta.3.vorteo.280 - 2026-10-10
+
+### Added
+
+- Journal entries use red Spark markers on a gray timeline, with a count of unread entries. Viewing an entry briefly turns its Spark into a gray dot with a subtle contraction and halo; reduced motion skips the animation.
+- Seen state survives reload on the current device and stays separate from Clear journal. Entries skipped while scrolling or hidden in a collapsed card stay unread. Storage errors offer Retry.
+
+### Maintenance
+
+- Added focused visibility and persistence tests plus desktop and compact browser coverage for scrolling, reload, collapsed cards, background windows and storage recovery. Native physical-device acceptance remains pending.
+
+## 0.11.0-beta.3.vorteo.281 - 2026-10-09
+
+### Fixed
+
+- Keep conversation navigation marks visible when a narrow text column has enough surrounding space, including shorter marks for agent messages.
+
+## 0.11.0-beta.3.vorteo.280 - 2026-10-09
+
+### Improved
+
+- Integrate clearer goal waiting and queued-message recovery controls while preserving conversation columns, heading hover regions and all release history.
+
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Changed
+
+- Explain goal continuation while queued messages take priority, with a smaller parenthesized status, labeled goal time, and pause help available on desktop and touch layouts.
+- Keep the full goal status and touch controls readable on compact screens by placing goal time and Clear goal in the expanded card.
+- Name the message card Queued messages. Show delivery failures and uncertain delivery in the goal card with actions to review messages or recover the goal.
+
+## 0.11.0-beta.3.vorteo.280 - 2026-10-09
+
+### Fixed
+
+- Assign logical project membership before publishing a new workspace, including Host creation, profile handoffs and agent-created child workspaces.
+- Refuse project-bound creation on daemons that cannot preserve the selected project from the first update.
+
+## 0.11.0-beta.3.vorteo.279 - 2026-10-09
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.278 - 2026-10-09
+
+### Fixed
+
+- Share in-flight verification for concurrent approvals of the same coordinator request, retaining independent authentication and guarded decision writes.
+- Explain long-running coordinator decision checks in both Installation controls and the sidebar, and discourage duplicate submissions.
+
+## 0.11.0-beta.3.vorteo.277 - 2026-10-09
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.276 - 2026-10-09
+
+### Maintenance
+
+- Integrate reviewed conversation columns and shared heading hover regions with the deployed interface, preserving journal controls, Copy all, neutral blocked icons and workspace recovery. Retain both source histories and all release entries.
+
+## 0.11.0-beta.3.vorteo.271 - 2026-10-09
+
+### Changed
+
+- Clarify agent delivery instructions: prefer static interface publication, but submit a supported managed Host source update for exact approval when static publication is unavailable. Explain restart disruption, preserve preview scope, and require a concrete failure before handing delivery back to Host.
+
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Fixed
+
+- Give conversation card headings one consistent hover and click region, including the icon and all available whitespace before separate actions. Messages retains its passive status inside that region. Preserve heading alignment and touch target heights.
+- Verify heading geometry, matching hover colors, and disclosure clicks at both ends across desktop and compact layouts. Update the shared card contract and customization inventory.
+
+## 0.11.0-beta.3.vorteo.269 - 2026-10-09
+
+### Added
+
+- Split wide thread content into independently scrolling, resizable text and card columns. Cards stay pinned right, text stays centered in the remaining space, and preferred widths survive reloads. Both columns fade above the unchanged composer.
+
+### Changed
+
+- Choose the two-column layout from the primary region's width, so opening a sidebar or widening the left sidebar restores the existing single-column arrangement below 1,080 CSS pixels.
+- Order thread cards as Goal, Tasks, Journal, Subagents, then Messages in both layouts. Preserve card body scrolling, fixed headers and queue drag handling.
+- Update the README and customization inventory, and cover column geometry, saved widths, both sidebar transitions, nested scrolling and card interactions with focused unit and browser tests. Native touch behavior still needs physical-device acceptance.
+
+## 0.11.0-beta.3.vorteo.274 - 2026-10-09
+
+### Fixed
+
+- Preserve protected, standing and Factory workspace metadata across reloads. Refresh older incomplete workspace caches without discarding agent conversations or message history.
+
+## 0.11.0-beta.3.vorteo.273 - 2026-10-09
+
+### Fixed
+
+- Keep protected, standing and Factory-managed workspaces in their registered project instead of grouping them under a supervising agent's project.
+- Show a blocked icon and explanation when dragging a protected workspace into another project.
+- Integrate published worker-tab recovery so existing agents remain visible in their own workspaces, while retaining Copy all and journal controls.
+
+## 0.11.0-beta.3.vorteo.272 - 2026-10-09
+
+### Fixed
+
+- Describe both clearing and restoring the journal view accurately for assistive technology.
+
+## 0.11.0-beta.3.vorteo.271 - 2026-10-09
+
+### Improved
+
+- Add Clear journal and Show history controls that retain permanent entries, preserve newly appended entries, and remember the cleared view on this device. Align entry text with inset timestamps without changing date spacing.
+
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Added
+
+- Add Copy all to text-file toolbars, including current edits and empty files, with translated labels and responsive controls at compact widths.
+
 ## 0.11.0-beta.3.vorteo.272 - 2026-10-09
 
 ### Maintenance

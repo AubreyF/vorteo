@@ -8182,62 +8182,77 @@ test("bootstrap review stays unavailable on older daemons without sending reques
   expect(mock.sent).toEqual([]);
 });
 
-test("bootstrap review correlates decisions without logging owner proof or replaying on reconnect", async () => {
-  const mock = createMockTransport();
-  const logger = createMockLogger();
-  const trace = createTraceRecorder();
-  const client = new DaemonClient({
-    url: "ws://test",
-    clientId: "bootstrap-client",
-    logger,
-    trace: trace.trace,
-    reconnect: { enabled: false },
-    transportFactory: () => mock.transport,
-  });
-  clients.push(client);
-  const connecting = client.connect();
-  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
-  await connecting;
-  const listing = client.listCoordinatorBootstrapRequests();
-  const listed = parseSentFrame(mock.sent[0]);
-  mock.triggerMessage(
-    wrapSessionMessage({
-      type: "installation.bootstrap.list_requests.response",
-      payload: { requestId: listed.requestId, requests: [], error: null },
-    }),
-  );
-  await expect(listing).resolves.toEqual([]);
-  const input = {
-    id: "00000000-0000-4000-8000-000000000001",
-    revision: "00000000-0000-4000-8000-000000000002",
-    planSha256: "a".repeat(64),
-    decision: "approve" as const,
-  };
-  const decision = client.decideCoordinatorBootstrap(input, "fixture-owner-proof");
-  const sent = parseSentFrame(mock.sent[1]);
-  expect(sent).toEqual({
-    type: "installation.bootstrap.decide.request",
-    requestId: expect.any(String),
-    input,
-    ownerPassword: "fixture-owner-proof",
-  });
-  const rejected = expect(decision).rejects.toThrow();
-  mock.triggerClose({ code: 1006 });
-  await rejected;
-  const reconnected = client.connect();
-  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
-  await reconnected;
-  expect(mock.sent).toEqual([]);
-  expect(
-    JSON.stringify([
-      logger.debug.mock.calls,
-      logger.info.mock.calls,
-      logger.warn.mock.calls,
-      logger.error.mock.calls,
-      trace.records,
-    ]),
-  ).not.toContain("fixture-owner-proof");
-});
+test.each([false, true])(
+  "bootstrap review negotiates configuration support (%s) without replay or proof logging",
+  async (supported) => {
+    const mock = createMockTransport();
+    const logger = createMockLogger();
+    const trace = createTraceRecorder();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "bootstrap-client",
+      logger,
+      trace: trace.trace,
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        ...(supported ? { coordinatorBootstrapFactoryAdoption: true } : {}),
+      },
+    });
+    await connecting;
+    const listing = client.listCoordinatorBootstrapRequests();
+    const listed = parseSentFrame(mock.sent[0]);
+    expect(listed.factoryRuntimeAdoption).toBe(supported ? true : undefined);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.list_requests.response",
+        payload: { requestId: listed.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(listing).resolves.toEqual([]);
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      planSha256: "a".repeat(64),
+      decision: "approve" as const,
+    };
+    const decision = client.decideCoordinatorBootstrap(input, "fixture-owner-proof");
+    const sent = parseSentFrame(mock.sent[1]);
+    expect(sent).toEqual({
+      type: "installation.bootstrap.decide.request",
+      requestId: expect.any(String),
+      input,
+      ownerPassword: "fixture-owner-proof",
+      ...(supported ? { factoryRuntimeAdoption: true } : {}),
+    });
+    const rejected = expect(decision).rejects.toThrow();
+    mock.triggerClose({ code: 1006 });
+    await rejected;
+    const reconnected = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        ...(supported ? { coordinatorBootstrapFactoryAdoption: true } : {}),
+      },
+    });
+    await reconnected;
+    expect(mock.sent).toEqual([]);
+    expect(
+      JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+        trace.records,
+      ]),
+    ).not.toContain("fixture-owner-proof");
+  },
+);
 
 test("blocked checklist writes never reach an older daemon", async () => {
   const mock = createMockTransport();
@@ -8363,4 +8378,26 @@ test("guarded workspace recovery transmits exact guard while legacy requests rem
     }),
   );
   await legacy;
+});
+
+test("rejects project-bound workspace creation before sending to an older daemon", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "workspace-membership",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { workspaceProjectMembership: true, creationLifecycle: true } });
+  await connected;
+  await expect(
+    client.createWorkspace({
+      source: { kind: "directory", path: "/host/repo" },
+      projectMembership: { key: "intended", name: "Intended" },
+    }),
+  ).rejects.toThrow("Update this environment");
+  expect(mock.sent).toEqual([]);
 });

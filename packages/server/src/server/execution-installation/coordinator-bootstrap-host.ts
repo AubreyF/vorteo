@@ -231,7 +231,11 @@ export function verifyBootstrapConfiguration(input: {
     throw new BootstrapRequestConflict("Bootstrap installation or state paths changed");
   if (!isDeepStrictEqual(current, previous))
     throw new BootstrapRequestConflict("Previous coordinator configuration no longer matches");
-  const expected = { ...current };
+  const expected = { ...current, container: { ...current.container } };
+  if (input.plan.factoryRuntimeAdoptionConfiguration === null)
+    delete expected.container.factoryRuntimeAdoption;
+  else if (input.plan.factoryRuntimeAdoptionConfiguration !== undefined)
+    expected.container.factoryRuntimeAdoption = input.plan.factoryRuntimeAdoptionConfiguration;
   if (input.plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
   else if (input.plan.nativeHelperConfiguration !== undefined)
     expected.nativeHelper = input.plan.nativeHelperConfiguration;

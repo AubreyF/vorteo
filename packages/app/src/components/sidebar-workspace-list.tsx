@@ -1993,6 +1993,7 @@ function ProjectBlock({
                     />
                   ))}
                   <DraggableList
+                    externalDrop={externalDrop}
                     testID={`sidebar-factory-list-${project.viewKey}`}
                     data={factoryGroup.visibleItems}
                     keyExtractor={workspaceKeyExtractor}
@@ -2030,6 +2031,7 @@ function ProjectBlock({
               {!standingCollapsed ? (
                 <>
                   <DraggableList
+                    externalDrop={externalDrop}
                     testID={`sidebar-standing-list-${project.viewKey}`}
                     data={standingGroup.visibleItems}
                     keyExtractor={workspaceKeyExtractor}

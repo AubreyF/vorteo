@@ -161,8 +161,8 @@ function SubagentsGroup({
   const showClear = canClear && (countFinishedSubagents(rows) > 0 || status.kind !== "idle");
   const header = (
     <>
-      <TaskCardIcon kind="subagents" />
       <CardDisclosure
+        icon={HEADING_ICON}
         title={title}
         expanded={expanded}
         onPress={toggleExpanded}
@@ -572,3 +572,5 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
   },
 }));
+
+const HEADING_ICON = <TaskCardIcon kind="subagents" />;

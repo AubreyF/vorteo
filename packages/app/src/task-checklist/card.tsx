@@ -80,6 +80,17 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   }, [clearTasks, resetMutation, tasks]);
   const canMutate = connected && !readOnly && !mutation.isPending && !clearMutation.isPending;
   const progress = checklistProgress(tasks);
+  const headingIcon = useMemo(
+    () => (
+      <ChecklistProgressFlower
+        completed={progress.completed}
+        active={progress.active}
+        total={progress.total}
+        testID="checklist-progress"
+      />
+    ),
+    [progress.completed, progress.active, progress.total],
+  );
   const countBadge = useMemo(
     () => (
       <CountBadge
@@ -110,8 +121,8 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     <>
       <TaskCard testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
         <TaskCardHeader>
-          <ChecklistProgressFlower {...progress} testID="checklist-progress" />
           <CardDisclosure
+            icon={headingIcon}
             title="Tasks"
             expanded={expanded}
             onPress={toggleExpanded}

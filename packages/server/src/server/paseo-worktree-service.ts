@@ -32,6 +32,7 @@ import { runWithGitCommandPriority } from "../utils/run-git-command.js";
 export interface CreatePaseoWorktreeInput extends CreateWorktreeCoreInput {
   workspaceId?: string;
   projectId?: string;
+  projectMembership?: PersistedWorkspaceRecord["projectMembership"];
   title?: string;
 }
 
@@ -93,6 +94,7 @@ async function createPaseoWorktreeWithPriority(
     const workspace = await deps.workspaceProvisioning.createWorkspaceForWorktree({
       sourceCwd: workspaceCwdPlan.inputCwd,
       projectId: input.projectId,
+      projectMembership: input.projectMembership,
       workspaceId: input.workspaceId,
       repoRoot: createdWorktree.repoRoot,
       cwd: workspaceCwd,

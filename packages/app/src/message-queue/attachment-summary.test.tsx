@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useMessageQueue } from "./use-message-queue";
 import { GoalBar } from "@/goals/goal-bar";
 import { useAgentGoal } from "@/goals/use-agent-goal";
-import { isQueueGoalError } from "./goal-error";
+import { goalQueueNotice } from "@/goals/goal-presentation";
 import { SharedQueueView as QueueView } from "./queue-view";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -232,11 +232,7 @@ function Harness() {
         <GoalBar
           control={goal}
           onExpand={state.expand}
-          queueError={
-            isQueueGoalError(queue.snapshot?.deliveryError)
-              ? queue.snapshot?.deliveryError
-              : undefined
-          }
+          queueNotice={goalQueueNotice(goal.state, queue.snapshot)}
         />
       ) : null}
     </>
@@ -278,11 +274,11 @@ it("labels the queue and keeps goal recovery within the goal card", async () => 
   await render();
   const queue = container.querySelector('[data-testid="shared-message-queue"]');
   const goal = container.querySelector('[data-testid="agent-goal-bar"]');
-  expect(queue?.textContent).toContain("Messages");
+  expect(queue?.textContent).toContain("Queued messages");
   expect(queue?.querySelector('[data-testid="message-queue-card-count"]')?.textContent).toBe("2");
   expect(queue?.textContent).not.toContain("goal change");
   expect(container.textContent).not.toContain("Retry delivery");
-  expect(goal?.textContent).toContain("Queue delivery is blocked");
+  expect(goal?.textContent).toContain("Message delivery is blocked");
   expect(goal?.textContent).toContain("Review and save the goal to continue.");
   expect(goal?.textContent).not.toContain("goal change could not be confirmed");
   const review = Array.from(goal!.querySelectorAll("button")).find(

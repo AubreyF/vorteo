@@ -229,8 +229,8 @@ function PlanCardContent({
       style={!disableOuterSpacing && styles.outerSpacing}
     >
       <TaskCardHeader>
-        <TaskCardIcon kind="plan" />
         <CardDisclosure
+          icon={HEADING_ICON}
           title={resolvedTitle}
           expanded={expanded}
           onPress={toggleExpanded}
@@ -264,3 +264,5 @@ const styles = StyleSheet.create((theme) => ({
 
 const LIST_ITEM_CONTENT_INNER = { flex: 1, flexShrink: 1, minWidth: 0 };
 const PARAGRAPH_LAST_CHILD = { marginBottom: 0 };
+
+const HEADING_ICON = <TaskCardIcon kind="plan" />;

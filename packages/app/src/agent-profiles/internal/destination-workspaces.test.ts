@@ -17,12 +17,8 @@ test("creates a host workspace in the original project using the destination dir
     activityAt: "2026-10-05T00:00:00Z",
     scripts: [],
   });
-  const memberships: unknown[] = [];
   const result = await createDestinationWorkspace({
     client: {
-      setWorkspaceProject: async (request) => {
-        memberships.push(request);
-      },
       createWorkspace: async (request) => {
         requests.push(request);
         return { workspace, error: null, setupTerminalId: null, requestId: "request" };
@@ -34,12 +30,10 @@ test("creates a host workspace in the original project using the destination dir
     idempotencyKey: "retry-safe",
   });
   expect(result).toEqual(workspace);
-  expect(memberships).toEqual([
-    { workspaceId: "host-workspace", membership: { key: "source-project", name: "Repo" } },
-  ]);
   expect(requests).toEqual([
     {
       source: { kind: "directory", path: "/host/repo" },
+      projectMembership: { key: "source-project", name: "Repo" },
       title: "Host task",
       idempotencyKey: "retry-safe",
     },
@@ -50,9 +44,6 @@ test("keeps a creation retry on the selected environment and reports its failure
   const requests: unknown[] = [];
   const input: NewDestinationWorkspace = {
     client: {
-      setWorkspaceProject: async () => {
-        throw new Error("Must not assign a failed workspace");
-      },
       createWorkspace: async (request) => {
         requests.push(request);
         return {
@@ -80,6 +71,7 @@ test("keeps a creation retry on the selected environment and reports its failure
         kind: "directory",
         path: "/destination/repo",
       },
+      projectMembership: { key: "source-project", name: "Repo" },
       title: "Task",
       idempotencyKey: "same-request",
     })),

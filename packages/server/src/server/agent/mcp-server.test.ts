@@ -2960,14 +2960,19 @@ describe("create_agent MCP tool", () => {
         }),
       );
       const receivedProjects: Array<string | undefined> = [];
-      const child = (projectId: string | undefined) => {
+      const receivedMemberships: Array<PersistedWorkspaceRecord["projectMembership"]> = [];
+      const child = (
+        projectId: string | undefined,
+        projectMembership?: PersistedWorkspaceRecord["projectMembership"],
+      ) => {
         receivedProjects.push(projectId);
+        receivedMemberships.push(projectMembership);
         return {
           ...parent,
           workspaceId: "child-workspace",
           projectId: projectId ?? "unexpected-project",
           cwd: TARGET_CWD,
-          projectMembership: undefined,
+          projectMembership,
         };
       };
       const server = await createAgentMcpServer({
@@ -2981,7 +2986,8 @@ describe("create_agent MCP tool", () => {
             saved.push(workspace);
           },
         },
-        createDirectoryWorkspace: async (_cwd, _title, projectId) => child(projectId),
+        createDirectoryWorkspace: async (_cwd, _title, projectId, context) =>
+          child(projectId, context?.projectMembership),
         createPaseoWorktree: async (input) => ({
           worktree: { branchName: "worker", worktreePath: TARGET_CWD },
           intent: {
@@ -2989,7 +2995,7 @@ describe("create_agent MCP tool", () => {
             branchName: "worker",
             baseBranch: "main",
           },
-          workspace: child(input.projectId),
+          workspace: child(input.projectId, input.projectMembership),
           repoRoot: REPO_CWD,
           created: true,
         }),
@@ -3003,12 +3009,8 @@ describe("create_agent MCP tool", () => {
         projectId: "explicit-project",
       });
       expect(receivedProjects).toEqual(["parent-project", "explicit-project"]);
-      expect(saved).toHaveLength(1);
-      expect(saved[0]).toMatchObject({
-        workspaceId: "child-workspace",
-        cwd: TARGET_CWD,
-        projectMembership: { key: "logical-parent-project", name: "Parent project" },
-      });
+      expect(saved).toEqual([]);
+      expect(receivedMemberships).toEqual([parent.projectMembership, undefined]);
     },
   );
 

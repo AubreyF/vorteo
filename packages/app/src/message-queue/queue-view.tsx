@@ -67,6 +67,7 @@ export function SharedQueueView(props: {
   agentId: string;
   control: MessageQueueControl;
   goalErrorHandled?: boolean;
+  reviewRequest?: number;
 }) {
   return (
     <QueueEditDraftProvider serverId={props.serverId} agentId={props.agentId}>
@@ -82,13 +83,18 @@ function QueueViewContent({
   agentId,
   control,
   goalErrorHandled = false,
+  reviewRequest = 0,
 }: {
   serverId: string;
   agentId: string;
   control: MessageQueueControl;
   goalErrorHandled?: boolean;
+  reviewRequest?: number;
 }) {
   const [expanded, setExpanded] = useState(true);
+  useEffect(() => {
+    if (reviewRequest > 0) setExpanded(true);
+  }, [reviewRequest]);
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const edits = useQueueEditDrafts();
   const snapshot = control.snapshot;
@@ -177,18 +183,21 @@ function QueueHeader({
         })
         .catch(() => {});
   }, [control, snapshot]);
+  const headerStatus = useMemo(
+    () => <CardHeaderStatus text={status} testID="message-queue-header-status" />,
+    [status],
+  );
   return (
     <>
-      <TaskCardIcon kind="messages" />
       <CardDisclosure
-        title="Messages"
+        icon={HEADING_ICON}
+        trailing={headerStatus}
+        title="Queued messages"
         expanded={expanded}
         onPress={toggleExpanded}
-        compact
         testID="message-queue-toggle"
         count={countBadge}
       />
-      <CardHeaderStatus text={status} testID="message-queue-header-status" />
       <Button
         variant="ghost"
         size="sm"
@@ -823,3 +832,5 @@ const styles = StyleSheet.create((theme) => ({
     textAlignVertical: "top",
   },
 }));
+
+const HEADING_ICON = <TaskCardIcon kind="messages" />;

@@ -1918,6 +1918,7 @@ export const en = {
         cursor: "Line {{line}}, column {{column}}",
         preview: "Preview",
         source: "Source",
+        copyAll: "Copy all",
         deletedTitle: "File deleted on disk",
         checkFailedTitle: "Couldn't check file on disk",
         preservedDescription: "The open copy is preserved.",

@@ -14,6 +14,6 @@ export function isQueueGoalError(error: string | null | undefined): boolean {
 
 export function queueGoalRecoveryMessage(error: string): string {
   return isQueueGoalError(error)
-    ? "Queue delivery is blocked because the agent's goal state could not be verified. Review and save the goal to continue."
+    ? "Message delivery is blocked because the agent's goal state could not be verified. Review and save the goal to continue."
     : error;
 }

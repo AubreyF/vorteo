@@ -1914,6 +1914,7 @@ export const fr: TranslationResources = {
         cursor: "Ligne {{line}}, colonne {{column}}",
         preview: "Aperçu",
         source: "Source",
+        copyAll: "Tout copier",
         deletedTitle: "Fichier supprimé du disque",
         checkFailedTitle: "Impossible de vérifier le fichier sur le disque",
         preservedDescription: "La copie ouverte est conservée.",

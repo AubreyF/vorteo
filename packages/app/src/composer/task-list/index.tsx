@@ -76,12 +76,16 @@ function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
     ),
     [completed, total, t],
   );
+  const headingIcon = useMemo(
+    () => <ChecklistProgressFlower completed={completed} active={active} total={total} />,
+    [completed, active, total],
+  );
   const toggle = useCallback(() => setExpanded((value) => !value), []);
   return (
     <TaskCard testID="agent-task-progress-card" bodyVisible={expanded}>
       <TaskCardHeader>
-        <ChecklistProgressFlower completed={completed} active={active} total={total} />
         <CardDisclosure
+          icon={headingIcon}
           title="Tasks"
           expanded={expanded}
           onPress={toggle}

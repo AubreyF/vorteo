@@ -15,6 +15,9 @@ export interface SeedWorkspaceDescriptor {
   workspaceDirectory: string;
   diffStat: { additions: number; deletions: number } | null;
   labels?: string[];
+  projectMembership?: Awaited<
+    ReturnType<DaemonClient["fetchWorkspaces"]>
+  >["entries"][number]["projectMembership"];
 }
 
 interface SeedProjectDescriptor {
@@ -28,7 +31,10 @@ interface SeedProjectDescriptor {
  * browser. Domain-specific helpers wrap it for their own flows; specs should
  * prefer those wrappers over reaching for this client directly.
  */
-export interface SeedDaemonClient extends Pick<DaemonClient, "getProvidersSnapshot"> {
+export interface SeedDaemonClient extends Pick<
+  DaemonClient,
+  "getProvidersSnapshot" | "setWorkspaceLifecycle"
+> {
   connect(): Promise<void>;
   close(): Promise<void>;
   addProject(cwd: string): Promise<{
@@ -54,6 +60,7 @@ export interface SeedDaemonClient extends Pick<DaemonClient, "getProvidersSnapsh
   }): Promise<unknown>;
   listProjects(): Promise<{ projects: SeedProjectDescriptor[] }>;
   createWorkspace(input: {
+    projectMembership?: SeedWorkspaceDescriptor["projectMembership"];
     source:
       | { kind: "directory"; path: string; projectId?: string }
       | {

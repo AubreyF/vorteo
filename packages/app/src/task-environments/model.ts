@@ -10,7 +10,7 @@ import { sameWorkspaceReference, type WorkspaceEnvironmentReference } from "./wo
 
 interface EnvironmentClient {
   client: DestinationWorkspaceClient &
-    Pick<DaemonClient, "browseProjectDirectories" | "createWorkspace" | "setWorkspaceProject">;
+    Pick<DaemonClient, "browseProjectDirectories" | "createWorkspace">;
   supportsBindings: boolean;
 }
 export interface TaskEnvironmentState {

@@ -169,7 +169,13 @@ export class InstallationPanelModel {
       );
       const pending = jobs.toReversed().filter((job) => {
         if (job.status !== "pending") return false;
-        if (job.update || job.sourceBatch || job.supervisorPlanSha256) return true;
+        if (
+          job.update ||
+          job.sourceBatch ||
+          job.supervisorPlanSha256 ||
+          job.factoryRuntimePlanSha256
+        )
+          return true;
         if (targets.has(job.target)) return false;
         targets.add(job.target);
         return true;
@@ -315,6 +321,12 @@ export function restartExplanation(reason: string): { summary: string; details: 
 }
 
 export function restartBannerTitle(job: RestartJob): string {
+  if (job.factoryRuntimePlanSha256) {
+    if (job.status === "running") return "Adopting Factory startup on Dev";
+    if (job.finishCurrentTurns) return "Dev finishing turns for Factory adoption";
+    if (job.status === "approved") return "Factory startup adoption queued";
+    return "Factory startup adoption needs review";
+  }
   let target = job.target === "host" ? "Host daemon" : "Dev daemon";
   if (job.supervisorPlanSha256) target = "Dev supervisor";
   if (job.status === "running") {

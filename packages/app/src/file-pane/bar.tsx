@@ -1,6 +1,12 @@
+import { useCallback } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
+import { Copy } from "lucide-react-native";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/contexts/toast-context";
+import { copyToClipboard } from "@/utils/copy-to-clipboard";
+import { WORKSPACE_SECONDARY_HEADER_HEIGHT } from "@/constants/layout";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { PaneContentToolbar } from "@/components/ui/pane-content-toolbar";
 import { SegmentedControl } from "@/components/ui/segmented-control";
@@ -20,6 +26,7 @@ export function FilePanelBar({
   cursor,
   vimMode,
   conflict,
+  textContent,
 }: {
   size: number;
   lineCount?: number;
@@ -29,8 +36,20 @@ export function FilePanelBar({
   cursor?: { line: number; column: number };
   vimMode?: string | null;
   conflict?: FileConflictAlertState;
+  textContent?: string;
 }) {
   const { t } = useTranslation();
+  const toast = useToast();
+
+  const handleCopyAll = useCallback(async () => {
+    if (textContent === undefined) return;
+    try {
+      await copyToClipboard(textContent);
+      toast.copied();
+    } catch {
+      toast.error(t("common.errors.unableToCopy"));
+    }
+  }, [textContent, toast, t]);
   const previewModes = [
     {
       value: "preview" as const,
@@ -41,7 +60,7 @@ export function FilePanelBar({
   ];
   return (
     <View style={styles.chrome}>
-      <PaneContentToolbar testID="file-panel-bar">
+      <PaneContentToolbar testID="file-panel-bar" style={styles.toolbar}>
         <View style={styles.row}>
           <View style={styles.metadata}>
             <Text
@@ -99,15 +118,28 @@ export function FilePanelBar({
               </Text>
             ) : null}
           </View>
-          {mode && onModeChange ? (
-            <SegmentedControl
-              size="xs"
-              value={mode}
-              onValueChange={onModeChange}
-              testID="file-preview-mode"
-              options={previewModes}
-            />
-          ) : null}
+          <View style={styles.actions}>
+            {mode && onModeChange ? (
+              <SegmentedControl
+                size="xs"
+                value={mode}
+                onValueChange={onModeChange}
+                testID="file-preview-mode"
+                options={previewModes}
+              />
+            ) : null}
+            {textContent !== undefined ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                leftIcon={Copy}
+                onPress={handleCopyAll}
+                testID="file-copy-all"
+              >
+                {t("panels.file.editor.copyAll")}
+              </Button>
+            ) : null}
+          </View>
         </View>
       </PaneContentToolbar>
       {conflict ? <FileConflictAlert state={conflict} /> : null}
@@ -125,16 +157,30 @@ const styles = StyleSheet.create((theme) => ({
   chrome: {
     flexShrink: 0,
   },
+  toolbar: {
+    height: "auto",
+  },
   row: {
-    height: "100%",
+    minHeight: WORKSPACE_SECONDARY_HEADER_HEIGHT,
+    flexWrap: "wrap",
+    paddingVertical: theme.spacing[1],
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[3],
     paddingHorizontal: theme.spacing[3],
   },
+  actions: {
+    maxWidth: "100%",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    marginLeft: "auto",
+  },
   metadata: {
-    flex: 1,
-    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],

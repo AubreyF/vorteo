@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { filterArchivedRestartErrors } from "./restart-impact.js";
 import { runSupervisorMaintenance, supervisorPlanDigest } from "./supervisor-maintenance.js";
+import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 import { WebSocket } from "ws";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type {
@@ -173,6 +174,36 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
     return reportRestartTimeout(config, target);
   }
   return {
+    factoryRuntimePlan: () => factoryRuntimePlanDigest(config.container.factoryRuntimeAdoption),
+    async adoptFactoryRuntime(job) {
+      const plan = config.container.factoryRuntimeAdoption;
+      const environment = config.public.environments.find((entry) => entry.kind === "container");
+      if (!plan || !environment || job.factoryRuntimePlanSha256 !== factoryRuntimePlanDigest(plan))
+        throw new Error("Factory adoption plan is unavailable or changed");
+      const before = await connectInstallationDaemon(config, "container");
+      let previousPid: number;
+      try {
+        previousPid = (await before.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS })).pid;
+      } finally {
+        await before.close();
+      }
+      const phase = { plan, job, serverId: environment.serverId, previousPid };
+      await runFactoryRuntimePhase({ ...phase, phase: "stage", replacementPid: null });
+      // This is the existing tracked restart executor, after exact adoption approval.
+      // Once staging starts, failure retains this request; it never requeues or rolls state back.
+      await restart("container-daemon", false);
+      const after = await connectInstallationDaemon(config, "container");
+      let replacementPid: number;
+      try {
+        replacementPid = (await after.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS })).pid;
+      } finally {
+        await after.close();
+      }
+      if (replacementPid === previousPid)
+        throw new Error("Factory adoption did not replace the worker; inspect retained selection");
+      await runFactoryRuntimePhase({ ...phase, phase: "verify", replacementPid });
+      return `Factory startup adoption verified on replacement Dev worker ${replacementPid}.`;
+    },
     supervisorPlan: () => supervisorPlanDigest(config.container.supervisorMaintenance),
     async restartSupervisor(job) {
       const plan = config.container.supervisorMaintenance;

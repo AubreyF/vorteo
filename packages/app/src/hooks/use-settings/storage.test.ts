@@ -1106,3 +1106,30 @@ describe("content max width", () => {
     expect((await load("wide")).contentMaxWidth).toBeNull();
   });
 });
+
+describe("thread column preferences", () => {
+  it("persists independent column widths without changing composer width", async () => {
+    const deps = makeDeps();
+    const queryClient = new QueryClient();
+    await saveAppSettings({
+      queryClient,
+      deps,
+      updates: { threadTextWidth: 720, threadCardsWidth: 520 },
+    });
+    const settings = await loadAppSettingsFromStorage(deps);
+    expect(settings.threadTextWidth).toBe(720);
+    expect(settings.threadCardsWidth).toBe(520);
+    expect(settings.contentMaxWidth).toBeNull();
+  });
+  it("normalizes old and malformed column preferences", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ threadTextWidth: "wide", threadCardsWidth: 100000 }),
+      }),
+    });
+    const settings = await loadAppSettingsFromStorage(deps);
+    expect(settings.threadTextWidth).toBeNull();
+    expect(settings.threadCardsWidth).toBe(760);
+    expect((await loadAppSettingsFromStorage(makeDeps())).threadCardsWidth).toBe(440);
+  });
+});

@@ -1862,6 +1862,7 @@ export const ar: TranslationResources = {
         cursor: "السطر {{line}}، العمود {{column}}",
         preview: "معاينة",
         source: "المصدر",
+        copyAll: "نسخ الكل",
         deletedTitle: "تم حذف الملف من القرص",
         checkFailedTitle: "تعذّر التحقق من الملف على القرص",
         preservedDescription: "تم الاحتفاظ بالنسخة المفتوحة.",

@@ -1,6 +1,7 @@
 import type {
   CoordinatorBootstrapInbound,
   CoordinatorBootstrapOutbound,
+  CoordinatorBootstrapRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
   BootstrapAuthenticationRequired,
@@ -38,9 +39,22 @@ export async function handleBootstrapReview(
   try {
     if (message.type === "installation.bootstrap.prepare.request")
       await service.prepare(message.input);
-    if (message.type === "installation.bootstrap.decide.request")
+    if (message.type === "installation.bootstrap.decide.request") {
+      const request = service.list().find((item) => item.id === message.input.id);
+      if (
+        message.input.decision === "approve" &&
+        request?.plan.factoryRuntimeAdoptionConfiguration !== undefined &&
+        message.factoryRuntimeAdoption !== true
+      )
+        throw new BootstrapRequestConflict(
+          "Reload the client to review this Factory startup configuration before approval.",
+        );
       await service.decide(message.input, message.ownerPassword);
-    return { type, payload: { requestId, requests: service.list(), error: null } };
+    }
+    const requests = service
+      .list()
+      .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true));
+    return { type, payload: { requestId, requests, error: null } };
   } catch (error) {
     // Filesystem, schema and verifier failures can carry private configuration.
     // Return only explicit safe domain errors; never log a decision payload.
@@ -51,4 +65,20 @@ export async function handleBootstrapReview(
       : "Bootstrap validation failed. Inspect the prepared Host configuration before retrying.";
     return { type, payload: { requestId, requests: null, error: description } };
   }
+}
+
+// COMPAT(factoryRuntimeAdoption): older clients use a strict plan schema. Keep
+// cancellation and unrelated requests readable, but never approve a hidden change.
+function bootstrapReviewReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || request.plan.factoryRuntimeAdoptionConfiguration === undefined) return request;
+  const { factoryRuntimeAdoptionConfiguration: _configuration, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason:
+      "Reload the client to review this Factory startup configuration. Cancellation remains available.",
+  };
 }

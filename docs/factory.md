@@ -41,6 +41,13 @@ Retained uncertain execution custody must be reconciled before any owner replace
 Controller source packaging and installation are separate operations. A plugin reload must
 not revoke or replace the existing runtime owner merely to reconnect its interface.
 
+The native startup adapter can restore observation for an exact completed installation after
+a restart. It verifies the retained owner, checkpoint, configured profile and both coordinator
+identities without rebinding membership or admitting execution. Incomplete checkpoints and
+reconciliation holds refuse restoration. A hold raised during verification also rejects the
+operation. The private startup caller must supply the reconciled owner; this adapter does not
+make an unconfigured installation operational.
+
 The native source boundary accepts an optional read-only projection from that same startup-owned
 runtime. Only the loaded built-in Factory can delegate its two observation RPCs to it. The service
 checks captured owner generation, serving host, active native project, repository, persisted
@@ -93,6 +100,20 @@ Pause stops new admission while admitted work continues. Stop retains recovery c
 and upgrade reconcile ownership before replacing or shutting down coordination. These operations
 must use native schedule, account and execution mechanisms; they do not add a scheduler, quota
 polling loop or merge cap.
+
+### Native owner controls
+
+The built-in interface reads `factory.controls` and dispatches `factory.control` through the
+same installed native adapter. Optional startup-owned control ports provide pause, resume and
+stop. Without those ports or completed membership, the interface reports controls unavailable.
+The legacy setup response keeps its existing false lifecycle flags.
+
+Each action binds the serving host, project, installation, revision and operation identity.
+The interface refreshes state before dispatch. Resume requires the displayed revision; pause
+and stop can interrupt an outstanding resume using the fresh revision. Lost responses remain
+visible and are never retried automatically. Private diagnostics are not returned to clients.
+The retained owner must persist intent and reconcile interrupted operations before resuming;
+these ports do not create another controller or renew account authorization.
 
 ### Guarded CLI installation
 

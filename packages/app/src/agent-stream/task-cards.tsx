@@ -6,7 +6,7 @@ import { GoalDetails } from "@/goals/goal-details";
 import { useAgentGoal } from "@/goals/use-agent-goal";
 import { SharedQueueView } from "@/message-queue/queue-view";
 import { useMessageQueue } from "@/message-queue/use-message-queue";
-import { isQueueGoalError } from "@/message-queue/goal-error";
+import { goalQueueNotice } from "@/goals/goal-presentation";
 import { LegacyQueueImport } from "@/message-queue/legacy-import";
 
 const ignoreCreatedDraft = () => {};
@@ -24,11 +24,19 @@ export function AgentTaskCards({
 }) {
   const queue = useMessageQueue(serverId, agentId);
   const goal = useAgentGoal(serverId, agentId);
+  const [queueReviewRequest, setQueueReviewRequest] = useState(0);
+  const reviewMessages = useCallback(() => setQueueReviewRequest((value) => value + 1), []);
   const [expanded, setExpanded] = useState(false);
   const open = useCallback(() => setExpanded(true), []);
   const close = useCallback(() => setExpanded(false), []);
   return (
     <>
+      <GoalBar
+        control={goal}
+        onExpand={open}
+        queueNotice={goalQueueNotice(goal.state, queue.snapshot, queue.error)}
+        onReviewMessages={reviewMessages}
+      />
       {workspaceId ? (
         <AgentHistoryTracks
           serverId={serverId}
@@ -36,24 +44,17 @@ export function AgentTaskCards({
           agentId={agentId}
           cwd={cwd}
         />
-      ) : null}
-      <JournalCard key={agentId} serverId={serverId} agentId={agentId} />
+      ) : (
+        <JournalCard serverId={serverId} agentId={agentId} />
+      )}
       <SharedQueueView
         serverId={serverId}
         agentId={agentId}
         control={queue}
         goalErrorHandled={goal.supported}
+        reviewRequest={queueReviewRequest}
       />
       <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
-      <GoalBar
-        control={goal}
-        onExpand={open}
-        queueError={
-          isQueueGoalError(queue.snapshot?.deliveryError)
-            ? queue.snapshot?.deliveryError
-            : undefined
-        }
-      />
       {expanded && goal.supported ? (
         <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />
       ) : null}

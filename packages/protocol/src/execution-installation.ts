@@ -7,6 +7,12 @@ import {
 export const ExecutionEnvironmentKindSchema = z.enum(["container", "host"]);
 export type ExecutionEnvironmentKind = z.infer<typeof ExecutionEnvironmentKindSchema>;
 
+export const FactoryRuntimeAdoptionConfigurationSchema = z.strictObject({
+  node: z.string().startsWith("/"),
+  script: z.string().startsWith("/"),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
 export const InstallationEnvironmentSchema = z.strictObject({
   kind: ExecutionEnvironmentKindSchema,
   serverId: z.string().min(1),
@@ -39,6 +45,12 @@ export type InstallationUnlock = z.infer<typeof InstallationUnlockSchema>;
 
 export const RestartTargetSchema = z.enum(["host", "container-daemon"]);
 export const RestartRequestSchema = z.strictObject({
+  factoryRuntimeRecoveryOf: z.string().uuid().optional(),
+  // COMPAT(factoryRuntimeAdoption): optional in v285; remove legacy projection after 2027-04-10.
+  factoryRuntimePlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   // COMPAT(supervisorMaintenance): optional exact-plan binding; old approvals cannot authorize it.
   supervisorPlanSha256: z
     .string()
@@ -124,6 +136,8 @@ export const AutomaticRestartApprovalSchema = z.strictObject({
 });
 
 export const RestartJobSchema = RestartRequestSchema.extend({
+  factoryRuntimeRecoveryRequired: z.boolean().optional(),
+  factoryRuntimeRecoveredBy: z.string().uuid().optional(),
   automaticApproval: AutomaticRestartApprovalSchema.optional(),
   update: SourceUpdateSchema.optional(),
   sourceBatch: SourceBatchSchema.optional(),
@@ -143,6 +157,10 @@ export const RestartJobSchema = RestartRequestSchema.extend({
 export type RestartJob = z.infer<typeof RestartJobSchema>;
 
 export const RestartDecisionSchema = z.strictObject({
+  factoryRuntimePlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   supervisorPlanSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)

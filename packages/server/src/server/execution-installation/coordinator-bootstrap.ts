@@ -121,6 +121,23 @@ export function coordinatorPlanDigest(value: unknown): string {
 
 /** Durable decisions and dispatch stages only. This boundary performs no service operations. */
 export class CoordinatorBootstrapRequests {
+  private readonly approvalChecks = new Map<string, Promise<void>>();
+
+  private verifyApproval(request: CoordinatorBootstrapRequest): Promise<void> {
+    const key = `${request.id}:${request.revision}:${request.planSha256}`;
+    const existing = this.approvalChecks.get(key);
+    if (existing) return existing;
+    // Share only an in-flight check. Never cache completed artifact verification.
+    // Each caller still authenticates, rechecks its binding and commits by CAS.
+    const check = Promise.resolve()
+      .then(() => this.verifyPreparedBytes(request.plan))
+      .finally(() => {
+        if (this.approvalChecks.get(key) === check) this.approvalChecks.delete(key);
+      });
+    this.approvalChecks.set(key, check);
+    return check;
+  }
+
   constructor(
     private readonly journal: BootstrapRequestJournal,
     private readonly binding: () => unknown,
@@ -190,7 +207,7 @@ export class CoordinatorBootstrapRequests {
     // The daemon's role label and scoped agent keys are not owner authentication.
     if (!ownerPassword || !(await compare(ownerPassword, binding.ownerPasswordHash)))
       throw new BootstrapAuthenticationRequired("Installation owner authentication required");
-    if (input.decision === "approve") await this.verifyPreparedBytes(request.plan);
+    if (input.decision === "approve") await this.verifyApproval(request);
     this.requireSameBinding(binding, request.plan);
     const next: CoordinatorBootstrapRequest = {
       ...request,

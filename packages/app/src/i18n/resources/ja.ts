@@ -1881,6 +1881,7 @@ export const ja: TranslationResources = {
         cursor: "{{line}} 行、{{column}} 列",
         preview: "プレビュー",
         source: "ソース",
+        copyAll: "すべてコピー",
         deletedTitle: "ファイルはディスク上から削除されました",
         checkFailedTitle: "ディスク上のファイルを確認できませんでした",
         preservedDescription: "開いているコピーは保持されています。",

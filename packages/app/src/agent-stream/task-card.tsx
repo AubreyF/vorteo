@@ -1,5 +1,5 @@
 import { useVortonTouch } from "@/vorton-touch";
-import { Children, isValidElement, useCallback, useContext, type ReactNode } from "react";
+import { Children, isValidElement, useCallback, useContext, type ReactNode, type Ref } from "react";
 import {
   ScrollView,
   View,
@@ -14,11 +14,15 @@ import { taskCardStyles } from "./task-card-styles";
 /** Bound the entire card, including its header, as the viewport resizes. */
 export function TaskCard({
   bodyVisible = true,
+  bodyRef,
+  notice,
   children,
   testID,
   style,
 }: {
   bodyVisible?: boolean;
+  bodyRef?: Ref<ScrollView>;
+  notice?: ReactNode;
   children: ReactNode;
   testID?: string;
   style?: StyleProp<ViewStyle>;
@@ -49,8 +53,10 @@ export function TaskCard({
       <View style={[taskCardStyles.scrollContent, { minHeight: 0, flexShrink: 1 }]}>
         <View testID={testID ? `${testID}-header` : undefined} style={taskCardStyles.fixedHeader}>
           {header}
+          {notice}
         </View>
         <ScrollView
+          ref={bodyRef}
           testID={testID ? `${testID}-body-scroll` : undefined}
           style={[taskCardStyles.scrollBody, !bodyVisible && taskCardStyles.hiddenBody]}
           contentContainerStyle={taskCardStyles.bodyContent}
