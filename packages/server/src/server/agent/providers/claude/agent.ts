@@ -24,6 +24,7 @@ import {
   type Query,
   type SDKMessage,
   type SDKPartialAssistantMessage,
+  type SDKRateLimitInfo,
   type SDKResultMessage,
   type SDKSystemMessage,
   type SDKUserMessage,
@@ -141,6 +142,7 @@ import {
   type ProviderCatalog,
   type ProviderRefreshContext,
   type ResolveAgentDefaultModeInput,
+  type UsageLimitReport,
 } from "../../agent-sdk-types.js";
 import { importSessionFromPersistence } from "../../provider-session-import.js";
 import { runProviderRefreshActivity } from "../../provider-refresh-deadline.js";
@@ -2194,6 +2196,8 @@ class ClaudeAgentSession implements AgentSession {
   private pendingInterruptAbort = false;
   private foregroundHasVisibleActivity = false;
   private activeTurnHasAssistantText = false;
+  /** Set when Claude rejects this turn for a usage limit; consumed by the turn's result. */
+  private activeTurnUsageLimit: (UsageLimitReport & { stopped?: boolean }) | null = null;
   private readonly contextUsage: ClaudeContextUsageState;
   private userMessageIds: string[] = [];
   private readonly emittedUserMessageIds = new Set<string>();
@@ -2352,6 +2356,7 @@ class ClaudeAgentSession implements AgentSession {
     this.activeForegroundTurnId = turnId;
     this.foregroundHasVisibleActivity = false;
     this.activeTurnHasAssistantText = false;
+    this.activeTurnUsageLimit = null;
     this.contextUsage.beginTurn();
     this.transitionTurnState("foreground", "foreground turn started");
     this.clearRecentStderr();
@@ -3634,6 +3639,57 @@ class ClaudeAgentSession implements AgentSession {
     return errors.some((e: string) => /\baborted\b/i.test(e));
   }
 
+  /**
+   * Remembers a usage stop for the active turn: a rejected usage window, or the synthetic,
+   * zero-token reply Claude sends with a rate-limit error. Allowed and warning states carry
+   * no stop, so they leave the turn alone.
+   */
+  private observeUsageLimit(message: SDKMessage): void {
+    if (message.type === "assistant" && message.error === "rate_limit") {
+      this.activeTurnUsageLimit = { ...this.activeTurnUsageLimit, stopped: true };
+      return;
+    }
+    if (message.type !== "rate_limit_event") return;
+    const info: SDKRateLimitInfo | undefined = message.rate_limit_info;
+    if (info?.status !== "rejected") return;
+    const resetsAt = epochToIso(info.resetsAt);
+    this.activeTurnUsageLimit = {
+      ...this.activeTurnUsageLimit,
+      ...(resetsAt ? { resetsAt } : {}),
+      ...(info.rateLimitType ? { window: info.rateLimitType } : {}),
+    };
+  }
+
+  /**
+   * Ends a turn that a usage limit stopped as a limit failure, even when Claude reports the
+   * result as a success, so the thread can wait for the reset. Returns false otherwise.
+   */
+  private appendUsageLimitStop(
+    message: Extract<SDKMessage, { type: "result" }>,
+    events: AgentStreamEvent[],
+  ): boolean {
+    const limit = this.activeTurnUsageLimit;
+    this.activeTurnUsageLimit = null;
+    if (!limit) return false;
+    const unproductive =
+      message.subtype !== "success" || message.is_error || message.usage?.output_tokens === 0;
+    if (!limit.stopped && !unproductive) return false;
+    const resultText =
+      message.subtype === "success" && typeof message.result === "string"
+        ? message.result.trim()
+        : "";
+    events.push(...this.sidechainTracker.finishAll("failed"));
+    events.push({
+      ...this.buildTurnFailedEvent(resultText || "Claude usage limit reached"),
+      code: "quota_exhausted",
+      usageLimit: {
+        ...(limit.resetsAt ? { resetsAt: limit.resetsAt } : {}),
+        ...(limit.window ? { window: limit.window } : {}),
+      },
+    });
+    return true;
+  }
+
   private buildTurnFailedEvent(
     errorMessage: string,
   ): Extract<AgentStreamEvent, { type: "turn_failed" }> {
@@ -3805,6 +3861,7 @@ class ClaudeAgentSession implements AgentSession {
     this.activeForegroundQuery = this.query;
     this.activeForegroundInput = this.input;
     this.activeTurnHasAssistantText = false;
+    this.activeTurnUsageLimit = null;
     this.contextUsage.beginTurn();
     this.notifySubscribers({ type: "turn_started", provider: "claude" });
     this.syncTurnState("autonomous turn started");
@@ -4282,6 +4339,7 @@ class ClaudeAgentSession implements AgentSession {
     }
 
     this.forgetReadSteer(message);
+    this.observeUsageLimit(message);
 
     switch (message.type) {
       case "system":
@@ -4681,6 +4739,7 @@ class ClaudeAgentSession implements AgentSession {
     events: AgentStreamEvent[],
   ): void {
     const usage = this.convertUsage(message, message.modelUsage);
+    if (this.appendUsageLimitStop(message, events)) return;
     if (message.subtype === "success") {
       events.push(...this.sidechainTracker.finishAll("completed"));
       // Built-in slash commands (e.g. /voice, /usage, "Unknown command: …")
@@ -6649,6 +6708,12 @@ function readClaudeCommandLifecycle(message: unknown): ClaudeCommandLifecycle | 
 }
 
 /** Pair saved summaries with their own boundary, never with a later compaction. */
+/** Claude reports reset times in epoch seconds; accept milliseconds defensively. */
+function epochToIso(value: number | undefined): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  return new Date(value < 1e12 ? value * 1000 : value).toISOString();
+}
+
 export function readClaudeCompactionSummaries(content: string): Map<string, string> {
   const summaries = new Map<string, string>();
   let boundaryId: string | null = null;

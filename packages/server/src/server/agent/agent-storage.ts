@@ -50,6 +50,7 @@ import {
   parseQuotaReservePolicy,
   type QuotaReserveConfig,
 } from "@getpaseo/protocol/quota-reserve";
+import { UsageLimitHoldSchema } from "@getpaseo/protocol/usage-limit";
 import { AgentOwnerSchema, daemonExecutionKey, type DaemonAgentOwner } from "./agent-owner.js";
 
 const SERIALIZABLE_CONFIG_SCHEMA = z
@@ -74,6 +75,7 @@ const SERIALIZABLE_CONFIG_SCHEMA = z
     skillSnapshot: SkillSnapshotSchema.optional(),
     quotaPausedAt: z.string().optional(),
     quotaResetAt: z.string().optional(),
+    usageLimitHold: UsageLimitHoldSchema.optional(),
     quotaReserve: QuotaReserveConfigSchema.optional(),
     mcpServers: z.record(z.string(), z.any()).nullable().optional(),
   })
@@ -156,6 +158,7 @@ export type SerializableAgentConfig = Pick<
   | "skillSnapshot"
   | "quotaPausedAt"
   | "quotaResetAt"
+  | "usageLimitHold"
   | "quotaReserve"
   | "mcpServers"
 >;
