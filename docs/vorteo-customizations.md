@@ -738,6 +738,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 22, 2026: The coordinator's release-note check now accepts a well-formed heading with no notes, which unblocks Dev updates from current source; malformed headings and edited history are still refused. `restarts.test.ts` has one failure, "new requests cannot join a restart after dispatch starts", that also fails on unmodified `vorteo.753`. README is unchanged.
+
 October 22, 2026: Merged the Vorteo System project from GitHub main into the installed Host source at `vorteo.751` for Host delivery. Functionality is unchanged by the merge; README covers the feature in its Power Tools item.
 
 October 22, 2026: Added the Vorteo System project: startup seeding on every daemon, daemon-owned markers enforced in the registries, opt-in adoption, operator source setup, the reconciliation fix for protected workspaces, a sidebar section and a Maintenance card. Test daemons opt out by default. A guardian-refusal test in the scoped archive suite fails on unmodified main and is unrelated. README Power Tools gains an item.

@@ -127,7 +127,8 @@ export function reconcileReleaseNotes(base: string, left: string, right: string)
       remaining.splice(index, 1);
     }
     for (const entry of remaining) {
-      if (!/^## \S+ - \d{4}-\d{2}-\d{2}\n/.test(entry))
+      // A well-formed heading may stand alone: history holds a few entries with no notes.
+      if (!/^## \S+ - \d{4}-\d{2}-\d{2}(?:\n|$)/.test(entry))
         throw new Error("Release-note heading requires review");
     }
   }

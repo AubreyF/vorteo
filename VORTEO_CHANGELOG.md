@@ -5,6 +5,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.755 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.754 - 2026-10-22
+
+### Fixed
+
+- Let the installation coordinator accept a release-note entry whose well-formed heading has no notes. Installed history contains two such entries, `vorteo.740` and one `vorteo.732`, so every Dev update from current source was refused with "Release-note heading requires review". Malformed headings and edited history are still refused. Takes effect once the coordinator runs this build.
+
 ## 0.11.0-beta.3.vorteo.753 - 2026-10-22
 
 ### Maintenance
