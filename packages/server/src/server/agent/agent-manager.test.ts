@@ -3795,6 +3795,7 @@ test("manual stop interrupts the provider even when queue pause persistence fail
     },
   });
   fixture.manager.setMessageQueueControl({
+    queueRestartContinuation: async () => {},
     wake() {},
     pause: async () => {
       throw new Error("Queue pause could not be persisted: disk full");
@@ -11810,6 +11811,7 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
     ]);
 
     manager.setMessageQueueControl({
+      queueRestartContinuation: async () => {},
       wake() {},
       pause: async () => {
         rewindSteps.push("pause");
@@ -12940,6 +12942,18 @@ test("restart drain warns once without interrupting and rejects new turns until 
   const agent = await manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
     workspaceId: undefined,
   });
+  const continuations: string[] = [];
+  manager.setMessageQueueControl({
+    queueRestartContinuation: async (id) => {
+      continuations.push(id);
+    },
+    wake() {},
+    pause: async () => {},
+    acceptedHistory: async () => [],
+    reconcileHistory: async () => {},
+    suppressHistoryRestoration: async () => {},
+    recordProviderMessageId: async () => {},
+  });
   const run = manager.streamAgent(agent.id, "initial");
   const consume = (async () => {
     for await (const _event of run) {
@@ -12949,6 +12963,7 @@ test("restart drain warns once without interrupting and rejects new turns until 
   const id = randomUUID();
   expect(manager.beginRestartDrain(id)).toBe(true);
   await expect.poll(() => manager.getRestartImpact().pendingStarts).toBe(0);
+  expect(continuations).toEqual([agent.id]);
   expect(session.steerCount).toBe(1);
   expect(session.interruptCount).toBe(0);
   expect(() => manager.streamAgent(agent.id, "new work")).toThrow("held");
@@ -13021,6 +13036,11 @@ test("restart drain preserves a held goal and cancellation can resume it without
     fixture.manager.beginRestartDrain(id);
     await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
     expect(goal.status).toBe("paused");
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.phase).toBe("held");
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.reason).toBe("restart");
+    await expect(
+      fixture.manager.setAgentGoal(fixture.agentId, { objective: "New goal" }),
+    ).rejects.toThrow("held");
     expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.phase).toBe("held");
     await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
     expect(goal.status).toBe("paused");

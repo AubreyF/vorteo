@@ -18,6 +18,12 @@ export function createAgentQueueDelivery(
   const { agentManager, agentStorage, logger } = options;
   return {
     canStartWork: () => !agentManager.isRestartDraining(),
+    async recoveryAgentIds() {
+      const records = await agentStorage.list();
+      return records
+        .filter((record) => !record.archivedAt && record.queueGoalHold)
+        .map((record) => record.id);
+    },
     async history(agentId) {
       const record = await agentStorage.get(agentId);
       if (!record || record.archivedAt) return [];

@@ -106,8 +106,8 @@ function restartStatus(job: RestartJob, historical = false) {
   if (job.finishCurrentTurns) approvedLabel = "Finishing current turns";
   const labels = {
     approved: approvedLabel,
-    running: "Restarting",
-    succeeded: "Restarted",
+    running: job.update || job.sourceBatch ? "Updating" : "Restarting",
+    succeeded: job.update || job.sourceBatch ? "Updated" : "Restarted",
     failed: "Failed",
     rejected: "Rejected",
   };
@@ -186,11 +186,6 @@ function InstallationPanel({
             ) : null}
             {state.lastUpdatedAt && active.length === 0 ? (
               <Text style={[styles.textInset, styles.text]}>No pending restart requests</Text>
-            ) : null}
-            {state.notice ? (
-              <Text accessibilityLiveRegion="polite" style={[styles.textInset, styles.text]}>
-                {state.notice}
-              </Text>
             ) : null}
             <View style={[styles.cardBody, settingsStyles.rowBorder]}>
               <View style={styles.requestHeader}>
@@ -496,15 +491,16 @@ function RestartRequest({
           </Text>
           <StatusBadge {...status} />
         </View>
-        <Text style={styles.text}>{restartExplanation(job.reason).summary}</Text>
-        {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}
-        {source ? <SourceUpdateDetails job={job} /> : null}
-        {!historical && !source ? (
-          <>
-            <Text style={styles.text}>Restarts the installed runtime</Text>
-            <RestartActivity job={job} />
-          </>
-        ) : null}
+        <Text style={styles.text} testID={`restart-summary-${job.id}`}>
+          {restartExplanation(job.reason).summary}
+          {source && job.status === "pending"
+            ? " Approval lets the submitted code and build scripts run on Host and may interrupt Host tasks and terminals."
+            : null}
+          {source && job.status === "running"
+            ? " The approved update is being built and installed."
+            : null}
+        </Text>
+        <RestartDetails job={job} />
         <RestartActions job={job} model={model} busy={busy} historical={historical} />
       </View>
     </View>
@@ -559,34 +555,29 @@ function RestartActions({
         </View>
       ) : null}
       {pending && !source ? (
-        <>
-          <Text style={styles.text}>
-            Wait for idle, or hold new work while current turns finish.
-          </Text>
-          <View style={styles.actions}>
-            <Button
-              variant="outline"
-              disabled={busy || !installation?.idleRestarts || !job.impact?.idleRestartSupported}
-              onPress={queue}
-              testID={`restart-queue-${job.id}`}
-            >
-              Restart when idle
-            </Button>
-            <Button
-              variant="outline"
-              disabled={
-                busy || !installation?.gracefulRestarts || !job.impact?.gracefulRestartSupported
-              }
-              onPress={finish}
-              testID={`restart-finish-${job.id}`}
-            >
-              Finish turns and restart
-            </Button>
-            <Button variant="ghost" disabled={busy} onPress={cancel}>
-              Cancel
-            </Button>
-          </View>
-        </>
+        <View style={styles.actions}>
+          <Button
+            variant="outline"
+            disabled={busy || !installation?.idleRestarts || !job.impact?.idleRestartSupported}
+            onPress={queue}
+            testID={`restart-queue-${job.id}`}
+          >
+            Restart when idle
+          </Button>
+          <Button
+            variant="outline"
+            disabled={
+              busy || !installation?.gracefulRestarts || !job.impact?.gracefulRestartSupported
+            }
+            onPress={finish}
+            testID={`restart-finish-${job.id}`}
+          >
+            Finish turns and restart
+          </Button>
+          <Button variant="ghost" disabled={busy} onPress={cancel}>
+            Cancel
+          </Button>
+        </View>
       ) : null}
       {queued ? (
         <View style={styles.actions}>
@@ -597,6 +588,33 @@ function RestartActions({
         </View>
       ) : null}
     </>
+  );
+}
+
+function RestartDetails({ job }: { job: RestartJob }) {
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  const controlSize = useVortonTouch() ? "md" : "sm";
+  const source = Boolean(job.update || job.sourceBatch);
+  return (
+    <View>
+      <Button
+        variant="ghost"
+        size={controlSize}
+        onPress={toggle}
+        {...disclosureProps(expanded)}
+        testID={`restart-details-${job.id}`}
+      >
+        Details
+      </Button>
+      {expanded ? (
+        <View style={styles.details}>
+          {source ? <SourceUpdateDetails job={job} /> : <RestartActivity job={job} />}
+          {!source ? <Text style={styles.text}>{job.reason}</Text> : null}
+          {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -825,7 +843,9 @@ function RestartBannerItem({
   let title = `${target} restart needs approval`;
   if (job.status === "approved") title = `${target} restart queued`;
   if (job.finishCurrentTurns) title = `${target} finishing current turns`;
-  if (job.status === "running") title = `Restarting ${target}`;
+  if (job.status === "running") {
+    title = job.update || job.sourceBatch ? `Updating ${target}` : `Restarting ${target}`;
+  }
   const inProgress = job.status === "approved" || job.status === "running";
   const icon = useMemo(
     () =>

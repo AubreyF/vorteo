@@ -1184,6 +1184,7 @@ export class AgentManager {
     | "recordProviderMessageId"
     | "reconcileHistory"
     | "suppressHistoryRestoration"
+    | "queueRestartContinuation"
   > | null = null;
   private readonly queueGoalMutationTails = new Map<string, Promise<void>>();
   private logger: Logger;
@@ -1410,6 +1411,7 @@ export class AgentManager {
       | "recordProviderMessageId"
       | "reconcileHistory"
       | "suppressHistoryRestoration"
+      | "queueRestartContinuation"
     >,
   ): void {
     this.messageQueueControl = control;
@@ -1519,14 +1521,20 @@ export class AgentManager {
       });
     }
     if (agent.session.goals)
-      await this.pauseGoalForQueuedMessages(agentId, () => this.restartDrainId === requestId);
+      await this.pauseGoalForQueuedMessages(
+        agentId,
+        () => this.restartDrainId === requestId,
+        "restart",
+      );
     if (!notify || this.restartDrainId !== requestId || !this.hasInFlightRun(agentId)) return;
     if ((agent.activeForegroundTurnId ?? agent.activeTurnId) !== turnId) return;
     // Steering never replaces or interrupts a turn. Unsupported providers finish normally.
+    let steered = false;
     try {
       await this.steerAgentRun(agentId, warning, {
         clientMessageId: `restart-warning-${requestId}-${agentId}`,
       });
+      steered = true;
     } catch (error) {
       this.logger.warn(
         { err: error, agentId },
@@ -1539,6 +1547,15 @@ export class AgentManager {
           "The provider could not receive the restart warning. Its current turn will finish normally before restart.",
       });
     }
+    if (steered && this.restartDrainId === requestId && !agent.session.goals?.state.goal)
+      await this.messageQueueControl?.queueRestartContinuation(agentId, requestId);
+    // Steering may change provider goal state. Confirm the hold again before declaring readiness.
+    if (agent.session.goals)
+      await this.pauseGoalForQueuedMessages(
+        agentId,
+        () => this.restartDrainId === requestId,
+        "restart",
+      );
   }
 
   cancelRestartDrain(requestId: string): boolean {
@@ -2903,6 +2920,10 @@ export class AgentManager {
     input: import("@getpaseo/protocol/agent-goals").AgentGoalSetInput,
     options?: { clientMessageId?: string; recordSubmission?: boolean },
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
+    const activates =
+      input.status === "active" || (input.objective !== undefined && input.status === undefined);
+    if (this.isRestartDraining() && activates)
+      throw new Error("Goal continuation is held until the installation restart finishes.");
     return this.withQueueGoalMutation(agentId, () =>
       setGoalWithQueueOwnership(
         input,
@@ -2921,6 +2942,8 @@ export class AgentManager {
       input.status === "active" ||
       (input.objective !== undefined && input.status === undefined)
     ) {
+      if (this.isRestartDraining())
+        throw new Error("Goal continuation is held until the installation restart finishes.");
       await this.prepareQuotaReserveAdmission(agentId);
     }
     const agent = this.requireSessionAgent(agentId);
@@ -3011,9 +3034,16 @@ export class AgentManager {
     };
   }
 
-  async pauseGoalForQueuedMessages(agentId: string, canPause: () => boolean): Promise<void> {
+  async pauseGoalForQueuedMessages(
+    agentId: string,
+    canPause: () => boolean,
+    reason?: "restart",
+  ): Promise<void> {
     await this.withQueueGoalMutation(agentId, () =>
-      pauseGoalForQueue(this.queueGoalPort(agentId, async () => false, canPause)),
+      pauseGoalForQueue(
+        this.queueGoalPort(agentId, async () => false, canPause),
+        reason,
+      ),
     );
   }
 
