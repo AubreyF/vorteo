@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { MaintenanceNotice } from "./maintenance-notice";
-import { SidebarCallout } from "@/components/sidebar-callout";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { settingsStyles } from "@/styles/settings";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -679,13 +678,17 @@ export function PreclaimRecoveryBanner({ model }: { model: RecoveryPanelModel })
   if (!request) return null;
   return (
     <View testID="bootstrap-recovery-banner">
-      <SidebarCallout
+      <MaintenanceNotice
+        sidebarOnly
+        needsAction={request.status !== "approved" || !!state.error}
+        revision={`${request.id}:${request.revision}`}
         title={`Coordinator recovery: ${preclaimRecoveryStatus(request)}`}
         description={
           state.error ??
           "Review the exact executor and cancellation. Existing coordinator selection is preserved."
         }
-        actions={[{ label: "Review recovery", onPress: open }]}
+        reviewLabel="Review recovery"
+        onReview={open}
       />
     </View>
   );
@@ -707,13 +710,17 @@ export function ClaimedRecoveryBanner({ model }: { model: ClaimedRecoveryPanelMo
   if (!request) return null;
   return (
     <View testID="claimed-recovery-banner">
-      <SidebarCallout
+      <MaintenanceNotice
+        sidebarOnly
+        needsAction={request.status !== "approved" || !!state.error}
+        revision={`${request.id}:${request.revision}`}
         title={`Coordinator recovery: ${preclaimRecoveryStatus(request)}`}
         description={
           state.error ??
           "Review the stalled executor recovery. Original approval history and coordinator selection are preserved."
         }
-        actions={[{ label: "Review recovery", onPress: open }]}
+        reviewLabel="Review recovery"
+        onReview={open}
       />
     </View>
   );

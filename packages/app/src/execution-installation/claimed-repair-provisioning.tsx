@@ -8,7 +8,7 @@ import { BootstrapClaimedRepairStatusSchema } from "@getpaseo/protocol/coordinat
 import { isWeb } from "@/constants/platform";
 import { Button } from "@/components/ui/button";
 import { EditingTextInput } from "@/components/ui/text-input";
-import { SidebarCallout } from "@/components/sidebar-callout";
+import { MaintenanceNotice } from "./maintenance-notice";
 import { settingsStyles } from "@/styles/settings";
 import { readExecutionInstallation } from "./policy";
 
@@ -88,22 +88,26 @@ export function ClaimedRepairProvisioning({ banner = false }: { banner?: boolean
   const enable = useCallback(() => {
     void provision();
   }, [provision]);
+  const openReview = useCallback(
+    () =>
+      router.push({
+        pathname: "/settings/[section]",
+        params: { section: "general", installation: "1" },
+      }),
+    [router],
+  );
   if (!eligible || !status?.provisioning) return null;
   if (banner)
     return (
-      <SidebarCallout
+      <MaintenanceNotice
+        sidebarOnly
+        needsAction
+        revision={status.provisioning.admissionSha256}
+        testID="claimed-repair-setup-notice"
         title="Coordinator repair setup required"
         description="Enable the protected repair runtime in Installation controls. This does not restart running work."
-        actions={[
-          {
-            label: "Review repair setup",
-            onPress: () =>
-              router.push({
-                pathname: "/settings/[section]",
-                params: { section: "general", installation: "1" },
-              }),
-          },
-        ]}
+        reviewLabel="Review repair setup"
+        onReview={openReview}
       />
     );
   return (

@@ -21,6 +21,7 @@ export function MaintenanceNotice({
   reviewLabel,
   onReview,
   testID,
+  sidebarOnly = false,
 }: {
   title: string;
   description: string;
@@ -29,12 +30,15 @@ export function MaintenanceNotice({
   reviewLabel: string;
   onReview: () => void;
   testID?: string;
+  sidebarOnly?: boolean;
 }) {
   const placement = useContext(MaintenanceNoticePlacement);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const dismiss = useCallback(() => setDismissed(revision), [revision]);
-  if (needsAction !== (placement === "floating")) return null;
-  if (needsAction) {
+  // Recovery stays with the sidebar status rows, including pending owner decisions.
+  if (sidebarOnly ? placement === "floating" : needsAction !== (placement === "floating"))
+    return null;
+  if (needsAction && !sidebarOnly) {
     if (dismissed === revision) return null;
     return (
       <SidebarCallout

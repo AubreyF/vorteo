@@ -75,6 +75,10 @@ native hit testing can reach them. Keep the document, app root and theme-color
 metadata synchronized with the central canvas. Safari owns its final toolbar
 tint; inspect it in Safari during owner acceptance.
 
+Coordinator recovery and repair setup use the existing status rows at the bottom of
+the left sidebar, with accessible review buttons in the collapsed rail and compact
+sidebar. They never float over the conversation composer.
+
 Installation approvals, coordinator maintenance and Host/Dev updates use one
 persistent floating toast stack in the lower right, outside both sidebars. Keep
 the stack available across navigation and sidebar states, respect mobile safe

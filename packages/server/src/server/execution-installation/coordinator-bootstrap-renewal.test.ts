@@ -1598,3 +1598,30 @@ test.runIf(process.platform === "darwin")(
     }
   },
 );
+
+test
+  .runIf(process.platform === "darwin")
+  .each(["coordinator-bootstrap-claimed-launch.js", "coordinator-bootstrap-claimed-host.js"])(
+  "admits the selected recovery caller %s without admitting arbitrary modules",
+  async (caller) => {
+    const f = await fixture();
+    const moduleFile = path.join(
+      f.host.directory,
+      "packages/server/dist/server/server/execution-installation",
+      caller,
+    );
+    f.save(moduleFile, "disposable recovery caller", true);
+    const before = readFileSync(f.setupFile);
+    const renewed = await f.derive({ moduleFile });
+    expect(renewed?.runtimeDirectory).toBe(f.host.directory);
+    expect(renewed?.renewal?.hostProcess).toEqual(f.hostProcess);
+    expect(readFileSync(f.setupFile)).toEqual(before);
+    const unrelated = f.save(
+      path.join(f.host.directory, "unrelated.js"),
+      "not a recovery caller",
+      true,
+    );
+    await expect(f.derive({ moduleFile: unrelated.path })).rejects.toThrow("stale");
+    await expect(f.derive({ moduleFile: f.original.entrypoint.path })).rejects.toThrow("stale");
+  },
+);

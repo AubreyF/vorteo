@@ -382,6 +382,9 @@ async function readSelectedHost(
     ![
       runnerRelative,
       "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-launch.js",
+      // Recovery initialization and admission reconstruct the same selected Host authority.
+      "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-claimed-launch.js",
+      "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-claimed-host.js",
     ].includes(moduleRelative) ||
     (await realpath(moduleFile)) !== moduleFile
   )
