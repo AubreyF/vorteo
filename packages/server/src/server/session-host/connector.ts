@@ -6,11 +6,7 @@ import {
   type ConnectSessionHostOptions,
   type SessionHostClient,
 } from "./client.js";
-import {
-  readSessionHostToken,
-  sessionHostProcessAlive,
-  type SessionHostPaths,
-} from "./host-files.js";
+import { readSessionHostLock, readSessionHostToken, type SessionHostPaths } from "./host-files.js";
 
 export interface SessionHostConnector {
   /**
@@ -23,8 +19,8 @@ export interface SessionHostConnector {
   current(): SessionHostClient | null;
   /** Whether a host socket exists, checked without connecting or logging. */
   present(): Promise<boolean>;
-  /** Whether a host process holds the host lock, answering or not. */
-  hostAlive(): Promise<boolean>;
+  /** What the host lock proves: "gone" only when no lock exists or its holder pid is dead. */
+  hostState(): Promise<"gone" | "alive">;
   /**
    * Tool endpoint tokens of the last host this worker reached. Hosted providers keep using them
    * while the connection is down, so the endpoint must keep accepting them.
@@ -118,7 +114,7 @@ export function createSessionHostConnector(
       const stats = await lstat(options.paths.socketPath).catch(() => null);
       return stats?.isSocket() === true;
     },
-    hostAlive: () => sessionHostProcessAlive(options.paths.socketPath),
+    hostState: async () => (await readSessionHostLock(options.paths.socketPath)).state,
     knownMcpTokens: () => (lastMcpToken ? [lastMcpToken] : []),
     close() {
       closed = true;

@@ -144,19 +144,34 @@ async function lockIsStale(lockPath: string, socketPath: string): Promise<boolea
 }
 
 /**
- * Whether the process holding the host lock is alive. A host that holds its lock but does not
- * answer is stalled rather than gone, and its watchdog replaces it, so a worker waits for it
- * instead of starting a second provider on the same conversation. A reused process id reads as
- * alive, which only makes the caller wait out its bound.
+ * What the host lock proves. Only an absent lock or a holder pid that no longer exists means the
+ * host is gone, and with it every session it ran. A lock that cannot be read, is still being
+ * written, or names a pid that cannot be checked reads as alive, so callers wait rather than act.
  *
  * A killed host never removes its lock. That is deliberate: the dead pid left behind is what tells
  * workers the host is gone, and the next host takes the stale lock over.
  */
-export async function sessionHostProcessAlive(socketPath: string): Promise<boolean> {
-  const content = await readFile(`${socketPath}.lock`, "utf8").catch(() => null);
-  if (content === null) return false;
+export type SessionHostLockState =
+  | { state: "gone"; pid: number | null }
+  | { state: "alive"; pid: number | null };
+
+export async function readSessionHostLock(socketPath: string): Promise<SessionHostLockState> {
+  let content: string;
+  try {
+    content = await readFile(`${socketPath}.lock`, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { state: "gone", pid: null };
+    return { state: "alive", pid: null };
+  }
   const holder = Number.parseInt(content.trim(), 10);
-  return Number.isSafeInteger(holder) && holder > 0 && processAlive(holder);
+  if (!Number.isSafeInteger(holder) || holder <= 0) return { state: "alive", pid: null };
+  try {
+    process.kill(holder, 0);
+    return { state: "alive", pid: holder };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return { state: "gone", pid: holder };
+    return { state: "alive", pid: holder };
+  }
 }
 
 /**

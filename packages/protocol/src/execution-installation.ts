@@ -176,6 +176,14 @@ export const RestartSummarySchema = z.object({
       recovery: z.number().int().nonnegative(),
     })
     .optional(),
+  // Session host job counts. Optional, so older clients still parse the summary.
+  sessionHost: z
+    .object({
+      requested: z.number().int().nonnegative(),
+      queued: z.number().int().nonnegative(),
+      running: z.number().int().nonnegative(),
+    })
+    .optional(),
   requested: z.number().int().nonnegative(),
   queued: z.number().int().nonnegative(),
   running: z.number().int().nonnegative(),

@@ -125,6 +125,11 @@ export interface LaunchdOptions {
   run?: CommandRunner;
 }
 
+/** The real launchctl and plutil runner, for callers that pass commands of their own. */
+export function runLaunchdCommand(file: string, args: readonly string[]): Promise<CommandResult> {
+  return runCommand(file, args);
+}
+
 function runCommand(file: string, args: readonly string[]): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     execFile(file, [...args], { timeout: 30_000 }, (error, stdout, stderr) => {

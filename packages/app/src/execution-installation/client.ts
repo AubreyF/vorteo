@@ -18,7 +18,14 @@ import {
   PreviewMonitorJobSchema,
   type PreviewMonitorJob,
 } from "@getpaseo/protocol/preview-monitor-maintenance";
+import {
+  SessionHostJobSchema,
+  SessionHostStatusSchema,
+  type SessionHostJob,
+  type SessionHostOperation,
+} from "@getpaseo/protocol/session-host-maintenance";
 import type { MonitorAction } from "./preview-monitor-review";
+import type { SessionHostAction, SessionHostOverview } from "./session-host-review";
 import type { HelperReviewAction } from "./helper-review";
 import { z } from "zod";
 import {
@@ -84,6 +91,8 @@ export class InstallationClient {
   private devRepairSupported = false;
   private devRepairAvailable = false;
   private monitorRetryAt = 0;
+  private sessionHostRetryAt = 0;
+  private sessionHostSupported = false;
   sessionsSupported = false;
   passwordFile: string | null = null;
 
@@ -223,6 +232,71 @@ export class InstallationClient {
       result.planSha256 !== job.planSha256
     )
       throw new Error("Helper receipt changed. Refresh status before taking another action.");
+    return result;
+  }
+
+  /** Null when the coordinator predates session host jobs, so the panel hides its card. */
+  async sessionHost(): Promise<SessionHostOverview | null> {
+    if (this.password === null) throw new Error("Unlock installation controls first");
+    const now = this.ports.now ?? Date.now;
+    if (!this.sessionHostSupported && now() < this.sessionHostRetryAt) return null;
+    try {
+      const overview = z
+        .strictObject({
+          jobs: z.array(SessionHostJobSchema),
+          // Null when the coordinator could not inspect the job; its jobs still need decisions.
+          status: SessionHostStatusSchema.nullable(),
+        })
+        .parse(await this.request("session-host/query", {}));
+      this.sessionHostSupported = true;
+      return overview;
+    } catch (error) {
+      // COMPAT(sessionHostJob): added in v708, remove after 2027-04-20 once every coordinator
+      // serves the session host owner routes. Until then an older coordinator hides the card;
+      // one that already answered and then loses the route reports the failure instead.
+      if (error instanceof InstallationRouteUnavailable && !this.sessionHostSupported) {
+        this.sessionHostRetryAt = now() + 60_000;
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async requestSessionHost(
+    operation: SessionHostOperation,
+    reason: string,
+  ): Promise<SessionHostJob> {
+    if (!this.sessionHostSupported)
+      throw new Error("Session host controls are unavailable. Update the coordinator first.");
+    const id = globalThis.crypto.randomUUID();
+    const job = SessionHostJobSchema.parse(
+      await this.request("session-host/request", { id, operation, reason }),
+    );
+    if (job.id !== id || job.operation !== operation)
+      throw new Error("Session host receipt changed. Refresh before another action.");
+    return job;
+  }
+
+  async decideSessionHost(
+    job: SessionHostJob,
+    decision: SessionHostAction,
+  ): Promise<SessionHostJob> {
+    const result = SessionHostJobSchema.parse(
+      await this.request("session-host/decision", {
+        operation: job.operation,
+        id: job.id,
+        revision: job.revision,
+        planSha256: job.planSha256,
+        decision,
+      }),
+    );
+    if (
+      result.id !== job.id ||
+      result.operation !== job.operation ||
+      result.revision !== job.revision ||
+      result.planSha256 !== job.planSha256
+    )
+      throw new Error("Session host receipt changed. Refresh before another action.");
     return result;
   }
 
@@ -441,7 +515,7 @@ export async function requestInstallationOwner(
   // Older coordinators may serve their SPA fallback for an unknown owner query.
   // A client that already observed support still treats this as a lost capability.
   if (
-    ["daemon-automation/query", "dev-repair/query"].includes(path) &&
+    ["daemon-automation/query", "dev-repair/query", "session-host/query"].includes(path) &&
     response.ok &&
     !response.headers.get("content-type")?.includes("application/json")
   ) {

@@ -45,6 +45,17 @@ For coordinator maintenance, inspect `capabilities.coordinatorMaintenance` after
 
 The client prints the retained ID before waiting. After a lost reply, use `coordinator-status <request-id>` and inspect Installation controls before retrying that same preparation. Never generate a replacement ID merely because observation timed out. The status command reads the durable receipt without requiring the Host daemon to respond. Present its exact `approvalUrl` as **Review coordinator update**, describe the interruption, and observe the recorded decision. An approved request is not a successful execution; inspect its execution stage and verify the selected runtime. An active retained request blocks preparation readiness until reconciled. A retained failure permits only an exact manually reviewed successor; native validation still checks its recovery binding.
 
+## Session host job
+
+The coordinator owns the durable session host's launchd job on Host. Never load, unload or edit that job with launchctl yourself. Use the trusted Host client after `capabilities` reports `sessionHostJob.available: true`; older coordinators and the Dev client do not offer it.
+
+- `request-session-host --install [--reason <text>]` asks the coordinator to prepare an install plan. `request-session-host --remove [--reason <text>]` prepares a removal. The coordinator computes the plan itself. The command prints the job ID, status, plan digest and `approvalUrl`.
+- `session-host-status` reports whether the job is installed and loaded, its process, launchd's last exit and run count, the host's release and session count, and the durable sessions setting.
+
+Return the `approvalUrl` as **Review session host job**. The owner reviews the plan in Installation controls and presses **Approve**; there is no automatic approval, and a restart decision never authorizes this job. Requesting is not approval, and a changed plan needs a new approval. Use `session-host-status` to observe the result.
+
+Installing the job never turns on durable sessions; the owner enables that setting separately. Removal is refused while the durable sessions setting is on or the host is running sessions, so ask the owner to turn the setting off and let hosted sessions finish first. Host restarts and updates leave the job alone.
+
 ## Agent communication boundary
 
 Ordinary Paseo agent tools address only the current daemon. Container agents can spawn and communicate with other agents in that container. They cannot address host agents, other environments, or approve host operations.

@@ -21,6 +21,7 @@ import os from "node:os";
 import {
   assertContainerProfileLauncher,
   assertProtectedPaths,
+  assertSessionHostJobRemoved,
   validateInstallPlan,
   configureWebSource,
 } from "./install-execution-host.mjs";
@@ -935,4 +936,143 @@ test("standalone copied coordinator CLI submits once without package dependencie
     await new Promise((resolve) => server.close(resolve));
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("session host commands need the advertised capability and send only the operation", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "installation-agent-session-host-"));
+  const status = { supported: true, installed: false };
+  const calls = [];
+  let capability = { available: true, ownerApprovalRequired: true };
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null;
+    calls.push({ method: req.method, url: req.url, token: req.headers.authorization, body });
+    res.setHeader("Content-Type", "application/json");
+    if (req.url === "/api/installation/capabilities") {
+      res.end(JSON.stringify(capability === undefined ? {} : { sessionHostJob: capability }));
+      return;
+    }
+    if (req.url === "/api/installation/session-host") {
+      res.end(JSON.stringify(status));
+      return;
+    }
+    res.statusCode = 201;
+    res.end(
+      JSON.stringify({
+        target: "session-host",
+        id: body.id,
+        operation: body.operation,
+        status: "pending",
+        stage: "prepared",
+        planSha256: "a".repeat(64),
+        plan: { label: "local.vorteo.fixture.session-host" },
+      }),
+    );
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const run = promisify(execFile);
+  const client = (kind, ...args) => {
+    const config = path.join(root, `${kind}.json`);
+    writeFileSync(
+      config,
+      JSON.stringify({
+        origin: `http://127.0.0.1:${server.address().port}`,
+        publicOrigin: "https://installation.example.test",
+        token: "scoped-test-token",
+        kind,
+      }),
+    );
+    return run(process.execPath, [
+      path.resolve("scripts/installation-agent.mjs"),
+      "--config",
+      config,
+      ...args,
+    ]);
+  };
+  try {
+    const requested = JSON.parse(
+      (await client("host-agent", "request-session-host", "--install", "--reason", "Phase 1"))
+        .stdout,
+    );
+    expect(requested).toEqual({
+      id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      operation: "session-host-install",
+      status: "pending",
+      stage: "prepared",
+      planSha256: "a".repeat(64),
+      approvalUrl: `https://installation.example.test/settings/general?installation=1&sessionHost=${requested.id}`,
+    });
+    expect(calls.map(({ method, url }) => `${method} ${url}`)).toEqual([
+      "GET /api/installation/capabilities",
+      "POST /api/installation/session-host-requests",
+    ]);
+    expect(calls[1]).toMatchObject({
+      token: "Bearer scoped-test-token",
+      body: { id: requested.id, operation: "session-host-install", reason: "Phase 1" },
+    });
+    expect(Object.keys(calls[1].body).toSorted()).toEqual(["id", "operation", "reason"]);
+
+    await client("host-agent", "request-session-host", "--remove");
+    expect(calls.at(-1).body).toMatchObject({
+      operation: "session-host-remove",
+      reason: "Requested by a Host agent through the installation client.",
+    });
+    expect(JSON.parse((await client("host-agent", "session-host-status")).stdout)).toEqual(status);
+    expect(calls.at(-1)).toMatchObject({ method: "GET", url: "/api/installation/session-host" });
+
+    // Refusals happen before any request: ambiguous operation, Dev client, missing capability.
+    calls.length = 0;
+    await expect(
+      client("host-agent", "request-session-host", "--install", "--remove"),
+    ).rejects.toThrow("exactly one of --install or --remove");
+    await expect(client("container-agent", "request-session-host", "--install")).rejects.toThrow(
+      "trusted Host client",
+    );
+    expect(calls).toEqual([]);
+    // Unavailable to this token, an older coordinator without the field, or another shape.
+    for (const refused of [{ available: false, ownerApprovalRequired: true }, undefined, true]) {
+      capability = refused;
+      await expect(client("host-agent", "request-session-host", "--install")).rejects.toThrow(
+        "does not advertise session host jobs",
+      );
+      await expect(client("host-agent", "session-host-status")).rejects.toThrow(
+        "does not advertise session host jobs",
+      );
+    }
+    expect(calls.map(({ url }) => url)).toEqual(
+      Array.from({ length: 6 }, () => "/api/installation/capabilities"),
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("installation removal waits until the session host job is removed", async () => {
+  const record = { installationId: "00000000-0000-4000-8000-000000000001" };
+  const label = `local.vorteo.${record.installationId}.session-host`;
+  const calls = [];
+  const ports = ({ loaded, plist }) => ({
+    uid: 501,
+    launchAgents: "/fixture/LaunchAgents",
+    exists: (file) => plist && file === `/fixture/LaunchAgents/${label}.plist`,
+    run: async (command, args) => {
+      calls.push([command, ...args]);
+      if (!loaded) throw new Error("Could not find service");
+      return "";
+    },
+  });
+  for (const state of [
+    { loaded: true, plist: false },
+    { loaded: false, plist: true },
+  ])
+    await expect(assertSessionHostJobRemoved(record, ports(state))).rejects.toThrow(
+      `Remove the session host job (${label}) from Installation controls`,
+    );
+  await expect(
+    assertSessionHostJobRemoved(record, ports({ loaded: false, plist: false })),
+  ).resolves.toBeUndefined();
+  // Inspection only: the installer never stops the session host job itself.
+  expect(calls).toEqual(Array(3).fill(["/bin/launchctl", "print", `gui/501/${label}`]));
 });

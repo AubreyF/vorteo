@@ -9,6 +9,12 @@ import { spawnSync } from "node:child_process";
 import nativeFs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { selectMaintenanceReleaseLink } from "./coordinator-bootstrap-maintenance-file-selection.js";
+import {
+  createSessionHostReleaseGuard,
+  SessionHostReleaseRefused,
+  setReleaseSelectionGuard,
+} from "./release-selection-guard.js";
+import { SESSION_HOST_ENTRYPOINT } from "./session-host-job.js";
 import { fileURLToPath } from "node:url";
 import {
   prepareRecoveryRegistrationFixturePorts,
@@ -166,6 +172,27 @@ test("release link selection retains its fence when custody changes after the at
     }),
   ).toThrow();
   expect(realpathSync(f.input.link)).toBe(f.input.candidate);
+});
+
+test("release link selection refuses a release without the session host while its job is installed", () => {
+  const f = releaseLinkFixture();
+  const plistPath = path.join(f.root, "session-host.plist");
+  writeFileSync(plistPath, "installed");
+  setReleaseSelectionGuard(
+    createSessionHostReleaseGuard({ currentReleaseLink: f.input.link, plistPath }),
+  );
+  try {
+    expect(() => selectMaintenanceReleaseLink(f.input)).toThrow(SessionHostReleaseRefused);
+    expect(fileExists(f.input.attemptFile)).toBe(false);
+    expect(realpathSync(f.input.link)).toBe(f.input.previous);
+    const entrypoint = path.join(f.input.candidate, SESSION_HOST_ENTRYPOINT);
+    mkdirSync(path.dirname(entrypoint), { recursive: true, mode: 0o700 });
+    writeFileSync(entrypoint, "");
+    selectMaintenanceReleaseLink(f.input);
+    expect(realpathSync(f.input.link)).toBe(f.input.candidate);
+  } finally {
+    setReleaseSelectionGuard(null);
+  }
 });
 
 test.each(["noncanonical", "runtime overlap"])(

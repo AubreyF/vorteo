@@ -30,6 +30,10 @@ import {
   type RestartJob,
 } from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
+import {
+  createSessionHostReleaseGuard,
+  setReleaseSelectionGuard,
+} from "./release-selection-guard.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 
 class MemoryJournal implements RestartJournal {
@@ -5030,4 +5034,106 @@ test("configured Dev transitions refuse before selection, staging or supervisor 
   await expect(executor.adoptFactoryRuntime!(job)).rejects.toThrow("transition-phase readiness");
   await expect(executor.restartSupervisor!(job)).rejects.toThrow("independently bound operation");
   expect(restarts).toBe(0);
+});
+
+test("source updates refuse a release without the session host while its job is installed", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-session-host-")));
+  const link = path.join(root, "current");
+  const plist = path.join(root, "session-host.plist");
+  setReleaseSelectionGuard(
+    createSessionHostReleaseGuard({ currentReleaseLink: link, plistPath: plist }),
+  );
+  try {
+    const previous = path.join(root, "previous");
+    await mkdir(previous);
+    const baseCommit = "b".repeat(40);
+    await writeFile(
+      path.join(previous, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: baseCommit }),
+    );
+    await writeFile(path.join(root, "release.json"), JSON.stringify({ sourceCommit: baseCommit }));
+    await writeFile(path.join(root, "index.html"), "old interface");
+    await symlink(previous, link);
+    const config = restartTestConfig(
+      root,
+      path.join(link, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+    );
+    config.sourceUpdates = {
+      sourceRepository: root,
+      releaseRoot: root,
+      currentReleaseLink: link,
+      webDirectory: root,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+    };
+    const updates = new InstallationSourceUpdates(config);
+    const bundle = Buffer.from("approved inert source");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit,
+      sha256: createHash("sha256").update(bundle).digest("hex"),
+      bytes: bundle.length,
+    };
+    updates.stage(update, bundle);
+    // The candidate carries the session host entrypoint only when the marker file exists.
+    await writeFile(
+      path.join(root, "prepare-installation-update.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path';
+      const input = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+      const release = path.join(input.work, 'release'); const exported = path.join(release, 'web-export');
+      const scripts = path.join(release, 'packages/server/dist/scripts');
+      await fs.mkdir(scripts, {recursive:true}); await fs.mkdir(exported);
+      await fs.writeFile(path.join(scripts, 'supervisor-entrypoint.js'), 'process.exit(0)');
+      if (await fs.stat(path.join(input.toolingDirectory, 'with-session-host')).then(() => true, () => false))
+        await fs.writeFile(path.join(scripts, 'session-host-entrypoint.js'), '');
+      await fs.writeFile(path.join(release, '.installation-source.json'), JSON.stringify({sourceCommit: input.update.sourceCommit}));
+      await fs.writeFile(input.resultFile, JSON.stringify({release,exported}));`,
+    );
+    await writeFile(
+      path.join(root, "publish-instance-web.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path'; await fs.writeFile(path.join(process.argv[3], 'published'), 'yes');`,
+    );
+    const restart = vi.fn(async () => "ready");
+    const job = (): RestartJob => ({
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host",
+      requestedBy: "host-agent",
+      reason: "Install fixture",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "approved",
+      detail: "Approved",
+      update,
+      updatePreparation: "prepared",
+    });
+    await writeFile(plist, "installed");
+    await expect(updates.prepareInstallation(job())).rejects.toThrow(
+      "Remove the session host job first: release release has no session host support.",
+    );
+    // The job may be installed after preparation: selection checks again before the hold.
+    await rm(plist);
+    const late = job();
+    await updates.prepareInstallation(late);
+    await writeFile(plist, "installed");
+    const beforeSelection = vi.fn(async () => {});
+    await expect(updates.install(late, restart, beforeSelection)).rejects.toThrow(
+      "Remove the session host job first",
+    );
+    expect(beforeSelection).not.toHaveBeenCalled();
+    expect(restart).not.toHaveBeenCalled();
+    expect(await realpath(link)).toBe(previous);
+    await expect(readFile(path.join(root, late.id, "activation.json"))).rejects.toThrow();
+    await writeFile(path.join(root, "with-session-host"), "");
+    const supported = job();
+    await updates.prepareInstallation(supported);
+    await expect(updates.install(supported, restart, beforeSelection)).resolves.toContain(
+      "Installed source",
+    );
+    expect(beforeSelection).toHaveBeenCalledOnce();
+    expect(await realpath(link)).toBe(path.join(root, supported.id, "release"));
+  } finally {
+    setReleaseSelectionGuard(null);
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -47,6 +47,7 @@ import {
 } from "./container-updates.js";
 import { prepareSourceBatch } from "./source-batches.js";
 import { prepareDevRepairBundle } from "./dev-source-repair.js";
+import { assertReleaseSelectionAllowed } from "./release-selection-guard.js";
 import { isDeepStrictEqual } from "node:util";
 import type { StandingInterruption } from "@getpaseo/protocol/maintenance-interruption";
 
@@ -462,6 +463,11 @@ export class InstallationSourceUpdates {
       if (!realpathSync(directory).startsWith(realpathSync(work) + path.sep))
         throw new Error("Prepared artifact escaped its release directory");
     }
+    // A release without the session host must never run beside an installed session host job.
+    assertReleaseSelectionAllowed({
+      link: settings.currentReleaseLink,
+      candidate: prepared.release,
+    });
     // Validate the candidate before changing the launcher or the public interface.
     await execute(
       validation.node,
@@ -633,6 +639,11 @@ export class InstallationSourceUpdates {
       if (!realpathSync(directory).startsWith(realpathSync(work) + path.sep))
         throw new Error("Prepared artifact escaped its release directory");
     }
+    // Again here: the session host job may have been installed after preparation.
+    assertReleaseSelectionAllowed({
+      link: settings.currentReleaseLink,
+      candidate: prepared.release,
+    });
     await beforeSelection?.();
     writeLifecycleReceipt(activationFile, {
       previous,

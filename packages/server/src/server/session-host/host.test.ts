@@ -21,6 +21,7 @@ import {
   createRotatingAppender,
   createSessionHostAuditLog,
   preparePrivateDirectory,
+  readSessionHostLock,
   readSessionHostToken,
   rotateSessionHostToken,
   SessionHostAlreadyRunningError,
@@ -901,4 +902,25 @@ test("a rotating appender keeps one predecessor at its size bound", () => {
   expect(statSync(logPath).size).toBeLessThanOrEqual(100);
   expect(readFileSync(`${logPath}.1`, "utf8")).toContain("line");
   expect(statSync(logPath).mode & 0o777).toBe(0o600);
+});
+
+test("the host lock reads as gone only when it is absent or its holder has exited", async () => {
+  const socketPath = join(scratchDirectory(), "host.sock");
+  const lockPath = `${socketPath}.lock`;
+  expect(await readSessionHostLock(socketPath)).toEqual({ state: "gone", pid: null });
+  writeFileSync(lockPath, `${process.pid}\n`);
+  expect(await readSessionHostLock(socketPath)).toEqual({ state: "alive", pid: process.pid });
+  const exited = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  await new Promise((resolve) => exited.once("exit", resolve));
+  writeFileSync(lockPath, `${exited.pid}\n`);
+  expect(await readSessionHostLock(socketPath)).toEqual({ state: "gone", pid: exited.pid });
+  // A lock being written, or one this process cannot read, proves nothing: wait, never act.
+  writeFileSync(lockPath, "");
+  expect(await readSessionHostLock(socketPath)).toEqual({ state: "alive", pid: null });
+  if (process.getuid?.() !== 0) {
+    writeFileSync(lockPath, `${process.pid}\n`);
+    chmodSync(lockPath, 0o000);
+    expect(await readSessionHostLock(socketPath)).toEqual({ state: "alive", pid: null });
+    chmodSync(lockPath, 0o600);
+  }
 });

@@ -7,6 +7,8 @@ import { DaemonAutomation } from "./daemon-automation.js";
 import { createRecoveryAccessStatusReader } from "./maintenance/recovery-access.js";
 import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/maintenance-service-status";
 import { MaintenanceServiceProposalSchema } from "@getpaseo/protocol/maintenance-service";
+import type { SessionHostStatus } from "@getpaseo/protocol/session-host-maintenance";
+import { ensureSessionHostReleaseGuard } from "./release-selection-guard.js";
 import { maintenanceServiceView } from "./maintenance/service-view.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
 import {
@@ -95,6 +97,12 @@ import { inspectContainerSource } from "./container-updates.js";
 import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationSourceUpdates } from "./source-updates.js";
 import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./owner-delegation.js";
+
+/**
+ * Status answers are reused this long unless a session host job changes. Each answer greets the
+ * host, which records the greeting, and Installation controls refresh every five seconds.
+ */
+const SESSION_HOST_STATUS_CACHE_MS = 30_000;
 
 // COMPAT(providerRemovalOwner): added in v155, remove after legacy strict catalog clients are unsupported.
 function ownerSettingsSnapshot(snapshot: InstallationSettingsSnapshot, removalAware: boolean) {
@@ -381,6 +389,8 @@ export function createInstallationServer(
     Boolean(config.restartApprovalPolicy),
     config.restartApprovalPolicy?.hostRequestsAfter,
   );
+  // Host release selection runs only through this queue, so it never starts unguarded.
+  ensureSessionHostReleaseGuard(config);
   const restarts = new InstallationRestarts(
     standingRuntime.journal,
     restartExecutor,
@@ -818,6 +828,10 @@ export function createInstallationServer(
               ),
               ownerApprovalRequired: true,
             },
+            sessionHostJob: {
+              available: host && restarts.sessionHostAvailable(),
+              ownerApprovalRequired: true,
+            },
             supervisorMaintenance: {
               available: Boolean(supervisorPlan && executor.restartSupervisor),
               ownerApprovalRequired: !(
@@ -1027,7 +1041,17 @@ export function createInstallationServer(
     const helpers = restarts.listHelpers();
     const monitors = restarts.listMonitors();
     const services = restarts.listServices();
+    const sessionHosts = restarts.listSessionHosts();
     res.json({
+      ...(sessionHosts.length
+        ? {
+            sessionHost: {
+              requested: sessionHosts.filter((job) => job.status === "pending").length,
+              queued: sessionHosts.filter((job) => job.status === "approved").length,
+              running: sessionHosts.filter((job) => job.status === "running").length,
+            },
+          }
+        : {}),
       ...(services.length
         ? {
             serviceMaintenance: {
@@ -1212,6 +1236,64 @@ export function createInstallationServer(
       return;
     }
     res.json(job);
+  });
+  // Status asks the host only when detail is wanted, and briefly reuses the answer, so status
+  // checks never flood the host's audit log.
+  let sessionHostStatusCache: {
+    key: string;
+    at: number;
+    value: Promise<SessionHostStatus>;
+  } | null = null;
+  function sessionHostStatus(detail: boolean): Promise<SessionHostStatus> {
+    if (!executor.inspectSessionHost)
+      return Promise.reject(new RestartRequestError("Session host maintenance is unavailable"));
+    const now = Date.now();
+    const key = JSON.stringify([
+      detail,
+      restarts.listSessionHosts().map((job) => [job.id, job.status, job.stage]),
+    ]);
+    const cached = sessionHostStatusCache;
+    if (cached && cached.key === key && now - cached.at < SESSION_HOST_STATUS_CACHE_MS)
+      return cached.value;
+    const value = executor.inspectSessionHost(detail);
+    sessionHostStatusCache = { key, at: now, value };
+    value.catch(() => {
+      if (sessionHostStatusCache?.value === value) sessionHostStatusCache = null;
+    });
+    return value;
+  }
+  app.get("/api/installation/session-host", authenticateUpdate, (_req, res, next) => {
+    void sessionHostStatus(res.locals.updateRequester === "host-agent").then(
+      (status) => res.json(status),
+      next,
+    );
+  });
+  app.get("/api/installation/session-host-requests/:id", (req, res) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (!matchesToken(token, config.hostAgentTokenHash)) {
+      res.sendStatus(401);
+      return;
+    }
+    const job = restarts.listSessionHosts().find((entry) => entry.id === req.params.id);
+    if (!job) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(job);
+  });
+  app.post("/api/installation/session-host-requests", (req, res, next) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (!matchesToken(token, config.hostAgentTokenHash)) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!restarts.sessionHostAvailable()) {
+      res.status(503).json({ error: "Session host maintenance is unavailable" });
+      return;
+    }
+    void restarts
+      .requestSessionHost(req.body, "host-agent")
+      .then((job) => res.status(201).json(job), next);
   });
   app.post("/api/installation/helper-requests", (req, res, next) => {
     const token = extractHttpBearerToken(req.header("authorization"));
@@ -1463,6 +1545,28 @@ export function createInstallationServer(
   });
   app.post("/api/installation/owner/helpers/verify-installed", (req, res, next) => {
     void restarts.verifyHelperRecovery(req.body).then((job) => res.json(job), next);
+  });
+  app.post("/api/installation/owner/session-host/query", (_req, res) => {
+    const jobs = restarts.listSessionHosts();
+    if (!restarts.sessionHostAvailable()) {
+      res.status(404).json({ error: "Session host maintenance is unavailable" });
+      return;
+    }
+    void sessionHostStatus(true).then(
+      (status) => res.json({ jobs, status }),
+      () => res.json({ jobs, status: null }),
+    );
+  });
+  app.post("/api/installation/owner/session-host/request", (req, res, next) => {
+    void restarts
+      .requestSessionHost(req.body, "owner")
+      .then((job) => res.status(201).json(job), next);
+  });
+  app.post("/api/installation/owner/session-host/decision", (req, res) => {
+    const job = restarts.decideSessionHost(req.body);
+    res.json(job);
+    sessionHostStatusCache = null;
+    void restarts.drain().catch(() => logger.error("Session host lifecycle journal failed"));
   });
   if (claudeSetup) mountClaudeSetupRoutes(app, claudeSetup);
   if (claudeOAuth) mountClaudeOAuthRoutes(app, claudeOAuth);

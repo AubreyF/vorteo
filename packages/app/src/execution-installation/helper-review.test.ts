@@ -92,3 +92,15 @@ test("locked summary reports service uncertainty without claiming a live restart
   expect(text).toContain("effects will not be repeated");
   expect(text).toContain("0 restarting");
 });
+
+test("locked controls count session host requests, queued and running jobs", () => {
+  const idle = { requested: 0, queued: 0, running: 0 };
+  expect(
+    lockedMaintenanceSummary({ ...idle, sessionHost: { requested: 0, queued: 0, running: 0 } }),
+  ).toBeNull();
+  expect(
+    lockedMaintenanceSummary({ ...idle, sessionHost: { requested: 1, queued: 1, running: 1 } }),
+  ).toBe(
+    "0 requested · 0 queued · 0 restarting. 3 session host requests need attention. Unlock controls to review details.",
+  );
+});

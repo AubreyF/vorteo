@@ -143,7 +143,7 @@ export function createHostedAgentClient(input: {
       channel: params.channel,
       reattach: reattacher(params.agentId),
       reattachPolicy: routing.reattach,
-      hostAlive: () => routing.connector.hostAlive(),
+      hostState: () => routing.connector.hostState(),
       usage: {
         model: params.model,
         env: createProviderEnv({
@@ -212,7 +212,7 @@ export function createHostedAgentClient(input: {
     for (;;) {
       const client = await routing.connector.connect({ force: true });
       if (client) return client;
-      if (!(await routing.connector.hostAlive())) return null;
+      if ((await routing.connector.hostState()) === "gone") return null;
       if (Date.now() + delay > deadline) throw new SessionHostUnresponsiveError(agentId);
       await sleep(delay);
       delay = Math.min(delay * 2, policy.maxDelayMs);
