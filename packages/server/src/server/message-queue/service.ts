@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { QueueOperation, QueueSnapshot } from "@getpaseo/protocol/message-queue";
 import { QueueAttachmentStore } from "./attachments.js";
 import { MessageQueueStore, QueueStoreError } from "./store.js";
@@ -8,6 +9,7 @@ type QueueListener = (snapshot: QueueSnapshot) => void;
 
 /** One instance belongs to the daemon. Subscriptions never own stored messages. */
 export class MessageQueueService {
+  private readonly restartOwner = randomUUID();
   private readonly listeners = new Map<string, Set<QueueListener>>();
   private readonly queuedAgents = new Set<string>();
   private closed = false;
@@ -28,6 +30,14 @@ export class MessageQueueService {
     this.deliveryPort = port;
     this.delivery = new QueueDeliveryWorker(this.store, {
       ...port,
+      prepare: async (...args) => {
+        if (await this.restartContinuationHeld(args[0])) return false;
+        return port.prepare(...args);
+      },
+      complete: async (...args) => {
+        if (await this.restartContinuationHeld(args[0])) return;
+        await port.complete?.(...args);
+      },
       changed: (snapshot) => this.publish(snapshot),
     });
     const stored = await this.store.listAgentIds();
@@ -35,7 +45,82 @@ export class MessageQueueService {
     for (const agentId of new Set([...stored, ...held])) void this.delivery.wake(agentId);
   }
 
+  async captureRestartContinuation(agentId: string, requestId: string): Promise<void> {
+    await this.initialize();
+    await this.store.captureRestartContinuation(agentId, requestId, this.restartOwner);
+  }
+
+  async restartContinuationReleased(requestId: string): Promise<boolean> {
+    await this.initialize();
+    for (const id of await this.store.listAgentIds()) {
+      const retained = await this.store.restartContinuation(id);
+      if (retained?.requestId === requestId && retained.phase !== "held") return true;
+    }
+    return false;
+  }
+
+  async abandonRestartContinuation(agentId: string): Promise<void> {
+    await this.store.abandonRestartContinuation(agentId);
+    this.publish(await this.store.read(agentId));
+  }
+
+  async restartContinuationHeld(agentId: string): Promise<boolean> {
+    return (await this.store.restartContinuation(agentId))?.phase === "held";
+  }
+
+  /** steered names agents asked to stop and save work; they keep their nudge on cancellation. */
+  async releaseRestartContinuation(
+    requestId: string,
+    outcome: "ready" | "cancelled",
+    steered: ReadonlySet<string> = new Set(),
+  ): Promise<boolean> {
+    await this.initialize();
+    const agents = await this.store.listAgentIds();
+    const matching: string[] = [];
+    for (const id of agents) {
+      const retained = await this.store.restartContinuation(id);
+      if (retained?.requestId === requestId) matching.push(id);
+    }
+    // Any lifetime may release: a cancelled cause from a dead owner still lets tasks continue.
+    for (const id of matching)
+      await this.store.releaseRestartContinuation(id, {
+        requestId,
+        owner: this.restartOwner,
+        outcome,
+        keepContinuation: steered.has(id),
+      });
+    for (const id of matching) {
+      this.publish(await this.store.read(id));
+      void this.delivery?.wake(id);
+    }
+    return true;
+  }
+
+  /** Wake released tasks after their daemon admission barrier is gone, including unloaded ones. */
+  async wakeRestartContinuation(requestId: string): Promise<void> {
+    for (const id of await this.store.listAgentIds()) {
+      if ((await this.store.restartContinuation(id))?.requestId === requestId)
+        void this.delivery?.wake(id);
+    }
+  }
+
+  /** The stable operation ID makes a retried answer enqueue at most once. */
+  async queueQuestionAnswer(agentId: string, questionId: string, text: string): Promise<void> {
+    const id = `question-answer-${questionId}`;
+    await this.mutate(agentId, {
+      kind: "enqueue",
+      operationId: id,
+      messageId: id,
+      attachments: [],
+      text,
+    });
+  }
+
   async queueRestartContinuation(agentId: string, requestId: string): Promise<void> {
+    const retained = await this.store.restartContinuation(agentId);
+    if (retained?.requestId === requestId && (retained.phase !== "held" || retained.abandoned))
+      return;
+
     const snapshot = await this.read(agentId);
     // Existing queued work already supplies continuation. User-paused queues stay paused.
     if (snapshot.paused || snapshot.items.length) return;
@@ -46,6 +131,23 @@ export class MessageQueueService {
       messageId: id,
       attachments: [],
       text: "The installation restart hold has ended. Continue the work you saved for this restart, following the owner's latest instructions.",
+    });
+  }
+
+  /**
+   * Continues an agent whose hosted session ended with the session host, the way a restart
+   * continuation would. Existing queued work already supplies continuation.
+   */
+  async queueHostedSessionContinuation(agentId: string, cause: string): Promise<void> {
+    const snapshot = await this.read(agentId);
+    if (snapshot.paused || snapshot.items.length) return;
+    const id = `session-host-${cause}-${agentId}`;
+    await this.mutate(agentId, {
+      kind: "enqueue",
+      operationId: id,
+      messageId: id,
+      attachments: [],
+      text: "The session host stopped and interrupted this turn. Continue the work in progress, following the owner's latest instructions.",
     });
   }
 
@@ -72,7 +174,11 @@ export class MessageQueueService {
   }
 
   initialize(): Promise<void> {
-    this.initialization ??= this.recover();
+    // A transient recovery failure must stay retryable rather than poisoning every call.
+    this.initialization ??= this.recover().catch((error: unknown) => {
+      this.initialization = null;
+      throw error;
+    });
     return this.initialization;
   }
 

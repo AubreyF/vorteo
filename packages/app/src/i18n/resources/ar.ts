@@ -377,6 +377,7 @@ export const ar: TranslationResources = {
       empty: "لا توجد مهام حتى الآن.",
       tasksProgress: "{{completed}}/{{total}} مهام",
       activeCount: en.message.todo.activeCount,
+      blockedCount: en.message.todo.blockedCount,
       activity: {
         created: "تم إنشاء {{count}} مهام",
         added: "أُضيفت",
@@ -1944,6 +1945,19 @@ export const ar: TranslationResources = {
     tokens: "رموز{{used}}/{{max}}",
     sessionCost: "تكلفة الجلسة{{cost}}",
     accessibility: "تم استخدام نافذة السياق{{percentage}}%",
+    breakdown: {
+      used: "مستخدم",
+      free: "مساحة فارغة",
+      totalsOnly: "يُبلغ هذا المزوّد عن الإجماليات فقط.",
+      error: "تعذّر تحميل التفصيل.",
+      overLimit: "تجاوز النافذة بمقدار {{tokens}} رمزًا",
+      groups: {
+        mcpTools: "أدوات MCP",
+        memoryFiles: "ملفات الذاكرة",
+        skills: "المهارات",
+        agents: "وكلاء مخصّصون",
+      },
+    },
   },
   review: {
     comment: {

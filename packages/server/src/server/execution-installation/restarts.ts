@@ -51,6 +51,16 @@ import {
 import type { MaintenanceServiceNativeObservation } from "./maintenance/service-execution.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { StandingInterruption } from "@getpaseo/protocol/maintenance-interruption";
+import {
+  SessionHostDecisionSchema,
+  SessionHostRequestSchema,
+  type SessionHostJob,
+  type SessionHostOperation,
+  type SessionHostPlan,
+} from "@getpaseo/protocol/session-host-maintenance";
+import { SessionHostJobError, sessionHostPlanSha256 } from "./session-host-job.js";
+import { LaunchctlError } from "../session-host/launchd.js";
+import { SessionHostReleaseRefused } from "./release-selection-guard.js";
 import type {
   DevRepairCapture,
   RestartImpact,
@@ -61,6 +71,21 @@ import type {
   SourceBatch,
   SourceUpdate,
 } from "@getpaseo/protocol/execution-installation";
+
+export interface InstallUpdateOptions {
+  /** Replace the whole service, as an owner approve does, after the turns hold settles. */
+  serviceRestart: boolean;
+}
+
+/** A dispatched restart must verify readiness within this, or it fails without replay. */
+const DISPATCH_READINESS_DEADLINE_MS = 10 * 60_000;
+
+export interface RestartStartupOptions {
+  fenced: boolean;
+  /** Operator-visible progress for each dispatch step; never silent for hours. */
+  progress?: (message: string, fields: Record<string, unknown>) => void;
+  dispatchDeadlineMs?: number;
+}
 
 export interface RestartApprovalPolicy {
   serviceAuthority?: (
@@ -79,6 +104,8 @@ export interface RestartApprovalPolicy {
   daemonRequestsAfter?: (target: RestartJob["target"]) => string | null | undefined;
   /** Controller authority never inherits a daemon or legacy Host grant. */
   supervisorRequestsAfter?: () => string | null;
+  /** Owner delegation: automatic Host source updates may replace the supervisor. */
+  hostUpdateServiceRestart?: () => boolean;
 }
 
 export interface RestartJournal {
@@ -119,6 +146,17 @@ export interface RestartExecutor {
   installMonitor?(job: PreviewMonitorJob): Promise<string>;
   factoryRuntimePlan?(): string | undefined;
   adoptFactoryRuntime?(job: RestartJob): Promise<string>;
+  /** Computes the exact plan for a session host operation from the coordinator's configuration. */
+  sessionHostPlan?(operation: SessionHostOperation): Promise<SessionHostPlan>;
+  /** Observes the job; detail only for the Host token and owners. */
+  inspectSessionHost?(
+    detail: boolean,
+  ): Promise<import("@getpaseo/protocol/session-host-maintenance").SessionHostStatus>;
+  /** Performs an approved session host operation, reporting its stages. */
+  applySessionHost?(
+    job: SessionHostJob,
+    reportStage: (stage: "applying" | "verifying") => void,
+  ): Promise<{ detail: string; host?: SessionHostJob["host"]; forced?: boolean }>;
   validateHelperRollback?(job: NativeHelperJob, failed: NativeHelperJob): Promise<void>;
   verifyHelperRecovery?(job: NativeHelperJob): Promise<string>;
   validateHelperPlan?(plan: NativeHelperPlan): Promise<void>;
@@ -147,7 +185,7 @@ export interface RestartExecutor {
   verifyPreparedInstallation?(job: RestartJob, options?: { signal?: AbortSignal }): Promise<void>;
   /** Final independent evidence after the locked running reservation. */
   verifyDispatch?(job: RestartJob): Promise<void>;
-  installUpdate?(job: RestartJob): Promise<string>;
+  installUpdate?(job: RestartJob, options: InstallUpdateOptions): Promise<string>;
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
   restartWhenIdle?(target: RestartJob["target"]): Promise<string | null>;
@@ -155,6 +193,14 @@ export interface RestartExecutor {
   /** Independently inspected process birth and boot identity, only for initial migration. */
   initialActivationInstance?(job: RestartJob): Promise<string>;
   releaseCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
+  /** False when the target cannot hold durable continuation, e.g. an older daemon. */
+  restartContinuationAvailable?(target: RestartJob["target"]): Promise<boolean>;
+  captureRestartContinuation?(target: RestartJob["target"], requestId: string): Promise<void>;
+  releaseRestartContinuation?(
+    target: RestartJob["target"],
+    requestId: string,
+    outcome: "ready" | "cancelled",
+  ): Promise<boolean>;
 }
 
 export function supportsAutomaticMaintenance(executor: RestartExecutor): boolean {
@@ -167,6 +213,18 @@ export function supportsAutomaticMaintenance(executor: RestartExecutor): boolean
 }
 
 export class RestartRequestError extends Error {}
+
+/** Messages written for the owner pass through; anything else gets a safe, generic detail. */
+function sessionHostFailureDetail(error: unknown): string {
+  if (
+    error instanceof SessionHostJobError ||
+    error instanceof SessionHostReleaseRefused ||
+    error instanceof RestartRequestError ||
+    error instanceof LaunchctlError
+  )
+    return error.message;
+  return "The session host operation failed. Inspect its status before retrying.";
+}
 
 function validateSourceDecision(job: RestartJob, decision: RestartDecision, updateSha256?: string) {
   if ((job.update || job.sourceBatch) && decision !== "reject" && decision !== "cancel") {
@@ -187,9 +245,12 @@ function requestPredatesPolicy(
 }
 
 export class InstallationRestarts {
+  private readonly progress: NonNullable<RestartStartupOptions["progress"]>;
+  private readonly dispatchDeadlineMs: number;
   private jobs: RestartJob[];
   private helpers: NativeHelperJob[];
   private monitors: PreviewMonitorJob[];
+  private sessionHosts: SessionHostJob[];
   private snapshot: LifecycleJob[];
   private active = false;
   private running = false;
@@ -203,8 +264,10 @@ export class InstallationRestarts {
     private readonly executor: RestartExecutor,
     private readonly now: () => number = Date.now,
     private readonly approvalPolicy: RestartApprovalPolicy = {},
-    startup: { fenced: boolean } = { fenced: false },
+    startup: RestartStartupOptions = { fenced: false },
   ) {
+    this.progress = startup.progress ?? (() => {});
+    this.dispatchDeadlineMs = startup.dispatchDeadlineMs ?? DISPATCH_READINESS_DEADLINE_MS;
     this.snapshot = journal.read();
     this.jobs = this.snapshot.filter(
       (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
@@ -214,6 +277,9 @@ export class InstallationRestarts {
     );
     this.monitors = this.snapshot.filter(
       (job): job is PreviewMonitorJob => job.target === "preview-monitor",
+    );
+    this.sessionHosts = this.snapshot.filter(
+      (job): job is SessionHostJob => job.target === "session-host",
     );
     if (!startup.fenced) this.activate();
   }
@@ -228,6 +294,9 @@ export class InstallationRestarts {
     );
     this.monitors = this.snapshot.filter(
       (job): job is PreviewMonitorJob => job.target === "preview-monitor",
+    );
+    this.sessionHosts = this.snapshot.filter(
+      (job): job is SessionHostJob => job.target === "session-host",
     );
   }
 
@@ -317,6 +386,18 @@ export class InstallationRestarts {
           detail: "Preparation interrupted. Prepare a new monitor request.",
         };
       return job;
+    });
+    // An interrupted operation is never replayed. Both operations recheck everything they touch,
+    // so the owner inspects the status and requests whichever one the job now needs.
+    this.sessionHosts = this.sessionHosts.map((job): SessionHostJob => {
+      if (job.status !== "approved" && job.status !== "running") return job;
+      return {
+        ...job,
+        status: "failed",
+        stage: "failed",
+        detail:
+          "The coordinator restarted before this operation finished. Check the session host status before requesting it again.",
+      };
     });
     this.writeState(recovered, helpers, monitors);
     this.active = true;
@@ -577,6 +658,174 @@ export class InstallationRestarts {
 
   listHelpers(): NativeHelperJob[] {
     return structuredClone(this.helpers);
+  }
+
+  listSessionHosts(): SessionHostJob[] {
+    return structuredClone(this.sessionHosts);
+  }
+
+  sessionHostAvailable(): boolean {
+    return Boolean(this.executor.sessionHostPlan && this.executor.applySessionHost);
+  }
+
+  /**
+   * Prepares one session host operation. The coordinator derives the plan itself; the requester
+   * supplies only the operation and a reason. One request may be open at a time.
+   */
+  async requestSessionHost(
+    input: unknown,
+    requestedBy: SessionHostJob["requestedBy"],
+  ): Promise<SessionHostJob> {
+    this.requireActive();
+    if (!this.executor.sessionHostPlan || !this.executor.applySessionHost)
+      throw new RestartRequestError("Session host maintenance is unavailable");
+    const request = SessionHostRequestSchema.parse(input);
+    const existing = this.snapshot.find((job) => job.id === request.id);
+    if (existing) {
+      if (
+        existing.target !== "session-host" ||
+        existing.operation !== request.operation ||
+        existing.reason !== request.reason
+      )
+        throw new RestartRequestError("Request identity already belongs to different work");
+      return structuredClone(existing);
+    }
+    const open = () =>
+      this.sessionHosts.some((job) => ["pending", "approved", "running"].includes(job.status));
+    if (open())
+      throw new RestartRequestError(
+        "Another session host request is still open. Decide or cancel it first.",
+      );
+    const plan = await this.executor.sessionHostPlan(request.operation);
+    if (open())
+      throw new RestartRequestError(
+        "Another session host request is still open. Decide or cancel it first.",
+      );
+    const job: SessionHostJob = {
+      target: "session-host",
+      operation: request.operation,
+      id: request.id,
+      revision: randomUUID(),
+      requestedBy,
+      reason: request.reason,
+      createdAt: new Date(this.now()).toISOString(),
+      plan,
+      planSha256: sessionHostPlanSha256(plan),
+      status: "pending",
+      stage: "prepared",
+      detail:
+        request.operation === "session-host-install"
+          ? "Review this exact session host job. Installing it never turns the durable sessions setting on."
+          : "Review removing the session host job. Removal is refused while the setting is on or sessions run.",
+    };
+    this.replaceSessionHost(job);
+    return structuredClone(job);
+  }
+
+  /** The owner's decision; it must name the operation and the exact plan it reviewed. */
+  decideSessionHost(input: unknown): SessionHostJob {
+    this.requireActive();
+    const decision = SessionHostDecisionSchema.parse(input);
+    const job = this.sessionHosts.find((item) => item.id === decision.id);
+    if (
+      !job ||
+      job.revision !== decision.revision ||
+      job.planSha256 !== decision.planSha256 ||
+      job.operation !== decision.operation
+    )
+      throw new RestartRequestError("Session host request changed. Review the exact plan.");
+    this.assertSessionHostPlanUnchanged(job);
+    if (decision.decision === "cancel") {
+      if (job.status !== "pending" && job.status !== "approved")
+        throw new RestartRequestError("Session host operation already dispatched or decided");
+      this.replaceSessionHost({ ...job, status: "rejected", detail: "Canceled by the owner." });
+    } else {
+      if (job.status !== "pending" || job.stage !== "prepared")
+        throw new RestartRequestError("Session host request is not awaiting approval");
+      this.replaceSessionHost({
+        ...job,
+        status: "approved",
+        approvedAt: new Date(this.now()).toISOString(),
+        detail:
+          "Approved. The operation starts after pending restarts and other lifecycle work finish.",
+      });
+    }
+    return structuredClone(this.sessionHosts.find((item) => item.id === job.id)!);
+  }
+
+  private assertSessionHostPlanUnchanged(job: SessionHostJob): void {
+    if (sessionHostPlanSha256(job.plan) !== job.planSha256 || job.plan.operation !== job.operation)
+      throw new RestartRequestError("Session host plan changed. Prepare and review a new request.");
+  }
+
+  private replaceSessionHost(next: SessionHostJob): void {
+    this.requireActive();
+    this.sessionHosts = this.sessionHosts.some((job) => job.id === next.id)
+      ? this.sessionHosts.map((job) => (job.id === next.id ? next : job))
+      : [...this.sessionHosts, next];
+    this.writeState(this.jobs, this.helpers);
+  }
+
+  /** Runs one approved operation after recomputing its plan; any difference changes nothing. */
+  private async dispatchSessionHost(job: SessionHostJob): Promise<void> {
+    if (!this.executor.sessionHostPlan || !this.executor.applySessionHost) return;
+    const owns = (candidate: SessionHostJob | undefined, status: SessionHostJob["status"]) =>
+      candidate?.status === status && candidate.revision === job.revision;
+    try {
+      this.assertSessionHostPlanUnchanged(job);
+      const fresh = await this.executor.sessionHostPlan(job.operation);
+      if (sessionHostPlanSha256(fresh) !== job.planSha256)
+        throw new RestartRequestError(
+          "The session host plan changed after approval. Nothing was changed; prepare and review a new request.",
+        );
+      if (
+        !owns(
+          this.sessionHosts.find((item) => item.id === job.id),
+          "approved",
+        )
+      )
+        return;
+      const running: SessionHostJob = {
+        ...job,
+        status: "running",
+        stage: "dispatch_pending",
+        detail: "Running the approved session host operation",
+      };
+      this.replaceSessionHost(running);
+      const outcome = await this.executor.applySessionHost(structuredClone(running), (stage) => {
+        const executing = this.sessionHosts.find((item) => item.id === job.id);
+        if (!owns(executing, "running"))
+          throw new RestartRequestError("Session host operation no longer owns its request");
+        this.replaceSessionHost({
+          ...executing!,
+          stage,
+          detail:
+            stage === "applying"
+              ? "Applying the approved session host operation"
+              : "Verifying the session host",
+        });
+      });
+      const executing = this.sessionHosts.find((item) => item.id === job.id);
+      if (!owns(executing, "running")) return;
+      this.replaceSessionHost({
+        ...executing!,
+        status: "succeeded",
+        stage: "succeeded",
+        detail: outcome.detail,
+        ...(outcome.host ? { host: outcome.host } : {}),
+        ...(outcome.forced ? { forcedStop: true } : {}),
+      });
+    } catch (error) {
+      const current = this.sessionHosts.find((item) => item.id === job.id);
+      if (!current || current.revision !== job.revision) return;
+      if (current.status !== "approved" && current.status !== "running") return;
+      this.replaceSessionHost({
+        ...current,
+        status: "failed",
+        stage: "failed",
+        detail: sessionHostFailureDetail(error),
+      });
+    }
   }
 
   async prepareHelper(input: unknown, requestedBy: string): Promise<NativeHelperJob> {
@@ -1503,7 +1752,7 @@ export class InstallationRestarts {
     }
     if (decision === "finish-current-turns") return this.approveFinish(job);
     if (decision === "cancel") {
-      if (job.status !== "approved" || !job.whenIdle)
+      if (job.status !== "approved" || (!job.whenIdle && !job.continuationCaptureRequested))
         throw new RestartRequestError("Restart is not waiting or has already dispatched");
       const next = {
         ...job,
@@ -1752,11 +2001,80 @@ export class InstallationRestarts {
     return { ...next };
   }
 
+  private async captureRestartContinuation(job: RestartJob): Promise<RestartJob> {
+    // COMPAT(restartContinuation): old executor adapters retain their existing
+    // behavior; remove once every coordinator adapter implements durable capture.
+    if (!this.executor.captureRestartContinuation) {
+      if (job.continuationCaptureRequested)
+        throw new RestartRequestError(
+          "Recorded restart continuation requires a compatible executor",
+        );
+      return job;
+    }
+    if (!this.executor.releaseRestartContinuation)
+      throw new RestartRequestError("Restart continuation release is unavailable");
+    const approved = () => {
+      this.refreshApprovalPolicy();
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status !== "approved" || current.revision !== job.revision)
+        throw new RestartRequestError("Restart permission changed before continuation capture");
+      return current;
+    };
+    let current = approved();
+    // COMPAT(restartContinuation): an older or unreachable target keeps legacy behavior.
+    // Never record intent the target cannot release. Recorded intent stays for release.
+    if (
+      this.executor.restartContinuationAvailable &&
+      !(await this.executor.restartContinuationAvailable(job.target))
+    )
+      return approved();
+    if (current.continuationCaptureRequested && current.continuationCaptureId) {
+      // An earlier idle attempt may have released this cause before its receipt was saved.
+      if (!(await this.releaseIdleContinuation(current)))
+        throw new RestartRequestError("Waiting for the environment to release its restart hold");
+      current = approved();
+    }
+    if (!current.continuationCaptureRequested) {
+      const idleOnly = current.whenIdle && !current.finishCurrentTurns;
+      current = {
+        ...current,
+        continuationCaptureRequested: true,
+        continuationCaptureId: idleOnly ? randomUUID() : undefined,
+      };
+      this.replace(current);
+    }
+    await this.executor.captureRestartContinuation(job.target, continuationId(current));
+    this.refreshApprovalPolicy();
+    const acknowledged = this.jobs.find((item) => item.id === job.id);
+    if (acknowledged?.status !== "approved" || acknowledged.revision !== job.revision)
+      throw new RestartRequestError("Restart permission changed during continuation capture");
+    return acknowledged;
+  }
+
+  /** Idle-only restarts never hold admission while they wait for idleness. */
+  private async releaseIdleContinuation(job: RestartJob): Promise<boolean> {
+    try {
+      const released = await this.executor.releaseRestartContinuation?.(
+        job.target,
+        continuationId(job),
+        "cancelled",
+      );
+      if (!released) return false;
+    } catch {
+      return false;
+    }
+    const current = this.jobs.find((item) => item.id === job.id);
+    if (current?.status === "approved")
+      this.replace({ ...withoutCaptureId(current), continuationCaptureRequested: undefined });
+    return true;
+  }
+
   private async inspectBeforeRestart(job: RestartJob): Promise<RestartImpact> {
     if (!this.executor.inspect) throw new Error("Idle restart inspection is unavailable");
     if (job.finishCurrentTurns && job.standingDecision) return this.inspectStandingHold(job);
     if (job.finishCurrentTurns) {
       if (!this.executor.holdCurrentTurns) throw new Error("Graceful restart unavailable");
+      job = await this.captureRestartContinuation(job);
       await this.executor.holdCurrentTurns(job.target, job.id);
     }
     return this.inspectHeldTarget(job);
@@ -1801,6 +2119,7 @@ export class InstallationRestarts {
       // The journal's locked admission is the hold dispatch boundary. Revocation
       // after this reservation permits only observation and authorized stabilization.
       this.replace(job);
+      job = await this.captureRestartContinuation(job);
       await this.executor.holdCurrentTurns(job.target, job.id);
       impact = await this.inspectHeldTarget(job);
     }
@@ -1839,6 +2158,7 @@ export class InstallationRestarts {
         },
       };
       this.replace(job);
+      job = await this.captureRestartContinuation(job);
       await this.executor.holdCurrentTurns!(job.target, job.id);
       if ((await this.executor.initialActivationInstance!(job)) !== instance)
         throw new RestartRequestError("Initial daemon lifetime changed during hold admission");
@@ -2007,7 +2327,9 @@ export class InstallationRestarts {
     );
     if (
       !factoryUncertain &&
-      !this.jobs.some((job) => job.finishCurrentTurns && !job.holdReleased)
+      !this.jobs.some(
+        (job) => (job.finishCurrentTurns || job.continuationCaptureRequested) && !job.holdReleased,
+      )
     ) {
       for (const job of this.monitors.filter((item) => item.status === "approved")) {
         if (this.monitorRecoveryRequired()) break;
@@ -2018,6 +2340,7 @@ export class InstallationRestarts {
 
   private lifecycleAdmitted(job?: RestartJob): boolean {
     if (this.listServices().some(unresolvedMaintenanceService)) return false;
+    if (this.jobs.some((item) => item.id !== job?.id && continuationFenced(item))) return false;
     if (this.journal.admissionAvailable?.() !== false) return true;
     return job !== undefined && this.journal.activationChildAdmissionAvailable?.(job) === true;
   }
@@ -2030,7 +2353,7 @@ export class InstallationRestarts {
   }
 
   private async releaseCompletedHold(job: RestartJob): Promise<void> {
-    if (!this.executor.releaseCurrentTurns) return;
+    if (!job.continuationCaptureRequested && !this.executor.releaseCurrentTurns) return;
     try {
       if (job.standingHold && !job.standingHold.releaseRequestedAt) {
         job = {
@@ -2044,13 +2367,30 @@ export class InstallationRestarts {
         // when its response is lost. Release retries never authorize a restart.
         this.replace(job);
       }
-      await this.executor.releaseCurrentTurns(job.target, job.id);
-      this.replace({ ...job, holdReleased: true });
+      if (job.continuationCaptureRequested && this.executor.releaseRestartContinuation) {
+        const outcome = job.status === "succeeded" ? "ready" : "cancelled";
+        const released = await this.executor.releaseRestartContinuation(
+          job.target,
+          continuationId(job),
+          outcome,
+        );
+        if (!released) throw new RestartRequestError("Restart continuation remains held");
+      } else {
+        // COMPAT(restartContinuation): an adapter without continuation release can
+        // still clear the legacy hold instead of fencing lifecycle work forever.
+        if (!this.executor.releaseCurrentTurns)
+          throw new RestartRequestError("Restart continuation release is unavailable");
+        await this.executor.releaseCurrentTurns(job.target, job.id);
+      }
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current) this.replace({ ...withoutCaptureId(current), holdReleased: true });
     } catch {
-      this.replace({
-        ...job,
-        detail: "Waiting for the environment to release its restart hold.",
-      });
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current)
+        this.replace({
+          ...current,
+          detail: "Waiting for the environment to release its restart hold.",
+        });
     }
   }
 
@@ -2091,15 +2431,26 @@ export class InstallationRestarts {
       if (this.monitorRecoveryRequired()) return;
       this.approveTrustedHostRequests();
       if (await this.dispatchApprovedRestarts()) return;
-      if (!this.jobs.some((job) => job.finishCurrentTurns && !job.holdReleased)) {
-        for (const job of this.helpers.filter((candidate) => candidate.status === "approved")) {
-          if (this.helperRecoveryRequired()) break;
-          await this.dispatchHelper(job);
-        }
-      }
+      if (
+        !this.jobs.some(
+          (job) =>
+            (job.finishCurrentTurns || job.continuationCaptureRequested) && !job.holdReleased,
+        )
+      )
+        await this.dispatchApprovedNativeWork();
     } finally {
       this.running = false;
     }
+  }
+
+  /** Helper and session host operations, which run only while no restart holds turns. */
+  private async dispatchApprovedNativeWork(): Promise<void> {
+    for (const job of this.helpers.filter((candidate) => candidate.status === "approved")) {
+      if (this.helperRecoveryRequired()) break;
+      await this.dispatchHelper(job);
+    }
+    for (const job of this.sessionHosts.filter((candidate) => candidate.status === "approved"))
+      await this.dispatchSessionHost(job);
   }
 
   private async reconcileRetainedInterruptions(): Promise<boolean> {
@@ -2124,7 +2475,7 @@ export class InstallationRestarts {
   private async releaseFinishedHolds(): Promise<void> {
     for (const job of this.jobs.filter(
       (candidate) =>
-        candidate.finishCurrentTurns &&
+        (candidate.finishCurrentTurns || candidate.continuationCaptureRequested) &&
         !candidate.holdReleased &&
         ["rejected", "failed", "succeeded"].includes(candidate.status),
     ))
@@ -2251,6 +2602,17 @@ export class InstallationRestarts {
     await this.dispatchRestart(job);
   }
 
+  private async prepareRestartContinuation(job: RestartJob): Promise<RestartJob | null> {
+    try {
+      return await this.captureRestartContinuation(job);
+    } catch (error) {
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status === "approved" && current.revision === job.revision)
+        this.replace({ ...current, detail: restartFailureDetail(current, error) });
+      return null;
+    }
+  }
+
   private async dispatchRestart(job: RestartJob): Promise<void> {
     if (!this.lifecycleAdmitted(job) || !this.automaticDispatchReady(job)) return;
     if (!this.interruptionAvailable(job)) {
@@ -2277,25 +2639,44 @@ export class InstallationRestarts {
       });
       return;
     }
-    if (job.update && job.finishCurrentTurns && this.executor.prepareInstallation) {
-      const prepared = await this.prepareApprovedUpdate(job);
-      if (!prepared) return;
-      job = prepared;
-      if (!this.automaticDispatchReady(job)) return;
-    }
+    const prepared = await this.prepareApprovedUpdate(job);
+    if (!prepared) return;
+    job = prepared;
+    if (!this.automaticDispatchReady(job)) return;
     if (!(await this.standingCandidateReady(job))) return;
     if (job.whenIdle && !(await this.readyAfterInspection(job))) return;
     // Inspection may have durably reserved and observed an enrolled hold.
     job = this.jobs.find((item) => item.id === job.id) ?? job;
+    const captured = await this.prepareRestartContinuation(job);
+    if (!captured) return;
+    job = captured;
     const preparedRunning = await this.prepareRunningRestart(job);
     if (!preparedRunning || !this.automaticDispatchReady(job)) return;
     job = preparedRunning;
     // Persist uncertainty before executing any plan code. Coordinator recovery
     // keeps this fence even when the process never returned a phase receipt.
     this.replace(job);
+    await this.executeDispatched(job);
+  }
+
+  /** Execution must settle within the dispatch deadline; a later result is never applied. */
+  private async executeDispatched(job: RestartJob): Promise<void> {
+    const fields = { jobId: job.id, target: job.target, revision: job.revision };
+    this.progress("Restart dispatched; waiting for verified readiness", fields);
+    const execution = this.executeApproved(job);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<"expired">((resolve) => {
+      timer = setTimeout(() => resolve("expired"), this.dispatchDeadlineMs);
+    });
     try {
-      const detail = await this.executeApproved(job);
-      await this.finishRestartDispatch(job, detail);
+      const outcome = await Promise.race([execution.then((detail) => ({ detail })), expired]);
+      if (outcome === "expired") {
+        this.expireDispatch(job, execution);
+        return;
+      }
+      await this.finishRestartDispatch(job, outcome.detail);
+      const status = this.jobs.find((item) => item.id === job.id)?.status;
+      this.progress("Restart dispatch settled", { ...fields, status });
     } catch (error) {
       const detail = restartFailureDetail(job, error);
       this.replace({
@@ -2305,7 +2686,58 @@ export class InstallationRestarts {
           ? "Restart outcome is unverified. Checking the target without restarting it again."
           : detail,
       });
+      this.progress("Restart dispatch failed", { ...fields, detail });
+    } finally {
+      clearTimeout(timer);
     }
+  }
+
+  /**
+   * Only a legacy automatic Host source update qualifies. It still waits out the
+   * cancellation window, prepares and holds turns like any automatic update; the
+   * setting is part of the grant authority, so changing it revokes undispatched grants.
+   */
+  private serviceRestartGranted(job: RestartJob): boolean {
+    return Boolean(
+      job.target === "host" &&
+      job.update &&
+      job.automaticApproval &&
+      job.whenIdle &&
+      !job.standingDecision &&
+      !job.standingInterruption &&
+      this.approvalPolicy.hostUpdateServiceRestart?.() === true &&
+      // The grant must have been issued under the current setting. A change during
+      // preparation never upgrades an existing grant to a full service restart.
+      job.automaticAuthority !== undefined &&
+      job.automaticAuthority === this.approvalPolicy.authority?.(),
+    );
+  }
+
+  private expireDispatch(job: RestartJob, execution: Promise<string | null>): void {
+    const fields = { jobId: job.id, target: job.target, revision: job.revision };
+    const minutes = Math.round(this.dispatchDeadlineMs / 60_000);
+    const current = this.jobs.find((item) => item.id === job.id);
+    // Standing interruptions keep their own native observation of the outcome.
+    if (
+      current?.status === "running" &&
+      current.revision === job.revision &&
+      !job.standingInterruption
+    )
+      this.replace({
+        ...current,
+        status: "failed",
+        detail: `No verified readiness within ${minutes} minutes of dispatch. The restart was not replayed; inspect the target before requesting another.`,
+      });
+    this.progress("Restart readiness deadline expired", { ...fields, minutes });
+    void execution.then(
+      (detail) =>
+        this.progress("Restart outcome arrived after its deadline and was not applied", {
+          ...fields,
+          detail,
+        }),
+      (error: unknown) =>
+        this.progress("Restart failed after its deadline", { ...fields, error: String(error) }),
+    );
   }
 
   private requiresInterruption(job: RestartJob): boolean {
@@ -2357,6 +2789,8 @@ export class InstallationRestarts {
         status: "approved",
         detail: "Waiting for the daemon to confirm it is idle before restarting.",
       });
+      if (!job.finishCurrentTurns && job.continuationCaptureRequested)
+        await this.releaseIdleContinuation(job);
     } else if (job.factoryRuntimePlanSha256) this.finishFactoryAdoption(job, detail);
     else if (job.supervisorPlanSha256) this.finishSupervisorMaintenance(job, detail);
     else this.replace({ ...job, status: "succeeded", detail });
@@ -2405,7 +2839,7 @@ export class InstallationRestarts {
     }
     if (job.update) {
       if (!this.executor.installUpdate) throw new Error("Source update executor unavailable");
-      return this.executor.installUpdate(job);
+      return this.executor.installUpdate(job, { serviceRestart: this.serviceRestartGranted(job) });
     }
     if (job.standingInterruption) {
       if (!this.executor.restartHeld)
@@ -2503,7 +2937,10 @@ export class InstallationRestarts {
     evidence?: MaintenanceServiceAdmissionEvidence,
   ): void {
     const remaining = new Map<string, LifecycleJob>(
-      [...jobs, ...helpers, ...monitors, ...services].map((job) => [job.id, job]),
+      [...jobs, ...helpers, ...monitors, ...services, ...this.sessionHosts].map((job) => [
+        job.id,
+        job,
+      ]),
     );
     const next: LifecycleJob[] = [];
     for (const previous of this.snapshot) {
@@ -2551,6 +2988,7 @@ export class InstallationRestarts {
       if (serviceCheckDue(job, this.now())) await this.observeService(job);
       return;
     }
+    if (this.jobs.some(continuationFenced)) return;
     // A linked successor must pass the same locked chain/exclusion admission.
     // Its exact uncertain ancestors necessarily make ordinary idle admission false.
     if (!job.proposal.recoveryOf && this.journal.admissionAvailable?.() === false) return;
@@ -2720,6 +3158,26 @@ export class InstallationRestarts {
     // fresh receipt when ordinary daemon progress writes the shared journal.
     return this.journal.read().filter(isMaintenanceService);
   }
+}
+
+function continuationId(job: RestartJob): string {
+  return job.continuationCaptureId ?? job.id;
+}
+
+/** A released capture needs no cause, and v689 strict journals reject the field. */
+function withoutCaptureId(job: RestartJob): RestartJob {
+  const { continuationCaptureId: _released, ...retained } = job;
+  return retained;
+}
+
+/** Only an undispatched or running continuation fences other lifecycle work. A
+ * terminal job keeps retrying its release without blocking unrelated recovery. */
+function continuationFenced(job: RestartJob): boolean {
+  return Boolean(
+    job.continuationCaptureRequested &&
+    !job.holdReleased &&
+    (job.status === "approved" || job.status === "running"),
+  );
 }
 
 function runningRestart(job: RestartJob): RestartJob {

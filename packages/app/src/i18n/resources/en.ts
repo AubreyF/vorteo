@@ -374,6 +374,7 @@ export const en = {
       empty: "No tasks yet.",
       tasksProgress: "{{completed}}/{{total}} tasks",
       activeCount: "{{count}} active",
+      blockedCount: "{{count}} blocked",
       activity: {
         created: "Created {{count}} tasks",
         added: "Added",
@@ -1878,12 +1879,19 @@ export const en = {
     archiveFinishedAction: "Clear finished",
     workersTitle: "Subagents",
     workersInfo:
-      "Separate agents managed by Vorteo. Their profile, model and reasoning settings appear below each task. Archive removes a worker from the active list; detach makes it an independent task.",
+      "Separate agents managed by Vorteo. Hover over or tap a worker to see its state, profile, model, reasoning setting and token use. Archive removes a worker from the active list; detach makes it an independent task.",
     providerTitle: "System sub-agents",
     providerInfo:
       "Created inside the coding provider’s session, outside Vorteo’s worker profile and concurrency controls. Model not reported means model metadata is missing. Dismiss hides finished children until this app reloads; it does not archive their sessions. Clear finished dismisses finished children in this section.",
     dismissAction: "Dismiss {{label}}",
     dismissTooltip: "Dismiss until the app reloads",
+    rowStatus: {
+      running: "Working",
+      needs_input: "Needs input",
+      failed: "Failed",
+      attention: "Ready to review",
+      done: "Idle",
+    },
     providerStatus: {
       running: "Working",
       completed: "Completed",
@@ -2000,6 +2008,19 @@ export const en = {
     tokens: "{{used}} / {{max}} tokens",
     sessionCost: "Session cost {{cost}}",
     accessibility: "Context window {{percentage}}% used",
+    breakdown: {
+      used: "Used",
+      free: "Free space",
+      totalsOnly: "This provider reports totals only.",
+      error: "Could not load the breakdown.",
+      overLimit: "{{tokens}} tokens over the window",
+      groups: {
+        mcpTools: "MCP tools",
+        memoryFiles: "Memory files",
+        skills: "Skills",
+        agents: "Custom agents",
+      },
+    },
   },
   review: {
     comment: {

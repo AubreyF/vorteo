@@ -23,9 +23,13 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 - **Keep your sidebar across devices.** Project and workspace order, expanded sections, grouping and filters follow you between connected devices. Offline edits sync after reconnection. Requires the updated Host daemon.
 
+- **Find any setting.** Settings is one scrolling page of eleven sections, led by what needs your attention. Search forgives typos, jumps to the exact row and shows whether a value belongs to this device, every environment or one environment. Accounts show their remaining quota, and every provider's profiles share one list. See [settings navigation and search](docs/vorteo-customizations.md#projects-devices-and-interface).
+
 - **Track a build across threads.** Each thread keeps its checklist beside the conversation when space allows, or below it in narrower layouts. The workspace flower combines task progress across its active threads, and planning instructions carry accepted checklist items into implementation. Updated daemons and clients also support agent tools and manual editing with dependencies and completion criteria. Blocked tasks explain their blocker, and eligible idle threads periodically check whether they can proceed. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
 
 - **Keep a decision journal.** Agents can record critical decisions and verified progress in a timestamped journal card. Entries are append-only and stay in their original order. Requires an updated daemon. See [thread journals](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
+
+- **Answer agents from anywhere.** When an agent is blocked on your decision, it asks an open question with a recommended answer. The left sidebar collects every thread's waiting questions across projects, labeled with their thread and project, so you can answer without opening each one. A Quota card beside them lists every account's remaining usage, with accounts that are failing or nearly out first. See [open questions](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
 
 - **Cross-device, server-managed message queuing.** Line up your task messages with files or images - then edit, reorder, pause, and send them from any connected device. The daemon in each environment will continue executing queued work even if your client is offline.
 
@@ -51,7 +55,11 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 <img width="400" alt="Protected and scheduled workspaces" src="https://github.com/user-attachments/assets/757352aa-a2e7-457d-b95f-7ded601444f7" />
 
+- **Tailor your own installation.** Every daemon keeps a protected Vorteo System project for its standing upkeep, such as the Optimization Runner, which agents and bulk actions cannot archive or move. Set up Vorteo source from Maintenance settings to clone your installation's own source into the project, then branch from it to change Vorteo itself; changes go live through your reviewed source update. Requires the updated daemon. See [Vorteo System project](docs/system-project.md).
+
 - **Run tasks in either environment within one workspace.** Choose Host or Dev container in a new task while retaining draft text and uploaded files. Task tabs identify their environment; mapped directories and remembered folder choices keep later tasks in the same visible workspace. Updated daemons are required.
+
+- **Let agents use a browser.** Enable the Host or Dev daemon's headless Chromium, or run `paseo browser host`, so agents can open pages, read them, click and take screenshots. Dev's browser runs inside the container. It starts with an empty profile and never touches your logged-in browser state. It cannot reach this machine, your private networks or your tailnet unless you allow a specific address or preview port range, and it always refuses origins you deny, such as the protected interface. See [browser tools for Host agents](docs/execution-installation.md#browser-tools-for-host-agents).
 
 See the [Vorteo customizations](docs/vorteo-customizations.md) for the full feature inventory and the [Vorteo changelog](VORTEO_CHANGELOG.md) for changes by version.
 

@@ -176,6 +176,14 @@ export const RestartSummarySchema = z.object({
       recovery: z.number().int().nonnegative(),
     })
     .optional(),
+  // Session host job counts. Optional, so older clients still parse the summary.
+  sessionHost: z
+    .object({
+      requested: z.number().int().nonnegative(),
+      queued: z.number().int().nonnegative(),
+      running: z.number().int().nonnegative(),
+    })
+    .optional(),
   requested: z.number().int().nonnegative(),
   queued: z.number().int().nonnegative(),
   running: z.number().int().nonnegative(),
@@ -436,6 +444,14 @@ export const RestartJobSchema = RestartRequestSchema.extend({
   whenIdle: z.boolean().optional(),
   finishCurrentTurns: z.boolean().optional(),
   holdReleased: z.boolean().optional(),
+  continuationCaptureRequested: z.boolean().optional(),
+  // COMPAT(delegatedRequests): reply-only, sent only to clients that request it; never journaled.
+  delegatedTo: z.string().max(200).optional(),
+  /** A delegated request still unapproved after its grace window; the owner is prompted. */
+  delegationOverdue: z.string().max(200).optional(),
+  // Idle-only restarts capture under a fresh cause per dispatch attempt, so a
+  // released attempt never fences a later one. Absent means the job id.
+  continuationCaptureId: z.string().uuid().optional(),
   approvedAt: z.string().datetime().optional(),
   impact: RestartImpactSchema.optional(),
 });

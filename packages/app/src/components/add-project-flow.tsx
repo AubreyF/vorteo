@@ -1,11 +1,18 @@
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
-import { Button } from "./ui/button";
-import { ProjectDirectoryBrowser } from "./project-directory-browser";
 import { router } from "expo-router";
-import type { WorkspaceProjectDescriptorPayload } from "@getpaseo/protocol/messages";
+import type {
+  ProjectDirectoryBrowsePayload,
+  WorkspaceProjectDescriptorPayload,
+} from "@getpaseo/protocol/messages";
 import {
   ArrowLeft,
+  ArrowUp,
+  ChevronRight,
+  CornerDownRight,
+  Eye,
+  EyeOff,
   Folder,
+  FolderCheck,
   FolderOpen,
   FolderPlus,
   HardDrive,
@@ -39,11 +46,13 @@ import { GitHubIcon } from "@/components/icons/github-icon";
 import {
   applyAvailableAddProjectHosts,
   backAddProjectPage,
+  browseAddProjectFolder,
   chooseAddProjectHost,
   currentAddProjectPage,
   moveAddProjectSelection,
   openAddProjectFlow,
   openDirectorySearchPage,
+  openFolderBrowserPage,
   openGithubLocationPage,
   openGithubSearchPage,
   openNewDirectoryNamePage,
@@ -55,8 +64,23 @@ import {
   type AddProjectFlowState,
   type AddProjectHost,
   type AddProjectPage,
+  type FolderBrowserPagePurpose,
   type GithubRepositoryChoice,
 } from "@/add-project-flow/model";
+import {
+  buildFolderBrowserRows,
+  createFolderErrorText,
+  folderBrowserEmptyText,
+  folderBrowserPlaceholder,
+  folderBrowserSearchQuery,
+  folderLocationLabel,
+  isTopLevelRequest,
+  parentRequest,
+  validateFolderName,
+  type FolderBrowseRequest,
+  type FolderBrowserPurpose,
+  type FolderBrowserRow,
+} from "@/add-project-flow/folder-browser";
 import {
   buildAddProjectMethods,
   addProjectMethodEmptyText,
@@ -91,7 +115,7 @@ import {
   useHostRuntimeClient,
   useHostRuntimeConnectionStatuses,
 } from "@/runtime/host-runtime";
-import { useHostFeature, useHostFeatureMap } from "@/runtime/host-features";
+import { useHostFeatureMap } from "@/runtime/host-features";
 import { useSessionStore } from "@/stores/session-store";
 import { useRecommendedProjectPaths } from "@/stores/session-store-hooks";
 import type { AddProjectFlowRequest } from "@/stores/add-project-flow-store";
@@ -113,8 +137,6 @@ interface FlowRowOption {
   testID: string;
   select: () => void;
 }
-
-type GithubLocationPage = Extract<AddProjectPage, { kind: "github-location" }>;
 
 interface FlowIconProps {
   icon: ComponentType<{ size?: number; color?: string }>;
@@ -138,10 +160,14 @@ const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foregrou
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const lastCloneParentByHost = new Map<string, string>();
+// The folder browser reopens where the owner last opened, created or cloned.
+const lastFolderRequestByHost = new Map<string, FolderBrowseRequest>();
 const EMPTY_PATHS: string[] = [];
 const NAVIGATION_HINT_KEYS = ["Up", "Down"];
 const SELECT_HINT_KEYS = ["Enter"];
 const ESCAPE_HINT_KEYS = ["Esc"];
+const OPEN_FOLDER_HINT_KEYS = ["Right"];
+const UP_FOLDER_HINT_KEYS = ["Backspace"];
 
 function FlowBackButton({ onPress }: { onPress: () => void }) {
   return (
@@ -163,9 +189,43 @@ function FlowBackButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+interface LocationButtonProps {
+  icon: ComponentType<{ size?: number; color?: string }>;
+  label: string;
+  disabled: boolean;
+  onPress: () => void;
+  testID: string;
+}
+
+function LocationButton({ icon, label, disabled, onPress, testID }: LocationButtonProps) {
+  const accessibilityState = useMemo(() => ({ disabled }), [disabled]);
+  const buttonStyle = useCallback(
+    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.locationButton,
+      (hovered || pressed) && !disabled && styles.rowActive,
+      disabled && styles.disabled,
+    ],
+    [disabled],
+  );
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={6}
+      style={buttonStyle}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={accessibilityState}
+      testID={testID}
+    >
+      <MutedFlowIcon icon={icon} size={16} />
+    </Pressable>
+  );
+}
+
 function methodIcon(method: AddProjectMethodId): FlowRowOption["icon"] {
   if (method === "github") return GitHubIcon;
-  if (method === "browse") return FolderOpen;
+  if (method === "browse" || method === "open-folder") return FolderOpen;
   if (method === "new-directory") return FolderPlus;
   return Search;
 }
@@ -179,7 +239,91 @@ function directoryOptionSubtitle(option: ProjectPickerOption, shortPath: string)
 function progressText(page: AddProjectPage): string {
   if (page.kind === "github-location") return "Cloning project...";
   if (page.kind === "new-directory-name") return "Creating directory...";
+  if (page.kind === "folder-browser" && page.purpose.kind === "clone") return "Cloning project...";
+  if (page.kind === "folder-browser" && page.purpose.kind === "create") return "Creating folder...";
   return "Adding project...";
+}
+
+function folderBrowserPurpose(purpose: FolderBrowserPagePurpose): FolderBrowserPurpose {
+  return purpose.kind === "clone"
+    ? { kind: "clone", repositoryName: pathBaseName(purpose.repository.nameWithOwner) }
+    : purpose;
+}
+
+function folderRowIcon(row: FolderBrowserRow, purpose: FolderBrowserPagePurpose) {
+  switch (row.kind) {
+    case "location":
+      return row.id.startsWith("root:") ? HardDrive : Folder;
+    case "folder":
+      return Folder;
+    case "use-current":
+      return purpose.kind === "clone" ? GitHubIcon : FolderCheck;
+    case "create":
+      return FolderPlus;
+    case "go-to":
+      return CornerDownRight;
+    case "page":
+      return ChevronRight;
+    case "open-path":
+      return purpose.kind === "open" ? FolderCheck : Folder;
+    case "create-at-path":
+      return FolderPlus;
+    case "clone-at-path":
+      return GitHubIcon;
+    case "search-result":
+      return Folder;
+  }
+}
+
+function folderRowTestId(row: FolderBrowserRow): string {
+  switch (row.kind) {
+    case "use-current":
+      return "add-project-flow-use-folder";
+    case "create":
+      return "add-project-flow-create-folder";
+    case "go-to":
+      return "add-project-flow-go-to";
+    case "page":
+      return `add-project-flow-${row.id.replace(":", "-")}`;
+    case "folder":
+      return `add-project-flow-folder-${encodeURIComponent(row.title)}`;
+    case "location":
+      return `add-project-flow-location-${encodeURIComponent(row.id)}`;
+    case "open-path":
+      return pathTestId(row.path);
+    case "create-at-path":
+      return "add-project-flow-create-at-path";
+    case "clone-at-path":
+      return "add-project-flow-clone-at-path";
+    case "search-result":
+      return `add-project-flow-search-${encodeURIComponent(row.id)}`;
+  }
+}
+
+// Right Arrow only moves into a location; it never opens, creates or clones.
+function folderRowEntersFolder(rowId: string): boolean {
+  return /^(root|recent|folder|search):/u.test(rowId);
+}
+
+// The current folder's own name leads; its full path follows on a muted line,
+// where truncation cannot hide where the owner is.
+function locationName(title: string): string {
+  const trimmed = title.replace(/[\\/]+$/u, "") || title;
+  const index = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return index < 0 || index === trimmed.length - 1 ? trimmed : trimmed.slice(index + 1);
+}
+
+function folderRowSubtitle(row: FolderBrowserRow): string | null {
+  if (
+    row.kind === "location" ||
+    row.kind === "use-current" ||
+    row.kind === "create" ||
+    row.kind === "create-at-path" ||
+    row.kind === "clone-at-path"
+  ) {
+    return row.subtitle;
+  }
+  return null;
 }
 
 function emptyText(page: AddProjectPage, host: AddProjectHost | null): string {
@@ -225,6 +369,10 @@ function pageTitle(page: AddProjectPage): string {
       return "Choose parent directory";
     case "new-directory-name":
       return "Name directory";
+    case "folder-browser":
+      if (page.purpose.kind === "open") return "Open a folder";
+      if (page.purpose.kind === "create") return "New project folder";
+      return `Clone ${page.purpose.repository.nameWithOwner}`;
   }
 }
 
@@ -243,6 +391,11 @@ function pagePlaceholder(page: AddProjectInputPage): string {
       return "Search parent directories or enter a path...";
     case "new-directory-name":
       return "Directory name";
+    case "folder-browser":
+      return folderBrowserPlaceholder(
+        folderBrowserPurpose(page.purpose),
+        isTopLevelRequest(page.request),
+      );
   }
 }
 
@@ -330,6 +483,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
   const githubSearchByHost = useHostFeatureMap(hostIds, "workspaceGithubRepositorySearch");
   // COMPAT(projectCreateDirectory): added in v0.1.108, remove gate after 2027-01-15.
   const createDirectoryByHost = useHostFeatureMap(hostIds, "projectCreateDirectory");
+  const browseFoldersByHost = useHostFeatureMap(hostIds, "projectDirectoryBrowsing");
   const localServerId = useLocalDaemonServerId();
   const availableHosts = useMemo<AddProjectHost[]>(
     () =>
@@ -344,6 +498,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
             label: host.label,
             canAddProject,
             canBrowse: canAddProject && getIsElectronRuntime() && localServerId === host.serverId,
+            canBrowseFolders: canAddProject && browseFoldersByHost.get(host.serverId) === true,
             canCloneGithubRepositories: githubCloneByHost.get(host.serverId) === true,
             canSearchGithubRepositories: githubSearchByHost.get(host.serverId) === true,
             canCreateDirectory: createDirectoryByHost.get(host.serverId) === true,
@@ -351,6 +506,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         ];
       }),
     [
+      browseFoldersByHost,
       connectionStatuses,
       createDirectoryByHost,
       githubCloneByHost,
@@ -372,8 +528,6 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
   const host = hostId ? state.hosts.find((candidate) => candidate.serverId === hostId) : null;
   const client = useHostRuntimeClient(hostId ?? "");
   const isLocalDaemon = useIsLocalDaemon(hostId ?? "");
-  const canBrowseDirectories = useHostFeature(hostId, "projectDirectoryBrowsing");
-  const [browserActive, setBrowserActive] = useState(false);
   const recommendedPaths = useRecommendedProjectPaths(hostId);
   const openProject = useOpenProject(hostId);
   const cloneGithubProject = useCloneGithubProject(hostId);
@@ -390,7 +544,11 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
   const inputRef = useRef<EditingTextInputHandle>(null);
   const submissionInFlightRef = useRef(false);
   const browseInFlightRef = useRef(false);
-  const query = page.kind === "new-directory-name" || page.kind === "method" ? "" : page.query;
+  // Inside a folder the browser filters loaded children locally; only its
+  // top-level list runs the daemon's directory search.
+  let query = "";
+  if (page.kind === "folder-browser") query = folderBrowserSearchQuery(page.request, page.query);
+  else if (page.kind !== "new-directory-name" && page.kind !== "method") query = page.query;
   const pageInputValueRef = useRef(page.kind === "method" ? "" : pageInput(page));
   pageInputValueRef.current = page.kind === "method" ? "" : pageInput(page);
   const [debouncedQuery, setDebouncedQuery] = useState(query);
@@ -406,17 +564,19 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     return () => clearTimeout(timer);
   }, [query]);
 
+  // Entering another folder clears the filter, so the input follows the location too.
+  const folderLocationKey = page.kind === "folder-browser" ? JSON.stringify(page.request) : "";
   useEffect(() => {
     inputRef.current?.replaceText(pageInputValueRef.current);
     const timer = setTimeout(() => inputRef.current?.focus(), 0);
     return () => clearTimeout(timer);
-  }, [page.kind]);
+  }, [page.kind, folderLocationKey]);
 
   const searchesDirectories =
     page.kind === "directory-search" ||
     page.kind === "github-location" ||
-    page.kind === "new-directory-parent";
-  const usesDirectoryBrowser = canBrowseDirectories && browserActive && searchesDirectories;
+    page.kind === "new-directory-parent" ||
+    (page.kind === "folder-browser" && query !== "");
   const directoryQuery = useFetchQuery({
     queryKey: ["add-project-flow-directories", hostId, debouncedQuery],
     queryFn: async () => {
@@ -435,7 +595,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
           [],
       };
     },
-    enabled: Boolean(client && searchesDirectories && !usesDirectoryBrowser),
+    enabled: Boolean(client && searchesDirectories),
     dataShape: "value",
     retry: false,
     staleTimeMs: 15_000,
@@ -452,6 +612,32 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     retry: false,
     staleTimeMs: 15_000,
   });
+
+  const folderRequest = page.kind === "folder-browser" ? page.request : null;
+  const folderQuery = useFetchQuery({
+    queryKey: ["add-project-flow-folders", hostId, folderRequest],
+    queryFn: async () => {
+      if (!client || !folderRequest) throw new Error("Host is unavailable");
+      return client.browseProjectDirectories(folderRequest);
+    },
+    enabled: Boolean(client && folderRequest),
+    dataShape: "value",
+    retry: false,
+    staleTimeMs: 5_000,
+  });
+  // Keep the previous listing on screen while the next folder loads.
+  const [settledFolder, setSettledFolder] = useState<{
+    hostId: string;
+    payload: ProjectDirectoryBrowsePayload;
+  } | null>(null);
+  useEffect(() => {
+    if (hostId && folderQuery.data) setSettledFolder({ hostId, payload: folderQuery.data });
+  }, [folderQuery.data, hostId]);
+  const folderPayload = folderRequest
+    ? (folderQuery.data ?? (settledFolder?.hostId === hostId ? settledFolder.payload : null))
+    : null;
+  const folderDirectory = folderPayload?.directory ?? null;
+  const folderLoading = folderRequest !== null && folderQuery.isFetching;
 
   const handleBack = useCallback(() => {
     setState((current) => {
@@ -478,7 +664,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
   );
 
   const openAddedProject = useCallback(
-    async (path: string, sourceKind: "directory-search" | "method") => {
+    async (path: string, sourceKind: "directory-search" | "method" | "folder-browser") => {
       if (!hostId || submissionInFlightRef.current) return;
       submissionInFlightRef.current = true;
       setState((current) =>
@@ -487,6 +673,9 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
       try {
         const result = await openProject(path);
         if (result.ok) {
+          if (sourceKind === "folder-browser" && folderDirectory) {
+            lastFolderRequestByHost.set(hostId, parentRequest(folderDirectory) ?? {});
+          }
           openNewWorkspaceForProject(hostId, result.project);
           return;
         }
@@ -508,7 +697,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         submissionInFlightRef.current = false;
       }
     },
-    [hostId, openNewWorkspaceForProject, openProject],
+    [folderDirectory, hostId, openNewWorkspaceForProject, openProject],
   );
 
   const browse = useCallback(async () => {
@@ -529,8 +718,14 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
   const selectMethod = useCallback(
     (method: AddProjectMethodId) => {
       if (!hostId) return;
-      setBrowserActive(false);
-      if (method === "directory-search") {
+      const lastFolder = lastFolderRequestByHost.get(hostId) ?? {};
+      if (method === "open-folder") {
+        setState((current) => openFolderBrowserPage(current, hostId, { kind: "open" }, lastFolder));
+      } else if (method === "new-directory" && host?.canBrowseFolders) {
+        setState((current) =>
+          openFolderBrowserPage(current, hostId, { kind: "create" }, lastFolder),
+        );
+      } else if (method === "directory-search") {
         setState((current) => openDirectorySearchPage(current, hostId));
       } else if (method === "browse") {
         void browse();
@@ -540,7 +735,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         setState((current) => openNewDirectoryParentPage(current, hostId));
       }
     },
-    [browse, hostId],
+    [browse, host?.canBrowseFolders, hostId],
   );
 
   const directoryPaths = useMemo(
@@ -557,32 +752,39 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     [directoryPaths, query, recommendedPaths],
   );
   const cloneRepository = useCallback(
-    async (locationPage: GithubLocationPage, parentPath: string) => {
+    async (input: {
+      hostId: string;
+      repository: GithubRepositoryChoice;
+      parentPath: string;
+      statusKind: "github-location" | "folder-browser";
+      rememberFolder?: FolderBrowseRequest;
+    }) => {
       if (submissionInFlightRef.current) return;
       submissionInFlightRef.current = true;
       setState((current) =>
-        setPageStatus(current, "github-location", { isSubmitting: true, error: null }),
+        setPageStatus(current, input.statusKind, { isSubmitting: true, error: null }),
       );
       try {
         const result = await cloneGithubProject(
-          locationPage.repository.cloneUrl,
-          parentPath,
-          locationPage.repository.cloneProtocol,
+          input.repository.cloneUrl,
+          input.parentPath,
+          input.repository.cloneProtocol,
         );
         if (result.ok) {
-          lastCloneParentByHost.set(locationPage.hostId, parentPath);
-          openNewWorkspaceForProject(locationPage.hostId, result.project);
+          lastCloneParentByHost.set(input.hostId, input.parentPath);
+          if (input.rememberFolder) lastFolderRequestByHost.set(input.hostId, input.rememberFolder);
+          openNewWorkspaceForProject(input.hostId, result.project);
           return;
         }
         setState((current) =>
-          setPageStatus(current, "github-location", {
+          setPageStatus(current, input.statusKind, {
             isSubmitting: false,
             error: result.error ?? "Unable to clone repository",
           }),
         );
       } catch (error) {
         setState((current) =>
-          setPageStatus(current, "github-location", {
+          setPageStatus(current, input.statusKind, {
             isSubmitting: false,
             error: error instanceof Error ? error.message : "Unable to clone repository",
           }),
@@ -592,6 +794,159 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
       }
     },
     [cloneGithubProject, openNewWorkspaceForProject],
+  );
+  const createFolder = useCallback(
+    async (input: {
+      hostId: string;
+      parentPath: string;
+      name: string;
+      statusKind: "new-directory-name" | "folder-browser";
+      rememberFolder?: FolderBrowseRequest;
+    }) => {
+      if (!client) return;
+      const name = input.name.trim();
+      const invalid = validateFolderName(name);
+      if (invalid) {
+        setState((current) => setPageStatus(current, input.statusKind, { error: invalid }));
+        return;
+      }
+      if (submissionInFlightRef.current) return;
+      submissionInFlightRef.current = true;
+      setState((current) =>
+        setPageStatus(current, input.statusKind, { isSubmitting: true, error: null }),
+      );
+      try {
+        const payload = await client.createProjectDirectory({
+          parentPath: input.parentPath,
+          name,
+        });
+        if (payload.error || !payload.project) {
+          // Browsed locations hide container paths, so their errors do too.
+          const error =
+            input.statusKind === "folder-browser"
+              ? createFolderErrorText({ errorCode: payload.errorCode, error: payload.error, name })
+              : (payload.error ?? "Unable to create directory");
+          setState((current) =>
+            setPageStatus(current, input.statusKind, { isSubmitting: false, error }),
+          );
+          return;
+        }
+        if (input.rememberFolder) lastFolderRequestByHost.set(input.hostId, input.rememberFolder);
+        registerProjectDescriptor({
+          serverId: input.hostId,
+          project: payload.project,
+          upsertProject,
+          setHasHydratedWorkspaces,
+        });
+        openNewWorkspaceForProject(input.hostId, payload.project);
+      } catch {
+        setState((current) =>
+          setPageStatus(current, input.statusKind, {
+            isSubmitting: false,
+            error: "Unable to create folder",
+          }),
+        );
+      } finally {
+        submissionInFlightRef.current = false;
+      }
+    },
+    [client, openNewWorkspaceForProject, setHasHydratedWorkspaces, upsertProject],
+  );
+  const navigateFolder = useCallback(
+    (target: FolderBrowseRequest) => {
+      if (page.kind !== "folder-browser") return;
+      const showHidden = page.request.showHidden;
+      setState((current) =>
+        browseAddProjectFolder(current, showHidden ? { ...target, showHidden } : target),
+      );
+    },
+    [page],
+  );
+  const goUpFolder = useCallback(() => {
+    if (page.kind !== "folder-browser" || !folderDirectory) return;
+    navigateFolder(parentRequest(folderDirectory) ?? {});
+  }, [folderDirectory, navigateFolder, page.kind]);
+  const toggleHiddenFolders = useCallback(() => {
+    setState((current) =>
+      updateCurrentAddProjectPage(current, (currentPage) =>
+        currentPage.kind === "folder-browser"
+          ? {
+              ...currentPage,
+              activeIndex: 0,
+              request: {
+                ...currentPage.request,
+                offset: 0,
+                showHidden: !currentPage.request.showHidden,
+              },
+            }
+          : currentPage,
+      ),
+    );
+  }, []);
+  const selectFolderRow = useCallback(
+    (row: FolderBrowserRow) => {
+      if (page.kind !== "folder-browser") return;
+      if (row.kind === "open-path") {
+        void openAddedProject(row.path, "folder-browser");
+        return;
+      }
+      if (row.kind === "create-at-path") {
+        void createFolder({
+          hostId: page.hostId,
+          parentPath: row.parentPath,
+          name: row.name,
+          statusKind: "folder-browser",
+        });
+        return;
+      }
+      if (row.kind === "clone-at-path") {
+        if (page.purpose.kind !== "clone") return;
+        void cloneRepository({
+          hostId: page.hostId,
+          repository: page.purpose.repository,
+          parentPath: row.parentPath,
+          statusKind: "folder-browser",
+        });
+        return;
+      }
+      if (
+        row.kind === "location" ||
+        row.kind === "folder" ||
+        row.kind === "go-to" ||
+        row.kind === "page" ||
+        row.kind === "search-result"
+      ) {
+        navigateFolder(row.target);
+        return;
+      }
+      if (!folderDirectory) return;
+      const here: FolderBrowseRequest = {
+        rootId: folderDirectory.rootId,
+        path: folderDirectory.path,
+      };
+      if (row.kind === "create") {
+        void createFolder({
+          hostId: page.hostId,
+          parentPath: folderDirectory.containerPath,
+          name: row.name,
+          statusKind: "folder-browser",
+          rememberFolder: here,
+        });
+        return;
+      }
+      if (page.purpose.kind === "clone") {
+        void cloneRepository({
+          hostId: page.hostId,
+          repository: page.purpose.repository,
+          parentPath: folderDirectory.containerPath,
+          statusKind: "folder-browser",
+          rememberFolder: here,
+        });
+        return;
+      }
+      void openAddedProject(folderDirectory.containerPath, "folder-browser");
+    },
+    [cloneRepository, createFolder, folderDirectory, navigateFolder, openAddedProject, page],
   );
   const rows = useMemo<FlowRowOption[]>(() => {
     if (page.kind === "host") {
@@ -622,31 +977,15 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     }
     if (page.kind === "method") {
       if (!host) return [];
-      const methods: FlowRowOption[] = buildAddProjectMethods(host).map((method) => ({
+      return buildAddProjectMethods(host).map((method) => ({
         id: method.id,
-        title:
-          canBrowseDirectories && method.id === "directory-search"
-            ? "Search container directories"
-            : method.label,
+        title: method.label,
         subtitle: method.description,
         icon: methodIcon(method.id),
         disabled: method.disabled,
         testID: `add-project-flow-method-${method.id}`,
         select: () => selectMethod(method.id),
       }));
-      if (canBrowseDirectories)
-        methods.unshift({
-          id: "shared-folders",
-          title: "Browse host folders",
-          subtitle: "Shared host folders and container storage",
-          icon: FolderOpen,
-          testID: "add-project-flow-method-shared-folders",
-          select: () => {
-            setBrowserActive(true);
-            setState((current) => openDirectorySearchPage(current, page.hostId));
-          },
-        });
-      return methods;
     }
     if (page.kind === "directory-search") {
       return pathOptions.map((option) => {
@@ -683,7 +1022,16 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         icon: GitHubIcon,
         testID: `add-project-flow-repository-${repository.id}`,
         select: () =>
-          setState((current) => openGithubLocationPage(current, page.hostId, repository)),
+          setState((current) =>
+            host?.canBrowseFolders
+              ? openFolderBrowserPage(
+                  current,
+                  page.hostId,
+                  { kind: "clone", repository },
+                  lastFolderRequestByHost.get(page.hostId) ?? {},
+                )
+              : openGithubLocationPage(current, page.hostId, repository),
+          ),
       }));
     }
     if (page.kind === "github-location") {
@@ -709,7 +1057,13 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         icon: HardDrive,
         disabled: option.disabled,
         testID: pathTestId(option.displayPath),
-        select: () => void cloneRepository(page, option.path),
+        select: () =>
+          void cloneRepository({
+            hostId: page.hostId,
+            repository: page.repository,
+            parentPath: option.path,
+            statusKind: "github-location",
+          }),
       }));
     }
     if (page.kind === "new-directory-parent") {
@@ -723,11 +1077,29 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
           setState((current) => openNewDirectoryNamePage(current, page.hostId, option.path)),
       }));
     }
+    if (page.kind === "folder-browser") {
+      return buildFolderBrowserRows({
+        purpose: folderBrowserPurpose(page.purpose),
+        payload: folderPayload,
+        request: page.request,
+        filter: page.query,
+        recentProjectPaths: recommendedPaths,
+        searchResults: directoryPaths,
+      }).map((row) => ({
+        id: row.id,
+        title: row.title,
+        subtitle: folderRowSubtitle(row),
+        icon: folderRowIcon(row, page.purpose),
+        disabled: row.kind === "use-current" && row.disabled,
+        testID: folderRowTestId(row),
+        select: () => selectFolderRow(row),
+      }));
+    }
     return [];
   }, [
-    canBrowseDirectories,
     cloneRepository,
     directoryPaths,
+    folderPayload,
     githubQuery.data,
     host,
     onClose,
@@ -735,77 +1107,32 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     page,
     pathOptions,
     recommendedPaths,
+    selectFolderRow,
     selectMethod,
     state.hosts,
   ]);
 
-  const toggleDirectoryBrowser = useCallback(() => setBrowserActive((active) => !active), []);
-  const selectBrowsedDirectory = useCallback(
-    (directory: string) => {
-      if (page.kind === "directory-search") void openAddedProject(directory, "directory-search");
-      else if (page.kind === "new-directory-parent")
-        setState((current) => openNewDirectoryNamePage(current, page.hostId, directory));
-      else if (page.kind === "github-location") void cloneRepository(page, directory);
-    },
-    [page, openAddedProject, cloneRepository],
-  );
-
   const activeIndex = rows.length === 0 ? 0 : Math.min(page.activeIndex, rows.length - 1);
-  const createDirectory = useCallback(async () => {
-    if (page.kind !== "new-directory-name" || !client) return;
-    const name = page.name.trim();
-    if (!name || name === "." || name === ".." || /[\\/]/.test(name)) {
-      setState((current) =>
-        setPageStatus(current, "new-directory-name", { error: "Enter a directory name" }),
-      );
-      return;
-    }
-    if (submissionInFlightRef.current) return;
-    submissionInFlightRef.current = true;
-    setState((current) =>
-      setPageStatus(current, "new-directory-name", { isSubmitting: true, error: null }),
-    );
-    try {
-      const payload = await client.createProjectDirectory({
-        parentPath: page.parentPath,
-        name,
-      });
-      if (payload.error || !payload.project) {
-        setState((current) =>
-          setPageStatus(current, "new-directory-name", {
-            isSubmitting: false,
-            error: payload.error ?? "Unable to create directory",
-          }),
-        );
-        return;
-      }
-      registerProjectDescriptor({
-        serverId: page.hostId,
-        project: payload.project,
-        upsertProject,
-        setHasHydratedWorkspaces,
-      });
-      openNewWorkspaceForProject(page.hostId, payload.project);
-    } catch {
-      setState((current) =>
-        setPageStatus(current, "new-directory-name", {
-          isSubmitting: false,
-          error: "Unable to create directory",
-        }),
-      );
-    } finally {
-      submissionInFlightRef.current = false;
-    }
-  }, [client, openNewWorkspaceForProject, page, setHasHydratedWorkspaces, upsertProject]);
+  const createDirectory = useCallback(() => {
+    if (page.kind !== "new-directory-name") return;
+    void createFolder({
+      hostId: page.hostId,
+      parentPath: page.parentPath,
+      name: page.name,
+      statusKind: "new-directory-name",
+    });
+  }, [createFolder, page]);
 
   const submitActive = useCallback(() => {
     if (page.kind === "new-directory-name") {
-      void createDirectory();
+      createDirectory();
       return;
     }
+    // Rows may still describe the previous folder until the next one loads.
+    if (folderLoading) return;
     const option = rows[activeIndex];
     if (option && !option.disabled) option.select();
-  }, [activeIndex, createDirectory, page.kind, rows]);
+  }, [activeIndex, createDirectory, folderLoading, page.kind, rows]);
 
   const handleKey = useCallback(
     (key: string): boolean => {
@@ -813,7 +1140,18 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         handleBack();
         return true;
       }
-      if (usesDirectoryBrowser) return false;
+      if (page.kind === "folder-browser" && !page.query) {
+        // With an empty filter, Backspace and Left go up and Right enters a folder.
+        if (key === "Backspace" || key === "ArrowLeft") {
+          goUpFolder();
+          return true;
+        }
+        if (key === "ArrowRight") {
+          const option = rows[activeIndex];
+          if (option && folderRowEntersFolder(option.id)) option.select();
+          return true;
+        }
+      }
       if (key === "Enter") {
         submitActive();
         return true;
@@ -827,7 +1165,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
       setState((current) => setAddProjectActiveIndex(current, next));
       return true;
     },
-    [activeIndex, handleBack, rows, submitActive, usesDirectoryBrowser],
+    [activeIndex, goUpFolder, handleBack, page, rows, submitActive],
   );
 
   const modalLayer = useGlobalWebOverlayLayer("modal", isWeb);
@@ -847,7 +1185,14 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
 
   const handleNativeKeyPress = useCallback(
     ({ nativeEvent: { key } }: { nativeEvent: { key: string } }) => {
-      if (key === "ArrowDown" || key === "ArrowUp" || key === "Escape") {
+      if (
+        key === "ArrowDown" ||
+        key === "ArrowUp" ||
+        key === "Escape" ||
+        key === "Backspace" ||
+        key === "ArrowLeft" ||
+        key === "ArrowRight"
+      ) {
         handleKey(key);
       }
     },
@@ -867,19 +1212,34 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
       ? githubQuery.data.payload
       : null;
   const loading =
-    (searchesDirectories &&
-      !usesDirectoryBrowser &&
-      (query !== debouncedQuery || directoryQuery.isFetching)) ||
+    (searchesDirectories && (query !== debouncedQuery || directoryQuery.isFetching)) ||
+    (folderLoading && !folderPayload) ||
     (page.kind === "github-search" &&
       host?.canSearchGithubRepositories === true &&
       (query !== debouncedQuery || githubQuery.isFetching));
-  const queryError = queryErrorText({
-    searchesDirectories: searchesDirectories && !usesDirectoryBrowser,
-    directoryFailed: directoryQuery.isError,
-    githubFailed: page.kind === "github-search" && githubQuery.isError,
-    githubAvailable: currentGithubSearch?.available ?? null,
-    githubError: currentGithubSearch?.error ?? null,
-  });
+  let folderError: string | null = null;
+  if (folderQuery.isError) folderError = "Unable to list folders";
+  else if (!folderLoading) folderError = folderPayload?.error ?? null;
+  const queryError =
+    folderError ??
+    queryErrorText({
+      searchesDirectories,
+      directoryFailed: directoryQuery.isError,
+      githubFailed: page.kind === "github-search" && githubQuery.isError,
+      githubAvailable: currentGithubSearch?.available ?? null,
+      githubError: currentGithubSearch?.error ?? null,
+    });
+  const folderLocation =
+    page.kind === "folder-browser" && folderDirectory && folderPayload
+      ? folderLocationLabel(folderPayload.roots, folderDirectory)
+      : null;
+  // A container without shared folders cannot reach the owner's computer at all.
+  const showShareHint =
+    page.kind === "folder-browser" &&
+    !folderDirectory &&
+    folderPayload !== null &&
+    folderPayload.roots.length > 0 &&
+    folderPayload.roots.every((root) => root.hostPath === null);
   const preview =
     page.kind === "new-directory-name" && page.name.trim()
       ? joinDirectoryPath(page.parentPath, page.name.trim())
@@ -900,9 +1260,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
               {state.pages.length > 1 ? <FlowBackButton onPress={handleBack} /> : null}
               <View style={styles.titleGroup} testID="add-project-flow-title">
                 <Text style={styles.title} numberOfLines={1}>
-                  {usesDirectoryBrowser && page.kind === "directory-search"
-                    ? "Browse folders"
-                    : pageTitle(page)}
+                  {pageTitle(page)}
                 </Text>
                 {host ? (
                   <Text style={styles.hostContext} numberOfLines={1}>
@@ -928,7 +1286,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
                 testID="add-project-flow-keyboard-capture"
               />
             ) : null}
-            {page.kind !== "method" && !usesDirectoryBrowser ? (
+            {page.kind !== "method" ? (
               <ThemedTextInput
                 ref={inputRef}
                 initialValue={pageInput(page)}
@@ -944,6 +1302,36 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
                 testID="add-project-flow-input"
               />
             ) : null}
+            {page.kind === "folder-browser" ? (
+              <View style={styles.locationBar} testID="add-project-flow-location">
+                <LocationButton
+                  icon={ArrowUp}
+                  label="Up one folder"
+                  disabled={!folderDirectory || isSubmitting}
+                  onPress={goUpFolder}
+                  testID="add-project-flow-up"
+                />
+                <View style={styles.locationText} testID="add-project-flow-location-title">
+                  <Text style={styles.locationTitle} numberOfLines={1}>
+                    {folderLocation ? locationName(folderLocation.title) : "Locations"}
+                  </Text>
+                  {folderLocation ? (
+                    <Text style={styles.locationDetail} numberOfLines={1}>
+                      {folderLocation.detail
+                        ? `${folderLocation.detail} · ${folderLocation.title}`
+                        : folderLocation.title}
+                    </Text>
+                  ) : null}
+                </View>
+                <LocationButton
+                  icon={page.request.showHidden ? EyeOff : Eye}
+                  label={page.request.showHidden ? "Hide hidden folders" : "Show hidden folders"}
+                  disabled={!folderDirectory || isSubmitting}
+                  onPress={toggleHiddenFolders}
+                  testID="add-project-flow-toggle-hidden"
+                />
+              </View>
+            ) : null}
           </View>
           <ScrollView
             style={styles.results}
@@ -952,28 +1340,6 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
             showsVerticalScrollIndicator={false}
             testID="add-project-flow-results"
           >
-            {canBrowseDirectories && searchesDirectories && !isSubmitting ? (
-              <Button
-                variant="ghost"
-                onPress={toggleDirectoryBrowser}
-                testID="add-project-toggle-browser"
-              >
-                {usesDirectoryBrowser ? "Search container directories" : "Browse host folders"}
-              </Button>
-            ) : null}
-            {canBrowseDirectories && searchesDirectories && !usesDirectoryBrowser ? (
-              <Text style={styles.stateText}>
-                These are container paths. ~ means the container home. Use Browse host folders for
-                paths on your host.
-              </Text>
-            ) : null}
-            {usesDirectoryBrowser && client && !isSubmitting ? (
-              <ProjectDirectoryBrowser
-                key={`${hostId}:${page.kind}`}
-                client={client}
-                onSelect={selectBrowsedDirectory}
-              />
-            ) : null}
             {preview ? (
               <Text style={styles.preview} testID="add-project-flow-path-preview">
                 {shortenPath(preview)}
@@ -1000,7 +1366,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
               </Text>
             ) : null}
             {/* Typed paths and matching recommendations do not depend on directory search. */}
-            {!isSubmitting && !usesDirectoryBrowser
+            {!isSubmitting
               ? rows.map((option, index) => (
                   <FlowRow key={option.id} option={option} active={index === activeIndex} />
                 ))
@@ -1008,19 +1374,34 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
             {!isSubmitting &&
             !loading &&
             !queryError &&
-            !usesDirectoryBrowser &&
             rows.length === 0 &&
             page.kind !== "new-directory-name" ? (
               <Text style={styles.stateText} testID="add-project-flow-empty">
-                {emptyText(page, host ?? null)}
+                {page.kind === "folder-browser"
+                  ? folderBrowserEmptyText({
+                      purpose: folderBrowserPurpose(page.purpose),
+                      directory: folderDirectory,
+                      filter: page.query,
+                    })
+                  : emptyText(page, host ?? null)}
+              </Text>
+            ) : null}
+            {showShareHint ? (
+              <Text style={styles.hintText} testID="add-project-flow-share-hint">
+                To use folders from your computer, share them with share-folder.sh in the
+                installation directory on the host.
               </Text>
             ) : null}
           </ScrollView>
           <View style={styles.footer} testID="add-project-flow-footer">
-            {!usesDirectoryBrowser ? (
-              <FlowHint keys={NAVIGATION_HINT_KEYS} action="Navigate" />
+            <FlowHint keys={NAVIGATION_HINT_KEYS} action="Navigate" />
+            {page.kind === "folder-browser" ? (
+              <FlowHint keys={OPEN_FOLDER_HINT_KEYS} action="Open folder" />
             ) : null}
-            {!usesDirectoryBrowser ? <FlowHint keys={SELECT_HINT_KEYS} action="Select" /> : null}
+            {page.kind === "folder-browser" ? (
+              <FlowHint keys={UP_FOLDER_HINT_KEYS} action="Up" />
+            ) : null}
+            <FlowHint keys={SELECT_HINT_KEYS} action="Select" />
             <FlowHint keys={ESCAPE_HINT_KEYS} action={state.pages.length > 1 ? "Back" : "Close"} />
           </View>
         </View>
@@ -1123,6 +1504,37 @@ const styles = StyleSheet.create((theme) => ({
   rowText: { flex: 1, minWidth: 0 },
   rowTitle: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
   rowSubtitle: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm, marginTop: 2 },
+  locationBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  locationButton: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.borderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  locationText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  locationTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+  locationDetail: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+  },
+  hintText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    paddingHorizontal: theme.spacing[4],
+    paddingVertical: theme.spacing[3],
+  },
   preview: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,

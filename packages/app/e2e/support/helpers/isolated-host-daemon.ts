@@ -161,6 +161,8 @@ export async function startIsolatedHostDaemon(
         ...Object.fromEntries(
           Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_")),
         ),
+        // Specs that cover the Vorteo System project opt in through `environment`.
+        PASEO_SYSTEM_PROJECT: "0",
         ...options.environment,
         PASEO_HOME: paseoHome,
         PASEO_SERVER_ID: serverId,

@@ -2,7 +2,7 @@ import React from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { Pressable, Text } from "react-native";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { Tooltip, TooltipContent, TooltipText, TooltipTrigger } from "./tooltip";
 
@@ -33,6 +33,7 @@ describe("Tooltip portal cleanup", () => {
   let interruptedAnimations: HTMLStyleElement;
 
   beforeEach(() => {
+    vi.stubGlobal("React", React);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -47,6 +48,7 @@ describe("Tooltip portal cleanup", () => {
     flushSync(() => root.unmount());
     document.body.replaceChildren();
     interruptedAnimations.remove();
+    vi.unstubAllGlobals();
   });
 
   async function expectVisible() {

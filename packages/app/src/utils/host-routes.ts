@@ -440,6 +440,8 @@ interface NewWorkspaceRouteOptions {
   serverId?: string;
   sourceDirectory?: string;
   displayName?: string;
+  /** Sidebar row identity, so the page selects the row that was clicked. */
+  projectViewKey?: string;
   projectId?: string;
   draftId?: string;
 }
@@ -458,6 +460,9 @@ function buildNewWorkspaceSearch(options: NewWorkspaceRouteOptions): string {
   }
   if (options.projectId) {
     params.set("projectId", options.projectId);
+  }
+  if (options.projectViewKey) {
+    params.set("project", options.projectViewKey);
   }
   if (options.draftId) {
     params.set("draftId", options.draftId);
@@ -495,6 +500,9 @@ export function resolveKnownHostRoute(input: {
 
 export const SETTINGS_SECTION_SLUGS = [
   "general",
+  "accounts",
+  "maintenance",
+  "about",
   "appearance",
   "sidebar",
   "chat",

@@ -36,6 +36,8 @@ import { confirmDialog } from "@/utils/confirm-dialog";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { ProviderReconnectControl } from "@/provider-usage/reconnect-control";
+import { ProviderUsageWindowBar } from "@/provider-usage/window-bar";
+import type { ProviderUsage } from "@/provider-usage/types";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
 import { settingsStyles } from "@/styles/settings";
@@ -228,6 +230,33 @@ function SharedClaudeConnection({
   );
 }
 
+function environmentStatus(input: {
+  localId: string | undefined;
+  connected: boolean;
+  excluded: boolean;
+  entry: { status: string; enabled?: boolean } | undefined;
+  settled: boolean;
+}): string {
+  if (!input.localId) return "No local binding";
+  if (!input.connected) return "Offline";
+  if (input.excluded) return "Excluded";
+  if (input.entry?.enabled === false) return "Disabled";
+  if (!input.entry && input.settled) return "Local connection unavailable";
+  return input.entry?.status ?? "Loading";
+}
+
+/** Quota bars for one account, shown with the account rather than on a separate page. */
+function AccountQuota({ usage, testID }: { usage: ProviderUsage | undefined; testID: string }) {
+  if (!usage?.windows.length) return null;
+  return (
+    <View style={styles.usage} testID={testID}>
+      {usage.windows.map((window) => (
+        <ProviderUsageWindowBar key={window.id} window={window} />
+      ))}
+    </View>
+  );
+}
+
 function ProviderEnvironment({
   provider,
   environment,
@@ -253,13 +282,13 @@ function ProviderEnvironment({
     view.kind === "ready"
       ? view.payload.providers.find((item) => item.providerId === localId)
       : undefined;
-  let status = entry?.status ?? "Loading";
-  if (!localId) status = "No local binding";
-  else if (!connected) status = "Offline";
-  else if (excluded) status = "Excluded";
-  else if (entry?.enabled === false) status = "Disabled";
-  else if (!entry && !catalog.isLoading && !catalog.isFetching)
-    status = "Local connection unavailable";
+  const status = environmentStatus({
+    localId,
+    connected,
+    excluded,
+    entry,
+    settled: !catalog.isLoading && !catalog.isFetching,
+  });
   const name = providerName(provider);
   return (
     <View
@@ -276,6 +305,12 @@ function ProviderEnvironment({
             {entry.error}
           </Text>
         ) : null}
+        {excluded ? null : (
+          <AccountQuota
+            usage={usage}
+            testID={`shared-provider-usage-${provider.id}-${environment.serverId}`}
+          />
+        )}
       </View>
       {entry ? (
         <View style={styles.controls}>
@@ -745,6 +780,12 @@ function ProviderCatalog({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  // Quota sits with the account it belongs to, so one row answers which
+  // account runs and how much of it is left.
+  usage: {
+    gap: theme.spacing[2],
+    marginTop: theme.spacing[2],
+  },
   removal: { gap: theme.spacing[2], flexShrink: 1 },
   card: { marginVertical: theme.spacing[2] },
   heading: {

@@ -24,8 +24,16 @@ import {
   validateHostStartup,
 } from "./daemon.js";
 import type { InstallationConfig } from "./config.js";
-import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
+import {
+  RestartJobSchema,
+  type RestartImpact,
+  type RestartJob,
+} from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
+import {
+  createSessionHostReleaseGuard,
+  setReleaseSelectionGuard,
+} from "./release-selection-guard.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 
 class MemoryJournal implements RestartJournal {
@@ -39,6 +47,456 @@ class MemoryJournal implements RestartJournal {
     this.jobs = structuredClone(jobs);
   }
 }
+
+test("force restart persists continuation intent before capture and releases only after readiness", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  let finishCapture!: () => void;
+  const captured = new Promise<void>((resolve) => {
+    finishCapture = resolve;
+  });
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async (_target, id) => {
+      expect(journal.jobs.find((job) => job.id === id)?.continuationCaptureRequested).toBe(true);
+      calls.push("capture");
+      await captured;
+    },
+    releaseRestartContinuation: async (_target, _id, outcome) => {
+      calls.push(outcome);
+      return true;
+    },
+    restart: async () => {
+      calls.push("restart");
+      return "replacement verified";
+    },
+  });
+  const request = queue.request({ target: "host", reason: "Resume active tasks" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  const draining = queue.drain();
+  await vi.waitFor(() => expect(calls).toEqual(["capture"]));
+  finishCapture();
+  await draining;
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  expect(calls).toEqual(["capture", "restart"]);
+  await queue.drain();
+  expect(calls).toEqual(["capture", "restart", "ready"]);
+  expect(queue.list()[0]?.holdReleased).toBe(true);
+  await queue.drain();
+  expect(calls).toEqual(["capture", "restart", "ready"]);
+});
+
+test("cancellation during durable capture prevents force dispatch", async () => {
+  let finishCapture!: () => void;
+  const captured = new Promise<void>((resolve) => {
+    finishCapture = resolve;
+  });
+  const capture = vi.fn(async () => captured);
+  const restart = vi.fn(async () => "wrong");
+  const release = vi.fn(async () => true);
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    captureRestartContinuation: capture,
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Capture cancellation" }, "owner");
+  const approved = queue.decide(request.id, request.revision, "approve");
+  const draining = queue.drain();
+  await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+  queue.decide(request.id, approved.revision, "cancel");
+  finishCapture();
+  await draining;
+  expect(restart).not.toHaveBeenCalled();
+  expect(queue.list()[0]?.status).toBe("rejected");
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+  expect(queue.list()[0]?.holdReleased).toBe(true);
+});
+
+test("failed restart retains uncertain continuation when replacement refuses cancellation", async () => {
+  const journal = new MemoryJournal();
+  const release = vi.fn(async () => false);
+  const restart = vi.fn(async () => {
+    throw new Error("replacement readiness unknown");
+  });
+  const executor: RestartExecutor = {
+    captureRestartContinuation: async () => {},
+    releaseRestartContinuation: release,
+    restart,
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const request = queue.request({ target: "host", reason: "Retain uncertain tasks" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("failed");
+  const reopened = new InstallationRestarts(journal, executor);
+  await reopened.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+  expect(reopened.list()[0]?.holdReleased).toBeUndefined();
+  expect(reopened.list()[0]?.continuationCaptureRequested).toBe(true);
+  expect(restart).toHaveBeenCalledTimes(1);
+});
+
+test("lost capture acknowledgement never dispatches and keeps the exact cause cancellable", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const release = vi.fn(async () => true);
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async () => {
+      throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Retain capture intent" }, "owner");
+  const approved = queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBe(true);
+  expect(journal.jobs[0]?.status).toBe("approved");
+  expect(restart).not.toHaveBeenCalled();
+  queue.decide(request.id, approved.revision, "cancel");
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+});
+
+test("a legacy executor cannot bypass recorded continuation capture", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async () => {
+      throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: async () => false,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Retain exact capture" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  const reopened = new InstallationRestarts(journal, { restart });
+  await reopened.drain();
+  expect(restart).not.toHaveBeenCalled();
+  expect(reopened.list()[0]?.continuationCaptureRequested).toBe(true);
+  expect(reopened.list()[0]?.status).toBe("failed");
+  expect(reopened.list()[0]?.holdReleased).toBeUndefined();
+});
+
+test("retained approved idle capture refuses a missing adapter before dispatch", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const inspect = vi.fn(
+    async (): Promise<RestartImpact> => ({
+      target: "host",
+      checkedAt: new Date().toISOString(),
+      agents: [],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      error: null,
+    }),
+  );
+  const executor: RestartExecutor = {
+    restart,
+    restartWhenIdle: restart,
+    inspect,
+    captureRestartContinuation: async () => {
+      throw new Error("lost capture acknowledgment");
+    },
+    releaseRestartContinuation: async () => false,
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const request = queue.request({ target: "host", reason: "Retain idle capture" }, "owner");
+  queue.decide(request.id, request.revision, "approve-when-idle");
+  await queue.drain();
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBe(true);
+  const reopened = new InstallationRestarts(journal, {
+    restart,
+    restartWhenIdle: restart,
+    inspect,
+  });
+  await reopened.drain();
+  expect(inspect).toHaveBeenCalledTimes(2);
+  expect(restart).not.toHaveBeenCalled();
+  expect(reopened.list()[0]).toMatchObject({
+    status: "approved",
+    continuationCaptureRequested: true,
+  });
+  expect(reopened.list()[0]?.detail).toContain("compatible executor");
+});
+
+test("a target without durable continuation keeps legacy restarts and never records intent", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    restartContinuationAvailable: async () => false,
+    captureRestartContinuation: async () => {
+      calls.push("capture");
+    },
+    releaseRestartContinuation: async () => {
+      calls.push("release");
+      return true;
+    },
+    restart: async () => {
+      calls.push("restart");
+      return "replacement verified";
+    },
+  });
+  const request = queue.request({ target: "host", reason: "Older daemon" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  await queue.drain();
+  expect(calls).toEqual(["restart"]);
+  expect(journal.jobs[0]?.status).toBe("succeeded");
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+});
+
+test("finishing current turns on a target without durable continuation uses the legacy hold", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    restartContinuationAvailable: async () => false,
+    captureRestartContinuation: async () => {
+      calls.push("capture");
+    },
+    releaseRestartContinuation: async () => {
+      calls.push("continuation-release");
+      return true;
+    },
+    inspect: async () => idleImpact("host"),
+    holdCurrentTurns: async () => {
+      calls.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      calls.push("legacy-release");
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => {
+      calls.push("restart");
+      return "replacement verified";
+    },
+  });
+  const request = queue.request({ target: "host", reason: "Older daemon drain" }, "owner");
+  queue.decide(request.id, request.revision, "finish-current-turns");
+  await queue.drain();
+  await queue.drain();
+  expect(calls).toEqual(["hold", "restart", "legacy-release"]);
+  expect(journal.jobs[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+});
+
+test("recorded continuation on a target that lost support settles through legacy dispatch", async () => {
+  const journal = new MemoryJournal();
+  let supported = true;
+  const release = vi.fn(async () => true);
+  const restart = vi.fn(async () => "replacement verified");
+  const queue = new InstallationRestarts(journal, {
+    restartContinuationAvailable: async () => supported,
+    captureRestartContinuation: async () => {
+      throw new Error("Update this daemon to preserve tasks across restarts");
+    },
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Downgraded daemon" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(journal.jobs[0]).toMatchObject({ status: "approved", continuationCaptureRequested: true });
+  supported = false;
+  await queue.drain();
+  await queue.drain();
+  expect(restart).toHaveBeenCalledTimes(1);
+  expect(release).toHaveBeenCalledWith("host", request.id, "ready");
+  expect(queue.list()[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+});
+
+test("a terminal continuation awaiting release does not fence another target's restart", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "replacement verified");
+  const release = vi.fn(async () => false);
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async (target) => {
+      if (target === "host") throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const stuck = queue.request({ target: "host", reason: "Unreleasable" }, "owner");
+  const approved = queue.decide(stuck.id, stuck.revision, "approve");
+  await queue.drain();
+  queue.decide(stuck.id, approved.revision, "cancel");
+  const other = queue.request({ target: "container-daemon", reason: "Unrelated" }, "owner");
+  queue.decide(other.id, other.revision, "approve");
+  await queue.drain();
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", stuck.id, "cancelled");
+  expect(restart).toHaveBeenCalledWith("container-daemon");
+  expect(queue.list().map((job) => [job.target, job.status, job.holdReleased])).toEqual([
+    ["host", "rejected", undefined],
+    ["container-daemon", "succeeded", undefined],
+  ]);
+});
+
+// v689 parses lifecycle jobs strictly and predates per-attempt capture causes.
+const V689RestartJobSchema = RestartJobSchema.omit({ continuationCaptureId: true });
+
+function v689Readable(journal: MemoryJournal): boolean {
+  return journal.jobs.every(
+    (job) => V689RestartJobSchema.safeParse(JSON.parse(JSON.stringify(job))).success,
+  );
+}
+
+test("an idle restart releases its capture while waiting and recaptures under a fresh cause", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  let idleAttempts = 0;
+  const queue = new InstallationRestarts(journal, {
+    inspect: async () => idleImpact("host"),
+    captureRestartContinuation: async (_target, id) => {
+      calls.push(`capture:${id}`);
+    },
+    releaseRestartContinuation: async (_target, id, outcome) => {
+      calls.push(`${outcome}:${id}`);
+      return true;
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => (++idleAttempts === 1 ? null : "replacement verified"),
+  });
+  const request = queue.request({ target: "host", reason: "Restart when idle" }, "owner");
+  queue.decide(request.id, request.revision, "approve-when-idle");
+  await queue.drain();
+  const first = calls[0]!.slice("capture:".length);
+  expect(first).not.toBe(request.id);
+  expect(calls).toEqual([`capture:${first}`, `cancelled:${first}`]);
+  // Waiting for idleness neither holds admission nor fences other lifecycle work.
+  expect(journal.jobs[0]).toMatchObject({ status: "approved", whenIdle: true });
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+  expect(v689Readable(journal)).toBe(true);
+  await queue.drain();
+  await queue.drain();
+  const second = calls[2]!.slice("capture:".length);
+  expect(second).not.toBe(first);
+  expect(calls).toEqual([
+    `capture:${first}`,
+    `cancelled:${first}`,
+    `capture:${second}`,
+    `ready:${second}`,
+  ]);
+  expect(journal.jobs[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+  // A rollback to v689 must still read the journal once the hold is released.
+  expect(journal.jobs[0]).not.toHaveProperty("continuationCaptureId");
+  expect(v689Readable(journal)).toBe(true);
+  const retained = { ...journal.jobs[0], continuationCaptureId: randomUUID() };
+  expect(V689RestartJobSchema.safeParse(retained).success).toBe(false);
+});
+
+test("a lost idle capture receipt is released before a fresh attempt", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    inspect: async () => idleImpact("host"),
+    captureRestartContinuation: async (_target, id) => {
+      calls.push(`capture:${id}`);
+      if (calls.length === 1) throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: async (_target, id, outcome) => {
+      calls.push(`${outcome}:${id}`);
+      return true;
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => "replacement verified",
+  });
+  const request = queue.request({ target: "host", reason: "Restart when idle" }, "owner");
+  queue.decide(request.id, request.revision, "approve-when-idle");
+  await queue.drain();
+  await queue.drain();
+  const first = calls[0]!.slice("capture:".length);
+  const second = calls[2]!.slice("capture:".length);
+  expect(second).not.toBe(first);
+  expect(calls.slice(0, 3)).toEqual([
+    `capture:${first}`,
+    `cancelled:${first}`,
+    `capture:${second}`,
+  ]);
+  expect(journal.jobs[0]?.status).toBe("succeeded");
+});
+
+test("the daemon adapter probes continuation support and releases older targets' legacy holds", async () => {
+  const config = {
+    public: { environments: [{ kind: "container", serverId: "test-container" }] },
+    container: { endpoint: "127.0.0.1:1", password: "test-only" },
+  } as unknown as InstallationConfig;
+  const connect = vi.spyOn(DaemonClient.prototype, "connect").mockResolvedValue();
+  const close = vi.spyOn(DaemonClient.prototype, "close").mockResolvedValue();
+  const info = vi
+    .spyOn(DaemonClient.prototype, "getLastServerInfoMessage")
+    .mockReturnValue({ features: { idleRestart: true } } as never);
+  const restartServer = vi
+    .spyOn(DaemonClient.prototype, "restartServer")
+    .mockResolvedValue({ accepted: true } as never);
+  const id = randomUUID();
+  try {
+    const executor = createInstallationRestartExecutor(config);
+    expect(await executor.restartContinuationAvailable!("container-daemon")).toBe(false);
+    expect(await executor.releaseRestartContinuation!("container-daemon", id, "cancelled")).toBe(
+      true,
+    );
+    expect(restartServer).toHaveBeenLastCalledWith(undefined, undefined, {
+      timeout: 5000,
+      idleMode: "cancel-drain",
+      restartDrainId: id,
+    });
+    info.mockReturnValue({ features: { restartContinuation: true } } as never);
+    expect(await executor.restartContinuationAvailable!("container-daemon")).toBe(true);
+    await executor.releaseRestartContinuation!("container-daemon", id, "ready");
+    expect(restartServer).toHaveBeenLastCalledWith(undefined, undefined, {
+      timeout: 5000,
+      idleMode: "cancel-drain",
+      restartDrainId: id,
+      restartContinuation: "ready",
+    });
+    connect.mockRejectedValueOnce(new Error("offline"));
+    expect(await executor.restartContinuationAvailable!("container-daemon")).toBe(false);
+  } finally {
+    connect.mockRestore();
+    close.mockRestore();
+    info.mockRestore();
+    restartServer.mockRestore();
+  }
+});
+
+test("a restart that never verifies readiness fails at its deadline, releases its hold and ignores a late result", async () => {
+  const journal = new MemoryJournal();
+  const progress: string[] = [];
+  const release = vi.fn(async () => true);
+  let finish!: (detail: string) => void;
+  const queue = new InstallationRestarts(
+    journal,
+    {
+      captureRestartContinuation: async () => {},
+      releaseRestartContinuation: release,
+      restart: () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    },
+    Date.now,
+    {},
+    { fenced: false, dispatchDeadlineMs: 50, progress: (message) => progress.push(message) },
+  );
+  const request = queue.request({ target: "host", reason: "Frozen predecessor" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "failed" });
+  expect(queue.list()[0]?.detail).toContain("No verified readiness within");
+  expect(progress).toEqual([
+    "Restart dispatched; waiting for verified readiness",
+    "Restart readiness deadline expired",
+  ]);
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+  finish("Replacement worker 42 is ready");
+  await vi.waitFor(() =>
+    expect(progress).toContain("Restart outcome arrived after its deadline and was not applied"),
+  );
+  expect(queue.list()[0]?.status).toBe("failed");
+});
 
 test("Factory adoption requires its own exact approval and never shares a plain restart", async () => {
   const plan = "c".repeat(64);
@@ -1188,6 +1646,107 @@ test("source builds fail before activation, uncertain dispatch retains selection
   }
 });
 
+// Release seals rely on macOS immutable file flags.
+test.runIf(process.platform === "darwin")(
+  "sealed source preparation keeps the candidate digest and refuses later candidate writes",
+  async () => {
+    const { execFileSync } = await import("node:child_process");
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-seal-")));
+    process.env.VORTEO_RELEASE_SEALS = "enabled";
+    try {
+      const previous = path.join(root, "previous");
+      await mkdir(previous);
+      const baseCommit = "b".repeat(40);
+      await writeFile(
+        path.join(previous, ".installation-source.json"),
+        JSON.stringify({ sourceCommit: baseCommit }),
+      );
+      await writeFile(
+        path.join(root, "release.json"),
+        JSON.stringify({ sourceCommit: baseCommit }),
+      );
+      await writeFile(path.join(root, "index.html"), "old interface");
+      const link = path.join(root, "current");
+      await symlink(previous, link);
+      const config = restartTestConfig(
+        root,
+        path.join(link, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+      );
+      config.sourceUpdates = {
+        sourceRepository: root,
+        releaseRoot: root,
+        currentReleaseLink: link,
+        webDirectory: root,
+        toolingDirectory: root,
+        integrationRef: "refs/heads/main",
+      };
+      const updates = new InstallationSourceUpdates(config);
+      const bundle = Buffer.from("approved inert source");
+      const update = {
+        sourceCommit: "a".repeat(40),
+        baseCommit,
+        sha256: createHash("sha256").update(bundle).digest("hex"),
+        bytes: bundle.length,
+      };
+      updates.stage(update, bundle);
+      await writeFile(
+        path.join(root, "prepare-installation-update.mjs"),
+        `import fs from 'node:fs/promises'; import path from 'node:path';
+      const input = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+      const release = path.join(input.work, 'release'); const exported = path.join(release, 'web-export');
+      const scripts = path.join(release, 'packages/server/dist/scripts');
+      await fs.mkdir(scripts, {recursive:true}); await fs.mkdir(exported);
+      await fs.writeFile(path.join(scripts, 'supervisor-entrypoint.js'), 'process.exit(0)');
+      await fs.writeFile(path.join(release, '.installation-source.json'), JSON.stringify({sourceCommit: input.update.sourceCommit}));
+      await fs.writeFile(input.resultFile, JSON.stringify({release,exported}));`,
+      );
+      const job = {
+        id: randomUUID(),
+        revision: randomUUID(),
+        target: "host" as const,
+        requestedBy: "host-agent" as const,
+        reason: "Check sealed candidate",
+        createdAt: new Date().toISOString(),
+        expiresAt: "9999-12-31T23:59:59.999Z",
+        status: "approved" as const,
+        detail: "Prepared",
+        update,
+        updatePreparation: "prepared" as const,
+      };
+      await updates.prepareInstallation(job);
+      const release = path.join(root, job.id, "release");
+      const admission = JSON.parse(
+        await readFile(path.join(root, job.id, "admission.json"), "utf8"),
+      );
+      delete process.env.VORTEO_RELEASE_SEALS;
+      expect(admission.candidateArtifactSha256).toBe(await digestBootstrapArtifact(release));
+      process.env.VORTEO_RELEASE_SEALS = "enabled";
+      expect(admission.candidateSeal).toEqual({
+        observedSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        manifestSha256: admission.candidateArtifactSha256,
+      });
+      await expect(readFile(`${release}.release-seal.json`, "utf8")).resolves.toContain(
+        admission.candidateArtifactSha256,
+      );
+      await updates.verifyPreparedInstallation(job);
+      const entrypoint = path.join(
+        release,
+        "packages/server/dist/scripts/supervisor-entrypoint.js",
+      );
+      await expect(writeFile(entrypoint, "throw new Error('changed')")).rejects.toThrow("EPERM");
+      execFileSync("/usr/bin/chflags", ["nouchg", entrypoint]);
+      await writeFile(entrypoint, "throw new Error('changed candidate')");
+      await expect(updates.verifyPreparedInstallation(job)).rejects.toThrow(
+        "modified after it was sealed: packages/server/dist/scripts/supervisor-entrypoint.js",
+      );
+    } finally {
+      delete process.env.VORTEO_RELEASE_SEALS;
+      execFileSync("/usr/bin/chflags", ["-R", "nouchg", root]);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
 test("finishing current turns holds admission before inspection and restarts only after idle", async () => {
   const events: string[] = [];
   let busy = true;
@@ -2252,6 +2811,30 @@ test("release notes preserve interleaved history and reject edits or missing dup
   ).toThrow("introduction changed");
 });
 
+test("release notes accept a heading-only entry and still refuse malformed headings or edits", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const old = "## 0.11.0-beta.3.vorteo.693 - 2026-10-20\n\n- Existing note";
+  const base = `${prefix}${old}\n`;
+  // Installed history contains well-formed headings with no notes, such as vorteo.740.
+  const empty = "## 0.11.0-beta.3.vorteo.740 - 2026-10-21";
+  const withEmpty = `${prefix}${empty}\n\n${old}\n`;
+  expect(reconcileReleaseNotes(base, base, withEmpty)).toBe(withEmpty);
+  expect(() =>
+    reconcileReleaseNotes(base, base, `${prefix}## 0.11.0-beta.3.vorteo.741\n\n${old}\n`),
+  ).toThrow("Release-note heading requires review");
+  expect(() =>
+    reconcileReleaseNotes(base, base, `${prefix}## vorteo.742 - 2026-10-21 later\n\n${old}\n`),
+  ).toThrow("Release-note heading requires review");
+  expect(() =>
+    reconcileReleaseNotes(
+      base,
+      base,
+      `${prefix}${empty}\n\n${old.replace("Existing", "Edited")}\n`,
+    ),
+  ).toThrow("Existing release notes were edited");
+});
+
 test("coordinator recovery revalidates pending conflicts without approving or installing", async () => {
   const journal = new MemoryJournal();
   const update = {
@@ -2582,6 +3165,80 @@ test("automatic source approval binds its prepared digest and remains cancellabl
   f.idle();
   await f.queue.drain();
   expect(f.events).toEqual(["hold", "release"]);
+  expect(f.queue.list()[0]?.status).toBe("rejected");
+});
+
+function delegatedServiceRestartFixture(input: {
+  enabled: boolean;
+  cancellationDelayMs?: number;
+  /** Changes the owner setting after the last policy refresh, just before install. */
+  flipBeforeInstall?: boolean;
+}) {
+  const f = automaticFixture();
+  const installs: boolean[] = [];
+  let enabled = input.enabled;
+  const executor: RestartExecutor = {
+    ...f.executor,
+    verifyDispatch: async () => {
+      if (input.flipBeforeInstall) enabled = !enabled;
+    },
+    installUpdate: async (_job, options) => {
+      installs.push(options.serviceRestart);
+      f.events.push("install");
+      return "installed";
+    },
+  };
+  const queue = new InstallationRestarts(f.journal, executor, () => 2000, {
+    ...f.policy,
+    cancellationDelayMs: input.cancellationDelayMs,
+    hostUpdateServiceRestart: () => enabled,
+    // As in production, the setting is part of the automatic grant's authority.
+    authority: () => (enabled ? "authority-with-service-restart" : "authority"),
+  });
+  queue.contribute(
+    { target: "host", reason: "Routine Host update", requester: "Nova integration" },
+    "host-agent",
+    { sourceCommit: "a".repeat(40), baseCommit: "b".repeat(40), sha256: "c".repeat(64), bytes: 12 },
+    "10000000-0000-4000-8000-000000000031",
+  );
+  return { ...f, queue, installs };
+}
+
+test.each([true, false])(
+  "an automatic Host source update replaces the whole service only when the owner allows it: %s",
+  async (enabled) => {
+    const f = delegatedServiceRestartFixture({ enabled });
+    await f.queue.drain();
+    // Running turns are held and finish first, exactly as for any automatic update.
+    expect(f.queue.list()[0]).toMatchObject({ status: "approved", whenIdle: true });
+    expect(f.events).toEqual(["hold"]);
+    f.idle();
+    await f.queue.drain();
+    expect(f.installs).toEqual([enabled]);
+    expect(f.queue.list()[0]?.status).toBe("succeeded");
+    await f.queue.drain();
+    expect(f.installs).toEqual([enabled]);
+  },
+);
+
+test("enabling the setting during preparation never upgrades an existing grant", async () => {
+  const f = delegatedServiceRestartFixture({ enabled: false, flipBeforeInstall: true });
+  await f.queue.drain();
+  f.idle();
+  await f.queue.drain();
+  expect(f.installs).toEqual([false]);
+});
+
+test("an owner-allowed service restart keeps the cancellation window and its exact grant", async () => {
+  const f = delegatedServiceRestartFixture({ enabled: true, cancellationDelayMs: 30_000 });
+  await f.queue.drain();
+  const approved = f.queue.list()[0]!;
+  expect(approved.automaticApproval?.requestRevision).toBe(approved.revision);
+  expect(f.events).toEqual([]);
+  f.queue.decide(approved.id, approved.revision, "cancel");
+  f.idle();
+  await f.queue.drain();
+  expect(f.installs).toEqual([]);
   expect(f.queue.list()[0]?.status).toBe("rejected");
 });
 
@@ -4401,4 +5058,106 @@ test("configured Dev transitions refuse before selection, staging or supervisor 
   await expect(executor.adoptFactoryRuntime!(job)).rejects.toThrow("transition-phase readiness");
   await expect(executor.restartSupervisor!(job)).rejects.toThrow("independently bound operation");
   expect(restarts).toBe(0);
+});
+
+test("source updates refuse a release without the session host while its job is installed", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-session-host-")));
+  const link = path.join(root, "current");
+  const plist = path.join(root, "session-host.plist");
+  setReleaseSelectionGuard(
+    createSessionHostReleaseGuard({ currentReleaseLink: link, plistPath: plist }),
+  );
+  try {
+    const previous = path.join(root, "previous");
+    await mkdir(previous);
+    const baseCommit = "b".repeat(40);
+    await writeFile(
+      path.join(previous, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: baseCommit }),
+    );
+    await writeFile(path.join(root, "release.json"), JSON.stringify({ sourceCommit: baseCommit }));
+    await writeFile(path.join(root, "index.html"), "old interface");
+    await symlink(previous, link);
+    const config = restartTestConfig(
+      root,
+      path.join(link, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+    );
+    config.sourceUpdates = {
+      sourceRepository: root,
+      releaseRoot: root,
+      currentReleaseLink: link,
+      webDirectory: root,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+    };
+    const updates = new InstallationSourceUpdates(config);
+    const bundle = Buffer.from("approved inert source");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit,
+      sha256: createHash("sha256").update(bundle).digest("hex"),
+      bytes: bundle.length,
+    };
+    updates.stage(update, bundle);
+    // The candidate carries the session host entrypoint only when the marker file exists.
+    await writeFile(
+      path.join(root, "prepare-installation-update.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path';
+      const input = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+      const release = path.join(input.work, 'release'); const exported = path.join(release, 'web-export');
+      const scripts = path.join(release, 'packages/server/dist/scripts');
+      await fs.mkdir(scripts, {recursive:true}); await fs.mkdir(exported);
+      await fs.writeFile(path.join(scripts, 'supervisor-entrypoint.js'), 'process.exit(0)');
+      if (await fs.stat(path.join(input.toolingDirectory, 'with-session-host')).then(() => true, () => false))
+        await fs.writeFile(path.join(scripts, 'session-host-entrypoint.js'), '');
+      await fs.writeFile(path.join(release, '.installation-source.json'), JSON.stringify({sourceCommit: input.update.sourceCommit}));
+      await fs.writeFile(input.resultFile, JSON.stringify({release,exported}));`,
+    );
+    await writeFile(
+      path.join(root, "publish-instance-web.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path'; await fs.writeFile(path.join(process.argv[3], 'published'), 'yes');`,
+    );
+    const restart = vi.fn(async () => "ready");
+    const job = (): RestartJob => ({
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host",
+      requestedBy: "host-agent",
+      reason: "Install fixture",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "approved",
+      detail: "Approved",
+      update,
+      updatePreparation: "prepared",
+    });
+    await writeFile(plist, "installed");
+    await expect(updates.prepareInstallation(job())).rejects.toThrow(
+      "Remove the session host job first: release release has no session host support.",
+    );
+    // The job may be installed after preparation: selection checks again before the hold.
+    await rm(plist);
+    const late = job();
+    await updates.prepareInstallation(late);
+    await writeFile(plist, "installed");
+    const beforeSelection = vi.fn(async () => {});
+    await expect(updates.install(late, restart, beforeSelection)).rejects.toThrow(
+      "Remove the session host job first",
+    );
+    expect(beforeSelection).not.toHaveBeenCalled();
+    expect(restart).not.toHaveBeenCalled();
+    expect(await realpath(link)).toBe(previous);
+    await expect(readFile(path.join(root, late.id, "activation.json"))).rejects.toThrow();
+    await writeFile(path.join(root, "with-session-host"), "");
+    const supported = job();
+    await updates.prepareInstallation(supported);
+    await expect(updates.install(supported, restart, beforeSelection)).resolves.toContain(
+      "Installed source",
+    );
+    expect(beforeSelection).toHaveBeenCalledOnce();
+    expect(await realpath(link)).toBe(path.join(root, supported.id, "release"));
+  } finally {
+    setReleaseSelectionGuard(null);
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -1,4 +1,5 @@
 import { AgentJournalEntrySchema } from "@getpaseo/protocol/agent-journal";
+import { AgentQuestionSchema } from "@getpaseo/protocol/agent-questions";
 import { AgentGoalStateSchema } from "@getpaseo/protocol/agent-goals";
 import { z } from "zod";
 import {
@@ -9,6 +10,8 @@ import {
   WorkspaceGitHubRuntimePayloadSchema,
   WorkspaceProjectMembershipSchema,
   WorkspaceFactoryMembershipSchema,
+  ProjectSystemMarkerSchema,
+  WorkspaceSystemMembershipSchema,
 } from "@getpaseo/protocol/messages";
 import { AgentProviderSchema } from "@getpaseo/protocol/provider-manifest";
 import type { PluginTimelineData } from "@getpaseo/plugin";
@@ -233,6 +236,7 @@ const StoredProjectPlacementSchema = z.strictObject({
 const StoredAgentSnapshotSchema = z.strictObject({
   tasks: z.array(AgentTaskItemSchema).optional(),
   journal: z.array(AgentJournalEntrySchema).optional(),
+  questions: z.array(AgentQuestionSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
   provider: AgentProviderSchema,
@@ -313,6 +317,8 @@ const StoredWorkspaceSchema = z.strictObject({
   projectId: z.string(),
   projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
   factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
+  projectSystem: ProjectSystemMarkerSchema.optional(),
+  systemMembership: WorkspaceSystemMembershipSchema.optional(),
   // Require lifecycle fields so older lossy rows invalidate only the workspace cursor.
   standing: z.boolean(),
   protected: z.boolean(),
@@ -679,6 +685,7 @@ function serializeAgent(agent: Agent): StoredAgent {
     goalState: cachedGoalState(agent.goalState),
     tasks: agent.tasks,
     journal: agent.journal,
+    questions: agent.questions,
     persistence: null,
     ...(agent.lastError ? { lastError: agent.lastError } : {}),
     profile: agent.profile,
@@ -724,6 +731,8 @@ function serializeWorkspace(workspace: WorkspaceDescriptor): StoredWorkspace {
     projectId: workspace.projectId,
     projectMembership: workspace.projectMembership,
     factoryMembership: workspace.factoryMembership,
+    projectSystem: workspace.projectSystem,
+    systemMembership: workspace.systemMembership,
     standing: workspace.standing ?? false,
     protected: workspace.protected ?? false,
     projectDisplayName: workspace.projectDisplayName,

@@ -1,8 +1,8 @@
 import { CardDisclosureLayoutContext } from "./use-card-disclosure";
 import { CardGrid } from "./card-grid";
 import { PortalHost } from "@gorhom/portal";
-import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
-import { StreamColumns, StreamColumnWidthContext, useStreamColumns } from "./columns/layout";
+import { StreamColumns, useStreamColumns } from "./columns/layout";
+import { useStreamColumnWidthStyle } from "./columns/column-width";
 import {
   useWorkspaceCardHost,
   useInlineCardsHost,
@@ -24,7 +24,6 @@ import React, {
   forwardRef,
   memo,
   useCallback,
-  useContext,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -204,18 +203,29 @@ function renderLiveAuxiliaryNode(input: {
   return (
     <>
       {input.turnFooter}
-      <View
-        style={[stylesheet.contentWrapper, stylesheet.bottomCardStack]}
-        testID={input.taskCards ? "agent-history-task-cards" : undefined}
-      >
+      <BottomCardStack testID={input.taskCards ? "agent-history-task-cards" : undefined}>
         <CardGrid>{input.taskCards}</CardGrid>
         {input.pendingPermissions}
         {input.queueCards}
-      </View>
+      </BottomCardStack>
       {input.bottomOverlayInset > 0 ? (
         <BottomOverlayInset height={input.bottomOverlayInset} />
       ) : null}
     </>
+  );
+}
+
+/** Cards below the transcript share the message column's edges, including a resized width. */
+function BottomCardStack({ testID, children }: { testID?: string; children: ReactNode }) {
+  const columnWidthStyle = useStreamColumnWidthStyle();
+  const style = useMemo(
+    () => [stylesheet.contentWrapper, stylesheet.bottomCardStack, columnWidthStyle],
+    [columnWidthStyle],
+  );
+  return (
+    <View style={style} testID={testID}>
+      {children}
+    </View>
   );
 }
 
@@ -1318,7 +1328,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <WorkspaceCardsPortal key={cardsPortalHost} hostName={cardsPortalHost}>
+          <WorkspaceCardsPortal key={cardsPortalHost} hostName={cardsPortalHost} agentId={agentId}>
             {taskCards}
             {pendingActionPermissionsNode}
           </WorkspaceCardsPortal>
@@ -1996,14 +2006,10 @@ interface StreamItemWrapperProps {
 }
 
 function StreamItemWrapper({ gapBelow, children }: StreamItemWrapperProps) {
-  const columnWidth = useContext(StreamColumnWidthContext);
+  const columnWidthStyle = useStreamColumnWidthStyle();
   const wrapperStyle = useMemo(
-    () => [
-      stylesheet.streamItemWrapper,
-      { marginBottom: gapBelow },
-      columnWidth !== undefined && inlineUnistylesStyle({ maxWidth: columnWidth }),
-    ],
-    [gapBelow, columnWidth],
+    () => [stylesheet.streamItemWrapper, { marginBottom: gapBelow }, columnWidthStyle],
+    [gapBelow, columnWidthStyle],
   );
   return <View style={wrapperStyle}>{children}</View>;
 }

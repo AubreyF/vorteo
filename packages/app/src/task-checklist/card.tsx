@@ -1,4 +1,4 @@
-import { TaskCardRow, TaskCardRowLeading } from "@/agent-stream/task-card-row";
+import { TaskCardRow, TaskCardRowAction, TaskCardRowIcon } from "@/agent-stream/task-card-row";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
@@ -14,13 +14,15 @@ import type { ChecklistMutation } from "@getpaseo/protocol/task-checklist";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
+import { isNative } from "@/constants/platform";
+import { LIST_ROW_ACTION_SIZE, LIST_ROW_TOUCH_ACTION_SIZE } from "@/styles/list-row-metrics";
 import { StatusRing } from "@/components/status-ring";
 import { ReviewTaskBadge } from "@/task-checklist/review-badge";
 import { BlockedTaskBadge } from "@/task-checklist/blocked-badge";
 import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
-import { ListDragHandle } from "@/components/list-drag-handle";
+import { ListDragRow } from "@/components/list-drag-handle";
 import { QueueDragScrollContext } from "@/message-queue/drag-scroll";
 import { AgentTaskList } from "@/composer/task-list";
 import {
@@ -31,6 +33,11 @@ import {
 } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { ChecklistProgressFlower } from "./progress-flower";
+import {
+  taskProgressDescription,
+  taskProgressLabel,
+  taskProgressSummary,
+} from "./task-progress-summary";
 import { checklistProgress } from "./progress";
 import { canClearTask, clearCompletedTasks } from "./clear-completed";
 import { ChecklistEditor } from "./editor";
@@ -43,6 +50,7 @@ interface ChecklistCardProps {
 type EditorState = { open: false } | { open: true; task: AgentTaskItem | null };
 const EMPTY_TASKS: AgentTaskItem[] = [];
 const TASK_RUNNING_ICON = <StatusRing variant="task" />;
+const COMPACT_COLUMN_DATA = { vortonRowHandle: "true" };
 function inactiveTaskIcon(status: AgentTaskItem["status"]) {
   if (status === "blocked") return CircleAlert;
   if (status === "review") return Eye;
@@ -99,12 +107,21 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
       <ChecklistProgressFlower
         completed={progress.completed}
         active={progress.active}
+        blocked={progress.blocked}
+        credit={progress.credit}
         total={progress.total}
         testID="checklist-progress"
         tooltip={expanded}
       />
     ),
-    [progress.completed, progress.active, progress.total, expanded],
+    [
+      progress.completed,
+      progress.active,
+      progress.blocked,
+      progress.credit,
+      progress.total,
+      expanded,
+    ],
   );
   const countBadge = useMemo(
     () => (
@@ -290,8 +307,10 @@ function ChecklistRows({
         onDragEnd={drop}
         onDragRelease={release}
         scrollEnabled={false}
+        // The whole row is the activator: pointers drag after a short move, fingers after a
+        // short hold, so taps on its buttons and card scrolling keep working.
         useDragHandle
-        touchActivation="movement"
+        touchActivation="hold"
       />
       {reorderError ? (
         <Text accessibilityRole="alert" style={[styles.error, taskCardStyles.proseInset]}>
@@ -300,6 +319,33 @@ function ChecklistRows({
       ) : null}
     </>
   );
+}
+
+function taskProgressTooltip(task: AgentTaskItem): string | undefined {
+  const summary = taskProgressSummary(task);
+  return summary ? taskProgressDescription(summary) : undefined;
+}
+
+/** A muted percentage for partly done work; nothing for finished or untracked items. */
+function ChecklistRowProgress({ task }: { task: AgentTaskItem }) {
+  const summary = taskProgressSummary(task);
+  if (!summary) return null;
+  return (
+    <Text style={styles.progress} testID={`checklist-progress-${task.id}`}>
+      {taskProgressLabel(summary)}
+    </Text>
+  );
+}
+
+function checklistRowTooltip(task: AgentTaskItem, title: string): string {
+  return [
+    title !== task.text ? title : undefined,
+    taskProgressTooltip(task),
+    task.description,
+    task.owner,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function ChecklistRow({
@@ -316,13 +362,73 @@ function ChecklistRow({
   mutate: (input: ChecklistMutation) => void;
 }) {
   const task = info.item;
-  const touch = useVortonTouch();
   const completed = task.completed || task.status === "completed";
   const blocked = !completed && task.status === "blocked";
   const review = !completed && task.status === "review";
   const running = !completed && task.status === "in_progress";
   const title = running && task.activeForm ? task.activeForm : task.text;
   const managed = task.source === "vorteo" && Boolean(task.id);
+  const details = useCallback(() => open(task), [open, task]);
+  const dragDisabled = !managed || !canReorder;
+  // Native buttons own their touches, so they forward a hold to the row's drag.
+  const holdToDrag = isNative && !dragDisabled ? info.drag : undefined;
+  return (
+    <ListDragRow info={info} disabled={dragDisabled} testID={`checklist-drag-${task.id}`}>
+      <TaskCardRow style={info.isActive && styles.active} testID={`checklist-row-${task.id}`}>
+        <TaskCardRowIcon>
+          <ChecklistCheckbox
+            task={task}
+            completed={completed}
+            running={running}
+            disabled={!managed || !canMutate}
+            mutate={mutate}
+            onLongPress={holdToDrag}
+          />
+        </TaskCardRowIcon>
+        <TruncatedText
+          numberOfLines={1}
+          tooltipLabel={task.text}
+          tooltipDescription={checklistRowTooltip(task, title)}
+          style={[
+            taskCardStyles.rowText,
+            styles.title,
+            running && styles.running,
+            completed && styles.completed,
+          ]}
+        >
+          {title}
+        </TruncatedText>
+        <ChecklistRowProgress task={task} />
+        {blocked ? <BlockedTaskBadge task={task} /> : null}
+        {review ? <ReviewTaskBadge task={task} /> : null}
+        <TaskCardRowAction
+          accessibilityLabel={`Details for ${task.text}`}
+          onPress={details}
+          onLongPress={holdToDrag}
+          leftIcon={Pencil}
+        />
+      </TaskCardRow>
+    </ListDragRow>
+  );
+}
+
+/** The check mark fills the leading icon column, beside its text like a sidebar status circle. */
+function ChecklistCheckbox({
+  task,
+  completed,
+  running,
+  disabled,
+  mutate,
+  onLongPress,
+}: {
+  task: AgentTaskItem;
+  completed: boolean;
+  running: boolean;
+  disabled: boolean;
+  mutate: (input: ChecklistMutation) => void;
+  onLongPress?: () => void;
+}) {
+  const touch = useVortonTouch();
   const toggle = useCallback(() => {
     if (!task.id) return;
     mutate({
@@ -332,72 +438,47 @@ function ChecklistRow({
       status: completed ? "pending" : "completed",
     });
   }, [task, completed, mutate]);
-  const details = useCallback(() => open(task), [open, task]);
-  const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
-  const inactiveIcon = inactiveTaskIcon(task.status);
-  const incompleteIcon = running ? TASK_RUNNING_ICON : inactiveIcon;
-  const checkboxState = useMemo(
-    () => ({ checked: completed, disabled: !managed || !canMutate }),
-    [completed, managed, canMutate],
-  );
+  const checkboxState = useMemo(() => ({ checked: completed, disabled }), [completed, disabled]);
+  const incompleteIcon = running ? TASK_RUNNING_ICON : inactiveTaskIcon(task.status);
   return (
-    <TaskCardRow style={info.isActive && styles.active} testID={`checklist-row-${task.id}`}>
-      <TaskCardRowLeading>
-        {managed ? (
-          <ListDragHandle
-            info={info}
-            disabled={!canReorder}
-            label={`Reorder ${task.text}`}
-            testID={`checklist-drag-${task.id}`}
-          />
-        ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          style={iconStyle}
-          accessibilityRole="checkbox"
-          aria-checked={completed}
-          accessibilityState={checkboxState}
-          accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
-          disabled={!managed || !canMutate}
-          onPress={toggle}
-          leftIcon={completed ? Check : incompleteIcon}
-        />
-      </TaskCardRowLeading>
-      <TruncatedText
-        numberOfLines={1}
-        tooltipLabel={task.text}
-        tooltipDescription={[title !== task.text ? title : undefined, task.description, task.owner]
-          .filter(Boolean)
-          .join("\n\n")}
-        style={[
-          taskCardStyles.rowText,
-          styles.title,
-          running && styles.running,
-          completed && styles.completed,
-        ]}
-      >
-        {title}
-      </TruncatedText>
-      {blocked ? <BlockedTaskBadge task={task} /> : null}
-      {review ? <ReviewTaskBadge task={task} /> : null}
-      <Button
-        variant="ghost"
-        size="sm"
-        style={iconStyle}
-        accessibilityLabel={`Details for ${task.text}`}
-        onPress={details}
-        leftIcon={Pencil}
-      />
-    </TaskCardRow>
+    <Button
+      variant="ghost"
+      size="sm"
+      style={[styles.checkbox, touch && styles.touchCheckbox]}
+      accessibilityRole="checkbox"
+      aria-checked={completed}
+      accessibilityState={checkboxState}
+      accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
+      disabled={disabled}
+      onPress={toggle}
+      onLongPress={onLongPress}
+      // Touch keeps the 44px height but the narrower leading column, like a row handle.
+      dataSet={COMPACT_COLUMN_DATA}
+      leftIcon={completed ? Check : incompleteIcon}
+    />
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
   title: { flex: 1, minWidth: 0 },
+  progress: {
+    flexShrink: 0,
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    fontVariant: ["tabular-nums"],
+  },
   running: { color: theme.colors.foreground },
   completed: { color: theme.colors.foregroundExtraMuted, textDecorationLine: "line-through" },
-  active: { backgroundColor: theme.colors.surface2 },
+  active: { backgroundColor: theme.colors.surface2, borderRadius: theme.borderRadius.md },
+  checkbox: {
+    width: "100%",
+    height: LIST_ROW_ACTION_SIZE,
+    minHeight: LIST_ROW_ACTION_SIZE,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: theme.borderRadius.md,
+  },
+  touchCheckbox: { height: LIST_ROW_TOUCH_ACTION_SIZE, minHeight: LIST_ROW_TOUCH_ACTION_SIZE },
   error: {
     color: theme.colors.destructive,
     fontSize: theme.fontSize.sm,

@@ -141,7 +141,7 @@ test("session-capable clients discard the password and restore verified connecti
     await client.unlock("recovery-password");
     await client.listRestarts();
     expect(calls.at(-1)).toEqual([
-      "restarts/query?sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1",
+      "restarts/query?sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1&delegatedRequests=1",
       "",
     ]);
     expect(await client.restoreSession()).toBe(true);
@@ -176,7 +176,7 @@ test("capable installation clients request extended restart details without chan
   await client.listRestarts();
   expect(calls).toEqual([
     "unlock",
-    "restarts/query?idleRestarts=1&sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1",
+    "restarts/query?idleRestarts=1&sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1&delegatedRequests=1",
   ]);
 });
 
@@ -562,4 +562,110 @@ test("recovery bookmark binds the installation and distinguishes missing routes 
       .filter((resource) => resource !== "unlock")
       .every((resource) => resource === "recovery-access/query"),
   ).toBe(true);
+});
+
+test("session host client hides on old coordinators and binds requests and decisions exactly", async () => {
+  const { sessionHostJobFixture: job, sessionHostStatusFixture: status } =
+    await import("./session-host-review.fixture");
+  const calls: { path: string; body: unknown }[] = [];
+  let available = false;
+  let now = 1_000;
+  const client = new InstallationClient(installation, {
+    now: () => now,
+    request: async (path, _password, body) => {
+      calls.push({ path, body });
+      if (path === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) =>
+            Object.assign({}, environment, { password: "fixture" }),
+          ),
+        };
+      if (!available) throw new InstallationRouteUnavailable();
+      if (path === "session-host/query") return { jobs: [job], status };
+      if (path === "session-host/request") {
+        const request = body as { id: string };
+        return { ...job, id: request.id };
+      }
+      return job;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.sessionHost()).rejects.toThrow("Unlock");
+  await client.unlock("fixture-owner");
+  // An older coordinator: the card hides, and the route is not probed again for a minute.
+  expect(await client.sessionHost()).toBeNull();
+  const afterUnavailable = calls.length;
+  now += 5_000;
+  expect(await client.sessionHost()).toBeNull();
+  expect(calls).toHaveLength(afterUnavailable);
+  await expect(client.requestSessionHost("session-host-install", "reason")).rejects.toThrow(
+    "Update the coordinator",
+  );
+  expect(calls).toHaveLength(afterUnavailable);
+
+  available = true;
+  now += 60_000;
+  expect(await client.sessionHost()).toEqual({ jobs: [job], status });
+  const requested = await client.requestSessionHost("session-host-install", "Owner request");
+  const sent = calls.at(-1)!;
+  expect(sent.path).toBe("session-host/request");
+  expect(sent.body).toEqual({
+    id: requested.id,
+    operation: "session-host-install",
+    reason: "Owner request",
+  });
+  expect(requested.id).toMatch(/^[0-9a-f-]{36}$/);
+
+  await client.decideSessionHost(job, "approve");
+  expect(calls.at(-1)).toEqual({
+    path: "session-host/decision",
+    body: {
+      operation: job.operation,
+      id: job.id,
+      revision: job.revision,
+      planSha256: job.planSha256,
+      decision: "approve",
+    },
+  });
+
+  // Once supported, losing the route is a failure rather than a silently hidden card.
+  available = false;
+  await expect(client.sessionHost()).rejects.toBeInstanceOf(InstallationRouteUnavailable);
+});
+
+test("session host decisions refuse a receipt for a different plan", async () => {
+  const { sessionHostJobFixture: job } = await import("./session-host-review.fixture");
+  const client = new InstallationClient(installation, {
+    request: async (path) =>
+      path === "unlock"
+        ? {
+            installationId: installation.installationId,
+            connections: installation.environments.map((environment) =>
+              Object.assign({}, environment, { password: "fixture" }),
+            ),
+          }
+        : { ...job, planSha256: "c".repeat(64) },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await client.unlock("fixture-owner");
+  await expect(client.decideSessionHost(job, "approve")).rejects.toThrow("receipt changed");
+});
+
+test("session host query keeps jobs when the coordinator could not inspect the job", async () => {
+  const { sessionHostJobFixture: job } = await import("./session-host-review.fixture");
+  const client = new InstallationClient(installation, {
+    request: async (path) =>
+      path === "unlock"
+        ? {
+            installationId: installation.installationId,
+            connections: installation.environments.map((environment) =>
+              Object.assign({}, environment, { password: "fixture" }),
+            ),
+          }
+        : { jobs: [job], status: null },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await client.unlock("fixture-owner");
+  expect(await client.sessionHost()).toEqual({ jobs: [job], status: null });
 });

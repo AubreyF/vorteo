@@ -4,6 +4,7 @@ import {
   deferBootstrapReview,
 } from "./execution-installation/coordinator-bootstrap-launch.js";
 import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
+import { mountClaudeOAuthConsumer } from "./execution-installation/accounts/claude-oauth-consumer.js";
 import { ScheduleStore } from "./schedule/store.js";
 import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
 import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
@@ -152,7 +153,16 @@ import {
 } from "./agent/tools/paseo-tools.js";
 import type { PaseoToolRuntimeContext } from "./agent/tools/types.js";
 import { createAgentProviderRuntime } from "./agent/provider-runtime.js";
+import { createSessionHostConnector } from "./session-host/connector.js";
+import type { HostedSessionRouting } from "./session-host/hosted-agent-client.js";
+import { sessionHostPaths } from "./session-host/host-files.js";
+import { readDurableSessionsSettings } from "./session-host/settings.js";
+import { createAppliedSeqStore } from "./session-host/applied-store.js";
+import { loadAdoptedAgents, planHostedStartup } from "./session-host/boot-attach.js";
+import { ensureAgentLoaded } from "./agent/agent-loading.js";
+import type { SessionHostConnector } from "./session-host/connector.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
+import { seedSystemProjectAtStartup } from "./system-project/ensure-system-project.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import {
   FileBackedProjectRegistry,
@@ -174,6 +184,7 @@ import { createOrchestrationSkills } from "./orchestration-skills/index.js";
 import { resolveConfigFromPersisted, type CliConfigOverrides } from "./config.js";
 import { resolvePaseoToolPolicy } from "./agent/paseo-tool-policy.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
+import { startEmbeddedHeadlessHost } from "./browser-tools/embedded-headless-host.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
 import { WorkspaceGitServiceImpl } from "./workspace-git-service.js";
 import { resolveWorkspaceIdForPath } from "./resolve-workspace-id-for-path.js";
@@ -454,6 +465,8 @@ export interface PaseoDaemonConfig {
   installationResourceBindings?: MutableDaemonConfig["installationResourceBindings"];
   skillSelection?: AgentSkillSelection;
   pluginsEnabled?: boolean;
+  /** Seeds the Vorteo System project at startup. Defaults on; test daemons turn it off. */
+  systemProjectEnabled?: boolean;
   plugins?: Record<string, PluginSource>;
   pluginRegistries?: PluginRegistries;
   pluginRegistryUrl?: string;
@@ -518,7 +531,8 @@ export interface PaseoDaemon {
   scriptRuntimeStore: WorkspaceScriptRuntimeStore;
   browserToolsBroker: BrowserToolsBroker;
   start(): Promise<void>;
-  stop(): Promise<void>;
+  /** onStep names each awaited shutdown stage. */
+  stop(options?: { onStep?: (step: string) => void }): Promise<void>;
   getListenTarget(): ListenTarget | null;
   getServerId(): string;
 }
@@ -682,6 +696,12 @@ export async function createPaseoDaemon(
   });
   const browserToolsPolicy = new DaemonConfigBrowserToolsPolicy(daemonConfigStore);
   const browserToolsBroker = new BrowserToolsBroker({});
+  // Read at startup; changing daemon.browserTools.headlessHost requires a restart.
+  const embeddedHeadlessHost = startEmbeddedHeadlessHost({
+    broker: browserToolsBroker,
+    persisted: loadPersistedConfig(config.paseoHome),
+    logger,
+  });
   let resolveFactoryObservation: () => NativeFactoryObservationService | null = () => null;
   let factorySetupService: NativeFactorySetupService | null = null;
   let resolveFactoryInstaller: () => NativeFactoryInstaller | null = () => null;
@@ -866,16 +886,21 @@ export async function createPaseoDaemon(
   );
 
   app.use(express.json());
+  const refreshClaudeProvider = (providerId: string) => {
+    void providerSnapshotManager.refreshSettingsSnapshot({ providers: [providerId] }).catch(() => {
+      logger.warn({ providerId }, "Claude provider catalog refresh is pending");
+    });
+  };
   mountClaudeSetupConsumer(app, {
     paseoHome: config.paseoHome,
     store: daemonConfigStore,
-    onApplied: (providerId) => {
-      void providerSnapshotManager
-        .refreshSettingsSnapshot({ providers: [providerId] })
-        .catch(() => {
-          logger.warn({ providerId }, "Claude provider catalog refresh is pending");
-        });
-    },
+    onApplied: refreshClaudeProvider,
+  });
+  // Inert unless the installation coordinator enables Host-owned Claude refresh.
+  mountClaudeOAuthConsumer(app, {
+    paseoHome: config.paseoHome,
+    store: daemonConfigStore,
+    onApplied: refreshClaudeProvider,
   });
 
   // Serve static files from public directory
@@ -1024,10 +1049,13 @@ export async function createPaseoDaemon(
     isDirectory: async (target) => (await stat(target).catch(() => null))?.isDirectory() ?? false,
     logger,
   });
+  const { connector: sessionHostConnector, routing: sessionHostRouting } =
+    createDurableSessionsRouting({ paseoHome: config.paseoHome, logger, release: daemonVersion });
   const agentProviderRuntime = await createAgentProviderRuntime({
     paseoHome: config.paseoHome,
     logger,
     snapshotManager: {
+      sessionHost: sessionHostRouting,
       refreshTimeoutMs: config.providerCatalogRefreshTimeoutMs,
       runtimeSettings: config.agentProviderSettings,
       providerOverrides: config.providerOverrides,
@@ -1104,6 +1132,16 @@ export async function createPaseoDaemon(
     projectRegistry,
     workspaceRegistry,
     workspaceGitService,
+    logger,
+  });
+  // Before reconciliation, so system folders exist when it checks for missing directories.
+  await seedSystemProjectAtStartup({
+    enabled: config.systemProjectEnabled,
+    paseoHome: config.paseoHome,
+    serverId,
+    sharedProviderPreferences: config.sharedProviderPreferences,
+    projectRegistry,
+    workspaceRegistry: archiveWorkspaceRegistry,
     logger,
   });
   await workspaceLabelService.initialize();
@@ -1597,6 +1635,23 @@ export async function createPaseoDaemon(
   });
   const blockedTaskReviews = new BlockedTaskReviewService({ agentManager, agentStorage, logger });
   quotaReservePolling.start();
+  // Hosted sessions still running a turn are attached and registered for adoption before any
+  // service can load their agents (the scheduler included), so nobody starts a second provider.
+  const hostedPlan = await planHostedStartup({
+    routing: sessionHostRouting,
+    agents: agentStorage,
+    logger,
+  }).catch((error: unknown) => {
+    logger.warn(
+      { err: error, adoptions: sessionHostRouting.adoptions.size },
+      "Hosted session startup planning failed; registered sessions load on demand",
+    );
+    return null;
+  });
+  // A hosted session that ends with its host continues the way a restart would.
+  sessionHostRouting.onSessionLost = (agentId) => {
+    void agentManager.continueAfterHostedSessionLoss(agentId);
+  };
   await scheduleService.start();
   factoryScheduleInspection.activate(scheduleService);
   agentManager.setAgentArchivedCallback(async (agentId) => {
@@ -1747,6 +1802,7 @@ export async function createPaseoDaemon(
         !(await isAgentMcpRequestAuthorized({
           password: config.auth?.password,
           capabilityToken: agentMcpAuthToken,
+          additionalCapabilityTokens: sessionHostConnector.knownMcpTokens(),
           authorizationHeader: req.header("authorization"),
         }))
       ) {
@@ -2027,6 +2083,36 @@ export async function createPaseoDaemon(
         }
       });
 
+      if (hostedPlan && hostedPlan.adopted.length > 0) {
+        void loadAdoptedAgents({
+          routing: sessionHostRouting,
+          adopted: hostedPlan.adopted,
+          loadAgent: (agentId) =>
+            ensureAgentLoaded(agentId, { agentManager, agentStorage, logger }),
+          logger,
+        }).then(({ attached, total }) =>
+          logger.info({ attached, total }, `Hosted sessions attached: ${attached}/${total}`),
+        );
+      }
+      if (hostedPlan && (hostedPlan.closed.length > 0 || hostedPlan.lost.length > 0))
+        logger.info(
+          { closed: hostedPlan.closed.length, lost: hostedPlan.lost },
+          "Hosted sessions reconciled at startup",
+        );
+      // A session that ended with its host while its turn was running continues like a restart.
+      for (const agentId of hostedPlan?.lost ?? []) {
+        void agentStorage
+          .get(agentId)
+          .then((record) =>
+            record?.lastStatus === "running" && !record.archivedAt
+              ? agentManager.continueAfterHostedSessionLoss(agentId)
+              : undefined,
+          )
+          .catch((error: unknown) =>
+            logger.warn({ err: error, agentId }, "Could not continue a lost hosted session"),
+          );
+      }
+
       // Start speech service after listening so synchronous Sherpa native
       // model loading doesn't block the server from accepting connections.
       speechService.start();
@@ -2056,7 +2142,9 @@ export async function createPaseoDaemon(
       await quotaReservePolling.stop();
       await pluginRuntime.stopAllPlugins().catch(() => undefined);
       await serviceProxy.stopStandalone().catch(() => undefined);
+      await embeddedHeadlessHost.stop().catch(() => undefined);
       await agentProviderRuntime.shutdown().catch(() => undefined);
+      sessionHostConnector.close();
       if (mainStarted) {
         httpServer.closeAllConnections();
         await new Promise<void>((resolve) => httpServer.close(() => resolve()));
@@ -2073,7 +2161,9 @@ export async function createPaseoDaemon(
     }
   };
 
-  const stop = async () => {
+  /** onStep names each awaited stage, so a stalled shutdown reports where it stopped. */
+  const stop = async (options?: { onStep?: (step: string) => void }) => {
+    const step = options?.onStep ?? (() => {});
     blockedTaskReviews.stop();
     factoryScheduleInspection.revoke();
     quotaPreflight.stop();
@@ -2081,10 +2171,13 @@ export async function createPaseoDaemon(
     wsServer?.prepareForShutdown();
     agentManager.prepareForShutdown();
     // Revoke remote execution authority before asynchronous fork teardown.
+    step("hub relationships");
     await hubRelationships.stop();
+    step("schedules");
     await scheduleService.stop().catch(() => undefined);
     const governedFailures: unknown[] = [];
     try {
+      step("governed runtime");
       await governedRuntime?.stop();
     } catch (failure) {
       governedFailures.push(failure);
@@ -2093,8 +2186,10 @@ export async function createPaseoDaemon(
         "Governed runtime settlement remains unresolved during shutdown",
       );
     }
+    step("governor observations");
     await governorObservations.stop();
     localCredential = null;
+    step("local credential");
     await deleteLocalCredential(config.paseoHome);
     // Stop tracking plugin provider registrations before anything tears plugins
     // down, so plugin shutdown cannot withdraw a provider from under an agent
@@ -2103,24 +2198,47 @@ export async function createPaseoDaemon(
     unsubscribePluginProviders();
     workspaceReconciliation.dispose();
     scriptHealthMonitor.stop();
+    step("quota reserve polling");
     await quotaReservePolling.stop();
+    step("detach hosted sessions");
+    // Durably hosted turns keep running in the session host; the next worker takes them over.
+    await withTimeout({
+      promise: agentManager.detachDurableSessions(),
+      timeoutMs: AGENT_CLOSE_TIMEOUT_MS,
+      label: "detach hosted sessions",
+    }).catch((error) => logger.warn({ err: error }, "Hosted sessions did not detach in time"));
+    step("close agents");
     await closeAllAgents(logger, agentManager);
+    step("plugin lifecycle events");
     await withTimeout({
       promise: pluginRuntime.drainEvents(),
       timeoutMs: AGENT_CLOSE_TIMEOUT_MS,
       label: "drain plugin lifecycle events",
     }).catch((error) => logger.warn({ err: error }, "Plugin lifecycle events did not finish"));
+    step("flush agents");
     await agentManager.flushForShutdown().catch(() => undefined);
     detachAgentStoragePersistence();
+    step("agent storage");
     await agentStorage.flush().catch(() => undefined);
+    step("provider runtime");
     await agentProviderRuntime.shutdown();
+    // Closing the connection never waits on the host and leaves its sessions running.
+    sessionHostConnector.close();
+    step("plugins");
     await pluginRuntime.stopAllPlugins();
+    step("terminals");
     terminalManager.killAll();
+    step("headless browser host");
+    await embeddedHeadlessHost.stop().catch(() => undefined);
+    step("speech");
     await speechService.stop();
+    step("relay");
     await relayRuntime?.stop().catch(() => undefined);
     if (wsServer) {
+      step("websocket server");
       await wsServer.close();
     }
+    step("service proxy");
     await serviceProxy.stopStandalone();
     // Force-drop remaining sockets so httpServer.close() resolves promptly.
     // We've already closed wsServer (which sent ws-layer close frames) and
@@ -2129,6 +2247,7 @@ export async function createPaseoDaemon(
     // upgraded WS sockets in the closing handshake, or HTTP keep-alive
     // sockets in CLOSE_WAIT). closeIdleConnections() does not catch
     // upgraded sockets, so we use closeAllConnections() here.
+    step("http server");
     httpServer.closeAllConnections();
     await new Promise<void>((resolve) => {
       httpServer.close(() => resolve());
@@ -2179,4 +2298,38 @@ async function closeAllAgents(logger: Logger, agentManager: AgentManager): Promi
       }
     }),
   );
+}
+
+/**
+ * Durable sessions run eligible Claude sessions in the session host when their setting file
+ * enables them. The connection is made lazily, so a disabled setting costs nothing, and a worker
+ * never waits on an absent host: such sessions simply run in the worker.
+ */
+function createDurableSessionsRouting(input: {
+  paseoHome: string;
+  logger: Logger;
+  release: string;
+}): {
+  connector: SessionHostConnector;
+  routing: HostedSessionRouting & Required<Pick<HostedSessionRouting, "applied" | "adoptions">>;
+} {
+  const setting = readDurableSessionsSettings(input.paseoHome);
+  if (setting.problem)
+    input.logger.warn({ problem: setting.problem }, "Durable sessions setting ignored");
+  const paths = sessionHostPaths(input.paseoHome);
+  const connector = createSessionHostConnector({
+    paths,
+    logger: input.logger.child({ module: "session-host" }),
+    release: input.release,
+  });
+  return {
+    connector,
+    routing: {
+      connector,
+      isEnabled: () => readDurableSessionsSettings(input.paseoHome).enabled,
+      logger: input.logger,
+      applied: createAppliedSeqStore(paths),
+      adoptions: new Map(),
+    },
+  };
 }

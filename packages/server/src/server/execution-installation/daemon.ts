@@ -8,13 +8,14 @@ import { filterArchivedRestartErrors } from "./restart-impact.js";
 import { runSupervisorMaintenance, supervisorPlanDigest } from "./supervisor-maintenance.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 import { WebSocket } from "ws";
+import type { Logger } from "pino";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type {
   RestartImpact,
   RestartJob,
   ExecutionEnvironmentKind,
 } from "@getpaseo/protocol/execution-installation";
-import type { InstallationConfig } from "./config.js";
+import { hostLaunchdService, type InstallationConfig } from "./config.js";
 import type { RestartExecutor } from "./restarts.js";
 import type { CoordinatorBootstrapPreparation } from "@getpaseo/protocol/coordinator-bootstrap";
 import { coordinatorAutomaticAuthority, signCoordinatorSubmission } from "./daemon-automation.js";
@@ -27,6 +28,7 @@ const execFileAsync = promisify(execFile);
 
 // Status includes provider availability probes, which can exceed three seconds.
 const DAEMON_RESPONSE_TIMEOUT_MS = 30_000;
+const READINESS_PROBE_TIMEOUT_MS = 10_000;
 
 interface CoordinatorSubmission {
   config: InstallationConfig;
@@ -241,6 +243,7 @@ export function createInstallationRegistrationAdmission(
 export function createInstallationRestartExecutor(
   config: InstallationConfig,
   assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
+  logger?: Pick<Logger, "info" | "warn">,
 ): RestartExecutor {
   const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   function retainedHeldRestart(job: RestartJob) {
@@ -317,21 +320,67 @@ export function createInstallationRestartExecutor(
     );
   }
 
+  /**
+   * One bounded readiness probe. A frozen daemon still completes TCP handshakes
+   * from its listen backlog, so an unbounded connect or close can wait forever.
+   */
+  async function probeDaemonPid(kind: "host" | "container"): Promise<number> {
+    const attempt = (async () => {
+      const client = await connectInstallationDaemon(config, kind);
+      try {
+        return (await client.getDaemonStatus({ timeout: READINESS_PROBE_TIMEOUT_MS })).pid;
+      } finally {
+        void client.close().catch(() => {});
+      }
+    })();
+    const expired = delay(READINESS_PROBE_TIMEOUT_MS + 5_000).then(() => {
+      throw new Error("Daemon readiness probe did not answer in time");
+    });
+    return Promise.race([attempt, expired]);
+  }
+
+  /** Waits for a changed worker PID, reporting progress, until its own deadline. */
+  async function waitForReplacement(
+    target: RestartJob["target"],
+    kind: "host" | "container",
+    previousPid: number | null,
+  ): Promise<string> {
+    const startedAt = Date.now();
+    const deadline = startedAt + 120_000;
+    let reportedAt = startedAt;
+    logger?.info({ target, previousPid }, "Restart sent; waiting for a replacement worker");
+    while (Date.now() < deadline) {
+      await delay(1000);
+      try {
+        const pid = await probeDaemonPid(kind);
+        if (pid !== previousPid)
+          return `Replacement worker ${pid} is ready; environment identity verified`;
+      } catch {
+        // Startup can temporarily refuse connections. The deadline bounds recovery.
+      }
+      if (Date.now() - reportedAt >= 30_000) {
+        reportedAt = Date.now();
+        logger?.info(
+          { target, previousPid, waitedMs: reportedAt - startedAt },
+          "Still waiting for a replacement worker",
+        );
+      }
+    }
+    logger?.warn({ target, previousPid }, "No replacement worker became ready in time");
+    return reportRestartTimeout(config, target);
+  }
+
   async function restart(target: RestartJob["target"], whenIdle = false): Promise<string | null> {
     assertReady(target);
     const kind = target === "host" ? "host" : "container";
     let previousPid: number | null = null;
-    let before: DaemonClient | null = null;
     try {
-      before = await connectInstallationDaemon(config, kind);
-      previousPid = (await before.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS })).pid;
+      previousPid = await probeDaemonPid(kind);
     } catch (error) {
       if (whenIdle) return null;
       if (target !== "host") throw error;
       // The installation owns this launchd service even when its daemon is down.
       // Readiness after recovery still requires the pinned identity and credential.
-    } finally {
-      await before?.close();
     }
     if (whenIdle) {
       let client: DaemonClient;
@@ -354,7 +403,7 @@ export function createInstallationRestartExecutor(
         await client.close();
       }
     } else if (target === "host") {
-      await execFileAsync("/bin/launchctl", ["kickstart", "-k", config.host.launchdService], {
+      await execFileAsync("/bin/launchctl", ["kickstart", "-k", hostLaunchdService(config)], {
         timeout: 15_000,
       });
     } else {
@@ -377,22 +426,7 @@ export function createInstallationRestartExecutor(
         await client.close();
       }
     }
-    const deadline = Date.now() + 120_000;
-    while (Date.now() < deadline) {
-      await delay(1000);
-      let client: DaemonClient | null = null;
-      try {
-        client = await connectInstallationDaemon(config, kind);
-        const status = await client.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS });
-        if (status.pid !== previousPid)
-          return `Replacement worker ${status.pid} is ready; environment identity verified`;
-      } catch {
-        // Startup can temporarily refuse connections. The deadline bounds recovery.
-      } finally {
-        await client?.close();
-      }
-    }
-    return reportRestartTimeout(config, target);
+    return waitForReplacement(target, kind, previousPid);
   }
   return {
     restartHeld,
@@ -522,6 +556,76 @@ export function createInstallationRestartExecutor(
           idleRestartSupported,
           error: null,
         };
+      } finally {
+        await client.close();
+      }
+    },
+    async restartContinuationAvailable(target) {
+      let client: DaemonClient;
+      try {
+        client = await connectInstallationDaemon(config, target === "host" ? "host" : "container");
+      } catch (error) {
+        // An unreachable daemon holds no tasks to capture; restart recovery stays legacy.
+        logger?.warn(
+          { err: error, target },
+          "Restart continuation skipped: the daemon is unreachable, so this restart uses legacy behavior",
+        );
+        return false;
+      }
+      try {
+        const available = client.getLastServerInfoMessage()?.features?.restartContinuation === true;
+        if (!available)
+          logger?.info(
+            { target },
+            "Restart continuation skipped: the daemon does not advertise it, so this restart uses legacy behavior",
+          );
+        return available;
+      } finally {
+        await client.close();
+      }
+    },
+    async captureRestartContinuation(target, requestId) {
+      assertReady(target);
+      const client = await connectInstallationDaemon(
+        config,
+        target === "host" ? "host" : "container",
+      );
+      try {
+        assertReady(target);
+        const result = await client.restartServer(undefined, undefined, {
+          timeout: 5000,
+          idleMode: "drain",
+          restartDrainId: requestId,
+          restartContinuation: "capture",
+        });
+        if (result.accepted !== true)
+          throw new Error("Environment did not confirm durable restart continuation capture");
+      } finally {
+        await client.close();
+      }
+    },
+    async releaseRestartContinuation(target, requestId, outcome) {
+      const client = await connectInstallationDaemon(
+        config,
+        target === "host" ? "host" : "container",
+      );
+      try {
+        // COMPAT(restartContinuation): a daemon without durable continuation (for
+        // example after a downgrade) can only hold the legacy drain, so release that.
+        const continuation =
+          client.getLastServerInfoMessage()?.features?.restartContinuation === true;
+        if (!continuation)
+          logger?.info(
+            { target, requestId },
+            "Releasing the legacy restart hold: the daemon does not advertise restart continuation",
+          );
+        const result = await client.restartServer(undefined, undefined, {
+          timeout: 5000,
+          idleMode: "cancel-drain",
+          restartDrainId: requestId,
+          ...(continuation ? { restartContinuation: outcome } : {}),
+        });
+        return result.accepted === true;
       } finally {
         await client.close();
       }

@@ -22,6 +22,60 @@ Settings → General has **Prepare host update task** and **Prepare host merge t
 
 The trusted installation interface disables agent browser automation and rejects client plugin bundles from the container or any unrecognized daemon. Client plugins from the explicitly configured native host remain trusted. This restriction protects the host credentials held by the installation interface. Ordinary interfaces retain their existing behavior.
 
+### Browser tools for Host agents
+
+Host agents get browser tools from a disposable headless Chromium instead of the installation interface. Enable the daemon-owned host in the Host daemon's `config.json`:
+
+```json
+{
+  "daemon": {
+    "browserTools": {
+      "enabled": true,
+      "headlessHost": {
+        "enabled": true,
+        "deniedOrigins": ["https://<protected-interface-origin>"],
+        "allowedHosts": ["localhost:8081"]
+      }
+    }
+  }
+}
+```
+
+The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Older daemons ignore the setting. For the Dev daemon, see [Browser tools for Dev container agents](#browser-tools-for-dev-container-agents). An invalid `allowedHosts` entry, an unknown `headlessHost` key such as a misspelled `deniedOrigins`, or a value of the wrong type stops the browser host from starting rather than loosening its policy; the daemon itself still starts and logs the error. Older daemons, including Host releases before `vorteo.736`, refuse to start on an invalid `headlessHost` entry, so check the JSON before restarting one.
+
+Chromium never runs inside the daemon. On the first browser request the daemon starts a separate browser host process and talks to it over Node IPC. After a crash, browser requests fail fast while a backoff of 1 to 30 seconds runs, then the next request starts a new process; open tabs are lost. The daemon stops the process when it shuts down. `paseo browser host` uses the same process, so the CLI never loads Playwright either.
+
+That process entry, `headless-host-process.js`, is deliberately outside the initial Host module contract. That contract covers the daemon worker, CLI and other startup entries, and a test checks that their traces never reach Playwright.
+
+To run a host without a restart, start it as the macOS account that runs the Host daemon:
+
+```sh
+paseo browser host --deny-origin https://<protected-interface-origin> --allow-host localhost:8081
+```
+
+The browser host process receives only `PATH`, `HOME`, `TMPDIR`, locale and `PLAYWRIGHT_BROWSERS_PATH` from its parent; SSH agent sockets, provider tokens and other variables stay behind. Each side validates every IPC message and drops malformed ones, so a misbehaving browser process cannot crash the daemon.
+
+The command connects only to the local daemon through its local credential and refuses `--host`. Both forms register as `headless chromium`; the Settings → Agents **Browser tools** switch still decides whether agents receive the tools. Each run starts with an empty in-memory profile, with no cookies, storage or saved logins from any owner interface. Downloads are refused, service workers are blocked and each tab is visible only to agents in the workspace that opened it. Popups join their opener's workspace.
+
+The browser cannot reach this machine or private networks by default. Every request, including loopback, goes through a filtering proxy inside the browser host process. The proxy resolves each name itself, refuses private destinations and connects to the exact address it checked, so redirects and DNS rebinding cannot reach a refused address. It refuses:
+
+- loopback, link-local, private (RFC 1918), CGNAT and Tailscale (`100.64.0.0/10`) and other reserved IPv4 ranges
+- IPv6 loopback, link-local, unique local (including Tailscale) and multicast addresses; IPv4-mapped, IPv4-compatible and NAT64 (`64:ff9b::/96`) forms of refused IPv4 addresses; and all 6to4 (`2002::/16`) and Teredo (`2001::/32`) addresses
+- `localhost`, single-label names, and names ending in `.localhost`, `.local`, `.internal`, `.home.arpa` or `.ts.net`
+- any public name that resolves to one of those addresses
+
+WebRTC cannot send UDP outside the proxy. `allowedHosts` and `--allow-host` open a specific private destination, as `host`, `host:port` or a port range `host:first-last`; use them for a local preview server, never for the protected interface or daemon ports. A range such as `<preview-host>.ts.net:32768-32799` covers the managed preview ports on one name without opening the host's other services, so new previews need no configuration change or restart.
+
+`deniedOrigins` and `--deny-origin` block a host on every scheme and port, even when it is also allowed. They apply to navigation, redirects, popups, frames, fetches and WebSockets. Always deny the protected interface and any `redirectOrigins`. Host agents can already read owner-account files, so this guard limits accidents and prompt injection; it does not contain a hostile Host agent. Never register a Host-side browser host, including `paseo browser host` run on the Mac, with the Dev container daemon. Guest agents could then use a browser on the host network.
+
+To capture Vorteo itself, point the browser at an isolated preview or the e2e harness daemon and Metro server, never the protected interface. `--viewport 390x844` starts tabs at phone size, and `browser_resize` changes one tab. Use `--headed` to watch the browser. The command needs `playwright-core` and a Playwright Chromium build; run `npm run browser:setup` in the checkout when they are missing. Chromium comes from the account's Playwright cache, outside release custody: release installation neither pins nor verifies that executable. The command stops when its process exits and reconnects after daemon restarts.
+
+### Browser tools for Dev container agents
+
+The Dev daemon can run its own headless browser with the same `headlessHost` settings in its `config.json`. Chromium then runs inside the container, with the container's network and no Host access. The same private network refusal and `deniedOrigins` apply. Dev agents are less trusted than Host agents, so only enable this on a Dev build that includes the private network refusal, and deny every origin that can take owner actions: the installation origin, the Host web interface and any custom domains. Allow only the container's managed preview port range, never ports that serve Dev's own Vorteo interface or daemon. Signed-in browser profiles are never available to Dev agents.
+
+The container needs Chromium's system libraries. Images built from the current `docker/base/Dockerfile` include them. An older running container can add them without root or a rebuild: run `npm run browser:setup` in a Vorteo checkout inside the container, as the account that runs the Dev daemon. It downloads the Debian packages into `~/.cache/paseo-browser-runtime` and wraps the Playwright Chromium launchers to use them. A container recreated from an older image loses that folder; repeat the setup. Enabling `headlessHost` takes effect at the next Dev daemon restart.
+
 ### Change the protected interface address
 
 An owner-managed HTTPS domain can serve the full protected interface through a trusted reverse proxy. Keep the proxy configuration, TLS keys, interface files and coordinator credentials outside guest-writable mounts. Proxy to the host coordinator, preserve the canonical Host header and verify the upstream certificate. Do not serve the privileged bundle from the development container.
@@ -99,7 +153,7 @@ Profile and settings admission still verifies the coordinator response against t
 
 ## Restart and recovery
 
-Both environments receive the installation-maintenance skill. Agents can submit a reason and target, then observe their request's status. They cannot approve it with their request credential. In General settings, the Installation section shows the host and dev restart requests together. Pending and running requests remain visible; older history and shared workflows expand in place. Plain pending requests offer Restart when idle, Finish turns and restart, and Cancel. Queued requests offer Cancel and Restart appears stuck. Only after the operator selects Restart appears stuck does Force restart now appear, with a separate confirmation because it interrupts running work. Request cards show one short paragraph. Details contains activity, source revisions, bundle digests and submission history. Source installation is labeled Updating until it completes. New requests refresh the section without opening a dialog or moving away from the current task. A direct link to `/settings/general?installation=1` opens the same controls without restoring the last conversation. The installer generates the owner password automatically and saves it in `owner-password` inside the private installation directory on the host. The owner does not choose it during setup. Saved daemon connection credentials do not unlock these controls: owner access approves restarts and resolves shared workflow conflicts. The interface shows the exact recovery file path supplied by the coordinator. Owner access lasts seven days in the current browser and survives reloads through an HttpOnly, SameSite Strict cookie. HTTPS cookies are Secure. Select Lock controls to revoke the session immediately. The server persists token hashes, never the password or raw tokens. The password remains the initial setup and recovery credential. Native agents with full host-account access can read that file; this boundary separates container and daemon credentials from owner approval, not the owner from trusted host processes. Unlocking does not approve a restart. The owner reviews the target, reason and disruption warning and approves that exact request. Requests never expire. The plain restart queue contains at most one active request per target across all requesters and shows an empty state when no approval is pending. Later plain requests for a pending or approved plain restart return the existing request, retaining its approval and restart mode. Requests arriving after dispatch begins are refused until the restart completes. Restart history is collapsed by default and retains rejected and completed receipts.
+Both environments receive the installation-maintenance skill. Agents can submit a reason and target, then observe their request's status. They cannot approve it with their request credential. In General settings, the Installation section shows the host and dev restart requests together. Pending and running requests, coordinator updates and coordinator recoveries remain visible until they finish; history and profile sharing expand in place. Plain pending requests offer Restart when idle, Finish turns and restart, and Cancel. Queued requests offer Cancel and Restart appears stuck. Only after the operator selects Restart appears stuck does Force restart now appear, with a separate confirmation because it interrupts running work. Request cards show one short paragraph. Details contains activity, source revisions, bundle digests and submission history. Source installation is labeled Updating until it completes. New requests refresh the section without opening a dialog or moving away from the current task. A direct link to `/settings/general?installation=1` opens the same controls without restoring the last conversation. The installer generates the owner password automatically and saves it in `owner-password` inside the private installation directory on the host. The owner does not choose it during setup. Saved daemon connection credentials do not unlock these controls: owner access approves restarts and resolves shared workflow conflicts. The interface shows the exact recovery file path supplied by the coordinator. Owner access lasts seven days in the current browser and survives reloads through an HttpOnly, SameSite Strict cookie. HTTPS cookies are Secure. Select Lock controls to revoke the session immediately. The server persists token hashes, never the password or raw tokens. The password remains the initial setup and recovery credential. Native agents with full host-account access can read that file; this boundary separates container and daemon credentials from owner approval, not the owner from trusted host processes. Unlocking does not approve a restart. The owner reviews the target, reason and disruption warning and approves that exact request. Requests never expire. The plain restart queue contains at most one active request per target across all requesters and shows an empty state when no approval is pending. Later plain requests for a pending or approved plain restart return the existing request, retaining its approval and restart mode. Requests arriving after dispatch begins are refused until the restart completes. One collapsed History holds finished restarts and updates, coordinator updates and coordinator recoveries, including rejected, canceled and completed receipts. Finished recoveries show their outcome and time, with the full plan behind Exact recovery details.
 
 Restart links use `/settings/general?installation=1&restart=<request-id>`. They focus the exact request after owner unlock while keeping both targets visible. Opening the link never approves it. Rejected, superseded and missing requests cannot authorize another request. The installed maintenance client returns `approvalUrl` from request and status commands; the host client uses its configured public origin for browser links while keeping authenticated requests on loopback.
 
@@ -119,6 +173,36 @@ A queued plain restart authorizes restarting the installed runtime at the select
 
 A coordinator restart preserves an idle approval that has not been dispatched, but marks other previously approved or running jobs as interrupted. It never replays an ambiguous restart. Inspect the target and submit a new request if another attempt is necessary. These controls do not update release files, roll back databases, or promise to preserve an in-progress provider turn.
 
+#### Owner delegation
+
+A Host operator can delegate routine requests with `<stateDir>/owner-delegation.json`:
+
+```json
+{
+  "version": 1,
+  "delegatedRequesterPrefixes": ["Nova "],
+  "hostUpdateServiceRestart": true,
+  "graceMinutes": 15
+}
+```
+
+A missing or invalid file delegates nothing. Prefixes are display only, not authentication: approval never reads them, and they match only requests made with the Host agent credential. A Dev request that names itself the delegate still needs the owner. A delegated request appears in the sidebar and Installation controls as "Being handled by <requester>" with its reason and a Cancel action, not as an approval toast, while it is automatically approved, running, or pending for less than `graceMinutes` (default 15, at most 60). After that it returns to the normal owner prompt and toast, noting that the delegate is taking longer than expected, so a mislabeled or stalled request cannot expire unseen. Every owner decision stays available, and the locked summary counts only handled requests as queued. Coordinator update requests carry no requester yet, so they are not delegated.
+
+`hostUpdateServiceRestart` lets an automatically approved Host source update replace the whole service, like an owner approve, instead of restarting only the worker. The update still waits out the cancellation window, prepares its candidate, holds new turns and waits for running turns to finish before the launchd restart. It keeps its exact revision and digest binding and is never replayed. The setting is part of the automatic grant's authority, so changing it cancels automatic grants that have not dispatched, and dispatch uses a full service restart only for a grant issued under the current setting. Standing interruptions and Dev updates keep their existing restart paths.
+
+#### Rolling the coordinator back to vorteo.689
+
+Vorteo.689 reads `<stateDir>/restart-jobs.json` with a strict schema that predates `continuationCaptureId`. Later coordinators record that field only while a Restart when idle request holds a task capture, remove it when the hold is released, and never send it to clients. A job keeps it only in a short window: between capture and the idle check, or while the target is unreachable and the release keeps failing. A rollback during that window makes vorteo.689's startup fence reject the journal.
+
+Before rolling back, cancel or finish every approved Restart when idle request, then confirm that no job in `restart-jobs.json` contains `continuationCaptureId`. If a rollback has already failed on that field:
+
+1. Make sure no coordinator is running; the running one holds `coordinator-bootstrap.lock` and owns the file.
+2. Copy `restart-jobs.json` to a dated backup outside the state directory.
+3. Delete only the `continuationCaptureId` key from each job that has it. Keep `continuationCaptureRequested` and every other field, and keep the file valid JSON.
+4. Start vorteo.689 and confirm its startup fence passes.
+
+Tasks captured under the deleted cause stay held, because vorteo.689 releases holds under the job ID. To release them, run a newer coordinator against the backup until the job's hold shows as released, then roll back again. Do not edit the journal while a coordinator is running, and do not change job status, revisions or approvals by hand.
+
 LaunchAgents keep the new components running while the owner is logged in. Operation before login, complete Docker outages and host shutdown recovery require separate acceptance or future work. A guest daemon that cannot accept its restart RPC needs host diagnosis; this version does not expose general Docker control.
 
 ## Agent management
@@ -136,6 +220,12 @@ Prepare and obtain approval for disruption before stopping a host daemon with ac
 The extra container origin admission and generated guest request skill remain after removal. The request endpoint is then unavailable; the token has no authority over either daemon. Review and remove that installation's origin and guest client files in the host session if permanent removal is intended, preserving concurrent configuration changes.
 
 For a failed setup, inspect the private logs and installation receipt before retrying. Setup refuses to overwrite an existing receipt or reuse credentials automatically. Do not delete state to force a retry. Restoring a previous protected release requires a prepared host deployment and rollback plan; automatic release upgrades are outside this first installer.
+
+### Sealed releases
+
+Release seals are off unless both the coordinator and Host services run with `VORTEO_RELEASE_SEALS=enabled`, and they require macOS. With seals on, preparation refuses a release that contains tool caches (`.cache`, `.vite`, `.vitest` and similar) directly under a `node_modules` directory or at its root, or a linked `node_modules`. It also refuses while any process of the account still holds a release file open for writing. It then sets the user-immutable flag on the whole tree, digests it in full and writes `<release>.release-manifest`, `<release>.release-seal.observed` and `<release>.release-seal.json` beside it. The admission receipt binds those seal digests. Approval checks file metadata instead of re-reading bytes. A change falls back to a full byte check, and the refusal names the changed path.
+
+Never point a worktree's dependencies at an installed release: writes into it fail with "Operation not permitted". Cleanup code must remove releases through `removeBootstrapRelease`, because a plain recursive delete fails on flagged files. To remove a sealed release by hand, first clear the flags on the tree and its seal files: `chflags -R nouchg <release> <release>.release-*`. Then delete them. Sealing does not detect writable shared memory mappings opened before sealing.
 
 ## Validation
 
@@ -405,7 +495,7 @@ The native Host launcher may supply `VORTEO_COORDINATOR_BOOTSTRAP_SETUP` pointin
 
 An exact owner approval starts the fixed runner under its inherited kernel lock. The decision response waits for acknowledgement that dispatch is durably claimed and the watchdog is armed; this does not mean installation has completed. Refresh the recorded request to observe completion or recovery. A timeout or lost response never automatically relaunches the runner. Existing approvals are not replayed when Host starts. Cancellation remains available until dispatch claims the request.
 
-A plan with `automaticRecovery: "restore-previous"` includes one automatic rollback in the exact owner approval. Its independent native watchdog observes durable stage changes. After three minutes without a stage change, it signals only the recorded updater process generation, first with SIGTERM and then, if necessary after ten seconds, SIGKILL. macOS audit tokens bind signals to the PID version. Neither a recycled PID nor an observation timeout establishes ownership; restoration starts only after the updater exits and the watchdog acquires the same kernel lock.
+A plan with `automaticRecovery: "restore-previous"` includes one automatic rollback in the exact owner approval. Its independent native watchdog observes durable stage changes and the recorded executor's own runner activity. After three minutes without either, it signals only the recorded updater process generation, first with SIGTERM and then, if necessary after ten seconds, SIGKILL. Runner activity is diagnostic, so it can postpone this for at most 15 minutes after the watchdog starts; unreadable or foreign runner files do not count. macOS audit tokens bind signals to the PID version. Neither a recycled PID nor an observation timeout establishes ownership; restoration starts only after the updater exits and the watchdog acquires the same kernel lock.
 
 After a failed post-unload update, the watchdog verifies the retained previous release, current selection, process identities and preserved state before restoring the coordinator. It can remove only the exact approved candidate service. A different running service or changed rollback artifacts require inspection. The receipt records rollback intent before any effect, then reports the verified result. A failed or interrupted rollback is not retried automatically. Task databases, credentials, settings and owner sessions are never restored from backups.
 
@@ -438,3 +528,15 @@ If compatible recovery positively identifies busy lifecycle work or active child
 Supervision recovery after a manual restoration is a separate tracked delivery path. Its optional `supervisionRecovery` plan field binds the exact canceled migration, retains the failed predecessor through `recoveredFrom`, and explicitly reviews frozen-coordinator termination. It does not claim that either earlier migration succeeded. Both the candidate and compatible recovery runtime must use a different source from the manually restored release and preserve configuration. A different source digest alone does not prove reader or executor compatibility. The original reader may ignore an unrelated new pending proposal but cannot read this field after promotion, so it must never be selected as the compatible fallback.
 
 The dedicated review parent authenticates the owner, records the exact decision and reserves one launch under the existing lock. Its native child verifies the selected runtime, process lineage and retained plan before claiming effects. Full read-only preparation runs in a separate child with a 120-second deadline and forced termination on timeout; missing or incorrect acknowledgement refuses admission. No execution lock descriptor is inherited by that verifier. The effect path freezes only the reviewed coordinator, refuses active preparation children, preserves state, retires that exact frozen lifetime and starts the reviewed OS service. A separately pinned compatible fallback and watchdog reconcile the same generation after failure without replaying dispatch. Disposable compiled native fixtures cover successful supervision, unhealthy-candidate fallback and login registration. Those fixtures do not establish installed supervision, an actual reboot or authenticated remote workspace acceptance.
+
+## Session host job
+
+The coordinator owns the durable session host's launchd job, `local.vorteo.<installation id>.session-host`, on Host. It advertises `sessionHostJob.available` only to the Host client, and only when source updates select Host releases through the current link and Host startup validation is configured. Dev clients see whether the job exists, never its details. Never load, unload or edit the job with launchctl directly.
+
+- `request-session-host --install` or `--remove` asks the coordinator for a plan; `session-host-status` reports the job, its host and the durable sessions setting. The coordinator derives the plan from its own configuration: the session host entrypoint through the current link, the Host job's node, and the Host job's `HOME` and `PATH` beside `PASEO_HOME`, with no other environment.
+- The owner approves the exact operation and plan digest in Installation controls. Restart decisions and the trusted Host approval policy never approve it. An approved operation waits for pending restarts and other lifecycle work, then dispatch recomputes the plan and changes nothing when it differs. A coordinator restart marks an approved or running operation failed and never replays it; check the status before requesting again.
+- Install writes the plist with mode 0600 and requires the new host to answer with launchd's pid within 60 seconds and without a watchdog kill, or removes the job again. A watchdog kill during that check fails the install even though launchd starts another host. It never writes the durable sessions setting; the owner enables that separately.
+- Removal is refused while the setting is on or the host runs sessions. A host that stopped answering is stopped once the setting has stayed off past the workers' five-minute alive window, and the receipt records that forced stop. A host that refuses the connection, answers in another protocol version or never sends its session list is alive and is never stopped by force; after five minutes of that, removal fails without changes. A process that survives bootout is killed only after its command is verified as the session host.
+- Host restarts and source updates never touch the job. While it is installed, source updates and supervisor maintenance refuse to select a Host release without the session host entrypoint; the lifecycle queue registers this guard whenever source updates are configured, and `install-execution-host.mjs remove` refuses to run: remove the job first. No Host release selection is automatic today. A future automatic selection must stop the job with the same forced-stop sequence rather than refuse, so a failed update cannot leave the Host down.
+
+Session host records share the lifecycle journal. Coordinators without session host support reject that journal once such a record exists, including terminal history. After the first request, keep a coordinator with session host support as the rollback target, and never remove records to start an older coordinator.

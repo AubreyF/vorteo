@@ -18,7 +18,20 @@ import {
   PreviewMonitorJobSchema,
   type PreviewMonitorJob,
 } from "@getpaseo/protocol/preview-monitor-maintenance";
+import {
+  SessionHostJobSchema,
+  SessionHostStatusSchema,
+  type SessionHostJob,
+  type SessionHostOperation,
+} from "@getpaseo/protocol/session-host-maintenance";
+import {
+  InstructionRequestQuerySchema,
+  type InstructionRequestQuery,
+} from "@getpaseo/protocol/instruction-requests";
+
+type InstructionRequestView = InstructionRequestQuery["requests"][number];
 import type { MonitorAction } from "./preview-monitor-review";
+import type { SessionHostAction, SessionHostOverview } from "./session-host-review";
 import type { HelperReviewAction } from "./helper-review";
 import { z } from "zod";
 import {
@@ -76,6 +89,7 @@ export class InstallationRouteUnavailable extends Error {}
 export class InstallationClient {
   private password: string | null = null;
   private helperRetryAt = 0;
+  private instructionRetryAt = 0;
   private daemonAutomationSupported = false;
   private servicePermissionsSupported = false;
   private maintenanceStatusSupported = false;
@@ -84,6 +98,8 @@ export class InstallationClient {
   private devRepairSupported = false;
   private devRepairAvailable = false;
   private monitorRetryAt = 0;
+  private sessionHostRetryAt = 0;
+  private sessionHostSupported = false;
   sessionsSupported = false;
   passwordFile: string | null = null;
 
@@ -223,6 +239,106 @@ export class InstallationClient {
       result.planSha256 !== job.planSha256
     )
       throw new Error("Helper receipt changed. Refresh status before taking another action.");
+    return result;
+  }
+
+  /** Null when the coordinator predates instruction requests, so the panel hides its card. */
+  async listInstructionRequests(): Promise<InstructionRequestQuery | null> {
+    if (this.password === null) throw new Error("Unlock installation controls first");
+    const now = this.ports.now ?? Date.now;
+    if (now() < this.instructionRetryAt) return null;
+    try {
+      return InstructionRequestQuerySchema.parse(
+        await this.request("instruction-requests/query", {}),
+      );
+    } catch (error) {
+      // COMPAT(instructionRequests): older coordinators have no instruction request route.
+      if (error instanceof InstallationRouteUnavailable) {
+        this.instructionRetryAt = now() + 60_000;
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async decideInstructionRequest(
+    request: InstructionRequestView,
+    decision: "approve" | "reject",
+  ): Promise<InstructionRequestView> {
+    const result = InstructionRequestQuerySchema.shape.requests.element.parse(
+      await this.request("instruction-requests/decision", {
+        id: request.id,
+        decision,
+        proposedSha256: request.proposedSha256,
+      }),
+    );
+    if (result.id !== request.id || result.proposedSha256 !== request.proposedSha256)
+      throw new Error("Instruction request changed. Refresh before another action.");
+    return result;
+  }
+
+  /** Null when the coordinator predates session host jobs, so the panel hides its card. */
+  async sessionHost(): Promise<SessionHostOverview | null> {
+    if (this.password === null) throw new Error("Unlock installation controls first");
+    const now = this.ports.now ?? Date.now;
+    if (!this.sessionHostSupported && now() < this.sessionHostRetryAt) return null;
+    try {
+      const overview = z
+        .strictObject({
+          jobs: z.array(SessionHostJobSchema),
+          // Null when the coordinator could not inspect the job; its jobs still need decisions.
+          status: SessionHostStatusSchema.nullable(),
+        })
+        .parse(await this.request("session-host/query", {}));
+      this.sessionHostSupported = true;
+      return overview;
+    } catch (error) {
+      // COMPAT(sessionHostJob): added in v708, remove after 2027-04-20 once every coordinator
+      // serves the session host owner routes. Until then an older coordinator hides the card;
+      // one that already answered and then loses the route reports the failure instead.
+      if (error instanceof InstallationRouteUnavailable && !this.sessionHostSupported) {
+        this.sessionHostRetryAt = now() + 60_000;
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async requestSessionHost(
+    operation: SessionHostOperation,
+    reason: string,
+  ): Promise<SessionHostJob> {
+    if (!this.sessionHostSupported)
+      throw new Error("Session host controls are unavailable. Update the coordinator first.");
+    const id = globalThis.crypto.randomUUID();
+    const job = SessionHostJobSchema.parse(
+      await this.request("session-host/request", { id, operation, reason }),
+    );
+    if (job.id !== id || job.operation !== operation)
+      throw new Error("Session host receipt changed. Refresh before another action.");
+    return job;
+  }
+
+  async decideSessionHost(
+    job: SessionHostJob,
+    decision: SessionHostAction,
+  ): Promise<SessionHostJob> {
+    const result = SessionHostJobSchema.parse(
+      await this.request("session-host/decision", {
+        operation: job.operation,
+        id: job.id,
+        revision: job.revision,
+        planSha256: job.planSha256,
+        decision,
+      }),
+    );
+    if (
+      result.id !== job.id ||
+      result.operation !== job.operation ||
+      result.revision !== job.revision ||
+      result.planSha256 !== job.planSha256
+    )
+      throw new Error("Session host receipt changed. Refresh before another action.");
     return result;
   }
 
@@ -416,7 +532,7 @@ export class InstallationClient {
         ? `${path}?idleRestarts=1${this.installation.gracefulRestarts ? "&gracefulRestarts=1" : ""}`
         : path;
     const query = path.startsWith("restarts")
-      ? `${resource}${resource.includes("?") ? "&" : "?"}sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1`
+      ? `${resource}${resource.includes("?") ? "&" : "?"}sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1&delegatedRequests=1`
       : resource;
     return this.ports.request(query, this.password, body);
   }
@@ -441,7 +557,12 @@ export async function requestInstallationOwner(
   // Older coordinators may serve their SPA fallback for an unknown owner query.
   // A client that already observed support still treats this as a lost capability.
   if (
-    ["daemon-automation/query", "dev-repair/query"].includes(path) &&
+    [
+      "daemon-automation/query",
+      "dev-repair/query",
+      "session-host/query",
+      "instruction-requests/query",
+    ].includes(path) &&
     response.ok &&
     !response.headers.get("content-type")?.includes("application/json")
   ) {

@@ -34,6 +34,10 @@ import type {
   ProviderRuntimeSettings,
 } from "./provider-launch-config.js";
 import { ClaudeAgentClient } from "./providers/claude/agent.js";
+import {
+  createHostedAgentClient,
+  type HostedSessionRouting,
+} from "../session-host/hosted-agent-client.js";
 import { CodexAppServerAgentClient } from "./providers/codex-app-server-agent.js";
 import { CopilotACPAgentClient } from "./providers/copilot-acp-agent.js";
 import { CursorACPAgentClient } from "./providers/cursor-acp-agent.js";
@@ -111,11 +115,13 @@ export interface BuildProviderRegistryOptions {
   isDev?: boolean;
   ompRuntime?: OmpRuntime;
   openCodeBridge?: OpenCodeBridge;
+  /** Routes eligible Claude sessions through the durable session host. */
+  sessionHost?: HostedSessionRouting;
 }
 
 interface ProviderClientFactoryOptions extends Pick<
   BuildProviderRegistryOptions,
-  "workspaceGitService" | "managedProcesses" | "ompRuntime"
+  "workspaceGitService" | "managedProcesses" | "ompRuntime" | "sessionHost"
 > {
   openCodeBridge?: OpenCodeBridge;
   customProvider?: {
@@ -186,16 +192,28 @@ const HUB_E2E_PROVIDER_CONTRACT: ProviderContract = {
 };
 
 const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
-  claude: (logger, runtimeSettings) =>
-    new ClaudeAgentClient({
-      logger,
-      runtimeSettings,
-    }),
-  codex: (logger, runtimeSettings, options) =>
-    new CodexAppServerAgentClient(logger, runtimeSettings, {
+  claude: (logger, runtimeSettings, options) => {
+    const client = new ClaudeAgentClient({ logger, runtimeSettings });
+    // Durable sessions phase 1 hosts Claude only; the wrapper defers to the setting per session.
+    return options?.sessionHost
+      ? createHostedAgentClient({ inner: client, runtimeSettings, routing: options.sessionHost })
+      : client;
+  },
+  codex: (logger, runtimeSettings, options) => {
+    const client = new CodexAppServerAgentClient(logger, runtimeSettings, {
       workspaceGitService: options?.workspaceGitService,
       customProvider: options?.customProvider,
-    }),
+    });
+    // Durable sessions phase 2: Codex sessions run in the host too; the setting decides per session.
+    return options?.sessionHost
+      ? createHostedAgentClient({
+          inner: client,
+          runtimeSettings,
+          routing: options.sessionHost,
+          customProvider: options?.customProvider,
+        })
+      : client;
+  },
   copilot: (logger, runtimeSettings) =>
     new CopilotACPAgentClient({
       logger,
@@ -451,6 +469,7 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
       return inner.features;
     },
     usageSession: inner.usageSession?.bind(inner),
+    getContextBreakdown: inner.getContextBreakdown?.bind(inner),
     run: (prompt, options) => inner.run(prompt, options),
     startTurn: (prompt, options) => inner.startTurn(prompt, options),
     steerActiveTurn: inner.steerActiveTurn?.bind(inner),
@@ -471,6 +490,9 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
     describePersistence: () => mapPersistenceHandle(provider, inner.describePersistence()),
     interrupt: () => inner.interrupt(),
     close: () => inner.close(),
+    isDurablyHosted: inner.isDurablyHosted?.bind(inner),
+    detach: inner.detach?.bind(inner),
+    historyApplied: inner.historyApplied?.bind(inner),
     listCommands: inner.listCommands?.bind(inner),
     setModel: inner.setModel?.bind(inner),
     setThinkingOption: inner.setThinkingOption?.bind(inner),
@@ -782,7 +804,7 @@ function buildResolvedBuiltinProviders(
   runtimeSettings: AgentProviderRuntimeSettingsMap | undefined,
   options: Pick<
     BuildProviderRegistryOptions,
-    "workspaceGitService" | "managedProcesses" | "ompRuntime" | "openCodeBridge"
+    "workspaceGitService" | "managedProcesses" | "ompRuntime" | "openCodeBridge" | "sessionHost"
   >,
   isDev: boolean,
 ): Map<string, ResolvedProvider> {
@@ -807,6 +829,7 @@ function buildResolvedBuiltinProviders(
             managedProcesses: options.managedProcesses,
             ompRuntime: options.ompRuntime,
             openCodeBridge: options.openCodeBridge,
+            sessionHost: options.sessionHost,
           }),
         contract: PROVIDER_CONTRACTS[definition.id] ?? UNSUPPORTED_PROVIDER_CONTRACT,
       }),
@@ -819,7 +842,10 @@ function buildResolvedBuiltinProviders(
 function addDerivedProviders(
   resolvedProviders: Map<string, ResolvedProvider>,
   providerOverrides: Record<string, ProviderOverride>,
-  options: Pick<BuildProviderRegistryOptions, "managedProcesses" | "openCodeBridge">,
+  options: Pick<
+    BuildProviderRegistryOptions,
+    "managedProcesses" | "openCodeBridge" | "sessionHost"
+  >,
 ): void {
   for (const [providerId, override] of Object.entries(providerOverrides)) {
     if (resolvedProviders.has(providerId) || BUILTIN_PROVIDER_IDS.includes(providerId)) {
@@ -916,6 +942,7 @@ function addDerivedProviders(
         baseFactory(logger, mergedRuntimeSettings, {
           managedProcesses: options.managedProcesses,
           openCodeBridge: options.openCodeBridge,
+          sessionHost: options.sessionHost,
           customProvider: {
             id: providerId,
             label: override.label ?? providerId,
@@ -933,14 +960,18 @@ export function buildProviderRegistry(
 ): Record<AgentProvider, ProviderDefinition> {
   const runtimeSettings = options?.runtimeSettings;
   const providerOverrides = options?.providerOverrides ?? {};
+  const sharedFactoryOptions = {
+    managedProcesses: options?.managedProcesses,
+    openCodeBridge: options?.openCodeBridge,
+    sessionHost: options?.sessionHost,
+  };
   const resolvedProviders = buildResolvedBuiltinProviders(
     providerOverrides,
     runtimeSettings,
     {
+      ...sharedFactoryOptions,
       workspaceGitService: options?.workspaceGitService,
-      managedProcesses: options?.managedProcesses,
       ompRuntime: options?.ompRuntime,
-      openCodeBridge: options?.openCodeBridge,
     },
     options?.isDev === true,
   );
@@ -967,10 +998,7 @@ export function buildProviderRegistry(
       }),
     );
   }
-  addDerivedProviders(resolvedProviders, providerOverrides, {
-    managedProcesses: options?.managedProcesses,
-    openCodeBridge: options?.openCodeBridge,
-  });
+  addDerivedProviders(resolvedProviders, providerOverrides, sharedFactoryOptions);
 
   return Object.fromEntries(
     [...resolvedProviders.entries()].map(([provider, resolved]) => [

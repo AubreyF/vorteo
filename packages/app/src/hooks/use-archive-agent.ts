@@ -357,6 +357,8 @@ export function applyArchivedAgentCloseResults(input: ApplyArchivedAgentCloseRes
   }
 }
 
+const EMPTY_PENDING_STATE: ArchiveAgentPendingState = {};
+
 function useArchiveAgentPendingQuery() {
   return useQuery({
     queryKey: ARCHIVE_AGENT_PENDING_QUERY_KEY,
@@ -365,6 +367,11 @@ function useArchiveAgentPendingQuery() {
     staleTime: Infinity,
     gcTime: Infinity,
   });
+}
+
+/** Threads being archived on every host, keyed by `<serverId>:<agentId>`. */
+export function usePendingArchiveState(): ArchiveAgentPendingState {
+  return useArchiveAgentPendingQuery().data ?? EMPTY_PENDING_STATE;
 }
 
 export function usePendingArchiveAgentIds(serverId: string): ReadonlySet<string> {

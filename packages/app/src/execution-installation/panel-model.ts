@@ -9,7 +9,20 @@ import type {
 } from "@getpaseo/protocol/maintenance-service-status";
 import { monitorActionDisabledReason, type MonitorAction } from "./preview-monitor-review";
 import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
+import type { InstructionRequestQuery } from "@getpaseo/protocol/instruction-requests";
+
+type InstructionRequest = InstructionRequestQuery["requests"][number];
 import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
+import type {
+  SessionHostJob,
+  SessionHostOperation,
+} from "@getpaseo/protocol/session-host-maintenance";
+import {
+  sessionHostActionDisabledReason,
+  sessionHostRequestDisabledReason,
+  type SessionHostAction,
+  type SessionHostOverview,
+} from "./session-host-review";
 import type {
   DaemonAutomationPreference,
   MaintenanceService,
@@ -48,6 +61,12 @@ interface InstallationPanelState {
   helperJobs: NativeHelperJob[];
   monitorJobs: PreviewMonitorJob[];
   helperError: string | null;
+  /** Null hides the session host card: locked, or a coordinator without session host jobs. */
+  sessionHost: SessionHostOverview | null;
+  sessionHostError: string | null;
+  /** Null hides the instruction request card: locked, or a coordinator without the route. */
+  instructionRequests: InstructionRequestQuery | null;
+  instructionError: string | null;
   pendingJobs: RestartJob[];
   profileSharing: ProfileSharingStatus | null;
   passwordFile: string | null;
@@ -82,6 +101,10 @@ export class InstallationPanelModel {
     helperJobs: [],
     monitorJobs: [],
     helperError: null,
+    sessionHost: null,
+    sessionHostError: null,
+    instructionRequests: null,
+    instructionError: null,
     pendingJobs: [],
     profileSharing: null,
     passwordFile: null,
@@ -123,6 +146,11 @@ export class InstallationPanelModel {
           | "changeDaemonAutomation"
           | "devRepairStatus"
           | "prepareDevRepair"
+          | "sessionHost"
+          | "requestSessionHost"
+          | "decideSessionHost"
+          | "listInstructionRequests"
+          | "decideInstructionRequest"
         >
       >,
     private readonly options: {
@@ -169,6 +197,10 @@ export class InstallationPanelModel {
         helperJobs: [],
         monitorJobs: [],
         helperError: null,
+        sessionHost: null,
+        sessionHostError: null,
+        instructionRequests: null,
+        instructionError: null,
         pendingJobs: [],
         profileSharing: null,
         daemonAutomation: null,
@@ -247,6 +279,8 @@ export class InstallationPanelModel {
         daemonAutomation,
         devRepair,
         maintenanceStatus,
+        sessionHost,
+        instructionRequests,
       ] = await Promise.all([
         this.client.listRestarts(),
         this.client.profileSharingStatus(),
@@ -255,6 +289,17 @@ export class InstallationPanelModel {
         this.client.daemonAutomation?.() ?? Promise.resolve(null),
         this.client.devRepairStatus?.() ?? Promise.resolve({ available: false, preparingIds: [] }),
         this.client.maintenanceStatus?.() ?? Promise.resolve(null),
+        this.client.sessionHost?.() ?? Promise.resolve(null),
+        // This card never blocks the rest of Installation controls.
+        (this.client.listInstructionRequests?.() ?? Promise.resolve(null)).catch(
+          (error: unknown) => {
+            this.publish({
+              instructionError:
+                error instanceof Error ? error.message : "Instruction requests are unavailable",
+            });
+            return this.state.instructionRequests;
+          },
+        ),
       ]);
       if (generation !== this.accessGeneration) return;
       const targets = new Set(
@@ -280,6 +325,8 @@ export class InstallationPanelModel {
         devRepair,
         helperJobs,
         monitorJobs,
+        sessionHost,
+        instructionRequests,
         pendingJobs: pending,
         profileSharing,
         ...(automationGeneration === this.automationGeneration
@@ -473,6 +520,115 @@ export class InstallationPanelModel {
     this.publish({ helperError: null });
   }
 
+  dismissSessionHostError = (): void => {
+    this.publish({ sessionHostError: null });
+  };
+
+  /** Creates an owner request; it only prepares a plan, which still needs its own approval. */
+  async requestSessionHost(operation: SessionHostOperation): Promise<void> {
+    const overview = this.state.sessionHost;
+    if (!overview || !this.client.requestSessionHost) return;
+    const reason = sessionHostRequestDisabledReason(operation, overview, this.state);
+    if (reason) {
+      this.publish({ sessionHostError: reason });
+      return;
+    }
+    this.publish({ busy: true, sessionHostError: null });
+    try {
+      const job = await this.client.requestSessionHost(
+        operation,
+        "Requested by the owner from Installation controls.",
+      );
+      this.publish({ sessionHost: { ...overview, jobs: [...overview.jobs, job] } });
+      await this.refresh();
+    } catch (error) {
+      this.failSessionHost(error, "Session host request unconfirmed. Refresh before retrying.");
+    } finally {
+      this.publish({ busy: false });
+    }
+  }
+
+  async decideSessionHost(job: SessionHostJob, action: SessionHostAction): Promise<void> {
+    if (this.state.busy) return;
+    const overview = this.state.sessionHost;
+    const current = overview?.jobs.find((item) => item.id === job.id);
+    if (
+      !overview ||
+      !current ||
+      current.revision !== job.revision ||
+      current.planSha256 !== job.planSha256
+    ) {
+      this.publish({
+        sessionHostError: "Session host request changed. Refresh and review its current plan.",
+      });
+      return;
+    }
+    const reason = sessionHostActionDisabledReason(current, action, this.state);
+    if (reason || !this.client.decideSessionHost) {
+      this.publish({ sessionHostError: reason ?? "Session host controls are unavailable." });
+      return;
+    }
+    this.publish({ busy: true, sessionHostError: null });
+    try {
+      const result = await this.client.decideSessionHost(current, action);
+      this.publish({
+        sessionHost: {
+          ...overview,
+          jobs: overview.jobs.map((item) => (item.id === result.id ? result : item)),
+        },
+      });
+      await this.refresh();
+    } catch (error) {
+      this.failSessionHost(error, "Session host decision unconfirmed. Refresh before retrying.");
+    } finally {
+      this.publish({ busy: false });
+    }
+  }
+
+  private failSessionHost(error: unknown, fallback: string): void {
+    this.fail(error);
+    // An expired owner session already locked the panel; other failures stay on the card.
+    if (!this.state.unlocked) return;
+    this.publish({
+      error: null,
+      sessionHostError: error instanceof Error ? error.message : fallback,
+    });
+  }
+
+  dismissInstructionError = (): void => {
+    this.publish({ instructionError: null });
+  };
+
+  async decideInstructionRequest(
+    request: InstructionRequest,
+    decision: "approve" | "reject",
+  ): Promise<void> {
+    if (this.state.busy || !this.client.decideInstructionRequest) return;
+    const current = this.state.instructionRequests?.requests.find((item) => item.id === request.id);
+    if (!current || current.proposedSha256 !== request.proposedSha256) {
+      this.publish({
+        instructionError: "Instruction request changed. Refresh and review it again.",
+      });
+      return;
+    }
+    this.publish({ busy: true, error: null, instructionError: null, notice: null });
+    try {
+      const result = await this.client.decideInstructionRequest(current, decision);
+      if (result.status === "stale")
+        this.publish({ instructionError: result.detail ?? "Instructions changed first." });
+      await this.refresh();
+    } catch (error) {
+      this.publish({
+        instructionError:
+          error instanceof Error
+            ? error.message
+            : "Instruction decision unconfirmed. Refresh before retrying.",
+      });
+    } finally {
+      this.publish({ busy: false });
+    }
+  }
+
   async decideHelper(job: NativeHelperJob, action: HelperReviewAction): Promise<void> {
     if (this.state.busy) return;
     const current = this.state.helperJobs.find((item) => item.id === job.id);
@@ -597,6 +753,10 @@ export class InstallationPanelModel {
         helperJobs: [],
         monitorJobs: [],
         helperError: null,
+        sessionHost: null,
+        sessionHostError: null,
+        instructionRequests: null,
+        instructionError: null,
         pendingJobs: [],
         profileSharing: null,
         daemonAutomation: null,
@@ -649,7 +809,21 @@ export function restartNoticeVisible(job: RestartJob): boolean {
   return !job.sourceBatch || job.sourceBatch.status === "ready";
 }
 
+/** Pending requests and holds that have not dispatched can still be withdrawn. */
+export function restartCancellable(job: RestartJob): boolean {
+  if (job.status === "pending") return true;
+  return job.status === "approved" && Boolean(job.whenIdle || job.continuationCaptureRequested);
+}
+
+/** Tells the owner why a delegated request is back in their queue. */
+export function delegationOverdueNote(job: RestartJob): string | null {
+  return job.delegationOverdue
+    ? `Waiting longer than expected for ${job.delegationOverdue}.`
+    : null;
+}
+
 export function restartBannerTitle(job: RestartJob): string {
+  if (job.delegatedTo) return `Being handled by ${job.delegatedTo}`;
   if (job.factoryRuntimePlanSha256) {
     if (job.status === "running") return "Adopting Factory startup on Dev";
     if (job.finishCurrentTurns) return "Dev finishing turns for Factory adoption";

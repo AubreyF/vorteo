@@ -1,8 +1,12 @@
+import type { FolderBrowseRequest } from "./folder-browser";
+
 export interface AddProjectHost {
   serverId: string;
   label: string;
   canAddProject: boolean;
   canBrowse: boolean;
+  // The daemon can list its folders, so every destination uses the folder browser.
+  canBrowseFolders: boolean;
   canCloneGithubRepositories: boolean;
   canSearchGithubRepositories: boolean;
   canCreateDirectory: boolean;
@@ -16,6 +20,11 @@ export interface GithubRepositoryChoice {
   description: string | null;
   updatedAt: string | null;
 }
+
+export type FolderBrowserPagePurpose =
+  | { kind: "open" }
+  | { kind: "create" }
+  | { kind: "clone"; repository: GithubRepositoryChoice };
 
 interface PageState {
   activeIndex: number;
@@ -35,6 +44,14 @@ export type AddProjectPage =
       kind: "github-location";
       hostId: string;
       repository: GithubRepositoryChoice;
+      isSubmitting: boolean;
+    } & SearchPageState)
+  | ({
+      kind: "folder-browser";
+      hostId: string;
+      purpose: FolderBrowserPagePurpose;
+      // The folder being shown. An empty request lists the top-level locations.
+      request: FolderBrowseRequest;
       isSubmitting: boolean;
     } & SearchPageState)
   | ({ kind: "new-directory-parent"; hostId: string } & SearchPageState)
@@ -179,6 +196,33 @@ export function openGithubLocationPage(
     repository,
     isSubmitting: false,
   });
+}
+
+export function openFolderBrowserPage(
+  state: AddProjectFlowState,
+  hostId: string,
+  purpose: FolderBrowserPagePurpose,
+  request: FolderBrowseRequest = {},
+): AddProjectFlowState {
+  return pushAddProjectPage(state, {
+    ...searchPage("folder-browser"),
+    hostId,
+    purpose,
+    request,
+    isSubmitting: false,
+  });
+}
+
+// Moving between folders stays on one page; Back leaves the browser.
+export function browseAddProjectFolder(
+  state: AddProjectFlowState,
+  request: FolderBrowseRequest,
+): AddProjectFlowState {
+  return updateCurrentAddProjectPage(state, (page) =>
+    page.kind === "folder-browser"
+      ? { ...page, request, query: "", activeIndex: 0, error: null }
+      : page,
+  );
 }
 
 export function openNewDirectoryParentPage(

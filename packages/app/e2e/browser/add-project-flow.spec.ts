@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { test, expect } from "../support/fixtures";
 import {
@@ -8,7 +8,9 @@ import {
   addProjectFlowBack,
   addProjectFlowHost,
   addProjectFlowInput,
+  addProjectFlowLocation,
   addProjectFlowMethod,
+  browseAddProjectFolderPath,
   chooseAddProjectMethod,
   expectAddProjectPage,
   expectNewWorkspaceForAddedProject,
@@ -73,9 +75,10 @@ test.describe("Add Project command-center flow", () => {
 
     await openAddProjectFlow(page);
 
-    await expect(addProjectFlowMethod(page, "directory-search")).toBeVisible();
+    await expect(addProjectFlowMethod(page, "open-folder")).toContainText("Open a folder");
+    await expect(addProjectFlowMethod(page, "directory-search")).toHaveCount(0);
     await expect(addProjectFlowMethod(page, "github")).toContainText("Clone from GitHub");
-    await expect(addProjectFlowMethod(page, "new-directory")).toContainText("New directory");
+    await expect(addProjectFlowMethod(page, "new-directory")).toContainText("New project folder");
     await expect(addProjectFlowInput(page)).toHaveCount(0);
     await expect(addProjectFlow(page).getByRole("textbox")).toHaveCount(0);
     await expect(page.getByTestId("add-project-flow-page-host")).toHaveCount(0);
@@ -91,7 +94,7 @@ test.describe("Add Project command-center flow", () => {
     await openAddProjectFlow(page);
 
     await expect(addProjectFlowHost(page, "add-project-flow-offline")).toHaveCount(0);
-    await expect(addProjectFlowMethod(page, "directory-search")).toBeVisible();
+    await expect(addProjectFlowMethod(page, "open-folder")).toBeVisible();
   });
 
   test.describe("with two connected hosts", () => {
@@ -146,13 +149,13 @@ test.describe("Add Project command-center flow", () => {
       await expectAddProjectPage(page, "method");
 
       await chooseAddProjectMethod(page, "new-directory");
-      await expectAddProjectPage(page, "new-directory-parent");
+      await expectAddProjectPage(page, "folder-browser");
       await page.keyboard.press("Escape");
 
       await expectAddProjectPage(page, "method");
       await expect(addProjectFlowInput(page)).toHaveCount(0);
       await chooseAddProjectMethod(page, "new-directory");
-      await expectAddProjectPage(page, "new-directory-parent");
+      await expectAddProjectPage(page, "folder-browser");
       await addProjectFlowBack(page).click();
 
       await expectAddProjectPage(page, "method");
@@ -190,14 +193,14 @@ test.describe("Add Project command-center flow", () => {
         await expectAddProjectPage(page, "method");
 
         await expect(addProjectFlowMethod(page, "new-directory")).toContainText(
-          `Create an empty directory on ${SECONDARY_HOST_LABEL}`,
+          `Create an empty folder on ${SECONDARY_HOST_LABEL}`,
         );
         await chooseAddProjectMethod(page, "new-directory");
-        await addProjectFlowInput(page).fill(parentDirectory);
-        await page.keyboard.press("Enter");
-        await expectAddProjectPage(page, "new-directory-name");
-        await page.keyboard.type(directoryName);
-        await page.keyboard.press("Enter");
+        // The temporary parent is outside the host's browsable home, so create by path.
+        await addProjectFlowInput(page).fill(directoryPath);
+        const createAtPath = page.getByTestId("add-project-flow-create-at-path");
+        await expect(createAtPath).toContainText(`Create folder “${directoryName}”`);
+        await createAtPath.click();
 
         const projectId = await expectOpenedProject(page, directoryName);
         await expectNewWorkspaceForAddedProject(page, {
@@ -214,14 +217,14 @@ test.describe("Add Project command-center flow", () => {
     });
   });
 
-  test("keyboard directory search adds the selected Project", async ({
+  test("keyboard folder search adds the selected Project", async ({
     page,
     projectPickerFixture,
   }) => {
     await gotoAppShell(page);
     await openAddProjectFlow(page);
 
-    await chooseAddProjectMethod(page, "directory-search");
+    await chooseAddProjectMethod(page, "open-folder");
     await page.keyboard.type(projectPickerFixture.fuzzyQuery);
     await expect(addProjectFlow(page)).toContainText(projectPickerFixture.projectName, {
       timeout: 30_000,
@@ -239,25 +242,21 @@ test.describe("Add Project command-center flow", () => {
     await expectProjectHasNoWorkspaces(projectId);
   });
 
-  test("a typed directory stays clickable before suggestions finish", async ({
+  test("a pasted path opens directly without browsing first", async ({
     page,
     projectPickerFixture,
   }) => {
     await gotoAppShell(page);
     await openAddProjectFlow(page);
-    await chooseAddProjectMethod(page, "directory-search");
+    await chooseAddProjectMethod(page, "open-folder");
 
-    // Hold the search debounce, leaving the real daemon available for project addition.
-    await page.clock.install();
-    await page.clock.pauseAt(new Date());
     await addProjectFlowInput(page).fill(projectPickerFixture.projectPath);
-    await expect(page.getByTestId("add-project-flow-loading")).toBeVisible();
     const option = page.getByTestId(
       `add-project-flow-path-${encodeURIComponent(projectPickerFixture.projectPath)}`,
     );
     await expect(option).toBeVisible();
+    await expect(page.getByTestId("add-project-flow-loading")).toHaveCount(0);
     await option.click();
-    await page.clock.resume();
 
     const projectId = await expectOpenedProject(page, projectPickerFixture.projectName);
     projectPickerFixture.rememberProjectId(projectId);
@@ -268,6 +267,44 @@ test.describe("Add Project command-center flow", () => {
       projectPath: projectPickerFixture.projectPath,
     });
     await expectProjectHasNoWorkspaces(projectId);
+  });
+
+  test("browsing into a folder and opening it adds that Project", async ({
+    page,
+    projectPickerFixture,
+  }) => {
+    await gotoAppShell(page);
+    await openAddProjectFlow(page);
+    await chooseAddProjectMethod(page, "open-folder");
+
+    const parent = path.dirname(projectPickerFixture.projectPath);
+    await browseAddProjectFolderPath(page, parent, path.basename(parent));
+    // Typing filters this folder's children; Enter enters the best match.
+    await page.keyboard.type(projectPickerFixture.projectName);
+    await expect(
+      page.getByTestId(
+        `add-project-flow-folder-${encodeURIComponent(projectPickerFixture.projectName)}`,
+      ),
+    ).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(addProjectFlowLocation(page)).toContainText(projectPickerFixture.projectName);
+    await expect(page.getByTestId("add-project-flow-use-folder")).toBeVisible();
+    // Backspace with an empty filter goes up one folder.
+    await page.keyboard.press("Backspace");
+    await expect(addProjectFlowLocation(page)).not.toContainText(projectPickerFixture.projectName);
+    await page.keyboard.type(projectPickerFixture.projectName);
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("add-project-flow-use-folder")).toBeVisible();
+    await page.keyboard.press("Enter");
+
+    const projectId = await expectOpenedProject(page, projectPickerFixture.projectName);
+    projectPickerFixture.rememberProjectId(projectId);
+    await expectNewWorkspaceForAddedProject(page, {
+      serverId: getServerId(),
+      projectId,
+      projectName: projectPickerFixture.projectName,
+      projectPath: projectPickerFixture.projectPath,
+    });
   });
 
   test("a complete repository URL remains selectable without a GitHub search result", async ({
@@ -282,19 +319,20 @@ test.describe("Add Project command-center flow", () => {
     await expect(addProjectFlow(page).getByText("manual", { exact: true })).toBeVisible();
     await page.keyboard.press("Enter");
 
-    await expectAddProjectPage(page, "github-location");
+    await expectAddProjectPage(page, "folder-browser");
     const title = addProjectFlow(page).getByTestId("add-project-flow-title");
-    await expect(title.getByText("Choose destination", { exact: true })).toBeVisible();
+    await expect(title.getByText("Clone manual", { exact: true })).toBeVisible();
     await expect(title.getByText("localhost", { exact: true })).toBeVisible();
     await expect(title).not.toContainText("Where should Paseo create");
     await addProjectFlowBack(page).click();
     await expect(addProjectFlowInput(page)).toHaveValue(remote);
   });
 
-  test("New directory validates the name, restores parent and name state, then creates a Project", async ({
+  test("New project folder validates the name, then creates a Project in the browsed folder", async ({
     page,
   }) => {
-    const parentDirectory = await mkdtemp(path.join(tmpdir(), "paseo-e2e-new-project-"));
+    // Browsing is limited to the host's locations; the daemon's home is one of them.
+    const parentDirectory = await mkdtemp(path.join(homedir(), "paseo-e2e-new-project-"));
     const directoryName = `created-${randomUUID().slice(0, 8)}`;
     const directoryPath = path.join(parentDirectory, directoryName);
     let projectId: string | null = null;
@@ -303,25 +341,18 @@ test.describe("Add Project command-center flow", () => {
       await gotoAppShell(page);
       await openAddProjectFlow(page);
       await chooseAddProjectMethod(page, "new-directory");
+      await expect(addProjectFlowLocation(page)).toHaveText("Locations");
 
-      await page.keyboard.type(parentDirectory);
-      await page.keyboard.press("Enter");
-      await expectAddProjectPage(page, "new-directory-name");
+      await browseAddProjectFolderPath(page, parentDirectory, path.basename(parentDirectory));
       await page.keyboard.type("../invalid");
-      await page.keyboard.press("Enter");
-
-      const error = page.getByTestId("add-project-flow-error");
-      await expect(error).toBeVisible();
-      await expect(error).toContainText(/name|separator|directory/i);
-      await expectAddProjectPage(page, "new-directory-name");
+      await expect(page.getByTestId("add-project-flow-create-folder")).toHaveCount(0);
+      await expect(page.getByTestId("add-project-flow-empty")).toContainText(
+        "Choose a different folder name",
+      );
 
       await addProjectFlowInput(page).fill(directoryName);
-      await addProjectFlowBack(page).click();
-      await expectAddProjectPage(page, "new-directory-parent");
-      await expect(addProjectFlowInput(page)).toHaveValue(parentDirectory);
-      await page.keyboard.press("Enter");
-      await expectAddProjectPage(page, "new-directory-name");
-      await expect(addProjectFlowInput(page)).toHaveValue(directoryName);
+      const create = page.getByTestId("add-project-flow-create-folder");
+      await expect(create).toContainText(`Create folder “${directoryName}”`);
       await page.keyboard.press("Enter");
 
       projectId = await expectOpenedProject(page, directoryName);

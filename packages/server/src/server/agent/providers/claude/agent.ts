@@ -1,5 +1,7 @@
 import { verifySkillSnapshot } from "../../../orchestration-skills/internal/policy.js";
 import { ClaudeSetupTokenLoginSession } from "./setup-token-login.js";
+import { ClaudeLoginSession } from "./login.js";
+import { claudeSignInMode } from "./sign-in-mode.js";
 import {
   claudeSetupTokenStore,
   readClaudeSetupToken,
@@ -151,6 +153,8 @@ import {
   type ResolvedProviderLaunch,
 } from "../../provider-launch-config.js";
 import { withTimeout } from "../../../../utils/promise-timeout.js";
+import type { AgentContextBreakdown } from "@getpaseo/protocol/agent-context";
+import { toContextBreakdown } from "./context-breakdown.js";
 import { terminateWithTreeKill } from "../../../../utils/tree-kill.js";
 import { execCommand } from "../../../../utils/spawn.js";
 import { composeSystemPromptParts } from "../../system-prompt.js";
@@ -397,7 +401,11 @@ interface SlashCommandInvocation {
 function classifyClaudeSlashCommand(commandName: string): AgentSlashCommand["kind"] {
   // Claude exposes commands and skills as one flat SDK list, without structured source
   // metadata. Keep obvious root-only/session controls out of inline autocomplete and
-  // treat the rest as skills; the worst failure mode is an inert inline suggestion.
+  // treat the rest as skills. Restricted skill policies count every "skill" here as a
+  // native default that needs an inspectable package, so a misread command blocks
+  // launches. Names starting with "__" are Claude Code's hidden internal commands
+  // (__remote-workflow since 2.1.285); skill names never start with underscores.
+  if (commandName.startsWith("__")) return "command";
   return CLAUDE_ROOT_ONLY_COMMANDS.has(commandName) ? "command" : "skill";
 }
 
@@ -1688,6 +1696,14 @@ export class ClaudeAgentClient implements AgentClient {
     const env = createProviderEnv({ baseEnv: process.env, runtimeSettings: this.runtimeSettings });
     const scope = claudeConfigDir(env);
     await promises.mkdir(scope, { recursive: true, mode: 0o700 });
+    // Web sign-in: the CLI stores and refreshes the OAuth grant for this config directory.
+    if (claudeSignInMode(env) === "full")
+      return new ClaudeLoginSession({
+        executable: available.resolvedPath,
+        args: launch.args,
+        scope,
+        runtimeSettings: this.runtimeSettings,
+      });
     return new ClaudeSetupTokenLoginSession({
       executable: available.resolvedPath,
       args: launch.args,
@@ -2240,6 +2256,22 @@ class ClaudeAgentSession implements AgentSession {
       modelId: this.config.model,
       fastModeEnabled: this.config.featureValues?.fast_mode === true,
     });
+  }
+
+  /**
+   * Claude's /context breakdown, read on demand. Upstream stopped reading it after every turn
+   * because each read costs a request (#1701), so clients ask only while the details are open.
+   * Null when no query is running yet.
+   */
+  async getContextBreakdown(): Promise<AgentContextBreakdown | null> {
+    const activeQuery = this.query;
+    if (!activeQuery) return null;
+    const usage = await withTimeout(
+      activeQuery.getContextUsage(),
+      10_000,
+      "Claude did not report its context usage in time",
+    );
+    return toContextBreakdown(usage, new Date());
   }
 
   async getRuntimeInfo(): Promise<AgentRuntimeInfo> {

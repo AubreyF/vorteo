@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setImmediate as waitForImmediate } from "node:timers/promises";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { z } from "zod";
 
 import { CLIENT_CAPS } from "@getpaseo/protocol/client-capabilities";
@@ -9900,4 +9900,84 @@ test("guarded workspace recovery RPC preserves guard enforcement and does not re
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe("moving a workspace's local project with its group", () => {
+  const membership = { key: "remote:github.com/acme/vorteo", name: "Vorteo" };
+  const target = createPersistedProjectRecord({
+    projectId: "vorteo-local",
+    rootPath: "/work/vorteo",
+    kind: "non_git",
+    displayName: "Vorteo",
+    createdAt: "2026-10-18T00:00:00.000Z",
+    updatedAt: "2026-10-18T00:00:00.000Z",
+  });
+
+  function setup(
+    kind: "directory" | "worktree" | "local_checkout",
+    projects: Record<string, typeof target>,
+  ) {
+    const emitted: SessionOutboundMessage[] = [];
+    const session = createSessionForWorkspaceTests({
+      onMessage: (message) => emitted.push(message),
+    });
+    let retained: PersistedWorkspaceRecord = createPersistedWorkspaceRecord({
+      workspaceId: "stray",
+      projectId: "dev-local",
+      cwd: REPO_CWD,
+      kind,
+      displayName: "Stray",
+      createdAt: "2026-10-18T00:00:00.000Z",
+      updatedAt: "2026-10-18T00:00:00.000Z",
+    });
+    session.workspaceRegistry.update = async (_id, update) => {
+      retained = update(retained);
+      return retained;
+    };
+    session.projectRegistry.get = async (projectId: string) => projects[projectId] ?? null;
+    return { emitted, session, current: () => retained };
+  }
+
+  test("moves the local project and the group together", async () => {
+    const { emitted, session, current } = setup("directory", { "vorteo-local": target });
+    await session.handleMessage({
+      type: "workspace.project.set.request",
+      workspaceId: "stray",
+      membership,
+      projectId: "vorteo-local",
+      requestId: "move",
+    });
+    expect(findByType(emitted, "workspace.project.set.response")?.payload).toMatchObject({
+      accepted: true,
+    });
+    expect(current()).toMatchObject({ projectId: "vorteo-local", projectMembership: membership });
+  });
+
+  test("refuses archived or missing targets and worktrees without changing anything", async () => {
+    for (const [kind, projects, error] of [
+      [
+        "directory",
+        { "vorteo-local": { ...target, archivedAt: "2026-10-18T01:00:00.000Z" } },
+        "Restore",
+      ],
+      ["directory", {}, "no longer exists"],
+      ["worktree", { "vorteo-local": target }, "worktrees stay"],
+      ["local_checkout", { "vorteo-local": target }, "Repository checkouts"],
+    ] as const) {
+      const { emitted, session, current } = setup(kind, projects);
+      const before = current();
+      await session.handleMessage({
+        type: "workspace.project.set.request",
+        workspaceId: "stray",
+        membership,
+        projectId: "vorteo-local",
+        requestId: "move",
+      });
+      expect(findByType(emitted, "workspace.project.set.response")?.payload).toMatchObject({
+        accepted: false,
+        error: expect.stringContaining(error),
+      });
+      expect(current()).toEqual(before);
+    }
+  });
 });

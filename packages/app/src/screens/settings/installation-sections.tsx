@@ -52,6 +52,9 @@ export function isInstallationSettingsSection(
   return INSTALLATION_SETTINGS_SECTIONS.some((candidate) => candidate === section);
 }
 
+/** Shows every provider's profiles in one list until a provider filter is chosen. */
+const ALL_PROVIDERS = "__all__";
+
 function ProfilesSettings({ serverId }: { serverId: string }) {
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const profiles = useInstallationProfiles();
@@ -78,36 +81,34 @@ function ProfilesSettings({ serverId }: { serverId: string }) {
     if (!sections.has(type)) sections.set(type, { serverId, provider: type });
   }
   if (!sections.size)
-    return (
-      <Alert description="Connect a provider in Providers settings to create your first profile." />
-    );
-  const activeType =
-    selectedType && sections.has(selectedType) ? selectedType : [...sections.keys()][0];
-  const target = sections.get(activeType)!;
-  const options = [...sections.keys()].map((type) => ({
-    value: type,
-    label:
-      [...(hostCatalog.entries ?? []), ...(containerCatalog.entries ?? [])].find(
-        (entry) => entry.provider === type,
-      )?.label ?? type,
-  }));
+    return <Alert description="Connect an account in Accounts to create your first profile." />;
+  const types = [...sections.keys()];
+  const activeType = selectedType && sections.has(selectedType) ? selectedType : ALL_PROVIDERS;
+  const labelFor = (type: string) =>
+    [...(hostCatalog.entries ?? []), ...(containerCatalog.entries ?? [])].find(
+      (entry) => entry.provider === type,
+    )?.label ?? type;
+  const options = [
+    { value: ALL_PROVIDERS, label: "All" },
+    ...types.map((type) => ({ value: type, label: labelFor(type) })),
+  ];
+  const shown = activeType === ALL_PROVIDERS ? types : [activeType];
   return (
     <View>
-      <Text style={settingsStyles.rowHint}>
-        Choose a provider to manage its defaults and profiles. Connections supply accounts; profiles
-        define how new tasks run.
-      </Text>
-      <SettingsTabs
-        options={options}
-        value={activeType}
-        onValueChange={setSelectedType}
-        testID="profile-provider-tabs"
-      />
-      <SharedProviderSection
-        key={activeType}
-        serverId={target.serverId}
-        provider={target.provider}
-      />
+      {types.length > 1 ? (
+        <SettingsTabs
+          options={options}
+          value={activeType}
+          onValueChange={setSelectedType}
+          testID="profile-provider-tabs"
+        />
+      ) : null}
+      {shown.map((type) => {
+        const target = sections.get(type)!;
+        return (
+          <SharedProviderSection key={type} serverId={target.serverId} provider={target.provider} />
+        );
+      })}
     </View>
   );
 }

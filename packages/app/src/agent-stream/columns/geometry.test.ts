@@ -129,4 +129,25 @@ describe("collapsed grid height allocation", () => {
     expect(heights.get("files")).toBe(100);
     expect(heights.get("tasks")).toBe(576);
   });
+  it("counts tiles on one line once", () => {
+    // The demo's Journal and nested subagents tiles, measured against the grid, share row 244.
+    // Before grid-relative measurement they reported 295 and 305 and reserved a phantom row.
+    const demands = new Map([
+      ["tasks", { height: 236 }],
+      ["journal", { height: 50, row: 244 }],
+      ["subagents", { height: 50, row: 244 }],
+      ["files", { height: 850 }],
+      ["changes", { height: 50, row: 742 }],
+    ]);
+    const heights = allocateGridCardHeights(731, demands);
+    expect(heights.get("files")).toBe(731 - 236 - 50 - 50 - 3 * 8);
+  });
+  it("reserves a joined line's full extent when its tiles really are offset", () => {
+    const demands = new Map([
+      ["journal", { height: 50, row: 244 }],
+      ["subagents", { height: 50, row: 254 }],
+      ["files", { height: 900 }],
+    ]);
+    expect(allocateGridCardHeights(800, demands).get("files")).toBe(800 - 60 - 8);
+  });
 });

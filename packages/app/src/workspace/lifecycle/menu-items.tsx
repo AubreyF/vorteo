@@ -15,6 +15,7 @@ import {
   selectFactoryMembership,
   useFactoryMembership,
 } from "./factory-membership";
+import { SYSTEM_MANAGED_EXPLANATION, useSystemManaged } from "./system-membership";
 
 const ScheduleIcon = withUnistyles(Repeat2);
 const ProtectedIcon = withUnistyles(LockKeyhole);
@@ -31,6 +32,7 @@ export function WorkspaceLifecycleMenuItems({
 }) {
   const scheduleState = useWorkspaceScheduleState(serverId, workspaceId);
   const membership = useFactoryMembership(serverId, workspaceId);
+  const systemManaged = useSystemManaged(serverId, workspaceId);
   const scheduleLabel = scheduleState === "paused" ? "Paused" : "Scheduled";
   const scheduleAction = scheduleState ? "Manage schedules…" : "Add schedule…";
   const openSchedules = useCallback(() => {
@@ -63,7 +65,7 @@ export function WorkspaceLifecycleMenuItems({
   const changingProtection = mutation.isPending && mutation.variables?.protected !== undefined;
   return (
     <>
-      <MenuHint>{membership ? "Factory" : "Standing"}</MenuHint>
+      <MenuHint>{lifecycleHeading(Boolean(membership), systemManaged)}</MenuHint>
       {scheduleState ? <MenuHint>{scheduleLabel}</MenuHint> : null}
       <MenuItem
         leading={scheduleLeading}
@@ -72,22 +74,30 @@ export function WorkspaceLifecycleMenuItems({
       >
         {scheduleAction}
       </MenuItem>
-      <MenuItem
-        leading={protectedLeading}
-        testID={`workspace-protected-${workspaceId}`}
-        selected={protectedWorkspace}
-        closeOnSelect={false}
-        disabled={!supported || mutation.isPending || Boolean(membership)}
-        status={changingProtection ? "pending" : "idle"}
-        onSelect={toggleProtected}
-      >
-        Protected
-      </MenuItem>
-      <MenuHint>
-        {membership
-          ? "Turn Factory off before removing protection."
-          : "Protected workspaces cannot be archived."}
-      </MenuHint>
+      {systemManaged ? (
+        <MenuHint testID={`workspace-system-managed-${workspaceId}`}>
+          {SYSTEM_MANAGED_EXPLANATION}
+        </MenuHint>
+      ) : (
+        <>
+          <MenuItem
+            leading={protectedLeading}
+            testID={`workspace-protected-${workspaceId}`}
+            selected={protectedWorkspace}
+            closeOnSelect={false}
+            disabled={!supported || mutation.isPending || Boolean(membership)}
+            status={changingProtection ? "pending" : "idle"}
+            onSelect={toggleProtected}
+          >
+            Protected
+          </MenuItem>
+          <MenuHint>
+            {membership
+              ? "Turn Factory off before removing protection."
+              : "Protected workspaces cannot be archived."}
+          </MenuHint>
+        </>
+      )}
       {mutation.isError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {mutation.error.message}
@@ -97,6 +107,11 @@ export function WorkspaceLifecycleMenuItems({
       <MenuSeparator />
     </>
   );
+}
+
+function lifecycleHeading(factory: boolean, systemManaged: boolean): string {
+  if (systemManaged) return "Vorteo System";
+  return factory ? "Factory" : "Standing";
 }
 
 const styles = StyleSheet.create((theme) => ({

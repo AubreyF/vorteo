@@ -24,17 +24,19 @@ import {
   inspectBootstrapWritableMountRoots,
 } from "./coordinator-bootstrap-host.js";
 import { requireUnclaimedMaintenanceExecutor } from "./maintenance/service-recovery.js";
+import {
+  recoveryAccessModule,
+  selectedServiceRunnerModules,
+  unclaimedExecutorModules,
+} from "./coordinator-bootstrap-runner-modules.js";
 
 export async function verifySelectedServiceRunner(input: {
   directory: string;
   writableMountRoots: readonly string[];
   recoveryAccess: boolean;
 }) {
-  const files = [
-    "coordinator-bootstrap-runner.js",
-    "coordinator-bootstrap-maintenance-service-runner.js",
-  ];
-  if (input.recoveryAccess) files.push("coordinator-bootstrap-maintenance-recovery-access.js");
+  const files: string[] = [...selectedServiceRunnerModules];
+  if (input.recoveryAccess) files.push(recoveryAccessModule);
   for (const name of files) {
     const local = await readProtectedDocument(fileURLToPath(new URL(name, import.meta.url)));
     const sha256 = createHash("sha256").update(local).digest("hex");
@@ -124,21 +126,8 @@ export async function verifyUnclaimedMaintenanceExecutor(input: {
     !slot
   )
     throw new BootstrapRequestConflict("Unclaimed reserved runner differs from its retained plan");
-  const names = [
-    "coordinator-bootstrap-runner.js",
-    "coordinator-bootstrap-maintenance-service-runner.js",
-    "coordinator-bootstrap-maintenance-service-claim.js",
-    "coordinator-bootstrap-maintenance-service-binding.js",
-    "coordinator-bootstrap-maintenance-recovery-binding.js",
-    "coordinator-bootstrap-maintenance-service-native.js",
-    "coordinator-bootstrap-maintenance-recovery-native.js",
-    "coordinator-bootstrap-journal.js",
-    "maintenance/service-admission.js",
-    "lifecycle-journal.js",
-    "../private-files.js",
-  ];
-  if (executor.target === "recovery-launcher")
-    names.push("coordinator-bootstrap-maintenance-recovery-access.js");
+  const names: string[] = [...unclaimedExecutorModules];
+  if (executor.target === "recovery-launcher") names.push(recoveryAccessModule);
   const directory = path.join(
     executor.runtimeDirectory,
     "packages/server/dist/server/server/execution-installation",

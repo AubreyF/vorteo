@@ -5,6 +5,7 @@ import { usageCopy } from "./copy";
 import { useUsageDisplay } from "./display";
 import { useAgentUsage } from "./queries";
 import type { UsageReportEntry } from "./types";
+import type { AgentUsageView } from "./model";
 
 /**
  * The usage of the account an agent runs under, for its context window details: one card per
@@ -22,6 +23,19 @@ export function AgentUsage({
   refreshable: boolean;
 }) {
   const view = useAgentUsage(serverId, agentId);
+  return <AgentUsageSection serverId={serverId} view={view} refreshable={refreshable} />;
+}
+
+/** The same section for a caller that already holds the agent's usage view. */
+export function AgentUsageSection({
+  serverId,
+  view,
+  refreshable,
+}: {
+  serverId: string;
+  view: AgentUsageView;
+  refreshable: boolean;
+}) {
   if (view.kind === "none") return null;
   return (
     <>

@@ -3,7 +3,8 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import { resolveManagedInstallationClient } from "./execution-installation/managed-client.js";
-import { createPaseoDaemon, formatListenTarget } from "./bootstrap.js";
+import { createPaseoDaemon, formatListenTarget, parseListenString } from "./bootstrap.js";
+import { reclaimListenAddress, systemListenReclaimPorts } from "./listen-reclaim.js";
 import { loadConfig } from "./config.js";
 import { resolvePaseoHome } from "./paseo-home.js";
 import { createRootLogger } from "./logger.js";
@@ -11,7 +12,14 @@ import type { DaemonLifecycleIntent } from "./bootstrap.js";
 import { getProcessDiagnostics } from "./process-diagnostics.js";
 import { loadGovernedScheduleRuntimeFactory } from "./schedule/governed-runtime.js";
 import { createWorkerShutdown } from "./worker-shutdown.js";
+import { startWorkerWatchdog, type WorkerWatchdog } from "./worker-watchdog.js";
 import { createMaintenanceRestartChannel } from "./maintenance-restart-channel.js";
+
+/** Graceful shutdown budget, then this much more before the watchdog kills the worker. */
+const DEFAULT_SHUTDOWN_BUDGET_MS = 10_000;
+const HARD_EXIT_MARGIN_MS = 5_000;
+/** A worker whose supervisor is gone is killed within this, even with a blocked event loop. */
+const SUPERVISOR_LOSS_GRACE_MS = 15_000;
 
 // Managed updates and Host renewal verify the entrypoint through OS arguments.
 // Changing the title overwrites that evidence on macOS.
@@ -160,6 +168,16 @@ async function main() {
   let exitHookInstalled = false;
 
   applyCliFlagOverrides(config);
+  // Only a supervised worker has a supervisor to outlive.
+  const watchdog: WorkerWatchdog | null =
+    typeof process.send === "function"
+      ? startWorkerWatchdog({
+          supervisorPid: process.ppid,
+          logPath: path.join(paseoHome, "daemon.log"),
+          supervisorLossGraceMs: SUPERVISOR_LOSS_GRACE_MS,
+        })
+      : null;
+  const armHardExit = (at: number) => watchdog?.armDeadline(at);
 
   const maintenanceRestart = createMaintenanceRestartChannel({
     workerPid: process.pid,
@@ -177,13 +195,20 @@ async function main() {
     now: Date.now,
     stop: async () => {
       if (!daemon) throw new Error("Shutdown requested before daemon initialization completed");
-      await daemon.stop();
+      await daemon.stop({
+        onStep: (step) => {
+          watchdog?.step(step);
+          logger.info({ step }, "Worker shutdown step");
+        },
+      });
     },
     forceExit: () => {
       logger.warn(
         getProcessDiagnostics(),
         "Worker shutdown deadline expired; cleanup is incomplete",
       );
+      // process.exit can itself hang in native teardown; the watchdog is the backstop.
+      armHardExit(Date.now() + HARD_EXIT_MARGIN_MS);
       process.exit(1);
     },
   });
@@ -194,6 +219,7 @@ async function main() {
     }
     exitHookInstalled = true;
     void shutdownPromise.then((exitCode) => {
+      armHardExit(Date.now() + HARD_EXIT_MARGIN_MS);
       process.exit(exitCode);
     });
   };
@@ -207,6 +233,10 @@ async function main() {
     },
   ) => {
     const reason = options?.reason ?? `worker_received_${signal}`;
+    // Whatever holds, captures or turns remain, the process ends shortly after its budget.
+    armHardExit(
+      (options?.terminateAt ?? Date.now() + DEFAULT_SHUTDOWN_BUDGET_MS) + HARD_EXIT_MARGIN_MS,
+    );
     if (!shutdownPromise) {
       logger.info(
         { signal, reason, ...getProcessDiagnostics() },
@@ -307,6 +337,7 @@ async function main() {
       // The supervisor owns the worker's stdout/stderr pipes. Once it is gone,
       // logging during graceful shutdown can block on the broken pipe and leave
       // the daemon orphaned, so supervisor loss is a hard process boundary.
+      armHardExit(Date.now() + HARD_EXIT_MARGIN_MS);
       process.exit(0);
     };
 
@@ -378,6 +409,22 @@ async function main() {
   } catch (err) {
     logger.fatal({ err }, "Daemon bootstrap failed");
     throw err;
+  }
+
+  const requestedTarget = parseListenString(config.listen);
+  if (requestedTarget.type === "tcp" && process.platform !== "win32") {
+    // A frozen predecessor must not turn every restart into a crash loop.
+    await reclaimListenAddress({
+      host: requestedTarget.host,
+      port: requestedTarget.port,
+      self: {
+        pid: process.pid,
+        uid: process.getuid?.() ?? -1,
+        workerScript: process.argv[1] ?? "",
+      },
+      logger,
+      ports: systemListenReclaimPorts,
+    });
   }
 
   try {

@@ -470,6 +470,57 @@ test("personal skill preparation requires owner access and leaves the shared cat
   }
 });
 
+test("agents propose shared instructions that apply only after owner approval", async () => {
+  const host = new SettingsEnvironmentFake("host-id");
+  const guest = new SettingsEnvironmentFake("guest-id");
+  const settings = new InstallationSettingsService(new SettingsJournalFake(), [host, guest]);
+  await settings.reconcile();
+  const { request } = await fixture(undefined, settings);
+  const before = settings.snapshot();
+  const proposal = {
+    appendSystemPrompt: "Use HTTPS preview links, never raw addresses.",
+    baseRevision: before.revision,
+    reason: "Preview links",
+    requester: "Dev sync thread",
+  };
+  const submitRoute = "/api/installation/instruction-requests";
+  expect((await request(submitRoute, undefined, proposal)).status).toBe(401);
+  expect((await request(submitRoute, "owner-test-password", proposal)).status).toBe(401);
+  const submitted = await request(submitRoute, "guest-agent-test-token", proposal);
+  expect(submitted.status).toBe(201);
+  const created = await submitted.json();
+  expect(created).toMatchObject({ status: "pending", environment: "container" });
+  expect(settings.snapshot()).toEqual(before);
+  expect((await request(`${submitRoute}/${created.id}`, "host-agent-test-token")).status).toBe(404);
+  expect((await request(`${submitRoute}/${created.id}`, "guest-agent-test-token")).status).toBe(
+    200,
+  );
+  const queryRoute = "/api/installation/owner/instruction-requests/query";
+  const decisionRoute = "/api/installation/owner/instruction-requests/decision";
+  const decision = { id: created.id, decision: "approve", proposedSha256: created.proposedSha256 };
+  // Agent request keys never approve, even their own request.
+  expect((await request(queryRoute, "guest-agent-test-token", {})).status).toBe(401);
+  expect((await request(decisionRoute, "guest-agent-test-token", decision)).status).toBe(401);
+  expect((await request(decisionRoute, "host-agent-test-token", decision)).status).toBe(401);
+  const unlock = await request("/api/installation/owner/unlock", "owner-test-password", {});
+  const cookie = unlock.headers.get("set-cookie")?.split(";")[0];
+  if (!cookie) throw new Error("Missing owner cookie");
+  expect(
+    (await request(decisionRoute, undefined, decision, "https://foreign.example.test", cookie))
+      .status,
+  ).toBe(403);
+  const query = await (await request(queryRoute, undefined, {}, undefined, cookie)).json();
+  expect(query.requests.map((item: { id: string }) => item.id)).toEqual([created.id]);
+  const applied = await request(decisionRoute, undefined, decision, undefined, cookie);
+  expect(applied.status).toBe(200);
+  expect(await applied.json()).toMatchObject({
+    status: "applied",
+    appliedRevision: before.revision + 1,
+  });
+  expect(settings.snapshot().settings?.appendSystemPrompt).toBe(proposal.appendSystemPrompt);
+  expect((await request(decisionRoute, undefined, decision, undefined, cookie)).status).toBe(409);
+});
+
 test("shared settings require owner access and persist revisioned writes before offline delivery", async () => {
   const host = new SettingsEnvironmentFake("host-id");
   const guest = new SettingsEnvironmentFake("guest-id");
@@ -625,6 +676,66 @@ test("delegated creation rejects an unknown workspace before starting a worker",
 });
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
+});
+
+test("delegated requests are labeled only for clients that ask and only for Host-agent requests", async () => {
+  const { request } = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) =>
+      writeFileSync(
+        path.join(config.stateDir, "owner-delegation.json"),
+        JSON.stringify({
+          version: 1,
+          delegatedRequesterPrefixes: ["Nova "],
+          hostUpdateServiceRestart: false,
+        }),
+      ),
+  );
+  const ask = async (token: string, target: string) =>
+    RestartJobSchema.parse(
+      await (
+        await request("/api/installation/restart-requests", token, {
+          target,
+          reason: "Routine maintenance",
+          requester: "Nova integration",
+        })
+      ).json(),
+    );
+  const host = await ask("host-agent-test-token", "host");
+  const guest = await ask("guest-agent-test-token", "container-daemon");
+  const query = async (flags: string) =>
+    RestartJobSchema.array().parse(
+      await (
+        await request(`/api/installation/owner/restarts/query${flags}`, "owner-test-password", {})
+      ).json(),
+    );
+  const modern = await query("?idleRestarts=1&delegatedRequests=1");
+  expect(modern.find((job) => job.id === host.id)?.delegatedTo).toBe("Nova integration");
+  // A guest can choose any requester label, so its request still needs the owner.
+  expect(modern.find((job) => job.id === guest.id)?.delegatedTo).toBeUndefined();
+  for (const job of await query("?idleRestarts=1")) expect(job).not.toHaveProperty("delegatedTo");
+  // The locked summary prompts only for the guest request.
+  expect(await (await request("/api/installation/restart-summary")).json()).toMatchObject({
+    requested: 1,
+    queued: 1,
+  });
+  const cancelled = await request(
+    `/api/installation/owner/restarts/${host.id}/decision?delegatedRequests=1`,
+    "owner-test-password",
+    { revision: host.revision, decision: "reject" },
+  );
+  // The owner keeps every decision; a finished request is no longer being handled.
+  expect(RestartJobSchema.parse(await cancelled.json())).toMatchObject({ status: "rejected" });
+  expect(
+    (await query("?delegatedRequests=1")).find((job) => job.id === host.id),
+  ).not.toHaveProperty("delegatedTo");
 });
 
 async function fixture(
@@ -2838,6 +2949,99 @@ test("owner HTTP repair captures and stages real Git source without approving or
     expect(f.calls).toEqual([]);
   } finally {
     prepareBatch.mockRestore();
+  }
+});
+
+test("a conflicted source batch reports its conflict to agents instead of asking for a reload", async () => {
+  const prepareBatch = vi
+    .spyOn(InstallationSourceUpdates.prototype, "prepare")
+    .mockImplementation(async (contributions) => ({
+      batch: { status: "conflict", contributions },
+    }));
+  const id = randomUUID();
+  const contributionId = randomUUID();
+  const configRoot = mkdtempSync(path.join(tmpdir(), "conflict-status-config-"));
+  try {
+    const f = await fixture(
+      undefined,
+      undefined,
+      undefined,
+      "both",
+      false,
+      undefined,
+      undefined,
+      undefined,
+      (config) => {
+        writeFileSync(
+          path.join(config.stateDir, "restart-jobs.json"),
+          JSON.stringify([
+            {
+              id,
+              revision: randomUUID(),
+              target: "host",
+              reason: "Fixture conflict",
+              requestedBy: "host-agent",
+              createdAt: new Date().toISOString(),
+              expiresAt: "9999-12-31T23:59:59.999Z",
+              status: "pending",
+              detail: "Contributions need correction before this batch can be approved",
+              sourceBatch: {
+                status: "conflict",
+                contributions: [
+                  {
+                    id: contributionId,
+                    update: {
+                      baseCommit: "b".repeat(40),
+                      sourceCommit: "c".repeat(40),
+                      sha256: "a".repeat(64),
+                      bytes: 10,
+                    },
+                    reason: "Conflicting notes",
+                    requestedBy: "host-agent",
+                    createdAt: new Date().toISOString(),
+                    status: "conflict",
+                    detail:
+                      "docs/vorteo-customizations.md\n\nCONFLICT (content): Merge conflict in docs/vorteo-customizations.md",
+                  },
+                ],
+              },
+            },
+          ]),
+          { mode: 0o600 },
+        );
+      },
+    );
+    await f.drain();
+    // A client without batch support still learns the batch cannot be approved yet.
+    const legacy = await (
+      await fetch(`${f.url}/api/installation/restart-requests/${id}`, {
+        headers: { Authorization: "Bearer host-agent-test-token" },
+      })
+    ).json();
+    expect(legacy).not.toHaveProperty("sourceBatch");
+    expect(legacy.detail).toBe("Contributions need correction before this batch can be approved");
+
+    const config = path.join(configRoot, "client.json");
+    writeFileSync(
+      config,
+      JSON.stringify({ origin: f.url, kind: "host-agent", token: "host-agent-test-token" }),
+      { mode: 0o600 },
+    );
+    const { stdout, stderr } = await promisify(execFile)(process.execPath, [
+      path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
+      "--config",
+      config,
+      "restart-status",
+      id,
+    ]);
+    expect(JSON.parse(stdout).sourceBatch.status).toBe("conflict");
+    expect(stderr).toContain(
+      `Source batch conflict: contribution ${contributionId} conflicts in docs/vorteo-customizations.md.`,
+    );
+    expect(stderr).toContain(`--replaces ${contributionId}`);
+  } finally {
+    prepareBatch.mockRestore();
+    rmSync(configRoot, { recursive: true, force: true });
   }
 });
 

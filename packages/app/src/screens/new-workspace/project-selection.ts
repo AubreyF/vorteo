@@ -216,12 +216,18 @@ export function reconcileProjectSelection(
   }
 
   if (!current.project) {
+    // With nothing to preselect, an empty selection is a settled state. Returning a fresh empty
+    // object each time would make the picker's reconcile effect re-render indefinitely.
+    if (!initialSelection.project && current.source === "initial") return current;
     return initialSelection;
   }
 
   if (current.source === "manual") {
     const originProject = resolveManualOriginProject(current, context);
     if (originProject) {
+      if (current.project === originProject && current.originProject === originProject) {
+        return current;
+      }
       return {
         ...current,
         project: originProject,

@@ -7,6 +7,8 @@ import { DaemonAutomation } from "./daemon-automation.js";
 import { createRecoveryAccessStatusReader } from "./maintenance/recovery-access.js";
 import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/maintenance-service-status";
 import { MaintenanceServiceProposalSchema } from "@getpaseo/protocol/maintenance-service";
+import type { SessionHostStatus } from "@getpaseo/protocol/session-host-maintenance";
+import { ensureSessionHostReleaseGuard } from "./release-selection-guard.js";
 import { maintenanceServiceView } from "./maintenance/service-view.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
 import {
@@ -21,6 +23,8 @@ import {
   type BootstrapReconciliationLedger,
 } from "./coordinator-bootstrap.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
+import { mountClaudeOAuthRoutes } from "./accounts/claude-oauth-routes.js";
+import type { ClaudeOAuthRuntime } from "./accounts/claude-oauth-runtime.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import {
   SkillSourceSchema,
@@ -88,10 +92,19 @@ import {
   InstallationSettingsNotInitialized,
   type InstallationSettingsService,
 } from "./settings/service.js";
+import type { InstructionRequestEnvironment } from "@getpaseo/protocol/instruction-requests";
+import { InstructionRequestError, InstructionRequests } from "./settings/instruction-requests.js";
 
 import { inspectContainerSource } from "./container-updates.js";
 import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationSourceUpdates } from "./source-updates.js";
+import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./owner-delegation.js";
+
+/**
+ * Status answers are reused this long unless a session host job changes. Each answer greets the
+ * host, which records the greeting, and Installation controls refresh every five seconds.
+ */
+const SESSION_HOST_STATUS_CACHE_MS = 30_000;
 
 // COMPAT(providerRemovalOwner): added in v155, remove after legacy strict catalog clients are unsupported.
 function ownerSettingsSnapshot(snapshot: InstallationSettingsSnapshot, removalAware: boolean) {
@@ -129,6 +142,16 @@ function pendingUpdateDetail(job: RestartJob, pendingDetail: string) {
   return job.status === "pending" ? pendingDetail : job.detail;
 }
 
+/**
+ * Only a ready batch needs a newer client to review it. While a batch is preparing or a
+ * contribution conflicts, the coordinator's own detail says so; a reload would not help.
+ */
+function legacyBatchDetail(job: RestartJob) {
+  return job.sourceBatch?.status === "ready"
+    ? pendingUpdateDetail(job, "Source batch pending. Reload Vorteo to review contributions.")
+    : job.detail;
+}
+
 // COMPAT(requireOwnerApproval): v311; legacy strict contribution decoders omit this field until 2027-04-11.
 function contributionReply(contribution: SourceContribution, requireOwnerApproval: boolean) {
   if (requireOwnerApproval) return contribution;
@@ -147,6 +170,18 @@ function ownerApprovalReply(job: RestartJob, enabled: boolean | undefined): Rest
     };
   }
   return compatible;
+}
+
+// COMPAT(delegatedRequests): added in v0.11.0-beta.3.vorteo.695; only clients that ask receive delegatedTo.
+function withDelegation(reply: RestartJob, job: RestartJob, delegation: OwnerDelegation | null) {
+  const handler = delegation ? delegatedHandler(job, delegation, Date.now()) : null;
+  if (handler?.state === "handling") return { ...reply, delegatedTo: handler.requester };
+  if (handler?.state === "overdue") return { ...reply, delegationOverdue: handler.requester };
+  return reply;
+}
+
+function requestedDelegation(stateDir: string, requested: boolean): OwnerDelegation | null {
+  return requested ? readOwnerDelegation(stateDir) : null;
 }
 
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
@@ -178,6 +213,8 @@ function restartReply(
     automaticAuthority: _authority,
     supervisorRecoveredBy: _supervisorRecovery,
     automaticDispatchAfter: _dispatchAfter,
+    // COMPAT(restartContinuation): coordinator-internal; strict v689 clients reject it.
+    continuationCaptureId: _captureId,
     ...publicJob
   } = job;
   job = ownerApprovalReply(publicJob, requireOwnerApproval);
@@ -223,10 +260,7 @@ function restartReply(
     return restartReply(
       {
         ...compatible,
-        detail: pendingUpdateDetail(
-          job,
-          "Source batch pending. Reload Vorteo to review contributions.",
-        ),
+        detail: legacyBatchDetail(job),
       },
       details,
       graceful,
@@ -281,8 +315,15 @@ export function createInstallationServer(
   claudeSetup?: ClaudeSetupRuntime,
   startupFence?: InstallationStartupFence,
   coordinatorRequests?: BootstrapReconciliationLedger,
+  claudeOAuth?: ClaudeOAuthRuntime,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
+  const instructionRequests = new InstructionRequests(
+    path.join(config.stateDir, "shared-settings"),
+    settings,
+    () => new Date(),
+    (message) => logger.warn(message),
+  );
   const updates = {
     host: config.sourceUpdates ? new InstallationSourceUpdates(config) : null,
     "container-daemon": config.containerSourceUpdates
@@ -334,7 +375,7 @@ export function createInstallationServer(
     prepareInterruption: (job) => standingRuntime.prepareInterruption(job),
     observeInterruption: (job) => standingRuntime.observeInterruption(job),
     verifyDispatch: (job) => standingRuntime.verifySelection(job, executor),
-    installUpdate: (job) =>
+    installUpdate: (job, options) =>
       forTarget(job.target).install(
         job,
         async (target) => {
@@ -344,7 +385,8 @@ export function createInstallationServer(
               throw new RestartRequestError("Acknowledged restart executor is unavailable");
             return executor.restartHeld(job);
           }
-          if (!job.whenIdle) return executor.restart(target);
+          // An owner approve, or an owner-delegated automatic update, replaces the service.
+          if (!job.whenIdle || options.serviceRestart) return executor.restart(target);
           if (!executor.restartWhenIdle)
             throw new RestartRequestError("Safe update admission is unavailable");
           const detail = await executor.restartWhenIdle(target);
@@ -362,6 +404,8 @@ export function createInstallationServer(
     Boolean(config.restartApprovalPolicy),
     config.restartApprovalPolicy?.hostRequestsAfter,
   );
+  // Host release selection runs only through this queue, so it never starts unguarded.
+  ensureSessionHostReleaseGuard(config);
   const restarts = new InstallationRestarts(
     standingRuntime.journal,
     restartExecutor,
@@ -373,6 +417,7 @@ export function createInstallationServer(
       daemonRequestsAfter: (target) => daemonAutomation.activation(target),
       supervisorRequestsAfter: () => daemonAutomation.activation("supervisor") ?? null,
       cancellationDelayMs: 30_000,
+      hostUpdateServiceRestart: () => readOwnerDelegation(config.stateDir).hostUpdateServiceRestart,
       authority: () =>
         createHash("sha256")
           .update(
@@ -381,11 +426,18 @@ export function createInstallationServer(
               host: config.hostAgentTokenHash,
               container: config.containerAgentTokenHash,
               policy: "host-only-service-permissions-v2",
+              // Absent when off, so existing grants keep their authority.
+              ...(readOwnerDelegation(config.stateDir).hostUpdateServiceRestart
+                ? { hostUpdateServiceRestart: true }
+                : {}),
             }),
           )
           .digest("hex"),
     },
-    { fenced: startupFence !== undefined },
+    {
+      fenced: startupFence !== undefined,
+      progress: (message, fields) => logger.info(fields, message),
+    },
   );
   const startupReleased = () => {
     if (startupFence && !startupFence.released()) return false;
@@ -791,6 +843,10 @@ export function createInstallationServer(
               ),
               ownerApprovalRequired: true,
             },
+            sessionHostJob: {
+              available: host && restarts.sessionHostAvailable(),
+              ownerApprovalRequired: true,
+            },
             supervisorMaintenance: {
               available: Boolean(supervisorPlan && executor.restartSupervisor),
               ownerApprovalRequired: !(
@@ -993,10 +1049,24 @@ export function createInstallationServer(
   // Only counts are public. Reasons and task identities require owner access.
   app.get("/api/installation/restart-summary", (_req, res) => {
     const jobs = restarts.list();
+    const delegation = readOwnerDelegation(config.stateDir);
+    const now = Date.now();
+    const delegated = (job: RestartJob) =>
+      delegatedHandler(job, delegation, now)?.state === "handling";
     const helpers = restarts.listHelpers();
     const monitors = restarts.listMonitors();
     const services = restarts.listServices();
+    const sessionHosts = restarts.listSessionHosts();
     res.json({
+      ...(sessionHosts.length
+        ? {
+            sessionHost: {
+              requested: sessionHosts.filter((job) => job.status === "pending").length,
+              queued: sessionHosts.filter((job) => job.status === "approved").length,
+              running: sessionHosts.filter((job) => job.status === "running").length,
+            },
+          }
+        : {}),
       ...(services.length
         ? {
             serviceMaintenance: {
@@ -1031,8 +1101,11 @@ export function createInstallationServer(
             },
           }
         : {}),
-      requested: jobs.filter((job) => job.status === "pending").length,
-      queued: jobs.filter((job) => job.status === "approved").length,
+      // A delegated request needs no owner prompt; it stays visible as queued work.
+      requested: jobs.filter((job) => job.status === "pending" && !delegated(job)).length,
+      queued: jobs.filter(
+        (job) => job.status === "approved" || (job.status === "pending" && delegated(job)),
+      ).length,
       running: jobs.filter((job) => job.status === "running").length,
     });
   });
@@ -1083,6 +1156,43 @@ export function createInstallationServer(
       settings: snapshot.settings,
       installationInstructions: kind === "host" ? installationHostInstructions(config) : "",
     });
+  });
+
+  // Agents may propose shared agent instructions. Request-only credentials never apply them.
+  const instructionRequester = (req: Request): InstructionRequestEnvironment | null => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (matchesToken(token, config.hostAgentTokenHash)) return "host";
+    if (matchesToken(token, config.containerAgentTokenHash)) return "container";
+    return null;
+  };
+  app.post("/api/installation/instruction-requests", (req, res) => {
+    const environment = instructionRequester(req);
+    if (!environment) {
+      res.sendStatus(401);
+      return;
+    }
+    res.status(201).json(instructionRequests.submit(req.body, environment));
+  });
+  app.get("/api/installation/instruction-requests/:id", (req, res) => {
+    const environment = instructionRequester(req);
+    if (!environment) {
+      res.sendStatus(401);
+      return;
+    }
+    const request = instructionRequests.get(req.params.id, environment);
+    if (!request) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(request);
+  });
+  app.post("/api/installation/instruction-requests/:id/cancel", (req, res) => {
+    const environment = instructionRequester(req);
+    if (!environment) {
+      res.sendStatus(401);
+      return;
+    }
+    res.json(instructionRequests.cancel(req.params.id, environment));
   });
 
   app.get("/api/installation/monitor-selection", (req, res, next) => {
@@ -1178,6 +1288,64 @@ export function createInstallationServer(
       return;
     }
     res.json(job);
+  });
+  // Status asks the host only when detail is wanted, and briefly reuses the answer, so status
+  // checks never flood the host's audit log.
+  let sessionHostStatusCache: {
+    key: string;
+    at: number;
+    value: Promise<SessionHostStatus>;
+  } | null = null;
+  function sessionHostStatus(detail: boolean): Promise<SessionHostStatus> {
+    if (!executor.inspectSessionHost)
+      return Promise.reject(new RestartRequestError("Session host maintenance is unavailable"));
+    const now = Date.now();
+    const key = JSON.stringify([
+      detail,
+      restarts.listSessionHosts().map((job) => [job.id, job.status, job.stage]),
+    ]);
+    const cached = sessionHostStatusCache;
+    if (cached && cached.key === key && now - cached.at < SESSION_HOST_STATUS_CACHE_MS)
+      return cached.value;
+    const value = executor.inspectSessionHost(detail);
+    sessionHostStatusCache = { key, at: now, value };
+    value.catch(() => {
+      if (sessionHostStatusCache?.value === value) sessionHostStatusCache = null;
+    });
+    return value;
+  }
+  app.get("/api/installation/session-host", authenticateUpdate, (_req, res, next) => {
+    void sessionHostStatus(res.locals.updateRequester === "host-agent").then(
+      (status) => res.json(status),
+      next,
+    );
+  });
+  app.get("/api/installation/session-host-requests/:id", (req, res) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (!matchesToken(token, config.hostAgentTokenHash)) {
+      res.sendStatus(401);
+      return;
+    }
+    const job = restarts.listSessionHosts().find((entry) => entry.id === req.params.id);
+    if (!job) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(job);
+  });
+  app.post("/api/installation/session-host-requests", (req, res, next) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (!matchesToken(token, config.hostAgentTokenHash)) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!restarts.sessionHostAvailable()) {
+      res.status(503).json({ error: "Session host maintenance is unavailable" });
+      return;
+    }
+    void restarts
+      .requestSessionHost(req.body, "host-agent")
+      .then((job) => res.status(201).json(job), next);
   });
   app.post("/api/installation/helper-requests", (req, res, next) => {
     const token = extractHttpBearerToken(req.header("authorization"));
@@ -1419,6 +1587,17 @@ export function createInstallationServer(
     res.json(job);
     void restarts.drain().catch(() => logger.error("Monitor lifecycle journal failed"));
   });
+  app.post("/api/installation/owner/instruction-requests/query", (_req, res) => {
+    const snapshot = settings.snapshot();
+    res.json({
+      revision: snapshot.revision,
+      appendSystemPrompt: snapshot.settings?.appendSystemPrompt ?? null,
+      requests: instructionRequests.list(),
+    });
+  });
+  app.post("/api/installation/owner/instruction-requests/decision", (req, res, next) => {
+    void instructionRequests.decide(req.body).then((request) => res.json(request), next);
+  });
   app.post("/api/installation/owner/helpers/query", (_req, res) => {
     res.json({ jobs: restarts.listHelpers() });
   });
@@ -1430,7 +1609,30 @@ export function createInstallationServer(
   app.post("/api/installation/owner/helpers/verify-installed", (req, res, next) => {
     void restarts.verifyHelperRecovery(req.body).then((job) => res.json(job), next);
   });
+  app.post("/api/installation/owner/session-host/query", (_req, res) => {
+    const jobs = restarts.listSessionHosts();
+    if (!restarts.sessionHostAvailable()) {
+      res.status(404).json({ error: "Session host maintenance is unavailable" });
+      return;
+    }
+    void sessionHostStatus(true).then(
+      (status) => res.json({ jobs, status }),
+      () => res.json({ jobs, status: null }),
+    );
+  });
+  app.post("/api/installation/owner/session-host/request", (req, res, next) => {
+    void restarts
+      .requestSessionHost(req.body, "owner")
+      .then((job) => res.status(201).json(job), next);
+  });
+  app.post("/api/installation/owner/session-host/decision", (req, res) => {
+    const job = restarts.decideSessionHost(req.body);
+    res.json(job);
+    sessionHostStatusCache = null;
+    void restarts.drain().catch(() => logger.error("Session host lifecycle journal failed"));
+  });
   if (claudeSetup) mountClaudeSetupRoutes(app, claudeSetup);
+  if (claudeOAuth) mountClaudeOAuthRoutes(app, claudeOAuth);
   app.post("/api/installation/owner/lock", (req, res) => {
     sessions.revoke(sessionToken(req));
     res.clearCookie(cookieName, cookieOptions);
@@ -1626,21 +1828,26 @@ export function createInstallationServer(
     void restarts.impacts().then((impacts) => res.json(impacts), next);
   });
   app.post("/api/installation/owner/restarts/query", (req, res) => {
+    const delegation = requestedDelegation(config.stateDir, req.query.delegatedRequests === "1");
     res.json(
       restarts
         .list()
         .map((job) =>
-          restartReply(
+          withDelegation(
+            restartReply(
+              job,
+              req.query.idleRestarts === "1",
+              req.query.gracefulRestarts === "1",
+              req.query.sourceUpdates === "1",
+              req.query.sourceBatches === "1",
+              req.query.containerSourceUpdates === "1",
+              req.query.supervisorMaintenance === "1",
+              req.query.hostAutomaticRestarts === "1",
+              req.query.factoryRuntimeAdoption === "1",
+              req.query.requireOwnerApproval === "1",
+            ),
             job,
-            req.query.idleRestarts === "1",
-            req.query.gracefulRestarts === "1",
-            req.query.sourceUpdates === "1",
-            req.query.sourceBatches === "1",
-            req.query.containerSourceUpdates === "1",
-            req.query.supervisorMaintenance === "1",
-            req.query.hostAutomaticRestarts === "1",
-            req.query.factoryRuntimeAdoption === "1",
-            req.query.requireOwnerApproval === "1",
+            delegation,
           ),
         ),
     );
@@ -1690,17 +1897,21 @@ export function createInstallationServer(
       decision.factoryRuntimePlanSha256,
     );
     res.json(
-      restartReply(
+      withDelegation(
+        restartReply(
+          job,
+          req.query.idleRestarts === "1",
+          req.query.gracefulRestarts === "1",
+          req.query.sourceUpdates === "1",
+          req.query.sourceBatches === "1",
+          req.query.containerSourceUpdates === "1",
+          req.query.supervisorMaintenance === "1",
+          req.query.hostAutomaticRestarts === "1",
+          req.query.factoryRuntimeAdoption === "1",
+          req.query.requireOwnerApproval === "1",
+        ),
         job,
-        req.query.idleRestarts === "1",
-        req.query.gracefulRestarts === "1",
-        req.query.sourceUpdates === "1",
-        req.query.sourceBatches === "1",
-        req.query.containerSourceUpdates === "1",
-        req.query.supervisorMaintenance === "1",
-        req.query.hostAutomaticRestarts === "1",
-        req.query.factoryRuntimeAdoption === "1",
-        req.query.requireOwnerApproval === "1",
+        requestedDelegation(config.stateDir, req.query.delegatedRequests === "1"),
       ),
     );
     void restarts
@@ -1728,6 +1939,10 @@ export function createInstallationServer(
     }
     if (error instanceof ProviderPreferencesValidationError) {
       res.status(400).json({ error: error.message, reference: error.reference });
+      return;
+    }
+    if (error instanceof InstructionRequestError) {
+      res.status(error.status).json({ error: error.message });
       return;
     }
     if (error instanceof InstallationSettingsInvalidUpdate) {

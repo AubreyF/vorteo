@@ -71,6 +71,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import { Button } from "@/components/ui/button";
 import { CompactProjectRail } from "./sidebar/compact-project-rail";
+import { SIDEBAR_TOOLBAR_GROUP_GAP, sidebarToolbarFit } from "./sidebar/sidebar-toolbar-fit";
 import {
   FLOATING_PANEL_RADIUS,
   FLOATING_PANEL_CONTROL_HEIGHT,
@@ -103,6 +104,7 @@ import { useSidebarModel } from "@/components/sidebar/sidebar-model";
 import type { PinnedSidebarGroups } from "@/hooks/use-sidebar-pins";
 import { RetainedPanelActivity } from "@/components/retained-panel";
 import type { SidebarWorkspaceGroup } from "@/components/sidebar/sidebar-labels";
+import type { SidebarSystemGroup } from "@/workspace/lifecycle/grouping";
 import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model";
 import { type SidebarGroupMode, useSidebarViewStore } from "@/stores/sidebar-view-store";
 
@@ -119,6 +121,7 @@ import {
 } from "@/utils/host-routes";
 import { openHostOverview } from "@/navigation/settings-navigation";
 import { UsageSidebarItem, useHasUsageSummary } from "@/usage";
+import { SidebarGlobalCards } from "@/components/sidebar/global-cards";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 
@@ -129,6 +132,7 @@ const DEV_BUILD_LABEL = process.env.EXPO_PUBLIC_PASEO_DEV_BUILD_LABEL?.trim() ||
 interface SidebarSharedProps {
   theme: SidebarTheme;
   workspaceGroups: SidebarWorkspaceGroup[];
+  systemGroups: SidebarSystemGroup[];
   projectIconTargets: SidebarProjectIconTarget[];
   pinnedGroups: PinnedSidebarGroups;
   projects: SidebarProjectEntry[];
@@ -195,6 +199,7 @@ const LeftSidebarBase = memo(function LeftSidebarBase({
     isRevalidating,
     refreshAll,
     workspaceGroups,
+    systemGroups,
     projectIconTargets,
     pinnedGroups,
     collapsedProjectKeys,
@@ -280,6 +285,7 @@ const LeftSidebarBase = memo(function LeftSidebarBase({
   const sharedProps = {
     theme,
     workspaceGroups,
+    systemGroups,
     projectIconTargets,
     pinnedGroups,
     projects,
@@ -438,11 +444,13 @@ function IconTooltipContent({
   );
 }
 
-function sidebarNavigationVisibility(width: number, rail: boolean) {
-  const showHistory = !rail && width >= 300;
-  const showSchedules = !rail && width >= 260;
-  const showSettings = !rail && width >= 340;
-  const navigationRows = !rail && width < 260;
+/** `fit` is how many optional buttons fit; see `sidebarToolbarFit`. */
+function sidebarNavigationVisibility(fit: number, rail: boolean) {
+  const showSchedules = !rail && fit >= 1;
+  const showHistory = !rail && fit >= 2;
+  const showSettings = !rail && fit >= 3;
+  // Below the width for even one optional button, navigation moves to labeled rows.
+  const navigationRows = !rail && fit === 0;
   const settingsOutside = showSettings || navigationRows;
   const menuSchedules = !showSchedules && !rail && !navigationRows;
   const menuHistory = !showHistory && !rail && !navigationRows;
@@ -527,6 +535,12 @@ function SidebarToolbar({
     [theme.iconSize.sm, theme.colors.foregroundMuted],
   );
   const width = useSidebarWidth();
+  // Start from the panel width so the first frame is close, then follow the toolbar's real width.
+  // Only the fitting button count is stored, so dragging rerenders when a button appears or hides.
+  const [fit, setFit] = useState(() => sidebarToolbarFit(width - SIDEBAR_TOOLBAR_GROUP_GAP * 2));
+  const measureToolbar = useCallback((event: LayoutChangeEvent) => {
+    setFit(sidebarToolbarFit(event.nativeEvent.layout.width));
+  }, []);
   const {
     showHistory,
     showSchedules,
@@ -536,7 +550,7 @@ function SidebarToolbar({
     menuSchedules,
     menuHistory,
     hasMenuNavigation,
-  } = sidebarNavigationVisibility(width, rail);
+  } = sidebarNavigationVisibility(fit, rail);
   const moreStyle = useCallback(
     ({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
       styles.footerIconButton,
@@ -678,6 +692,7 @@ function SidebarToolbar({
             : [styles.sidebarFooter, styles.sidebarToolbar, touch && styles.touchToolbar]
         }
         testID="sidebar-toolbar"
+        onLayout={rail ? undefined : measureToolbar}
       >
         {rail && onExpand ? (
           <FooterIconButton
@@ -791,6 +806,7 @@ function MobileSidebar({
   active,
   theme,
   workspaceGroups,
+  systemGroups,
   projectIconTargets,
   pinnedGroups,
   projects,
@@ -878,6 +894,7 @@ function MobileSidebar({
               shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
               groupMode={groupMode}
               workspaceGroups={workspaceGroups}
+              systemGroups={systemGroups}
               projectIconTargets={projectIconTargets}
               pinnedGroups={pinnedGroups}
               projects={projects}
@@ -896,6 +913,7 @@ function MobileSidebar({
             />
           )}
 
+          <SidebarGlobalCards onBeforeNavigate={closeSidebar} />
           <SidebarSyncNotice />
           <InstallationRestartBanner placement="sidebar" />
           <DemoControls />
@@ -925,6 +943,7 @@ function SidebarPresentation({
 function DesktopSidebar({
   theme,
   workspaceGroups,
+  systemGroups,
   projectIconTargets,
   pinnedGroups,
   projects,
@@ -1187,6 +1206,7 @@ function DesktopSidebar({
                   shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
                   groupMode={groupMode}
                   workspaceGroups={workspaceGroups}
+                  systemGroups={systemGroups}
                   projectIconTargets={projectIconTargets}
                   pinnedGroups={pinnedGroups}
                   projects={projects}
@@ -1204,6 +1224,7 @@ function DesktopSidebar({
             </>
           )}
 
+          {!compact ? <SidebarGlobalCards /> : null}
           <SidebarSyncNotice compact={compact} />
           <InstallationRestartBanner placement={compact ? "rail" : "sidebar"} />
           {!compact ? <DemoControls /> : null}

@@ -1,3 +1,4 @@
+import type { AgentQuestion } from "@getpaseo/protocol/agent-questions";
 import type { SidebarStateStore } from "./sidebar-state/store.js";
 import type { HeldRestart } from "@getpaseo/protocol/messages";
 import type { MaintenanceRestartBridge } from "./maintenance-restart-channel.js";
@@ -10,16 +11,20 @@ import {
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
 import {
   assertWorkspaceNotFactoryManaged,
+  assertWorkspaceNotSystemManaged,
   assertWorkspaceUnprotected,
   factoryMembershipForDescriptor,
   setWorkspaceLifecycle,
+  systemFieldsForDescriptor,
 } from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
+import { setupSystemSource } from "./system-project/setup-source.js";
 import {
   planProviderRemoval,
   defaultProviderAccountHomes,
   deleteManagedProviderCredentials,
   ProviderRemovalError,
+  signOutClaudeFullSignIn,
 } from "../services/provider-login/removal.js";
 import { QueueStoreError } from "./message-queue/store.js";
 import type { MessageQueueService } from "./message-queue/service.js";
@@ -487,6 +492,8 @@ export interface SessionOptions {
   clientId: string;
   /** From authenticated transport admission, never client request data. */
   principalId?: string | null;
+  /** Self-declared in hello; distinguishes owner interfaces from bridges and tools. */
+  clientType?: "mobile" | "browser" | "cli" | "mcp" | "hub";
   permissions: readonly DaemonPermission[];
   appVersion?: string | null;
   clientCapabilities?: Record<string, unknown> | null;
@@ -763,6 +770,7 @@ export class Session {
   private readonly authorization: SessionAuthorization;
   private readonly ownerEvidence: TaskOwnerEvidenceStore;
   private readonly principalId: string | null | undefined;
+  private readonly clientType: SessionOptions["clientType"];
   private appVersion: string | null;
   private clientCapabilities: ReadonlySet<ClientCapability>;
   private readonly sessionId: string;
@@ -946,6 +954,7 @@ export class Session {
     this.serverId = serverId;
     this.authorization = new SessionAuthorization(permissions);
     this.principalId = options.principalId;
+    this.clientType = options.clientType;
     this.ownerEvidence = new TaskOwnerEvidenceStore(paseoHome);
     this.appVersion = appVersion ?? null;
     this.clientCapabilities = parseClientCapabilities(clientCapabilities);
@@ -2457,12 +2466,18 @@ export class Session {
     }
   }
 
+  private dispatchSystemProjectMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    if (msg.type === "system.source.setup.request") return this.handleSystemSourceSetupRequest(msg);
+    return undefined;
+  }
+
   private dispatchWorkspaceLifecycleMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     return (
       this.dispatchSidebarStateMessage(msg) ??
       this.dispatchWorkspaceStateMessage(msg) ??
       this.dispatchWorkspaceLabelMessage(msg) ??
       this.dispatchWorkspaceSetupMessage(msg) ??
+      this.dispatchSystemProjectMessage(msg) ??
       this.dispatchWorkspaceAndProjectMessage(msg)
     );
   }
@@ -2777,6 +2792,7 @@ export class Session {
           msg.idleMode,
           msg.restartDrainId,
           msg.heldRestart,
+          msg.restartContinuation,
         );
       case "shutdown_server_request":
         return this.handleShutdownServerRequest(msg.requestId);
@@ -2971,6 +2987,9 @@ export class Session {
           store: this.daemonConfigStore,
           creationId: msg.creationId,
           name: msg.name,
+          ...(msg.type === "provider.claude.create_account.request" && msg.signIn
+            ? { signIn: msg.signIn }
+            : {}),
         }).then((account) => {
           return this.emit({
             type:
@@ -3275,6 +3294,13 @@ export class Session {
         payload: { requestId: msg.requestId, plan: planProviderRemoval(input) },
       });
     } else {
+      // Sign a full sign-in Claude account out first; its grant can outlive the directory.
+      const warning = await signOutClaudeFullSignIn(input, msg.revision);
+      if (warning)
+        this.sessionLogger.warn(
+          { providerId: msg.providerId },
+          "Claude sign-out failed during account removal",
+        );
       const plan = deleteManagedProviderCredentials(input, msg.revision);
       await this.daemonConfigStore.patchFromClient(
         this.daemonConfigStore.get().sharedProviderPreferences?.installation ||
@@ -3284,7 +3310,7 @@ export class Session {
       );
       this.emit({
         type: "provider.connection.remove.response",
-        payload: { requestId: msg.requestId, plan },
+        payload: { requestId: msg.requestId, plan, ...(warning ? { warning } : {}) },
       });
     }
   }
@@ -3419,10 +3445,14 @@ export class Session {
       case "agent.checklist.get.request":
       case "agent.checklist.mutate.request":
         return this.handleChecklistRequest(msg);
+      case "agent.questions.answer.request":
+        return this.handleQuestionAnswerRequest(msg);
       case "agent.goal.get.request":
       case "agent.goal.set.request":
       case "agent.goal.clear.request":
         return this.handleAgentGoalRequest(msg);
+      case "agent.context.get_breakdown.request":
+        return this.handleAgentContextBreakdownRequest(msg);
       case "list_commands_request":
         await this.handleListCommandsRequest(msg);
         return;
@@ -3463,13 +3493,55 @@ export class Session {
     this.terminalController.handleBinaryFrame(binaryFrame.frame, source);
   }
 
+  private async handleRestartContinuation(input: {
+    requestId: string;
+    restartDrainId?: string;
+    idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
+    heldRestart?: HeldRestart;
+    restartContinuation: "capture" | "ready" | "cancelled";
+  }): Promise<void> {
+    const { requestId, restartDrainId, idleMode, heldRestart, restartContinuation } = input;
+    const expectedMode = restartContinuation === "capture" ? "drain" : "cancel-drain";
+    if (!restartDrainId || idleMode !== expectedMode || heldRestart)
+      throw new Error("Restart continuation requires its exact request and control mode");
+    let accepted = true;
+    if (restartContinuation === "capture")
+      await this.agentManager.captureRestartContinuation(restartDrainId);
+    else
+      accepted = await this.agentManager.releaseRestartContinuation(
+        restartDrainId,
+        restartContinuation,
+      );
+    this.emit({
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        requestId,
+        clientId: this.clientId,
+        accepted,
+        impact: this.agentManager.getRestartImpact(),
+      },
+    });
+  }
+
   private async handleRestartServerRequest(
     requestId: string,
     reason?: string,
     idleMode?: "inspect" | "restart" | "drain" | "cancel-drain",
     restartDrainId?: string,
     heldRestart?: HeldRestart,
+    restartContinuation?: "capture" | "ready" | "cancelled",
   ): Promise<void> {
+    if (restartContinuation) {
+      await this.handleRestartContinuation({
+        requestId,
+        restartDrainId,
+        idleMode,
+        heldRestart,
+        restartContinuation,
+      });
+      return;
+    }
     if (heldRestart) {
       if (idleMode !== "restart" || restartDrainId !== heldRestart.requestId)
         throw new Error("Acknowledged restart requires the exact held request");
@@ -3615,6 +3687,13 @@ export class Session {
       this.agentManager.getAgent(agentId)?.workspaceId ??
       (await this.agentStorage.get(agentId))?.workspaceId ??
       null;
+
+    // System workspace threads are the installation's maintenance history; archive
+    // is refused there too, so deletion must not be the way around it.
+    if (knownWorkspaceId) {
+      const workspace = await this.workspaceRegistry.get(knownWorkspaceId);
+      if (workspace) assertWorkspaceNotSystemManaged(workspace);
+    }
 
     // File-backed storage still needs an early delete fence before closeAgent().
     beginAgentDeleteIfSupported(this.agentStorage, agentId);
@@ -4267,11 +4346,26 @@ export class Session {
   ): Promise<void> {
     let error: string | null = null;
     try {
+      // Moving the local project with the group keeps a group from spanning several local
+      // projects on one host, which would leave it without a usable folder for new workspaces.
+      if (msg.projectId !== undefined) {
+        const target = await this.projectRegistry.get(msg.projectId);
+        if (!target) throw new Error("That project no longer exists on this host.");
+        if (target.archivedAt) throw new Error("Restore that project before moving work into it.");
+      }
       const updated = await this.workspaceRegistry.update(msg.workspaceId, (workspace) => {
         assertWorkspaceNotFactoryManaged(workspace);
         if (workspace.archivedAt) throw new Error("Restore this workspace before moving it.");
+        // Repository checkouts and worktrees belong to their repository's project; only plain
+        // folders follow their group to another local project.
+        if (msg.projectId !== undefined && workspace.kind !== "directory") {
+          throw new Error(
+            "Repository checkouts and worktrees stay with their repository's project.",
+          );
+        }
         return {
           ...workspace,
+          ...(msg.projectId !== undefined ? { projectId: msg.projectId } : {}),
           projectMembership: msg.membership,
           updatedAt: new Date().toISOString(),
         };
@@ -4314,6 +4408,34 @@ export class Session {
       },
     });
     if (error === null) await this.emitWorkspaceUpdatesForWorkspaceIds([msg.workspaceId]);
+  }
+
+  private async handleSystemSourceSetupRequest(
+    msg: Extract<SessionInboundMessage, { type: "system.source.setup.request" }>,
+  ): Promise<void> {
+    let result: { outcome: string; workspaceId: string } | null = null;
+    let error: string | null = null;
+    try {
+      result = await setupSystemSource({
+        paseoHome: this.paseoHome,
+        projectRegistry: this.projectRegistry,
+        workspaceRegistry: this.workspaceRegistry,
+        logger: this.sessionLogger,
+      });
+    } catch (cause) {
+      error = getErrorMessageOr(cause, "Failed to set up Vorteo source");
+    }
+    this.emit({
+      type: "system.source.setup.response",
+      payload: {
+        requestId: msg.requestId,
+        accepted: error === null,
+        outcome: result?.outcome ?? null,
+        workspaceId: result?.workspaceId ?? null,
+        error,
+      },
+    });
+    if (result) await this.emitWorkspaceUpdatesForWorkspaceIds([result.workspaceId]);
   }
 
   private async handleWorkspacePinSetRequest(
@@ -5709,6 +5831,65 @@ export class Session {
     }
   }
 
+  private async handleQuestionAnswerRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.questions.answer.request" }>,
+  ): Promise<void> {
+    const reply = (questions: AgentQuestion[] | null, error: string | null) =>
+      this.emit({
+        type: "agent.questions.answer.response",
+        payload: { agentId: msg.agentId, requestId: msg.requestId, questions, error },
+      });
+    try {
+      const answer = msg.answer.trim();
+      if (!answer) throw new Error("Write an answer before sending it.");
+      // Agent bridges, tools and hubs share the daemon credential but never speak for the owner.
+      if (this.clientType !== "mobile" && this.clientType !== "browser")
+        throw new Error("Answer open questions from the Vorteo app.");
+      await ensureUnarchivedAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      reply(
+        await this.agentManager.answerQuestion(msg.agentId, {
+          questionId: msg.questionId,
+          answer,
+          answeredBy: `${this.clientType}:${this.clientId}`,
+        }),
+        null,
+      );
+    } catch (error) {
+      reply(null, error instanceof Error ? error.message : "The answer could not be saved.");
+    }
+  }
+
+  private async handleAgentContextBreakdownRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.context.get_breakdown.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const breakdown = await this.agentManager.readContextBreakdown(msg.agentId);
+      this.emit({
+        type: "agent.context.get_breakdown.response",
+        payload: { agentId: msg.agentId, requestId: msg.requestId, breakdown, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.context.get_breakdown.response",
+        payload: {
+          agentId: msg.agentId,
+          requestId: msg.requestId,
+          breakdown: null,
+          error: error instanceof Error ? error.message : "Context breakdown unavailable",
+        },
+      });
+    }
+  }
+
   private async handleAgentGoalRequest(
     msg: Extract<
       SessionInboundMessage,
@@ -6412,6 +6593,7 @@ export class Session {
       projectId: workspace.projectId,
       projectMembership: workspace.projectMembership,
       ...factoryMembershipForDescriptor({ workspace, serverId: this.serverId }),
+      ...systemFieldsForDescriptor(workspace, resolvedProjectRecord),
       projectDisplayName: resolvedProjectRecord
         ? resolveProjectDisplayName(resolvedProjectRecord)
         : workspace.projectId,

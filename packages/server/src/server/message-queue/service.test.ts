@@ -410,3 +410,113 @@ it("holds automatic review while an empty queue has an unresolved delivery error
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.each(["ready", "cancelled"] as const)(
+  "holds persisted restart continuation until a replacement releases its exact cause as %s",
+  async (outcome) => {
+    const root = await mkdtemp(join(tmpdir(), "paseo-restart-release-"));
+    const original = new MessageQueueService(
+      new MessageQueueStore(root),
+      new QueueAttachmentStore(root),
+    );
+    let recovered: MessageQueueService | undefined;
+    try {
+      await original.captureRestartContinuation("agent", "restart");
+      await original.queueRestartContinuation("agent", "restart");
+      original.close();
+      recovered = new MessageQueueService(
+        new MessageQueueStore(root),
+        new QueueAttachmentStore(root),
+      );
+      const received: string[] = [];
+      await recovered.startDelivery({
+        prepare: async () => true,
+        load: async (item) => item.text,
+        start: (_agentId, item) =>
+          (async function* () {
+            received.push(item.id);
+            yield { type: "turn_started", provider: "codex", turnId: "resumed" };
+          })(),
+        failed: (error) => {
+          throw error;
+        },
+      });
+      expect(await recovered.releaseRestartContinuation("other", "ready")).toBe(true);
+      expect(received).toEqual([]);
+      expect(await recovered.releaseRestartContinuation("restart", outcome)).toBe(true);
+      await expect.poll(() => received).toEqual(["restart-restart-agent"]);
+      expect(await recovered.releaseRestartContinuation("restart", "ready")).toBe(true);
+      recovered.wake("agent");
+      expect(await recovered.read("agent")).toMatchObject({ items: [] });
+      expect(received).toHaveLength(1);
+    } finally {
+      original.close();
+      recovered?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it("keeps pause and manual stop authoritative through ready release and repeated capture", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-restart-stop-"));
+  const service = new MessageQueueService(
+    new MessageQueueStore(root),
+    new QueueAttachmentStore(root),
+  );
+  try {
+    for (const id of ["paused", "stopped"]) {
+      await service.captureRestartContinuation(id, "request");
+      await service.queueRestartContinuation(id, "request");
+    }
+    await service.pause("paused");
+    await service.abandonRestartContinuation("stopped");
+    const starts: string[] = [];
+    await service.startDelivery({
+      prepare: async () => true,
+      load: async (item) => item.text,
+      start: (id) =>
+        (async function* () {
+          starts.push(id);
+          yield { type: "turn_started", provider: "codex", turnId: "unexpected" };
+        })(),
+      failed: (error) => {
+        throw error;
+      },
+    });
+    expect(await service.releaseRestartContinuation("request", "ready")).toBe(true);
+    for (const id of ["paused", "stopped"]) {
+      await service.captureRestartContinuation(id, "request");
+      await service.queueRestartContinuation(id, "request");
+      service.wake(id);
+    }
+    expect((await service.read("paused")).paused).toBe(true);
+    expect((await service.read("stopped")).items).toEqual([]);
+    expect(starts).toEqual([]);
+  } finally {
+    service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("allows lifetime-owned cancellation but fences conflicting and stale restart causes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-restart-cause-"));
+  const service = new MessageQueueService(
+    new MessageQueueStore(root),
+    new QueueAttachmentStore(root),
+  );
+  try {
+    await service.captureRestartContinuation("agent", "first");
+    await expect(service.captureRestartContinuation("agent", "second")).rejects.toThrow(
+      "Another restart",
+    );
+    expect(await service.releaseRestartContinuation("first", "cancelled")).toBe(true);
+    await service.captureRestartContinuation("agent", "second");
+    expect(await service.releaseRestartContinuation("first", "ready")).toBe(true);
+    expect(await service.restartContinuationHeld("agent")).toBe(true);
+    expect(await service.releaseRestartContinuation("second", "ready")).toBe(true);
+    expect(await service.restartContinuationHeld("agent")).toBe(false);
+  } finally {
+    service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

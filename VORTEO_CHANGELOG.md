@@ -5,6 +5,1109 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Maintenance
+
+- Merge Dev's installed source so the Dev update is a fast-forward of what Dev runs; main already carries every Dev change
+
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Fixed
+
+- Port three fixes that shipped only to Dev (source `0a4ab444`, 2026-10-19 and 2026-10-20) to the Host source, so GitHub main carries everything Dev runs: schedule ticks no longer overlap or admit stale work, schedule tick admission waits are bounded, and Codex workers accept the read-only Factory qualifier workspace profile.
+
+## 0.11.0-beta.3.vorteo.755 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.754 - 2026-10-22
+
+### Fixed
+
+- Let the installation coordinator accept a release-note entry whose well-formed heading has no notes. Installed history contains two such entries, `vorteo.740` and one `vorteo.732`, so every Dev update from current source was refused with "Release-note heading requires review". Malformed headings and edited history are still refused. Takes effect once the coordinator runs this build.
+
+## 0.11.0-beta.3.vorteo.753 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.752 - 2026-10-22
+
+### Maintenance
+
+- Merge the Vorteo System project from GitHub main into the installed Host source (`vorteo.751`, durable sessions phase 2), so the Host update descends from both and GitHub main can fast-forward to it after installation. GitHub main and the installed source each used `vorteo.748` for a different commit; both historical entries are kept.
+
+## 0.11.0-beta.3.vorteo.748 - 2026-10-22
+
+### Added
+
+- Add the Vorteo System project. Every daemon creates one protected project at startup under `$PASEO_HOME/system` and keeps its standing upkeep workspaces there, starting with the Optimization Runner on the Host and single-daemon installs. Existing installations get it with their next update.
+- System items are enforced in the project and workspace registries: no client or tool can archive, remove, move, rename or unprotect them, or delete a thread in a system workspace. The project keeps its own key, so a Vorteo clone never merges it into another project group.
+- Adopt an existing workspace into a system role by exact ID from `$PASEO_HOME/system/system.json`. It keeps its ID, threads, journal, checklist and schedules.
+- Set up Vorteo source from Maintenance settings: the daemon clones the repository named in `system.json` into the System project and adds an ordinary Vorteo source workspace for your own changes. Requests cannot name another repository.
+- Show a Vorteo System section in the sidebar, lock its system workspaces' menus with a "Managed by Vorteo System" note, leave them out of the dock badge and favicon state, and add a Vorteo System card under Maintenance.
+
+### Fixed
+
+- Reconciliation no longer archives protected, system or Factory workspaces whose folders are missing, and one refused archive no longer fails the whole pass.
+
+### Maintenance
+
+- Test daemons start without the System project so fixture counts stay exact; server tests opt in with `systemProjectEnabled` and browser specs with `PASEO_SYSTEM_PROJECT=1`.
+- Known limitation: the Vorteo source clone does not follow later updates yet.
+
+## 0.11.0-beta.3.vorteo.751 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.750 - 2026-10-22
+
+### Fixed
+
+- The session host stops provider processes left by an earlier host only after it holds the host lock, so a second host started by mistake can no longer stop the live host's Codex app-servers. A recorded process is stopped only while its command line still names both the launched binary and the app-server, and its whole process group is signalled so the tools it started go with it.
+- A hosted Codex session that resumes on demand, as after a worker restart, carries its account descriptor to the host like a new one, so a derived Codex account no longer reopens on the default provider.
+- A command the hosted session reports as unhandled now shows an error instead of being swallowed, and a host between taking its lock and listening is given a moment before a session falls back to the worker.
+
+### Validation
+
+- Unit tests cover a second host refused by the lock leaving a recorded live provider untouched, the account descriptor on resume, group signalling and the marker rule. The session host suites and the eight end-to-end scenarios pass. Independent review of the phase 2 commits raised these findings.
+
+## 0.11.0-beta.3.vorteo.749 - 2026-10-22
+
+### Fixed
+
+- A session whose host was killed waits for launchd to bring the host back, up to a return window of fifteen seconds, before it would start in the worker. The continuation of a turn the dead host was running therefore opens on the restarted host and stays durable, instead of running a local provider because the host was not listening yet in the seconds after the kill. A host that was stopped cleanly removes its socket and is not waited for.
+- The session host entrypoint builds again now that it loads the Codex adapter: the installation settings reader no longer passes a browser-only cache option to Node's fetch, which the Node-typed entrypoint build rejected. Behaviour is unchanged; Node keeps no HTTP cache.
+
+### Validation
+
+- The isolated durable sessions end-to-end suite runs a Codex-shaped scripted provider as well as the Claude-shaped one. Two new scenarios prove a goal set before a worker kill still reads through the replacement worker once the hosted turn completes, and that `/compact` and `/goal` run out of band in the host for a worker started after a supervisor restart without starting a turn. Failing scenarios now print the installation's daemon, host, audit and launchd logs and can keep the installation's files for inspection. The scripted provider's goal states now carry every field of the wire schema, which the first Codex scenarios exposed. All eight scenarios pass.
+
+## 0.11.0-beta.3.vorteo.748 - 2026-10-22
+
+### Features
+
+- Durable sessions phase 2: Codex sessions run in the session host when durable sessions are enabled, for builtin and account providers. The worker sends the account descriptor in the open request so the host builds the same client, Codex goal state and the `/goal` and `/compact` commands cross to the host, and the hosted session reports its own capabilities. Claude hosting is unchanged.
+- The session host records each detached Codex app-server process it spawns and, at its next start, stops any recorded process that still runs the app-server, so a host killed by its watchdog or a crash never leaves a second writer beside a continued agent.
+
+### Validation
+
+- New unit tests cover the child registry, Codex goals and commands through the host, per-session capabilities and the account descriptor reaching the host, and a recorded orphan stopped at host start. The existing session host suites pass unchanged on the installed source. Codex end-to-end and live acceptance follow in later commits.
+
+## 0.11.0-beta.3.vorteo.747 - 2026-10-22
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.746 - 2026-10-22
+
+### Fixed
+
+- Treat Claude Code's hidden internal commands, whose names start with `__` (such as `__remote-workflow` since 2.1.285), as commands instead of skills. Restricted skill policies count every listed skill as a native default that needs an inspectable package, so this command made restricted Claude launches fail. Other built-in commands and bundled skills without packages still block restricted launches until a follow-up fix.
+
+### Documentation
+
+- Correct the release that first keeps the daemon running on invalid `headlessHost` settings: Host releases before `vorteo.736` refuse to start on them, not before `vorteo.731`.
+
+## 0.11.0-beta.3.vorteo.745 - 2026-10-22
+
+### Maintenance
+
+- Merge the published Host release with the left-sidebar Open questions and Quota cards into GitHub main, so main contains the live interface source and later Host updates from main keep its history.
+
+## 0.11.0-beta.3.vorteo.744 - 2026-10-22
+
+### Changed
+
+- Let the Host delivery script fast-forward to a newer installed release that already contains the delivery branch, and resolve manifest conflicts that differ only in Vorteo version strings, which every commit produces. Other dependency conflicts still stop for review.
+
+### Fixed
+
+- Show `origin/main` in full in the delivery script's progress message instead of cutting it to nine characters
+
+## 0.11.0-beta.3.vorteo.743 - 2026-10-22
+
+### Maintenance
+
+- Merge two newer GitHub main commits into the Host delivery branch so it fast-forwards main.
+
+## 0.11.0-beta.3.vorteo.742 - 2026-10-22
+
+### Maintenance
+
+- Merge GitHub main into the installed Host source with the new Host delivery script, so GitHub carries every installed change and the Host can take main's newer commits. Version-only manifest conflicts kept the installed side; the browser settings guide took main's added note about older daemons.
+
+## 0.11.0-beta.3.vorteo.742 - 2026-10-22
+
+### Added
+
+- Show an Open questions card in the left sidebar with every waiting question from every thread in every project, on all connected hosts. Each question names its thread and project, and its host when questions come from more than one. Threads blocking the most tasks come first, then the longest waiting. Answer in place, or choose Open to go to the thread. The right-hand card still shows only the current tab's questions.
+- Show a Quota card in the left sidebar listing each account's remaining usage and reset time, with failing accounts and accounts below 15% first. Choosing an account opens Usage.
+- Both cards hide while they have nothing to show, remember whether they are collapsed and keep their bodies to a capped height so the workspace list keeps its room. On windows shorter than 720px, only one card is open at a time.
+
+### Validation
+
+- Model tests cover cross-thread collection, ordering, host labels and quota ordering. Browser tests answer questions from two projects through the sidebar at phone and desktop widths, confirm answers reach the asking thread, collapse state survives a reload and short screens open one card at a time; the existing inline open-questions tests pass at all three widths. Typecheck and lint pass.
+
+## 0.11.0-beta.3.vorteo.741 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.740 - 2026-10-21
+
+## 0.11.0-beta.3.vorteo.737 - 2026-10-22
+
+### Changed
+
+- Show installation health as one summary line with its badge and check time. Service readiness, activation steps and the recovery page move behind Health details; services that need attention stay visible.
+- Offer Refresh buttons in Installation only after an error. Health, recovery page and maintenance request status already refresh every few seconds.
+- Hide Maintenance requests when there are none.
+- Shorten the recovery page explanation, fold Request readiness behind a toggle and move the automatic-authorization note into each permission's tooltip.
+
+### Validation
+
+- Installation component tests cover the folded health details, error-only refresh buttons and the hidden empty request queue; the packaged installation check opens Request readiness before reading it.
+
+## 0.11.0-beta.3.vorteo.736 - 2026-10-22
+
+### Fixed
+
+- Report a conflicted source batch to agents instead of asking them to reload Vorteo. The coordinator's fallback status for clients without batch support now shows its own detail, such as "Contributions need correction before this batch can be approved", while a batch is preparing or conflicted; the reload prompt stays for ready batches an old owner tab cannot review
+- `installation-agent restart-status` requests batch details, and it and `request-restart` print each conflicting contribution, the file it conflicts in and the `--replaces` command that corrects it. A conflicted batch can never be approved, automatically or by the owner, until it is corrected
+
+### Maintenance
+
+- The installation maintenance skill explains conflicted batches and how to replace a contribution. These changes take effect after a coordinator renewal and a refreshed agent tool; a Host update alone does not install them
+
+## 0.11.0-beta.3.vorteo.735 - 2026-10-21
+
+### Added
+
+- Let headless browser allowed hosts name a port range, such as `<preview-host>.ts.net:32768-32799`, so agents can screenshot any managed preview on that name without opening the host's other services or restarting for each new preview
+
+### Fixed
+
+- Keep the daemon starting when `daemon.browserTools.headlessHost` contains an unknown key or a wrongly typed value. The headless browser validates its settings itself and stays off with a logged error, so a misspelled denial can never start an unrestricted browser
+
+### Documentation
+
+- Describe running the headless browser in the Dev container, inside the container's network, with the safety settings it needs and a rootless Chromium library setup for older containers
+- Update the README, agent skills and browser trust plan for Host and Dev browser access, and note that older daemons still stop on an invalid `headlessHost` entry
+- Add a deferred roadmap plan for signed-in browser profiles granted to specific Host workspaces
+
+## 0.11.0-beta.3.vorteo.734 - 2026-10-22
+
+### Added
+
+- Add task delivery scripts adapted from Freed's agent lifecycle: `task-worktree.mjs` creates an isolated worktree from freshly fetched `origin/main`; `publish-main.mjs` refuses dirty trees, moved bases and a missing Gitleaks, then proves the remote holds the pushed commit; `archive-readiness.mjs` confirms work is committed and on `main`, counting cherry-picked and squashed commits, and optionally installed
+- Add `worktree-cleanup.mjs`, a dry-run-first cleanup that removes only idle worktrees whose work is on `main` and keeps dirty, unpublished, locked, recently used and other-environment worktrees
+- Add `prepare-host-delivery.mjs`, which builds Host updates from the installed source, pending published interface records and `main`, keeping both sides of release-note conflicts
+- Cap the always-loaded agent instructions at 32 KiB, and the app guide at 8 KiB, with a CI check that also verifies their links
+
+### Documentation
+
+- Document the delivery scripts in a task delivery guide and point the agent guide at them
+- Ask agents to read current rules from `origin/main`, work in task worktrees, offer to archive once the readiness check passes, publish installed source to `main` the same day, record debt in one deduplicated issue, give journal decisions statuses, and treat missing evidence as inconclusive
+
+### Known limitations
+
+- The daemon's archive tool does not yet run the readiness check itself; agents run the script before archiving
+
+## 0.11.0-beta.3.vorteo.733 - 2026-10-21
+
+### Fixed
+
+- Stop listing every past coordinator recovery in full under Maintenance. Recoveries whose executor cleanup was verified, that stopped before effects or that were canceled now leave the review; only recoveries that still need you stay there.
+
+### Changed
+
+- Combine restart, coordinator update and coordinator recovery history into one collapsed History in Installation. Finished recoveries show one line with their outcome and time, with the full plan behind Exact recovery details.
+- Show Refresh recovery status only after a status error; recovery status already refreshes every few seconds.
+- Rename Shared workflows to Profile sharing in Installation.
+
+### Validation
+
+- Installation review component tests cover finished recoveries staying out of the review, canceled recoveries moving to history and coordinator history rendering outside the review.
+
+## 0.11.0-beta.3.vorteo.732 - 2026-10-22
+
+## 0.11.0-beta.3.vorteo.739 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.738 - 2026-10-21
+
+### Fixed
+
+- Draw the Context window donut on web. Its track and segments were themed SVG circles, which render nothing there; the donut is now one themed graphic with plain colours, like the usage ring
+- Show one loading pulse in the Context window details instead of separate "Loading the breakdown", "Loading usage..." and "Loading plan usage..." lines. The breakdown, account usage and plan usage now appear together once all three have loaded, in the card, the meter popover and the compact sheet
+
+## 0.11.0-beta.3.vorteo.737 - 2026-10-21
+
+### Fixed
+
+- Keep History, Schedules and Settings in the left sidebar toolbar until they would actually overlap. The toolbar hid them at fixed widths, so a 330px sidebar moved Settings into the actions menu with room to spare. It now measures its own width and moves a button into the menu only when it no longer fits.
+
+## 0.11.0-beta.3.vorteo.736 - 2026-10-21
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.735 - 2026-10-21
+
+### Fixed
+
+- Keep the daemon starting when `daemon.browserTools.headlessHost` contains an unknown key or a wrongly typed value, such as a typo or a setting from another release. The headless browser validates its settings itself and stays off with a logged error, so a misspelled denial can never start an unrestricted browser
+
+## 0.11.0-beta.3.vorteo.734 - 2026-10-21
+
+### Added
+
+- Let headless browser allowed hosts name a port range, such as `<preview-host>.ts.net:32768-32799`, so agents can screenshot any managed preview on that name without opening the host's other services or restarting for each new preview
+
+### Documentation
+
+- Describe running the headless browser in the Dev container, inside the container's network, with the safety settings it needs and a rootless library setup for older containers
+- Teach agents how browser tools work, what `browser_no_host` and `browser_denied` mean, and how to check a local preview without bypassing the browser policy; update the README browser entry for Host and Dev
+
+## 0.11.0-beta.3.vorteo.733 - 2026-10-21
+
+### Fixes
+
+- Coordinator maintenance no longer treats an unrelated process that later reused the previous updater's PID as that updater still running. Renewal and recovery now prove the updater exited with the reviewed retained-process check: native absence, or a stable later birth at the same PID under the same boot and user. A reused PID no longer blocks coordinator renewal or recovery.
+
+## 0.11.0-beta.3.vorteo.732 - 2026-10-21
+
+### Changed
+
+- Make right-hand card rows as dense as the sidebar. Subagent, task and queue rows are 32px tall on desktop and 44px on touch, 2px apart, with smaller row buttons. Shared row metrics keep both columns aligned.
+- Tighten the gap between each card row's first icon and its text to match the gap between a sidebar status circle and its workspace name. Row text now lines up with the card's heading title.
+- Show only the status icon, title and actions in Subagents and System sub-agents rows. Profile, model, effort, status, token use, context and cost appear in the row's tooltip. On phones, the first tap on a row shows the tooltip and the second opens the thread.
+- Reorder tasks by dragging anywhere on the row. The drag handle is gone, and the check mark sits beside the task text. Touch drags start after a short hold so the card still scrolls.
+
+## 0.11.0-beta.3.vorteo.731 - 2026-10-21
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+### Fixed
+
+- Keep History, Schedules and Settings in the left sidebar toolbar until they would actually overlap. The toolbar hid them at fixed widths, so a 330px sidebar moved Settings into the actions menu with room to spare. It now measures its own width and moves a button into the menu only when it no longer fits.
+
+### Maintenance
+
+- Port both changes from the installed Host source, where they shipped as vorteo.732 and vorteo.737.
+
+## 0.11.0-beta.3.vorteo.731 - 2026-10-22
+
+### Documentation
+
+- Add four task authorization levels for agents, adapted from Freed: 1 Inspect, 2 Build and preview, 3 Ship to main, 4 Ship and install. Clear requests such as "preview", "push" and "ship it" map to a level without asking; otherwise agents ask once through Open questions and keep doing Level 1 and 2 work while waiting
+- Keep restart approval, publication hygiene and external-post rules independent of levels, limit each level to its task, and carry the level into handoffs and subagents without raising it
+- Map existing delivery phrases and the interface publication rule to their levels in the agent guide
+
+## 0.11.0-beta.3.vorteo.730 - 2026-10-21
+
+### Added
+
+- Add a Context window card to the right-hand details cards, beside Questions, Checklist and Journal. It shows whenever an agent has reported usage, starts collapsed and remembers its expanded state like the other cards. Its body is the same component the context meter's popover and compact sheet render, so the three always match
+- Show what fills the context window: a donut, then each category's tokens and share of the window, with deferred tool schemas listed outside the window. Claude agents report categories such as messages, system tools, MCP tools, skills and the compaction buffer, plus expandable lists of MCP tools, memory files, skills and custom agents. Other providers report totals only and show used and free space with a note saying so
+- Add the `agent.context.get_breakdown` request, gated by the `agentContextBreakdown` daemon feature. Older clients never send it and older daemons leave the totals-only view in place
+- One loading pulse stands in for the breakdown, account usage and plan usage until all three have loaded, so the details appear together
+- Limitation: reading Claude's breakdown costs a request, which is why upstream stopped reading it after every turn. The app reads it only while the card is expanded or the popover is open, then once after each finished turn while it stays visible
+- Limitation: the breakdown needs a running Claude query. An agent restored without one shows totals until its next turn
+- Limitation: Claude marks deferred rows but not free space or the compaction buffer, so those two are recognized by the names the CLI gives them
+- Limitation: item groups expand in the card and the compact sheet. The desktop hover popover lists them without expansion, because it cannot be pressed
+
+## 0.11.0-beta.3.vorteo.729 - 2026-10-21
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+### Maintenance
+
+- Bring the Context window card from the installed Host lineage (vorteo.730 and the vorteo.737 donut and loading fix there) to main as one commit
+
+## 0.11.0-beta.3.vorteo.729 - 2026-10-21
+
+### Fixed
+
+- Reject writable guest mount overlap with the Linux Host user-bus runtime directory, including ancestor and descendant mounts. Same-UID guests cannot be excluded by directory permissions alone.
+- Recheck running process state after all identity reads, refusing a stopped, traced or exited process instead of returning a running observation.
+
+### Maintenance
+
+- Adapt newly added macOS maintenance and session-host consumers to the tagged Host configuration through the launchd-only accessor; systemd operations still refuse explicitly.
+- Integrate the Linux Host foundation with current main and preserve both release histories. The adapters remain inert; Linux Host provisioning and recovery are still pending.
+- Add deterministic process-state and real-filesystem mount-isolation regression tests. Run configuration and adapter contracts in the existing macOS CI job as well as the server jobs on Linux and Windows.
+- Document standard build, package and local-update delivery, including the distinction between installing the foundation and enabling Linux Host support.
+
+### Merged from the Linux Host foundation (0.11.0-beta.3.vorteo.556 on the contributor branch, 2026-10-18)
+
+#### Added
+
+- Add inert Linux Host source adapters: a `systemd --user` service reader that pins the account's user manager through the system manager, a procfs process inspector matching the macOS observation format, and a service ownership check bound to the manager's main PID, parent and cgroup. Nothing selects them yet, so installed Hosts are unchanged.
+- Accept a tagged `systemdService` Host descriptor in installation configuration beside `launchdService`. A macOS Host still requires launchd, and Host restarts still support only launchd.
+
+#### Maintenance
+
+- Add the [Linux Host plan](docs/plans/execution-environments/linux-host.md) with its trust anchors, prerequisites, blockers and remaining work. The watchdog's audit-token signal binding has no Linux equivalent yet, so recovery chains cannot be ported until a pidfd design exists.
+- Cover the adapters with captured `busctl` fixtures, live procfs tests and a local systemd end-to-end test. Darwin-only installation tests were not run on macOS for this change.
+
+## 0.11.0-beta.3.vorteo.728 - 2026-10-21
+
+### Maintenance
+
+- Record the published interface update for the focused-tab card fix in installation history. Main already carries the fix, so the code is unchanged; both release notes are kept.
+
+## 0.11.0-beta.3.vorteo.727 - 2026-10-21
+
+### Maintenance
+
+- Merge GitHub main into the installed Host source so the Host receives main's newer commits, including the focused-tab card column fix. Where both lines changed Settings, keep main's version, which already integrated the installed redesign and moved the connection check into Environments, Connections. The resulting code matches GitHub main.
+
+## 0.11.0-beta.3.vorteo.726 - 2026-10-21
+
+### Maintenance
+
+- Merge a second GitHub main commit that landed during the first merge. Its fix keeps each conversation's cards in the right-hand column only while that tab is focused.
+- The installed line had already moved the queue out of the task cards, so the queue portal edit from main does not apply there; conversation cards still go through the focused-tab portal.
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.563 there, 2026-10-21)
+
+#### Fixed
+
+- Show only the current tab's cards in the right-hand column. Switching between conversation tabs could leave the previous tab's Open questions, Tasks, Journal, Subagents and queue cards stacked above the current tab's. The column now checks which tab is focused when it draws each conversation's cards.
+
+#### Maintenance
+
+- Give explicit types to agent and worktree list callbacks in the CLI archive, detach, reload, stop and worktree list commands. The type checker dropped their inferred types once the protocol grew, which failed `npm run typecheck` on main. Runtime behavior is unchanged.
+
+#### Validation
+
+- New tests plant a leftover card entry from another tab and confirm it stays hidden, including after focus moves; both fail without the fix. Supporting card group tests pass. Typecheck and lint pass. The supporting view cards suite fails identically on main.
+
+## 0.11.0-beta.3.vorteo.725 - 2026-10-21
+
+### Maintenance
+
+- Merge GitHub main into the installed Host source (release 724) so main carries every installed change. The two lines had numbered versions independently, so main's six commits keep their own labels below and the installed history keeps its labels unchanged.
+- Main's headless browser and Add project commits were already installed through earlier integrations; the merge brings no new code for them. The Settings redesign is new to this line and is not yet installed on Host.
+- Keep the installation connection check in the redesigned Settings by showing it at the top of Environments, Connections, with a searchable "Connection check" entry. It previously sat in the General page, which the redesign replaced.
+- Keep both the paseo skill's preview-sharing guidance and main's browser tools section.
+- Add Settings search entries for the installed Agent instruction changes and Session host rows, which main's new catalog did not yet know about, and exclude the instruction review's sub-headings from the row scanner.
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.562 there, 2026-10-20)
+
+#### Changed
+
+- Show Settings as one continuous page of eleven sections instead of 24 separate pages: General, Accounts & profiles, Agent behavior, Chat & editor, Terminal, Appearance, Workspaces & projects, Environments, Plugins & integrations, Maintenance and About. The sidebar follows the section in view, and choosing a section scrolls to it.
+- Move Language to Appearance, version details to About, and installation controls, Vorteo and Paseo update tools and Diagnostics to Maintenance. Restart approval links and the sidebar version footer open Maintenance.
+- Lead General with a Needs attention list when something needs action: restart requests waiting for approval, an available Vorteo update and enabled accounts in an error state. New workspace defaults leave out accounts that are not installed.
+- List every provider's profiles together under Accounts & profiles, with an All filter first. Older migrated copies fold under the current profile with the same name and show how they differ; they are kept because older launches and workers still use them.
+- Show each shared account's quota beside its status, and open the profile editor as a staged full-height panel at the right edge on desktop.
+- Say Profile instead of preset, workflow or configuration in profile settings.
+- Keep environment tabs inside the Environments section, sticking to the top while that environment's details scroll on web.
+
+#### Added
+
+- Search every setting from the Settings sidebar, or above the list on phones, and press `/` on web to focus it. Results forgive typos, show their section and where the value is stored, filter the page to matching sections and tint matching rows on web. Arrow keys move through results; Enter jumps to the row and flashes it.
+- Open a specific setting with `/settings/<section>?setting=<id>`. Previous `/settings/<page>` addresses open the section that absorbed them.
+
+#### Fixed
+
+- Keep provider row controls beside the details button instead of inside it, which was invalid HTML and could trap keyboard focus.
+- Stop the Vorteo updates card from showing "Checking GitHub..." twice.
+- Open Settings from the sidebar overflow menu in the shared browser test helper.
+
+#### Validation
+
+- Catalog tests fail when a settings row label has no search entry; search, duplicate grouping and profile unit tests pass. Settings navigation, profile, updates and provider browser checks pass for the changed behavior. Provider management at both widths, provider removal, the old Claude CLI warning, the legacy favourites migration and two composer profile-picker checks fail identically on main.
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.561 there, 2026-10-20)
+
+#### Changed
+
+- Rebuild Add project around one folder browser. Open a folder, New project folder and the GitHub clone destination share it on hosts that can list folders, replacing the separate directory search page, the Browse host folders toggle and the choose-parent-then-name pages
+- Create a project folder by browsing into its parent and typing a name, so the parent always exists and the late "Parent directory not found" error no longer appears
+- List shared host folders by their host path and container storage by name, so the container user's home never appears as `~` or `/home/paseo`; `~` in typed paths means the host home
+- Navigate with Right Arrow to open a folder and Backspace in an empty field to go up; a pasted path opens directly, and top-level text still searches folders by name
+- Show creation errors in terms of the browsed folder instead of container paths
+
+#### Fixed
+
+- Open the sidebar overflow menu before choosing Add project in browser test helpers
+
+#### Documentation
+
+- Describe the folder browser in the Docker guide and customizations inventory, and add roadmap items for renaming the container user to `vorteo` and for whole-filesystem browsing on native hosts
+
+#### Known limitations
+
+- Native hosts browse only inside the home folder; other locations must be typed
+- Browser tests that add a second host or use the global new workspace action still target moved sidebar controls and fail independently of this change
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.560 there, 2026-10-20)
+
+#### Documentation
+
+- State in the README that the Host agents' browser cannot reach this machine, private networks or the tailnet unless a specific address is allowed
+- Teach agents how browser tools work, what `browser_no_host` and `browser_denied` mean, and how to check a local preview without bypassing the browser policy
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.559 there, 2026-10-19)
+
+#### Fixed
+
+- Refuse NAT64 forms of private IPv4 addresses and all 6to4 and Teredo addresses in the headless browser, since they can embed private destinations
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.558 there, 2026-10-19)
+
+#### Fixed
+
+- Refuse loopback, private, link-local, CGNAT/tailnet and local destinations in the headless browser by default, including after DNS resolution and redirects, with `allowedHosts` and `--allow-host` for explicit exceptions such as a local preview
+- Validate every message between the daemon and the browser host process, so a malformed or hostile message is dropped instead of crashing the daemon
+- Start the browser host process with a minimal environment, keeping SSH agent sockets and tokens out of it
+
+#### Documentation
+
+- Note that Chromium comes from the Playwright cache, outside release custody
+
+### Merged from GitHub main (0.11.0-beta.3.vorteo.557 there, 2026-10-19)
+
+#### Changed
+
+- Run the Host daemon's headless Chromium in a separate supervised process that starts on the first browser request, restarts after a crash with backoff and stops with the daemon. `paseo browser host` uses the same process, so neither the daemon nor the CLI loads Playwright.
+
+#### Validation
+
+- A source trace test confirms the daemon worker and CLI entries never reach Playwright, with a positive control on the browser host entry.
+
+### Fixed
+
+- Show only the current tab's cards in the right-hand column. Switching between conversation tabs could leave the previous tab's Open questions, Tasks, Journal and Subagents cards stacked above the current tab's. The column now checks which tab is focused when it draws each conversation's cards.
+
+### Maintenance
+
+- Give explicit types to agent and worktree list callbacks in the CLI archive, detach, reload, stop and worktree list commands. The type checker dropped their inferred types once the protocol grew, which failed `npm run typecheck` on main. Runtime behavior is unchanged.
+
+### Validation
+
+- New tests plant a leftover card entry from another tab and confirm it stays hidden, including after focus moves; both fail without the fix. Supporting card group tests pass. Typecheck and lint pass. The supporting view cards suite fails identically on main.
+
+## 0.11.0-beta.3.vorteo.726 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.725 - 2026-10-20
+
+### Changed
+
+- Show Settings as one continuous page of eleven sections instead of 24 separate pages: General, Accounts & profiles, Agent behavior, Chat & editor, Terminal, Appearance, Workspaces & projects, Environments, Plugins & integrations, Maintenance and About. The sidebar follows the section in view, and choosing a section scrolls to it.
+- Move Language to Appearance, version details to About, and installation controls, Vorteo and Paseo update tools and Diagnostics to Maintenance. Restart approval links and the sidebar version footer open Maintenance.
+- Lead General with a Needs attention list when something needs action: restart requests waiting for approval, an available Vorteo update and enabled accounts in an error state. New workspace defaults leave out accounts that are not installed.
+- List every provider's profiles together under Accounts & profiles, with an All filter first. Older migrated copies fold under the current profile with the same name and show how they differ; they are kept because older launches and workers still use them.
+- Show each shared account's quota beside its status, and open the profile editor as a staged full-height panel at the right edge on desktop.
+- Say Profile instead of preset, workflow or configuration in profile settings.
+- Keep environment tabs inside the Environments section, sticking to the top while that environment's details scroll on web.
+
+### Added
+
+- Search every setting from the Settings sidebar, or above the list on phones, and press `/` on web to focus it. Results forgive typos, show their section and where the value is stored, filter the page to matching sections and tint matching rows on web. Arrow keys move through results; Enter jumps to the row and flashes it.
+- Open a specific setting with `/settings/<section>?setting=<id>`. Previous `/settings/<page>` addresses open the section that absorbed them.
+
+### Fixed
+
+- Keep provider row controls beside the details button instead of inside it, which was invalid HTML and could trap keyboard focus.
+- Stop the Vorteo updates card from showing "Checking GitHub..." twice.
+- Open Settings from the sidebar overflow menu in the shared browser test helper.
+- Keep the installation connection check at the top of General, above Needs attention.
+
+### Validation
+
+- Catalog tests fail when a settings row label has no search entry; search, duplicate grouping and profile unit tests pass. Settings navigation, profile, updates and provider browser checks pass for the changed behavior. Provider management at both widths, provider removal, the old Claude CLI warning, the legacy favourites migration and two composer profile-picker checks fail identically on main.
+
+## 0.11.0-beta.3.vorteo.724 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.723 - 2026-10-20
+
+### Maintenance
+
+- Merge the installed Host source (the Add project folder browser) into the pending batch. Both release note histories are kept; the customizations review keeps all three October 20 entries.
+
+## 0.11.0-beta.3.vorteo.722 - 2026-10-20
+
+### Maintenance
+
+- Combine the reviewed agent instruction change requests and ACP session instructions with the preview link guidance and the card column fix for one Host update. Feature behavior is unchanged by the merge.
+
+## 0.11.0-beta.3.vorteo.721 - 2026-10-20
+
+### Fixes
+
+- Instruction change requests refuse text with characters that render as nothing (zero-width, bidirectional and Unicode tag characters, private-use and control characters other than newline, carriage return and tab) and the reserved session instruction tag, so a reviewed diff always shows everything an approval applies. Long prompts align only the changed middle, so local edits stay readable.
+
+## 0.11.0-beta.3.vorteo.720 - 2026-10-20
+
+### Fixes
+
+- Instruction change requests show "From Dev (untrusted)" or "From Host" from the submitting credential, limit agent-chosen requester names to one line, and lead with the added and removed lines. Each environment has its own pending limit, and proposals the settings would refuse are rejected at submission.
+- An unreadable or newer instruction request store is set aside instead of stopping the coordinator, and Installation controls stays usable when the request list cannot be read.
+- ACP agents keep their session instructions after a failed first prompt, a first-turn slash command still runs as a command, and history replay hides the instruction block even when a provider trims it.
+
+## 0.11.0-beta.3.vorteo.719 - 2026-10-20
+
+### Fixes
+
+- ACP agents (Cursor, Copilot, Kimi, Kiro and generic ACP providers) now receive the agent's system prompt and the shared agent instructions. ACP has no system prompt channel, so a new session's first message carries them in a marked block that resumed history hides.
+
+## 0.11.0-beta.3.vorteo.718 - 2026-10-20
+
+### Features
+
+- Agents can propose changes to the shared agent instructions with `installation-agent.mjs read-instructions` and `request-instructions`. Installation controls shows the current and proposed text. Nothing changes until the owner presses Apply, which applies exactly the reviewed text and is refused if the instructions changed after the agent read them.
+
+### Fixes
+
+- Remove the empty space below the right-hand cards when collapsed tiles share a row. On web, each tile reported its row in its DOM parent's coordinates, and tiles inside layout-transparent groups used a different origin, so the card column counted an extra row and left up to about 58px unused instead of giving it to Tasks and Files.
+- The card column now measures every collapsed tile against the grid in one batched pass after any tile or column resize. Web layout events fire only when a node's own size changes, so a tile pushed down by a sibling used to keep a stale row. State changes only when tiles change lines or a line's height changes, so reallocation cannot loop.
+- Collapsed tiles whose tops differ by less than half a tile height still share a line, and a joined line reserves its full extent so a real offset is never clipped. Native tiles keep reporting their own layout position.
+
+## 0.11.0-beta.3.vorteo.717 - 2026-10-20
+
+### Fixes
+
+- Completing a checklist item is refused while any of its acceptance checks is undone, so a completed item never carries failed checks.
+- Sending an empty check list drops the progress those checks derived, and `progress: null` stops tracking progress.
+- Only plain folder workspaces move their local project along with a group; repository checkouts stay with their repository's project, like worktrees.
+- New workspace preselects the only project on a host instead of asking.
+- Checks with identical text get distinct keys in the task details sheet.
+
+### Maintenance
+
+- Demo data adds two simulated workers under the first thread so the subagent tiles appear.
+
+## 0.11.0-beta.3.vorteo.718 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.717 - 2026-10-20
+
+### Changed
+
+- Rebuild Add project around one folder browser. Open a folder, New project folder and the GitHub clone destination share it on hosts that can list folders, replacing the separate directory search page, the Browse host folders toggle and the choose-parent-then-name pages
+- Create a project folder by browsing into its parent and typing a name, so the parent always exists and the late "Parent directory not found" error no longer appears
+- List shared host folders by their host path and container storage by name, so the container user's home never appears as `~` or `/home/paseo`; `~` in typed paths means the host home
+- Navigate with Right Arrow to open a folder and Backspace in an empty field to go up; a pasted path opens directly, and top-level text still searches folders by name
+- Show creation errors in terms of the browsed folder instead of container paths
+
+### Fixed
+
+- Open the sidebar overflow menu before choosing Add project in browser test helpers
+
+### Documentation
+
+- Describe the folder browser in the Docker guide and customizations inventory, and add roadmap items for renaming the container user to `vorteo` and for whole-filesystem browsing on native hosts
+
+### Known limitations
+
+- Native hosts browse only inside the home folder; other locations must be typed
+- Browser tests that add a second host or use the global new workspace action still target moved sidebar controls and fail independently of this change
+
+## 0.11.0-beta.3.vorteo.716 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.715 - 2026-10-20
+
+### Fixed
+
+- Session host status queries count only a missing listener or a greeting that never arrives as silence. A host that answers in another protocol version, rejects the request or never sends its session list is alive, so removal never force-stops it, for example while the coordinator and the Host run releases with different session host protocols. The session list wait is now bounded, so a stalled host cannot hang status or the lifecycle queue.
+
+## 0.11.0-beta.3.vorteo.714 - 2026-10-20
+
+### Changed
+
+- The lifecycle queue registers the session host release guard itself whenever source updates select Host releases, on every platform, so no coordinator entry point can select a Host release unguarded.
+- An approved session host operation says it waits for pending restarts and other lifecycle work. A failed install names a watchdog kill during the install check, and the removal card says removal is refused while hosted sessions run.
+
+## 0.11.0-beta.3.vorteo.713 - 2026-10-20
+
+### Fixed
+
+- Session host removal never force-stops a host that refuses the coordinator's connection, as it does at its connection limit, because refusing proves the host is alive and may still serve workers. After five minutes of refusals the removal fails without changes.
+
+## 0.11.0-beta.3.vorteo.712 - 2026-10-20
+
+The installation coordinator owns the durable session host's launchd job as tracked, owner-approved lifecycle work. Installing the job never turns durable sessions on.
+
+### Added
+
+- Install, inspect and remove the session host's launchd job, `local.vorteo.<installation id>.session-host`, through the coordinator. It derives each plan from its own configuration: the current release's session host entrypoint through the current link, with only `HOME`, `PASEO_HOME` and `PATH`. Requests join the existing lifecycle journal, and only an owner decision naming the exact operation and plan digest approves one; restart decisions and the trusted Host approval policy never do. Dispatch recomputes the plan and changes nothing when it differs, and a coordinator restart never replays an approved or running operation.
+- Install writes the plist with mode 0600 and requires the new host to answer with launchd's pid within 60 seconds and without a watchdog kill, or removes the job again. An identical installed job counts as installed.
+- Removal is refused while the durable sessions setting is on or the host runs sessions. A host that stops answering is stopped only after the workers' five-minute alive window with the setting still off, and the receipt records the forced stop. A process that survives bootout is killed only after its command is verified as the session host.
+- Host routes for status and requests, owner routes to query, request and decide, the `sessionHostJob` capability for the Host client, and session host counts in the restart summary. Dev sees only whether the job exists.
+- Installation controls show the job's status and full plan with Install, Remove, Approve and Cancel, and a pending request raises the sidebar notice. The maintenance client adds `request-session-host --install|--remove` and `session-host-status` for the Host client, documented in the maintenance skill.
+
+### Changed
+
+- While the session host job is installed, source updates and supervisor maintenance refuse to select a Host release without the session host entrypoint, and `install-execution-host.mjs remove` refuses to run.
+- A worker declares a hosted session lost as soon as reattach fails while no live process holds the host lock, because its lock is gone or names an exited process. A lock that cannot be read still counts as alive.
+
+### Maintenance
+
+- Tests use fake launchd effects and an isolated home, plus one opt-in real launchd round trip with a test label (`DURABLE_SESSIONS_LAUNCHD_E2E=1`). Coordinators without session host support reject the lifecycle journal once a session host record exists, so keep a supporting coordinator as the rollback target. The job reaches an installation only through a coordinator update; live installation, real Claude acceptance and the rollback rehearsal remain.
+
+## 0.11.0-beta.3.vorteo.711 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.710 - 2026-10-20
+
+Host-owned refresh for full sign-in Claude accounts, off by default and independently reviewed with its fixes. Dev receives only short-lived access tokens; the Host account's own CLI keeps the only refresh grant.
+
+### Added
+
+- Prepare daemons for Host-owned Claude refresh. Shared Claude account definitions can carry a full sign-in type, and settings projection creates such bindings only on daemons that advertise `claudeFullSignIn`. The Host returns only a full sign-in account's exact configuration path to the coordinator, never a credential. Dev writes access-only token projections into the account's `.credentials.json` under the CLI's storage lock, keeps the CLI's other storage keys, applies generation and rotation order, and journals digests only.
+- Add Host-owned refresh for full sign-in Claude accounts in installations, off by default behind the coordinator setting `claudeHostRefresh`. Owner routes under `/api/installation/owner/claude/oauth` mark a definition full sign-in, sign the Host account in with `claude auth login --claudeai` in its exact configuration directory, and sign it out. The Host account's own CLI storage keeps the only grant.
+- While a non-excluded Dev environment can use the account and its token expires within four minutes, the coordinator makes one tiny official CLI request: print mode, Haiku, no tools, one turn and no session persistence. The CLI refreshes under its own locks. Dev receives only the access token, expiry, scopes and plan, numbered by generation and rotation. Coordinator state holds digests, expiry and identity only.
+- Dev usage for a projected account whose token expired says it is waiting for the Host instead of asking for sign-in.
+
+### Changed
+
+- Setup-token delivery and setup-token sign-in refuse full sign-in definitions.
+- Refresh only for a Dev that received the current token, and retry undelivered tokens after 30 seconds, doubling to five minutes. Reconcile accounts concurrently and limit the refresh request to 60 seconds.
+
+### Fixed
+
+- Refuse to mark a Claude definition full sign-in until every daemon advertises `claudeFullSignIn`. An older daemon would otherwise reject the whole settings authority, not just this account.
+- Stop relaunching the CLI every minute for a revoked or expired Host grant. Failed refreshes back off from one minute to five. After three failures an expired grant counts as lost: Dev is withdrawn and the status asks for sign-in again until a newer Host token or a new sign-in appears.
+- Trust a Host or Dev credentials file only when it is a regular file of bounded size, owned by this user and not writable by others.
+
+### Known limitations
+
+- Nothing sends these requests until the coordinator side lands behind its setting. Projections are refused on macOS daemons. Lock and file names come from static analysis of Claude Code 2.1.284.
+- The app has no controls yet. A changed identity on reconnect is recorded, not blocked. Back up coordinator state and Dev projection journals together.
+- Unverified until the owner's live sign-in check: the macOS Keychain location of the Host grant, granted scopes, token lifetime and how quickly a running Dev CLI picks up a new token.
+
+### Validation
+
+- 7 new synthetic tests; 129 installation account, settings and provider-login tests pass.
+- 18 new synthetic tests: refresher 8, Host CLI 6, runtime 3 and usage 1. With two workers, 663 of 665 focused tests pass. The packaged CLI checksum failure is environment-only. One timing-sensitive agent test failed under a load average near 300 and passes alone.
+- A regression test covers each fix. 31 Host-refresh tests pass; the focused server typecheck, lint and format are clean.
+
+## 0.11.0-beta.3.vorteo.709 - 2026-10-20
+
+### Fixed
+
+- Older apps can edit checklist items that carry progress. They parse items without `progress` and `checks`, so the conflict check compares those fields only when the editor sent them; every other field keeps exact conflict detection.
+- Agent checklist guidance and the update tool now say that each update's `checks` replaces the whole list, so agents send every check instead of erasing the others.
+
+## 0.11.0-beta.3.vorteo.708 - 2026-10-20
+
+Checklist progress and project placement, independently reviewed, on top of durable sessions.
+
+### Added
+
+- Checklist items can carry acceptance checks and a 0 to 100 progress value. Passed checks decide progress; estimates round to 5 points and stay at or below 90 until the item is completed.
+- Task rows show a muted percentage for partly done work, marked as an estimate when no checks exist, and the details sheet shows a progress bar with each check.
+- Workspace progress adds partial credit per item across threads. Petals fill partway, and the tooltip and screen-reader text use the credit-based percentage with a blocked count.
+- Agent checklist instructions explain checks first, capped estimates and milestone updates.
+- Moving a workspace into a group also moves its local project when the group has exactly one on that host. Worktrees stay with their repository; older daemons keep the group-only move.
+
+### Fixed
+
+- A sidebar row's plus opens New workspace with that row selected, beside the active workspace when it belongs to the row.
+- New workspace keeps a remembered shared group instead of resolving it to another project that shares its local folder, and borrows that workspace's folder when the group has none of its own on this host.
+- New workspace falls back to your last manual project choice and otherwise asks, instead of selecting the first project in the list.
+- Cards below the conversation, including Messages, and turn footers follow a resized text column instead of the default content width.
+- Sidebar project rows no longer re-render when the active workspace changes, and project selection no longer re-renders repeatedly when no project is selected.
+
+### Maintenance
+
+- Integrate the checklist progress branch after durable sessions. Only version metadata and release notes conflicted; every installed release-note entry is kept byte-identical.
+
+## 0.11.0-beta.3.vorteo.707 - 2026-10-19
+
+Durable sessions phase 1, off by default. Claude sessions on the Host can run in a separate session host process that keeps their turns running while the Host worker restarts. Nothing changes until the session host job is installed and `$PASEO_HOME/durable-sessions.json` is enabled. Every milestone was independently reviewed.
+
+### Added
+
+- The durable sessions end-to-end test answers a permission asked before a worker kill after the replacement worker attaches: the request is shown once and the hosted turn finishes. It also proves that the replacement worker of a password-protected daemon accepts the session host's tool token at the agent endpoint and still rejects a wrong one.
+- An end-to-end test runs the real supervisor, daemon worker and launchd-managed session host in an isolated test installation, with its own home under /tmp, its own port and a test-only launchd label, and a scripted fake Claude in the host. A hosted turn survives a killed worker, a supervisor restart and a daemon upgrade from one release to another while the host keeps the old release, with every streamed chunk shown exactly once, no error and no continuation. When the host itself is killed, launchd restarts it and exactly one continuation finishes the work on a fresh session. Run it with `DURABLE_SESSIONS_E2E=1`.
+- A real-Claude variant of the killed-worker case on Claude Haiku runs only with `DURABLE_SESSIONS_REAL_CLAUDE=1`.
+- The session host runs as its own service process for a launchd job that depends on neither the daemon, its port nor its workers. It writes a fresh token only after it holds the host lock, keeps the tool server token in memory and logs to a size-capped private file. When a newer worker needs a newer protocol, the host exits once no session runs so launchd starts the installed release; an older worker never causes an exit.
+- A watchdog on its own thread kills the host when its main thread stops responding, or when the host fails its own hello probe for 30 seconds, as with a deleted socket, a replaced token or exhausted connection slots. A session therefore counts as lost only once its host is gone. launchd job helpers manage only test labels unless a caller explicitly allows an installed one.
+- Restarts no longer interrupt durably hosted Claude turns. The restart drain does not count, steer or interrupt attached hosted sessions and queues no continuation for them; worker shutdown detaches them instead of closing them, and the next worker takes them over mid-turn.
+- If the session host itself stops mid-turn, the worker cancels the turn, reopens the agent on a fresh session (hosted again when a host answers, otherwise in the worker) and queues a continuation message, as a restart would. Agents whose sessions vanished with a restarted host continue the same way when the next worker starts.
+- A worker that starts while hosted Claude sessions are still running a turn or waiting on a permission takes them over before it accepts clients. It rebuilds each timeline from the provider's saved history plus the events its predecessor had already applied, then applies the rest live, so no row appears twice and none goes missing. A turn still running is shown as running and finishes in the new worker; a permission asked before the restart is shown once and can be answered.
+- Idle hosted sessions are closed at startup and resume on demand like any other agent, which keeps the host from accumulating them. Sessions whose host restarted are reported as lost for the restart fallback.
+- Hosted providers call the agent tool endpoint with a token owned by the session host, which every worker accepts, so tool calls keep working after a worker restart even with a daemon password.
+- Run Claude agent sessions in the durable session host, behind a setting that is off by default. When `$PASEO_HOME/durable-sessions.json` contains `{"enabled": true}` and the host answers, new and resumed Claude sessions run in the host and the worker drives them through a proxy. The proxy mirrors what the agent manager reads synchronously (session id, persistence, pending permissions and features), applies each state change before the event that caused it, pages saved history, and forwards turns, steering, interrupts, permission answers, modes, model, thinking, features, commands and rewind. A dropped connection reattaches without failing the turn.
+- Command discovery, internal, non-persistent, history-only and quota-governed sessions stay in the worker, and so does every session when the host is unavailable. A session the host still runs is never started a second time.
+
+### Fixed
+
+- Test cleanup and the leftover check now find this run's processes by the run's temporary root in their command line or environment, read environments that span several lines, and never touch the shell or test runner that started the test.
+- The release scenario is named for what it proves: a host on one release label serving a worker on another with the same protocol. A real upgrade is left to installed acceptance.
+- A permission answer, steer or other call to a hosted session whose host is alive but silent now fails after the one-minute reattach window with a message that the call can be retried, instead of waiting up to five minutes. The session is not reloaded, so the turn keeps running in the host and the call succeeds once the host answers again.
+- The session host replaces its watchdog thread if the thread ends, backing off while replacements keep ending, so a host that later stalls is still killed and replaced rather than running unguarded.
+- A hosted session keeps reattaching past its one-minute window for up to five minutes while the session host process is still alive, instead of giving up its turn beside a host that may still run it. A host that is gone still ends the wait at once.
+- The session host watchdog now tolerates 90 seconds of failed hello probes before it kills the host, so heavy machine load alone cannot end every hosted turn at once. A main thread blocked for 30 seconds is still killed.
+- The session host launchd job waits 30 seconds after a stop request before launchd kills it, longer than the host's own 20-second shutdown deadline.
+- A hosted session that is reconnecting when a restart begins is treated as hosted: the restart neither counts, steers nor interrupts it, and shutdown releases it to the next worker without closing it.
+- Loading an agent whose host is alive but not answering waits up to the reattach window and then fails with a clear message, instead of starting a second provider on the same conversation. Startup no longer reports the sessions of such a host as lost.
+- With the setting off, startup also asks a running host when no applied record exists, so a session whose worker died before its first record is taken over. A lost session's record is removed once its agent moves to a fresh session, and a host lost during a restart drain queues the continuation without trying to reopen the agent.
+- An adopted session holds live events for as long as its history takes to read; the safety release starts only after reading finishes. Detaching tells the host, so its audit log records the handoff.
+- Stored agent records no longer keep the injected tool server or its run-scoped token for any provider.
+- The host applies a private file mask only while it creates its socket, so files that Claude and its tools create keep their usual permissions.
+- Takeover planning now runs before the scheduler or any other service can load agents. Loading an agent whose session the host still runs takes it over instead of failing, even after the setting is turned off, so two providers never run one conversation. A transient load failure releases the session for a later load; only a missing agent or unavailable provider closes it.
+- Held live events are released only after the agent manager has committed the rebuilt history, fixing a race that could show live rows before history rows.
+- A worker that was replaced no longer deletes its successor's applied record when it closes, and persisted handles of hosted sessions no longer carry the tool server's bearer token.
+- A hosted session whose connection drops keeps trying to reattach for up to a minute with backoff, skipping the connector's retry pause, instead of failing the turn after one attempt. Only a host that no longer runs the session ends the turn; a slow or saturated host does not.
+- A session fenced by a newer worker cancels its own view of the running turn, so nothing in the old worker waits on a turn it can no longer see. The provider is not touched.
+- Undeliverable or unreadable events and an overflowing pre-subscriber buffer produce one notice per attachment instead of one per event. An event type unknown to an older worker is skipped with that notice rather than failing the session.
+
+### Validation
+
+- All six scenarios pass in 217 seconds with no leftover jobs, directories or processes. The tool token scenario fails when the worker stops accepting the host's token.
+- Eighty-two focused session host tests pass with one opt-in skip. New tests cover a permission answer retried after a silent host returns and a hang killed by a replaced watchdog thread; both fail without their change.
+- The four scenarios pass in 167 seconds on this branch and leave no test jobs, directories or processes behind. The real-Claude variant has not run yet.
+- Focused session host, restart, listen reclaim and worker watchdog tests pass after the merge, except one restart queue test that already fails at the shared base.
+- Thirty-eight focused restart, launchd, watchdog and hosted session tests pass, with the opt-in launchd round trip skipped. New restart tests cover a session waiting past its window for a live host and one given up after the longer window; the first fails without the change.
+- 120 focused session host, authentication, tool configuration and projection tests pass, plus 340 in the agent manager, persistence and storage suites, and the opt-in launchd round trip passes with a test label and leaves nothing behind. New restart tests cover a session reconnecting during a restart, a session without its first record with the setting off, a host lost during a restart drain and a live but silent host.
+- Eight restart tests pass, covering a graceful restart through the drain and detach, a worker crash, takeover without startup planning, a running session after the setting is turned off, a host that dies mid-turn, a permission across the restart, idle sessions closed at startup and lost sessions. Together with the session host, manager, queue and registry suites, 443 tests pass.
+- Sixty-six focused tests pass, including a worker killed mid-turn whose replacement shows the identical timeline and finishes the turn, a permission answered after the restart, idle sessions closed at startup, sessions of a restarted host reported lost, history paging, the host token at the tool endpoint and private applied records.
+- Thirty-eight focused tests pass, adding a reconnect whose first attempts fail while the turn still completes, a fenced session settling its turn, and one notice for several undeliverable events.
+- Thirty-five focused tests pass: the session host protocol suite, hosted Claude sessions with a controllable fake provider (state mirroring, permissions, history paging, reconnects, host loss, eligibility, the setting) and a fake Claude agent driven end to end through the agent manager with the setting on and off.
+- Twenty-four focused session host tests pass repeatedly. They cover a worker lost mid-turn, stale-worker fencing including acknowledgements, bounded, host-wide and acknowledged replay fallback, rejected tokens and versions, frame limits before and after hello, oversized events, a worker that stops reading, connection and refusal caps, concurrent opens, stale locks and sockets from exited hosts, bounded shutdown, a per-session sequence gap, private files with token rotation across host restarts, and an audit log free of secrets.
+
+### Maintenance
+
+- Test children receive an explicit environment instead of inheriting the agent's, the live installation's ports are refused, and cleanup checks for leftover jobs, directories and processes, including orphaned stand-in Claude processes.
+- Merged the reviewed restart orphan fix into the durable sessions branch: workers kill themselves when their supervisor is gone, a starting worker reclaims its listen address from a frozen predecessor after re-verifying the holder before each signal, restart dispatch has a readiness deadline, and a real supervisor reproduces the frozen restart. The session host is unaffected, since it never listens on TCP, does not run a daemon worker script and is its own launchd job.
+- Worker shutdown names a "detach hosted sessions" step before "close agents", so a stalled shutdown reports where hosted sessions were released.
+- Documented that a killed host's lock is left behind on purpose, since its dead process id tells workers the host is gone, and that the job's entrypoint must resolve to the installed release at every start.
+- The audit and service logs share one rotating appender, and the scripts build includes the session host entrypoint.
+- Still missing: installation steps for the launchd job and an isolated end-to-end run of the real daemon, so the setting stays off.
+- Sessions gain optional runtime members for durable hosting, detaching and history commitment, forwarded by the provider registry. The session host protocol gains a release request. Restart readiness logs hosted sessions attached as n/n at startup.
+- Still missing: the session host's own service process and launchd job, so the setting stays off.
+- Each hosted agent's last applied event is written to a private file before the host is told it was applied. The host keeps acknowledged events for later rebuilds within its retention limits, and gains paged history reads for the attached worker and a session list for startup. The list leaves out snapshots that would not fit one frame.
+- Sessions attached at startup are adopted whichever way their agent loads, even if the setting was turned off since, so their turns can finish. Interrupts asked for while reconnecting are delivered on reattach instead of waiting out the reconnect window, reconnect backoff never keeps a stopping worker alive, and a close cut off mid-call is logged.
+- Still missing: worker shutdown closes hosted sessions instead of detaching them, the host has no launchd service, and restart readiness does not skip hosted sessions, so the setting stays off.
+- The setting lives outside config.json because config.json is parsed strictly: an unknown key would stop an older release from starting after a rollback.
+- The session host protocol carries the full session call contract with a result schema per method. Attach results include a provider state snapshot, and a worker can attach at the newest event. Provider errors keep their name and message when serialized, and a closed connection is forgotten before its sessions reattach.
+- Not yet useful to enable: workers do not reattach hosted sessions at startup, the host has no launchd service, and restart readiness does not skip hosted sessions.
+- Harden the durable session host prototype for phase 1. Frames are size-capped (4 KiB before hello, 32 MiB after) and validated in both directions, including typed call results. An unauthenticated connection must say hello within 5 seconds, connections are capped, and a peer that keeps sending refused calls or acknowledgements is dropped.
+- A worker that stops reading, such as one hung in shutdown, is dropped at a live-output limit twice the frame cap while its sessions keep running; replay is flow-controlled so a large catch-up is not dropped. Only the current attachment can acknowledge events, and reattaching below the acknowledged or retained range falls back to restart continuation instead of silently skipping events. Retention is bounded per session and across the host, oldest events first. Oversized or unserializable provider events become markers so sequence numbers stay contiguous. The client fails closed on malformed frames, detaches only the affected session after a sequence gap, and reports a missing host separately from a dropped connection.
+- The host directory must be a real directory owned by the user with mode 0700; the socket, token, lock and audit files are 0600. Each host start writes a fresh token, and workers refuse a token file other users could read. A lock file keeps two hosts from serving one socket; a lock or socket left by an exited host is replaced. An audit log records authentication, attach, fencing and disconnect outcomes without tokens, prompts or configuration. A failed close keeps the session hosted so it can be retried, and host shutdown bounds each provider close.
+- Not integrated: no daemon, supervisor, launchd or provider changes, and no setting enables the host yet.
+
+## 0.11.0-beta.3.vorteo.706 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.705 - 2026-10-19
+
+Restart-orphan fix for the 2026-10-19 Host outage, where a daemon worker froze during shutdown, outlived its supervisor and held the listen port for ten hours.
+
+### Fixed
+
+- Kill a daemon worker that outlives its supervisor or its shutdown deadline. A watchdog thread with its own event loop kills the worker 15 seconds after a shutdown request, or after the supervisor disappears, even when the main event loop is frozen, and logs the shutdown step it was waiting on. Every shutdown step, including the headless browser host, is named in the log.
+- Reclaim the listen address from a frozen predecessor. A starting worker identifies the holder; a previous daemon worker of this installation, run by the same user, gets SIGTERM and then SIGKILL, with its pid, uid, start time and arguments re-verified before each signal so a reused pid is never signalled. Any other holder is reported and retried with exponential backoff up to a minute.
+- Give each dispatched restart a 10-minute readiness deadline. After it the job fails without replay and releases any continuation hold, and a late outcome is logged but never applied. Readiness probes are bounded, and the coordinator logs each dispatch step.
+- Keep the supervisor alive until its worker force-kill timer fires, give the Host launchd job a 30-second `ExitTimeOut`, and make a terminal worker exit when its daemon worker is gone.
+
+### Validation
+
+- A real supervisor and worker pair reproduces the outage with a turn under a continuation hold whose teardown freezes the event loop. The old worker is killed at its deadline and a replacement binds the port; both tests fail without the fix.
+
+## 0.11.0-beta.3.vorteo.705 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.704 - 2026-10-19
+
+Combined release on top of the coordinator readiness fix: delegated request labels, Claude full sign-in accounts, a headless browser host for Host agents, and off-by-default release seals and coordinator bundle. Every included branch was independently reviewed.
+
+### Added
+
+- Give Host agents browser tools through a disposable headless Chromium, run by the Host daemon when `daemon.browserTools.headlessHost` is enabled or by `paseo browser host`. Each run uses an empty profile and blocks denied origins, including redirects, popups, fetches and WebSockets. The protected interface still refuses automation.
+- Add a full web sign-in Claude account type beside setup-token accounts. Sign-in runs the official `claude auth login --claudeai` in the account's own configuration directory, where the CLI stores and refreshes the grant. A non-secret binding marker records the type; existing bindings stay setup-token, and a retried creation cannot change it.
+- Show usage for full sign-in accounts from only that account's own credentials: the per-directory Keychain item the pinned CLI derives on macOS, then its `.credentials.json` fallback, or the file alone on Linux. Setup-token accounts stay unavailable.
+- Show Host-agent requests from owner-delegated requesters as "Being handled by <requester>" with their reason and a Cancel action in the sidebar and Installation controls, instead of an approval toast. Owner decisions remain available, and the locked summary no longer prompts for them.
+- Let an owner-delegated setting give automatically approved Host source updates the same full service restart as an owner approve, after the cancellation window and the finish-turns hold, with exact grant binding and no replay.
+- Optionally build a standalone coordinator bundle during release preparation, off unless `VORTEO_COORDINATOR_BUNDLE=enabled`. It runs right after the installation receipt is written. It traces the coordinator service and every runner module that custody reads or launches by runtime-built name, including the recovery access entrypoint. Only that closure, the receipt and the owner scripts are copied into `<release>/coordinator`, with a file manifest. A build of current source yields 847 entries and 30 MB, against 3.6 GB for the full release. Nothing consumes the bundle yet.
+- Refuse a bundle with missing inputs, unreviewed trace warnings or escaping links. Its verifier must load and digest the bundle under Node's permission model with reads confined to the bundle.
+- Add optional release seals, off unless both the coordinator and the Host run with `VORTEO_RELEASE_SEALS=enabled`, and macOS only. Preparation refuses tool caches directly under `node_modules` or at the release root, linked `node_modules` and descriptors open for writing. It then makes the release immutable, digests it in full and records its manifest and per-entry metadata beside it. The admission receipt binds the seal digests. Approval checks metadata instead of re-reading bytes; a change falls back to a full byte check and names the changed path. The v1 digest and wire format are unchanged.
+- Add `removeBootstrapRelease` for cleanup of sealed releases, and document manual cleanup with `chflags -R nouchg`.
+
+### Changed
+
+- Run the Host daemon's headless Chromium in a separate supervised process that starts on the first browser request, restarts after a crash with backoff and stops with the daemon. `paseo browser host` uses the same process, so neither the daemon nor the CLI loads Playwright and the Host startup module contract keeps its existing rules.
+- Share one browser automation engine between the desktop app and the headless host, and merge current main into the browser host work.
+
+### Fixed
+
+- Refuse NAT64 forms of private IPv4 addresses and all 6to4 and Teredo addresses in the headless browser, since they can embed private destinations
+- Refuse loopback, private, link-local, CGNAT/tailnet and local destinations in the headless browser by default, including after DNS resolution and redirects, with `allowedHosts` and `--allow-host` for explicit exceptions such as a local preview
+- Validate every message between the daemon and the browser host process, so a malformed or hostile message is dropped instead of crashing the daemon
+- Start the browser host process with a minimal environment, keeping SSH agent sockets and tokens out of it
+- Remove web tooltips directly on dismissal so interrupted animations cannot leave small floating boxes behind. Preserve hover, keyboard focus and native tooltip fades; add browser regression coverage with the real animation library.
+- Sign a full web sign-in Claude account out with its own CLI (`auth logout` in its configuration directory) before removal deletes the directory. On macOS its Keychain item otherwise outlives the directory. Sign-out failure does not block removal; the removal response carries a warning naming the item and the daemon logs it.
+- Report an expired full sign-in access token that still has a refresh grant as refreshing on the account's next turn, not as a lost sign-in. The CLI refreshes only when it runs, so usage reads no longer ask for sign-in while the grant is valid. Grants without a refresh token still defer to the usage endpoint.
+- Launch full sign-in accounts without inherited secure-storage, OAuth, gateway or cloud-provider overrides, so they cannot use another account's storage. Read the type marker only from bindings, never from the daemon's own environment.
+- Let release scan workers inherit the parent's execArgv unchanged unless main-input options had to be removed. Node rejects V8 and process-level options such as `--max-old-space-size` in an explicit worker execArgv, which broke scans in development daemons. A parent that combines such an option with `--input-type` remains unsupported.
+
+### Documentation
+
+- Note that Chromium comes from the Playwright cache, outside release custody
+
+### Validation
+
+- A source trace test confirms the daemon worker and CLI entries never reach Playwright, with a positive control on the browser host entry.
+- Synthetic tests with a fake CLI cover sign-out arguments and directory, failure without blocking deletion, setup-token accounts and stale reviews; 29 removal and account tests pass.
+- Synthetic tests cover expired, still-valid and refresh-less records; the quota suites pass.
+- With the marker set in the shell, 559 of 560 focused Claude, provider-login, quota and installation-account tests pass; the remaining packaged CLI payload check fails identically without this change.
+- The guarded file skips in a sandbox with no OpenRouter key and an empty Claude configuration; format and lint pass.
+- 17 new synthetic-credential tests pass. 537 of 538 focused Claude unit tests pass; the packaged CLI payload check fails identically on the base commit in this worktree. Workspace typecheck, lint and format pass.
+- Delegation, coordinator and Installation model tests cover handled, running, grace and overdue requests and the mid-preparation setting change.
+- Focused coordinator, delegation and Installation model tests pass, with a real-browser check of the delegated banner against the packaged coordinator and web interface.
+- Builder tests cover the exact closure with links, assets and owner scripts, agreement with the runner contract's runtime-named modules, a missing receipt, warning refusal, a verifier reading outside the bundle, output reuse and the disabled default. They need no built workspace package.
+- Seal tests cover digest equality with the sequential implementation, write refusal, sweep-only acceptance, the default-off setting, named content and cache changes, metadata-only fallback, forged and unbound seals, a mismatched manifest, open writers, policy refusals, resealing, unsealing, removal and the non-macOS refusal. A source-update test seals a prepared candidate and refuses later writes.
+- A parent started with `--max-old-space-size=64` digests successfully, and that test fails with an always-explicit execArgv. The `--input-type=module --eval` child tests still pass.
+
+### Known limitations
+
+- The app does not display the removal warning yet. Whether logout revokes the grant at Anthropic is unverified.
+- When real-provider runs are enabled, this test still uses the machine's default Claude login rather than OpenRouter.
+- Managed installations still refuse environment-local sign-in, and the app does not offer the type yet. Installation-wide use needs Host-owned refresh with short-lived Dev tokens. Live sign-in, granted scopes and usage acceptance are unverified.
+
+### Maintenance
+
+- Combine the installed coordinator readiness fix (installation-integration at e52d1bd2b) into the post-Factory integration; retain its release notes below with their original version labels. The customizations log keeps both sides' entries.
+- Combine the Host headless browser host (browser-host-on-installed) into the post-Factory integration; retain its release notes below with their original version labels. The customizations log keeps both sides' maintenance entries.
+- Combine Claude full sign-in v2 into the post-Factory integration; retain its release notes below with their original version labels.
+- Clear the managed-installation client marker in the server test setup. Agent shells on a managed Host inherit it, which made Claude setup-token, session, authentication and usage suites fail; suites that test managed behavior still stub it explicitly.
+- Skip the nested subagent ownership real-provider test unless an OpenRouter key is configured, using the same guard as the other Claude real e2e tests. Running the file directly or through `test:e2e:all` no longer spends this machine's default Claude login.
+- Combine delegated approvals v2 with release verification speedup, scan worker fixes, release seals and coordinator bundle stage 1; retain their release notes below. Delegated approval entries keep their original version labels.
+- Show delegated requests as handled only while they are automatically approved, running, or pending within a grace window (default 15 minutes, at most an hour). After that the owner gets the normal prompt and toast, noting that the delegate is taking longer than expected.
+- Use a full service restart for an automatic Host update only when its grant was issued under the current owner setting, so enabling it during preparation never upgrades an existing grant.
+- Document that delegated requester labels are display only and not authentication.
+
+## 0.11.0-beta.3.vorteo.699 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Fixes
+
+- Count any unreadable or malformed coordinator runner file, including deeply nested JSON, as no executor activity, so a diagnostic file can never stop the automatic watchdog.
+
+### Validation
+
+- The runner-file filter regression now includes a deeply nested JSON file.
+
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Fixes
+
+- Wait up to two minutes for launchd to start the startup recovery service after registration, checking once a second. Each check now confirms only the execution lock and the exact claimed request; full ownership verification, which rehashes the release tree for 8 to 17 seconds, still runs immediately before registration and after readiness. Previously the 15-second wait fitted only one or two checks, so a healthy request failed when launchd took 20 to 58 seconds to start the service.
+- Let the automatic watchdog treat advancing activity in the bound executor's own runner file as progress while the request stays claimed. Activity can postpone fencing for at most 15 minutes after the watchdog starts waiting; stage changes keep their existing 180-second reset. Unreadable, foreign or ambiguous runner files count as no activity.
+
+### Validation
+
+- Simulated-clock regressions cover a 58-second launchd start with full checks only before and after the wait, the two-minute bound, ownership loss during the wait, an executor whose activity advances for 300 seconds without a stage change, the 15-minute cap, the unchanged 180-second stage timeout and rejection of foreign runner files. The new cases fail on the previous source.
+
+## 0.11.0-beta.3.vorteo.696 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.695 - 2026-10-18
+
+### Fixes
+
+- Start release scan and reader workers without the parent's main-input options. Bounded verification children run as `--input-type=module --eval`, and workers inheriting `--input-type` failed at once, so the executor's retained-renewal check refused every coordinator dispatch in 0.3 s. `--eval`, `--print` and `--experimental-default-type` are dropped as well, in inline and separate forms.
+
+### Validation
+
+- Regression tests run a full digest with parallel readers inside `--input-type=module --eval` children, in both forms, using the retained-renewal launcher's flags, reduced environment and stdout handshake. They fail without the fix. The real retained-renewal child, run from this build against the live renewal file, now passes (exit 0 in 9.5 s, where v695 exited 1 in 0.35 s).
+
+## 0.11.0-beta.3.vorteo.695 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.694 - 2026-10-18
+
+Adds the Host renewal context refresh to the vorteo.693 integration. Its branch numbered its entries vorteo.692 and vorteo.693 independently; neither was installed, so they are kept here verbatim under this version.
+
+### Renewal context refresh (renewal branch vorteo.692)
+
+#### Fixes
+
+- Re-derive the Host's coordinator renewal context after a coordinator request completes, or when the selected configuration changes, instead of refusing later requests until the Host restarts. Derivation reuses the unchanged initialization with every custody and identity check. Concurrent operations wait for one derivation. An operation already running still refuses a context change that happens while it runs.
+
+#### Validation
+
+- Tests cover preparing and approving request B after request A completes without a Host restart, a refused mid-operation change followed by re-derivation, single-flight concurrency, an unavailable derivation retried by the next operation, status-read refresh, and which history changes trigger re-derivation.
+
+### Renewal refresh fixes (renewal branch vorteo.693)
+
+#### Fixes
+
+- After a failed renewal re-derivation, status reads retry only once coordinator history or the selected configuration changes again. Polling no longer chains full derivations right after a coordinator replacement, explicit operations still retry, and the failure reason stays visible.
+- Forward availability from the current ordinary review through claimed-recovery refresh, and release a replaced service's subscription.
+
+#### Validation
+
+- Tests cover repeated status reads after a failed derivation, retry after a later context change, and claimed-recovery subscription forwarding and release.
+
+### Validation
+
+- Integrated source passes the workspace typecheck, repository lint, server and CLI builds, 723 renewal, Host, artifact, scan, launch and runner cases, 165 claimed review and owner session cases, 905 of 907 continuation and question cases and the Open questions browser spec at three widths. The two failing cases also fail on vorteo.689.
+
+## 0.11.0-beta.3.vorteo.693 - 2026-10-18
+
+Adds release verification speedup A to the vorteo.692 integration. Its branch numbered its entries vorteo.690 and vorteo.691 independently; neither was installed, so they are kept here verbatim under this version.
+
+### Release verification speedup (speedup branch vorteo.690)
+
+#### Fixes
+
+- Verify coordinator and Host release trees on worker threads with bounded parallel reads. Digests stay byte-identical, so existing coordinators keep accepting them. A full installed release takes 8 to 13 seconds rather than more than two minutes, and the Host event loop stays responsive while it runs.
+- Hash each distinct release tree at most once per review action, plan verification or dispatch. Later checks in the same operation re-assert every retained path's metadata off the event loop, never across operations or processes.
+- Keep each caller's deadline and cancellation separate within shared verification. One caller's timeout no longer rejects other callers, and a rejected or abandoned scan is never reused.
+
+#### Validation
+
+- Equivalence tests compare the new and sequential implementations on fixture trees covering chunk boundaries, modes, links, hard links, special files, permission failures and limits. Both produce the same digest on the installed release.
+
+### Release verification fixes (speedup branch vorteo.691)
+
+#### Fixes
+
+- Re-read coordinator candidate bytes in full at dispatch after an owner decision. Proofs collected before the password check and approval re-verification no longer carry into launch, which keeps the hash-to-use window short.
+- Update a shared tree scan's reuse state before its result settles, so no caller can join a rejection that is about to be discarded.
+- Keep retained tree metadata in one compact form, roughly halving retained proof memory.
+
+#### Validation
+
+- A regression test shows dispatch performs a fresh byte scan after an owner decision, including inside an enclosing reuse operation. It fails when dispatch joins the earlier proof.
+
+### Validation
+
+- Integrated source passes the workspace typecheck, repository lint, server and CLI builds, 489 artifact, scan, Host, launch, renewal and runner cases, 905 of 907 continuation and question cases and the Open questions browser spec at three widths. The two failing cases also fail on vorteo.689.
+
+## 0.11.0-beta.3.vorteo.692 - 2026-10-18
+
+Integrates the restart continuation fixes (vorteo.690 below) with the Open questions card. The card branch numbered its entries vorteo.690 and vorteo.691 independently; neither was installed, so they are kept here verbatim under this version.
+
+### Open questions card (card branch vorteo.690)
+
+#### Features
+
+- Add an Open questions card above Tasks. Agents ask blocking questions with a required recommended default, optional blocked tasks and an optional default time; the owner answers inline with Use recommended or typed text. Answers are saved once, journaled and delivered to the asking thread as a message.
+- Show a calm count of open questions on workspace sidebar rows.
+
+#### Validation
+
+- Focused question model, daemon MCP and RPC, and app model tests pass, with a real-browser check at phone, tablet and desktop widths against a disposable daemon.
+
+### Open questions fixes (card branch vorteo.691)
+
+#### Fixes
+
+- Deliver every saved open-question answer exactly once: answers are marked delivered only after their message is durably queued, and a thread queues any undelivered answer when it loads. Journaling is best effort after delivery.
+- Accept answers only from the Vorteo app or a browser, record which client answered, and show it in answered rows.
+- Require the recommended-default time to be at least 15 minutes ahead and let agents clear it. Omit withdrawn questions from snapshots and keep the newest 20 closed questions once delivered.
+
+#### Validation
+
+- Question model, reload delivery, daemon end-to-end and browser checks at three widths pass.
+
+### Documentation
+
+- Describe the manual lifecycle journal recovery for rolling back to vorteo.689 while an idle restart capture is held.
+
+### Validation
+
+- Integrated source passes the workspace typecheck, repository lint, server and CLI builds, 905 of 907 focused server cases, 228 client cases, 40 app cases and the Open questions browser spec at three widths. The two failing cases also fail on vorteo.689.
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-18
+
+### Fixes
+
+- Keep restart continuation from freezing lifecycle work. Targets without durable continuation keep legacy restarts without recording intent, release falls back to the legacy drain, and only undispatched or running captures fence other work.
+- Let a replacement daemon recapture and release a held cause from an earlier lifetime, so tasks continue after crashes and unverified restarts without replaying uncertain deliveries.
+- Clear and retry failed captures. Idle-only restarts capture under a fresh cause per attempt and release it while waiting, so waiting never pauses goals or closes admission.
+- Drop the queued continuation nudge when a capture is cancelled within its own daemon lifetime, unless the agent was asked to stop and save work.
+- Clear per-attempt capture causes when holds are released and omit them from restart replies, keeping journals readable after a rollback to v689. Log when a daemon is treated as lacking continuation support.
+
+### Validation
+
+- Focused restart, manager, queue, session and coordinator server suites pass apart from two failures that also occur on v689.
+
+## 0.11.0-beta.3.vorteo.689 - 2026-10-18
+
+### Fixes
+
+- Preserve running goal and no-goal tasks before tracked daemon restarts, including force restarts. Release their saved continuations only after verified replacement readiness or cancellation by the original daemon.
+- Keep paused, stopped, exhausted and uncertain work fenced during recovery. Reject stale restart causes and retain unresolved capture intent across adapter changes.
+- Give coordinator preparation POSTs one sixteen-minute connection, headers and body deadline using the standalone client’s built-in HTTP transport. Clean up on completion or failure without replaying uncertain requests.
+- Reuse retained release proofs within coordinator plan verification when candidate and fallback share a runtime. Separate configuration checks and final custody assertions remain required.
+
+### Validation
+
+- Combined source passes all workspace typechecks, repository lint and 42 focused manager and transport cases. Startup-contract validation passes; tracked installation acceptance remains pending.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-18
+
+### Fixes
+
+- Show Force restart now on pending plain Host requests, with the existing interruption confirmation.
+
 ## 0.11.0-beta.3.vorteo.693 - 2026-10-20
 
 ### Maintenance

@@ -1,4 +1,3 @@
-import type { KeyboardInputEvent } from "electron";
 import type { ActionablePoint } from "./actionability.js";
 import type { CdpCommandSender } from "./cdp-session-queue.js";
 
@@ -18,8 +17,11 @@ const MODIFIER_MASKS: Record<InputModifier, number> = {
   Shift: 8,
 };
 
-export interface IsolatedKeyboardInputEvent extends KeyboardInputEvent {
+// Structural subset of Electron's KeyboardInputEvent, so this engine stays
+// independent of Electron and can also drive non-Electron browser hosts.
+export interface IsolatedKeyboardInputEvent {
   type: "char" | "keyDown" | "keyUp";
+  keyCode: string;
   // Electron accepts this NativeWebKeyboardEvent flag even though its public
   // TypeScript declarations omit it. It stops an unhandled webview key from
   // being redispatched to the embedder's active DOM element or application menu.

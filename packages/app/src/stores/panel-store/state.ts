@@ -11,12 +11,18 @@ import { z } from "zod";
 export const SUPPORTING_CARD_DEFAULTS = {
   goal: true,
   tasks: true,
+  questions: true,
   journal: true,
   queue: true,
   subagents: true,
   providerSubagents: true,
   files: false,
   changes: false,
+  // Collapsed by default: expanding it reads the provider's context breakdown.
+  context: false,
+  /** Left-sidebar cards that span every thread and account. */
+  globalQuestions: true,
+  globalQuota: true,
 } as const;
 export type SupportingCardLayout = "sidebar" | "inline";
 export type SupportingCardKind = keyof typeof SUPPORTING_CARD_DEFAULTS;
@@ -25,12 +31,16 @@ const SupportingCardStateSchema = z
   .object({
     goal: z.boolean(),
     tasks: z.boolean(),
+    questions: z.boolean(),
     journal: z.boolean(),
     queue: z.boolean(),
     subagents: z.boolean(),
     providerSubagents: z.boolean(),
     files: z.boolean(),
     changes: z.boolean(),
+    context: z.boolean(),
+    globalQuestions: z.boolean(),
+    globalQuota: z.boolean(),
   })
   .partial();
 

@@ -1,7 +1,13 @@
 import { useScrollReporter } from "./use-scroll-divider";
 import { NestableScrollDivider } from "./nestable-scroll-divider";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
-import { splitFactoryWorkspaces, factoryOverviewTargets } from "@/workspace/lifecycle/grouping";
+import {
+  splitFactoryWorkspaces,
+  factoryOverviewTargets,
+  type SidebarSystemGroup,
+} from "@/workspace/lifecycle/grouping";
+import { SYSTEM_PROJECT_TITLE, systemWorkspaceKind } from "@/workspace/lifecycle/system-workspace";
+import { SYSTEM_SECTION_KEY } from "@/components/sidebar/sidebar-projection";
 import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
 import { useWorkspaceMenuActions } from "@/workspace/use-workspace-menu-actions";
 import {
@@ -41,7 +47,8 @@ import {
   type PropsWithChildren,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { router, usePathname, type Href } from "expo-router";
+import { router, usePathname } from "expo-router";
+import { useSidebarNewWorkspaceRoute } from "@/hooks/use-sidebar-new-workspace-route";
 import {
   navigateToWorkspace,
   useActiveWorkspaceSelection,
@@ -70,7 +77,6 @@ import { buildPluginSurfaceRoute } from "@/plugins/routes";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useProjectIcons } from "@/projects/icons";
 import {
-  buildNewWorkspaceRoute,
   buildProjectSettingsRoute,
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
@@ -221,6 +227,8 @@ interface SidebarWorkspaceListProps {
   onContentSizeChange?: (width: number, height: number) => void;
   onScrolledChange?: (scrolled: boolean) => void;
   workspaceGroups: SidebarWorkspaceGroup[];
+  /** The Vorteo System section. Hosts without the System project contribute nothing. */
+  systemGroups?: SidebarSystemGroup[];
   /** What `useProjectIcons` is asked for, straight from the projection. See `SidebarProjection`. */
   projectIconTargets: SidebarProjectIconTarget[];
   pinnedGroups: PinnedSidebarGroups;
@@ -440,6 +448,126 @@ function FactoryOverviewRow({
       testID={`sidebar-factory-overview-${target.serverId}-${target.projectId}`}
       onPress={openOverview}
     />
+  );
+}
+
+const EMPTY_SYSTEM_GROUPS: SidebarSystemGroup[] = [];
+
+interface SidebarSystemSectionProps {
+  groups: SidebarSystemGroup[];
+  workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
+  hostBadgeByServerId: ReadonlyMap<string, HostBadgeModel>;
+  shortcutIndexByWorkspaceKey: Map<string, number>;
+  supportsPinningByServerId: ReadonlyMap<string, boolean>;
+  onToggleWorkspacePin: ToggleSidebarWorkspacePin;
+  onWorkspacePress?: () => void;
+  pathname: string;
+}
+
+/** Daemon-owned System project members, one group per host that contributes any. */
+function SidebarSystemSection({ groups, ...rowProps }: SidebarSystemSectionProps) {
+  const collapsed = useSidebarCollapsedSectionsStore((state) =>
+    state.collapsedWorkspaceGroupKeys.has(SYSTEM_SECTION_KEY),
+  );
+  const toggleGroupCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.toggleWorkspaceGroupCollapsed,
+  );
+  const toggle = useCallback(
+    () => toggleGroupCollapsed(SYSTEM_SECTION_KEY),
+    [toggleGroupCollapsed],
+  );
+  const count = groups.reduce((total, group) => total + group.workspaces.length, 0);
+  return (
+    <View style={styles.pinnedSection} testID="sidebar-system-section">
+      <PinnedSectionHeader
+        title={SYSTEM_PROJECT_TITLE}
+        count={count}
+        testID="sidebar-system-section-header"
+        collapsed={collapsed}
+        onToggle={toggle}
+      />
+      {collapsed
+        ? null
+        : groups.map((group) => (
+            <SidebarSystemHostGroup
+              key={group.serverId}
+              group={group}
+              labelled={groups.length > 1}
+              {...rowProps}
+            />
+          ))}
+    </View>
+  );
+}
+
+function SidebarSystemHostGroup({
+  group,
+  labelled,
+  workspaceEntriesByKey,
+  hostBadgeByServerId,
+  shortcutIndexByWorkspaceKey,
+  supportsPinningByServerId,
+  onToggleWorkspacePin,
+  onWorkspacePress,
+  pathname,
+}: Omit<SidebarSystemSectionProps, "groups"> & { group: SidebarSystemGroup; labelled: boolean }) {
+  const hostLabel = useHosts().find((host) => host.serverId === group.serverId)?.label;
+  const showShortcutBadges = useShowShortcutBadges();
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const selectionEnabled = Boolean(pathname && parseHostWorkspaceRouteFromPathname(pathname));
+  const hostKey = `${SYSTEM_SECTION_KEY}:${group.serverId}`;
+  const hostCollapsed = useSidebarCollapsedSectionsStore((state) =>
+    state.collapsedWorkspaceGroupKeys.has(hostKey),
+  );
+  const toggleGroupCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.toggleWorkspaceGroupCollapsed,
+  );
+  const toggleHost = useCallback(
+    () => toggleGroupCollapsed(hostKey),
+    [toggleGroupCollapsed, hostKey],
+  );
+  const { visibleItems, expanded, canToggle, toggleExpanded } = useLimitedSidebarGroup(
+    group.workspaces,
+  );
+  const collapsed = labelled && hostCollapsed;
+  return (
+    <View testID={`sidebar-system-host-${group.serverId}`}>
+      {labelled ? (
+        <PinnedSectionHeader
+          title={hostLabel ?? group.serverId}
+          count={group.workspaces.length}
+          indented
+          testID={`sidebar-system-host-header-${group.serverId}`}
+          collapsed={hostCollapsed}
+          onToggle={toggleHost}
+        />
+      ) : null}
+      {collapsed
+        ? null
+        : visibleItems.map((workspace) => (
+            <MemoWorkspaceRowItem
+              key={workspace.workspaceKey}
+              workspace={workspace}
+              workspaceEntry={workspaceEntriesByKey.get(workspace.workspaceKey) ?? null}
+              hostBadge={hostBadgeByServerId.get(workspace.serverId) ?? null}
+              shortcutNumber={shortcutIndexByWorkspaceKey.get(workspace.workspaceKey) ?? null}
+              showShortcutBadge={showShortcutBadges}
+              canCopyBranchName={workspace.projectKind === "git"}
+              canPin={supportsPinningByServerId.get(workspace.serverId) === true}
+              onToggleWorkspacePin={onToggleWorkspacePin}
+              selectionEnabled={selectionEnabled}
+              activeWorkspaceSelection={activeWorkspaceSelection}
+              onWorkspacePress={onWorkspacePress}
+            />
+          ))}
+      {!collapsed && canToggle ? (
+        <SidebarGroupToggleRow
+          expanded={expanded}
+          onPress={toggleExpanded}
+          testID={`sidebar-system-show-more-${group.serverId}`}
+        />
+      ) : null}
+    </View>
   );
 }
 
@@ -898,17 +1026,12 @@ function NewWorkspaceGhostRow({
 }) {
   const density = useSidebarRowDensity();
   const { t } = useTranslation();
-  const handlePress = useCallback(() => {
-    onWorkspacePress?.();
-    router.navigate(
-      buildNewWorkspaceRoute({
-        serverId: worktreeTarget.serverId,
-        sourceDirectory: worktreeTarget.iconWorkingDir,
-        displayName,
-        projectId: worktreeTarget.projectId,
-      }) as Href,
-    );
-  }, [displayName, onWorkspacePress, worktreeTarget]);
+  const handlePress = useSidebarNewWorkspaceRoute({
+    project,
+    displayName,
+    target: worktreeTarget,
+    onBeforeNavigate: onWorkspacePress,
+  });
   const rowStyle = useCallback(
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.newWorkspaceGhostRow,
@@ -1007,20 +1130,12 @@ function ProjectHeaderRow({
   const localDaemonServerId = useLocalDaemonServerId();
   const projectPath = resolveSidebarProjectLocalPath(project, localDaemonServerId);
   const settingsTarget = project.hosts[0] ?? null;
-  const handleBeginWorkspaceSetup = useCallback(() => {
-    if (!worktreeTarget) {
-      return;
-    }
-    onWorkspacePress?.();
-    router.navigate(
-      buildNewWorkspaceRoute({
-        serverId: worktreeTarget.serverId,
-        sourceDirectory: worktreeTarget.iconWorkingDir,
-        displayName,
-        projectId: worktreeTarget.projectId,
-      }) as Href,
-    );
-  }, [displayName, onWorkspacePress, worktreeTarget]);
+  const handleBeginWorkspaceSetup = useSidebarNewWorkspaceRoute({
+    project,
+    displayName,
+    target: worktreeTarget,
+    onBeforeNavigate: onWorkspacePress,
+  });
   const interaction = useLongPressDragInteraction({
     drag,
     menuController,
@@ -1705,6 +1820,14 @@ function ProjectBlock({
     [project.workspaces],
   );
   const supportsFactory = useHostFeatureMap(factoryHostIds, "factoryWorkspaceMembership");
+  const supportsSystem = useHostFeatureMap(factoryHostIds, "systemProject");
+  // Flyouts can still list the System project; the daemon owns its name and removal.
+  const isSystemProject = project.workspaces.some((workspace) =>
+    systemWorkspaceKind(
+      workspaceEntriesByKey.get(workspace.workspaceKey),
+      supportsSystem.get(workspace.serverId) === true,
+    ),
+  );
   const groups = useMemo(
     () => splitFactoryWorkspaces(project.workspaces, workspaceEntriesByKey, supportsFactory),
     [project.workspaces, workspaceEntriesByKey, supportsFactory],
@@ -2053,7 +2176,7 @@ function ProjectBlock({
           isDragging={isDragging}
           isArchiving={isRemovingProject}
           menuController={null}
-          onRemoveProject={handleRemoveProject}
+          onRemoveProject={isSystemProject ? undefined : handleRemoveProject}
           removeProjectStatus={isRemovingProject ? "pending" : "idle"}
           dragHandleProps={dragHandleProps}
         />
@@ -2128,6 +2251,7 @@ export function SidebarWorkspaceList({
   onContentSizeChange,
   onScrolledChange,
   workspaceGroups,
+  systemGroups = EMPTY_SYSTEM_GROUPS,
   projectIconTargets,
   pinnedGroups,
   projects,
@@ -2204,6 +2328,32 @@ export function SidebarWorkspaceList({
   // project or is not applied at all — it can narrow this list but never empty it.
   const sidebarFilterEmpty =
     hasActiveLabelFilter && hasProjectsBeforeFilter && projects.length === 0;
+  // The section sits after every grouping mode's rows, so it keeps one place in the sidebar.
+  const systemSection = useMemo(
+    () =>
+      systemGroups.length > 0 ? (
+        <SidebarSystemSection
+          groups={systemGroups}
+          workspaceEntriesByKey={workspaceEntriesByKey}
+          hostBadgeByServerId={hostBadgeByServerId}
+          shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+          supportsPinningByServerId={supportsPinningByServerId}
+          onToggleWorkspacePin={onToggleWorkspacePin}
+          onWorkspacePress={onWorkspacePress}
+          pathname={pathname}
+        />
+      ) : null,
+    [
+      systemGroups,
+      workspaceEntriesByKey,
+      hostBadgeByServerId,
+      shortcutIndexByWorkspaceKey,
+      supportsPinningByServerId,
+      onToggleWorkspacePin,
+      onWorkspacePress,
+      pathname,
+    ],
+  );
 
   // Project mode is the one that keeps its project headers; every other grouping mode is a flat
   // list of grouped rows, so a new mode lands in the grouped branch rather than silently in this
@@ -2224,6 +2374,7 @@ export function SidebarWorkspaceList({
         onPinnedWorkspaceReorder={handlePinnedWorkspaceReorder}
         listTopComponent={listTopComponent}
         listHeaderComponent={listHeaderComponent}
+        listBottomComponent={systemSection}
         sidebarFilterEmpty={sidebarFilterEmpty}
         parentGestureRef={parentGestureRef}
         dragGestureHostActive={dragGestureHostActive}
@@ -2242,6 +2393,7 @@ export function SidebarWorkspaceList({
         onWorkspacePress={onWorkspacePress}
         onAddProject={onAddProject}
         onImportSession={onImportSession}
+        systemSection={systemSection}
         listFooterComponent={listFooterComponent}
         listTopComponent={listTopComponent}
         listHeaderComponent={listHeaderComponent}
@@ -2281,6 +2433,7 @@ function SidebarGroupedModeList({
   onPinnedWorkspaceReorder,
   listTopComponent,
   listHeaderComponent,
+  listBottomComponent,
   sidebarFilterEmpty,
   parentGestureRef,
   dragGestureHostActive,
@@ -2298,6 +2451,7 @@ function SidebarGroupedModeList({
   onPinnedWorkspaceReorder: (workspaces: SidebarWorkspacePlacement[]) => void;
   listTopComponent?: ReactElement | null;
   listHeaderComponent?: ReactElement | null;
+  listBottomComponent?: ReactElement | null;
   sidebarFilterEmpty: boolean;
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
   dragGestureHostActive?: boolean;
@@ -2327,6 +2481,7 @@ function SidebarGroupedModeList({
       onPinnedWorkspaceReorder={onPinnedWorkspaceReorder}
       listTopComponent={listTopComponent}
       listHeaderComponent={listHeaderComponent}
+      listBottomComponent={listBottomComponent}
       sidebarFilterEmpty={sidebarFilterEmpty}
       parentGestureRef={parentGestureRef}
       dragGestureHostActive={dragGestureHostActive}
@@ -2355,6 +2510,7 @@ function ProjectModeListContent({
   onWorkspacePress,
   onAddProject,
   onImportSession,
+  systemSection,
   listFooterComponent,
   listTopComponent,
   listHeaderComponent,
@@ -2371,6 +2527,7 @@ function ProjectModeListContent({
 }: Omit<
   SidebarWorkspaceListProps,
   | "workspaceGroups"
+  | "systemGroups"
   | "projectIconTargets"
   | "groupMode"
   | "hasProjectsBeforeFilter"
@@ -2379,6 +2536,7 @@ function ProjectModeListContent({
 > & {
   /** Swaps the list body for the label filter's empty state. Never the header above it. */
   sidebarFilterEmpty: boolean;
+  systemSection: ReactElement | null;
   projectIconByProjectViewKey: ReadonlyMap<string, string | null>;
   pathname: string;
   hostBadgeByServerId: ReadonlyMap<string, HostBadgeModel>;
@@ -2664,8 +2822,9 @@ function ProjectModeListContent({
     ],
   );
 
+  // A sidebar holding only the System project still offers the empty state for a first project.
   const projectBody =
-    projects.length === 0 ? (
+    unpinnedProjects.length === 0 && pinnedChats.length === 0 ? (
       <SidebarProjectEmptyState onAddProject={onAddProject} onImportSession={onImportSession} />
     ) : (
       <DraggableList
@@ -2731,6 +2890,7 @@ function ProjectModeListContent({
         ? listHeaderComponent
         : null}
       {sidebarFilterEmpty ? <SidebarFilterEmptyState /> : projectBody}
+      {systemSection}
       {listFooterComponent}
     </>
   );

@@ -9,6 +9,7 @@ import { useWorkspaceScheduleState } from "./scheduled";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import type { Theme } from "@/styles/theme";
 import { FACTORY_MANAGED_EXPLANATION, useFactoryMembership } from "./factory-membership";
+import { SYSTEM_MANAGED_EXPLANATION, useSystemManaged } from "./system-membership";
 
 const Shield = withUnistyles(LockKeyhole);
 const Repeat = withUnistyles(Repeat2);
@@ -40,6 +41,8 @@ export function WorkspaceLifecycleIndicators({ workspace }: { workspace: Sidebar
   const scheduled = useWorkspaceScheduleState(workspace.serverId, workspace.workspaceId);
   const membership = useFactoryMembership(workspace.serverId, workspace.workspaceId);
   const factory = Boolean(membership);
+  const systemManaged = useSystemManaged(workspace.serverId, workspace.workspaceId);
+  const protectedLabel = systemManaged ? SYSTEM_MANAGED_EXPLANATION : "Protected";
   const label = scheduled === "paused" ? "Paused" : "Scheduled";
   const openSchedules = useCallback(
     (event: GestureResponderEvent) => {
@@ -58,11 +61,11 @@ export function WorkspaceLifecycleIndicators({ workspace }: { workspace: Sidebar
   return (
     <>
       {workspace.protected ? (
-        <IndicatorTooltip label="Protected">
+        <IndicatorTooltip label={protectedLabel}>
           <View
             style={styles.badgeSlot}
             accessible
-            accessibilityLabel="Protected workspace"
+            accessibilityLabel={systemManaged ? SYSTEM_MANAGED_EXPLANATION : "Protected workspace"}
             testID={`workspace-shield-${workspace.workspaceId}`}
             tabIndex={0}
           >

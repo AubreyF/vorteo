@@ -27,6 +27,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Switch } from "@/components/ui/switch";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import { ProjectEditSheet } from "@/components/project-edit-sheet";
+import { useIsSystemProject } from "@/workspace/lifecycle/system-membership";
 import { EditingTextInput as TextInput } from "@/components/ui/text-input";
 import { SettingsTextAreaCard } from "@/components/settings-textarea";
 import { SettingsGroup } from "@/components/settings/headings/settings-group";
@@ -231,6 +232,8 @@ function ProjectSettingsBody({
 
   const data = readQuery.data;
   const supportsCustomIcon = useHostFeature(selectedHost.serverId, "projectCustomIcon");
+  // The daemon owns the System project's name and icon.
+  const systemProject = useIsSystemProject(selectedHost.serverId, selectedHost.projectId);
   const customIconRevision = selectedHost.customIconRevision ?? null;
   const projectIconTargets = useMemo(() => {
     const target = createProjectIconTarget({
@@ -279,16 +282,18 @@ function ProjectSettingsBody({
           <Text style={styles.projectTitle} numberOfLines={1}>
             {selectedHost.projectName}
           </Text>
-          <Pressable
-            testID="project-edit-button"
-            accessibilityRole="button"
-            accessibilityLabel={t("settings.project.edit.title")}
-            onPress={openEditSheet}
-            hitSlop={8}
-            style={styles.editButton}
-          >
-            <Pencil size={ICON_SIZE} color={styles.iconColor.color} />
-          </Pressable>
+          {systemProject ? null : (
+            <Pressable
+              testID="project-edit-button"
+              accessibilityRole="button"
+              accessibilityLabel={t("settings.project.edit.title")}
+              onPress={openEditSheet}
+              hitSlop={8}
+              style={styles.editButton}
+            >
+              <Pencil size={ICON_SIZE} color={styles.iconColor.color} />
+            </Pressable>
+          )}
         </View>
       </View>
 

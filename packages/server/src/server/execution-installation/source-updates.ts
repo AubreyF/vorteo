@@ -33,7 +33,12 @@ import {
 import type { InstallationConfig } from "./config.js";
 import { RestartRequestError, type RestartExecutor } from "./restarts.js";
 
-import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { digestBootstrapArtifact, sealBootstrapRelease } from "./coordinator-bootstrap-artifact.js";
+import {
+  ReleaseSealBindingSchema,
+  releaseAdmissionReceipt,
+  releaseSealsEnabled,
+} from "./coordinator-bootstrap-release-seal.js";
 import { writeLifecycleReceipt } from "./lifecycle-journal.js";
 import {
   installContainerSource,
@@ -42,6 +47,7 @@ import {
 } from "./container-updates.js";
 import { prepareSourceBatch } from "./source-batches.js";
 import { prepareDevRepairBundle } from "./dev-source-repair.js";
+import { assertReleaseSelectionAllowed } from "./release-selection-guard.js";
 import { isDeepStrictEqual } from "node:util";
 import type { StandingInterruption } from "@getpaseo/protocol/maintenance-interruption";
 
@@ -66,6 +72,8 @@ const AdmissionSchema = z.object({
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
+  // Present only for sealed candidates; binds approval to exactly this seal.
+  candidateSeal: ReleaseSealBindingSchema.optional(),
 });
 const CANDIDATE_DIGEST_LIMITS = { maxFiles: 250_000, maxBytes: 8 * 1024 ** 3, timeoutMs: 120_000 };
 const PreparedSchema = z.object({ release: z.string(), exported: z.string() });
@@ -455,6 +463,11 @@ export class InstallationSourceUpdates {
       if (!realpathSync(directory).startsWith(realpathSync(work) + path.sep))
         throw new Error("Prepared artifact escaped its release directory");
     }
+    // A release without the session host must never run beside an installed session host job.
+    assertReleaseSelectionAllowed({
+      link: settings.currentReleaseLink,
+      candidate: prepared.release,
+    });
     // Validate the candidate before changing the launcher or the public interface.
     await execute(
       validation.node,
@@ -476,13 +489,21 @@ export class InstallationSourceUpdates {
       throw new Error(
         "Installed release changed during the build. No candidate was activated; request a new update.",
       );
+    // The admission receipt beside a sealed release binds its seal.
+    const sealed = releaseSealsEnabled();
+    if (sealed && releaseAdmissionReceipt(prepared.release) !== path.join(work, "admission.json"))
+      throw new Error("A sealed release must sit directly in its preparation directory");
+    // Sealing digests the same bytes after making the release immutable.
+    const candidate = sealed
+      ? await sealBootstrapRelease(prepared.release, CANDIDATE_DIGEST_LIMITS)
+      : {
+          artifactSha256: await digestBootstrapArtifact(prepared.release, CANDIDATE_DIGEST_LIMITS),
+        };
     writeLifecycleReceipt(path.join(work, "admission.json"), {
       previous,
       sourceSha256: update.sha256,
-      candidateArtifactSha256: await digestBootstrapArtifact(
-        prepared.release,
-        CANDIDATE_DIGEST_LIMITS,
-      ),
+      candidateArtifactSha256: candidate.artifactSha256,
+      ...("seal" in candidate ? { candidateSeal: candidate.seal } : {}),
       exportedArtifactSha256: await digestBootstrapArtifact(
         prepared.exported,
         CANDIDATE_DIGEST_LIMITS,
@@ -618,6 +639,11 @@ export class InstallationSourceUpdates {
       if (!realpathSync(directory).startsWith(realpathSync(work) + path.sep))
         throw new Error("Prepared artifact escaped its release directory");
     }
+    // Again here: the session host job may have been installed after preparation.
+    assertReleaseSelectionAllowed({
+      link: settings.currentReleaseLink,
+      candidate: prepared.release,
+    });
     await beforeSelection?.();
     writeLifecycleReceipt(activationFile, {
       previous,

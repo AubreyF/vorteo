@@ -381,6 +381,7 @@ export const ptBR: TranslationResources = {
       empty: "Nenhuma tarefa ainda.",
       tasksProgress: "{{completed}}/{{total}} tarefas",
       activeCount: en.message.todo.activeCount,
+      blockedCount: en.message.todo.blockedCount,
       activity: {
         created: "{{count}} tarefas criadas",
         added: "Adicionada",
@@ -1977,6 +1978,19 @@ export const ptBR: TranslationResources = {
     tokens: "{{used}} / {{max}} tokens",
     sessionCost: "Custo da sessão {{cost}}",
     accessibility: "Janela de contexto {{percentage}}% usada",
+    breakdown: {
+      used: "Usado",
+      free: "Espaço livre",
+      totalsOnly: "Este provedor informa apenas os totais.",
+      error: "Não foi possível carregar o detalhamento.",
+      overLimit: "{{tokens}} tokens acima da janela",
+      groups: {
+        mcpTools: "Ferramentas MCP",
+        memoryFiles: "Arquivos de memória",
+        skills: "Habilidades",
+        agents: "Agentes personalizados",
+      },
+    },
   },
   review: {
     comment: {

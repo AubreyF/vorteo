@@ -26,6 +26,10 @@ interface NewWorkspaceProjectPickerInput {
   routeProject: HostProjectListItem | null;
   routeProjectContextViewKey: string | null;
   lastActiveProject: HostProjectListItem | null;
+  /** The project last chosen by hand, tried after the route and the remembered workspace. */
+  lastManualProjectViewKey?: string | null;
+  /** Records a manual choice so the next New workspace can fall back to it. */
+  onManualProjectSelected?: (viewKey: string) => void;
   allowAllProjects: boolean;
 }
 
@@ -87,6 +91,8 @@ export function useNewWorkspaceProjectPicker({
   routeProject,
   routeProjectContextViewKey,
   lastActiveProject,
+  lastManualProjectViewKey = null,
+  onManualProjectSelected,
   allowAllProjects,
 }: NewWorkspaceProjectPickerInput): NewWorkspaceProjectPickerState {
   const selectableProjects = useMemo(
@@ -105,11 +111,19 @@ export function useNewWorkspaceProjectPicker({
       resolveInitialWorkspaceProject({
         routeProject,
         lastActiveProject,
+        lastManualProjectViewKey,
         projects: selectableProjects,
         serverId: selectedServerId,
         allowAllProjects,
       }),
-    [allowAllProjects, lastActiveProject, routeProject, selectableProjects, selectedServerId],
+    [
+      allowAllProjects,
+      lastActiveProject,
+      lastManualProjectViewKey,
+      routeProject,
+      selectableProjects,
+      selectedServerId,
+    ],
   );
 
   const selectionContextKey = createProjectSelectionContextKey({
@@ -184,8 +198,9 @@ export function useNewWorkspaceProjectPicker({
         originProject: project,
         source: "manual",
       });
+      onManualProjectSelected?.(project.viewKey);
     },
-    [allowAllProjects, manualSelectionContextKey, projectByOptionId],
+    [allowAllProjects, manualSelectionContextKey, onManualProjectSelected, projectByOptionId],
   );
 
   return {

@@ -87,7 +87,8 @@ export async function expectHostInConnections(
   serverId: string,
   expected: "listed" | "not listed",
 ): Promise<void> {
-  await page.getByTestId("settings-section-connections").click();
+  await page.getByTestId("settings-section-environments").click();
+  await page.getByTestId("settings-pane-environments.connections").scrollIntoViewIfNeeded();
   await expect(page.getByTestId(`settings-environment-${serverId}`)).toHaveCount(
     expected === "listed" ? 1 : 0,
   );

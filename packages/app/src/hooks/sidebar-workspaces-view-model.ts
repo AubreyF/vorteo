@@ -49,6 +49,8 @@ export interface SidebarWorkspaceEntry extends SidebarStatusWorkspacePlacement {
   pinnedAt?: string | null;
   standing?: boolean;
   factoryMembership?: WorkspaceDescriptor["factoryMembership"];
+  projectSystem?: WorkspaceDescriptor["projectSystem"];
+  systemMembership?: WorkspaceDescriptor["systemMembership"];
   protected?: boolean;
   labels?: string[];
   // Checkout branch (null when not a git checkout or detached HEAD).
@@ -182,6 +184,8 @@ export function createSidebarWorkspaceEntry(input: {
     pinnedAt: input.workspace.pinnedAt,
     standing: input.workspace.standing,
     factoryMembership: matchesFactoryIdentity ? membership : undefined,
+    projectSystem: input.workspace.projectSystem,
+    systemMembership: input.workspace.systemMembership,
     protected: input.workspace.protected,
     labels: input.workspace.labels ?? EMPTY_WORKSPACE_LABELS,
     currentBranch: normalizeCurrentBranch(input.workspace.gitRuntime?.currentBranch),

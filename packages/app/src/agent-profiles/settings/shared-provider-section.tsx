@@ -4,7 +4,7 @@ import { useInstallationProfiles } from "@/execution-installation/profiles";
 import { PreferredChoicesField } from "./preferred-choices-field";
 import { sharedChoiceState } from "../shared-choices";
 import { useCallback, useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import type {
   AgentProfile,
   MutableDaemonConfig,
@@ -15,6 +15,9 @@ import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
+import { SettingsCard, SettingsCollapsibleRow } from "@/components/settings";
+import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
+import { describeCopies, groupDuplicateProfiles, type ProfileGroup } from "./profile-duplicates";
 import { settingsStyles } from "@/styles/settings";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -198,7 +201,7 @@ export function SharedProviderSection({
         setOperation({
           status: "error",
           message:
-            "This workflow has legacy profile references. Keep it available for legacy launches and workers.",
+            "Older launches and workers still use this profile. Keep it until they use another profile.",
         });
         return;
       }
@@ -215,14 +218,19 @@ export function SharedProviderSection({
     },
     [shared, group, providerType, saveGroup],
   );
+  // Older copies are folded under their current profile, so moving a profile
+  // swaps it with its visible neighbor rather than with a hidden copy.
   const reorder = useCallback(
     async (id: string, offset: number) => {
       if (!shared || !group) return;
-      const index = group.workflows.findIndex((workflow) => workflow.id === id);
-      const destination = index + offset;
-      if (index < 0 || destination < 0 || destination >= group.workflows.length) return;
+      const visible = groupDuplicateProfiles(group.workflows).map((entry) => entry.primary.id);
+      const position = visible.indexOf(id);
+      const neighbor = visible[position + offset];
+      if (position < 0 || !neighbor) return;
       const workflows = [...group.workflows];
-      [workflows[index], workflows[destination]] = [workflows[destination], workflows[index]];
+      const from = workflows.findIndex((workflow) => workflow.id === id);
+      const to = workflows.findIndex((workflow) => workflow.id === neighbor);
+      [workflows[from], workflows[to]] = [workflows[to], workflows[from]];
       setOperation({ status: "saving" });
       try {
         await saveGroup(shared, { ...group, workflows });
@@ -321,7 +329,16 @@ export function SharedProviderSection({
     label: workflow.name,
   }));
   const pending = operation.status === "saving";
+  const profileGroups = useMemo(() => groupDuplicateProfiles(workflows), [workflows]);
 
+  const editDefaultsButton = useMemo(
+    () => (
+      <Button variant="ghost" size="sm" onPress={openDefaults} disabled={!shared || pending}>
+        Edit defaults
+      </Button>
+    ),
+    [openDefaults, shared, pending],
+  );
   const addButton = useMemo(
     () => (
       <Button variant="ghost" size="sm" onPress={add} disabled={!shared || pending}>
@@ -332,52 +349,13 @@ export function SharedProviderSection({
   );
   return (
     <>
-      <SettingsSection title={`${providerLabel} defaults`} testID="shared-provider-settings">
-        {installation ? (
-          <Text style={settingsStyles.rowHint}>
-            Profiles belong to this installation and are available in every environment unless
-            excluded. Account credentials and available models remain local.
-          </Text>
-        ) : null}
+      <SettingsSection title={`${providerLabel} profiles`} trailing={addButton}>
         {installationError ? (
           <Alert variant="error" description={installationError.message} />
-        ) : null}
-        <View style={settingsStyles.card}>
-          <View style={settingsStyles.row}>
-            <Text style={settingsStyles.rowHint}>Applies to all {providerLabel} accounts</Text>
-            <Button
-              variant="outline"
-              size="sm"
-              onPress={openDefaults}
-              disabled={!shared || pending}
-            >
-              Edit defaults
-            </Button>
-          </View>
-        </View>
-        {group ? (
-          <>
-            <PreferredChoicesField
-              label="Preferred models"
-              options={catalog.modelOptions}
-              preferred={group.preferredModels}
-              onToggle={toggleModel}
-              disabled={pending}
-            />
-            <PreferredChoicesField
-              label="Preferred reasoning"
-              options={reasoningOptions}
-              preferred={group.preferredThinkingOptions}
-              onToggle={toggleThinking}
-              disabled={pending}
-            />
-          </>
         ) : null}
         {operation.status === "error" ? (
           <Alert variant="error" title="Unable to save" description={operation.message} />
         ) : null}
-      </SettingsSection>
-      <SettingsSection title="Profiles" trailing={addButton}>
         <SelectField
           label="Default profile"
           value={group?.defaultWorkflowId ?? null}
@@ -391,29 +369,57 @@ export function SharedProviderSection({
           disabled={pending}
         />
         <View style={settingsStyles.card}>
-          {workflows.map((workflow, index) => {
-            const availability = sharedChoiceState({
-              profile: workflow,
-              choices: {},
-              entry: entries?.find((entry) => entry.provider === provider),
-            });
-            return (
-              <AgentProfileRow
-                key={workflow.id}
-                profile={workflow}
-                availabilityReason={availability.modelError ?? availability.thinkingError}
-                entries={entries}
-                isFirst={index === 0}
-                isLast={index === workflows.length - 1}
-                disabled={pending}
-                onEdit={openWorkflow}
-                onRemove={remove}
-                onMoveUp={moveUp}
-                onMoveDown={moveDown}
-              />
-            );
-          })}
+          {profileGroups.map((profileGroup, index) => (
+            <ProfileGroupRows
+              key={profileGroup.primary.id}
+              group={profileGroup}
+              entries={entries}
+              provider={provider}
+              isFirst={index === 0}
+              isLast={index === profileGroups.length - 1}
+              disabled={pending}
+              onEdit={openWorkflow}
+              onRemove={remove}
+              onMoveUp={moveUp}
+              onMoveDown={moveDown}
+            />
+          ))}
         </View>
+      </SettingsSection>
+      <SettingsSection
+        title={`${providerLabel} defaults`}
+        trailing={editDefaultsButton}
+        info={
+          installation
+            ? "Profiles belong to this installation and are available in every environment unless excluded. Account credentials and available models remain local."
+            : undefined
+        }
+        testID="shared-provider-settings"
+      >
+        {group ? (
+          <SettingsCard>
+            <SettingsCollapsibleRow label="Preferred models and reasoning">
+              <View style={settingsStyles.row}>
+                <View style={settingsStyles.rowContent}>
+                  <PreferredChoicesField
+                    label="Preferred models"
+                    options={catalog.modelOptions}
+                    preferred={group.preferredModels}
+                    onToggle={toggleModel}
+                    disabled={pending}
+                  />
+                  <PreferredChoicesField
+                    label="Preferred reasoning"
+                    options={reasoningOptions}
+                    preferred={group.preferredThinkingOptions}
+                    onToggle={toggleThinking}
+                    disabled={pending}
+                  />
+                </View>
+              </View>
+            </SettingsCollapsibleRow>
+          </SettingsCard>
+        ) : null}
       </SettingsSection>
       {editor ? (
         <AgentProfileEditModal
@@ -425,6 +431,85 @@ export function SharedProviderSection({
           onSave={save}
           onClose={close}
         />
+      ) : null}
+    </>
+  );
+}
+
+interface ProfileGroupRowsProps {
+  group: ProfileGroup<AgentProfile>;
+  entries: readonly ProviderSnapshotEntry[] | undefined;
+  provider: string;
+  isFirst: boolean;
+  isLast: boolean;
+  disabled: boolean;
+  onEdit: (id: string) => void;
+  onRemove: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
+}
+
+function availabilityReason(
+  profile: AgentProfile,
+  entries: readonly ProviderSnapshotEntry[] | undefined,
+  provider: string,
+): string | null {
+  const availability = sharedChoiceState({
+    profile,
+    choices: {},
+    entry: entries?.find((entry) => entry.provider === provider),
+  });
+  return availability.modelError ?? availability.thinkingError ?? null;
+}
+
+/** A profile and, folded beneath it, any older copies that share its name. */
+function ProfileGroupRows({
+  group,
+  entries,
+  provider,
+  isFirst,
+  isLast,
+  disabled,
+  onEdit,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+}: ProfileGroupRowsProps) {
+  const { primary, copies } = group;
+  return (
+    <>
+      <AgentProfileRow
+        profile={primary}
+        availabilityReason={availabilityReason(primary, entries, provider)}
+        entries={entries}
+        isFirst={isFirst}
+        isLast={isLast && copies.length === 0}
+        disabled={disabled}
+        onEdit={onEdit}
+        onRemove={onRemove}
+        onMoveUp={onMoveUp}
+        onMoveDown={onMoveDown}
+      />
+      {copies.length ? (
+        <View style={settingsStyles.rowBorder} testID={`profile-copies-${primary.id}`}>
+          <SettingsCollapsibleRow label={describeCopies(copies)}>
+            {copies.map(({ profile }) => (
+              <AgentProfileRow
+                key={profile.id}
+                profile={profile}
+                availabilityReason={availabilityReason(profile, entries, provider)}
+                entries={entries}
+                isFirst
+                isLast
+                disabled={disabled}
+                onEdit={onEdit}
+                onRemove={onRemove}
+                onMoveUp={onMoveUp}
+                onMoveDown={onMoveDown}
+              />
+            ))}
+          </SettingsCollapsibleRow>
+        </View>
       ) : null}
     </>
   );

@@ -784,6 +784,7 @@ export interface RestartServerOptions {
   idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
   restartDrainId?: string;
   heldRestart?: HeldRestart;
+  restartContinuation?: "capture" | "ready" | "cancelled";
 }
 
 function assertHeldRestartAcknowledgement(
@@ -3184,13 +3185,19 @@ export class DaemonClient {
       SessionInboundMessage,
       { type: "workspace.project.set.request" }
     >["membership"];
+    /** Also move the workspace's local project. Dropped for daemons without the capability. */
+    projectId?: string;
   }): Promise<void> {
+    const movesPlacement =
+      options.projectId !== undefined &&
+      this.lastServerInfoMessage?.features?.workspaceProjectPlacement === true;
     const payload =
       await this.sendNamespacedCorrelatedSessionRequest<"workspace.project.set.response">({
         message: {
           type: "workspace.project.set.request",
           workspaceId: options.workspaceId,
           membership: options.membership ?? null,
+          ...(movesPlacement ? { projectId: options.projectId } : {}),
         },
       });
     if (!payload.accepted) throw new Error(payload.error ?? "Failed to move workspace");
@@ -3210,6 +3217,21 @@ export class DaemonClient {
         message: { type: "workspace.lifecycle.set.request", ...options },
       });
     if (!payload.accepted) throw new Error(payload.error ?? "Failed to update workspace");
+  }
+
+  /** Clones Vorteo source into this host's System project from its operator settings. */
+  async setupSystemSource(): Promise<{ outcome: string | null; workspaceId: string | null }> {
+    if (this.lastServerInfoMessage?.features?.systemProjectSource !== true) {
+      throw new Error("Update this host to set up Vorteo source.");
+    }
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"system.source.setup.response">({
+        message: { type: "system.source.setup.request" },
+        // Cloning a remote repository can take minutes.
+        timeout: 10 * 60_000,
+      });
+    if (!payload.accepted) throw new Error(payload.error ?? "Failed to set up Vorteo source");
+    return { outcome: payload.outcome, workspaceId: payload.workspaceId };
   }
 
   async setWorkspacePinned(
@@ -3816,6 +3838,21 @@ export class DaemonClient {
     return result.tasks;
   }
 
+  async answerAgentQuestion(
+    agentId: string,
+    questionId: string,
+    answer: string,
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    if (this.lastServerInfoMessage?.features?.agentQuestions !== true)
+      throw new Error("Update the daemon before answering open questions.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.questions.answer.response">({
+        message: { type: "agent.questions.answer.request", agentId, questionId, answer },
+      });
+    if (result.error || !result.questions) throw new Error(result.error ?? "Answer unconfirmed");
+    return result.questions;
+  }
+
   private assertChecklistSupport(): void {
     if (this.lastServerInfoMessage?.features?.agentChecklistMutations !== true) {
       throw new Error("Update the daemon before editing thread checklists.");
@@ -4201,6 +4238,18 @@ export class DaemonClient {
     return result.requests;
   }
 
+  /** The provider's breakdown of an agent's context window, or null when it reports none. */
+  async getAgentContextBreakdown(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-context").AgentContextBreakdown | null> {
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.context.get_breakdown.response">({
+        message: { type: "agent.context.get_breakdown.request", agentId },
+      });
+    if (result.error) throw new Error(result.error);
+    return result.breakdown;
+  }
+
   async getAgentGoal(
     agentId: string,
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
@@ -4344,11 +4393,22 @@ export class DaemonClient {
     return held;
   }
 
+  private requireRestartContinuation(options?: RestartServerOptions): void {
+    if (options?.restartContinuation) {
+      if (this.lastServerInfoMessage?.features?.restartContinuation !== true)
+        throw new Error("Update this daemon to preserve tasks across restarts");
+      const expectedMode = options.restartContinuation === "capture" ? "drain" : "cancel-drain";
+      if (!options.restartDrainId || options.idleMode !== expectedMode || options.heldRestart)
+        throw new Error("Restart continuation requires its exact request and control mode");
+    }
+  }
+
   async restartServer(
     reason?: string,
     requestId?: string,
     options?: RestartServerOptions,
   ): Promise<RestartRequestedStatusPayload> {
+    this.requireRestartContinuation(options);
     const heldRestart = this.requireHeldRestart(options);
     if (options?.idleMode && this.lastServerInfoMessage?.features?.idleRestart !== true) {
       throw new Error("Update this daemon to support idle restarts");
@@ -4364,6 +4424,7 @@ export class DaemonClient {
       type: "restart_server_request",
       heldRestart,
       restartDrainId: options?.restartDrainId,
+      restartContinuation: options?.restartContinuation,
       idleMode: options?.idleMode,
       ...(reason && reason.trim().length > 0 ? { reason } : {}),
       requestId: resolvedRequestId,
@@ -6108,9 +6169,14 @@ export class DaemonClient {
     });
   }
 
-  async createClaudeAccount(creationId: string, name: string) {
+  async createClaudeAccount(creationId: string, name: string, signIn?: "full") {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.claude.create_account.response">({
-      message: { type: "provider.claude.create_account.request", creationId, name },
+      message: {
+        type: "provider.claude.create_account.request",
+        creationId,
+        name,
+        ...(signIn ? { signIn } : {}),
+      },
     });
   }
 

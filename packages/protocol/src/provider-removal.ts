@@ -26,5 +26,10 @@ export const ProviderRemoveRequestSchema = z.object({
 });
 export const ProviderRemoveResponseSchema = z.object({
   type: z.literal("provider.connection.remove.response"),
-  payload: z.object({ requestId: z.string(), plan: ProviderRemovalPlanSchema }),
+  payload: z.object({
+    requestId: z.string(),
+    plan: ProviderRemovalPlanSchema,
+    /** Removal succeeded, but a cleanup step (such as provider sign-out) did not. */
+    warning: z.string().optional(),
+  }),
 });

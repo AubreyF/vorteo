@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { connectToDaemon, resolveAgentId } from "../../utils/client.js";
+import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import type {
   CommandError,
   CommandOptions,
@@ -31,7 +32,7 @@ export async function runDetachCommand(
     const payload = await client.fetchAgents({ filter: { includeArchived: true } });
     const agentId = resolveAgentId(
       agentIdArg,
-      payload.entries.map((entry) => entry.agent),
+      payload.entries.map((entry: { agent: AgentSnapshotPayload }) => entry.agent),
     );
     if (!agentId) {
       throw {

@@ -5,6 +5,7 @@ import { SidebarCallout } from "@/components/sidebar-callout";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { Theme } from "@/styles/theme";
 import { SidebarSeparator } from "@/components/sidebar/sidebar-separator";
+import { Button } from "@/components/ui/button";
 
 export const MaintenanceNoticePlacement = createContext<"floating" | "sidebar" | "rail">(
   "floating",
@@ -22,6 +23,7 @@ export function MaintenanceNotice({
   onReview,
   testID,
   sidebarOnly = false,
+  onCancel,
 }: {
   title: string;
   description: string;
@@ -31,6 +33,8 @@ export function MaintenanceNotice({
   onReview: () => void;
   testID?: string;
   sidebarOnly?: boolean;
+  /** Withdraws the request from its sidebar row; approval stays in Installation controls. */
+  onCancel?: () => void;
 }) {
   const placement = useContext(MaintenanceNoticePlacement);
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -85,6 +89,17 @@ export function MaintenanceNotice({
           {description}
         </Text>
       </View>
+      {onCancel ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          onPress={onCancel}
+          accessibilityLabel={`Cancel: ${title}`}
+          testID={testID ? `${testID}-cancel` : undefined}
+        >
+          Cancel
+        </Button>
+      ) : null}
     </Pressable>
   );
 }

@@ -10,6 +10,7 @@ Use this index to find the document that owns your task. Read relevant subjects 
 | [docs/product.md](product.md)                                         | What Vorteo is, who it's for, where it's going                                                                                 |
 | [docs/architecture.md](architecture.md)                               | System design, package layering, WebSocket protocol, agent lifecycle, data flow                                                |
 | [docs/agent-lifecycle.md](agent-lifecycle.md)                         | Agent states, parent/child relationships, archive semantics, tabs vs archive, subagents track                                  |
+| [Task delivery](task-delivery.md)                                     | Task worktrees, publishing to main, Host delivery, archive readiness and worktree cleanup scripts                              |
 | [docs/data-model.md](data-model.md)                                   | File-based JSON persistence, Zod schemas, atomic writes, no migrations                                                         |
 | [docs/glossary.md](glossary.md)                                       | Authoritative terminology — UI label wins, no synonyms                                                                         |
 | [docs/coding-standards.md](coding-standards.md)                       | Type hygiene, error handling, state design, React patterns, file organization                                                  |
@@ -26,6 +27,7 @@ Use this index to find the document that owns your task. Read relevant subjects 
 | [docs/custom-providers.md](custom-providers.md)                       | Custom provider config: Z.AI, Alibaba/Qwen, ACP agents, profiles, custom binaries                                              |
 | [docs/plugins.md](plugins.md)                                         | Local plugin manifest, directory source config, RPCs, native surfaces, and attachment sources                                  |
 | [Bundled Factory](factory.md)                                         | Read-only observer candidate, controller adoption, native lifecycle and installation boundaries                                |
+| [Vorteo System project](system-project.md)                            | Protected per-daemon project for standing upkeep, adoption, source setup and settings                                          |
 | [docs/service-proxy.md](service-proxy.md)                             | Service proxy: exposing workspace scripts at public URLs, DNS setup, reverse proxy config                                      |
 | [docs/development.md](development.md)                                 | Dev server, build sync gotchas, CLI reference, agent state, Playwright MCP                                                     |
 | [docs/rpc-namespacing.md](rpc-namespacing.md)                         | WebSocket RPC naming convention — dotted namespaces and `.request`/`.response` pairs                                           |

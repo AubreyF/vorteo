@@ -12,11 +12,16 @@ Priorities below describe unfinished work. The [customizations inventory](vorteo
 
 ## Next capabilities
 
+- **Grow the Vorteo System project.** Keep the Vorteo source clone in step with each installed update without disturbing operators' worktrees. Ship the Optimization Runner's tasks and schedule in source, installed by launchd on the Host, supervisord in the Dev container and the daemon scheduler on plain installs. Add a Monitoring role with cheap Host and Dev collectors and threshold-driven advice. See [Vorteo System project](system-project.md#limitations).
+
 - **Recover installation services before login.** Future work, explicitly outside the current unattended-maintenance delivery. Evaluate system-level service registration, credential access and container startup before a user session exists. Current recovery acceptance begins after login with the container runtime available.
 
 - **Broker service credentials.** Define environment identities and bounded grants, then implement a credential broker and first GitHub connector. Resolve operation scope, identity, key custody, revocation and recovery before implementation. See [environment grants](plans/execution-environments/environment-grants.md) and the [broker plan](plans/execution-environments/credential-broker.md).
 - **Extend goals across providers.** Build on the existing Codex-native controls with durable objectives, checkpoints, completion evidence and reviewed handoffs across models. Coordinate budgets, queue delivery, quota admission and restart recovery through one continuation owner. Qualify Codex Secondary and Pi first, then other providers; do not run competing native and daemon continuation loops.
-- **Expand execution isolation.** Evaluate task containers, Apple Container, folder grants and environment authorization as separately scoped projects. Keep credential, browser-trust and installation-recovery research in the [execution environment plans](plans/execution-environments/README.md#independent-future-projects).
+- **Expand execution isolation.** Evaluate task containers, Apple Container, folder grants and environment authorization as separately scoped projects. Keep credential, browser-trust and installation-recovery research in the [execution environment plans](plans/execution-environments/README.md#independent-future-projects). The deferred [signed-in browser profiles](plans/execution-environments/browser-profiles.md) design records storage, sign-in, grant and isolation findings for granting limited logins to chosen workspaces.
+
+- **Rename the container user to `vorteo`.** The image, entrypoint, compose file, HTTPS broker, tests and docs still use `paseo` and `/home/paseo`. Existing volumes, agent worktrees and task artifacts live under that home, so the rename needs a migration with compatibility paths and an approved restart. The Add project interface already hides the container home path.
+- **Browse the whole filesystem on native hosts.** The folder browser's daemon roots cover only the home folder on a native host, so other locations must be typed. Add a filesystem root for non-container daemons behind a capability, keeping container roots limited to shares and container storage.
 
 ## Keep pace with Paseo
 

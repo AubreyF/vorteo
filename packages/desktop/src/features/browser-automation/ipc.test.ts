@@ -1,7 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
-import { executeAutomationCommand, type BrowserRegistry, type TabImage } from "./service.js";
+import {
+  executeAutomationCommand,
+  type BrowserRegistry,
+  type TabImage,
+} from "@getpaseo/server/browser-automation/service";
 import { adaptWebContents, HostSnapshotEngineRegistry } from "./ipc.js";
-import type { IsolatedKeyboardInputEvent } from "./trusted-input.js";
+import type { IsolatedKeyboardInputEvent } from "@getpaseo/server/browser-automation/trusted-input";
 
 class FakeImage implements TabImage {
   public toPNG(): Uint8Array {

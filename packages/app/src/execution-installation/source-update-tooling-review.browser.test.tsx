@@ -12,7 +12,12 @@ import type {
 import { MaintenanceProvisioning } from "./maintenance-provisioning";
 import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
 import { BootstrapPanelModel } from "./bootstrap-model";
-import { BootstrapReview, PreclaimRecoveryReview, ClaimedRecoveryReview } from "./bootstrap-panel";
+import {
+  BootstrapHistory,
+  BootstrapReview,
+  PreclaimRecoveryReview,
+  ClaimedRecoveryReview,
+} from "./bootstrap-panel";
 
 vi.mock("expo-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/runtime/host-runtime", () => ({
@@ -245,7 +250,8 @@ test.each([1280, 390])(
         await act(async () => {
           await page.getByTestId(`bootstrap-${action}`).click();
           // Move off the disabled decision wrapper before it can open a hover tooltip.
-          await page.getByTestId("coordinator-bootstrap-review").hover();
+          // A canceled request leaves the review for history, so hover the container.
+          await page.elementLocator(container).hover();
         });
         expect(decide).toHaveBeenLastCalledWith(
           {
@@ -316,9 +322,20 @@ test.each([1280, 390])(
       },
     };
     const initial = current;
+    // An earlier recovery whose cleanup was verified belongs in history only.
+    const finished: BootstrapPreclaimRecoveryRequest = {
+      ...current,
+      id: "00000000-0000-4000-8000-000000000010",
+      status: "approved",
+      execution: {
+        generation: "00000000-0000-4000-8000-000000000011",
+        stage: "succeeded",
+        updatedAt: "2026-10-11T20:05:00.000Z",
+      },
+    };
     const sent: CoordinatorBootstrapDecision[] = [];
     const model = new BootstrapPanelModel<BootstrapPreclaimRecoveryRequest>(() => ({
-      listCoordinatorBootstrapRequests: async () => [current],
+      listCoordinatorBootstrapRequests: async () => [finished, current],
       decideCoordinatorBootstrap: async (input, password) => {
         sent.push(input);
         if (password !== "disposable-owner-proof")
@@ -342,6 +359,12 @@ test.each([1280, 390])(
     try {
       await act(() => model.refresh());
       act(() => root.render(<PreclaimRecoveryReview model={model} />));
+      expect(container.querySelectorAll('[data-testid^="bootstrap-recovery-0000"]')).toHaveLength(
+        1,
+      );
+      expect(
+        container.querySelector(`[data-testid="bootstrap-recovery-${finished.id}"]`),
+      ).toBeNull();
       expect(sent).toEqual([]);
       expect(
         page.getByTestId("bootstrap-recovery-approve").element().getAttribute("aria-disabled"),
@@ -392,7 +415,11 @@ test.each([1280, 390])(
           decision: action,
         });
       }
-      expect(container.textContent).toContain("Canceled");
+      // A canceled recovery is finished: it leaves the review for the Installation history.
+      expect(current.status).toBe("canceled");
+      expect(
+        container.querySelector(`[data-testid="bootstrap-recovery-${initial.id}"]`),
+      ).toBeNull();
       expect(model.getState().hasPassword).toBe(false);
       expect(container.querySelector('[data-testid="bootstrap-recovery-approve"]')).toBeNull();
     } finally {
@@ -451,17 +478,25 @@ test.each([390, 1280])(
           timeout: 3000,
         })
         .not.toBe(elapsed);
-      await act(async () => {
-        await page.getByRole("button", { name: "Show coordinator history (2)" }).click();
-      });
+      // Finished updates render in the Installation history, never in the review.
+      act(() =>
+        root.render(
+          <>
+            <BootstrapReview model={model} />
+            <BootstrapHistory model={model} />
+          </>,
+        ),
+      );
       expect(container.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')).toHaveLength(
         3,
       );
       expect(container.querySelectorAll('[data-testid="coordinator-elapsed"]')).toHaveLength(1);
       expect(container.querySelectorAll('[data-testid="bootstrap-cancel"]')).toHaveLength(1);
       const history = page.getByTestId("coordinator-history-content").element();
-      expect(history.closest('[data-testid="coordinator-bootstrap-review"]')).not.toBeNull();
-      expect(getComputedStyle(history).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+      expect(history.closest('[data-testid="coordinator-bootstrap-review"]')).toBeNull();
+      expect(history.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')).toHaveLength(
+        2,
+      );
       for (const item of history.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')) {
         expect(getComputedStyle(item).borderTopWidth).toBe("0px");
       }
@@ -599,7 +634,11 @@ test.each([1280, 390])(
           decision: action,
         });
       }
-      expect(container.textContent).toContain("Canceled");
+      // A canceled recovery is finished: it leaves the review for the Installation history.
+      expect(current.status).toBe("canceled");
+      expect(
+        container.querySelector(`[data-testid="bootstrap-recovery-${initial.id}"]`),
+      ).toBeNull();
       expect(model.getState().hasPassword).toBe(false);
       expect(container.querySelector('[data-testid="bootstrap-recovery-approve"]')).toBeNull();
     } finally {

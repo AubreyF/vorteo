@@ -1551,6 +1551,132 @@ finally:
 );
 
 test.runIf(process.platform === "darwin")(
+  "automatic watchdog accepts advancing executor activity while the stage stays claimed, up to a cap",
+  async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "bootstrap-activity-")));
+    roots.push(root);
+    const helper = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/run-coordinator-owner.py",
+    );
+    const inspector = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/inspect-coordinator-process.py",
+    );
+    // A simulated clock replaces the helper's monotonic time and sleep. The
+    // executor stand-in is a real process so a fence would be observable.
+    const probe = `
+import ctypes,fcntl,importlib.util,signal,subprocess,sys
+
+def load(name,path):
+ spec=importlib.util.spec_from_file_location(name,path)
+ module=importlib.util.module_from_spec(spec)
+ spec.loader.exec_module(module)
+ return module
+owner=load('owner',sys.argv[1]); inspector=load('inspector',sys.argv[2]); lock=sys.argv[3]
+
+class Clock:
+ def __init__(self,release): self.now=0.0; self.release=release
+ def monotonic(self): return self.now
+ def sleep(self,seconds):
+  self.now+=seconds
+  if self.release(self): fcntl.flock(holder,fcntl.LOCK_UN)
+
+def run(release,activity):
+ global holder
+ child=subprocess.Popen([sys.executable,'-c',"import time; print('ready',flush=True); time.sleep(60)"],stdout=subprocess.PIPE,text=True)
+ try:
+  assert child.stdout.readline().strip()=='ready'
+  token=inspector.audit_token(ctypes.CDLL('/usr/lib/libSystem.B.dylib',use_errno=True),child.pid)
+  holder=open(lock,'w'); fcntl.flock(holder,fcntl.LOCK_EX)
+  clock=Clock(lambda c: release(c,child)); owner.time=clock
+  with open(lock) as descriptor:
+   owner.wait_for_executor(descriptor,token,progress=lambda:'claimed',activity=lambda:activity(clock))
+  holder.close()
+  return clock.now,child
+ finally:
+  if child.poll() is None: child.kill()
+
+# Executor is alive and its runner sequence advances until it finishes at 300 s.
+finished,child=run(lambda c,_: c.now>=300,lambda c:(min(int(c.now),299),'t'))
+assert 300<=finished<301 and child.poll() is None,(finished,child.poll())
+# Executor loops forever: activity cannot postpone the fence past the cap.
+limit=owner.EXECUTOR_ACTIVITY_LIMIT
+fenced,child=run(lambda c,child: c.now>=limit+0.5 and child.wait(timeout=2) is not None,lambda c:(int(c.now),'t'))
+assert child.wait(timeout=2)==-signal.SIGTERM
+assert limit<=fenced<limit+2,fenced
+# Without activity the original stage-only timeout still applies.
+fenced,child=run(lambda c,child: c.now>=180.5 and child.wait(timeout=2) is not None,lambda c:None)
+assert child.wait(timeout=2)==-signal.SIGTERM and 180<=fenced<182,fenced
+print('verified')
+`;
+    const result = await promisify(execFile)(
+      "/usr/bin/python3",
+      ["-I", "-B", "-c", probe, helper, inspector, path.join(root, "lock")],
+      { timeout: 30000 },
+    );
+    expect(result.stdout.trim()).toBe("verified");
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "automatic watchdog reads activity only from the exact executor runner file",
+  async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "bootstrap-runner-activity-")));
+    roots.push(root);
+    chmodSync(root, 0o700);
+    const id = randomUUID();
+    const record = { id, generation: randomUUID(), planSha256: "a".repeat(64), pid: 4242 };
+    const runner = {
+      version: 1,
+      authority: "diagnostic-only",
+      requestId: id,
+      revision: 1,
+      planSha256: record.planSha256,
+      generation: record.generation,
+      role: "executor",
+      pid: record.pid,
+      updatedAt: "2026-10-19T18:58:23.339Z",
+      sequence: 92,
+    };
+    const write = (name: string, value: unknown, mode = 0o600) => {
+      const file = path.join(root, `coordinator-runner-${id}-${name}.json`);
+      writeFileSync(file, typeof value === "string" ? value : JSON.stringify(value), { mode });
+      chmodSync(file, mode);
+    };
+    const script = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/run-coordinator-owner.py",
+    );
+    const read = async () =>
+      (
+        await promisify(execFile)("/usr/bin/python3", [
+          "-I",
+          "-B",
+          "-c",
+          "import runpy,sys,json; m=runpy.run_path(sys.argv[1]); print(json.dumps(m['executor_runner_activity'](sys.argv[2],json.loads(sys.argv[3]))))",
+          script,
+          root,
+          JSON.stringify(record),
+        ])
+      ).stdout.trim();
+    expect(JSON.parse(await read())).toBeNull();
+    write("watchdog", { ...runner, role: "watchdog", sequence: 500 });
+    write("foreign-pid", { ...runner, pid: 1, sequence: 500 });
+    write("foreign-generation", { ...runner, generation: randomUUID(), sequence: 500 });
+    write("unprotected", { ...runner, sequence: 500 }, 0o644);
+    write("unreadable", "{");
+    // Deeply nested JSON raises RecursionError; it must not crash the watchdog.
+    write("nested", "[".repeat(200_000));
+    expect(JSON.parse(await read())).toBeNull();
+    write("executor", runner);
+    expect(JSON.parse(await read())).toEqual([92, runner.updatedAt]);
+    write("duplicate", { ...runner, sequence: 93 });
+    expect(JSON.parse(await read())).toBeNull();
+  },
+);
+
+test.runIf(process.platform === "darwin")(
   "independent watchdog reads a pre-promotion claim and follows main after progress",
   async () => {
     const f = fixture();
@@ -2577,8 +2703,10 @@ test.runIf(process.platform === "darwin")(
       Mounts: [],
     });
     duringInspection.run = () => writeFileSync(file, "changed prepared tooling");
+    // The final pass reuses the operation's retained tooling proof, whose
+    // metadata assertion refuses before any second byte digest.
     await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow(
-      "Prepared release artifact changed",
+      "Prepared artifact changed during verification",
     );
     restore();
     duringInspection.run = () => {
