@@ -1096,7 +1096,11 @@ function DevRepairAction({
   );
 }
 
-function RestartActions({
+function isPlainHostRestart(job: RestartJob): boolean {
+  return job.target === "host" && !job.supervisorPlanSha256 && !job.factoryRuntimePlanSha256;
+}
+
+export function RestartActions({
   job,
   model,
   busy,
@@ -1111,6 +1115,7 @@ function RestartActions({
   const pending = job.status === "pending";
   const queued = job.status === "approved" && job.whenIdle;
   const source = Boolean(job.update || job.sourceBatch);
+  const plainHostRestart = isPlainHostRestart(job);
   const install = useCallback(() => {
     void model.decide(job, "approve");
   }, [job, model]);
@@ -1174,6 +1179,7 @@ function RestartActions({
               ? "Finish turns and adopt Factory startup"
               : "Finish turns and restart"}
           </RestartActionButton>
+          {plainHostRestart ? <ForceRestartButton job={job} model={model} busy={busy} /> : null}
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>

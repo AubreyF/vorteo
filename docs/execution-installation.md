@@ -119,6 +119,19 @@ A queued plain restart authorizes restarting the installed runtime at the select
 
 A coordinator restart preserves an idle approval that has not been dispatched, but marks other previously approved or running jobs as interrupted. It never replays an ambiguous restart. Inspect the target and submit a new request if another attempt is necessary. These controls do not update release files, roll back databases, or promise to preserve an in-progress provider turn.
 
+#### Rolling the coordinator back to vorteo.689
+
+Vorteo.689 reads `<stateDir>/restart-jobs.json` with a strict schema that predates `continuationCaptureId`. Later coordinators record that field only while a Restart when idle request holds a task capture, remove it when the hold is released, and never send it to clients. A job keeps it only in a short window: between capture and the idle check, or while the target is unreachable and the release keeps failing. A rollback during that window makes vorteo.689's startup fence reject the journal.
+
+Before rolling back, cancel or finish every approved Restart when idle request, then confirm that no job in `restart-jobs.json` contains `continuationCaptureId`. If a rollback has already failed on that field:
+
+1. Make sure no coordinator is running; the running one holds `coordinator-bootstrap.lock` and owns the file.
+2. Copy `restart-jobs.json` to a dated backup outside the state directory.
+3. Delete only the `continuationCaptureId` key from each job that has it. Keep `continuationCaptureRequested` and every other field, and keep the file valid JSON.
+4. Start vorteo.689 and confirm its startup fence passes.
+
+Tasks captured under the deleted cause stay held, because vorteo.689 releases holds under the job ID. To release them, run a newer coordinator against the backup until the job's hold shows as released, then roll back again. Do not edit the journal while a coordinator is running, and do not change job status, revisions or approvals by hand.
+
 LaunchAgents keep the new components running while the owner is logged in. Operation before login, complete Docker outages and host shutdown recovery require separate acceptance or future work. A guest daemon that cannot accept its restart RPC needs host diagnosis; this version does not expose general Docker control.
 
 ## Agent management

@@ -37,7 +37,7 @@ initializePackagedClaudeCli(true);
 function assertRegistrationReadiness(target: "host" | "container-daemon"): void {
   app.assertRegistrationReadiness(target);
 }
-const executor = createInstallationRestartExecutor(config, assertRegistrationReadiness);
+const executor = createInstallationRestartExecutor(config, assertRegistrationReadiness, logger);
 if (process.platform === "darwin") {
   executor.reconcileInitialHostActivation = () =>
     reconcileNativeInitialHostActivation({

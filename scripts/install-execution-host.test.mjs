@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { postCoordinatorRequest } from "./installation-agent.mjs";
 import fs from "node:fs/promises";
 import {
   mkdtempSync,
@@ -722,3 +723,216 @@ test.each(["lineage", "conflict", "config-mismatch", "config-race", "missing-gra
     }
   },
 );
+
+test("coordinator transport retains a sixteen-minute deadline and cleans up after completion", async () => {
+  const requests = [];
+  const server = createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    requests.push({ method: req.method, body });
+    res.writeHead(201, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ id: "retained", status: "pending" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const scheduled = [];
+  const cleared = [];
+  const token = Symbol("deadline");
+  try {
+    const response = await postCoordinatorRequest(
+      new URL(`http://127.0.0.1:${server.address().port}/prepare`),
+      {
+        headers: { "Content-Type": "application/json" },
+        body: '{"id":"retained"}',
+      },
+      {
+        setTimeout(_callback, milliseconds) {
+          scheduled.push(milliseconds);
+          return token;
+        },
+        clearTimeout(timer) {
+          cleared.push(timer);
+        },
+      },
+    );
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ id: "retained", status: "pending" });
+    expect(requests).toEqual([{ method: "POST", body: '{"id":"retained"}' }]);
+    expect(scheduled).toEqual([16 * 60_000]);
+    expect(cleared).toEqual([token]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test.each(["headers", "body"])(
+  "coordinator transport bounds stalled %s by the original deadline without retry",
+  async (phase) => {
+    const arrived = Promise.withResolvers();
+    const disconnected = Promise.withResolvers();
+    let requests = 0;
+    const server = createServer((req, res) => {
+      requests += 1;
+      req.socket.once("close", () => disconnected.resolve());
+      req.resume();
+      if (phase === "body") {
+        res.writeHead(201);
+        res.write('{"id":');
+      }
+      arrived.resolve();
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const scheduled = [];
+    const cleared = [];
+    let expire;
+    const token = Symbol("deadline");
+    try {
+      const pending = postCoordinatorRequest(
+        new URL(`http://127.0.0.1:${server.address().port}/prepare`),
+        { headers: {}, body: "{}" },
+        {
+          setTimeout(callback, milliseconds) {
+            expire = callback;
+            scheduled.push(milliseconds);
+            return token;
+          },
+          clearTimeout(timer) {
+            cleared.push(timer);
+          },
+        },
+      );
+      const rejection = expect(pending).rejects.toThrow();
+      await arrived.promise;
+      expect(scheduled).toEqual([16 * 60_000]);
+      expire();
+      await rejection;
+      await disconnected.promise;
+      expect(requests).toBe(1);
+      expect(cleared).toEqual([token]);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  },
+);
+
+test("coordinator transport cleans up connection failure without retry", async () => {
+  let requests = 0;
+  const server = createServer((req, res) => {
+    requests += 1;
+    req.resume();
+    res.destroy();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const cleared = [];
+  const token = Symbol("deadline");
+  try {
+    await expect(
+      postCoordinatorRequest(
+        new URL(`http://127.0.0.1:${server.address().port}/prepare`),
+        { headers: {}, body: "{}" },
+        {
+          setTimeout() {
+            return token;
+          },
+          clearTimeout(timer) {
+            cleared.push(timer);
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "ECONNRESET" });
+    expect(requests).toBe(1);
+    expect(cleared).toEqual([token]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("coordinator transport rejects redirects without forwarding or retrying preparation", async () => {
+  const urls = [];
+  const server = createServer((req, res) => {
+    urls.push(req.url);
+    req.resume();
+    res.writeHead(302, { Location: "/unexpected" });
+    res.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await expect(
+      postCoordinatorRequest(new URL(`http://127.0.0.1:${server.address().port}/prepare`), {
+        headers: {},
+        body: "{}",
+      }),
+    ).rejects.toThrow("redirected");
+    expect(urls).toEqual(["/prepare"]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("standalone copied coordinator CLI submits once without package dependencies and exits after receipt", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "installation-coordinator-standalone-"));
+  const id = "6eb00d50-5af8-4333-89cb-40c98be430d7";
+  const calls = [];
+  const server = createServer(async (req, res) => {
+    let text = "";
+    for await (const chunk of req) text += chunk;
+    calls.push({ method: req.method, url: req.url, body: text });
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify(
+        req.method === "GET"
+          ? {
+              coordinatorMaintenance: {
+                available: true,
+                automaticAvailable: true,
+                ownerApprovalRequired: false,
+              },
+            }
+          : { id, status: "pending" },
+      ),
+    );
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const script = path.join(root, "installation-agent.mjs");
+    writeFileSync(script, readFileSync(path.resolve("scripts/installation-agent.mjs")));
+    const config = path.join(root, "client.json");
+    writeFileSync(
+      config,
+      JSON.stringify({
+        kind: "host-agent",
+        origin: `http://127.0.0.1:${server.address().port}`,
+        publicOrigin: "https://installation.example.test",
+        token: "inert-fixture",
+      }),
+    );
+    const preparation = path.join(root, "preparation.json");
+    writeFileSync(preparation, JSON.stringify({ id }));
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [script, "--config", config, "request-coordinator", "--request-file", preparation],
+      { timeout: 10_000 },
+    );
+    expect(JSON.parse(stdout)).toEqual({
+      id,
+      status: "pending",
+      approvalUrl: `https://installation.example.test/settings/general?installation=1&bootstrap=${id}`,
+    });
+    expect(calls).toEqual([
+      { method: "GET", url: "/api/installation/capabilities", body: "" },
+      {
+        method: "POST",
+        url: "/api/installation/coordinator-requests",
+        body: JSON.stringify({ preparation: { id } }),
+      },
+    ]);
+    expect(existsSync(path.join(root, "node_modules"))).toBe(false);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(root, { recursive: true, force: true });
+  }
+});

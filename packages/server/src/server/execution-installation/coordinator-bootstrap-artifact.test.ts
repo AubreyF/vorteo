@@ -5,6 +5,7 @@ import {
 } from "./maintenance/host-startup-contract.js";
 import { test, expect, afterEach, vi } from "vitest";
 import * as nativeFs from "node:fs";
+import { Worker } from "node:worker_threads";
 import {
   mkdtemp,
   cp,
@@ -21,6 +22,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import {
+  withBootstrapReleaseInspection,
   digestBootstrapArtifact,
   inspectBootstrapArtifact,
   assertBootstrapPathsProtected,
@@ -34,6 +36,26 @@ vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return { ...actual, lstatSync: vi.fn(actual.lstatSync) };
 });
+
+vi.mock("node:worker_threads", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:worker_threads")>();
+  return {
+    ...actual,
+    Worker: vi.fn(function (...args: ConstructorParameters<typeof actual.Worker>) {
+      return new actual.Worker(...args);
+    }),
+  };
+});
+
+function treeScans(directory: string): number {
+  return vi
+    .mocked(Worker)
+    .mock.calls.filter(
+      ([, options]) =>
+        options?.workerData?.role === "vorteo-artifact-scan" &&
+        options.workerData.directory === directory,
+    ).length;
+}
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -516,3 +538,92 @@ test.each(["missing lookup", "package metadata"])(
     await expect(ports.finish()).rejects.toThrow("resolution changed");
   },
 );
+
+test("one verification reuses a runtime while validating separate configuration and launcher pins", async () => {
+  const { root, release, candidate } = await preparedReleaseFixture();
+  const configuration = path.join(root, "fallback.json");
+  const launcher = path.join(root, "fallback.plist");
+  await writeFile(configuration, "fallback config", { mode: 0o600 });
+  await writeFile(launcher, "fallback launcher", { mode: 0o600 });
+  const pin = (file: string, bytes: string) => ({
+    path: file,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  });
+  const fallback = {
+    ...candidate,
+    configuration: pin(configuration, "fallback config"),
+    launcher: pin(launcher, "fallback launcher"),
+  };
+  vi.mocked(Worker).mockClear();
+  await withBootstrapReleaseInspection(async (inspect) => {
+    await Promise.all([inspect(candidate, []), inspect(fallback, [])]);
+    await inspect(candidate, []);
+    await expect(
+      inspect(
+        {
+          ...fallback,
+          configuration: candidate.configuration,
+          launcher: { ...fallback.launcher, sha256: "0".repeat(64) },
+        },
+        [],
+      ),
+    ).rejects.toThrow("digest changed");
+    await expect(inspect(candidate, [root])).rejects.toThrow("mount");
+  });
+  expect(treeScans(release)).toBe(1);
+  await withBootstrapReleaseInspection(async (inspect) => {
+    await inspect(candidate, []);
+  });
+  expect(treeScans(release)).toBe(2);
+});
+
+test("reuse refuses a different expected digest and a canonical directory alias", async () => {
+  const { root, release, candidate } = await preparedReleaseFixture();
+  const alias = path.join(root, "alias");
+  await symlink(release, alias);
+  await withBootstrapReleaseInspection(async (inspect) => {
+    await inspect(candidate, []);
+    await expect(inspect({ ...candidate, artifactSha256: "0".repeat(64) }, [])).rejects.toThrow(
+      "artifact changed",
+    );
+    await expect(inspect({ ...candidate, directory: alias }, [])).rejects.toThrow();
+  });
+});
+
+test.each(["runtime", "configuration", "launcher", "node", "receipt"])(
+  "verification refuses %s mutation after the final inspection callback",
+  async (target) => {
+    const { release, candidate } = await preparedReleaseFixture();
+    const files: Record<string, string> = {
+      runtime: path.join(release, "entry.js"),
+      configuration: candidate.configuration.path,
+      launcher: candidate.launcher.path,
+      node: candidate.node.path,
+      receipt: path.join(release, ".installation-source.json"),
+    };
+    await expect(
+      withBootstrapReleaseInspection(async (inspect) => {
+        await inspect(candidate, []);
+        await inspect(candidate, []);
+        await writeFile(files[target], "mutated after inspection");
+      }),
+    ).rejects.toThrow("changed");
+  },
+);
+
+test("retained runtime mutation cannot be accepted by a later reuse", async () => {
+  const { release, candidate } = await preparedReleaseFixture();
+  await expect(
+    withBootstrapReleaseInspection(async (inspect) => {
+      await inspect(candidate, []);
+      await writeFile(path.join(release, "extra.js"), "new dependency", { mode: 0o600 });
+      await inspect(candidate, []);
+    }),
+  ).rejects.toThrow("changed");
+});
+
+test("inspection callable expires with its operation", async () => {
+  const { candidate } = await preparedReleaseFixture();
+  const retainedInspect = await withBootstrapReleaseInspection(async (inspect) => inspect);
+  await expect(retainedInspect(candidate, [])).rejects.toThrow("scope ended");
+});

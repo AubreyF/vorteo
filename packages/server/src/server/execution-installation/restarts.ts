@@ -155,6 +155,14 @@ export interface RestartExecutor {
   /** Independently inspected process birth and boot identity, only for initial migration. */
   initialActivationInstance?(job: RestartJob): Promise<string>;
   releaseCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
+  /** False when the target cannot hold durable continuation, e.g. an older daemon. */
+  restartContinuationAvailable?(target: RestartJob["target"]): Promise<boolean>;
+  captureRestartContinuation?(target: RestartJob["target"], requestId: string): Promise<void>;
+  releaseRestartContinuation?(
+    target: RestartJob["target"],
+    requestId: string,
+    outcome: "ready" | "cancelled",
+  ): Promise<boolean>;
 }
 
 export function supportsAutomaticMaintenance(executor: RestartExecutor): boolean {
@@ -1503,7 +1511,7 @@ export class InstallationRestarts {
     }
     if (decision === "finish-current-turns") return this.approveFinish(job);
     if (decision === "cancel") {
-      if (job.status !== "approved" || !job.whenIdle)
+      if (job.status !== "approved" || (!job.whenIdle && !job.continuationCaptureRequested))
         throw new RestartRequestError("Restart is not waiting or has already dispatched");
       const next = {
         ...job,
@@ -1752,11 +1760,80 @@ export class InstallationRestarts {
     return { ...next };
   }
 
+  private async captureRestartContinuation(job: RestartJob): Promise<RestartJob> {
+    // COMPAT(restartContinuation): old executor adapters retain their existing
+    // behavior; remove once every coordinator adapter implements durable capture.
+    if (!this.executor.captureRestartContinuation) {
+      if (job.continuationCaptureRequested)
+        throw new RestartRequestError(
+          "Recorded restart continuation requires a compatible executor",
+        );
+      return job;
+    }
+    if (!this.executor.releaseRestartContinuation)
+      throw new RestartRequestError("Restart continuation release is unavailable");
+    const approved = () => {
+      this.refreshApprovalPolicy();
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status !== "approved" || current.revision !== job.revision)
+        throw new RestartRequestError("Restart permission changed before continuation capture");
+      return current;
+    };
+    let current = approved();
+    // COMPAT(restartContinuation): an older or unreachable target keeps legacy behavior.
+    // Never record intent the target cannot release. Recorded intent stays for release.
+    if (
+      this.executor.restartContinuationAvailable &&
+      !(await this.executor.restartContinuationAvailable(job.target))
+    )
+      return approved();
+    if (current.continuationCaptureRequested && current.continuationCaptureId) {
+      // An earlier idle attempt may have released this cause before its receipt was saved.
+      if (!(await this.releaseIdleContinuation(current)))
+        throw new RestartRequestError("Waiting for the environment to release its restart hold");
+      current = approved();
+    }
+    if (!current.continuationCaptureRequested) {
+      const idleOnly = current.whenIdle && !current.finishCurrentTurns;
+      current = {
+        ...current,
+        continuationCaptureRequested: true,
+        continuationCaptureId: idleOnly ? randomUUID() : undefined,
+      };
+      this.replace(current);
+    }
+    await this.executor.captureRestartContinuation(job.target, continuationId(current));
+    this.refreshApprovalPolicy();
+    const acknowledged = this.jobs.find((item) => item.id === job.id);
+    if (acknowledged?.status !== "approved" || acknowledged.revision !== job.revision)
+      throw new RestartRequestError("Restart permission changed during continuation capture");
+    return acknowledged;
+  }
+
+  /** Idle-only restarts never hold admission while they wait for idleness. */
+  private async releaseIdleContinuation(job: RestartJob): Promise<boolean> {
+    try {
+      const released = await this.executor.releaseRestartContinuation?.(
+        job.target,
+        continuationId(job),
+        "cancelled",
+      );
+      if (!released) return false;
+    } catch {
+      return false;
+    }
+    const current = this.jobs.find((item) => item.id === job.id);
+    if (current?.status === "approved")
+      this.replace({ ...withoutCaptureId(current), continuationCaptureRequested: undefined });
+    return true;
+  }
+
   private async inspectBeforeRestart(job: RestartJob): Promise<RestartImpact> {
     if (!this.executor.inspect) throw new Error("Idle restart inspection is unavailable");
     if (job.finishCurrentTurns && job.standingDecision) return this.inspectStandingHold(job);
     if (job.finishCurrentTurns) {
       if (!this.executor.holdCurrentTurns) throw new Error("Graceful restart unavailable");
+      job = await this.captureRestartContinuation(job);
       await this.executor.holdCurrentTurns(job.target, job.id);
     }
     return this.inspectHeldTarget(job);
@@ -1801,6 +1878,7 @@ export class InstallationRestarts {
       // The journal's locked admission is the hold dispatch boundary. Revocation
       // after this reservation permits only observation and authorized stabilization.
       this.replace(job);
+      job = await this.captureRestartContinuation(job);
       await this.executor.holdCurrentTurns(job.target, job.id);
       impact = await this.inspectHeldTarget(job);
     }
@@ -1839,6 +1917,7 @@ export class InstallationRestarts {
         },
       };
       this.replace(job);
+      job = await this.captureRestartContinuation(job);
       await this.executor.holdCurrentTurns!(job.target, job.id);
       if ((await this.executor.initialActivationInstance!(job)) !== instance)
         throw new RestartRequestError("Initial daemon lifetime changed during hold admission");
@@ -2007,7 +2086,9 @@ export class InstallationRestarts {
     );
     if (
       !factoryUncertain &&
-      !this.jobs.some((job) => job.finishCurrentTurns && !job.holdReleased)
+      !this.jobs.some(
+        (job) => (job.finishCurrentTurns || job.continuationCaptureRequested) && !job.holdReleased,
+      )
     ) {
       for (const job of this.monitors.filter((item) => item.status === "approved")) {
         if (this.monitorRecoveryRequired()) break;
@@ -2018,6 +2099,7 @@ export class InstallationRestarts {
 
   private lifecycleAdmitted(job?: RestartJob): boolean {
     if (this.listServices().some(unresolvedMaintenanceService)) return false;
+    if (this.jobs.some((item) => item.id !== job?.id && continuationFenced(item))) return false;
     if (this.journal.admissionAvailable?.() !== false) return true;
     return job !== undefined && this.journal.activationChildAdmissionAvailable?.(job) === true;
   }
@@ -2030,7 +2112,7 @@ export class InstallationRestarts {
   }
 
   private async releaseCompletedHold(job: RestartJob): Promise<void> {
-    if (!this.executor.releaseCurrentTurns) return;
+    if (!job.continuationCaptureRequested && !this.executor.releaseCurrentTurns) return;
     try {
       if (job.standingHold && !job.standingHold.releaseRequestedAt) {
         job = {
@@ -2044,13 +2126,30 @@ export class InstallationRestarts {
         // when its response is lost. Release retries never authorize a restart.
         this.replace(job);
       }
-      await this.executor.releaseCurrentTurns(job.target, job.id);
-      this.replace({ ...job, holdReleased: true });
+      if (job.continuationCaptureRequested && this.executor.releaseRestartContinuation) {
+        const outcome = job.status === "succeeded" ? "ready" : "cancelled";
+        const released = await this.executor.releaseRestartContinuation(
+          job.target,
+          continuationId(job),
+          outcome,
+        );
+        if (!released) throw new RestartRequestError("Restart continuation remains held");
+      } else {
+        // COMPAT(restartContinuation): an adapter without continuation release can
+        // still clear the legacy hold instead of fencing lifecycle work forever.
+        if (!this.executor.releaseCurrentTurns)
+          throw new RestartRequestError("Restart continuation release is unavailable");
+        await this.executor.releaseCurrentTurns(job.target, job.id);
+      }
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current) this.replace({ ...withoutCaptureId(current), holdReleased: true });
     } catch {
-      this.replace({
-        ...job,
-        detail: "Waiting for the environment to release its restart hold.",
-      });
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current)
+        this.replace({
+          ...current,
+          detail: "Waiting for the environment to release its restart hold.",
+        });
     }
   }
 
@@ -2091,7 +2190,12 @@ export class InstallationRestarts {
       if (this.monitorRecoveryRequired()) return;
       this.approveTrustedHostRequests();
       if (await this.dispatchApprovedRestarts()) return;
-      if (!this.jobs.some((job) => job.finishCurrentTurns && !job.holdReleased)) {
+      if (
+        !this.jobs.some(
+          (job) =>
+            (job.finishCurrentTurns || job.continuationCaptureRequested) && !job.holdReleased,
+        )
+      ) {
         for (const job of this.helpers.filter((candidate) => candidate.status === "approved")) {
           if (this.helperRecoveryRequired()) break;
           await this.dispatchHelper(job);
@@ -2124,7 +2228,7 @@ export class InstallationRestarts {
   private async releaseFinishedHolds(): Promise<void> {
     for (const job of this.jobs.filter(
       (candidate) =>
-        candidate.finishCurrentTurns &&
+        (candidate.finishCurrentTurns || candidate.continuationCaptureRequested) &&
         !candidate.holdReleased &&
         ["rejected", "failed", "succeeded"].includes(candidate.status),
     ))
@@ -2251,6 +2355,17 @@ export class InstallationRestarts {
     await this.dispatchRestart(job);
   }
 
+  private async prepareRestartContinuation(job: RestartJob): Promise<RestartJob | null> {
+    try {
+      return await this.captureRestartContinuation(job);
+    } catch (error) {
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status === "approved" && current.revision === job.revision)
+        this.replace({ ...current, detail: restartFailureDetail(current, error) });
+      return null;
+    }
+  }
+
   private async dispatchRestart(job: RestartJob): Promise<void> {
     if (!this.lifecycleAdmitted(job) || !this.automaticDispatchReady(job)) return;
     if (!this.interruptionAvailable(job)) {
@@ -2277,16 +2392,17 @@ export class InstallationRestarts {
       });
       return;
     }
-    if (job.update && job.finishCurrentTurns && this.executor.prepareInstallation) {
-      const prepared = await this.prepareApprovedUpdate(job);
-      if (!prepared) return;
-      job = prepared;
-      if (!this.automaticDispatchReady(job)) return;
-    }
+    const prepared = await this.prepareApprovedUpdate(job);
+    if (!prepared) return;
+    job = prepared;
+    if (!this.automaticDispatchReady(job)) return;
     if (!(await this.standingCandidateReady(job))) return;
     if (job.whenIdle && !(await this.readyAfterInspection(job))) return;
     // Inspection may have durably reserved and observed an enrolled hold.
     job = this.jobs.find((item) => item.id === job.id) ?? job;
+    const captured = await this.prepareRestartContinuation(job);
+    if (!captured) return;
+    job = captured;
     const preparedRunning = await this.prepareRunningRestart(job);
     if (!preparedRunning || !this.automaticDispatchReady(job)) return;
     job = preparedRunning;
@@ -2357,6 +2473,8 @@ export class InstallationRestarts {
         status: "approved",
         detail: "Waiting for the daemon to confirm it is idle before restarting.",
       });
+      if (!job.finishCurrentTurns && job.continuationCaptureRequested)
+        await this.releaseIdleContinuation(job);
     } else if (job.factoryRuntimePlanSha256) this.finishFactoryAdoption(job, detail);
     else if (job.supervisorPlanSha256) this.finishSupervisorMaintenance(job, detail);
     else this.replace({ ...job, status: "succeeded", detail });
@@ -2551,6 +2669,7 @@ export class InstallationRestarts {
       if (serviceCheckDue(job, this.now())) await this.observeService(job);
       return;
     }
+    if (this.jobs.some(continuationFenced)) return;
     // A linked successor must pass the same locked chain/exclusion admission.
     // Its exact uncertain ancestors necessarily make ordinary idle admission false.
     if (!job.proposal.recoveryOf && this.journal.admissionAvailable?.() === false) return;
@@ -2720,6 +2839,26 @@ export class InstallationRestarts {
     // fresh receipt when ordinary daemon progress writes the shared journal.
     return this.journal.read().filter(isMaintenanceService);
   }
+}
+
+function continuationId(job: RestartJob): string {
+  return job.continuationCaptureId ?? job.id;
+}
+
+/** A released capture needs no cause, and v689 strict journals reject the field. */
+function withoutCaptureId(job: RestartJob): RestartJob {
+  const { continuationCaptureId: _released, ...retained } = job;
+  return retained;
+}
+
+/** Only an undispatched or running continuation fences other lifecycle work. A
+ * terminal job keeps retrying its release without blocking unrelated recovery. */
+function continuationFenced(job: RestartJob): boolean {
+  return Boolean(
+    job.continuationCaptureRequested &&
+    !job.holdReleased &&
+    (job.status === "approved" || job.status === "running"),
+  );
 }
 
 function runningRestart(job: RestartJob): RestartJob {

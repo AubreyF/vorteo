@@ -1,3 +1,4 @@
+import type { AgentQuestion } from "@getpaseo/protocol/agent-questions";
 import type { SidebarStateStore } from "./sidebar-state/store.js";
 import type { HeldRestart } from "@getpaseo/protocol/messages";
 import type { MaintenanceRestartBridge } from "./maintenance-restart-channel.js";
@@ -487,6 +488,8 @@ export interface SessionOptions {
   clientId: string;
   /** From authenticated transport admission, never client request data. */
   principalId?: string | null;
+  /** Self-declared in hello; distinguishes owner interfaces from bridges and tools. */
+  clientType?: "mobile" | "browser" | "cli" | "mcp" | "hub";
   permissions: readonly DaemonPermission[];
   appVersion?: string | null;
   clientCapabilities?: Record<string, unknown> | null;
@@ -763,6 +766,7 @@ export class Session {
   private readonly authorization: SessionAuthorization;
   private readonly ownerEvidence: TaskOwnerEvidenceStore;
   private readonly principalId: string | null | undefined;
+  private readonly clientType: SessionOptions["clientType"];
   private appVersion: string | null;
   private clientCapabilities: ReadonlySet<ClientCapability>;
   private readonly sessionId: string;
@@ -946,6 +950,7 @@ export class Session {
     this.serverId = serverId;
     this.authorization = new SessionAuthorization(permissions);
     this.principalId = options.principalId;
+    this.clientType = options.clientType;
     this.ownerEvidence = new TaskOwnerEvidenceStore(paseoHome);
     this.appVersion = appVersion ?? null;
     this.clientCapabilities = parseClientCapabilities(clientCapabilities);
@@ -2777,6 +2782,7 @@ export class Session {
           msg.idleMode,
           msg.restartDrainId,
           msg.heldRestart,
+          msg.restartContinuation,
         );
       case "shutdown_server_request":
         return this.handleShutdownServerRequest(msg.requestId);
@@ -3419,6 +3425,8 @@ export class Session {
       case "agent.checklist.get.request":
       case "agent.checklist.mutate.request":
         return this.handleChecklistRequest(msg);
+      case "agent.questions.answer.request":
+        return this.handleQuestionAnswerRequest(msg);
       case "agent.goal.get.request":
       case "agent.goal.set.request":
       case "agent.goal.clear.request":
@@ -3463,13 +3471,55 @@ export class Session {
     this.terminalController.handleBinaryFrame(binaryFrame.frame, source);
   }
 
+  private async handleRestartContinuation(input: {
+    requestId: string;
+    restartDrainId?: string;
+    idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
+    heldRestart?: HeldRestart;
+    restartContinuation: "capture" | "ready" | "cancelled";
+  }): Promise<void> {
+    const { requestId, restartDrainId, idleMode, heldRestart, restartContinuation } = input;
+    const expectedMode = restartContinuation === "capture" ? "drain" : "cancel-drain";
+    if (!restartDrainId || idleMode !== expectedMode || heldRestart)
+      throw new Error("Restart continuation requires its exact request and control mode");
+    let accepted = true;
+    if (restartContinuation === "capture")
+      await this.agentManager.captureRestartContinuation(restartDrainId);
+    else
+      accepted = await this.agentManager.releaseRestartContinuation(
+        restartDrainId,
+        restartContinuation,
+      );
+    this.emit({
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        requestId,
+        clientId: this.clientId,
+        accepted,
+        impact: this.agentManager.getRestartImpact(),
+      },
+    });
+  }
+
   private async handleRestartServerRequest(
     requestId: string,
     reason?: string,
     idleMode?: "inspect" | "restart" | "drain" | "cancel-drain",
     restartDrainId?: string,
     heldRestart?: HeldRestart,
+    restartContinuation?: "capture" | "ready" | "cancelled",
   ): Promise<void> {
+    if (restartContinuation) {
+      await this.handleRestartContinuation({
+        requestId,
+        restartDrainId,
+        idleMode,
+        heldRestart,
+        restartContinuation,
+      });
+      return;
+    }
     if (heldRestart) {
       if (idleMode !== "restart" || restartDrainId !== heldRestart.requestId)
         throw new Error("Acknowledged restart requires the exact held request");
@@ -5706,6 +5756,38 @@ export class Session {
           error: error instanceof Error ? error.message : "Checklist operation failed",
         },
       });
+    }
+  }
+
+  private async handleQuestionAnswerRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.questions.answer.request" }>,
+  ): Promise<void> {
+    const reply = (questions: AgentQuestion[] | null, error: string | null) =>
+      this.emit({
+        type: "agent.questions.answer.response",
+        payload: { agentId: msg.agentId, requestId: msg.requestId, questions, error },
+      });
+    try {
+      const answer = msg.answer.trim();
+      if (!answer) throw new Error("Write an answer before sending it.");
+      // Agent bridges, tools and hubs share the daemon credential but never speak for the owner.
+      if (this.clientType !== "mobile" && this.clientType !== "browser")
+        throw new Error("Answer open questions from the Vorteo app.");
+      await ensureUnarchivedAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      reply(
+        await this.agentManager.answerQuestion(msg.agentId, {
+          questionId: msg.questionId,
+          answer,
+          answeredBy: `${this.clientType}:${this.clientId}`,
+        }),
+        null,
+      );
+    } catch (error) {
+      reply(null, error instanceof Error ? error.message : "The answer could not be saved.");
     }
   }
 

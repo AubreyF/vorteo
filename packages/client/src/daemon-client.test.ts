@@ -4243,6 +4243,76 @@ test("held idle restart rejects old supervisor capability before sending", async
   expect(mock.sent).toHaveLength(0);
 });
 
+test("restart continuation refuses old daemons before sending a control command", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "continuation-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { idleRestart: true, gracefulRestart: true } });
+  await connecting;
+  await expect(
+    client.restartServer(undefined, "capture-rpc", {
+      idleMode: "drain",
+      restartDrainId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",
+      restartContinuation: "capture",
+    }),
+  ).rejects.toThrow("preserve tasks");
+  expect(mock.sent).toHaveLength(0);
+});
+
+test.each(["capture", "ready", "cancelled"] as const)(
+  "restart continuation transmits %s without replay",
+  async (phase) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "continuation-test",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: { idleRestart: true, gracefulRestart: true, restartContinuation: true },
+    });
+    await connecting;
+    const cause = "c9cb1157-4773-4c61-905a-3f4e8bbf30f3";
+    const idleMode = phase === "capture" ? "drain" : "cancel-drain";
+    const result = client.restartServer(undefined, "continuation-rpc", {
+      idleMode,
+      restartDrainId: cause,
+      restartContinuation: phase,
+    });
+    expect(parseSentFrame(mock.sent[0])).toEqual({
+      type: "restart_server_request",
+      requestId: "continuation-rpc",
+      idleMode,
+      restartDrainId: cause,
+      restartContinuation: phase,
+    });
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "status",
+        payload: {
+          status: "restart_requested",
+          clientId: "continuation-test",
+          requestId: "continuation-rpc",
+          accepted: false,
+        },
+      }),
+    );
+    await expect(result).resolves.toMatchObject({ accepted: false });
+    expect(mock.sent).toHaveLength(1);
+  },
+);
+
 test("restartServer remains restart-only and sends restart_server_request", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();
