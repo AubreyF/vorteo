@@ -56,8 +56,8 @@ export function createBrowserCommand(): Command {
         [],
       )
       .option(
-        "--allow-host <host[:port]>",
-        "Permit a private destination, such as a local preview server; private networks are blocked otherwise (repeatable)",
+        "--allow-host <host[:port|:first-last]>",
+        "Permit a private destination, such as a local preview server or a range of preview ports; private networks are blocked otherwise (repeatable)",
         collectMultiple,
         [],
       )

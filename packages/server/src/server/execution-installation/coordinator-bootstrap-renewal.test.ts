@@ -736,9 +736,36 @@ test("effective maintenance configuration rechecks the original anchor after the
 test("shared coordinator witness refuses live installer, unresolved history and launcher substitution", async () => {
   const f = await sharedCoordinatorFixture();
   const inspectProcess = f.ports.reader.inspectProcess;
+  const executor = JSON.parse(
+    readFileSync(
+      path.join(f.state, `coordinator-executor-${f.record.execution!.generation}.json`),
+      "utf8",
+    ),
+  );
+  // The PID is held, so native absence proof fails and birth identity decides.
+  const verifyProcessExited = f.ports.reader.verifyProcessExited;
+  f.ports.reader.verifyProcessExited = async (pid: number) => {
+    if (pid === 777) throw new Error("PID 777 is held");
+    return verifyProcessExited(pid);
+  };
   f.ports.reader.inspectProcess = async (pid) =>
-    pid === 777 ? f.hostProcess : inspectProcess(pid);
-  await expect(f.inspect()).rejects.toThrow("updater is still live");
+    pid === 777 ? executor.process : inspectProcess(pid);
+  await expect(f.inspect()).rejects.toThrow("lifetime exit is unproven");
+  // macOS reuses PIDs: a later birth at the recorded PID in the same boot proves the updater exited.
+  f.ports.reader.inspectProcess = async (pid) =>
+    pid === 777
+      ? {
+          ...f.hostProcess,
+          ...executor.process,
+          startIdentity: "2:0",
+          argumentsSha256: "b".repeat(64),
+        }
+      : inspectProcess(pid);
+  await expect(f.inspect()).resolves.toBeDefined();
+  // An earlier birth at that PID is not proof of exit.
+  f.ports.reader.inspectProcess = async (pid) =>
+    pid === 777 ? { ...executor.process, startIdentity: "0:5" } : inspectProcess(pid);
+  await expect(f.inspect()).rejects.toThrow("lifetime exit is unproven");
   const g = await sharedCoordinatorFixture();
   const running = structuredClone(g.record);
   running.execution!.stage = "claimed";

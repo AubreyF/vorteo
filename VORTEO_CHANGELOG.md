@@ -5,6 +5,44 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.736 - 2026-10-21
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.735 - 2026-10-21
+
+### Fixed
+
+- Keep the daemon starting when `daemon.browserTools.headlessHost` contains an unknown key or a wrongly typed value, such as a typo or a setting from another release. The headless browser validates its settings itself and stays off with a logged error, so a misspelled denial can never start an unrestricted browser
+
+## 0.11.0-beta.3.vorteo.734 - 2026-10-21
+
+### Added
+
+- Let headless browser allowed hosts name a port range, such as `<preview-host>.ts.net:32768-32799`, so agents can screenshot any managed preview on that name without opening the host's other services or restarting for each new preview
+
+### Documentation
+
+- Describe running the headless browser in the Dev container, inside the container's network, with the safety settings it needs and a rootless library setup for older containers
+- Teach agents how browser tools work, what `browser_no_host` and `browser_denied` mean, and how to check a local preview without bypassing the browser policy; update the README browser entry for Host and Dev
+
+## 0.11.0-beta.3.vorteo.733 - 2026-10-21
+
+### Fixes
+
+- Coordinator maintenance no longer treats an unrelated process that later reused the previous updater's PID as that updater still running. Renewal and recovery now prove the updater exited with the reviewed retained-process check: native absence, or a stable later birth at the same PID under the same boot and user. A reused PID no longer blocks coordinator renewal or recovery.
+
+## 0.11.0-beta.3.vorteo.732 - 2026-10-21
+
+### Changed
+
+- Make right-hand card rows as dense as the sidebar. Subagent, task and queue rows are 32px tall on desktop and 44px on touch, 2px apart, with smaller row buttons. Shared row metrics keep both columns aligned.
+- Tighten the gap between each card row's first icon and its text to match the gap between a sidebar status circle and its workspace name. Row text now lines up with the card's heading title.
+- Show only the status icon, title and actions in Subagents and System sub-agents rows. Profile, model, effort, status, token use, context and cost appear in the row's tooltip. On phones, the first tap on a row shows the tooltip and the second opens the thread.
+- Reorder tasks by dragging anywhere on the row. The drag handle is gone, and the check mark sits beside the task text. Touch drags start after a short hold so the card still scrolls.
+
 ## 0.11.0-beta.3.vorteo.731 - 2026-10-21
 
 ### Maintenance

@@ -1,5 +1,5 @@
 import { cardGridGroupStyle } from "@/agent-stream/card-grid";
-import { TaskCardRowIcon } from "@/agent-stream/task-card-row";
+import { TaskCardRowIcon, useTaskCardRowActionStyle } from "@/agent-stream/task-card-row";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CARD_GAP } from "@/agent-stream/columns/geometry";
@@ -12,20 +12,25 @@ import {
   TaskCardActions,
   TaskCardInfo,
 } from "@/agent-stream/task-card";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { CountBadge } from "@/components/ui/count-badge";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
-import { useCallback, useMemo, type ReactElement } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { BrushCleaning, Archive, Unlink, X } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useProviderIcon } from "@/components/provider-icons";
 import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipText,
+  TooltipTrigger,
+  useTooltipTouchInteraction,
+} from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { isNative } from "@/constants/platform";
+import { isNative, isWeb } from "@/constants/platform";
 import {
   WorkspaceTabIcon,
   type WorkspaceTabPresentation,
@@ -38,6 +43,7 @@ import { useProviderSubagentStore } from "./provider-store";
 import type { ArchiveFinishedStatus } from "./use-archive-finished";
 import {
   buildSubagentPillPresentation,
+  buildSubagentRowDetails,
   buildSubagentRowPresentationData,
   countFinishedSubagents,
 } from "./track-presentation";
@@ -346,16 +352,43 @@ export function SubagentsTrackRow({
 }: SubagentsTrackRowProps): ReactElement {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
+  const touchDetails = useTooltipTouchInteraction();
   const presentation = useRowPresentation(row, serverId);
   const displayLabel =
     presentation.titleState === "loading" ? t("common.states.loading") : presentation.label;
+  const details = buildSubagentRowDetails(t, row);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  // On touch, the first tap on a row shows its details and the next tap opens it. Native
+  // tooltips dismiss through a modal that swallows that next tap, so the reveal outlives it.
+  const [revealed, setRevealed] = useState(false);
+  const changeDetailsOpen = useCallback((next: boolean) => {
+    setDetailsOpen(next);
+    if (!next && isWeb) setRevealed(false);
+  }, []);
   const handlePress = useCallback(() => {
-    if (row.kind === "provider") {
-      onOpenProviderSubagent(row.parentAgentId, row.id);
-    } else {
-      onOpenSubagent(row.id);
+    if (touchDetails && !revealed) {
+      setRevealed(true);
+      setDetailsOpen(true);
+      return;
     }
-  }, [onOpenProviderSubagent, onOpenSubagent, row]);
+    const openRow = () => {
+      if (row.kind === "provider") {
+        onOpenProviderSubagent(row.parentAgentId, row.id);
+      } else {
+        onOpenSubagent(row.id);
+      }
+    };
+    if (!detailsOpen) {
+      setRevealed(false);
+      openRow();
+      return;
+    }
+    // A hidden parent view stops committing updates, which would strand its tooltip over the
+    // opened thread. Close the tooltip while the parent is visible, then open the row.
+    setRevealed(false);
+    setDetailsOpen(false);
+    requestAnimationFrame(openRow);
+  }, [detailsOpen, onOpenProviderSubagent, onOpenSubagent, revealed, row, touchDetails]);
   const handleArchivePress = useCallback(() => {
     if (row.kind === "provider") {
       useProviderSubagentStore.getState().hideFromTrack(serverId, row.parentAgentId, [row.id]);
@@ -369,76 +402,89 @@ export function SubagentsTrackRow({
   const actionsAlwaysVisible = inline || isNative || isCompact;
   const canArchive = row.kind === "paseo" || isFinishedSubagent(row);
   const canDetach = row.kind === "paseo" && Boolean(onDetachSubagent);
+  const detailsText = details.join("\n");
 
   const renderRow = useCallback(
-    ({ active }: { active: boolean }) => (
-      <>
-        {inline ? (
-          <TaskCardRowIcon testID={`subagents-track-icon-${row.id}`}>
-            <WorkspaceTabIcon
-              presentation={presentation}
-              backdrop={active && !inline ? "surface2" : "surface1"}
-            />
-          </TaskCardRowIcon>
-        ) : (
-          <WorkspaceTabIcon
-            presentation={presentation}
-            backdrop={active && !inline ? "surface2" : "surface1"}
-          />
-        )}
-        <TruncatedText
-          style={[styles.rowLabel, inline && taskCardStyles.rowText]}
-          numberOfLines={1}
-          testID={`subagents-track-label-${row.id}`}
-          tooltipDescription={presentation.subtitle ?? undefined}
-        >
-          {displayLabel}
-        </TruncatedText>
-        {row.kind === "provider" ? (
-          <StatusBadge label={t(`subagents.providerStatus.${row.status}`)} size="xs" />
-        ) : null}
-        {presentation.subtitle ? (
-          <TruncatedText
-            style={[styles.rowTrailing, styles.rowMetadata]}
-            numberOfLines={1}
-            accessibilityLabel={presentation.subtitle}
-            testID={`subagents-track-metadata-${row.id}`}
-            selectable
+    ({ active }: { active: boolean }) => {
+      const icon = (
+        <WorkspaceTabIcon
+          presentation={presentation}
+          backdrop={active && !inline ? "surface2" : "surface1"}
+        />
+      );
+      return (
+        <>
+          {/* The status icon and title reveal everything the row no longer prints. */}
+          <Tooltip
+            open={detailsOpen}
+            onOpenChange={changeDetailsOpen}
+            delayDuration={250}
+            enabledOnDesktop
+            enabledOnMobile
           >
-            {presentation.subtitle}
-          </TruncatedText>
-        ) : null}
-        {canArchive ? (
-          <SubagentRowActions
-            inline={inline}
-            rowId={row.id}
-            displayLabel={displayLabel}
-            visible={actionsAlwaysVisible || active}
-            onDetachPress={canDetach ? handleDetachPress : undefined}
-            onArchivePress={handleArchivePress}
-            providerNative={row.kind === "provider"}
-          />
-        ) : null}
-      </>
-    ),
+            <TooltipTrigger asChild>
+              <View
+                style={[styles.rowMain, inline && styles.rowMainInline]}
+                testID={`subagents-track-details-${row.id}`}
+              >
+                {inline ? (
+                  <TaskCardRowIcon testID={`subagents-track-icon-${row.id}`}>
+                    {icon}
+                  </TaskCardRowIcon>
+                ) : (
+                  icon
+                )}
+                <Text
+                  style={[styles.rowLabel, inline && taskCardStyles.rowText]}
+                  numberOfLines={1}
+                  testID={`subagents-track-label-${row.id}`}
+                >
+                  {displayLabel}
+                </Text>
+              </View>
+            </TooltipTrigger>
+            <TooltipContent maxWidth={440} testID={`subagents-track-tooltip-${row.id}`}>
+              <TooltipText label={displayLabel} description={detailsText || undefined} />
+            </TooltipContent>
+          </Tooltip>
+          {canArchive ? (
+            <SubagentRowActions
+              inline={inline}
+              rowId={row.id}
+              displayLabel={displayLabel}
+              visible={actionsAlwaysVisible || active}
+              onDetachPress={canDetach ? handleDetachPress : undefined}
+              onArchivePress={handleArchivePress}
+              providerNative={row.kind === "provider"}
+            />
+          ) : null}
+        </>
+      );
+    },
     [
       inline,
       actionsAlwaysVisible,
+      changeDetailsOpen,
+      detailsOpen,
+      detailsText,
       displayLabel,
       handleArchivePress,
       handleDetachPress,
       canArchive,
       canDetach,
       presentation,
-      row,
-      t,
+      row.id,
+      row.kind,
     ],
   );
 
   return (
     <ComposerTrackRow
       accessibilityLabel={displayLabel}
+      accessibilityHint={detailsText || undefined}
       inline={inline}
+      // A reveal tap keeps the popover open so its details stay visible.
+      closeOnSelect={!touchDetails || revealed}
       testID={`subagents-track-row-${row.id}`}
       onPress={handlePress}
     >
@@ -533,6 +579,7 @@ function SubagentActionButton({
   onPress: () => void;
 }): ReactElement {
   const touch = useVortonTouch();
+  const rowActionStyle = useTaskCardRowActionStyle();
   return (
     <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
       <TooltipTrigger asChild disabled={!visible}>
@@ -541,15 +588,11 @@ function SubagentActionButton({
           accessibilityLabel={accessibilityLabel}
           testID={testID}
           onPress={onPress}
-          style={[
-            styles.actionButton,
-            inline && taskCardStyles.iconAction,
-            touch && taskCardStyles.touchAction,
-          ]}
+          style={[styles.actionButton, inline ? rowActionStyle : touch && styles.touchAction]}
           hitSlop={inline ? undefined : 8}
         >
           {({ hovered, pressed }) =>
-            renderSubagentActionIcon(icon, hovered || pressed, inline ? 16 : ROW_ICON_SIZE)
+            renderSubagentActionIcon(icon, hovered || pressed, ROW_ICON_SIZE)
           }
         </Pressable>
       </TooltipTrigger>
@@ -561,7 +604,18 @@ function SubagentActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  rowMetadata: { maxWidth: "50%", textAlign: "right" },
+  // Icon and title together trigger the details tooltip, so they share one flexible column.
+  rowMain: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "auto",
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  // The card icon slot carries part of the icon-to-text gap itself.
+  rowMainInline: { gap: theme.spacing[1] },
   groups: { gap: CARD_GAP },
   // `flexBasis: "auto"` rather than `flex: 1`: a zero-basis label contributes nothing to the row's
   // intrinsic width, so the panel measures itself at its floor and truncates every label at once.

@@ -41,7 +41,7 @@ Host agents get browser tools from a disposable headless Chromium instead of the
 }
 ```
 
-The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Older daemons ignore the setting. Only enable it on the Host daemon. An invalid `allowedHosts` entry stops the browser host from starting rather than loosening its policy.
+The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Older daemons ignore the setting. For the Dev daemon, see [Browser tools for Dev container agents](#browser-tools-for-dev-container-agents). An invalid `allowedHosts` entry, an unknown `headlessHost` key such as a misspelled `deniedOrigins`, or a value of the wrong type stops the browser host from starting rather than loosening its policy; the daemon itself still starts and logs the error.
 
 Chromium never runs inside the daemon. On the first browser request the daemon starts a separate browser host process and talks to it over Node IPC. After a crash, browser requests fail fast while a backoff of 1 to 30 seconds runs, then the next request starts a new process; open tabs are lost. The daemon stops the process when it shuts down. `paseo browser host` uses the same process, so the CLI never loads Playwright either.
 
@@ -64,11 +64,17 @@ The browser cannot reach this machine or private networks by default. Every requ
 - `localhost`, single-label names, and names ending in `.localhost`, `.local`, `.internal`, `.home.arpa` or `.ts.net`
 - any public name that resolves to one of those addresses
 
-WebRTC cannot send UDP outside the proxy. `allowedHosts` and `--allow-host` open a specific private destination, as `host` or `host:port`; use them for a local preview server, never for the protected interface or daemon ports.
+WebRTC cannot send UDP outside the proxy. `allowedHosts` and `--allow-host` open a specific private destination, as `host`, `host:port` or a port range `host:first-last`; use them for a local preview server, never for the protected interface or daemon ports. A range such as `<preview-host>.ts.net:32768-32799` covers the managed preview ports on one name without opening the host's other services, so new previews need no configuration change or restart.
 
-`deniedOrigins` and `--deny-origin` block a host on every scheme and port, even when it is also allowed. They apply to navigation, redirects, popups, frames, fetches and WebSockets. Always deny the protected interface and any `redirectOrigins`. Host agents can already read owner-account files, so this guard limits accidents and prompt injection; it does not contain a hostile Host agent. Never register this host with the Dev container daemon. Guest agents could then use a browser on the host network.
+`deniedOrigins` and `--deny-origin` block a host on every scheme and port, even when it is also allowed. They apply to navigation, redirects, popups, frames, fetches and WebSockets. Always deny the protected interface and any `redirectOrigins`. Host agents can already read owner-account files, so this guard limits accidents and prompt injection; it does not contain a hostile Host agent. Never register a Host-side browser host, including `paseo browser host` run on the Mac, with the Dev container daemon. Guest agents could then use a browser on the host network.
 
 To capture Vorteo itself, point the browser at an isolated preview or the e2e harness daemon and Metro server, never the protected interface. `--viewport 390x844` starts tabs at phone size, and `browser_resize` changes one tab. Use `--headed` to watch the browser. The command needs `playwright-core` and a Playwright Chromium build; run `npm run browser:setup` in the checkout when they are missing. Chromium comes from the account's Playwright cache, outside release custody: release installation neither pins nor verifies that executable. The command stops when its process exits and reconnects after daemon restarts.
+
+### Browser tools for Dev container agents
+
+The Dev daemon can run its own headless browser with the same `headlessHost` settings in its `config.json`. Chromium then runs inside the container, with the container's network and no Host access. The same private network refusal and `deniedOrigins` apply. Dev agents are less trusted than Host agents, so only enable this on a Dev build that includes the private network refusal, and deny every origin that can take owner actions: the installation origin, the Host web interface and any custom domains. Allow only the container's managed preview port range, never ports that serve Dev's own Vorteo interface or daemon. Signed-in browser profiles are never available to Dev agents.
+
+The container needs Chromium's system libraries. Images built from the current `docker/base/Dockerfile` include them. An older running container can add them without root or a rebuild: run `npm run browser:setup` in a Vorteo checkout inside the container, as the account that runs the Dev daemon. It downloads the Debian packages into `~/.cache/paseo-browser-runtime` and wraps the Playwright Chromium launchers to use them. A container recreated from an older image loses that folder; repeat the setup. Enabling `headlessHost` takes effect at the next Dev daemon restart.
 
 ### Change the protected interface address
 
