@@ -1,6 +1,7 @@
 import path from "node:path";
 import { open, lstat, realpath, link, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { userInfo } from "node:os";
 import { z } from "zod";
@@ -176,14 +177,44 @@ export async function verifyBootstrapRecoveryArtifacts(
   }
 }
 
+/** launchd spawned the login service 20 to 58 seconds after bootstrap on a
+ * loaded Host. Two minutes keeps more than twice that margin while the
+ * executor's own runner progress keeps the independent watchdog informed. */
+export const BOOT_RECOVERY_READINESS_TIMEOUT_MS = 120_000;
+export const BOOT_RECOVERY_READINESS_INTERVAL_MS = 1_000;
+
 interface StartupRecoveryRegistration {
   request: CoordinatorBootstrapRequest;
   writableMountRoots: readonly string[];
-  /** Recheck the kernel lock and exact claimed generation before each effect. */
+  /** Recheck setup, renewal evidence, the kernel lock and the exact claimed
+   * generation before each effect and after readiness. */
   requireClaim(): Promise<void>;
+  /** Recheck only the kernel lock and exact claimed generation while waiting
+   * for launchd. It must not hash release trees. */
+  requireHeldClaim(): Promise<void>;
   verifyServiceAbsent(): Promise<void>;
   register(serviceDomain: string, launcherFile: string): Promise<void>;
-  verifyRegistered(): Promise<void>;
+  /** Throw until the registered service runs the approved process identity. */
+  probeRegistered(): Promise<void>;
+  readiness?: { now(): number; wait(ms: number): Promise<void> };
+}
+
+/** Bounded wait for launchd to spawn the registered service. Ownership loss
+ * fails immediately; only probe failures are retried until the deadline. */
+async function waitForBootstrapRecoveryReadiness(input: StartupRecoveryRegistration) {
+  const { now, wait } = input.readiness ?? { now: () => performance.now(), wait: delay };
+  const deadline = now() + BOOT_RECOVERY_READINESS_TIMEOUT_MS;
+  for (;;) {
+    await input.requireHeldClaim();
+    try {
+      await input.probeRegistered();
+      return;
+    } catch {
+      if (now() >= deadline)
+        throw new BootstrapRequestConflict("Startup recovery did not establish readiness");
+    }
+    await wait(BOOT_RECOVERY_READINESS_INTERVAL_MS);
+  }
 }
 
 async function syncDirectory(directory: string): Promise<void> {
@@ -278,7 +309,7 @@ export async function registerBootstrapRecovery(
     recovery.service.split("/").slice(0, 2).join("/"),
     recovery.installedLauncher,
   );
-  await input.verifyRegistered();
+  await waitForBootstrapRecoveryReadiness(input);
   await input.requireClaim();
 }
 

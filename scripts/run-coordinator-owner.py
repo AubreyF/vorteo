@@ -837,19 +837,32 @@ def preclaim_launch(setup_file, request_id, revision, digest, generation=None, c
         os.close(descriptor)
 
 
-def wait_for_executor(descriptor, token, timeout=180, grace=10, progress=None):
+# The journal stage stays "claimed" from claim until freeze. On the Host that
+# span took about five minutes, and startup registration may wait two more for
+# launchd. Fifteen minutes is about twice that, and still ends a live executor
+# that keeps reporting activity without advancing its journal stage.
+EXECUTOR_ACTIVITY_LIMIT = 900
+
+
+def wait_for_executor(descriptor, token, timeout=180, grace=10, progress=None,
+                      activity=None, activity_limit=EXECUTOR_ACTIVITY_LIMIT):
     """Fence only the recorded process generation, then acquire its kernel lock.
 
     This independent process still runs if Node's event loop or an artifact read
     stalls. An audit token includes the PID version, so PID reuse cannot redirect
     either signal. Lock ownership, not a deadline, proves exclusive recovery.
+    A journal stage change restarts the timeout. Advancing executor activity
+    extends it only until activity_limit seconds after this wait started.
     """
     library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
     library.proc_signal_with_audittoken.argtypes = [ctypes.c_void_p, ctypes.c_int]
     library.proc_signal_with_audittoken.restype = ctypes.c_int
     audit = (ctypes.c_uint32 * 8)(*token)
-    deadline = time.monotonic() + timeout
+    started = time.monotonic()
+    deadline = started + timeout
     observed_stage = progress() if progress else None
+    observed_activity = activity() if activity else None
+    next_activity = started + 1
     terminated = False
     killed = False
     while True:
@@ -863,6 +876,13 @@ def wait_for_executor(descriptor, token, timeout=180, grace=10, progress=None):
             if stage != observed_stage:
                 observed_stage = stage
                 deadline = time.monotonic() + timeout
+            elif activity and time.monotonic() >= next_activity:
+                now = time.monotonic()
+                next_activity = now + 1
+                current = activity()
+                if current is not None and (observed_activity is None or current > observed_activity):
+                    observed_activity = current
+                    deadline = max(deadline, min(now + timeout, started + activity_limit))
         if time.monotonic() >= deadline and not killed:
             requested_signal = signal.SIGKILL if terminated else signal.SIGTERM
             result = library.proc_signal_with_audittoken(ctypes.byref(audit), requested_signal)
@@ -889,6 +909,38 @@ def executor_audit_record(parent, generation):
             or token[1] != os.getuid() or token[5] != record["pid"]):
         raise ValueError("Watchdog executor identity changed")
     return record
+
+
+def executor_runner_activity(parent, record):
+    """Return (sequence, updatedAt) from the bound executor's runner file.
+
+    Runner files are diagnostics. They can only delay fencing, and any
+    unreadable, foreign or ambiguous file reports no activity.
+    """
+    prefix = "coordinator-runner-" + record["id"] + "-"
+    try:
+        names = [name for name in os.listdir(parent)
+                 if name.startswith(prefix) and name.endswith(".json")]
+    except OSError:
+        return None
+    matches = []
+    for name in names:
+        try:
+            runner = private_document(os.path.join(parent, name), maximum=256 * 1024)
+        except Exception:
+            # A diagnostic file must never crash the watchdog; deeply nested
+            # JSON raises RecursionError, which is not a ValueError.
+            continue
+        if (isinstance(runner, dict) and runner.get("role") == "executor"
+                and runner.get("authority") == "diagnostic-only"
+                and runner.get("requestId") == record["id"]
+                and runner.get("generation") == record["generation"]
+                and runner.get("planSha256") == record.get("planSha256")
+                and type(runner.get("pid")) is int and runner["pid"] == record["pid"]
+                and type(runner.get("sequence")) is int and runner["sequence"] >= 0
+                and isinstance(runner.get("updatedAt"), str)):
+            matches.append((runner["sequence"], runner["updatedAt"]))
+    return matches[0] if len(matches) == 1 else None
 
 
 def read_executor_stage(parent, record):
@@ -989,7 +1041,8 @@ def main():
             print("waiting", flush=True)
         if automatic:
             wait_for_executor(descriptor, record["auditToken"],
-                              progress=lambda: read_executor_stage(parent, record))
+                              progress=lambda: read_executor_stage(parent, record),
+                              activity=lambda: executor_runner_activity(parent, record))
         else:
             fcntl.flock(descriptor, fcntl.LOCK_EX)
         current = os.lstat(lock_path)

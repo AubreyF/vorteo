@@ -5,6 +5,32 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.699 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Fixes
+
+- Count any unreadable or malformed coordinator runner file, including deeply nested JSON, as no executor activity, so a diagnostic file can never stop the automatic watchdog.
+
+### Validation
+
+- The runner-file filter regression now includes a deeply nested JSON file.
+
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Fixes
+
+- Wait up to two minutes for launchd to start the startup recovery service after registration, checking once a second. Each check now confirms only the execution lock and the exact claimed request; full ownership verification, which rehashes the release tree for 8 to 17 seconds, still runs immediately before registration and after readiness. Previously the 15-second wait fitted only one or two checks, so a healthy request failed when launchd took 20 to 58 seconds to start the service.
+- Let the automatic watchdog treat advancing activity in the bound executor's own runner file as progress while the request stays claimed. Activity can postpone fencing for at most 15 minutes after the watchdog starts waiting; stage changes keep their existing 180-second reset. Unreadable, foreign or ambiguous runner files count as no activity.
+
+### Validation
+
+- Simulated-clock regressions cover a 58-second launchd start with full checks only before and after the wait, the two-minute bound, ownership loss during the wait, an executor whose activity advances for 300 seconds without a stage change, the 15-minute cap, the unchanged 180-second stage timeout and rejection of foreign runner files. The new cases fail on the previous source.
 
 ## 0.11.0-beta.3.vorteo.696 - 2026-10-19
 
