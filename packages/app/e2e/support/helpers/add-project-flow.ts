@@ -7,14 +7,22 @@ export type AddProjectFlowPage =
   | "github-search"
   | "github-location"
   | "new-directory-parent"
-  | "new-directory-name";
+  | "new-directory-name"
+  | "folder-browser";
 
-export type AddProjectMethod = "directory-search" | "browse" | "github" | "new-directory";
+export type AddProjectMethod =
+  | "open-folder"
+  | "directory-search"
+  | "browse"
+  | "github"
+  | "new-directory";
 
+// E2E daemons advertise folder browsing, so Open and New use the browser page.
 const METHOD_DESTINATIONS: Record<Exclude<AddProjectMethod, "browse">, AddProjectFlowPage> = {
+  "open-folder": "folder-browser",
   "directory-search": "directory-search",
   github: "github-search",
-  "new-directory": "new-directory-parent",
+  "new-directory": "folder-browser",
 };
 
 export function addProjectFlow(page: Page): Locator {
@@ -47,7 +55,12 @@ async function openAddProjectFlowSurface(
   page: Page,
   expectedPage: "host" | "method",
 ): Promise<void> {
-  await page.locator('[data-testid="sidebar-add-project"]:visible').click();
+  // Add project lives in the sidebar's overflow menu.
+  const addProject = page.locator('[data-testid="sidebar-add-project"]:visible');
+  if (!(await addProject.isVisible())) {
+    await page.locator('[data-testid="sidebar-footer-overflow"]:visible').click();
+  }
+  await addProject.click();
   await expect(addProjectFlow(page)).toBeVisible({ timeout: 30_000 });
   await expectAddProjectPage(page, expectedPage);
 }
@@ -68,6 +81,22 @@ export async function chooseAddProjectMethod(page: Page, method: AddProjectMetho
   if (method !== "browse") {
     await expectAddProjectPage(page, METHOD_DESTINATIONS[method]);
   }
+}
+
+export function addProjectFlowLocation(page: Page): Locator {
+  return page.getByTestId("add-project-flow-location-title");
+}
+
+// Types a path into the folder browser and enters it, then waits for the listing.
+export async function browseAddProjectFolderPath(
+  page: Page,
+  typedPath: string,
+  expectedLocation: string | RegExp,
+): Promise<void> {
+  await addProjectFlowInput(page).fill(typedPath);
+  await page.getByTestId("add-project-flow-go-to").click();
+  await expect(addProjectFlowLocation(page)).toContainText(expectedLocation, { timeout: 30_000 });
+  await expect(addProjectFlowInput(page)).toHaveValue("");
 }
 
 export async function expectNewWorkspaceForAddedProject(
