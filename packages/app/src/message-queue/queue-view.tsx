@@ -67,6 +67,7 @@ export function SharedQueueView(props: {
   agentId: string;
   control: MessageQueueControl;
   goalErrorHandled?: boolean;
+  reviewRequest?: number;
 }) {
   return (
     <QueueEditDraftProvider serverId={props.serverId} agentId={props.agentId}>
@@ -82,13 +83,18 @@ function QueueViewContent({
   agentId,
   control,
   goalErrorHandled = false,
+  reviewRequest = 0,
 }: {
   serverId: string;
   agentId: string;
   control: MessageQueueControl;
   goalErrorHandled?: boolean;
+  reviewRequest?: number;
 }) {
   const [expanded, setExpanded] = useState(true);
+  useEffect(() => {
+    if (reviewRequest > 0) setExpanded(true);
+  }, [reviewRequest]);
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const edits = useQueueEditDrafts();
   const snapshot = control.snapshot;
@@ -186,7 +192,7 @@ function QueueHeader({
       <CardDisclosure
         icon={HEADING_ICON}
         trailing={headerStatus}
-        title="Messages"
+        title="Queued messages"
         expanded={expanded}
         onPress={toggleExpanded}
         testID="message-queue-toggle"

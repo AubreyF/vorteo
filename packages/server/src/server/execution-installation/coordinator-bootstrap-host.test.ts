@@ -403,6 +403,31 @@ test("bootstrap configuration preserves credentials, service targets and state w
   save(candidateFile, f.config);
   expect(verify).not.toThrow();
   delete plan.nativeHelperConfiguration;
+  const adoption = {
+    node: "/private/host/node",
+    script: "/private/host/adopt.mjs",
+    sha256: "d".repeat(64),
+  };
+  save(candidateFile, {
+    ...f.config,
+    container: { ...f.config.container, factoryRuntimeAdoption: adoption },
+  });
+  expect(verify).toThrow("outside its approved policy");
+  plan.factoryRuntimeAdoptionConfiguration = adoption;
+  expect(verify).not.toThrow();
+  save(candidateFile, {
+    ...f.config,
+    container: {
+      ...f.config.container,
+      factoryRuntimeAdoption: { ...adoption, sha256: "e".repeat(64) },
+    },
+  });
+  expect(verify).toThrow("outside its approved policy");
+  plan.factoryRuntimeAdoptionConfiguration = null;
+  save(candidateFile, f.config);
+  expect(verify).not.toThrow();
+  delete plan.factoryRuntimeAdoptionConfiguration;
+
   const policy = { hostRequestsAfter: "2026-10-09T00:00:00.000Z" };
   save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
   expect(verify).toThrow("outside its approved policy");

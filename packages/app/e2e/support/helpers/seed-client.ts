@@ -60,6 +60,7 @@ export interface SeedDaemonClient extends Pick<
   }): Promise<unknown>;
   listProjects(): Promise<{ projects: SeedProjectDescriptor[] }>;
   createWorkspace(input: {
+    projectMembership?: SeedWorkspaceDescriptor["projectMembership"];
     source:
       | { kind: "directory"; path: string; projectId?: string }
       | {

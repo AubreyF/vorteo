@@ -22,7 +22,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import type { Theme } from "@/styles/theme";
 import { WEB_SCROLLBAR_SIZE_PX } from "@/styles/web-scrollbar";
-import { DomOverlayScrollbar } from "@/components/ui/overlay-scrollbar/dom-overlay-scrollbar";
+import { COLUMN_FADE_HEIGHT } from "./columns/geometry";
 import { estimateStreamItemHeight } from "./web-virtualization";
 import { createReadingAnchor } from "./reading-anchor";
 import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
@@ -682,6 +682,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       onNearBottomChange(true);
       return;
     }
+    const topFade = Math.min(COLUMN_FADE_HEIGHT, Math.max(0, scrollContainer.scrollTop));
+    const bottomFade = Math.min(
+      COLUMN_FADE_HEIGHT,
+      Math.max(
+        0,
+        scrollContainer.scrollHeight - scrollContainer.clientHeight - scrollContainer.scrollTop,
+      ),
+    );
+    scrollContainer.style.maskImage = `linear-gradient(to bottom, transparent, black ${topFade}px, black calc(100% - ${bottomFade}px), transparent)`;
     syncNearBottom(scrollContainer, onNearBottomChange);
     reportReadingPosition();
   }, [onNearBottomChange, reportReadingPosition]);
@@ -1149,7 +1158,6 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     };
   }, [isMobileBreakpoint]);
   const scrollContainerStyle = useMemo((): CSSProperties => {
-    const overlayScrollbarEnabled = scrollEnabled && !isMobileBreakpoint;
     return {
       width: "100%",
       height: "100%",
@@ -1159,9 +1167,9 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       // The browser still anchors delayed image growth while following output.
       // Detached reading has one owner: reconcileReadingPosition.
       overflowAnchor: followOutput ? "auto" : "none",
-      scrollbarWidth: overlayScrollbarEnabled ? "none" : undefined,
+      scrollbarWidth: "none",
     };
-  }, [followOutput, isMobileBreakpoint, scrollEnabled]);
+  }, [followOutput, scrollEnabled]);
   const viewportStyle = useMemo(
     (): CSSProperties => ({
       position: "relative",
@@ -1282,12 +1290,6 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
           {shouldRenderEmpty ? listEmptyComponent : null}
         </div>
       </div>
-      {scrollEnabled && !isMobileBreakpoint ? (
-        <DomOverlayScrollbar
-          scrollContainerRef={scrollContainerRef}
-          onUserScrollUp={stopFollowingOutputFromUserIntent}
-        />
-      ) : null}
     </div>
   );
 }

@@ -357,6 +357,51 @@ test.afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
+test("welcome signs in with the owner password and restores both environments", async ({
+  page,
+}, testInfo) => {
+  await page.goto(origin);
+  const form = page.getByTestId("installation-welcome");
+  await expect(form).toBeVisible();
+  await expect(page.getByText("Welcome to Vorteo", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("welcome-direct-connection")).toHaveCount(0);
+  await expect(page.getByTestId("welcome-remote-ssh")).toHaveCount(0);
+  const password = page.getByRole("textbox", { name: "Owner password" });
+  const connect = page.getByRole("button", { name: "Connect", exact: true });
+  await expect(connect).toBeDisabled();
+  await page.screenshot({
+    path: testInfo.outputPath("owner-welcome.png"),
+    fullPage: true,
+  });
+  await password.fill("container-test-password");
+  await connect.click();
+  await expect(form.getByRole("alert")).toContainText("Incorrect owner password");
+  await expect(connect).toBeEnabled();
+  await password.fill(ownerPassword);
+  await password.press("Enter");
+  await expect(page).not.toHaveURL(/welcome/);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => JSON.parse(localStorage.getItem("@paseo:daemon-registry") ?? "[]").length,
+      ),
+    )
+    .toBe(2);
+  // A valid owner cookie recovers connection registration after browser storage is cleared.
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => JSON.parse(localStorage.getItem("@paseo:daemon-registry") ?? "[]").length,
+      ),
+    )
+    .toBe(2);
+  await expect(page.getByTestId("installation-password")).not.toBeVisible();
+  await page.goto(`${origin}/settings/general?installation=1`);
+  await expect(page.getByTestId("installation-lock")).toBeVisible();
+});
+
 test("owner connects two environments, prepares host drafts, and approves a verified container restart", async ({
   page,
 }, testInfo) => {
@@ -382,18 +427,17 @@ test("owner connects two environments, prepares host drafts, and approves a veri
       );
   });
   await page.goto(origin);
-  await expect(page.getByTestId("installation-panel")).toBeVisible();
-  await expect(page).toHaveURL(/settings\/general/);
+  await expect(page.getByTestId("installation-welcome")).toBeVisible();
+  await expect(page).toHaveURL(/welcome/);
+  await expect(page.getByTestId("welcome-direct-connection")).toHaveCount(0);
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByTestId("installation-password-help").click();
-  await expect(page.getByText("The host installer generates", { exact: false })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("installation-owner-access.png"),
     fullPage: true,
   });
   await page.getByTestId("installation-password").fill("incorrect");
   await page.getByTestId("installation-unlock").click();
-  await expect(page.getByTestId("installation-panel").getByRole("alert")).toContainText(
+  await expect(page.getByTestId("installation-welcome").getByRole("alert")).toContainText(
     "Incorrect owner password",
   );
   await page.getByTestId("installation-password").fill(ownerPassword);

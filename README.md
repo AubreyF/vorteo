@@ -9,6 +9,8 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 <img width="800" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
 
+For a configured Host and Dev installation, open its HTTPS address on your new device and enter the owner password on the welcome page. Vorteo connects both environments for you.
+
 ## Enhanced Security
 
 - **Give agents room to work without handing them your whole machine.** The installer automatically builds and starts a local dev container for Vorteo and your agents. This limits the damage an accidental destructive command can do to your host: agents can modify the container home and mounted projects, while unmounted personal files stay outside their filesystem access. Keep backups of mounted projects; the container does not protect those files from deletion. See the [security boundaries](docs/container-tailscale.md).

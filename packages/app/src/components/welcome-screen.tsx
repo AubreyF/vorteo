@@ -15,6 +15,8 @@ import { formatVersionWithPrefix } from "@/desktop/updates/desktop-updates";
 import { buildOpenProjectRoute } from "@/utils/host-routes";
 import { VorteoLogo } from "@/components/icons/paseo-logo";
 import { openExternalUrl } from "@/utils/open-external-url";
+import { InstallationWelcome } from "@/execution-installation/panel";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import { isNative } from "@/constants/platform";
 import { isElectronRuntime } from "@/desktop/host";
 
@@ -60,6 +62,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   copyBlock: {
     alignItems: "center",
+    maxWidth: 420,
     gap: theme.spacing[2],
     marginBottom: theme.spacing[12],
   },
@@ -166,6 +169,7 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
   const appVersionText = formatVersionWithPrefix(appVersion);
   const [isDirectOpen, setIsDirectOpen] = useState(false);
   const [isRemoteSshOpen, setIsRemoteSshOpen] = useState(false);
+  const installation = readExecutionInstallation();
   const hosts = useHosts();
   const anyOnlineServerId = useAnyHostOnline(hosts.map((h) => h.serverId));
 
@@ -202,7 +206,7 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
   const actions: WelcomeAction[] = [
     {
       key: "direct-connection",
-      label: "Connect through Tailscale",
+      label: "Connect to server",
       testID: "welcome-direct-connection",
       primary: true,
       icon: Link2,
@@ -232,13 +236,20 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
         style={styles.scrollView}
         contentContainerStyle={scrollContentContainerStyle}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         testID="welcome-screen"
       >
         <View style={styles.content}>
           <VorteoLogo size={96} />
           <View style={styles.copyBlock}>
-            <Text style={styles.title}>{t("onboarding.title")}</Text>
-            <Text style={styles.subtitle}>{t("onboarding.subtitle")}</Text>
+            <Text style={styles.title}>
+              {installation ? "Welcome to Vorteo" : t("onboarding.title")}
+            </Text>
+            <Text style={styles.subtitle}>
+              {installation
+                ? "Your projects and agents are ready when you are. Enter your owner password to get started."
+                : t("onboarding.subtitle")}
+            </Text>
             {isNative ? (
               <Pressable style={styles.setupLink} onPress={handleOpenPaseoSite}>
                 <Text style={styles.setupLinkText}>paseo.sh</Text>
@@ -248,9 +259,11 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
           </View>
 
           <View style={styles.actions}>
-            {actions.map((action) => (
-              <WelcomeActionButton key={action.key} action={action} />
-            ))}
+            {installation ? (
+              <InstallationWelcome />
+            ) : (
+              actions.map((action) => <WelcomeActionButton key={action.key} action={action} />)
+            )}
           </View>
 
           <Button

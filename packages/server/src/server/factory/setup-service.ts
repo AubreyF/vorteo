@@ -6,6 +6,11 @@ import {
   FactoryInstallResultSchema,
   type FactoryInstallResult,
   type FactorySetup,
+  factoryControls,
+  FactoryControlInputSchema,
+  FactoryControlResultSchema,
+  type FactoryControlState,
+  type FactoryControlResult,
 } from "@getpaseo/server/factory-operations";
 import type { FileBackedProjectRegistry } from "../workspace-registry.js";
 import {
@@ -28,6 +33,92 @@ interface SetupDependencies {
 /** Read-only setup. Only a currently dispatchable, native-branded owner can advertise installation. */
 export class NativeFactorySetupService {
   constructor(private readonly deps: SetupDependencies) {}
+
+  async readControls(input: unknown): Promise<FactoryControlState> {
+    const { projectId } = factoryControls.input.parse(input);
+    const setup = await this.read({ projectId });
+    const resolve = this.deps.installer;
+    const installer = resolve?.();
+    const unavailable: FactoryControlState = {
+      schemaVersion: 1,
+      serverId: this.deps.serverId,
+      projectId,
+      installationId: setup.installationId,
+      revision: null,
+      state: "unavailable",
+      desiredState: null,
+      reason: "Factory owner controls require a reconciled native installation.",
+      operations: { pause: false, resume: false, stop: false },
+      operationId: null,
+    };
+    if (
+      setup.state !== "installed" ||
+      !installer ||
+      !isNativeFactoryStartupAdapter(installer.adapter)
+    )
+      return unavailable;
+    try {
+      const result = await installer.adapter.readControls(projectId);
+      if (
+        resolve !== this.deps.installer ||
+        resolve?.() !== installer ||
+        !isNativeFactoryStartupAdapter(installer.adapter)
+      )
+        throw new FactoryInstallStartupChangedError();
+      return result;
+    } catch {
+      // Protected record diagnostics may contain private filesystem paths.
+      return {
+        ...unavailable,
+        reason:
+          "Factory owner control state could not be verified. Reconcile the retained controller.",
+      };
+    }
+  }
+
+  async control(input: unknown): Promise<FactoryControlResult> {
+    const request = FactoryControlInputSchema.parse(input);
+    const identity = {
+      schemaVersion: 1 as const,
+      serverId: this.deps.serverId,
+      projectId: request.projectId,
+      installationId: request.expectedInstallationId,
+      operationId: request.operationId,
+    };
+    const setup = await this.read({ projectId: request.projectId });
+    const resolve = this.deps.installer;
+    const installer = resolve?.();
+    if (
+      setup.state !== "installed" ||
+      !installer ||
+      !isNativeFactoryStartupAdapter(installer.adapter) ||
+      request.expectedServerId !== identity.serverId ||
+      request.expectedInstallationId !== setup.installationId
+    )
+      return {
+        ...identity,
+        outcome: "refused",
+        reason: "Factory owner controls are unavailable or their identity changed.",
+      };
+    try {
+      const result = FactoryControlResultSchema.parse(await installer.adapter.control(request));
+      if (
+        resolve !== this.deps.installer ||
+        resolve?.() !== installer ||
+        !isNativeFactoryStartupAdapter(installer.adapter)
+      )
+        throw new FactoryInstallStartupChangedError();
+      return result;
+    } catch {
+      return {
+        ...identity,
+        outcome: "uncertain",
+        reconciliationRequired: true,
+        reason:
+          "Factory control lost its verified response; inspect retained control state before another action.",
+      };
+    }
+  }
 
   async install(value: unknown): Promise<FactoryInstallResult> {
     const request = FactoryInstallInputSchema.parse(value);

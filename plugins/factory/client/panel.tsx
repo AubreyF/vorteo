@@ -13,6 +13,7 @@ import { useMemo, useCallback, useRef, useSyncExternalStore, useEffect } from "r
 import { FactoryOverview } from "./overview.js";
 import { resolveFactoryObservation, resolveFactorySetupObservation } from "./observation.js";
 import { FactorySetupStatus } from "./setup.js";
+import { FactoryOwnerControls } from "./owner-controls.js";
 import {
   getFactoryInstallation,
   createFactoryOperationId,
@@ -78,6 +79,17 @@ function FactoryObservation(props: PluginSurfaceProps & { projectId: string | nu
     retry: false,
     refetchInterval: 15000,
   });
+  const ownerControls = useMemo(
+    () =>
+      projectId === null ? null : (
+        <FactoryOwnerControls
+          key={`${props.host.id}:${projectId}`}
+          hostId={props.host.id}
+          projectId={projectId}
+        />
+      ),
+    [props.host.id, projectId],
+  );
   const colors = props.theme.colors;
   const styles = useMemo(
     () =>
@@ -220,6 +232,7 @@ function FactoryObservation(props: PluginSurfaceProps & { projectId: string | nu
       setupPending={setupQuery.isFetching}
       installation={installationState}
       onInstall={install}
+      ownerControls={ownerControls}
     />
   );
 }

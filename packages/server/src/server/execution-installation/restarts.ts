@@ -31,6 +31,8 @@ export interface RestartJournal {
 }
 
 export interface RestartExecutor {
+  factoryRuntimePlan?(): string | undefined;
+  adoptFactoryRuntime?(job: RestartJob): Promise<string>;
   validateHelperRollback?(job: NativeHelperJob, failed: NativeHelperJob): Promise<void>;
   verifyHelperRecovery?(job: NativeHelperJob): Promise<string>;
   validateHelperPlan?(plan: NativeHelperPlan): Promise<void>;
@@ -117,6 +119,9 @@ export class InstallationRestarts {
       if (job.status !== "running" && job.status !== "approved") return job;
       return {
         ...job,
+        ...(job.status === "running" && job.factoryRuntimePlanSha256
+          ? { factoryRuntimeRecoveryRequired: true }
+          : {}),
         status: "failed",
         detail: "Coordinator interrupted. Inspect target and request a new restart.",
       };
@@ -501,6 +506,7 @@ export class InstallationRestarts {
   ): RestartJob {
     this.requireActive();
     this.validateSupervisorRequest(input, requestedBy, update);
+    this.validateFactoryRuntimeRequest(input, requestedBy, update);
     if (update && !this.supportsUpdate(input.target))
       throw new RestartRequestError("Source updates are unavailable for this target");
     this.reconcilePending();
@@ -514,6 +520,14 @@ export class InstallationRestarts {
     if (active && active.supervisorPlanSha256 !== input.supervisorPlanSha256)
       throw new RestartRequestError(
         "A different restart scope or maintenance plan already owns this target",
+      );
+    if (
+      active &&
+      (active.factoryRuntimePlanSha256 !== input.factoryRuntimePlanSha256 ||
+        active.factoryRuntimeRecoveryOf !== input.factoryRuntimeRecoveryOf)
+    )
+      throw new RestartRequestError(
+        "A different restart scope or Factory adoption plan already owns this target",
       );
     // Only plain restart requests share a target approval. Source approvals stay exact.
     if (active) return { ...active };
@@ -552,6 +566,10 @@ export class InstallationRestarts {
     replaces?: string,
   ) {
     this.requireActive();
+    if (input.factoryRuntimePlanSha256 || input.factoryRuntimeRecoveryOf)
+      throw new RestartRequestError(
+        "Factory adoption cannot be submitted as a source contribution",
+      );
     if (input.supervisorPlanSha256)
       throw new RestartRequestError(
         "Supervisor maintenance cannot be submitted as a source contribution",
@@ -639,8 +657,12 @@ export class InstallationRestarts {
     if (job.target !== input.target) return false;
     if (job.status === "approved" || job.status === "running") return true;
     if (job.status !== "pending") return false;
+    // A reviewed recovery must remain requestable alongside unrelated pending work.
+    if (input.factoryRuntimeRecoveryOf) return false;
     // Maintenance must not discard another task's unapproved source contribution.
-    const separateMaintenance = input.supervisorPlanSha256 && (job.update || job.sourceBatch);
+    const separateMaintenance =
+      (input.supervisorPlanSha256 || input.factoryRuntimePlanSha256) &&
+      (job.update || job.sourceBatch);
     return !separateMaintenance;
   }
 
@@ -659,6 +681,28 @@ export class InstallationRestarts {
       )
         throw new RestartRequestError("Supervisor maintenance plan is unavailable or changed");
     }
+  }
+
+  private validateFactoryRuntimeRequest(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): void {
+    if (!input.factoryRuntimePlanSha256) {
+      if (input.factoryRuntimeRecoveryOf)
+        throw new RestartRequestError("Factory recovery requires an exact adoption plan");
+      return;
+    }
+    if (requestedBy === "container-agent" || input.target !== "container-daemon")
+      throw new RestartRequestError("Factory adoption requires a trusted Host request");
+    if (
+      update ||
+      input.supervisorPlanSha256 ||
+      !this.executor.adoptFactoryRuntime ||
+      input.factoryRuntimePlanSha256 !== this.executor.factoryRuntimePlan?.()
+    )
+      throw new RestartRequestError("Factory adoption plan is unavailable or changed");
+    this.validateFactoryRecovery(input);
   }
 
   private supportsUpdate(target: RestartJob["target"]): boolean {
@@ -742,12 +786,14 @@ export class InstallationRestarts {
     decision: RestartDecision,
     updateSha256?: string,
     supervisorPlanSha256?: string,
+    factoryRuntimePlanSha256?: string,
   ): RestartJob {
     this.requireActive();
     const job = this.jobs.find((candidate) => candidate.id === id);
     if (!job || job.revision !== revision)
       throw new RestartRequestError("Restart request is missing or changed");
     this.validateSupervisorDecision(job, decision, supervisorPlanSha256);
+    this.validateFactoryRuntimeDecision(job, decision, factoryRuntimePlanSha256);
     this.validateDecision(job, decision, updateSha256);
     if (decision === "request-again") {
       if (job.status !== "rejected")
@@ -758,6 +804,8 @@ export class InstallationRestarts {
           reason: job.reason,
           requester: job.requester,
           supervisorPlanSha256: job.supervisorPlanSha256,
+          factoryRuntimePlanSha256: job.factoryRuntimePlanSha256,
+          factoryRuntimeRecoveryOf: job.factoryRuntimeRecoveryOf,
         },
         "owner",
       );
@@ -805,6 +853,86 @@ export class InstallationRestarts {
     return { ...next };
   }
 
+  private validateFactoryRuntimeDecision(
+    job: RestartJob,
+    decision: RestartDecision,
+    factoryRuntimePlanSha256?: string,
+  ): void {
+    if (job.factoryRuntimePlanSha256 && !["reject", "cancel", "request-again"].includes(decision)) {
+      this.validateFactoryRecovery(job);
+      if (
+        factoryRuntimePlanSha256 !== job.factoryRuntimePlanSha256 ||
+        factoryRuntimePlanSha256 !== this.executor.factoryRuntimePlan?.()
+      )
+        throw new RestartRequestError("Review the exact Factory adoption plan before approval");
+      if (decision === "approve-when-idle")
+        throw new RestartRequestError("Use Finish turns and restart for Factory adoption");
+    }
+  }
+
+  private factoryPlanCurrent(job: RestartJob): boolean {
+    return (
+      !job.factoryRuntimePlanSha256 ||
+      job.factoryRuntimePlanSha256 === this.executor.factoryRuntimePlan?.()
+    );
+  }
+
+  private factoryRecoveryRequired(target: RestartJob["target"]): boolean {
+    return this.jobs.some((job) => job.target === target && job.factoryRuntimeRecoveryRequired);
+  }
+
+  private validateFactoryRecovery(input: RestartRequest, executingId?: string): RestartJob[] {
+    const unresolved = this.jobs.filter(
+      (job) =>
+        job.id !== executingId && job.target === input.target && job.factoryRuntimeRecoveryRequired,
+    );
+    const chain: RestartJob[] = [];
+    let reference = input.factoryRuntimeRecoveryOf;
+    while (reference) {
+      const failed = unresolved.find((job) => job.id === reference && job.status === "failed");
+      if (!failed || chain.includes(failed))
+        throw new RestartRequestError("Factory recovery receipt is missing or changed");
+      chain.push(failed);
+      reference = failed.factoryRuntimeRecoveryOf;
+    }
+    if (chain.length !== unresolved.length)
+      throw new RestartRequestError(
+        "Review a recovery plan for the latest unresolved Factory adoption",
+      );
+    return chain;
+  }
+
+  private factoryDispatchBlocked(job: RestartJob): boolean {
+    if (!this.factoryRecoveryRequired(job.target)) return false;
+    if (!job.factoryRuntimePlanSha256 || !job.factoryRuntimeRecoveryOf) return true;
+    try {
+      this.validateFactoryRecovery(job);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  private finishFactoryAdoption(job: RestartJob, detail: string): void {
+    // The executor has verified the exact newly approved recovery plan. Clear
+    // only its linked failure chain, atomically with this success receipt.
+    const prior = this.validateFactoryRecovery(job, job.id);
+    this.writeState(
+      this.jobs.map((current) => {
+        if (current.id === job.id)
+          return { ...job, factoryRuntimeRecoveryRequired: false, status: "succeeded", detail };
+        if (prior.some((failed) => failed.id === current.id))
+          return {
+            ...current,
+            factoryRuntimeRecoveryRequired: false,
+            factoryRuntimeRecoveredBy: job.id,
+          };
+        return current;
+      }),
+      this.helpers,
+    );
+  }
+
   private validateSupervisorDecision(
     job: RestartJob,
     decision: RestartDecision,
@@ -833,6 +961,10 @@ export class InstallationRestarts {
   private validateDecision(job: RestartJob, decision: RestartDecision, updateSha256?: string) {
     validateSourceDecision(job, decision, updateSha256);
     if (decision === "reject" || decision === "cancel") return;
+    if (this.factoryDispatchBlocked(job))
+      throw new RestartRequestError(
+        "Factory startup selection requires reconciliation before another target lifecycle approval.",
+      );
     if (job.sourceBatch) {
       if (
         job.sourceBatch.status !== "ready" ||
@@ -910,8 +1042,7 @@ export class InstallationRestarts {
     )
       return;
     for (const job of this.jobs) {
-      if (job.status !== "pending" || job.requestedBy !== "host-agent" || job.supervisorPlanSha256)
-        continue;
+      if (!this.automaticApprovalCandidate(job)) continue;
       if (Date.parse(job.createdAt) < threshold) continue;
       const batch = job.sourceBatch;
       if (batch) {
@@ -934,11 +1065,21 @@ export class InstallationRestarts {
     }
   }
 
+  private automaticApprovalCandidate(job: RestartJob): boolean {
+    return (
+      job.status === "pending" &&
+      job.requestedBy === "host-agent" &&
+      !this.factoryRecoveryRequired(job.target) &&
+      !requiresExactMaintenanceApproval(job)
+    );
+  }
+
   async drain(): Promise<void> {
     if (!this.active) return;
     if (this.running || this.preparing) return;
     if (this.executor.prepareUpdate) await this.prepareBatches();
     if (this.running || this.preparing) return;
+    this.reconcilePending();
     this.running = true;
     try {
       for (const job of this.jobs.filter(
@@ -990,6 +1131,22 @@ export class InstallationRestarts {
   }
 
   private async dispatch(job: RestartJob): Promise<void> {
+    if (this.factoryDispatchBlocked(job)) {
+      this.replace({
+        ...job,
+        detail:
+          "Factory startup selection requires reconciliation before another target lifecycle operation.",
+      });
+      return;
+    }
+    if (!this.factoryPlanCurrent(job)) {
+      this.replace({
+        ...job,
+        status: "failed",
+        detail: "Factory adoption plan changed; no new hold or restart dispatched.",
+      });
+      return;
+    }
     if (job.whenIdle) {
       let impact: RestartImpact;
       try {
@@ -1022,13 +1179,10 @@ export class InstallationRestarts {
         return;
       }
     }
-    this.replace({
-      ...job,
-      status: "running",
-      detail: job.update
-        ? `Building approved source for ${job.target === "host" ? "Host and the interface" : "Dev"}, then verifying replacement readiness`
-        : "Restarting the approved target and checking its identity and readiness",
-    });
+    job = runningRestart(job);
+    // Persist uncertainty before executing any plan code. Coordinator recovery
+    // keeps this fence even when the process never returned a phase receipt.
+    this.replace(job);
     try {
       const detail = await this.executeApproved(job);
       if (detail === null) {
@@ -1038,10 +1192,11 @@ export class InstallationRestarts {
           detail: "Waiting for the daemon to confirm it is idle before restarting.",
         });
       } else {
-        this.replace({ ...job, status: "succeeded", detail });
+        if (job.factoryRuntimePlanSha256) this.finishFactoryAdoption(job, detail);
+        else this.replace({ ...job, status: "succeeded", detail });
       }
     } catch (error) {
-      const detail = error instanceof Error ? error.message : "Restart failed";
+      const detail = restartFailureDetail(job, error);
       this.replace({ ...job, status: "failed", detail });
     }
   }
@@ -1053,6 +1208,14 @@ export class InstallationRestarts {
         job.automaticApproval.sourceSha256 !== job.update?.sha256)
     )
       throw new RestartRequestError("Automatic approval no longer matches the prepared request");
+    if (job.factoryRuntimePlanSha256) {
+      if (
+        !this.executor.adoptFactoryRuntime ||
+        job.factoryRuntimePlanSha256 !== this.executor.factoryRuntimePlan?.()
+      )
+        throw new RestartRequestError("Factory adoption plan changed before dispatch");
+      return this.executor.adoptFactoryRuntime(job);
+    }
     if (job.supervisorPlanSha256) {
       if (
         !this.executor.restartSupervisor ||
@@ -1112,6 +1275,19 @@ export class InstallationRestarts {
     const jobs = [...this.jobs];
     for (let index = jobs.length - 1; index >= 0; index--) {
       const job = jobs[index]!;
+      if (job.status === "approved" && this.factoryDispatchBlocked(job)) {
+        // Revoke an undispatched approval retained by an older coordinator. Keep
+        // finishCurrentTurns so the normal durable hold-release path still runs.
+        changed = true;
+        jobs[index] = {
+          ...job,
+          revision: randomUUID(),
+          status: "failed",
+          detail:
+            "Approval revoked for Factory recovery. Prepare a new request after reconciliation.",
+        };
+        continue;
+      }
       if (job.status !== "pending" || job.update || job.sourceBatch) continue;
       if (targets.has(job.target)) {
         changed = true;
@@ -1153,4 +1329,25 @@ export class InstallationRestarts {
     this.jobs = jobs;
     this.helpers = helpers;
   }
+}
+
+function requiresExactMaintenanceApproval(job: RestartJob): boolean {
+  return Boolean(job.supervisorPlanSha256 || job.factoryRuntimePlanSha256);
+}
+
+function runningRestart(job: RestartJob): RestartJob {
+  return {
+    ...job,
+    ...(job.factoryRuntimePlanSha256 ? { factoryRuntimeRecoveryRequired: true } : {}),
+    status: "running",
+    detail: job.update
+      ? `Building approved source for ${job.target === "host" ? "Host and the interface" : "Dev"}, then verifying replacement readiness`
+      : "Restarting the approved target and checking its identity and readiness",
+  };
+}
+
+function restartFailureDetail(job: RestartJob, error: unknown): string {
+  if (job.factoryRuntimePlanSha256)
+    return "Factory adoption failed. Retained startup selection requires reconciliation.";
+  return error instanceof Error ? error.message : "Restart failed";
 }

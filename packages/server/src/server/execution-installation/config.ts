@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import {
   ExecutionInstallationSchema,
+  FactoryRuntimeAdoptionConfigurationSchema,
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
 
@@ -68,6 +69,7 @@ export const InstallationConfigSchema = z.strictObject({
       .optional(),
   }),
   container: DaemonConnectionSchema.extend({
+    factoryRuntimeAdoption: FactoryRuntimeAdoptionConfigurationSchema.optional(),
     supervisorMaintenance: z
       .strictObject({
         node: z.string().startsWith("/"),

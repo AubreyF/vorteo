@@ -1003,6 +1003,26 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         }),
       [client, pendingPermissionItems],
     );
+    const pendingQuestionsNode = useMemo(
+      () =>
+        renderPendingPermissionsNode({
+          pendingPermissions: pendingPermissionItems.filter(
+            (item) => item.request.kind === "question",
+          ),
+          client,
+        }),
+      [client, pendingPermissionItems],
+    );
+    const pendingActionPermissionsNode = useMemo(
+      () =>
+        renderPendingPermissionsNode({
+          pendingPermissions: pendingPermissionItems.filter(
+            (item) => item.request.kind !== "question",
+          ),
+          client,
+        }),
+      [client, pendingPermissionItems],
+    );
     const turnFooterNode = useMemo(
       () =>
         isTurnActive || bottomTurnFooterHost ? (
@@ -1124,16 +1144,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         ) : null),
       [trailingCards, showTaskCards, serverId, agentId, context.workspaceId, context.cwd],
     );
-    const cards = useMemo(
-      () =>
-        renderLiveAuxiliaryNode({
-          pendingPermissions: auxiliary.pendingPermissions,
-          turnFooter: null,
-          taskCards,
-          bottomOverlayInset: 0,
-        }),
-      [auxiliary.pendingPermissions, taskCards],
-    );
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
         auxiliary.turnFooter && !auxiliary.pendingPermissions ? TURN_FOOTER_BOTTOM_SPACING : 0;
@@ -1142,7 +1152,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         existingTailSpacing,
       });
       return renderLiveAuxiliaryNode({
-        pendingPermissions: splitColumns ? null : auxiliary.pendingPermissions,
+        pendingPermissions: splitColumns ? pendingQuestionsNode : auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
         taskCards: splitColumns ? null : taskCards,
         bottomOverlayInset,
@@ -1150,6 +1160,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     }, [
       auxiliary.pendingPermissions,
       auxiliary.turnFooter,
+      pendingQuestionsNode,
       bottomOverlayTailClearance,
       splitColumns,
       taskCards,
@@ -1187,6 +1198,16 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       () => [...effectiveStreamItems, ...(effectiveStreamHead ?? [])],
       [effectiveStreamItems, effectiveStreamHead],
     );
+    const outline = useMemo(
+      () => (
+        <ChatOutlineRail
+          prompts={chatOutline.prompts}
+          activePrompt={chatOutline.activePrompt}
+          onJumpToPrompt={chatOutline.jumpToPrompt}
+        />
+      ),
+      [chatOutline.prompts, chatOutline.activePrompt, chatOutline.jumpToPrompt],
+    );
     return (
       <ChatFind
         agentId={agentId}
@@ -1198,7 +1219,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <StreamColumns layout={columns}>
+          <StreamColumns layout={columns} outline={outline}>
             <AssistantSelectionCopySurface style={stylesheet.container}>
               <QueueDragScrollContext.Provider value={queueDragScroll.onDragActive}>
                 <MessageOuterSpacingProvider disableOuterSpacing>
@@ -1228,11 +1249,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                   })}
                 </MessageOuterSpacingProvider>
               </QueueDragScrollContext.Provider>
-              <ChatOutlineRail
-                prompts={chatOutline.prompts}
-                activePrompt={chatOutline.activePrompt}
-                onJumpToPrompt={chatOutline.jumpToPrompt}
-              />
               {(!isNearBottom || isTimelineDetached) && (
                 <View style={scrollToBottomContainerStyle} pointerEvents="box-none">
                   <Animated.View entering={scrollIndicatorFadeIn} exiting={scrollIndicatorFadeOut}>
@@ -1246,7 +1262,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 </View>
               )}
             </AssistantSelectionCopySurface>
-            {cards}
+            <>
+              {taskCards}
+              {pendingActionPermissionsNode}
+            </>
           </StreamColumns>
         </ToolCallSheetProvider>
       </ChatFind>

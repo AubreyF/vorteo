@@ -19,6 +19,7 @@ import { Text, View } from "react-native";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
+import { Field, FormTextInput } from "@/components/ui/form-field";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { usePathname, useRouter } from "expo-router";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
@@ -77,6 +78,63 @@ function getInstallationPanel(registryLoaded: boolean): InstallationPanelModel |
   return panelModel;
 }
 
+export function InstallationWelcome() {
+  const model = getInstallationPanel(useHostRegistryLoaded());
+  return model ? <InstallationWelcomeForm model={model} /> : null;
+}
+
+function InstallationWelcomeForm({ model }: { model: InstallationPanelModel }) {
+  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const setPassword = useCallback((value: string) => model.setPassword(value), [model]);
+  const connect = useCallback(() => {
+    if (model.getState().password.trim()) void model.unlock();
+  }, [model]);
+  if (!state.initialized) {
+    return <Text style={styles.text}>Checking owner access...</Text>;
+  }
+  if (state.unlocked) {
+    return (
+      <Text accessibilityLiveRegion="polite" style={styles.text}>
+        Signed in. Connecting to your environments. Keep Tailscale connected on this device.
+      </Text>
+    );
+  }
+  return (
+    <View style={styles.details} testID="installation-welcome">
+      <Field label="Owner password">
+        <FormTextInput
+          size="md"
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="current-password"
+          textContentType="password"
+          initialValue=""
+          onChangeText={setPassword}
+          onSubmitEditing={connect}
+          returnKeyType="go"
+          editable={!state.busy}
+          accessibilityLabel="Owner password"
+          testID="installation-password"
+        />
+      </Field>
+      {state.error ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {state.error}
+        </Text>
+      ) : null}
+      <Button
+        size="lg"
+        disabled={state.busy || !state.password.trim()}
+        onPress={connect}
+        testID="installation-unlock"
+      >
+        {state.busy ? "Connecting..." : "Connect"}
+      </Button>
+    </View>
+  );
+}
+
 export function InstallationControls({ requestId = null }: { requestId?: string | null }) {
   const registryLoaded = useHostRegistryLoaded();
   const model = getInstallationPanel(registryLoaded);
@@ -84,7 +142,7 @@ export function InstallationControls({ requestId = null }: { requestId?: string 
   return <InstallationPanel model={model} requestId={requestId} />;
 }
 
-// Session restoration stays app-wide. Setup routes to the inline controls once;
+// Session restoration stays app-wide. New devices sign in on the welcome page;
 // incoming restart requests never interrupt another screen or open a dialog.
 export function InstallationSessionHost() {
   const registryLoaded = useHostRegistryLoaded();
@@ -109,8 +167,8 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
     if (!state.initialized || state.busy || !state.visible) return;
     model.close();
     const inSettings = pathname === "/settings" || pathname.startsWith("/settings/");
-    if (!inSettings) router.replace("/settings/general");
-  }, [model, pathname, router, state.busy, state.initialized, state.visible]);
+    if (!inSettings) router.replace(state.unlocked ? "/settings/general" : "/welcome");
+  }, [model, pathname, router, state.busy, state.initialized, state.visible, state.unlocked]);
   return null;
 }
 
@@ -723,7 +781,7 @@ function RestartActions({
       ) : null}
       {pending && !source ? (
         <ActionFooter style={styles.actions}>
-          {!job.supervisorPlanSha256 ? (
+          {!job.supervisorPlanSha256 && !job.factoryRuntimePlanSha256 ? (
             <RestartActionButton
               variant="outline"
               disabledReason={restartActionDisabledReason(
@@ -749,7 +807,9 @@ function RestartActions({
             onPress={finish}
             testID={`restart-finish-${job.id}`}
           >
-            Finish turns and restart
+            {job.factoryRuntimePlanSha256
+              ? "Finish turns and adopt Factory startup"
+              : "Finish turns and restart"}
           </RestartActionButton>
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
@@ -769,6 +829,7 @@ function RestartActions({
 }
 
 function restartTargetLabel(job: RestartJob): string {
+  if (job.factoryRuntimePlanSha256) return "Factory startup on Dev";
   if (job.supervisorPlanSha256) return "Dev supervisor";
   return job.target === "host" ? "Host" : "Dev container";
 }
@@ -796,6 +857,23 @@ function RestartDetails({ job }: { job: RestartJob }) {
           {job.supervisorPlanSha256 ? (
             <Text selectable style={styles.text}>
               Reviewed supervisor plan: {job.supervisorPlanSha256}
+            </Text>
+          ) : null}
+          {job.factoryRuntimePlanSha256 ? (
+            <Text selectable style={styles.text}>
+              Select the reviewed Factory runtime and restart Dev. Existing Factory state is
+              retained. Reviewed adoption plan: {job.factoryRuntimePlanSha256}
+            </Text>
+          ) : null}
+          {job.factoryRuntimeRecoveryOf ? (
+            <Text selectable style={styles.text}>
+              Recover the unresolved startup selection from request {job.factoryRuntimeRecoveryOf}.
+              This plan must reconcile the retained selection before restarting Dev.
+            </Text>
+          ) : null}
+          {job.factoryRuntimeRecoveredBy ? (
+            <Text selectable style={styles.text}>
+              Recovery verified by request {job.factoryRuntimeRecoveredBy}.
             </Text>
           ) : null}
           {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}

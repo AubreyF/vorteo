@@ -18,6 +18,7 @@ interface OverviewProps extends PluginHostProps {
   setupPending?: boolean;
   installation?: FactoryInstallationState;
   onInstall?: () => void;
+  ownerControls?: ReactNode;
 }
 
 const statusLabels = {
@@ -332,6 +333,7 @@ export function FactoryOverview({
   setupPending = false,
   installation,
   onInstall,
+  ownerControls,
 }: OverviewProps) {
   const [selectedIssue, setSelectedIssue] = useState<string | null>(null);
   const { snapshot } = source;
@@ -385,6 +387,8 @@ export function FactoryOverview({
           {...installationControls(source.kind, installation, onInstall)}
         />
       ) : null}
+
+      {ownerControls}
 
       <Section title="Current work and admission" colors={colors}>
         <Row
@@ -556,8 +560,7 @@ export function FactoryOverview({
         ))}
       </Section>
       <Text style={styles.notice}>
-        Lifecycle controls unavailable. Pause, resume, stop, takeover, disable and cleanup require
-        reconciled runtime support.
+        Takeover, disable and cleanup require additional reconciled runtime support.
       </Text>
     </ScrollView>
   );

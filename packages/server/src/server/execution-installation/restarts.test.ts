@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { mkdtemp, writeFile, rm, mkdir, symlink, realpath, readFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  writeFile,
+  rm,
+  mkdir,
+  symlink,
+  realpath,
+  readFile,
+  chmod,
+} from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { InstallationSourceUpdates } from "./source-updates.js";
 import { tmpdir } from "node:os";
@@ -10,6 +19,7 @@ import { createInstallationRestartExecutor, validateHostStartup } from "./daemon
 import type { InstallationConfig } from "./config.js";
 import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
+import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 
 class MemoryJournal implements RestartJournal {
   jobs: RestartJob[] = [];
@@ -22,6 +32,397 @@ class MemoryJournal implements RestartJournal {
     this.jobs = structuredClone(jobs);
   }
 }
+
+test("Factory adoption requires its own exact approval and never shares a plain restart", async () => {
+  const plan = "c".repeat(64);
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    factoryRuntimePlan: () => plan,
+    adoptFactoryRuntime: async () => {
+      calls.push("adopt");
+      return "Factory startup verified";
+    },
+    restart: async () => {
+      calls.push("plain");
+      return "ready";
+    },
+  });
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Adopt the preserved Factory runtime",
+    factoryRuntimePlanSha256: plan,
+  };
+  expect(() => queue.request(input, "container-agent")).toThrow("Host");
+  const request = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(calls).toEqual([]);
+  expect(() => queue.request({ target: "container-daemon", reason: "Restart" }, "owner")).toThrow(
+    "scope",
+  );
+  expect(() => queue.decide(request.id, request.revision, "approve")).toThrow("exact Factory");
+  queue.decide(request.id, request.revision, "approve", undefined, undefined, plan);
+  await queue.drain();
+  await queue.drain();
+  expect(calls).toEqual(["adopt"]);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+});
+
+test("Factory adoption is never automatically approved and changed plans cannot place a hold", async () => {
+  let plan = "c".repeat(64);
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(
+    new MemoryJournal(),
+    {
+      factoryRuntimePlan: () => plan,
+      adoptFactoryRuntime: async () => {
+        calls.push("adopt");
+        return "ready";
+      },
+      restart: async () => "wrong",
+      restartWhenIdle: async () => "wrong",
+      holdCurrentTurns: async () => {
+        calls.push("hold");
+      },
+      releaseCurrentTurns: async () => {
+        calls.push("release");
+      },
+      inspect: async () => ({
+        target: "container-daemon",
+        checkedAt: new Date().toISOString(),
+        agents: [],
+        pendingStarts: 0,
+        idleRestartSupported: true,
+        gracefulRestartSupported: true,
+        error: null,
+      }),
+    },
+    Date.now,
+    { hostRequestsAfter: "2026-01-01T00:00:00Z" },
+  );
+  const job = queue.request(
+    { target: "container-daemon", reason: "Adopt", factoryRuntimePlanSha256: plan },
+    "host-agent",
+  );
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("pending");
+  expect(calls).toEqual([]);
+  queue.decide(job.id, job.revision, "finish-current-turns", undefined, undefined, plan);
+  plan = "d".repeat(64);
+  await queue.drain();
+  expect(calls).toEqual([]);
+  expect(queue.list()[0]?.status).toBe("failed");
+});
+
+test("Factory adoption can be cancelled during the visible finish-turns hold", async () => {
+  const plan = "c".repeat(64);
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    factoryRuntimePlan: () => plan,
+    adoptFactoryRuntime: async () => {
+      calls.push("adopt");
+      return "ready";
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => "wrong",
+    holdCurrentTurns: async () => {
+      calls.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      calls.push("release");
+    },
+    inspect: async () => ({
+      target: "container-daemon",
+      checkedAt: new Date().toISOString(),
+      agents: [{ id: "busy", title: "Busy", status: "running" }],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      gracefulRestartSupported: true,
+      error: null,
+    }),
+  });
+  const job = queue.request(
+    { target: "container-daemon", reason: "Adopt", factoryRuntimePlanSha256: plan },
+    "host-agent",
+  );
+  const approved = queue.decide(
+    job.id,
+    job.revision,
+    "finish-current-turns",
+    undefined,
+    undefined,
+    plan,
+  );
+  await queue.drain();
+  expect(calls).toEqual(["hold"]);
+  queue.decide(approved.id, approved.revision, "cancel");
+  await queue.drain();
+  expect(calls).toEqual(["hold", "release"]);
+  expect(queue.list()[0]?.status).toBe("rejected");
+});
+
+test("Factory adoption failure and coordinator recovery never replay selected source", async () => {
+  const journal = new MemoryJournal();
+  const plan = "c".repeat(64);
+  let attempts = 0;
+  const plainRestart = vi.fn(async () => "must not run");
+  const hold = vi.fn(async () => {});
+  const executor: RestartExecutor = {
+    factoryRuntimePlan: () => plan,
+    adoptFactoryRuntime: async () => {
+      attempts++;
+      throw new Error("Verification failed after selection");
+    },
+    restart: plainRestart,
+    restartWhenIdle: plainRestart,
+    holdCurrentTurns: hold,
+    releaseCurrentTurns: async () => {},
+    inspect: async () => ({
+      target: "container-daemon",
+      checkedAt: new Date().toISOString(),
+      agents: [],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      gracefulRestartSupported: true,
+    }),
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const job = queue.request(
+    { target: "container-daemon", reason: "Adopt", factoryRuntimePlanSha256: plan },
+    "host-agent",
+  );
+  queue.decide(job.id, job.revision, "approve", undefined, undefined, plan);
+  await queue.drain();
+  await new InstallationRestarts(journal, executor).drain();
+  expect(attempts).toBe(1);
+  expect(journal.jobs[0]?.status).toBe("failed");
+  expect(journal.jobs[0]?.factoryRuntimeRecoveryRequired).toBe(true);
+  const recovered = new InstallationRestarts(journal, executor, Date.now, {
+    hostRequestsAfter: "2026-01-01T00:00:00Z",
+  });
+  const plain = recovered.request(
+    { target: "container-daemon", reason: "Later restart" },
+    "host-agent",
+  );
+  await recovered.drain();
+  expect(recovered.list().find((item) => item.id === plain.id)?.status).toBe("pending");
+  expect(hold).not.toHaveBeenCalled();
+  expect(() => recovered.decide(plain.id, plain.revision, "approve")).toThrow("reconciliation");
+  await recovered.drain();
+  expect(plainRestart).not.toHaveBeenCalled();
+  expect(recovered.list().find((item) => item.id === plain.id)?.status).toBe("pending");
+  // A crash after the durable running marker preserves the same fence.
+  journal.write(
+    journal.jobs.map((item) => (item.id === job.id ? { ...item, status: "running" } : item)),
+  );
+  const interrupted = new InstallationRestarts(journal, executor);
+  await interrupted.drain();
+  expect(
+    interrupted.list().find((item) => item.id === job.id)?.factoryRuntimeRecoveryRequired,
+  ).toBe(true);
+  expect(plainRestart).not.toHaveBeenCalled();
+});
+
+test.each([false, true])(
+  "Factory recovery cannot deadlock behind a source approval (held: %s)",
+  async (held) => {
+    const journal = new MemoryJournal();
+    const plan = "e".repeat(64);
+    let succeeds = false;
+    const installUpdate = vi.fn(async () => "installed");
+    const releaseCurrentTurns = vi.fn(async () => {});
+    const executor: RestartExecutor = {
+      factoryRuntimePlan: () => plan,
+      adoptFactoryRuntime: async () => {
+        if (!succeeds) throw new Error("verification failed");
+        return "recovered";
+      },
+      restart: async () => "plain",
+      installUpdate,
+      supportsUpdate: () => true,
+      releaseCurrentTurns,
+    };
+    const queue = new InstallationRestarts(journal, executor);
+    const input = {
+      target: "container-daemon" as const,
+      reason: "Adopt",
+      factoryRuntimePlanSha256: plan,
+    };
+    const adoption = queue.request(input, "host-agent");
+    queue.decide(adoption.id, adoption.revision, "approve", undefined, undefined, plan);
+    await queue.drain();
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 42,
+    };
+    const source = queue.request(
+      { target: "container-daemon", reason: "Update source" },
+      "host-agent",
+      update,
+    );
+    expect(() => queue.decide(source.id, source.revision, "approve", update.sha256)).toThrow(
+      "reconciliation",
+    );
+    expect(queue.list().find((job) => job.id === source.id)?.status).toBe("pending");
+    const recovery = queue.request(
+      { ...input, factoryRuntimeRecoveryOf: adoption.id },
+      "host-agent",
+    );
+    queue.decide(recovery.id, recovery.revision, "reject");
+    // Simulate an approval retained by the prior coordinator, including a durable
+    // finish-turns hold. Neither kind may monopolize the recovery target.
+    journal.write(
+      journal.jobs.map((job) =>
+        job.id === source.id
+          ? {
+              ...job,
+              status: "approved",
+              whenIdle: held,
+              finishCurrentTurns: held,
+            }
+          : job,
+      ),
+    );
+    const restored = new InstallationRestarts(journal, executor);
+    const revoked = restored.list().find((job) => job.id === source.id);
+    expect(revoked?.status).toBe("failed");
+    expect(revoked?.update).toEqual(update);
+    const retry = restored.request(
+      { ...input, factoryRuntimeRecoveryOf: adoption.id },
+      "host-agent",
+    );
+    restored.decide(retry.id, retry.revision, "approve", undefined, undefined, plan);
+    succeeds = true;
+    await restored.drain();
+    expect(restored.list().find((job) => job.id === retry.id)?.status).toBe("succeeded");
+    expect(restored.list().some((job) => job.factoryRuntimeRecoveryRequired)).toBe(false);
+    expect(installUpdate).not.toHaveBeenCalled();
+    if (held) expect(releaseCurrentTurns).toHaveBeenCalledWith("container-daemon", source.id);
+    else expect(releaseCurrentTurns).not.toHaveBeenCalled();
+  },
+);
+
+test("Factory recovery requires fresh exact approval and clears only a verified failure chain", async () => {
+  const journal = new MemoryJournal();
+  const plan = "d".repeat(64);
+  let succeeds = false;
+  const executions: string[] = [];
+  const executor: RestartExecutor = {
+    factoryRuntimePlan: () => plan,
+    adoptFactoryRuntime: async (job) => {
+      expect(journal.jobs.find((item) => item.id === job.id)?.factoryRuntimeRecoveryRequired).toBe(
+        true,
+      );
+      executions.push(job.id);
+      if (!succeeds)
+        throw Object.assign(new Error("private timeout diagnostics"), { code: "ETIMEDOUT" });
+      return "Verified reviewed selection and replacement";
+    },
+    restart: async () => "plain",
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Adoption",
+    factoryRuntimePlanSha256: plan,
+  };
+  const first = queue.request(input, "host-agent");
+  queue.decide(first.id, first.revision, "approve", undefined, undefined, plan);
+  await queue.drain();
+  expect(queue.list()[0]?.detail).not.toContain("private");
+  expect(() => queue.request(input, "host-agent")).toThrow("latest unresolved");
+  expect(() =>
+    queue.request({ ...input, factoryRuntimeRecoveryOf: crypto.randomUUID() }, "host-agent"),
+  ).toThrow("missing or changed");
+  const second = queue.request({ ...input, factoryRuntimeRecoveryOf: first.id }, "host-agent");
+  await queue.drain();
+  expect(executions).toEqual([first.id]);
+  expect(() =>
+    queue.decide(second.id, first.revision, "approve", undefined, undefined, plan),
+  ).toThrow("missing or changed");
+  queue.decide(second.id, second.revision, "approve", undefined, undefined, plan);
+  await queue.drain();
+  expect(queue.list().filter((item) => item.factoryRuntimeRecoveryRequired)).toHaveLength(2);
+  expect(() =>
+    queue.request({ ...input, factoryRuntimeRecoveryOf: first.id }, "host-agent"),
+  ).toThrow("latest unresolved");
+  const recovered = new InstallationRestarts(journal, executor);
+  const third = recovered.request({ ...input, factoryRuntimeRecoveryOf: second.id }, "host-agent");
+  succeeds = true;
+  recovered.decide(third.id, third.revision, "approve", undefined, undefined, plan);
+  await recovered.drain();
+  expect(executions).toEqual([first.id, second.id, third.id]);
+  expect(recovered.list().filter((item) => item.factoryRuntimeRecoveryRequired)).toHaveLength(0);
+  for (const id of [first.id, second.id])
+    expect(recovered.list().find((item) => item.id === id)).toMatchObject({
+      status: "failed",
+      factoryRuntimeRecoveredBy: third.id,
+    });
+  expect(recovered.list().find((item) => item.id === third.id)?.status).toBe("succeeded");
+});
+
+test.skipIf(process.platform === "win32")(
+  "Factory adoption executes pinned physical source and verifies phase receipts",
+  async () => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "factory-adoption-")));
+    try {
+      const script = path.join(root, "plan.mjs");
+      const code = `const e = process.env;
+      process.stdout.write(JSON.stringify({requestId:e.VORTEO_FACTORY_ADOPTION_REQUEST_ID,
+        planSha256:e.VORTEO_FACTORY_ADOPTION_PLAN_SHA256, phase:e.VORTEO_FACTORY_ADOPTION_PHASE,
+        serverId:e.VORTEO_FACTORY_ADOPTION_SERVER_ID, previousPid:Number(e.VORTEO_FACTORY_ADOPTION_PREVIOUS_PID),
+        replacementPid:e.VORTEO_FACTORY_ADOPTION_REPLACEMENT_PID ? Number(e.VORTEO_FACTORY_ADOPTION_REPLACEMENT_PID) : null}));`;
+      await writeFile(script, code, { mode: 0o600 });
+      const plan = {
+        node: process.execPath,
+        script,
+        sha256: createHash("sha256").update(code).digest("hex"),
+      };
+      const queue = new InstallationRestarts(new MemoryJournal(), {
+        factoryRuntimePlan: () => plan.sha256,
+        adoptFactoryRuntime: async () => "unused",
+        restart: async () => "unused",
+      });
+      const job = queue.request(
+        { target: "container-daemon", reason: "Fixture", factoryRuntimePlanSha256: plan.sha256 },
+        "host-agent",
+      );
+      const input = { plan, job, serverId: "expected-dev", previousPid: 12 };
+      expect(factoryRuntimePlanDigest(plan)).toBe(plan.sha256);
+      await runFactoryRuntimePhase({ ...input, phase: "stage", replacementPid: null });
+      await runFactoryRuntimePhase({ ...input, phase: "verify", replacementPid: 13 });
+      await chmod(script, 0o666);
+      expect(factoryRuntimePlanDigest(plan)).toBeUndefined();
+      await expect(
+        runFactoryRuntimePhase({ ...input, phase: "stage", replacementPid: null }),
+      ).rejects.toThrow("physical plan");
+      await chmod(script, 0o600);
+      await writeFile(script, code + "\n// changed");
+      expect(factoryRuntimePlanDigest(plan)).toBeUndefined();
+      await expect(
+        runFactoryRuntimePhase({ ...input, phase: "stage", replacementPid: null }),
+      ).rejects.toThrow("changed");
+      const failing =
+        'console.error("private-stderr-sentinel"); throw new Error("private-source-sentinel");';
+      await writeFile(script, failing);
+      const failurePlan = { ...plan, sha256: createHash("sha256").update(failing).digest("hex") };
+      const failure = await runFactoryRuntimePhase({
+        ...input,
+        plan: failurePlan,
+        job: { ...job, factoryRuntimePlanSha256: failurePlan.sha256 },
+        phase: "stage",
+        replacementPid: null,
+      }).catch((error: Error) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(String(failure)).toContain("stage execution failed");
+      expect(String(failure)).not.toContain("sentinel");
+      expect(String(failure)).not.toContain("--eval");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("request-only callers cannot cause a restart, and approval is bound to the exact revision", async () => {
   const calls: string[] = [];

@@ -73,6 +73,23 @@ function matchesToken(token: string | null, hash: string): boolean {
   return timingSafeEqual(actual, Buffer.from(hash, "hex"));
 }
 
+// COMPAT(factoryRuntimeAdoption): v285, remove after legacy installation clients are retired.
+function factoryAdoptionReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
+  if (!job.factoryRuntimePlanSha256 || enabled) return job;
+  const {
+    factoryRuntimePlanSha256: _plan,
+    factoryRuntimeRecoveryRequired: _recovery,
+    factoryRuntimeRecoveryOf: _recoveryOf,
+    factoryRuntimeRecoveredBy: _recoveredBy,
+    ...compatible
+  } = job;
+  return {
+    ...compatible,
+    reason: "Factory startup adoption. Reload Vorteo to review the exact operation.",
+    detail: "Reload to review Factory adoption. Cancellation remains available.",
+  };
+}
+
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
 function restartReply(
   job: RestartJob,
@@ -83,7 +100,9 @@ function restartReply(
   containerSourceUpdates = false,
   supervisorMaintenance = false,
   hostAutomaticRestarts = false,
+  factoryRuntimeAdoption?: boolean,
 ) {
+  job = factoryAdoptionReply(job, factoryRuntimeAdoption);
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
     job = compatible;
@@ -327,6 +346,7 @@ export function createInstallationServer(
       config.hostAgentTokenHash,
     );
     const supervisorPlan = host ? executor.supervisorPlan?.() : undefined;
+    const factoryRuntimePlan = host ? executor.factoryRuntimePlan?.() : undefined;
     const automaticHost = Boolean(
       config.restartApprovalPolicy &&
       executor.inspect &&
@@ -359,6 +379,11 @@ export function createInstallationServer(
           supervisorMaintenance: {
             available: Boolean(supervisorPlan && executor.restartSupervisor),
             ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
+          },
+          factoryRuntimeAdoption: {
+            available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
+            ownerApprovalRequired: true,
+            ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
           },
         }),
       next,
@@ -488,6 +513,7 @@ export function createInstallationServer(
             true,
             true,
             req.query.hostAutomaticRestarts === "1",
+            req.query.factoryRuntimeAdoption === "1",
           ),
         });
         void drainRestarts();
@@ -639,6 +665,7 @@ export function createInstallationServer(
           true,
           true,
           req.query.hostAutomaticRestarts === "1",
+          true,
         ),
       );
   });
@@ -668,6 +695,7 @@ export function createInstallationServer(
         true,
         true,
         req.query.hostAutomaticRestarts === "1",
+        true,
       ),
     );
   });
@@ -876,6 +904,7 @@ export function createInstallationServer(
             req.query.containerSourceUpdates === "1",
             req.query.supervisorMaintenance === "1",
             req.query.hostAutomaticRestarts === "1",
+            req.query.factoryRuntimeAdoption === "1",
           ),
         ),
     );
@@ -922,6 +951,7 @@ export function createInstallationServer(
       decision.decision,
       decision.updateSha256,
       decision.supervisorPlanSha256,
+      decision.factoryRuntimePlanSha256,
     );
     res.json(
       restartReply(
@@ -933,6 +963,7 @@ export function createInstallationServer(
         req.query.containerSourceUpdates === "1",
         req.query.supervisorMaintenance === "1",
         req.query.hostAutomaticRestarts === "1",
+        req.query.factoryRuntimeAdoption === "1",
       ),
     );
     void restarts

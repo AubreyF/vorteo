@@ -13,6 +13,8 @@ const { values, positionals } = parseArgs({
     target: { type: "string" },
     update: { type: "boolean" },
     "supervisor-plan": { type: "string" },
+    "factory-runtime-plan": { type: "string" },
+    "factory-runtime-recovery-of": { type: "string" },
     repository: { type: "string" },
     "contribution-id": { type: "string" },
     replaces: { type: "string" },
@@ -27,11 +29,35 @@ if (
 )
   throw new Error("--supervisor-plan requires a Dev maintenance request, not a source update");
 if (!values.config) throw new Error("An installed client config is required");
+if (values["factory-runtime-recovery-of"] && !values["factory-runtime-plan"])
+  throw new Error("Factory recovery requires --factory-runtime-plan");
 const config = JSON.parse(readFileSync(values.config, "utf8"));
 const base = new URL(config.origin);
 const local = base.hostname === "127.0.0.1" || base.hostname === "localhost";
 if (base.protocol !== "https:" && !(base.protocol === "http:" && local))
   throw new Error("TLS is required");
+if (values["factory-runtime-plan"]) {
+  if (
+    config.kind !== "host-agent" ||
+    values.update ||
+    values["supervisor-plan"] ||
+    values.target !== "container-daemon" ||
+    positionals[0] !== "request-restart"
+  )
+    throw new Error("--factory-runtime-plan requires a separate trusted Host Dev adoption request");
+  const response = await fetch(new URL("/api/installation/capabilities", base), {
+    headers: { Authorization: `Bearer ${config.token}` },
+    redirect: "error",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok)
+    throw new Error("Coordinator cannot advertise Factory adoption. No request submitted.");
+  const capability = (await response.json()).factoryRuntimeAdoption;
+  if (!capability?.available || capability.sha256 !== values["factory-runtime-plan"])
+    throw new Error(
+      "Reviewed Factory adoption plan is unavailable or changed. No request submitted.",
+    );
+}
 if (values["supervisor-plan"]) {
   if (config.kind !== "host-agent")
     throw new Error("Supervisor maintenance requires the trusted Host client");
@@ -81,6 +107,12 @@ switch (positionals[0]) {
     body = {
       target: values.target,
       ...(values["supervisor-plan"] ? { supervisorPlanSha256: values["supervisor-plan"] } : {}),
+      ...(values["factory-runtime-plan"]
+        ? { factoryRuntimePlanSha256: values["factory-runtime-plan"] }
+        : {}),
+      ...(values["factory-runtime-recovery-of"]
+        ? { factoryRuntimeRecoveryOf: values["factory-runtime-recovery-of"] }
+        : {}),
       reason: readFileSync(values["reason-file"], "utf8"),
       ...(values.requester ? { requester: values.requester } : {}),
     };

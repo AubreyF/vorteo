@@ -1,4 +1,5 @@
 import { NativeHelperConfigurationSchema } from "./native-helper-maintenance.js";
+import { FactoryRuntimeAdoptionConfigurationSchema } from "./execution-installation.js";
 import { z } from "zod";
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -45,6 +46,9 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
     .optional(),
   automaticRecovery: z.literal("restore-previous").optional(),
   nativeHelperConfiguration: NativeHelperConfigurationSchema.nullable().optional(),
+  // COMPAT(factoryRuntimeAdoption): added in v0.11.0-beta.3.vorteo.285.
+  factoryRuntimeAdoptionConfiguration:
+    FactoryRuntimeAdoptionConfigurationSchema.nullable().optional(),
 });
 export type CoordinatorBootstrapPlan = z.infer<typeof CoordinatorBootstrapPlanSchema>;
 
@@ -106,15 +110,18 @@ export type CoordinatorBootstrapDecision = z.infer<typeof CoordinatorBootstrapDe
 export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.list_requests.request"),
   requestId: z.string(),
+  factoryRuntimeAdoption: z.literal(true).optional(),
 });
 export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.prepare.request"),
   requestId: z.string(),
+  factoryRuntimeAdoption: z.literal(true).optional(),
   input: CoordinatorBootstrapPreparationSchema,
 });
 export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.decide.request"),
   requestId: z.string(),
+  factoryRuntimeAdoption: z.literal(true).optional(),
   input: CoordinatorBootstrapDecisionSchema,
   // Transient owner proof. Never persist it with the request or decision.
   ownerPassword: z.string().min(1).max(1024),

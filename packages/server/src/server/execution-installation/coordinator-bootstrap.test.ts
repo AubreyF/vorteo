@@ -13,7 +13,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { hashSync } from "bcryptjs";
-import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
+import {
+  CoordinatorBootstrapRequestSchema,
+  CoordinatorBootstrapPlanSchema,
+  type CoordinatorBootstrapPlan,
+} from "@getpaseo/protocol/coordinator-bootstrap";
+import { handleBootstrapReview } from "./coordinator-bootstrap-session.js";
 import {
   CoordinatorBootstrapRequests,
   coordinatorPlanDigest,
@@ -399,6 +404,67 @@ test("cancellation wins while asynchronous approval validation is outstanding", 
   expect(canceled.status).toBe("canceled");
 });
 
+test.each([null, { node: "/private/node", script: "/private/adopt.mjs", sha256: "d".repeat(64) }])(
+  "bootstrap Factory configuration preserves legacy review and requires explicit support (%j)",
+  async (configuration) => {
+    const f = fixture();
+    const service = f.service();
+    const request = await service.prepare({
+      id: randomUUID(),
+      reason: "Reviewed startup configuration",
+      plan: { ...f.plan, factoryRuntimeAdoptionConfiguration: configuration },
+    });
+    const list = {
+      type: "installation.bootstrap.list_requests.request" as const,
+      requestId: "legacy",
+    };
+    const legacy = await handleBootstrapReview(list, service);
+    const legacySchema = CoordinatorBootstrapRequestSchema.extend({
+      plan: CoordinatorBootstrapPlanSchema.omit({ factoryRuntimeAdoptionConfiguration: true }),
+    });
+    expect(legacySchema.safeParse(request).success).toBe(false);
+    const projected = legacy.payload.requests![0]!;
+    expect(legacySchema.safeParse(projected).success).toBe(true);
+    expect(projected.reason).toContain("Reload");
+    expect(projected.planSha256).toBe(request.planSha256);
+    const current = await handleBootstrapReview({ ...list, factoryRuntimeAdoption: true }, service);
+    expect(current.payload.requests![0]!.plan.factoryRuntimeAdoptionConfiguration).toEqual(
+      configuration,
+    );
+    const decision = {
+      type: "installation.bootstrap.decide.request" as const,
+      requestId: "approval",
+      ownerPassword,
+      input: {
+        id: request.id,
+        revision: request.revision,
+        planSha256: request.planSha256,
+        decision: "approve" as const,
+      },
+    };
+    const refused = await handleBootstrapReview(decision, service);
+    expect(refused.payload.error).toContain("Reload");
+    expect(service.list()[0]!.status).toBe("pending");
+    const approved = await handleBootstrapReview(
+      { ...decision, factoryRuntimeAdoption: true },
+      service,
+    );
+    expect(approved.payload.error).toBeNull();
+    expect(approved.payload.requests![0]!.status).toBe("approved");
+    const retained = service.list()[0]!;
+    const cancelled = await handleBootstrapReview(
+      {
+        ...decision,
+        input: { ...decision.input, revision: retained.revision, decision: "cancel" },
+      },
+      service,
+    );
+    expect(cancelled.payload.error).toBeNull();
+    expect(cancelled.payload.requests![0]!.status).toBe("canceled");
+    expect(legacySchema.safeParse(cancelled.payload.requests![0]).success).toBe(true);
+  },
+);
+
 test("plan digest ignores object key order but binds replacement and policy changes", () => {
   const f = fixture();
   expect(coordinatorPlanDigest(Object.fromEntries(Object.entries(f.plan).toReversed()))).toBe(
@@ -422,6 +488,25 @@ test("plan digest ignores object key order but binds replacement and policy chan
     socket: "/private/docker.sock",
     containerId: "a".repeat(64),
   };
+  const adoption = {
+    node: "/private/host/node",
+    script: "/private/host/adopt.mjs",
+    sha256: "d".repeat(64),
+  };
+  const adoptionDigest = coordinatorPlanDigest({
+    ...f.plan,
+    factoryRuntimeAdoptionConfiguration: adoption,
+  });
+  expect(adoptionDigest).not.toBe(coordinatorPlanDigest(f.plan));
+  expect(coordinatorPlanDigest({ ...f.plan, factoryRuntimeAdoptionConfiguration: null })).not.toBe(
+    adoptionDigest,
+  );
+  expect(
+    coordinatorPlanDigest({
+      ...f.plan,
+      factoryRuntimeAdoptionConfiguration: { ...adoption, sha256: "e".repeat(64) },
+    }),
+  ).not.toBe(adoptionDigest);
   const enabled = coordinatorPlanDigest({ ...f.plan, nativeHelperConfiguration: helper });
   expect(enabled).not.toBe(coordinatorPlanDigest(f.plan));
   expect(
