@@ -40,6 +40,7 @@ import { hashSync } from "bcryptjs";
 import {
   readBootstrapHostBinding,
   createBootstrapReconciliationLedger,
+  createHostReconciliationLedger,
   bootstrapWritableMountRoots,
   verifyBootstrapConfiguration,
   verifyBootstrapPlan,
@@ -924,6 +925,24 @@ test("coordinator reconciliation revokes protected submissions after credential 
   f.config.stateDir = replacementState;
   f.save();
   expect(() => observer.revokeAutomatic()).toThrow("binding changed");
+});
+
+test("a systemd Host coordinator starts without the launchd bootstrap ledger", () => {
+  const f = fixture();
+  expect(createHostReconciliationLedger(f.config, f.file, "host-id")?.list()).toEqual([]);
+  const { launchdService: _launchd, ...shared } = f.config.host;
+  const host = {
+    ...shared,
+    systemdService: {
+      kind: "systemd-user" as const,
+      uid: 1000,
+      unit: "local.vorteo.fixture.host.service",
+    },
+  };
+  writeFileSync(f.file, JSON.stringify({ ...f.config, host }), { mode: 0o600 });
+  // The launchd ledger cannot bind this configuration, which crashed coordinator startup.
+  expect(() => createBootstrapReconciliationLedger(f.file, "host-id")).toThrow();
+  expect(createHostReconciliationLedger({ host }, f.file, "host-id")).toBeUndefined();
 });
 
 test("bootstrap binding pins Host daemon and service, and observes owner credential changes", () => {

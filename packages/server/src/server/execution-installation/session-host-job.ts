@@ -451,7 +451,7 @@ export async function restartSessionHost(input: {
 }): Promise<{
   detail: string;
   host: { pid: number; release?: string };
-  previousHost?: SessionHostAnswer;
+  previousHost?: NonNullable<SessionHostJob["previousHost"]>;
 }> {
   const { plan, ports } = input;
   const job = await assertRestartable(plan, ports);
@@ -470,11 +470,8 @@ export async function restartSessionHost(input: {
     if (replaced) {
       return {
         detail: restartDetail(job.pid, before, replaced.answer, replaced.forced),
-        host: {
-          pid: replaced.answer.pid,
-          ...(replaced.answer.release ? { release: replaced.answer.release } : {}),
-        },
-        ...(before ? { previousHost: before } : {}),
+        host: hostRecord(replaced.answer),
+        ...(before ? { previousHost: previousHostRecord(before) } : {}),
       };
     }
   } finally {
@@ -688,6 +685,22 @@ const SESSION_HOST_APPLIERS = {
   "session-host-remove": removeSessionHost,
   "session-host-restart": restartSessionHost,
 } satisfies Record<SessionHostOperation, unknown>;
+
+/**
+ * The host as a finished job records it. Only the fields the job schema names: the schema is
+ * strict and interfaces parse it strictly, so a field the host adds, such as its provider counts,
+ * must never reach the record.
+ */
+function hostRecord(answer: SessionHostAnswer): NonNullable<SessionHostJob["host"]> {
+  return { pid: answer.pid, ...(answer.release ? { release: answer.release } : {}) };
+}
+
+/** The stopped host as a finished restart records it, with the sessions it ran at that moment. */
+function previousHostRecord(
+  answer: SessionHostAnswer,
+): NonNullable<SessionHostJob["previousHost"]> {
+  return { ...hostRecord(answer), sessions: answer.sessions };
+}
 
 /** The host as the status reports it: identity, release and sessions, by provider when listed. */
 function describeHost(

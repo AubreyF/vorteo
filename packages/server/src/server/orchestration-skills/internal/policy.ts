@@ -27,6 +27,8 @@ export function isRestricted(policy: SkillPolicy | undefined): boolean {
 
 interface SkillCaptureOptions {
   home?: string;
+  /** The CODEX_HOME a Codex session will launch with; defaults to ~/.codex under `home`. */
+  codexHome?: string;
   nativeDefaults?: string[] | (() => Promise<string[]>);
   /** Skills the provider labels as bundled with its own binary; read only for inherited restrictions. */
   providerBuiltins?: () => Promise<string[]>;
@@ -92,7 +94,11 @@ async function prepareSkillSelection(
       "This provider has no verified session skill filter. Use inherited defaults or select a supported Claude or Codex provider.",
     );
   }
-  const inventory = await inventorySkills({ home: options.home, cwd: config.cwd });
+  const inventory = await inventorySkills({
+    home: options.home,
+    cwd: config.cwd,
+    ...(provider === "codex" && options.codexHome ? { codexHome: options.codexHome } : {}),
+  });
   const observed = inventory.skills.filter((skill) => skill.providers.includes(provider));
   const available = installationCandidates(observed, options, policy);
   if (!isRestricted(policy) && !available.restricted) return null;

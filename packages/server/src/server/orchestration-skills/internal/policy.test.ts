@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, mkdir, writeFile, rm, cp, symlink } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, writeFile, rm, cp, symlink, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -125,6 +125,48 @@ it("accepts an identical provider skill copy from an account's own Codex home", 
   await expect(
     codexSkillFilter(snapshot, [{ name: "imagegen", path: changedPath }]),
   ).rejects.toThrow("did not discover");
+});
+
+it("freezes a Codex account's own skill copy so a rewritten ~/.codex cannot break it", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-account-home-"));
+  directories.push(home);
+  const project = path.join(home, "project");
+  await mkdir(path.join(project, ".git"), { recursive: true });
+  const hostCopy = path.join(home, ".codex/skills/.system/openai-docs");
+  const codexHome = path.join(home, "codex-accounts/one");
+  const accountCopy = path.join(codexHome, "skills/.system/openai-docs");
+  await mkdir(accountCopy, { recursive: true });
+  await writeFile(
+    path.join(accountCopy, "SKILL.md"),
+    "---\nname: openai-docs\ndescription: x\n---\n",
+  );
+  // Another Codex build extracted a different version into the shared home.
+  await cp(accountCopy, hostCopy, { recursive: true });
+  await writeFile(path.join(hostCopy, "extra.md"), "Newer build");
+  const skill = (await inventorySkills({ home, codexHome, cwd: project })).skills.find(
+    (item) => item.name === "openai-docs",
+  )!;
+  const config: AgentSessionConfig = {
+    provider: "codex-account-one",
+    cwd: project,
+    profileLaunch: {
+      profile: {
+        id: "docs",
+        name: "Docs",
+        provider: "codex",
+        skillPolicy: { mode: "selected", skills: [skill.identity] },
+      },
+    },
+  };
+  await captureSkillPolicy(config, "codex", { home, codexHome });
+  const snapshot = config.profileLaunch!.skillSnapshot!;
+  expect(snapshot.skills.map((item) => item.path)).toEqual([await realpath(accountCopy)]);
+  const accountPath = path.join(await realpath(accountCopy), "SKILL.md");
+  expect(await codexSkillFilter(snapshot, [{ name: "openai-docs", path: accountPath }])).toEqual([
+    { path: accountPath, enabled: true },
+  ]);
+  await writeFile(path.join(hostCopy, "extra.md"), "Rewritten again");
+  expect(await verifySkillSnapshot(config)).toEqual(["openai-docs"]);
 });
 
 it("does not enable installed packages that the provider disabled by default", async () => {

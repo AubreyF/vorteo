@@ -123,6 +123,18 @@ export function createBootstrapReconciliationLedger(
   };
 }
 
+/** Coordinator bootstrap exists only for a launchd Host. A systemd Host has no native
+ * bootstrap service or ledger, so its coordinator starts without one and reports the
+ * coordinator maintenance ledger as unavailable. */
+export function createHostReconciliationLedger(
+  config: Pick<InstallationConfig, "host">,
+  configurationFile: string,
+  daemonId: string,
+): BootstrapReconciliationLedger | undefined {
+  if (!("launchdService" in config.host)) return undefined;
+  return createBootstrapReconciliationLedger(configurationFile, daemonId);
+}
+
 /** Construct only from a private launcher-selected Host setup file. The caller
  * must not advertise the capability until review and execution are available. */
 export async function createBootstrapReviewService(

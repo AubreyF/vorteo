@@ -25,7 +25,7 @@ function samples(): Partial<Record<ReviewedConfigurationSetting, unknown>> {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "restart-settings-")));
   roots.push(root);
   const script = path.join(root, "adopt.mjs");
-  writeFileSync(script, "// fixture adoption plan\n", { mode: 0o600 });
+  writeFileSync(script, "// fixture adoption plan\n", { mode: 0o700 });
   return {
     factoryRuntimeAdoption: {
       node: process.execPath,
@@ -39,6 +39,40 @@ function samples(): Partial<Record<ReviewedConfigurationSetting, unknown>> {
         dev: "a".repeat(64),
         gatewayTailscale: "b".repeat(64),
         gatewayCaddy: "c".repeat(64),
+      },
+    },
+    engineRecovery: {
+      deadlineSeconds: 420,
+      docker: realpathSync(process.execPath),
+      dockerSha256: createHash("sha256").update(readFileSync(process.execPath)).digest("hex"),
+      socket: path.join(root, "docker.sock"),
+      containers: {
+        dev: "a".repeat(64),
+        gatewayTailscale: "b".repeat(64),
+        gatewayCaddy: "c".repeat(64),
+      },
+      factoryVerify: {
+        script,
+        sha256: createHash("sha256").update(readFileSync(script)).digest("hex"),
+        lockInode: 1,
+        ownerMode: "paused",
+      },
+      baseline: {
+        observedAt: "2026-10-28T00:00:00Z",
+        evidenceSha256: "d".repeat(64),
+        startedAt: {
+          dev: "2026-10-28T00:00:00Z",
+          gatewayTailscale: "2026-10-28T00:00:00Z",
+          gatewayCaddy: "2026-10-28T00:00:00Z",
+        },
+        factory: {
+          epoch: 1,
+          supervisorPid: 2,
+          ownerMode: "paused",
+          ownerSequence: 1,
+          custodyCount: 0,
+          custodyDigest: "e".repeat(64),
+        },
       },
     },
     hostLauncherUpdate: { candidate: path.join(root, "candidate.plist"), sha256: "c".repeat(64) },

@@ -191,6 +191,8 @@ export interface RestartExecutor {
   hostLauncherPlan?(): string | undefined;
   updateHostLauncher?(job: RestartJob): Promise<string>;
   /** Digest of the configured Docker engine restart plan, when it is executable. */
+  engineRecoveryPlan?(): string | undefined;
+  recoverEngine?(job: RestartJob): Promise<string>;
   engineRestartPlan?(): string | undefined;
   restartEngine?(job: RestartJob): Promise<string>;
   supportsUpdate?(target: RestartJob["target"]): boolean;
@@ -422,7 +424,7 @@ export class InstallationRestarts {
     });
     // An interrupted operation is never replayed. Both operations recheck everything they touch,
     // so the owner inspects the status and requests whichever one the job now needs.
-    this.sessionHosts = this.sessionHosts.map((job): SessionHostJob => {
+    const sessionHosts = this.sessionHosts.map((job): SessionHostJob => {
       if (job.status !== "approved" && job.status !== "running") return job;
       return {
         ...job,
@@ -432,7 +434,7 @@ export class InstallationRestarts {
           "The coordinator restarted before this operation finished. Check the session host status before requesting it again.",
       };
     });
-    this.writeState(recovered, helpers, monitors);
+    this.writeState(recovered, helpers, monitors, this.listServices(), undefined, { sessionHosts });
     this.active = true;
     this.reconcilePending();
   }
@@ -788,12 +790,18 @@ export class InstallationRestarts {
       throw new RestartRequestError("Session host plan changed. Prepare and review a new request.");
   }
 
+  /**
+   * Writes the record before remembering it. A record the journal rejects therefore fails only
+   * the operation that produced it; memory keeps the last written state and later writes succeed.
+   */
   private replaceSessionHost(next: SessionHostJob): void {
     this.requireActive();
-    this.sessionHosts = this.sessionHosts.some((job) => job.id === next.id)
+    const sessionHosts = this.sessionHosts.some((job) => job.id === next.id)
       ? this.sessionHosts.map((job) => (job.id === next.id ? next : job))
       : [...this.sessionHosts, next];
-    this.writeState(this.jobs, this.helpers);
+    this.writeState(this.jobs, this.helpers, this.monitors, this.listServices(), undefined, {
+      sessionHosts,
+    });
   }
 
   /** Runs one approved operation after recomputing its plan; any difference changes nothing. */
@@ -1736,6 +1744,7 @@ export class InstallationRestarts {
     factoryRuntimePlanSha256?: string,
     engineRestartPlanSha256?: string,
     hostLauncherPlanSha256?: string,
+    engineRecoveryPlanSha256?: string,
   ): RestartJob {
     this.requireActive();
     const job = this.jobs.find((candidate) => candidate.id === id);
@@ -1746,6 +1755,7 @@ export class InstallationRestarts {
       factoryRuntimePlanSha256,
       engineRestartPlanSha256,
       hostLauncherPlanSha256,
+      engineRecoveryPlanSha256,
     });
     this.validateDecision(job, decision, updateSha256);
     if (decision === "request-again") {
@@ -1762,18 +1772,7 @@ export class InstallationRestarts {
       );
     }
     if (decision === "finish-current-turns") return this.approveFinish(job);
-    if (decision === "cancel") {
-      if (job.status !== "approved" || (!job.whenIdle && !job.continuationCaptureRequested))
-        throw new RestartRequestError("Restart is not waiting or has already dispatched");
-      const next = {
-        ...job,
-        status: "rejected" as const,
-        detail: "Queued restart cancelled by owner",
-      };
-      this.replace(next);
-      this.candidateChecks.get(job.id)?.abort();
-      return { ...next };
-    }
+    if (decision === "cancel") return this.cancelApprovedRestart(job);
     if (job.status === "approved" && job.whenIdle && decision === "approve") {
       const ownerRevision = randomUUID();
       const next = {
@@ -1809,6 +1808,22 @@ export class InstallationRestarts {
     return { ...next };
   }
 
+  private cancelApprovedRestart(job: RestartJob): RestartJob {
+    if (
+      job.status !== "approved" ||
+      (!job.whenIdle && !job.continuationCaptureRequested && !job.engineRecoveryPlanSha256)
+    )
+      throw new RestartRequestError("Restart is not waiting or has already dispatched");
+    const next = {
+      ...job,
+      status: "rejected" as const,
+      detail: "Queued restart cancelled by owner",
+    };
+    this.replace(next);
+    this.candidateChecks.get(job.id)?.abort();
+    return { ...next };
+  }
+
   private validateOperationDecisions(
     job: RestartJob,
     decision: RestartDecision,
@@ -1829,7 +1844,8 @@ export class InstallationRestarts {
     if (operation.ownsFactoryRecovery) this.validateFactoryRecovery(job);
     if (reviewed !== job[operation.field] || reviewed !== operation.plan(this.executor))
       throw new RestartRequestError(operation.reviewMessage);
-    if (decision === "approve-when-idle") throw new RestartRequestError(operation.idleMessage);
+    if (decision === "approve-when-idle" || (operation.immediateOnly && decision !== "approve"))
+      throw new RestartRequestError(operation.idleMessage);
   }
 
   private factoryPlanCurrent(job: RestartJob): boolean {
@@ -2607,6 +2623,9 @@ export class InstallationRestarts {
   }
 
   private async prepareRestartContinuation(job: RestartJob): Promise<RestartJob | null> {
+    // This separately reviewed operation admits interruption of unknown volatile work.
+    // Do not fabricate an idle observation or create a hold on an unavailable daemon.
+    if (job.engineRecoveryPlanSha256) return job;
     try {
       return await this.captureRestartContinuation(job);
     } catch (error) {
@@ -2825,7 +2844,11 @@ export class InstallationRestarts {
       throw new RestartRequestError("Automatic approval no longer matches the prepared request");
     if (this.executor.verifyDispatch) await this.executor.verifyDispatch(job);
     const dispatch = () => this.dispatchApproved(job);
-    if (job.target === "container-daemon" && this.executor.guardDevRestart)
+    if (
+      job.target === "container-daemon" &&
+      !job.engineRecoveryPlanSha256 &&
+      this.executor.guardDevRestart
+    )
       return this.executor.guardDevRestart(job, dispatch);
     return dispatch();
   }
@@ -2939,18 +2962,22 @@ export class InstallationRestarts {
     this.requireActive();
     this.writeState(jobs, this.helpers);
   }
+  /**
+   * Validates and writes the whole journal, then takes the written lists as the new memory. Every
+   * list is passed in or defaults to the current one, so nothing is remembered before it is on
+   * disk.
+   */
   private writeState(
     jobs: RestartJob[],
     helpers: NativeHelperJob[],
     monitors: PreviewMonitorJob[] = this.monitors,
     services: MaintenanceServiceJob[] = this.listServices(),
     evidence?: MaintenanceServiceAdmissionEvidence,
+    extra: { sessionHosts?: SessionHostJob[] } = {},
   ): void {
+    const sessionHosts = extra.sessionHosts ?? this.sessionHosts;
     const remaining = new Map<string, LifecycleJob>(
-      [...jobs, ...helpers, ...monitors, ...services, ...this.sessionHosts].map((job) => [
-        job.id,
-        job,
-      ]),
+      [...jobs, ...helpers, ...monitors, ...services, ...sessionHosts].map((job) => [job.id, job]),
     );
     const next: LifecycleJob[] = [];
     for (const previous of this.snapshot) {
@@ -2966,6 +2993,7 @@ export class InstallationRestarts {
     this.jobs = jobs;
     this.helpers = helpers;
     this.monitors = monitors;
+    this.sessionHosts = sessionHosts;
   }
 
   private replaceService(
