@@ -69,11 +69,11 @@ export function DraggableList<T>({
   );
 
   const handleDragEnd = useCallback(
-    ({ data: newData }: { data: T[] }) => {
+    ({ data: newData, to }: { data: T[]; to: number }) => {
       setIsDragging(false);
-      drop(newData);
+      drop(newData, keyExtractor(newData[to]!, to));
     },
-    [drop],
+    [drop, keyExtractor],
   );
 
   const handleDragBegin = useCallback(() => {

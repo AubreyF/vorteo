@@ -1617,13 +1617,15 @@ export function createInstallationServer(
       res.status(404).json({ error: "Session host maintenance is unavailable" });
       return;
     }
-    // COMPAT(sessionHostRestart, hostedIndicator): apps parse this response strictly, so anything
-    // added after v712 is sent only to an app that declares it understands it. A client sending {}
-    // gets the v712 shape: no restart jobs, no previousHost, no installed release or provider
-    // counts. Remove once every interface in use declares both flags.
-    const body = (req.body ?? {}) as { restart?: unknown; indicator?: unknown };
+    // COMPAT(sessionHostRestart, hostedIndicator, sessionHostUpgrade): apps before v762 parse this
+    // response strictly, so anything added after v712 is sent only to an app that declares it
+    // understands it. A client sending {} gets the v712 shape: no restart jobs, no previousHost,
+    // no installed release or provider counts, no pending upgrade. Apps from v762 ignore unknown
+    // keys, so later additions need no flag for them. Remove once every interface in use is v762
+    // or newer.
+    const body = (req.body ?? {}) as { restart?: unknown; indicator?: unknown; upgrade?: unknown };
     const wantsRestart = body.restart === true;
-    const wantsIndicator = body.indicator === true;
+    const visible = { indicator: body.indicator === true, upgrade: body.upgrade === true };
     const visibleJobs = wantsRestart
       ? jobs
       : jobs
@@ -1634,18 +1636,31 @@ export function createInstallationServer(
       (status) =>
         res.json({
           jobs: visibleJobs,
-          status: wantsIndicator ? status : withoutIndicator(status),
+          status: visibleStatus(status, visible),
           ...extra,
         }),
       () => res.json({ jobs: visibleJobs, status: null, ...extra }),
     );
   });
-  /** The v712 status shape: no installed release and no per-provider counts. */
-  function withoutIndicator(status: SessionHostStatus): SessionHostStatus {
-    if (!status.detail) return status;
-    const { installedRelease: _installedRelease, host, ...detail } = status.detail;
-    const plainHost = host ? (({ providers: _providers, ...rest }) => rest)(host) : host;
-    return { ...status, detail: { ...detail, host: plainHost } };
+  /**
+   * The status as the client can parse it: without the installed release and per-provider counts
+   * unless it declares the indicator (v760), and without the pending upgrade unless it declares
+   * upgrades (v762).
+   */
+  function visibleStatus(
+    status: SessionHostStatus,
+    flags: { indicator: boolean; upgrade: boolean },
+  ): SessionHostStatus {
+    if (!status.detail || (flags.indicator && flags.upgrade)) return status;
+    const { installedRelease, upgradePending, host, ...detail } = status.detail;
+    const visible: SessionHostStatus["detail"] = { ...detail, host };
+    if (flags.indicator) {
+      if (installedRelease !== undefined) visible.installedRelease = installedRelease;
+    } else if (host) {
+      visible.host = (({ providers: _providers, ...rest }) => rest)(host);
+    }
+    if (flags.upgrade && upgradePending !== undefined) visible.upgradePending = upgradePending;
+    return { ...status, detail: visible };
   }
   app.post("/api/installation/owner/session-host/request", (req, res, next) => {
     void restarts

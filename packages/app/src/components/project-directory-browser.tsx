@@ -5,6 +5,7 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { Button } from "@/components/ui/button";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { openDirectoryBrowser } from "@/add-project-flow/directory-browser";
+import { toErrorMessage } from "@/utils/error-messages";
 
 interface ProjectDirectoryBrowserProps {
   client: Pick<DaemonClient, "browseProjectDirectories">;
@@ -107,7 +108,7 @@ export function ProjectDirectoryBrowser({ client, onSelect }: ProjectDirectoryBr
       {state.loading ? <Text style={styles.text}>Loading folders...</Text> : null}
       {state.error ? (
         <Text style={styles.error} testID="project-directory-error">
-          {state.error}
+          {toErrorMessage(state.error)}
         </Text>
       ) : null}
       {ready && directory ? (

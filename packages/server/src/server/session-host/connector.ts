@@ -21,6 +21,8 @@ export interface SessionHostConnector {
   present(): Promise<boolean>;
   /** Whether the coordinator marked the host as restarting, so it is expected back shortly. */
   restarting?(): Promise<boolean>;
+  /** Whether the host found a newer installed release and waits for its sessions to end. */
+  upgradePending?(): Promise<boolean>;
   /** What the host lock proves: "gone" only when no lock exists or its holder pid is dead. */
   hostState(): Promise<"gone" | "alive">;
   /**
@@ -127,6 +129,10 @@ export function createSessionHostConnector(
       // A marker older than any restart could take is a leftover, not a promise of a new host.
       const stats = await lstat(options.paths.restartMarkerPath).catch(() => null);
       return stats?.isFile() === true && now() - stats.mtimeMs < RESTART_MARKER_MAX_AGE_MS;
+    },
+    upgradePending: async () => {
+      const stats = await lstat(options.paths.upgradeMarkerPath).catch(() => null);
+      return stats?.isFile() === true;
     },
     knownMcpTokens: () => (lastMcpToken ? [lastMcpToken] : []),
     close() {

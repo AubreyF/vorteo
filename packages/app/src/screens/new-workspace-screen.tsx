@@ -2222,10 +2222,8 @@ export function NewWorkspaceScreen({
           setPendingAction(null);
         }
       } catch (error) {
-        const message = toErrorMessage(error);
         setPendingAction(null);
-        setErrorMessage(message);
-        toast.error(message);
+        toast.error(toErrorMessage(error));
         if (payload.goal) throw error;
       }
     },
@@ -2302,10 +2300,8 @@ export function NewWorkspaceScreen({
         setPendingAction(null);
       }
     } catch (error) {
-      const message = toErrorMessage(error);
       setPendingAction(null);
-      setErrorMessage(message);
-      toast.error(message);
+      toast.error(toErrorMessage(error));
     }
   }, [
     ensureWorkspace,

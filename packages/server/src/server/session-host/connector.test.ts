@@ -12,6 +12,18 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
+test("the upgrade marker reports a pending host upgrade while it exists", async () => {
+  const home = mkdtempSync(join(tmpdir(), "connector-"));
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const paths = sessionHostPaths(home);
+  mkdirSync(paths.directory, { mode: 0o700 });
+  const connector = createSessionHostConnector({ paths, logger });
+  cleanups.push(() => connector.close());
+  expect(await connector.upgradePending!()).toBe(false);
+  writeFileSync(paths.upgradeMarkerPath, "{}", { mode: 0o600 });
+  expect(await connector.upgradePending!()).toBe(true);
+});
+
 test("a restart marker is believed only while a restart could still be under way", async () => {
   const home = mkdtempSync(join(tmpdir(), "connector-"));
   cleanups.push(() => rmSync(home, { recursive: true, force: true }));

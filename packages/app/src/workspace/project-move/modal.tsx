@@ -11,6 +11,7 @@ import { useHostProjects } from "@/projects/host-projects";
 import { useWorkspace, useWorkspaceDirectoryServerIds } from "@/stores/session-store-hooks";
 import { useHostRuntimeClient, useHosts } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { useProjectMoveRequest } from "./request";
 import { placementForProjectMove } from "./policy";
 
@@ -41,7 +42,8 @@ function ProjectMoveModal({
   const workspace = useWorkspace(serverId, workspaceId);
   const supported = useHostFeature(serverId, "workspaceProjectMembership");
   const close = useProjectMoveRequest((state) => state.close);
-  const { mutate, reset, isPending, error } = useMutation({
+  const reportActionError = useReportActionError();
+  const { mutate, isPending } = useMutation({
     mutationFn: async () => {
       if (!client) throw new Error("Reconnect to move this workspace.");
       if (!selected) throw new Error("Select a project.");
@@ -52,6 +54,7 @@ function ProjectMoveModal({
       });
     },
     onSuccess: close,
+    onError: reportActionError,
   });
   const options = useMemo(
     () =>
@@ -65,9 +68,8 @@ function ProjectMoveModal({
   const select = useCallback(
     (key: string) => {
       setSelected(projects.find((project) => project.viewKey === key) ?? null);
-      reset();
     },
-    [projects, reset],
+    [projects],
   );
   const dismiss = useCallback(() => {
     if (!isPending) close();
@@ -120,7 +122,6 @@ function ProjectMoveModal({
         {!supported ? (
           <Alert variant="warning" title="Update this environment to move workspaces." />
         ) : null}
-        {error ? <Alert variant="error" title={error.message} /> : null}
       </View>
     </AdaptiveModalSheet>
   );

@@ -63,6 +63,7 @@ export const en = {
       daemonClientDisconnected: "Daemon client is disconnected",
       noFileFound: "No file found for {{token}}",
       unexpectedDictationError: "An unexpected error occurred while handling dictation.",
+      hostConnectionLost: "Lost connection to the host. Try again once it reconnects.",
     },
     connectionStatus: {
       online: "Online",
@@ -1208,6 +1209,35 @@ export const en = {
       description:
         "Add setup commands so new worktrees can install dependencies and prepare themselves automatically.",
       openProjectSettings: "Open project settings",
+    },
+    folders: {
+      actions: {
+        menu: "Folder actions",
+        newFolder: "New folder",
+        newWorkspaceFolder: "New workspace folder",
+        newSubfolder: "New folder inside",
+        rename: "Rename folder",
+        delete: "Delete folder",
+        moveToFolder: "Move to folder…",
+      },
+      dialogs: {
+        createTitle: "New folder",
+        renameTitle: "Rename folder",
+        namePlaceholder: "Folder name",
+        create: "Create",
+        rename: "Rename",
+        moveTitle: 'Move "{{name}}"',
+        destination: "Folder",
+        topLevel: "No folder",
+        move: "Move",
+        cancel: "Cancel",
+      },
+      confirmations: {
+        deleteTitle: "Delete folder?",
+        deleteMessage:
+          'Delete "{{folderName}}"? Its contents move up one level. Nothing is archived and files on disk are not changed.',
+        deleteConfirm: "Delete",
+      },
     },
     project: {
       actions: {

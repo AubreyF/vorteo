@@ -5,6 +5,7 @@ import {
 } from "@getpaseo/protocol/workspace-labels";
 import { buildWorkspaceLabelPickerRows, type WorkspaceLabelPickerRow } from "./picker-model";
 import { i18n } from "@/i18n/i18next";
+import { toErrorMessage } from "@/utils/error-messages";
 
 type Listener = () => void;
 
@@ -23,7 +24,6 @@ class ObservableModel {
 
 export interface WorkspaceLabelPickerModelSnapshot {
   rows: readonly WorkspaceLabelPickerRow[];
-  error: string | null;
   online: boolean;
   pendingNames: string[];
 }
@@ -37,7 +37,6 @@ export interface WorkspaceLabelPickerModelSnapshot {
  * opposite mutations at the same label.
  */
 export class WorkspaceLabelPickerModel extends ObservableModel {
-  private error: string | null = null;
   private online = false;
   private labels: readonly WorkspaceLabelDefinition[] = [];
   private assigned: readonly string[] = [];
@@ -47,6 +46,8 @@ export class WorkspaceLabelPickerModel extends ObservableModel {
   constructor(
     private readonly dependencies: {
       mutate: (input: { label: WorkspaceLabelDefinition; assigned: boolean }) => Promise<unknown>;
+      /** A failed toggle leaves the row as it was and reports the failure. */
+      reportError: (cause: unknown) => void;
     },
   ) {
     super();
@@ -70,12 +71,11 @@ export class WorkspaceLabelPickerModel extends ObservableModel {
     const key = workspaceLabelKey(label.name);
     const inFlight = this.pending.get(key);
     if (inFlight) return inFlight;
-    this.error = null;
     const operation = this.dependencies
       .mutate({ label, assigned })
       .then(() => true)
       .catch((cause: unknown) => {
-        this.error = workspaceLabelErrorMessage(cause);
+        this.dependencies.reportError(cause);
         return false;
       })
       .finally(() => {
@@ -95,7 +95,6 @@ export class WorkspaceLabelPickerModel extends ObservableModel {
   private buildSnapshot(): WorkspaceLabelPickerModelSnapshot {
     return {
       rows: buildWorkspaceLabelPickerRows({ labels: this.labels, assigned: this.assigned }),
-      error: this.error,
       online: this.online,
       pendingNames: [...this.pending.keys()],
     };
@@ -310,19 +309,8 @@ export class WorkspaceLabelManagerModel extends ObservableModel {
   }
 }
 
-/**
- * One phrasing for a failed label mutation, wherever the failure surfaces.
- *
- * The client appends the correlation it failed on — `requestType=… code=…` — to every RPC error,
- * which is what a log wants and not what a user reads under a name field. The fields are on the
- * error too, so the suffix is removed by identity rather than by guessing at the format.
- */
+/** One phrasing for a failed label mutation, wherever the failure surfaces. */
 export function workspaceLabelErrorMessage(cause: unknown): string {
   if (!(cause instanceof Error)) return i18n.t("workspaceLabels.errors.update");
-  const { requestType, code } = cause as { requestType?: string; code?: string };
-  const message = cause.message
-    .replace(` requestType=${requestType}`, "")
-    .replace(` code=${code}`, "")
-    .trim();
-  return message || i18n.t("workspaceLabels.errors.update");
+  return toErrorMessage(cause) || i18n.t("workspaceLabels.errors.update");
 }

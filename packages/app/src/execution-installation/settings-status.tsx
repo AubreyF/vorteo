@@ -5,6 +5,8 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { settingsStyles } from "@/styles/settings";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { useInstallationSettings } from "./settings";
 
 function MigrationCandidate({
@@ -39,6 +41,7 @@ export function InstallationSettingsStatus({ children }: { children: ReactNode }
   const { installation, data, error, save } = useInstallationSettings();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const reportActionError = useReportActionError();
   const choose = useCallback(
     async (settings: InstallationSettings) => {
       if (!data) return;
@@ -47,15 +50,16 @@ export function InstallationSettingsStatus({ children }: { children: ReactNode }
       try {
         await save({ expectedRevision: data.revision, settings });
       } catch (cause) {
-        setSaveError(cause instanceof Error ? cause.message : "Unable to save shared settings.");
+        if (isConnectionError(cause)) reportActionError(cause);
+        else setSaveError(toErrorMessage(cause));
       } finally {
         setSaving(false);
       }
     },
-    [data, save],
+    [data, save, reportActionError],
   );
   if (!installation) return children;
-  if (error && !data) return <Alert variant="error" description={error.message} />;
+  if (error && !data) return <Alert variant="error" description={toErrorMessage(error)} />;
   if (!data) return <Text style={settingsStyles.rowHint}>Loading shared settings...</Text>;
   if (data.conflicts) {
     const conflicts = data.conflicts;
@@ -110,7 +114,7 @@ export function InstallationSettingsStatus({ children }: { children: ReactNode }
   }
   return (
     <View>
-      {error ? <Alert variant="error" description={error.message} /> : null}
+      {error ? <Alert variant="error" description={toErrorMessage(error)} /> : null}
       {pending.length ? <Alert variant="warning" description={pendingDescription} /> : null}
       {children}
     </View>

@@ -74,6 +74,7 @@ $PASEO_HOME/
 ├── runtime/
 │   └── managed-processes/
 │       └── {recordId}.json              # Helper processes owned by Vorteo; reconciled on daemon bootstrap
+├── sidebar-state.json                   # Shared sidebar order, expansion, filters and folders (Host only)
 ├── plugins/
 │   ├── sources.json                      # Managed kind and Git acquisition remote
 │   └── {pluginId}/{uuid}/                # Git checkout or npm package/lockfile/dependency tree
@@ -605,6 +606,30 @@ The cache is capped at 32 MiB and evicts whole hosts in least-recently-written o
 bookkeeping may scan opaque row sizes during a deferred write, never during host registry startup or
 before a requested cache row can paint. The row store is not encrypted. A cached timeline can contain
 source code, prompts, and tool output; encrypted-at-rest storage is a separate security decision.
+
+### Sidebar state
+
+The Host daemon owns `$PASEO_HOME/sidebar-state.json` as `{ revision, state }`, using
+`SidebarStateSchema` from `packages/protocol/src/sidebar-state.ts`. Each device keeps the same
+fields in persisted stores (`sidebar-project-workspace-order`, `sidebar-view`,
+`sidebar-collapsed-sections` and `sidebar-folders`) plus an outbox of unsent patches per
+authority, `sidebar-sync-outbox:<serverId>`.
+
+Folders organize the sidebar only and never correspond to directories. All folder fields are
+optional and absent until a folder-aware client writes them:
+
+| Field              | Type                              | Description                                                                                                              |
+| ------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `sidebarFolders`   | `Record<folderId, SidebarFolder>` | `{ id, name, parentId, scope, createdAt }`. `scope` is `{ kind: "root" }` or `{ kind: "project", projectKey }`.          |
+| `itemFolder`       | `Record<itemKey, folderId>`       | Project view keys map to root folders; `serverId:workspaceId` keys map to folders of their project. Absent is top level. |
+| `childOrder`       | `Record<containerKey, string[]>`  | Containers are `root`, `folder:<id>` and `project:<viewKey>`; entries are item keys or `folder:<id>`.                    |
+| `collapsedFolders` | `Record<folderId, boolean>`       | Folded folders.                                                                                                          |
+
+Root folders hold projects and root folders; project folders hold that project's workspaces and
+project folders. Both nest without limit, and a project never enters a project folder. Folder
+moves also rewrite `projectOrder` and `workspaceOrderByProject` in display order for clients
+without folder support. Patch merging and repair rules are in
+[protocol compatibility](protocol-compatibility.md#sidebar-folders).
 
 ### Draft Store
 

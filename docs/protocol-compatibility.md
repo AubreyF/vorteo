@@ -191,6 +191,25 @@ update message for older standalone daemons. Sidebar patches merge individual pr
 maps, while concurrent changes to the same field use the last accepted write. Initialization
 only fills an absent shared state; reconnecting never replaces it with an old device cache.
 
+## Sidebar folders
+
+`server_info.features.sidebarFolders` advertises that the sidebar authority stores folders. The
+sidebar state gains four optional records: `sidebarFolders`, `itemFolder`, `childOrder` and
+`collapsedFolders`. Clients show folder controls only when the authority advertises the
+capability, because an older daemon's schema would silently drop the fields. In patches, a
+`null` value removes that key from a folder record; every other record still merges by key.
+
+Older clients ignore the new fields and keep reading `projectOrder` and
+`workspaceOrderByProject`. Folder moves rewrite those flat orders in display order, so older
+clients see the same sequence without the folders. Their reorders do not update `childOrder`,
+so newer clients keep the folder order until the next folder-aware move.
+
+Applying a patch repairs the folder tree on both the Host and each device: a removed folder's
+folders, items and order move to its parent; parents must exist in the same scope; a move that
+would form a cycle returns to its previous parent; and projects can map only to root folders,
+workspaces only to folders of their own project when the flat orders show which project that is.
+The Host rejects only folder records stored under another id or naming themselves as parent.
+
 ## Installation worker-launch preparation
 
 Worker-launch hints and retained child records are optional additions to the existing installation request schema. They use pure structural declarations. Legacy restart digests omit absent hints, and ordinary HTTP restart replies remove the new fields for older strict requesters. Only explicit `workerLaunch=1` negotiation returns the child record.

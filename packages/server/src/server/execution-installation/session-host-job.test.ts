@@ -746,6 +746,11 @@ test("status detail names the installed release and the hosted sessions by provi
   fake.state.files.set(`${CURRENT}/packages/server/package.json`, Buffer.from("{not json"));
   const broken = await inspectSessionHost({ config: testConfig(), ports, detail: true });
   expect(broken.detail?.installedRelease).toBeUndefined();
+  // The host's upgrade marker surfaces as a pending upgrade; its absence leaves the field out.
+  expect(broken.detail?.upgradePending).toBeUndefined();
+  fake.state.files.set(`${HOME}/session-host/upgrade-pending`, Buffer.from("{}"));
+  const upgrading = await inspectSessionHost({ config: testConfig(), ports, detail: true });
+  expect(upgrading.detail?.upgradePending).toBe(true);
 });
 
 test("only a missing listener or a greeting that never arrives counts as silence", () => {

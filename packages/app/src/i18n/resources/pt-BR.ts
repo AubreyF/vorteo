@@ -68,6 +68,7 @@ export const ptBR: TranslationResources = {
       daemonClientDisconnected: "O cliente do daemon está desconectado",
       noFileFound: "Nenhum arquivo encontrado para {{token}}",
       unexpectedDictationError: "Ocorreu um erro inesperado ao processar o ditado.",
+      hostConnectionLost: "Conexão com o host perdida. Tente novamente quando reconectar.",
     },
     connectionStatus: {
       online: "Online",
@@ -1208,6 +1209,35 @@ export const ptBR: TranslationResources = {
       description:
         "Adicione comandos de configuração para que novos worktrees instalem dependências e se preparem automaticamente.",
       openProjectSettings: "Abrir configurações do projeto",
+    },
+    folders: {
+      actions: {
+        menu: "Ações da pasta",
+        newFolder: "Nova pasta",
+        newWorkspaceFolder: "Nova pasta de workspaces",
+        newSubfolder: "Nova pasta dentro",
+        rename: "Renomear pasta",
+        delete: "Excluir pasta",
+        moveToFolder: "Mover para pasta…",
+      },
+      dialogs: {
+        createTitle: "Nova pasta",
+        renameTitle: "Renomear pasta",
+        namePlaceholder: "Nome da pasta",
+        create: "Criar",
+        rename: "Renomear",
+        moveTitle: 'Mover "{{name}}"',
+        destination: "Pasta",
+        topLevel: "Sem pasta",
+        move: "Mover",
+        cancel: "Cancelar",
+      },
+      confirmations: {
+        deleteTitle: "Excluir pasta?",
+        deleteMessage:
+          'Excluir "{{folderName}}"? O conteúdo sobe um nível. Nada é arquivado e os arquivos no disco não mudam.',
+        deleteConfirm: "Excluir",
+      },
     },
     project: {
       actions: {

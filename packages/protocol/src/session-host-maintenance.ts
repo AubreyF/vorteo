@@ -120,6 +120,8 @@ export const SessionHostStatusSchema = z.strictObject({
         .nullable(),
       /** The release the current link selects, to compare with the host's own release. */
       installedRelease: z.string().max(200).optional(),
+      /** The host found a newer installed release and exits once its sessions end. */
+      upgradePending: z.boolean().optional(),
       settingEnabled: z.boolean(),
       observedAt: z.string().datetime(),
     })

@@ -10,6 +10,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 import type { WorkspaceRouteState } from "@/screens/workspace/workspace-route-state";
 import type { Theme } from "@/styles/theme";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 const foregroundMutedColorMapping = (theme: Theme) => ({
@@ -147,11 +148,6 @@ function ArchivedWorkspaceRecovery({
             : t("workspace.route.recovery.archivedTitle")}
         </Text>
         <Text style={styles.description}>{description}</Text>
-        {recovery.error ? (
-          <Text style={styles.error} testID="workspace-recovery-error">
-            {recovery.error}
-          </Text>
-        ) : null}
       </View>
       <ActionFooter style={styles.actions}>
         <Button
@@ -208,14 +204,17 @@ function WorkspaceUnreachable({
 }) {
   const { t } = useTranslation();
   const canRetry = state.connectionStatus === "offline" || state.connectionStatus === "error";
+  // The status heading already says the host is unreachable; only a different cause adds detail.
+  const hostError =
+    state.lastError && !isConnectionError(state.lastError) ? toErrorMessage(state.lastError) : null;
 
   return (
     <View style={styles.emptyState}>
       <StartupStatus phase={canRetry ? "unavailable" : "host"} />
       <Text style={styles.description}>{state.hostName}</Text>
-      {state.lastError ? (
+      {hostError ? (
         <Text style={styles.error} selectable>
-          {state.lastError}
+          {hostError}
         </Text>
       ) : null}
       <ActionFooter style={styles.actions}>

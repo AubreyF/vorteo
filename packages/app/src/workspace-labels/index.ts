@@ -8,6 +8,7 @@ import { create } from "zustand";
 import { HostWorkspaceLabelReplica } from "./internal/host-replica";
 import { mergeWorkspaceLabelCatalogs } from "./internal/merge";
 import { WorkspaceLabelManagerModel, WorkspaceLabelPickerModel } from "./internal/workflow-model";
+import { toErrorMessage } from "@/utils/error-messages";
 import { i18n } from "@/i18n/i18next";
 
 // COMPAT(workspaceLabelNeutralColors): older hosts store a legacy hue, which the
@@ -195,7 +196,7 @@ class WorkspaceLabelsController {
           input.serverId,
           replica,
           "online",
-          error instanceof Error ? error.message : i18n.t("workspaceLabels.errors.load"),
+          error instanceof Error ? toErrorMessage(error) : i18n.t("workspaceLabels.errors.load"),
         );
       },
     });
@@ -270,7 +271,7 @@ class WorkspaceLabelsController {
         serverId,
         connection.replica,
         "online",
-        error instanceof Error ? error.message : i18n.t("workspaceLabels.errors.load"),
+        error instanceof Error ? toErrorMessage(error) : i18n.t("workspaceLabels.errors.load"),
       );
       throw error;
     }
