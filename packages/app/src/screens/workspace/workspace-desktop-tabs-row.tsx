@@ -1,6 +1,9 @@
+import { WorkspaceOverflowItemsContext } from "./workspace-header-menu";
+import { tabShape } from "@/styles/tab-shape";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -44,7 +47,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
-import { WORKSPACE_SECONDARY_HEADER_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
+import { VORTON_HEADER_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
 import { buttonControlHeight } from "@/components/ui/control-geometry";
 import type { ShortcutKey } from "@/utils/format-shortcut";
 import { Shortcut } from "@/components/ui/shortcut";
@@ -109,8 +112,8 @@ const TAB_ICON_WIDTH = 14;
 const TAB_CONTENT_GAP = 4;
 const TAB_DROP_INDICATOR_WIDTH = 4;
 const TAB_MODIFIED_DOT_SIZE = 8;
-const TAB_MIN_WIDTH = 64;
-const TAB_MAX_WIDTH = 160;
+const TAB_MIN_WIDTH = 120;
+const TAB_MAX_WIDTH = 260;
 const TAB_CLOSE_BUTTON_RESERVED_WIDTH = 0;
 const TAB_LABEL_LAYOUT_ALLOWANCE = 4;
 const AGENT_TOOLTIP_TITLE_MAX_LENGTH = 80;
@@ -288,6 +291,7 @@ function WorkspacePaneToolbarActions({
   onTogglePaneMaximized?: () => void;
 }) {
   const { t } = useTranslation();
+  const workspaceItems = useContext(WorkspaceOverflowItemsContext);
   const splitRightKeys = useShortcutKeys("workspace-pane-split-right");
   const splitDownKeys = useShortcutKeys("workspace-pane-split-down");
   const splitActionsVisible = showSplitActions && Boolean(onSplitRight && onSplitDown);
@@ -356,7 +360,9 @@ function WorkspacePaneToolbarActions({
             offset={4}
             width={220}
             testID="workspace-split-pane-menu-content"
+            pages={workspaceItems?.pages}
           >
+            {workspaceItems?.items}
             <DropdownMenuItem
               leading={splitRightLeading}
               trailing={splitRightTrailing}
@@ -1564,7 +1570,7 @@ function ResolvedDesktopTabChip({
 const styles = StyleSheet.create((theme) => ({
   tabsContainer: {
     minWidth: 0,
-    height: WORKSPACE_SECONDARY_HEADER_HEIGHT,
+    height: VORTON_HEADER_HEIGHT,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
     backgroundColor: theme.colors.surface0,
@@ -1615,7 +1621,7 @@ const styles = StyleSheet.create((theme) => ({
   tab: {
     height: buttonControlHeight.xs,
     paddingHorizontal: TAB_CHIP_HORIZONTAL_PADDING,
-    borderRadius: theme.borderRadius.md,
+    ...tabShape(theme),
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
@@ -1709,8 +1715,8 @@ const styles = StyleSheet.create((theme) => ({
     right: 0,
     bottom: 0,
     width: 48,
-    borderTopRightRadius: theme.borderRadius.md,
-    borderBottomRightRadius: theme.borderRadius.md,
+    borderTopRightRadius: theme.borderRadius.lg,
+    borderBottomRightRadius: 0,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,

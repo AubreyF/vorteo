@@ -110,6 +110,17 @@ function nativeRunnerUid(): number {
   return uid;
 }
 
+/** Host observation may time out before validation finishes. Losing its pipe
+ * cannot abort a durable claim or change the executor's recovery obligations. */
+export function acknowledgeBootstrapDispatch(): void {
+  process.stdout.on("error", () => {});
+  try {
+    process.stdout.write("dispatched\n");
+  } catch {
+    // The journal, not this best-effort notification, records dispatch.
+  }
+}
+
 type RunnerSetup = z.infer<typeof BootstrapRunnerSetupSchema>;
 function runnerRenewal(
   setup: RunnerSetup,
@@ -386,7 +397,7 @@ export async function runNativeBootstrap(
     if (child.exitCode !== null || child.signalCode !== null)
       throw new BootstrapRequestConflict("Watchdog exited before dispatch");
     await requireOwnership();
-    process.stdout.write("dispatched\n");
+    acknowledgeBootstrapDispatch();
   };
   const operations = await createBootstrapNativeOperations({
     requests,
@@ -409,7 +420,30 @@ export async function runNativeBootstrap(
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [, , setup, role, identifier] = process.argv;
-  if (!setup || !identifier || (role !== "executor" && role !== "watchdog")) process.exitCode = 1;
+  if (setup && identifier && (role === "preclaim-executor" || role === "preclaim-observer")) {
+    const [, , , , , revision, planSha256, generation] = process.argv;
+    void import("./coordinator-bootstrap-launch.js")
+      .then(async ({ runNativePreclaimRecovery }) => {
+        if (role === "preclaim-observer") z.string().uuid().parse(generation);
+        const result = await runNativePreclaimRecovery(
+          {
+            setupFile: setup,
+            identity: { id: identifier, revision: revision ?? "", planSha256: planSha256 ?? "" },
+            recoveryDescriptor: Number(process.env.VORTEO_PRECLAIM_LOCK_FD),
+          },
+          undefined,
+          role === "preclaim-observer" ? generation : undefined,
+        );
+        if (result.execution?.stage !== "succeeded")
+          throw new BootstrapRequestConflict("Recovery did not establish a terminal result");
+        return result;
+      })
+      .catch(() => {
+        process.stderr.write("Bootstrap recovery requires recorded status inspection.\n");
+        process.exitCode = 1;
+      });
+  } else if (!setup || !identifier || (role !== "executor" && role !== "watchdog"))
+    process.exitCode = 1;
   else
     void runNativeBootstrap(
       setup,

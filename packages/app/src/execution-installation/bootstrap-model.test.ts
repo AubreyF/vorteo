@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   CoordinatorBootstrapRequest,
   CoordinatorBootstrapDecision,
+  BootstrapPreclaimRecoveryRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
   BootstrapPanelModel,
@@ -10,6 +11,9 @@ import {
   bootstrapNeedsAttention,
   bootstrapStatus,
   currentBootstrapRequests,
+  preclaimRecoveryStatus,
+  preclaimRecoveryNeedsAttention,
+  preclaimDispatchDescription,
 } from "./bootstrap-model";
 
 function request(): CoordinatorBootstrapRequest {
@@ -53,6 +57,121 @@ function request(): CoordinatorBootstrapRequest {
     },
   };
 }
+
+function recoveryRequest(): BootstrapPreclaimRecoveryRequest {
+  const original = { ...request(), status: "approved" as const };
+  const file = original.plan.candidate.configuration;
+  const process = {
+    ...original.plan.expectedProcess,
+    parentPid: 1,
+    uid: 501,
+    executable: file.path,
+  };
+  return {
+    ...request(),
+    plan: {
+      version: 1,
+      operation: "bootstrap-preclaim-recovery",
+      original,
+      canceled: { ...original, revision: randomUUID(), status: "canceled" },
+      executor: { identity: process, auditToken: [501, 501, 20, 501, 20, process.pid, 1, 2] },
+      hostProcess: process,
+      coordinatorProcess: process,
+      setup: file,
+      ownerLauncher: file,
+      runner: original.plan.candidate,
+      executorEntrypoint: file,
+      selectedLauncher: file,
+      selectedConfiguration: file,
+      executionLock: { path: "/protected/state/lock", device: "1", inode: "2" },
+      signalPolicy: { terminate: "SIGTERM", escalation: "none", graceSeconds: 10 },
+    },
+    execution: undefined,
+  };
+}
+
+test("recovery exposes cancellation after recorded approval while the old response remains unresolved", async () => {
+  const pending = recoveryRequest();
+  const approved = { ...pending, status: "approved" as const, revision: randomUUID() };
+  const canceled = { ...approved, status: "canceled" as const, revision: randomUUID() };
+  let listed = [pending];
+  const waiting = Promise.withResolvers<BootstrapPreclaimRecoveryRequest[]>();
+  const sent: CoordinatorBootstrapDecision[] = [];
+  const model = new BootstrapPanelModel<BootstrapPreclaimRecoveryRequest>(() => ({
+    listCoordinatorBootstrapRequests: async () => listed,
+    decideCoordinatorBootstrap: async (input) => {
+      sent.push(input);
+      return input.decision === "approve" ? waiting.promise : [canceled];
+    },
+  }));
+  await model.refresh();
+  model.setPassword("fixture");
+  const decision = model.decide(pending, "approve");
+  expect(model.getState()).toMatchObject({ busy: true, hasPassword: false });
+  listed = [approved];
+  await model.refresh(true);
+  expect(model.getState()).toMatchObject({ busy: false, requests: [approved] });
+  expect(preclaimRecoveryStatus(approved)).toBe("Approved; awaiting recorded claim");
+  model.setPassword("fixture");
+  await model.decide(approved, "cancel");
+  waiting.resolve([approved]);
+  await decision;
+  expect(model.getState()).toMatchObject({ requests: [canceled], busy: false, hasPassword: false });
+  expect(sent).toEqual(
+    [pending, approved].map((item, index) => ({
+      id: item.id,
+      revision: item.revision,
+      planSha256: item.planSha256,
+      decision: index === 0 ? "approve" : "cancel",
+    })),
+  );
+  expect(preclaimRecoveryNeedsAttention(canceled)).toBe(false);
+});
+
+test("recovery keeps uncertain effects visible and only a verified receipt reports success", () => {
+  const item = recoveryRequest();
+  item.execution = {
+    generation: randomUUID(),
+    stage: "effect_pending",
+    updatedAt: new Date().toISOString(),
+  };
+  expect(preclaimRecoveryNeedsAttention(item)).toBe(true);
+  expect(preclaimRecoveryStatus(item)).toBe("Stopping the reviewed executor");
+  expect(bootstrapDecisionDisabledReason(item, { busy: false, hasPassword: true })).toContain(
+    "dispatched",
+  );
+  item.execution.stage = "recovery_required";
+  expect(preclaimRecoveryStatus(item)).toBe("Outcome requires inspection");
+  expect(preclaimRecoveryNeedsAttention(item)).toBe(true);
+  item.execution.stage = "succeeded";
+  expect(preclaimRecoveryStatus(item)).toBe("Recovery verified");
+  expect(preclaimRecoveryNeedsAttention(item)).toBe(false);
+});
+
+test("retained recovery birth is described as historical evidence without inferring an outcome", () => {
+  const item = recoveryRequest();
+  item.status = "approved";
+  const observed = {
+    ...item,
+    dispatch: {
+      state: "birth_retained" as const,
+      approvedRevision: item.revision,
+      attemptId: randomUUID(),
+      executor: item.plan.executor.identity,
+    },
+  };
+  expect(preclaimDispatchDescription(observed)).toContain(
+    "Current liveness and completion still require verification",
+  );
+  expect(preclaimRecoveryStatus(observed)).toBe("Approved; awaiting recorded claim");
+  expect(preclaimRecoveryNeedsAttention(observed)).toBe(true);
+  expect(preclaimDispatchDescription({ ...item, dispatch: { state: "no_receipt" } })).toBe(
+    "No launch receipt recorded.",
+  );
+  expect(preclaimDispatchDescription({ ...item, dispatch: { state: "unavailable" } })).toContain(
+    "do not replay approval",
+  );
+});
 
 test("bootstrap approval submits exact identity and clears password; unsupported hosts stay hidden", async () => {
   const unsupported = new BootstrapPanelModel(() => null);
@@ -317,3 +436,40 @@ test.each(["success", "error"] as const)(
     expect(reads).toBe(4);
   },
 );
+
+test("outcome verification carries exact generation without an owner decision", async () => {
+  const item = request();
+  item.status = "approved";
+  item.execution = {
+    generation: randomUUID(),
+    stage: "recovery_required",
+    updatedAt: new Date().toISOString(),
+  };
+  const inputs: unknown[] = [];
+  let decisions = 0;
+  const model = new BootstrapPanelModel(() => ({
+    listCoordinatorBootstrapRequests: async () => [item],
+    decideCoordinatorBootstrap: async () => {
+      decisions++;
+      return [];
+    },
+    verifyRetainedOutcome: async (input) => {
+      inputs.push(input);
+      return [item];
+    },
+  }));
+  await model.refresh();
+  await model.reconcile(item);
+  expect(inputs).toEqual([
+    {
+      id: item.id,
+      revision: item.revision,
+      planSha256: item.planSha256,
+      generation: item.execution.generation,
+    },
+  ]);
+  expect(decisions).toBe(0);
+  expect(model.getState().busy).toBe(false);
+  await model.reconcile({ ...item, revision: randomUUID() });
+  expect(inputs).toHaveLength(1);
+});

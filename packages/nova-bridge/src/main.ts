@@ -1,6 +1,8 @@
 import { mkdirSync, statSync } from "node:fs";
 import { once } from "node:events";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadManagedRelease, ReleaseManifestError } from "./release-manifest.js";
 import { readConfig } from "./config.js";
 import { BridgeStore } from "./store.js";
 import { BridgeTools } from "./tools.js";
@@ -11,14 +13,31 @@ import { createBridgeServer } from "./server.js";
 async function main(): Promise<void> {
   const file = process.argv[2];
   if (!file) throw new Error("Usage: node dist/main.js /absolute/path/to/bridge.json");
-  const config = readConfig(file);
+  const manifestFile = process.argv[3];
+  const artifactFile = fileURLToPath(import.meta.url);
+  // An unbundled entrypoint cannot bind the code loaded from its sibling modules.
+  if (manifestFile && path.basename(artifactFile) !== "bridge.mjs")
+    throw new ReleaseManifestError("Managed startup requires the standalone bridge.mjs bundle");
+  const loaded = manifestFile
+    ? loadManagedRelease({
+        manifestFile,
+        configFile: file,
+        artifactFile,
+      })
+    : null;
+  const config = loaded ? loaded.config : readConfig(file);
   mkdirSync(config.stateDirectory, { recursive: true, mode: 0o700 });
   if ((statSync(config.stateDirectory).mode & 0o077) !== 0)
     throw new Error("Bridge state directory must be private (0700)");
   const store = new BridgeStore(path.join(config.stateDirectory, "bridge.sqlite"));
   const tools = new BridgeTools(config, store);
   const events = new BridgeEvents(store, deliverWebhook);
-  const server = createBridgeServer({ token: config.token, tools, events });
+  const server = createBridgeServer({
+    token: config.token,
+    tools,
+    events,
+    release: loaded?.identity,
+  });
   let delivery: Promise<void> | null = null;
   let discovery: Promise<void> | null = null;
   const discoveryInterval = setInterval(() => {
@@ -50,11 +69,18 @@ async function main(): Promise<void> {
     const observers = tools.observe(events);
     process.stdout.write(`Vorteo bridge listening on loopback port ${config.port}\n`);
     await new Promise<void>((resolve) => {
-      process.once("SIGINT", resolve);
-      process.once("SIGTERM", resolve);
+      const shutdown = () => {
+        server.beginDrain();
+        clearInterval(interval);
+        clearInterval(discoveryInterval);
+        resolve();
+      };
+      process.once("SIGINT", shutdown);
+      process.once("SIGTERM", shutdown);
     });
     await Promise.all(observers.map((observer) => observer.close()));
   } finally {
+    server.beginDrain();
     clearInterval(interval);
     clearInterval(discoveryInterval);
     server.closeAllConnections();

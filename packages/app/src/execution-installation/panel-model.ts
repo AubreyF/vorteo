@@ -139,6 +139,9 @@ export class InstallationPanelModel {
   close(): void {
     if (!this.state.busy) this.publish({ visible: false });
   }
+  clearPasswordDraft(): void {
+    this.publish({ password: "", error: null });
+  }
   setPassword(password: string): void {
     this.publish({ password });
   }

@@ -384,7 +384,9 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await expect(stack.getByTestId("question-form-card")).toBeAttached();
 
     await page.setViewportSize({ width: 1900, height: 900 });
-    const rightColumn = page.getByTestId("thread-cards-column");
+    const rightColumn = page
+      .locator('[data-testid="thread-cards-column"], [data-testid="workspace-supporting-cards"]')
+      .filter({ visible: true });
     const leftColumn = page.getByTestId("thread-text-column");
     await expect(rightColumn).toBeVisible();
     await expect(leftColumn.getByTestId("question-form-card")).toBeAttached();
@@ -484,7 +486,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (const card of geometry) expect(card.bottom - card.top).toBeLessThanOrEqual(325);
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
-      expect(geometry[0].frame[3]).toBe("8px");
+      // Cards and their header controls share the approved floating-panel corners.
+      expect(geometry[0].frame[3]).toBe("16px");
       expect(geometry[2].padding).toBe("0px");
       for (const card of geometry.filter((entry) => entry.id !== "agent-history-plugin-pills")) {
         expect(card.frame).toEqual(geometry[0].frame);
@@ -733,7 +736,7 @@ async function checkHeadingActions(root: Locator, width: number) {
     expect(action.borderWidth).toBe("1px");
     expect(action.borderColor).toBe("rgba(0, 0, 0, 0)");
     expect(action.borderColor).toBe(actions[0].borderColor);
-    expect(action.borderRadius).toBe("8px");
+    expect(action.borderRadius).toBe("16px");
   }
 }
 
@@ -1488,7 +1491,7 @@ async function checkDisclosures(stack: Locator, width: number, info: TestInfo) {
   }
 }
 
-test("thread columns resize independently and follow primary-region width", async ({
+test("shared card group and thread resize independently and preserve saved widths", async ({
   page,
 }, info) => {
   test.setTimeout(180_000);
@@ -1528,7 +1531,7 @@ test("thread columns resize independently and follow primary-region width", asyn
       });
     }
     await openAgentRoute(page, agent);
-    const cards = page.getByTestId("thread-cards-column");
+    const cards = page.getByTestId("workspace-supporting-cards");
     const text = page.getByTestId("thread-text-column");
     const region = page.getByTestId("thread-content-region");
     await expect(cards).toBeVisible();
@@ -1544,8 +1547,9 @@ test("thread columns resize independently and follow primary-region width", asyn
         const t = await box(text);
         const c = await box(cards);
         const all = await box(region);
-        expect(all.x + all.width - c.x - c.width).toBeCloseTo(16, 0);
-        const expectedLeft = Math.min(all.x + (all.width - t.width) / 2, c.x - 32 - t.width);
+        expect(c.x + c.width).toBeCloseTo(page.viewportSize()!.width - 8, 0);
+        expect(c.x).toBeGreaterThanOrEqual(all.x + all.width);
+        const expectedLeft = all.x + (all.width - t.width) / 2;
         expect(t.x).toBeCloseTo(expectedLeft, 0);
       }).toPass({ timeout: 5000 });
     };
@@ -1571,11 +1575,10 @@ test("thread columns resize independently and follow primary-region width", asyn
         const input = await box(composer);
         const transcript = await box(page.getByTestId("thread-transcript-region"));
         const c = await box(cards);
-        const all = await box(region);
         expect(input.x).toBeCloseTo(t.x + 8, 0);
         expect(input.width).toBeCloseTo(t.width - 16, 0);
         expect(input.y).toBeGreaterThanOrEqual(transcript.y + transcript.height - 1);
-        expect(c.y + c.height).toBeCloseTo(all.y + all.height, 0);
+        expect(Math.abs(c.y + c.height - (page.viewportSize()!.height - 8))).toBeLessThanOrEqual(1);
         expect(c.y + c.height).toBeGreaterThan(input.y + input.height);
       }).toPass({ timeout: 5000 });
     };
@@ -1587,7 +1590,7 @@ test("thread columns resize independently and follow primary-region width", asyn
     expect((await box(cards)).width).toBeCloseTo(cardsBefore.width, 0);
     await centered();
     const resizedText = (await box(text)).width;
-    await drag("thread-cards-resize", -70);
+    await drag("workspace-explorer-sidebar-resize-handle", -70);
     await expect.poll(async () => (await box(cards)).width).toBeCloseTo(cardsBefore.width + 70, 0);
     expect((await box(text)).width).toBeCloseTo(resizedText, 0);
     await centered();
@@ -1643,26 +1646,42 @@ test("thread columns resize independently and follow primary-region width", asyn
     await expect(cards).toBeVisible();
     await expect.poll(async () => (await box(text)).width).toBeCloseTo(resizedText, 0);
     await expect.poll(async () => (await box(cards)).width).toBeCloseTo(cardsBefore.width + 70, 0);
-    await drag("thread-cards-resize", 1000);
-    await expect.poll(async () => (await box(cards)).width).toBeCloseTo(220, 0);
+    await drag("workspace-explorer-sidebar-resize-handle", 1000);
+    await expect.poll(async () => (await box(cards)).width).toBeCloseTo(224, 0);
     await centered();
     await page.reload();
-    await expect.poll(async () => (await box(cards)).width).toBeCloseTo(220, 0);
+    await expect.poll(async () => (await box(cards)).width).toBeCloseTo(224, 0);
     await page.setViewportSize({ width: 1500, height: 850 });
     await expect(cards).toBeVisible();
-    await page.getByTestId("workspace-explorer-toggle").first().click();
-    await expect(cards).toHaveCount(0);
-    expect((await box(region)).width).toBeLessThan(1080);
-    await expect(page.getByTestId("agent-history-task-cards")).toHaveCount(1);
+    const beforeFiles = await box(cards);
+    const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
+    await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
+    await expect(cards).toBeVisible();
+    await expect(cards.getByTestId("supporting-card-files")).toBeVisible();
+    expect((await box(cards)).width).toBeCloseTo(beforeFiles.width, 0);
+    await expect(cards.getByTestId("shared-message-queue")).toBeVisible();
+    await page.keyboard.press(mac ? "Meta+Shift+G" : "Control+Shift+G");
+    await expect(cards.getByTestId("supporting-card-changes_tree")).toBeVisible();
+    await expect(async () => {
+      const queue = await box(cards.getByTestId("shared-message-queue"));
+      for (const kind of ["files", "changes_tree"]) {
+        const panel = await box(cards.getByTestId(`supporting-card-${kind}`));
+        expect(panel.y + panel.height).toBeLessThanOrEqual(queue.y);
+      }
+    }).toPass();
+    await cards.getByTestId("workspace-explorer-toggle").click();
+    await expect(cards).toBeHidden();
     await page.getByTestId("workspace-explorer-toggle").first().click();
     await expect(cards).toBeVisible();
     await drag("left-sidebar-resize-handle", 160);
-    await expect(cards).toHaveCount(0);
+    // Explicitly opened Files keeps the supporting group available below the
+    // automatic task-card breakpoint until the layout switches to mobile.
+    await expect(cards).toBeVisible();
     expect((await box(region)).width).toBeLessThan(1080);
     await drag("left-sidebar-resize-handle", -160);
     await expect(cards).toBeVisible();
     await page.setViewportSize({ width: 390, height: 850 });
-    await expect(cards).toHaveCount(0);
+    await expect(cards).toBeHidden();
     await expect(page.getByTestId("thread-text-resize")).toHaveCount(0);
     await expect(page.getByTestId("message-input-surface")).toBeVisible();
     await info.attach("thread-columns-narrow", {

@@ -48,6 +48,10 @@ Configuration shape, with placeholders:
 
 Resolve actual endpoints and identities from trusted installation configuration. Do not infer them from this example. The process starts with `node /private/host/release/bridge.mjs /private/host/bridge.json`. `/health` requires authentication and reports bridge readiness, not daemon health; use `get_overview` for the latter.
 
+Managed startup may pass a third argument naming a protected release manifest. The manifest binds the exact standalone bundle and configuration bytes; invalid ownership, paths, sizes or hashes stop startup before opening state or starting observers. Configuration parsing uses the verified bytes. Legacy startup without a manifest remains available and reports no verified release identity.
+
+Authenticated readiness includes the verified release commitments, a per-start identifier and draining status. The installation executor must compare these values with its approved plan and independently verify the process, listener, Node executable and protected file ancestry. Readiness does not prove account authority, resource access, tunnel ownership or revocation. During shutdown, new MCP requests are refused while admitted work drains.
+
 The external endpoint implements MCP protocol `2026-07-28`: `server/discover`, tool discovery/calls, and event discovery/subscription. Requests require matching protocol, method and tool-name headers plus MCP metadata. The daemon adapter uses the repository's existing MCP SDK, keeping the protocol change isolated from the application.
 
 ## Reads, writes and recovery

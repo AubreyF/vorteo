@@ -1,7 +1,9 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { z } from "zod";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+
+import type { LoadedReleaseIdentity } from "./release-manifest.js";
 
 export const PROTOCOL_VERSION = "2026-07-28";
 const RequestSchema = z.object({
@@ -28,6 +30,7 @@ export interface ServerOptions {
   token: string;
   tools: ToolBackend;
   events: EventBackend;
+  release?: LoadedReleaseIdentity;
 }
 
 function digest(value: string): Buffer {
@@ -68,6 +71,10 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 export function createBridgeServer(options: ServerOptions) {
   const tokenHash = digest(`Bearer ${options.token}`);
   const requests = new Set<Promise<void>>();
+  const startupInstance = randomUUID();
+  const startedAt = new Date().toISOString();
+  const release = options.release ? structuredClone(options.release) : null;
+  let draining = false;
   const server = createServer((req, res) => {
     const pending = handle(req, res).catch(() => {
       if (!res.headersSent) respond(res, 500, { error: "Bridge request failed" });
@@ -77,7 +84,11 @@ export function createBridgeServer(options: ServerOptions) {
     void pending.finally(() => requests.delete(pending));
   });
   return Object.assign(server, {
+    beginDrain: () => {
+      draining = true;
+    },
     drain: async () => {
+      draining = true;
       await Promise.all(requests);
     },
   });
@@ -92,13 +103,28 @@ export function createBridgeServer(options: ServerOptions) {
       return;
     }
     if (req.url === "/health" && req.method === "GET") {
-      respond(res, 200, { status: "ready" });
+      respond(res, draining ? 503 : 200, {
+        status: draining ? "draining" : "ready",
+        draining,
+        startupInstance,
+        startedAt,
+        pid: process.pid,
+        release,
+      });
       return;
     }
     if (req.url !== "/mcp") {
       respond(res, 404, { error: "Not found" });
       return;
     }
+    if (draining) {
+      respond(res, 503, { error: "Bridge is draining" });
+      return;
+    }
+    return handleMcp(req, res);
+  }
+
+  async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== "POST") {
       respond(res, 405, { error: "Use POST" });
       return;

@@ -6,6 +6,8 @@ import {
   ShieldCheck,
   Target,
   Users,
+  Files,
+  GitCompareArrows,
 } from "lucide-react-native";
 import { View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -15,6 +17,8 @@ import type { Theme } from "@/styles/theme";
 const palette = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const icons = {
+  files: withUnistyles(Files),
+  changes: withUnistyles(GitCompareArrows),
   journal: withUnistyles(BookOpen),
   messages: withUnistyles(MessagesSquare),
   goal: withUnistyles(Target),
@@ -40,5 +44,11 @@ export function TaskCardIcon({ kind }: { kind: keyof typeof icons }) {
 }
 
 const styles = StyleSheet.create(() => ({
-  frame: { width: 20, height: 20, flexShrink: 0, alignItems: "center", justifyContent: "center" },
+  frame: {
+    width: 20,
+    height: 20,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 }));

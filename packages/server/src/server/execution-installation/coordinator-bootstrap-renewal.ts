@@ -21,6 +21,7 @@ import {
   inspectBootstrapWritableMountRoots,
   readBootstrapHostBinding,
   readPrivateBootstrapConfiguration,
+  verifyBootstrapConfiguration,
 } from "./coordinator-bootstrap-host.js";
 import {
   assertBootstrapPathsProtected,
@@ -592,14 +593,13 @@ async function observeExecutable(file: string, roots: readonly string[]) {
   return identity;
 }
 
-/** Renewal is a runtime-reader upgrade. Its candidate and rollback use the exact
- * selected Host code and preserve all current configuration, including policy. */
+/** Renewed runners retain the selected Host reader and validate declared configuration
+ * changes through the maintenance validator. Compatible rollback retains the old configuration. */
 export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBootstrapPlan) {
   if (!setup.renewal) return;
   const renewal = setup.renewal;
   if (plan.automaticRecovery !== "restore-compatible" || !plan.compatibleRecovery)
     throw new BootstrapRequestConflict("Renewal requires an exact compatible recovery reader");
-  const current = readPrivateBootstrapConfiguration(renewal.configuration.path, process.getuid!());
   for (const release of [plan.candidate, plan.compatibleRecovery]) {
     if (
       release.directory !== setup.runtimeDirectory ||
@@ -611,23 +611,21 @@ export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBoo
       throw new BootstrapRequestConflict(
         "Renewal candidate and recovery must use the selected Host reader",
       );
-    if (
-      !isDeepStrictEqual(
-        current,
-        readPrivateBootstrapConfiguration(release.configuration.path, process.getuid!()),
-      )
-    )
-      throw new BootstrapRequestConflict(
-        "Renewal must preserve the complete current installation configuration",
-      );
   }
+
   if (
-    plan.nativeHelperConfiguration ||
-    plan.previewMonitorConfiguration ||
-    plan.factoryRuntimeAdoptionConfiguration ||
+    plan.nativeHelperConfiguration !== undefined ||
+    plan.previewMonitorConfiguration !== undefined ||
     plan.hostRequestsAfter !== null
   )
-    throw new BootstrapRequestConflict("Runner renewal cannot change installation configuration");
+    throw new BootstrapRequestConflict(
+      "Runner renewal cannot change policy, helper or monitor configuration",
+    );
+  verifyBootstrapConfiguration({
+    plan,
+    configurationFile: renewal.configuration.path,
+    daemonId: setup.daemonId,
+  });
 }
 
 /** Watchdogs reconstruct from their retained canonical runtime and exact request,

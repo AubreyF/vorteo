@@ -8533,3 +8533,248 @@ test.each(["enable", "remove"] as const)(
     await expect(preparing).resolves.toEqual([]);
   },
 );
+
+test("source tooling preparation refuses an older Host before sending", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "source-tooling",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.sourceUpdateTooling = true;
+  await expect(client.prepareCoordinatorBootstrap(input)).rejects.toThrow(
+    "Update the Host before preparing source update tooling",
+  );
+  expect(mock.sent).toEqual([]);
+});
+
+test("source tooling advertised opt-in is sent for list, exact preparation and decision", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "source-tooling",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({
+    features: { coordinatorBootstrapReview: true, coordinatorBootstrapSourceUpdateTooling: true },
+  });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.sourceUpdateTooling = true;
+  const listing = client.listCoordinatorBootstrapRequests();
+  const preparing = client.prepareCoordinatorBootstrap(input);
+  const decision = {
+    id: input.id,
+    revision: "00000000-0000-4000-8000-000000000003",
+    planSha256: "f".repeat(64),
+    decision: "cancel" as const,
+  };
+  const deciding = client.decideCoordinatorBootstrap(decision, "fixture-owner-password");
+  const frames = mock.sent.map(parseSentFrame);
+  expect(frames).toEqual([
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+    },
+    {
+      type: "installation.bootstrap.prepare.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+      input,
+    },
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+      input: decision,
+      ownerPassword: "fixture-owner-password",
+    },
+  ]);
+  for (const frame of frames)
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: frame.type.replace(".request", ".response"),
+        payload: { requestId: frame.requestId, requests: [], error: null },
+      }),
+    );
+  await expect(Promise.all([listing, preparing, deciding])).resolves.toEqual([[], [], []]);
+});
+
+test.each([false, true])(
+  "preclaim recovery has its own capability and never replays owner proof (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const logger = createMockLogger();
+    const trace = createTraceRecorder();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "recovery-client",
+      logger,
+      trace: trace.trace,
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapPreclaimRecovery: supported,
+      },
+    });
+    await connecting;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      planSha256: "a".repeat(64),
+      decision: "approve" as const,
+    };
+    if (!supported) {
+      await expect(client.listPreclaimRecoveryRequests()).rejects.toThrow("unavailable");
+      await expect(client.decidePreclaimRecovery(input, "recovery-owner-proof")).rejects.toThrow(
+        "unavailable",
+      );
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const listing = client.listPreclaimRecoveryRequests();
+    const listed = parseSentFrame(mock.sent[0]);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap_recovery.list_requests.response",
+        payload: { requestId: listed.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(listing).resolves.toEqual([]);
+    const deciding = client.decidePreclaimRecovery(input, "recovery-owner-proof");
+    expect(parseSentFrame(mock.sent[1])).toEqual({
+      type: "installation.bootstrap_recovery.decide.request",
+      requestId: expect.any(String),
+      input,
+      ownerPassword: "recovery-owner-proof",
+      preclaimRecovery: true,
+    });
+    const rejected = expect(deciding).rejects.toThrow();
+    mock.triggerClose({ code: 1006 });
+    await rejected;
+    const reconnecting = client.connect();
+    mock.triggerOpen({ features: { coordinatorBootstrapPreclaimRecovery: true } });
+    await reconnecting;
+    expect(mock.sent).toEqual([]);
+    expect(
+      JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+        trace.records,
+      ]),
+    ).not.toContain("recovery-owner-proof");
+  },
+);
+
+test.each([false, true])(
+  "retained recovery observation requires its capability (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "observer-client",
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapPreclaimRecovery: true,
+        coordinatorBootstrapPreclaimObservation: supported,
+      },
+    });
+    await connecting;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      generation: "00000000-0000-4000-8000-000000000003",
+      planSha256: "a".repeat(64),
+    };
+    const result = client.reconcilePreclaimRecovery(input);
+    if (!supported) {
+      await expect(result).rejects.toThrow("Update the Host");
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const frame = parseSentFrame(mock.sent[0]);
+    expect(frame).toEqual({
+      type: "installation.bootstrap_recovery.list_requests.request",
+      requestId: expect.any(String),
+      reconcile: input,
+    });
+    const rejected = expect(result).rejects.toThrow();
+    mock.triggerClose({ code: 1006 });
+    await rejected;
+    const reconnecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapPreclaimRecovery: true,
+        coordinatorBootstrapPreclaimObservation: true,
+      },
+    });
+    await reconnecting;
+    expect(mock.sent).toEqual([]);
+  },
+);
+
+test("retained owner cancellation review acknowledgment follows the Host capability", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "cancellation-client",
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({
+    features: {
+      coordinatorBootstrapPreclaimRecovery: true,
+      coordinatorBootstrapPreclaimOwnerCancellation: true,
+    },
+  });
+  await connecting;
+  const listing = client.listPreclaimRecoveryRequests();
+  const frame = parseSentFrame(mock.sent[0]);
+  expect(frame.ownerCanceledOriginal).toBe(true);
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "installation.bootstrap_recovery.list_requests.response",
+      payload: { requestId: frame.requestId, requests: [], error: null },
+    }),
+  );
+  await listing;
+  const deciding = client.decidePreclaimRecovery(
+    {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      planSha256: "a".repeat(64),
+      decision: "approve",
+    },
+    "fixture-proof",
+  );
+  expect(parseSentFrame(mock.sent[1]).ownerCanceledOriginal).toBe(true);
+  const rejected = expect(deciding).rejects.toThrow();
+  mock.triggerClose({ code: 1006 });
+  await rejected;
+});

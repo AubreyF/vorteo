@@ -1,3 +1,4 @@
+import { demoStorageName } from "@/demo/mode";
 import {
   encodeOutboxKey,
   nextOutboxOrder,
@@ -28,7 +29,9 @@ function completed(transaction: IDBTransaction): Promise<void> {
   });
 }
 
-export function createOutboxStorage(databaseName = "paseo-message-outbox"): OutboxStorage {
+export function createOutboxStorage(
+  databaseName = demoStorageName("paseo-message-outbox"),
+): OutboxStorage {
   let opening: Promise<IDBDatabase> | null = null;
   function database(): Promise<IDBDatabase> {
     opening ??= new Promise<IDBDatabase>((resolve, reject) => {

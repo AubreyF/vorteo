@@ -1,10 +1,10 @@
-import { SidebarCalloutStack } from "@/components/sidebar-callout";
+import { InstallationRestartBanner } from "@/execution-installation/panel";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { WorkspaceDefaultsSection } from "@/screens/settings/general/workspace-defaults-section";
 
 import { EnvironmentsSettingsPage } from "./settings/environments-page";
 import { SkillLibraryContent } from "@/agent-skills/library";
-import { InstallationControls, InstallationRestartBanner } from "@/execution-installation/panel";
+import { InstallationControls } from "@/execution-installation/panel";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
 import { usePanelStore } from "@/stores/panel-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -97,6 +97,7 @@ import { useVortonUpdate } from "@/vorton-updates/use-update";
 import { openChangelog } from "@/changelog";
 import { useAppDiagnosticStore } from "@/diagnostics/store";
 import { settingsStyles } from "@/styles/settings";
+import { floatingPanelStyles, FLOATING_PANEL_INSET } from "@/styles/floating-panel";
 import { THINKING_TONE_NATIVE_PCM_BASE64 } from "@/utils/thinking-tone.native-pcm";
 import { useVoiceAudioEngineOptional } from "@/contexts/voice-context";
 import {
@@ -848,8 +849,10 @@ function SettingsSidebar({
   });
   const outerContainerStyle = useMemo(
     () => [
+      floatingPanelStyles.surface,
+      sidebarStyles.floatingContainer,
       isDesktop ? sidebarStyles.desktopContainer : sidebarStyles.mobileContainer,
-      isDesktop && { width: visibleSidebarWidth },
+      isDesktop && { width: visibleSidebarWidth - FLOATING_PANEL_INSET * 2 },
     ],
     [isDesktop, visibleSidebarWidth],
   );
@@ -969,9 +972,7 @@ function SettingsSidebar({
           >
             {sidebarBody}
           </ScrollView>
-          <SidebarCalloutStack>
-            <InstallationRestartBanner />
-          </SidebarCalloutStack>
+          <InstallationRestartBanner placement="sidebar" />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${appVersionText}, ${t("settings.sections.general")}`}
@@ -1289,9 +1290,6 @@ export default function SettingsScreen({
             layout="mobile"
           />
         </ScrollView>
-        <SidebarCalloutStack>
-          <InstallationRestartBanner />
-        </SidebarCalloutStack>
         {addHostModals}
       </View>
     );
@@ -1301,9 +1299,6 @@ export default function SettingsScreen({
     return (
       <View style={styles.container}>
         {detailPage}
-        <SidebarCalloutStack>
-          <InstallationRestartBanner />
-        </SidebarCalloutStack>
         {addHostModals}
       </View>
     );
@@ -1401,11 +1396,12 @@ const desktopStyles = StyleSheet.create({
 });
 
 const sidebarStyles = StyleSheet.create((theme) => ({
+  floatingContainer: {
+    margin: FLOATING_PANEL_INSET,
+    overflow: "hidden",
+  },
   desktopContainer: {
     width: SETTINGS_DESKTOP_SIDEBAR_WIDTH,
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
-    backgroundColor: theme.colors.surfaceSidebar,
   },
   scrollBody: {
     flex: 1,

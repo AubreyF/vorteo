@@ -4,7 +4,7 @@ import type { AgentGoal, AgentGoalSetInput, AgentGoalState } from "@getpaseo/pro
 import type { AgentManager } from "./agent-manager.js";
 
 /** Native goal RPCs accept text only. Deliver attachments through the normal
- * prompt path while continuation is paused, then reconcile before activating. */
+ * prompt path while continuation is blocked, then reconcile before activating. */
 export async function setAgentGoalWithContext(input: {
   manager: Pick<AgentManager, "setAgentGoal" | "readAgentGoal">;
   agentId: string;
@@ -17,11 +17,15 @@ export async function setAgentGoalWithContext(input: {
   if (!goal.objective?.trim()) throw new Error("Goal attachments require an objective");
   const accepted = await manager.setAgentGoal(
     agentId,
-    { ...goal, status: "paused" },
+    { ...goal, status: goal.status === "paused" ? "paused" : "blocked" },
     { recordSubmission: false },
   );
+  if (accepted.status !== "ready" || !accepted.goal)
+    throw new Error("The goal hold could not be confirmed before context delivery.");
   await sendContext();
   const current = await manager.readAgentGoal(agentId);
+  if (current.status !== "ready")
+    throw new Error("The goal state could not be confirmed after context delivery.");
   if (
     !current.goal ||
     current.goal.objective !== accepted.goal?.objective ||
@@ -31,9 +35,11 @@ export async function setAgentGoalWithContext(input: {
       "The goal changed while its context was being sent. Review the current goal before continuing.",
     );
   }
-  // A quick turn may already have completed or blocked the goal. Do not resume
-  // it merely because the attachment submission has now been acknowledged.
-  if (current.goal.status !== "paused") return current;
+  // Context delivery owns only its unchanged temporary block. A manual pause,
+  // completion or a new blocker must survive delivery acknowledgement.
+  if (current.goal.status !== "blocked") return current;
+  if (current.editRevision !== accepted.editRevision) return current;
+  if (!current.editRevision && current.goal.updatedAt !== accepted.goal.updatedAt) return current;
   return manager.setAgentGoal(agentId, { status: goal.status ?? "active" });
 }
 

@@ -24,6 +24,8 @@ export type SortOption = "name" | "modified" | "size";
 export const DEFAULT_SIDEBAR_WIDTH = 320;
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 600;
+export const COMPACT_SIDEBAR_WIDTH = 64;
+export const SIDEBAR_OUTER_GAP = 8;
 
 export const DEFAULT_TREE_RAIL_WIDTH = 260;
 export const MIN_TREE_RAIL_WIDTH = 180;
@@ -145,6 +147,7 @@ export const PanelPersistedStateSchema = z.strictObject({
   diffCollapsedFoldersByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   collapsedFilePathsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   sidebarWidth: z.number().optional(),
+  sidebarCompact: z.boolean().optional(),
   // Accepted only so migration can discard the former docked explorer sidebar width.
   explorerWidth: z.number().optional(),
   explorerSortOption: z.enum(["name", "modified", "size"]).optional(),
@@ -218,6 +221,11 @@ export function migratePanelState(persistedState: unknown, version: number): Mig
   }
   if (!isExplorerTab(state.explorerTab)) {
     state.explorerTab = "changes";
+  }
+  // A previously hidden desktop sidebar becomes the persistent minimal rail.
+  if (state.desktop?.agentListOpen === false) {
+    state.sidebarCompact = true;
+    state.desktop.agentListOpen = true;
   }
   migratePanelExplorerTabByCheckout(state, version);
   if (version < 8) {

@@ -30,7 +30,7 @@ export const AgentGoalStateSchema = z.discriminatedUnion("status", [
     observedAt: z.string(),
     // Changes with goal mutations, independently of native usage timestamps.
     editRevision: z.string().optional(),
-    // Native continuation is paused while the durable queue drains, then resumes.
+    // Native continuation is blocked while the durable queue drains, then resumes.
     queueContinuationHeld: z.boolean().optional(),
     restartContinuationHeld: z.boolean().optional(),
   }),

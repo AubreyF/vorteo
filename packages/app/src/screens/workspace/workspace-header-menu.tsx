@@ -8,11 +8,11 @@ import { useWorkspace } from "@/stores/session-store-hooks";
 import { useWorkspaceMenuActions } from "@/workspace/use-workspace-menu-actions";
 import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
 import { useWorkspaceLabelMenuPages } from "@/workspace-labels/picker";
-import React, { useCallback, useMemo, type ReactNode } from "react";
+import React, { createContext, useCallback, useMemo, type ReactNode } from "react";
 import { View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { MoreVertical, Globe, SquarePen } from "lucide-react-native";
+import { Ellipsis, Globe, SquarePen } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { TerminalProfile } from "@getpaseo/protocol/messages";
 import {
@@ -37,7 +37,25 @@ import {
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import type { Theme } from "@/styles/theme";
 
-const ThemedMoreVertical = withUnistyles(MoreVertical);
+export const WorkspaceOverflowItemsContext = createContext<{
+  items: ReactNode;
+  pages: ReturnType<typeof useWorkspaceLabelMenuPages>;
+} | null>(null);
+
+interface WorkspaceMenuPresentation {
+  children?: ReactNode;
+  overflow?: boolean;
+  enabled?: boolean;
+}
+
+/** Share actions and submenu pages with the existing pane menu, without another trigger. */
+export function WorkspaceOverflowProvider(
+  props: WorkspaceHeaderWorkspaceActions & WorkspaceMenuPresentation,
+) {
+  return <WorkspaceHeaderActionsMenu {...props} overflow />;
+}
+
+const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedGlobe = withUnistyles(Globe);
 
@@ -48,7 +66,7 @@ const MENU_NEW_BROWSER_ICON = <ThemedGlobe size={16} uniProps={mutedColorMapping
 const MENU_NEW_TERMINAL_ICON = <TerminalProfileIcon iconKey={undefined} size={16} />;
 function WorkspaceHeaderMenuTriggerIcon() {
   return (
-    <ThemedMoreVertical
+    <ThemedEllipsis
       size={iconButtonChromeGlyphSize("large")}
       uniProps={extraMutedIconColorMapping}
     />
@@ -71,7 +89,9 @@ function WorkspaceHeaderActionsMenu({
   normalizedServerId,
   normalizedWorkspaceId,
   children,
-}: WorkspaceHeaderWorkspaceActions & { children?: ReactNode }) {
+  overflow = false,
+  enabled = true,
+}: WorkspaceHeaderWorkspaceActions & WorkspaceMenuPresentation) {
   const descriptor = useWorkspace(normalizedServerId, normalizedWorkspaceId);
   const workspace = useMemo(
     () =>
@@ -80,9 +100,14 @@ function WorkspaceHeaderActionsMenu({
         : null,
     [descriptor, normalizedServerId],
   );
-  if (!workspace) return null;
+  if (!workspace)
+    return overflow ? (
+      <WorkspaceOverflowItemsContext.Provider value={null}>
+        {children}
+      </WorkspaceOverflowItemsContext.Provider>
+    ) : null;
   return (
-    <WorkspaceHeaderActionsMenuLoaded key={workspace.workspaceKey} workspace={workspace}>
+    <WorkspaceHeaderActionsMenuLoaded workspace={workspace} overflow={overflow} enabled={enabled}>
       {children}
     </WorkspaceHeaderActionsMenuLoaded>
   );
@@ -91,9 +116,10 @@ function WorkspaceHeaderActionsMenu({
 function WorkspaceHeaderActionsMenuLoaded({
   workspace,
   children,
-}: {
+  overflow,
+  enabled,
+}: WorkspaceMenuPresentation & {
   workspace: SidebarWorkspaceEntry;
-  children?: ReactNode;
 }) {
   const { t } = useTranslation();
   const canPin = useHostFeature(workspace.serverId, "workspacePinning");
@@ -114,6 +140,53 @@ function WorkspaceHeaderActionsMenuLoaded({
     [workspace.serverId, workspace.workspaceId, workspace.labels],
   );
   const pages = useWorkspaceLabelMenuPages(target);
+  const items = useMemo(
+    () => (
+      <WorkspaceMenuItems
+        surface="dropdown"
+        testIDPrefix="workspace-header"
+        workspaceKey={workspace.workspaceKey}
+        serverId={workspace.serverId}
+        workspaceId={workspace.workspaceId}
+        onCopyPath={actions.handleCopyPath}
+        onCopyBranchName={
+          workspace.projectKind === "git" ? actions.handleCopyBranchName : undefined
+        }
+        onRename={actions.handleOpenRename}
+        onMarkAsRead={actions.hasClearableAttention ? actions.handleMarkAsRead : undefined}
+        onMarkAsUnread={actions.canMarkUnread ? actions.handleMarkAsUnread : undefined}
+        onArchive={actions.handleArchive}
+        archiveStatus={actions.isArchiving ? "pending" : "idle"}
+        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+        archiveShortcutKeys={actions.archiveShortcutKeys}
+        isPinned={actions.isPinned}
+        onTogglePin={actions.onTogglePin}
+        openInFileManagerPath={workspace.workspaceDirectory}
+        {...sessionMenu}
+      />
+    ),
+    [actions, sessionMenu, t, workspace],
+  );
+  const sheets = (
+    <>
+      <WorkspaceRenameModal
+        visible={actions.isRenameOpen}
+        workspace={workspace}
+        onClose={actions.handleCloseRename}
+        testID="workspace-header-rename-modal"
+      />
+      {sessionMenu.sheet}
+    </>
+  );
+  const overflowValue = useMemo(() => (enabled ? { items, pages } : null), [enabled, items, pages]);
+  if (overflow) {
+    return (
+      <WorkspaceOverflowItemsContext.Provider value={overflowValue}>
+        {children}
+        {sheets}
+      </WorkspaceOverflowItemsContext.Provider>
+    );
+  }
   return (
     <>
       <DropdownMenu compactMode="sheet">
@@ -133,38 +206,11 @@ function WorkspaceHeaderActionsMenuLoaded({
           pages={pages}
           sheetTitle={t("workspace.header.actions.workspaceActions")}
         >
-          <WorkspaceMenuItems
-            surface="dropdown"
-            testIDPrefix="workspace-header"
-            workspaceKey={workspace.workspaceKey}
-            serverId={workspace.serverId}
-            workspaceId={workspace.workspaceId}
-            onCopyPath={actions.handleCopyPath}
-            onCopyBranchName={
-              workspace.projectKind === "git" ? actions.handleCopyBranchName : undefined
-            }
-            onRename={actions.handleOpenRename}
-            onMarkAsRead={actions.hasClearableAttention ? actions.handleMarkAsRead : undefined}
-            onMarkAsUnread={actions.canMarkUnread ? actions.handleMarkAsUnread : undefined}
-            onArchive={actions.handleArchive}
-            archiveStatus={actions.isArchiving ? "pending" : "idle"}
-            archivePendingLabel={t("sidebar.workspace.actions.archiving")}
-            archiveShortcutKeys={actions.archiveShortcutKeys}
-            isPinned={actions.isPinned}
-            onTogglePin={actions.onTogglePin}
-            openInFileManagerPath={workspace.workspaceDirectory}
-            {...sessionMenu}
-          />
+          {items}
           {children}
         </DropdownMenuContent>
       </DropdownMenu>
-      <WorkspaceRenameModal
-        visible={actions.isRenameOpen}
-        workspace={workspace}
-        onClose={actions.handleCloseRename}
-        testID="workspace-header-rename-modal"
-      />
-      {sessionMenu.sheet}
+      {sheets}
     </>
   );
 }

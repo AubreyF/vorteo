@@ -8,6 +8,12 @@ import { join, relative } from "node:path";
 // workspace root live in their workspace's own node_modules, and patch-package resolves
 // the patch's node_modules/... paths relative to its working directory.
 const patchedPackages = [
+  // SDK 54 development launcher waits for the scene-owned React window.
+  { nodeModulesPath: "node_modules/expo-dev-launcher", patchPrefix: "expo-dev-launcher+" },
+  {
+    nodeModulesPath: "node_modules/@expo/cli",
+    patchPrefix: "@expo+cli+",
+  },
   {
     nodeModulesPath: "node_modules/react-native-markdown-display",
     patchPrefix: "react-native-markdown-display+",
@@ -16,8 +22,9 @@ const patchedPackages = [
     nodeModulesPath: "node_modules/react-native-uitextview",
     patchPrefix: "react-native-uitextview+",
   },
-  // Remove after react-native-unistyles ships
-  // https://github.com/jpudysz/react-native-unistyles/pull/1203.
+  // Includes registry cleanup from upstream PR1203, numeric theme rule updates,
+  // and filtering of the private uniProps mapping before passing DOM props.
+  // Retire each hunk only after verifying its fix in the installed upstream version.
   {
     nodeModulesPath: "node_modules/react-native-unistyles",
     patchPrefix: "react-native-unistyles+",

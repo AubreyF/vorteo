@@ -265,7 +265,10 @@ import {
 import { NativeFactorySetupService } from "./factory/setup-service.js";
 import { createFactoryCoordinatorBinder } from "./factory/create-coordinator-binder.js";
 import { createFactoryStageNativeRuntime } from "./factory/governed-stage-native.js";
-import { captureFactoryWorkerProfile } from "./factory/capture-worker-profile.js";
+import {
+  captureFactoryWorkerProfile,
+  readFactoryConfiguredProfiles,
+} from "./factory/capture-worker-profile.js";
 import { createFactoryScheduleInspection } from "./factory/native-schedule-inspection.js";
 import { createFactoryPrepaidPolicyApplication } from "./factory/apply-prepaid-policy.js";
 import { createFactoryControllerObservationSource } from "./factory/create-controller-observation-source.js";
@@ -1530,7 +1533,8 @@ export async function createPaseoDaemon(
         projects: projectRegistry,
         workspaces: workspaceRegistry,
         agents: agentStorage,
-        readProfiles: () => daemonConfigStore.get().agentProfiles ?? [],
+        readProfiles: (provider, profileId) =>
+          readFactoryConfiguredProfiles(daemonConfigStore.get(), provider, profileId),
         store: governorStore,
         canDispatch: canDispatchFactory,
       }),
@@ -1541,7 +1545,8 @@ export async function createPaseoDaemon(
         projects: projectRegistry,
         workspaces: workspaceRegistry,
         agents: agentStorage,
-        readProfiles: () => daemonConfigStore.get().agentProfiles ?? [],
+        readProfiles: (provider, profileId) =>
+          readFactoryConfiguredProfiles(daemonConfigStore.get(), provider, profileId),
       }),
     },
     factoryObservation: {

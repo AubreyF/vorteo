@@ -19,6 +19,8 @@ interface MenuHeaderProps {
 }
 
 interface SidebarMenuToggleProps {
+  insideSidebar?: boolean;
+  belowTabs?: boolean;
   style?: StyleProp<ViewStyle>;
   tooltipSide?: "left" | "right" | "top" | "bottom";
   testID?: string;
@@ -59,6 +61,7 @@ function SidebarMenuToggleButton({
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const isOpen = usePanelStore((state) => selectIsAgentListOpen(state, { isCompact: isMobile }));
+  const sidebarCompact = usePanelStore((state) => state.sidebarCompact);
   const toggleAgentListForLayout = usePanelStore((state) => state.toggleAgentListForLayout);
   const toggleShortcutKeys = useMemo(
     () => (getShortcutOs() === "mac" ? ["mod", "B"] : ["mod", "."]),
@@ -69,7 +72,10 @@ function SidebarMenuToggleButton({
     toggleAgentListForLayout({ isCompact: isMobile });
   }, [toggleAgentListForLayout, isMobile]);
 
-  const accessibilityState = useMemo(() => ({ expanded: isOpen }), [isOpen]);
+  const expanded = isMobile ? isOpen : !sidebarCompact;
+  let toggleLabel = expanded ? "Minimize sidebar" : "Expand sidebar";
+  if (isMobile) toggleLabel = isOpen ? t("shell.menu.close") : t("shell.menu.open");
+  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
 
   return (
     <HeaderToggleButton
@@ -82,7 +88,7 @@ function SidebarMenuToggleButton({
       style={resolvedStyle}
       accessible
       accessibilityRole="button"
-      accessibilityLabel={isOpen ? t("shell.menu.close") : t("shell.menu.open")}
+      accessibilityLabel={toggleLabel}
       accessibilityState={accessibilityState}
     >
       {isMobile ? (
@@ -104,8 +110,14 @@ function SidebarMenuToggleButton({
   );
 }
 
-export function SidebarMenuToggle({ style, ...props }: SidebarMenuToggleProps = {}) {
+export function SidebarMenuToggle({
+  style,
+  insideSidebar = false,
+  belowTabs = false,
+  ...props
+}: SidebarMenuToggleProps = {}) {
   const isMobile = useIsCompactFormFactor();
+  const isOpen = usePanelStore((state) => selectIsAgentListOpen(state, { isCompact: isMobile }));
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const hasTopLeftWindowControls = useHasWindowChromeObstruction("top-left");
   const resolvedStyle = useMemo(() => [styles.leadingToggle, style], [style]);
@@ -114,7 +126,11 @@ export function SidebarMenuToggle({ style, ...props }: SidebarMenuToggleProps = 
     [resolvedStyle],
   );
 
-  if (!isMobile && !ownsTopLeft) {
+  if (insideSidebar)
+    return <SidebarMenuToggleButton {...props} isMobile={isMobile} resolvedStyle={style} />;
+  if (!isMobile && isOpen) return null;
+
+  if (!isMobile && !ownsTopLeft && !belowTabs) {
     return null;
   }
 
@@ -130,7 +146,9 @@ export function SidebarMenuToggle({ style, ...props }: SidebarMenuToggleProps = 
 }
 
 export function WindowSidebarMenuToggle({ style, ...props }: SidebarMenuToggleProps = {}) {
+  const isOpen = usePanelStore((state) => selectIsAgentListOpen(state, { isCompact: false }));
   const resolvedStyle = useMemo(() => [styles.leadingToggle, style], [style]);
+  if (isOpen) return null;
   return (
     <SidebarMenuToggleButton
       {...props}

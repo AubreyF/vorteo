@@ -6,9 +6,82 @@ Tokens — every color, font size, weight, spacing step, radius, icon size — l
 
 ## 1. Character
 
-Vorteo is minimal, spacious, quiet, confident. Whitespace is deliberate. Nothing crowds, nothing decorates, nothing apologizes. A row, a label, a control. That is the bar.
+Vorteo uses the six Vorton appearances: Starship, Dark Star, Scriptorium, Midas,
+Ember and Neon. Dark Star is the default. Theme identity includes typography,
+surfaces and shell textures. The appearance catalog records reference provenance;
+semantic adapters in `packages/app/src/styles/theme.ts` keep working text,
+status signals and terminal output readable.
 
-The app is calm so the user's work is not. Every visual decision serves either _act on this_ or _understand this_ — never _look at this_.
+Native builds embed the licensed Barlow, Barlow Condensed, Manrope and Space
+Grotesk faces through Expo's font plugin. See the [native font assets](../packages/app/assets/appearance-fonts/README.md)
+for provenance, weight registration and native rebuild requirements. Keep
+authored fallback order when selecting platform fonts.
+
+Theme swatches are graphics, not button text. Keep their surfaces outside the
+shared Button text wrapper so native layout preserves the compact pill dimensions.
+Web uses the catalog's CSS gradients; native uses the matching SVG artwork.
+
+Use Freed's floating panel treatment for navigation and its theme preview and
+tooltip presentation. Keep decorative texture outside dense reading surfaces.
+Honor explicit font overrides and reduced-motion preferences. Code stays
+monospace across themes.
+
+When Freed and Vorton differ in an interaction pattern, follow Freed. Vorton
+supplies the appearance catalog and typography. The left sidebar and individual
+right-hand cards share the floating panel surface. Files and Changes belong in
+designated cards with the other right-hand cards. The right group has no outer
+frame; its toolbar stands on the canvas, with the first card aligned to the
+bottom of the left toolbar. The canvas behind every floating panel uses the same flat
+`surface0` color. The desktop left collapse control and keyboard shortcut retain
+a minimal project rail, including after reload. Put the right collapse control
+in its toolbar and its reopen control in the central header. Workspace tabs sit
+above the borderless title row and use a wider 120 to 260px range. Horizontal
+tab strips share `styles/tab-shape.ts`: rounded top corners and square bottom corners.
+The sidebar overflow menu contains the compact Freed theme swatches. The overflow trigger
+sits after Settings at the right end of the left toolbar. All three desktop
+columns use the same 48px top toolbar, aligned to the floating panel inset.
+In Electron, reserve window-control clearance once above all three columns.
+The minimal project rail stays 64px wide because window controls sit above it.
+The right toolbar holds workspace actions, including Create PR, and the
+workspace menu. When that panel is collapsed, those actions remain available
+through the central controls. Workspace menu items join the existing pane
+overflow menu there, so the central column has only one overflow trigger.
+
+The isolated demo uses the real file editor against a simulated file store.
+Sample-file saves carry revisions, reject stale writes and notify subscribed
+editors, Changes views and workspace totals. Web edits persist across reloads
+in tab-local session storage; Reset restores the fixtures and preserves unrelated
+browser data. Storage failures reject the save without changing the current file.
+Simulated checklist edits use the shared checklist model, including dependency and
+stale-editor checks, and update subscribed task cards and sidebar progress. Checklist
+edits also persist in tab-local storage and Reset restores the sample catalog.
+The server retains its native ID generation and equality adapter.
+
+The demo composer accepts text and returns explicitly labeled scripted replies
+about current tasks, changed files or appearance controls. Messages stay in
+tab-local storage across reloads, retries do not duplicate them, and Reset clears
+them. Attachments and real execution remain unavailable. Replies never claim
+that a model or command ran.
+
+Both sidebar resizers use `SidebarResizeHandle` and the same pointer lifecycle.
+Match Freed's centered 2px neutral gap indicator, transparent at rest, with
+matching hover and drag opacity. Touch targets stay within panel bounds so
+native hit testing can reach them. Keep the document, app root and theme-color
+metadata synchronized with the central canvas. Safari owns its final toolbar
+tint; inspect it in Safari during owner acceptance.
+
+Installation approvals, coordinator maintenance and Host/Dev updates use one
+persistent floating toast stack in the lower right, outside both sidebars. Keep
+the stack available across navigation and sidebar states, respect mobile safe
+areas, and bound its height with scrolling. Pending requests and running updates
+do not expire automatically. Review opens the exact tracked request in
+Installation controls; relocating a notice never changes approval or
+cancellation rules. On the compact welcome screen, fold notices behind a persistent
+Updates and maintenance button so setup and sign-in stay reachable. Expanding it
+reveals the existing notice cards and review controls.
+On compact workspace screens, place notices above the measured active composer
+and keyboard. Release that clearance when the composer becomes inactive or
+unmounts; retained background tabs must not move the notice stack.
 
 Consistency comes from component reuse, not from hand-matching styles across surfaces. A row in the projects list, a row in settings, and a row in a modal are the same component, not three implementations that happen to look alike. When two surfaces do the same semantic thing in two different ways, one of them is wrong.
 
@@ -328,3 +401,5 @@ Long question prompts and navigation belong in the body beneath the fixed Questi
 ### Journal cards
 
 Thread journals use the shared `TaskCard`, `TaskCardHeader`, `TaskCardIcon` and `CardDisclosure`. Show a narrow, muted timestamp column on the left and selectable entry text in the remaining width. Keep entries in server append order, oldest first, even if timestamps repeat or the clock moves backward. Do not add edit, delete, drag or clear controls. The card appears after its first entry; its fixed heading and bounded scrolling body follow the conversation card layout contract.
+
+Maintenance that is awaiting dispatch or running belongs in compact two-line status rows at the bottom of the left sidebar. Keep a spinner on the left and Review on the right. Approval and recovery notices remain floating and dismissible; dismissing a notice does not cancel its request. Queued messages stays last in the supporting card group, after Files and Changes.

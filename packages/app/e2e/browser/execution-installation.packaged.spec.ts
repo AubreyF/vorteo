@@ -393,18 +393,58 @@ test("welcome signs in with the owner password and restores both environments", 
   page,
 }, testInfo) => {
   await page.goto(origin);
+  await expect(page.getByText("Welcome to Vorteo", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("welcome-demo")).toBeVisible();
+  if (testInfo.project.name === "phone") {
+    const updates = page.getByTestId("installation-update-toasts-toggle");
+    await expect(updates).toHaveAttribute("aria-expanded", "false");
+    await updates.click();
+    await expect(page.getByRole("button", { name: "Review restart", exact: true })).toBeVisible();
+    await updates.click();
+    await expect(updates).toHaveAttribute("aria-expanded", "false");
+  }
+  await page.getByTestId("welcome-create-installation").click();
+  await expect(page.getByTestId("installation-command")).toContainText(
+    "docker/multiplex/install.sh",
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByTestId("welcome-direct-connection").click();
   const form = page.getByTestId("installation-welcome");
   await expect(form).toBeVisible();
-  await expect(page.getByText("Welcome to Vorteo", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("welcome-direct-connection")).toHaveCount(0);
+  await expect(page.getByTestId("direct-host-input")).toHaveCount(0);
   await expect(page.getByTestId("welcome-remote-ssh")).toHaveCount(0);
   const password = page.getByRole("textbox", { name: "Owner password" });
   const connect = page.getByRole("button", { name: "Connect", exact: true });
   await expect(connect).toBeDisabled();
+  if (testInfo.project.name === "phone") {
+    // Wait for the sheet to settle and prove maintenance cannot intercept its fields.
+    await expect(async () => {
+      const covered = await password.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) !== node;
+      });
+      expect(covered).toBe(false);
+      const updatesCovered = await page
+        .getByTestId("installation-update-toasts-toggle")
+        .evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return !node.contains(
+            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+          );
+        });
+      expect(updatesCovered).toBe(true);
+    }).toPass();
+  }
   await page.screenshot({
     path: testInfo.outputPath("owner-welcome.png"),
     fullPage: true,
   });
+  await password.fill("discard-on-cancel");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(form).not.toBeVisible();
+  await page.getByTestId("welcome-direct-connection").click();
+  await expect(password).toHaveValue("");
+  await expect(connect).toBeDisabled();
   await password.fill("container-test-password");
   await connect.click();
   await expect(form.getByRole("alert")).toContainText("Incorrect owner password");
@@ -541,10 +581,11 @@ test("owner connects two environments, prepares host drafts, and approves a veri
       );
   });
   await page.goto(origin);
+  await page.getByTestId("welcome-direct-connection").click();
   await expect(page.getByTestId("installation-welcome")).toBeVisible();
   await expect(page).toHaveURL(/welcome/);
-  await expect(page.getByTestId("welcome-direct-connection")).toHaveCount(0);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByTestId("direct-host-input")).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(1);
   await page.screenshot({
     path: testInfo.outputPath("installation-owner-access.png"),
     fullPage: true,
@@ -757,10 +798,16 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
 });
 
-test("restart banner names daemons and keeps its top divider fixed while scrolling", async ({
+test("passive maintenance stays in the sidebar and actionable notices can be dismissed", async ({
   page,
 }, testInfo) => {
+  test.skip(
+    testInfo.project.name === "phone",
+    "Sidebar placement uses the desktop sidebar; compact actions have separate coverage.",
+  );
   test.setTimeout(180_000);
+  const width = testInfo.project.name === "phone" ? 390 : 1440;
+  await page.setViewportSize({ width, height: 600 });
   await page.goto(`${origin}/settings/general?installation=1`);
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
@@ -786,15 +833,27 @@ test("restart banner names daemons and keeps its top divider fixed while scrolli
         source: { kind: "directory", path: directory },
       });
       if (!workspace) throw new Error("Missing banner fixture workspace");
-      const blocker = await client.createAgent({
-        config: {
-          provider: "mock",
-          cwd: directory,
-          title: "Keep the banner fixture queued",
-          model: "thirty-minute-stream",
-        },
-        workspaceId: workspace.id,
-        initialPrompt: "Keep this isolated restart queued during the scroll check",
+      const createBlocker = () =>
+        client.createAgent({
+          config: {
+            provider: "mock",
+            cwd: directory,
+            title: "Keep the banner fixture queued",
+            model: "thirty-minute-stream",
+          },
+          workspaceId: workspace.id,
+          initialPrompt: "Keep this isolated restart queued during the scroll check",
+        });
+      // The coordinator may finish its initial settings sync during admission.
+      // This exact guard rejects before agent creation, so one retry is safe.
+      const blocker = await createBlocker().catch((error: unknown) => {
+        if (
+          !(error instanceof Error) ||
+          error.message !==
+            "Local account or settings bindings changed during launch. Retry with the current configuration."
+        )
+          throw error;
+        return createBlocker();
       });
       blockers.push({ client, id: blocker.id });
       await expect
@@ -811,41 +870,55 @@ test("restart banner names daemons and keeps its top divider fixed while scrolli
         ).json(),
       );
       jobs.push(job.id);
+      if (jobs.length === 1) {
+        const floating = page
+          .getByTestId("installation-update-toasts")
+          .getByTestId(`restart-notice-${job.id}`);
+        await expect(
+          floating.getByRole("button", { name: "Review restart", exact: true }),
+        ).toBeVisible();
+        await floating.screenshot({ path: testInfo.outputPath("actionable-maintenance.png") });
+        await floating.getByRole("button", { name: "Dismiss", exact: true }).click();
+        await expect(floating).toHaveCount(0);
+        const afterDismiss = RestartJobSchema.parse(
+          await (
+            await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
+              headers: { Authorization: `Bearer ${guestToken}` },
+            })
+          ).json(),
+        );
+        expect(afterDismiss.status).toBe("pending");
+      }
       const response = await request(`owner/restarts/${job.id}/decision`, ownerPassword, {
         revision: job.revision,
         decision: "approve-when-idle",
       });
       expect(response.status).toBe(200);
     }
-    const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
+    const sidebar = page.getByTestId("settings-sidebar");
+    const banner = sidebar.getByTestId("installation-restart-banner");
     await expect(banner).toContainText("Dev daemon restart queued");
     await expect(banner).toContainText("Host daemon restart queued");
-    const cards = banner.getByRole("alert");
+    const cards = banner.locator('[data-testid^="restart-notice-"]');
     await expect(cards).toHaveCount(2);
-    await expect(cards.first()).toHaveCSS("border-top-width", "0px");
-    await expect(cards.last()).toHaveCSS("border-top-width", "1px");
-    const bounds = await banner.boundingBox();
-    if (!bounds) throw new Error("Missing restart banner bounds");
-    const overflow = await banner.evaluate(
-      (element) => element.scrollHeight - element.clientHeight,
-    );
-    expect(overflow).toBeGreaterThan(0);
-    for (const fraction of [0, 0.5, 1]) {
-      await banner.evaluate((element, scrollTop) => {
-        element.scrollTop = scrollTop;
-      }, overflow * fraction);
-      await expect
-        .poll(() => banner.evaluate((element) => element.scrollTop))
-        .toBeCloseTo(overflow * fraction, 0);
-      await expect(banner).toHaveCSS("border-top-width", "1px");
-      expect(await banner.boundingBox()).toEqual(bounds);
-      await banner.screenshot({
-        path: testInfo.outputPath(`restart-banner-scroll-${fraction}.png`),
-      });
+    for (const card of await cards.all()) {
+      expect((await card.boundingBox())!.height).toBeLessThanOrEqual(56);
+      await expect(card.getByRole("progressbar")).toBeVisible();
     }
-    const firstCardBounds = await cards.first().boundingBox();
-    if (!firstCardBounds) throw new Error("Missing restart card bounds");
-    expect(firstCardBounds.y).toBeLessThan(bounds.y);
+    const stack = page.getByTestId("installation-update-toasts");
+    await expect(stack.locator('[data-testid^="restart-notice-"]')).toHaveCount(0);
+    await sidebar.screenshot({ path: testInfo.outputPath("compact-passive-maintenance.png") });
+    await cards
+      .filter({ hasText: "Host daemon restart queued" })
+      .getByRole("button", { name: "Review restart", exact: true })
+      .click();
+    await expect(page).toHaveURL(/installation=1.*restart=/);
+    const reviewedId = new URL(page.url()).searchParams.get("restart");
+    expect(reviewedId).toBe(jobs[1]);
+    const reviewedCard = page.getByTestId(`restart-request-${reviewedId}`);
+    await reviewedCard.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(reviewedCard).toContainText("Rejected");
+    await expect(cards).toHaveCount(1);
   } finally {
     for (const id of jobs) {
       const response = await fetch(`${origin}/api/installation/restart-requests/${id}`, {

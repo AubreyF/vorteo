@@ -909,9 +909,7 @@ test("canvas diff stays sharp while its workspace pane is resized", async ({ pag
 
   const canvas = page.getByTestId("git-diff-canvas");
   const root = page.getByTestId("git-diff-canvas-root");
-  const handle = page
-    .getByTestId("workspace-explorer-sidebar-resize-handle")
-    .getByRole("separator");
+  const handle = page.getByTestId("workspace-explorer-sidebar-resize-handle");
   await expect(handle).toBeVisible();
   await expect
     .poll(async () => {

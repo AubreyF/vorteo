@@ -12,6 +12,10 @@ export interface ColumnWidths {
   cards: number;
 }
 
+export function resolveStandaloneTextWidth(containerWidth: number, preferred: number): number {
+  return Math.max(0, Math.min(preferred, MAX_TEXT_WIDTH, containerWidth - COLUMN_MARGIN * 2));
+}
+
 export function resolveColumnWidths(containerWidth: number, preferred: ColumnWidths): ColumnWidths {
   const available = Math.max(
     MIN_TEXT_WIDTH + MIN_CARDS_WIDTH,
@@ -33,10 +37,16 @@ export function resizeColumn(input: {
   initial: ColumnWidths;
   translation: number;
   containerWidth: number;
+  standaloneText?: boolean;
 }): ColumnWidths {
   const { column, initial, translation, containerWidth } = input;
   const requested = { ...initial };
   requested[column] += column === "text" ? translation * 2 : -translation;
+  if (input.standaloneText)
+    return {
+      cards: 0,
+      text: resolveStandaloneTextWidth(containerWidth, Math.max(MIN_TEXT_WIDTH, requested.text)),
+    };
   return resolveColumnWidths(containerWidth, requested);
 }
 

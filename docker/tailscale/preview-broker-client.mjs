@@ -5,10 +5,22 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout } from "node:timers/promises";
 const channel = join(homedir(), ".local/share/paseo-preview/https");
-const cli = (args) =>
-  JSON.parse(
-    execFileSync("/usr/local/bin/paseo", [...args, "--json"], { encoding: "utf8", timeout: 20000 }),
+function installation() {
+  return JSON.parse(readFileSync(join(channel, "installed.json"), "utf8"));
+}
+function cli(args) {
+  const config = installation();
+  const [executable, ...prefix] = config.cliCommand ?? ["/usr/local/bin/paseo"];
+  const home = config.daemonHome ? ["--home", config.daemonHome] : [];
+  const result = JSON.parse(
+    execFileSync(executable, [...prefix, ...home, ...args, "--json"], {
+      encoding: "utf8",
+      timeout: 20000,
+    }),
   );
+  if (result.error) throw Error("Daemon CLI refused the preview operation");
+  return result;
+}
 const quote = (s) => "'" + s.replaceAll("'", "'\\''") + "'";
 export async function brokerClient(argv) {
   const [operation, ...args] = argv;
@@ -91,6 +103,11 @@ function runWithOrigin(args) {
   const [name, flag, workspace, separator, ...command] = args;
   if (flag !== "--workspace" || separator !== "--" || !command.length)
     throw Error("env SERVICE --workspace ID -- COMMAND [ARGS]");
+  if (
+    !/^wks_[a-zA-Z0-9_-]{1,80}$/.test(workspace) ||
+    !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)
+  )
+    throw Error("Invalid preview identity");
   const data = JSON.parse(
     readFileSync(join(channel, "origins", `${workspace}.${name}.json`), "utf8"),
   );
@@ -153,7 +170,11 @@ function prepare(operation, workspace, name, w) {
       const path = join(w.cwd, "paseo.json");
       const text = readFileSync(path, "utf8");
       const cfg = JSON.parse(text);
-      const prefix = `/home/paseo/.local/bin/paseo-preview env ${quote(name)} --workspace ${quote(workspace)} -- `;
+      const helper = installation().helperCommand;
+      const executable = helper
+        ? helper.map(quote).join(" ")
+        : "/home/paseo/.local/bin/paseo-preview";
+      const prefix = `${executable} env ${quote(name)} --workspace ${quote(workspace)} -- `;
       if (!cfg.scripts[name].command.startsWith(prefix)) {
         cfg.scripts[name].command = prefix + "/bin/sh -lc " + quote(cfg.scripts[name].command);
         if (readFileSync(path, "utf8") !== text) throw Error("Configuration changed concurrently");

@@ -1,5 +1,7 @@
+import { isDemoSession } from "@/demo/mode";
+import { isIsolatedDemoPreview } from "@/demo/preview";
 import { useSessionStore } from "@/stores/session-store";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/storage/app-storage";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { create } from "zustand";
@@ -81,6 +83,7 @@ function waitForHydration(persist: PersistHydration): Promise<void> {
 }
 
 export function useSidebarSync(): void {
+  const demo = isDemoSession() || isIsolatedDemoPreview;
   const hosts = useHosts();
   const loaded = useHostRegistryLoaded();
   const installation = readExecutionInstallation();
@@ -101,7 +104,7 @@ export function useSidebarSync(): void {
   const serverId = hostAuthority ?? standaloneAuthority;
   const [sync, setSync] = useState<SidebarSync | null>(null);
   useEffect(() => {
-    if (!loaded || !serverId) return;
+    if (demo || !loaded || !serverId) return;
     let cancelled = false;
     let current: SidebarSync | null = null;
     let unsubscribe = () => {};
@@ -147,14 +150,14 @@ export function useSidebarSync(): void {
       current?.stop();
       setSync(null);
     };
-  }, [loaded, serverId]);
+  }, [demo, loaded, serverId]);
   useFetchQuery({
     queryKey: ["sidebar-state", serverId],
     queryFn: async () => {
       await sync?.refresh();
       return null;
     },
-    enabled: sync !== null,
+    enabled: !demo && sync !== null,
     refetchInterval: 1000,
     retry: false,
     dataShape: "value",

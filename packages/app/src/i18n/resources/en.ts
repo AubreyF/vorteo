@@ -2406,7 +2406,7 @@ export const en = {
         title: "Fonts",
         systemDefault: "System default",
         interfaceFont: "Interface font",
-        interfaceFontHint: "Used across the app. Leave empty for the system default",
+        interfaceFontHint: "Used across the app. Leave empty for the theme’s typography",
         interfaceFontAccessibility: "Interface font family",
         interfaceSize: "Interface size",
         interfaceSizeHint: "Used for navigation, controls, and labels",

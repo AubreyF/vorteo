@@ -5,6 +5,189 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.337 - 2026-10-12
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.336 - 2026-10-12
+
+### Maintenance
+
+- Preserve published sidebar maintenance placement and queued-message ordering in coordinator recovery delivery.
+- Keep the recovery notice in the floating action area without duplicating it in passive sidebar placements.
+
+## 0.11.0-beta.3.vorteo.335 - 2026-10-12
+
+### Maintenance
+
+- Integrate published compact notices and Electron appearance regressions with coordinator recovery, preserving both source histories.
+- Retain exact tracked cancellation, recovery and rollback checks for managed runtime delivery.
+
+## 0.11.0-beta.3.vorteo.335 - 2026-10-12
+
+### Changed
+
+- Keep Queued messages below Files, Changes and other supporting cards.
+- Move approved and running maintenance into compact two-line sidebar status rows with a spinner and Review action. Approval and recovery notices remain floating with Review and Dismiss buttons. Dismissal leaves the underlying request unchanged.
+
+## 0.11.0-beta.3.vorteo.334 - 2026-10-12
+
+### Changed
+
+- Shorten floating notices with tighter padding and actions beside short descriptions. Keep 44px action targets and wrapping for longer content.
+
+## 0.11.0-beta.3.vorteo.333 - 2026-10-12
+
+### Maintenance
+
+- Reconcile the published interface with coordinator recovery source, preserving both release histories and installed source ancestry.
+- Retain current appearance, workspace hydration and composer fixes alongside exact owner-reviewed recovery. Runtime installation and coordinator recovery remain separate tracked operations.
+
+## 0.11.0-beta.3.vorteo.333 - 2026-10-11
+
+### Maintenance
+
+- Update the Electron font-size regression to select Dark Star and open Settings from the minimal sidebar rail.
+
+## 0.11.0-beta.3.vorteo.332 - 2026-10-11
+
+### Fixed
+
+- Keep floating notices visible above native draft editors by measuring the message field and its controls, excluding draft setup sections.
+- Load fresh workspace data from the active route without requiring the native sidebar to be opened first.
+
+### Maintenance
+
+- Extend compact notice coverage to both existing conversations and new drafts, including multiline typing and navigation cleanup.
+
+## 0.11.0-beta.3.vorteo.331 - 2026-10-11
+
+### Fixed
+
+- Keep native agent and draft composer controls above the keyboard by preserving their bottom safe-area padding.
+- Position compact floating notices above the active composer's measured height and keyboard clearance. Release the reserved space when navigating away.
+
+### Maintenance
+
+- Added compact notice regression coverage for multiline drafts and navigation. Verified notice and Send-button clearance in the iOS Release simulator.
+
+## 0.11.0-beta.3.vorteo.330 - 2026-10-11
+
+### Fixed
+
+- Keep focused settings fields visible above the iOS keyboard using the shared page layout's native keyboard insets.
+
+## 0.11.0-beta.3.vorteo.329 - 2026-10-11
+
+### Fixed
+
+- Align all three workspace toolbars in Electron by reserving window-control clearance above the columns. Keep the minimal project rail at 64px on macOS.
+
+### Maintenance
+
+- Verified real Electron layout, theme and minimal-rail persistence, plus desktop and compact browser layout. Native window minimize acceptance remains open.
+
+## 0.11.0-beta.3.vorteo.328 - 2026-10-11
+
+### Fixed
+
+- Preserve native theme swatch dimensions by rendering their artwork outside the button's text wrapper.
+- Render the six theme previews with native SVG gradients and Starship details instead of flat accent colors.
+- Update native font-field placeholder colors when the theme changes without replacing the editor or its draft.
+
+## 0.11.0-beta.3.vorteo.327 - 2026-10-11
+
+### Maintenance
+
+- Preserve the installed release in the appearance integration's ancestry and retain its release notes. Application behavior remains unchanged from the preceding integration; deployment and owner acceptance remain pending.
+
+## 0.11.0-beta.3.vorteo.326 - 2026-10-11
+
+### Changed
+
+- Integrate the six-theme appearance, floating navigation, isolated demo and iOS scene startup with current main, preserving the coordinator and shared sidebar fixes.
+- Keep demo sidebar preferences isolated from installation synchronization. Place synchronization notices in the floating update stack.
+- Preserve shared workspace actions, labels and rename dialogs in the single central overflow menu when the right-hand cards are hidden.
+
+### Maintenance
+
+- Retain both source histories and their release notes. Installed publication and owner visual acceptance remain pending.
+
+## 0.11.0-beta.3.vorteo.326 - 2026-10-11
+
+### Added
+
+- Review recovery of an unclaimed coordinator executor with exact process identity, retained approval, owner cancellation and a separate approval for termination.
+- Verify uncertain recovery outcomes from their retained execution generation without repeating process effects.
+- Display recovery status and cancellation provenance in Installation controls, with capability checks that refuse approval through older clients.
+
+### Fixed
+
+- Preserve independently recorded owner cancellation when recovering its original executor. Reject changed approval, revision, plan, process or protected evidence.
+- Keep cancellation atomic with the original claim and retain effect intents before native execution so lost responses cannot cause replay.
+
+### Maintenance
+
+- Retain the installed source merge and both release-note histories in the integration ancestry.
+- Cover journal races, native process and lock verification, observation after runner interruption, and authenticated server and browser review. Installed recovery and Factory activation remain separate acceptance steps.
+
+## 0.11.0-beta.3.vorteo.325 - 2026-10-11
+
+### Fixed
+
+- Keep a coordinator executor running if its Host observer disconnects before the dispatch acknowledgement. The durable journal remains authoritative.
+- Cover connected and disconnected acknowledgement pipes with real child processes.
+
+## 0.11.0-beta.3.vorteo.324 - 2026-10-11
+
+### Maintenance
+
+- Reuse one read buffer per coordinator artifact scan to reduce allocation overhead while retaining complete file reads and validation.
+- Verify digest compatibility across chunk boundaries, empty files and concurrent scans with different content.
+
+## 0.11.0-beta.3.vorteo.323 - 2026-10-11
+
+### Added
+
+- Review an explicit source update tooling selection from the exact candidate release through coordinator maintenance. Omission preserves the current tooling.
+- Require compatible clients to display the selection before approval, and reject unsupported preparation before sending it.
+- Validate protected tooling files without executing them. Cover combined Factory and tooling admission, exact claims, successful selection and recovery of the complete previous configuration.
+
+### Fixed
+
+- Describe renewed configuration validation accurately when Factory and tooling selections are composed. Policy, helper and monitor changes remain unavailable through renewal.
+
+## 0.11.0-beta.3.vorteo.322 - 2026-10-11
+
+### Fixed
+
+- Allow a renewed coordinator runner to review an explicit Factory adoption or recovery plan change through the existing configuration validator and exact approval button.
+- Keep candidate and compatible recovery on the selected Host code, preserve the previous configuration for rollback, and reject unrelated policy, helper, monitor or credential changes.
+- Test declared and mismatched plan digests, omitted changes, retained rollback and refusal of unrelated configuration changes.
+
+## 0.11.0-beta.3.vorteo.321 - 2026-10-11
+
+### Fixed
+
+- Resolve Factory installation and coordinator binding through native shared-profile selection on the retained account, without requiring local profile copies.
+- Preserve exact coordinator snapshots and reject missing, ambiguous, changed or mismatched profiles. Cover shared-profile installation and restoration with focused regressions.
+
+## 0.11.0-beta.3.vorteo.320 - 2026-10-11
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.320 - 2026-10-11
+
+### Added
+
+- Verify protected Nova bridge release manifests against the selected standalone bundle and consumed configuration before startup.
+- Report authenticated release commitments, startup identity and draining status; reject new MCP work while shutting down.
+- Test file substitution, ownership, size bounds, readiness identity and draining. Managed activation and account revocation acceptance remain separate work.
+
 ## 0.11.0-beta.3.vorteo.320 - 2026-10-11
 
 ### Maintenance
@@ -139,6 +322,33 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Remove the new workspace profile header, align the selector and message card edges, and use matching card gaps and desktop heights
+
+## 0.11.0-beta.3.vorteo.306 - 2026-10-11
+
+### Added
+
+- Add six Vorton themes with Dark Star as the default, bundled typography, compact Freed theme previews and accessible tooltips.
+- Add an isolated demonstration with sample projects, conversations, tasks, journal entries, files and changes. Demo edits persist within the browser tab and reset without changing real installation settings.
+- Add Create New installation, Connect to Host and Demo welcome actions with subtle stationary Matrix rain.
+- Support native Host workspaces in the Preview Broker and live development previews.
+
+### Changed
+
+- Float the left sidebar and individual supporting cards over one page background. Align the three toolbars, move PR actions above the right cards, widen workspace tabs and retain a compact navigation rail when the left sidebar collapses.
+- Put compact theme tiles in the sidebar overflow menu and use consistent resize controls, rounded tab tops and one central workspace menu.
+- Move installation updates and approval notices into persistent floating notifications while preserving their tracked controls.
+- Keep automatic goal waits blocked and reserve pause for owner action. Revisit eligible blocked goals through the existing review queue.
+
+### Fixed
+
+- Preserve mounted editors and terminals during theme changes, and restore the previous appearance when preference storage fails.
+- Keep the configured single-password connection flow and clear abandoned password drafts.
+- Migrate generated iOS startup to the scene lifecycle required by iOS 27 while retaining existing Expo module callbacks and paste input.
+- Preserve all five Barlow Condensed weights on iOS and allow native exports to use a private Metro cache alongside live previews.
+
+### Maintenance
+
+- Document preview isolation, appearance conventions and delivery checks. iOS 27 Debug and Release startup and custom links pass simulator checks; physical-device visual and notification acceptance remain open. Installed goal recovery still needs daemon delivery and verification.
 
 ## 0.11.0-beta.3.vorteo.306 - 2026-10-11
 

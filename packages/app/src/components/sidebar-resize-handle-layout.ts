@@ -12,7 +12,7 @@
  * So the touch variant sits fully inside the sidebar and is sized for a thumb.
  */
 
-export const POINTER_HANDLE_WIDTH = 10;
+export const POINTER_HANDLE_WIDTH = 16;
 export const TOUCH_HANDLE_WIDTH = 24;
 export const TOUCH_HANDLE_HEIGHT = 88;
 

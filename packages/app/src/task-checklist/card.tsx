@@ -349,6 +349,7 @@ function ChecklistRow({
         size="sm"
         style={iconStyle}
         accessibilityRole="checkbox"
+        aria-checked={completed}
         accessibilityState={checkboxState}
         accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
         disabled={!managed || !canMutate}

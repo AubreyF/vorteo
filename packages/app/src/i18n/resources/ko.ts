@@ -2222,7 +2222,7 @@ export const ko: TranslationResources = {
         title: "글꼴",
         systemDefault: "시스템 기본값",
         interfaceFont: "인터페이스 글꼴",
-        interfaceFontHint: "앱 전체에 사용됩니다. 시스템 기본값을 사용하려면 비워 두세요",
+        interfaceFontHint: "앱 전체에 사용됩니다. 테마 글꼴을 사용하려면 비워 두세요",
         interfaceFontAccessibility: "인터페이스 글꼴 패밀리",
         interfaceSize: "인터페이스 크기",
         interfaceSizeHint: "탐색, 컨트롤 및 레이블에 사용됩니다",

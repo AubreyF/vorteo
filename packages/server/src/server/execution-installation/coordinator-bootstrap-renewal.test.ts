@@ -1,3 +1,7 @@
+import {
+  derivePreclaimHostRuntime,
+  createManagedPreclaimRecoveryReview,
+} from "./coordinator-bootstrap-launch.js";
 import { afterEach, expect, test } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -593,8 +597,65 @@ test.runIf(process.platform === "darwin")(
       const other = f.save(path.join(f.root, "other-config.json"), changed);
       await expect(
         verifyRenewalPlan(setup, { ...plan, candidate: { ...f.host, configuration: other } }),
-      ).rejects.toThrow("complete current");
+      ).rejects.toThrow("outside its approved policy");
     }
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "renewal admits only the declared Factory plan and retains the previous plan for rollback",
+  async () => {
+    const f = await fixture();
+    const setup = (await f.derive())!;
+    const adoption = { ...f.config.container.factoryRuntimeAdoption, sha256: "d".repeat(64) };
+    const candidateConfig = f.save(path.join(f.root, "factory-recovery-config.json"), {
+      ...f.config,
+      container: { ...f.config.container, factoryRuntimeAdoption: adoption },
+    });
+    const plan = {
+      ...f.plan,
+      previous: f.coordinator,
+      candidate: { ...f.host, configuration: candidateConfig },
+      automaticRecovery: "restore-compatible" as const,
+      compatibleRecovery: f.host,
+      factoryRuntimeAdoptionConfiguration: adoption,
+    };
+    await expect(verifyRenewalPlan(setup, plan)).resolves.toBeUndefined();
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, factoryRuntimeAdoptionConfiguration: undefined }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        factoryRuntimeAdoptionConfiguration: {
+          ...adoption,
+          sha256: "e".repeat(64),
+        },
+      }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, compatibleRecovery: plan.candidate }),
+    ).rejects.toThrow("Recovery must preserve");
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, hostRequestsAfter: "2026-10-11T00:00:00.000Z" }),
+    ).rejects.toThrow("cannot change policy, helper or monitor");
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, previewMonitorConfiguration: null }),
+    ).rejects.toThrow("cannot change policy, helper or monitor");
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, nativeHelperConfiguration: null }),
+    ).rejects.toThrow("cannot change policy, helper or monitor");
+    const removed = f.save(path.join(f.root, "factory-disabled.json"), {
+      ...f.config,
+      container: { ...f.config.container, factoryRuntimeAdoption: undefined },
+    });
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        candidate: { ...f.host, configuration: removed },
+        factoryRuntimeAdoptionConfiguration: null,
+      }),
+    ).resolves.toBeUndefined();
   },
 );
 
@@ -837,5 +898,304 @@ test.runIf(process.platform === "darwin")(
       child.kill("SIGTERM");
       await closed;
     }
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "recovery initializer validates selected Host from terminal authority without mutations",
+  async () => {
+    const f = await fixture();
+    const before = readFileSync(path.join(f.state, "coordinator-bootstrap.json"), "utf8");
+    const service = await createManagedPreclaimRecoveryReview(f.setupFile, f.original.daemonId, {
+      ...f.ports,
+      moduleFile: path.join(f.host.directory, runnerRelative),
+      hostProcessId: f.hostProcess.pid,
+    });
+    expect(service?.available).toBe(true);
+    expect(service?.list()).toEqual([]);
+    expect(readFileSync(path.join(f.state, "coordinator-bootstrap.json"), "utf8")).toBe(before);
+    expect(readFileSync(f.setupFile, "utf8")).toBe(JSON.stringify(f.original));
+  },
+);
+
+test
+  .runIf(process.platform === "darwin")
+  .each(["exact", "other-pending", "claimed", "stale", "changes-during-read", "selected-config"])(
+  "preclaim runtime derivation excludes only the exact unclaimed approval (%s)",
+  async (mode) => {
+    const f = await fixture();
+    const original = structuredClone(f.record);
+    original.id = randomUUID();
+    original.revision = randomUUID();
+    delete original.execution;
+    original.plan.previous = f.coordinator;
+    original.plan.candidate = f.host;
+    const observed = await f.ports.reader.inspectProcess(404);
+    original.plan.expectedProcess = {
+      pid: observed.pid,
+      bootId: observed.bootId,
+      startIdentity: observed.startIdentity,
+      argumentsSha256: observed.argumentsSha256,
+    };
+    if (mode === "selected-config")
+      original.plan.previous = {
+        ...f.coordinator,
+        configuration: { ...f.coordinator.configuration, sha256: "f".repeat(64) },
+      };
+    original.planSha256 = coordinatorPlanDigest(original.plan);
+    if (mode === "claimed") original.execution = { ...f.record.execution!, stage: "claimed" };
+    const records = [f.record, structuredClone(original)];
+    if (mode === "other-pending")
+      records.push({ ...structuredClone(original), id: randomUUID(), revision: randomUUID() });
+    if (mode === "stale") records[1]!.revision = randomUUID();
+    f.writeRecords(records);
+    const before = readFileSync(path.join(f.state, "coordinator-bootstrap.json"), "utf8");
+    let changed = false;
+    const operation = derivePreclaimHostRuntime({
+      setupFile: f.setupFile,
+      daemonId: f.original.daemonId,
+      original,
+      ports: {
+        ...f.ports,
+        moduleFile: path.join(f.host.directory, runnerRelative),
+        hostProcessId: f.hostProcess.pid,
+        writableMountRoots: async () => {
+          if (mode === "changes-during-read" && !changed) {
+            changed = true;
+            records[1]!.revision = randomUUID();
+            f.writeRecords(records);
+          }
+          return [];
+        },
+      },
+    });
+    if (mode === "exact") {
+      const derived = await operation;
+      expect(derived.runtimeDirectory).toBe(f.host.directory);
+      expect(derived.runtimeSha256).toBe(f.host.artifactSha256);
+      expect(derived.renewal!.configuration).toEqual(f.configuration);
+      expect(derived.renewal!.terminal.id).toBe(f.record.id);
+      expect(derived.renewal!.request).toBeUndefined();
+      const service = await createManagedPreclaimRecoveryReview(f.setupFile, f.original.daemonId, {
+        ...f.ports,
+        moduleFile: path.join(f.host.directory, runnerRelative),
+        hostProcessId: f.hostProcess.pid,
+      });
+      expect(service?.available).toBe(true);
+      expect(service?.list()).toEqual([]);
+    } else {
+      await expect(operation).rejects.toThrow();
+      if (mode === "other-pending" || mode === "claimed")
+        await expect(
+          createManagedPreclaimRecoveryReview(f.setupFile, f.original.daemonId, {
+            ...f.ports,
+            moduleFile: path.join(f.host.directory, runnerRelative),
+            hostProcessId: f.hostProcess.pid,
+          }),
+        ).rejects.toThrow("unambiguous unclaimed target");
+    }
+    if (mode !== "changes-during-read")
+      expect(readFileSync(path.join(f.state, "coordinator-bootstrap.json"), "utf8")).toBe(before);
+    expect(JSON.parse(readFileSync(f.setupFile, "utf8"))).toEqual(f.original);
+  },
+);
+
+test
+  .runIf(process.platform === "darwin")
+  .each([
+    "exact",
+    "pending",
+    "stale",
+    "canceled-during-read",
+    "changed-snapshot",
+    "attempted",
+    "changed-admission",
+    "cancel-before-spawn",
+    "snapshot-before-spawn",
+    "spawn-only",
+  ])(
+  "preclaim snapshot requires its own exact approval and preserves installed anchors (%s)",
+  async (mode) => {
+    const { persistPreclaimLaunchSetup, PreclaimRunnerSetupSchema, prepareNativePreclaimLaunch } =
+      await import("./coordinator-bootstrap-launch.js");
+    const { preclaimRecoveryPlanDigest } =
+      await import("./coordinator-bootstrap-preclaim-recovery.js");
+    const { FileBootstrapPreclaimJournal } =
+      await import("./coordinator-bootstrap-preclaim-journal.js");
+    const f = await fixture();
+    const original = structuredClone(f.record);
+    original.id = randomUUID();
+    original.revision = randomUUID();
+    delete original.execution;
+    original.plan.previous = f.coordinator;
+    original.plan.candidate = f.host;
+    const coordinator = await f.ports.reader.inspectProcess(404);
+    original.plan.expectedProcess = {
+      pid: coordinator.pid,
+      bootId: coordinator.bootId,
+      startIdentity: coordinator.startIdentity,
+      argumentsSha256: coordinator.argumentsSha256,
+    };
+    original.planSha256 = coordinatorPlanDigest(original.plan);
+    f.writeRecords([f.record, original]);
+    const setup = f.save(path.join(f.root, "target-setup.json"), {});
+    const entry = {
+      path: path.join(f.host.directory, runnerRelative),
+      sha256: sha("export {}; // runner"),
+    };
+    const admission = JSON.parse(readFileSync(f.original.admissionSetupFile, "utf8"));
+    const { decisionAt: _originalDecisionAt, ...originalWithoutDecision } = original;
+    const plan = {
+      version: 1 as const,
+      operation: "bootstrap-preclaim-recovery" as const,
+      original,
+      canceled: {
+        ...originalWithoutDecision,
+        revision: randomUUID(),
+        status: "canceled" as const,
+      },
+      executor: {
+        identity: {
+          ...f.hostProcess,
+          pid: 505,
+          parentPid: f.hostProcess.pid,
+          argumentsSha256: sha(
+            JSON.stringify([f.node.path, entry.path, setup.path, "executor", original.id]),
+          ),
+        },
+        auditToken: [0, process.getuid!(), 0, 0, 0, 505, 0, 1],
+      },
+      hostProcess: f.hostProcess,
+      coordinatorProcess: coordinator,
+      setup,
+      runner: f.host,
+      executorEntrypoint: entry,
+      ownerLauncher: {
+        path: path.join(f.host.directory, "scripts/run-coordinator-owner.py"),
+        sha256: sha("# disposable owner"),
+      },
+      selectedLauncher: { path: admission.launcherFile, sha256: f.coordinator.launcher.sha256 },
+      selectedConfiguration: f.configuration,
+      executionLock: {
+        path: path.join(f.state, "coordinator-bootstrap-execution.lock"),
+        device: "1",
+        inode: "1",
+      },
+      signalPolicy: { terminate: "SIGTERM" as const, escalation: "none" as const, graceSeconds: 1 },
+    };
+    const request = {
+      id: randomUUID(),
+      revision: randomUUID(),
+      requestedBy: "host-agent" as const,
+      reason: "fixture recovery",
+      createdAt: new Date().toISOString(),
+      decisionAt: new Date().toISOString(),
+      status: mode === "pending" ? ("pending" as const) : ("approved" as const),
+      plan,
+      planSha256: preclaimRecoveryPlanDigest(plan),
+    };
+    const journal = new FileBootstrapPreclaimJournal(f.state);
+    journal.replaceReviews(
+      [],
+      [mode === "stale" ? { ...request, revision: randomUUID() } : request],
+    );
+    const file = path.join(
+      f.state,
+      `coordinator-preclaim-launch-${request.id}-${request.revision}.json`,
+    );
+    if (mode === "changed-snapshot") f.save(file, { retained: "do not overwrite" });
+    if (mode === "attempted")
+      f.save(
+        path.join(f.state, `coordinator-preclaim-attempt-${request.id}-${request.revision}.json`),
+        { uncertain: true },
+      );
+    let changed = false;
+    let mountReads = 0;
+    const input = {
+      setupFile: f.setupFile,
+      daemonId: f.original.daemonId,
+      request,
+      ports: {
+        ...f.ports,
+        moduleFile: path.join(f.host.directory, runnerRelative),
+        hostProcessId: f.hostProcess.pid,
+        writableMountRoots: async () => {
+          mountReads++;
+          if (mode === "changed-admission" && mountReads === 4)
+            f.save(f.original.admissionSetupFile, {
+              ...admission,
+              helperPath: "/untrusted/redirect.py",
+            });
+          if (mode === "canceled-during-read" && !changed) {
+            changed = true;
+            journal.replaceReviews(journal.readReviews(), [
+              { ...request, status: "canceled", revision: randomUUID() },
+            ]);
+          }
+          return [];
+        },
+      },
+    };
+    const before = readFileSync(f.setupFile, "utf8");
+    if (
+      mode === "cancel-before-spawn" ||
+      mode === "snapshot-before-spawn" ||
+      mode === "spawn-only"
+    ) {
+      const launch = await prepareNativePreclaimLaunch(input);
+      if (mode === "spawn-only") {
+        // This fixture's immutable Python helper contains only a comment. Real
+        // spawn acknowledgement must not invent a runner claim or success.
+        await expect(launch()).resolves.toBeUndefined();
+        expect(journal.readReviews()).toEqual([request]);
+        await expect(launch()).rejects.toThrow("already attempted");
+        expect(readFileSync(f.setupFile, "utf8")).toBe(before);
+        expect(new FileBootstrapRequestJournal(f.state).read()).toEqual([f.record, original]);
+        return;
+      }
+      if (mode === "cancel-before-spawn")
+        journal.replaceReviews(
+          [request],
+          [{ ...request, revision: randomUUID(), status: "canceled" }],
+        );
+      else f.save(file, { replaced: true });
+      await expect(launch()).rejects.toThrow(
+        mode === "cancel-before-spawn"
+          ? "Recovery decision changed before launch"
+          : "digest changed",
+      );
+      await expect(launch()).rejects.toThrow("already attempted");
+      expect(() =>
+        readFileSync(
+          path.join(f.state, `coordinator-preclaim-attempt-${request.id}-${request.revision}.json`),
+        ),
+      ).toThrow();
+    } else if (mode === "exact") {
+      expect(await persistPreclaimLaunchSetup(input)).toBe(file);
+      const bytes = readFileSync(file, "utf8");
+      const snapshot = PreclaimRunnerSetupSchema.parse(JSON.parse(bytes));
+      expect(snapshot.request.id).toBe(request.id);
+      expect(snapshot.original.id).toBe(original.id);
+      expect(snapshot.runtimeDirectory).toBe(f.host.directory);
+      expect(snapshot.renewal.configuration).toEqual(f.configuration);
+      expect(await persistPreclaimLaunchSetup(input)).toBe(file);
+      expect(readFileSync(file, "utf8")).toBe(bytes);
+      const service = await createManagedPreclaimRecoveryReview(
+        input.setupFile,
+        input.daemonId,
+        input.ports,
+      );
+      expect(service!.list()).toEqual([{ ...request, dispatch: { state: "no_receipt" } }]);
+      expect(journal.readReviews()).toEqual([request]);
+    } else {
+      await expect(persistPreclaimLaunchSetup(input)).rejects.toThrow(
+        mode === "changed-admission" ? "digest changed" : undefined,
+      );
+      if (mode === "changed-snapshot")
+        expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ retained: "do not overwrite" });
+      else expect(() => readFileSync(file)).toThrow();
+    }
+    expect(readFileSync(f.setupFile, "utf8")).toBe(before);
+    expect(new FileBootstrapRequestJournal(f.state).read()).toEqual([f.record, original]);
   },
 );

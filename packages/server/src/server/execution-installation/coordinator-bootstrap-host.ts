@@ -27,6 +27,7 @@ import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.j
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { InstallationConfigSchema } from "./config.js";
 import {
+  readProtectedDocument,
   verifyBootstrapReleaseArtifacts,
   assertBootstrapPathsProtected,
 } from "./coordinator-bootstrap-artifact.js";
@@ -156,6 +157,25 @@ function verifyMonitorBootstrapBinding(
     );
 }
 
+/** Tooling is selected only from the reviewed, fully hashed candidate release.
+ * Inspect bytes as protected documents without importing or executing them. */
+async function verifySourceUpdateTooling(
+  plan: CoordinatorBootstrapPlan,
+  writableMountRoots: readonly string[],
+): Promise<void> {
+  if (plan.sourceUpdateTooling !== true) return;
+  const directory = path.join(plan.candidate.directory, "scripts");
+  if (realpathSync(directory) !== directory)
+    throw new BootstrapRequestConflict("Source update tooling requires a canonical directory");
+  const files = [
+    "prepare-installation-update.mjs",
+    "publish-instance-web.mjs",
+    "instance-web-artifact.mjs",
+  ].map((name) => path.join(directory, name));
+  await assertBootstrapPathsProtected([directory, ...files], writableMountRoots);
+  for (const file of files) await readProtectedDocument(file);
+}
+
 /** Host setup supplies this context. Review requests cannot choose collectors,
  * Docker endpoints, the installed launcher or their own daemon identity. */
 export async function verifyBootstrapPlan(
@@ -179,6 +199,7 @@ export async function verifyBootstrapPlan(
     [host.configurationFile, host.launcherFile, initial.stateDirectory],
     roots,
   );
+  await verifySourceUpdateTooling(plan, roots);
   for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)]))
     await verifyBootstrapReleaseArtifacts(release, roots);
   const current = await readBootstrapLauncher(
@@ -232,6 +253,7 @@ export async function verifyBootstrapPlan(
   if (!isDeepStrictEqual(roots, finalRoots))
     throw new BootstrapRequestConflict("Writable container mounts changed during verification");
   verifyBootstrapConfiguration({ plan, ...host });
+  await verifySourceUpdateTooling(plan, finalRoots);
   for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)]))
     await verifyBootstrapReleaseArtifacts(release, finalRoots);
   await readBootstrapLauncher(
@@ -278,6 +300,14 @@ export function verifyBootstrapConfiguration(input: {
   if (!isDeepStrictEqual(current, previous))
     throw new BootstrapRequestConflict("Previous coordinator configuration no longer matches");
   const expected = { ...current, container: { ...current.container } };
+  if (input.plan.sourceUpdateTooling === true) {
+    if (!current.sourceUpdates)
+      throw new BootstrapRequestConflict("Source update tooling requires existing source updates");
+    expected.sourceUpdates = {
+      ...current.sourceUpdates,
+      toolingDirectory: path.join(input.plan.candidate.directory, "scripts"),
+    };
+  }
   if (input.plan.factoryRuntimeAdoptionConfiguration === null)
     delete expected.container.factoryRuntimeAdoption;
   else if (input.plan.factoryRuntimeAdoptionConfiguration !== undefined)

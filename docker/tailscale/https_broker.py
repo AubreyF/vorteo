@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import socket
 import subprocess
 import sys
 import time
@@ -109,7 +110,9 @@ class Runtime:
 
     def command(self, args, timeout=12):
         result = subprocess.run(args, capture_output=True, timeout=timeout, check=True,
-                                env={'PATH': '/usr/bin:/bin:/usr/local/bin', 'HOME': str(Path.home())})
+                                # The signed macOS Tailscale binary selects its
+                                # CLI entry point only when TERM is present.
+                                env={'PATH': '/usr/bin:/bin:/usr/local/bin', 'HOME': str(Path.home()), 'TERM': 'dumb'})
         if len(result.stdout) > 4 * 1024 * 1024:
             raise ValueError('Runtime response too large')
         return result.stdout.decode()
@@ -284,7 +287,7 @@ if(found.length!==1)throw Error('Expected exactly one managed loopback listener'
         code = "fetch('http://127.0.0.1:'+process.argv[1]+'/',{signal:AbortSignal.timeout(2500),redirect:'manual'}).then(r=>{process.exit(r.status>=200&&r.status<400?0:1)}).catch(()=>process.exit(1))"
         self.docker(['exec', '--user', 'paseo', self.c['container'], '/usr/local/bin/node', '-e', code, str(port)])
 
-    def free(self, port):
+    def free(self, port, retained=False):
         code = "const s=require('node:net').createServer();s.on('error',()=>process.exit(1));s.listen(Number(process.argv[1]),'0.0.0.0',()=>s.close());"
         self.docker(['exec', '--user', 'paseo', self.c['container'], '/usr/local/bin/node', '-e', code, str(port)])
 
@@ -298,11 +301,181 @@ if(found.length!==1)throw Error('Expected exactly one managed loopback listener'
         self.command(['/usr/bin/curl', '--fail', '--silent', '--show-error', '--max-time', '8', '--output', '/dev/null', url])
 
 
+class NativeRuntime(Runtime):
+    """Same broker contract for the logged-in macOS user's native daemon."""
+
+    def __init__(self, config):
+        self.c = config
+
+    def cli(self, args):
+        value = json.loads(self.command([*self.c['cliCommand'], '--home', self.c['daemonHome'], *args, '--json'], timeout=20))
+        if isinstance(value, dict) and 'error' in value:
+            raise ValueError('Native daemon CLI refused the preview operation')
+        return value
+
+    def ts(self, args):
+        return self.command([self.c['tailscale'], *args])
+
+    def host_workspace(self, cwd):
+        path = Path(cwd)
+        if not path.is_absolute() or '..' in path.parts:
+            raise ValueError('Invalid native workspace path')
+        descriptor = safe_dir(path)
+        os.close(descriptor)
+        return path
+
+    def workspace_path_allowed(self, cwd):
+        policy = self.c.get('workspacePolicy', 'approved-roots')
+        if policy == 'registered':
+            return True
+        if policy != 'approved-roots':
+            raise ValueError('Unsupported workspace policy')
+        return any(cwd == root or cwd.startswith(root.rstrip('/') + '/') for root in self.c['allowedRoots'])
+
+    def process_identity(self, pid):
+        if type(pid) is not int or pid <= 0:
+            raise ValueError('Invalid process identity')
+        # macOS exposes microsecond process birth times through libproc. Do not
+        # use ps lstart: second precision can confuse a rapidly reused PID.
+        import ctypes
+        class BSDInfo(ctypes.Structure):
+            _fields_ = [('flags', ctypes.c_uint32), ('status', ctypes.c_uint32),
+                       ('xstatus', ctypes.c_uint32), ('pid', ctypes.c_uint32),
+                       ('ppid', ctypes.c_uint32), ('uid', ctypes.c_uint32),
+                       ('gid', ctypes.c_uint32), ('ruid', ctypes.c_uint32),
+                       ('rgid', ctypes.c_uint32), ('svuid', ctypes.c_uint32),
+                       ('svgid', ctypes.c_uint32), ('rfu', ctypes.c_uint32),
+                       ('comm', ctypes.c_char * 16), ('name', ctypes.c_char * 32),
+                       ('nfiles', ctypes.c_uint32), ('pgid', ctypes.c_uint32),
+                       ('pjobc', ctypes.c_uint32), ('tdev', ctypes.c_uint32),
+                       ('tpgid', ctypes.c_uint32), ('nice', ctypes.c_int32),
+                       ('start_sec', ctypes.c_uint64), ('start_usec', ctypes.c_uint64)]
+        info = BSDInfo()
+        libproc = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True)
+        probe = libproc.proc_pidinfo
+        probe.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+        probe.restype = ctypes.c_int
+        if probe(pid, 3, 0, ctypes.byref(info), ctypes.sizeof(info)) != ctypes.sizeof(info):
+            raise ValueError('Process identity unavailable')
+        if info.pid != pid or any(uid != os.getuid() for uid in (info.uid, info.ruid, info.svuid)):
+            raise ValueError('Process is not owned by the native user')
+        return {'pid': pid, 'parent': info.ppid, 'birth': f'{info.start_sec}:{info.start_usec}'}
+
+    def listener_pid(self, port):
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError('Invalid listener port')
+        result = self.command(['/usr/sbin/lsof', '-nP', '-a', f'-iTCP:{port}', '-sTCP:LISTEN', '-Fpn'])
+        pids = set()
+        addresses = []
+        for line in result.splitlines():
+            if line.startswith('p') and line[1:].isdigit():
+                pids.add(int(line[1:]))
+            elif line.startswith('n'):
+                addresses.append(line[1:])
+        if len(pids) != 1 or not addresses or any(address != f'127.0.0.1:{port}' for address in addresses):
+            raise ValueError('Expected exactly one IPv4 loopback listener')
+        return next(iter(pids))
+
+    def daemon_identity(self):
+        lock_path = Path(self.c['daemonHome']) / 'paseo.pid'
+        lock = safe_read(lock_path)
+        match = re.fullmatch(r'127\.0\.0\.1:([0-9]+)', lock.get('listen', ''))
+        if not match:
+            raise ValueError('Native daemon must have a pinned loopback endpoint')
+        owner = self.process_identity(lock['pid'])
+        worker = self.process_identity(self.listener_pid(int(match[1])))
+        if worker['pid'] != owner['pid'] and worker['parent'] != owner['pid']:
+            raise ValueError('Native daemon listener is not owned by its supervisor')
+        if safe_read(lock_path) != lock or self.process_identity(owner['pid']) != owner:
+            raise ValueError('Native daemon changed during identity verification')
+        return f"{worker['pid']}:{worker['birth']}"
+
+    def listener_identity(self, port, terminal):
+        if not isinstance(terminal, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,160}', terminal):
+            raise ValueError('Invalid managed terminal identity')
+        pid = self.listener_pid(port)
+        before = self.process_identity(pid)
+        if self.terminal_environment(pid) != terminal:
+            raise ValueError('Listener is not owned by the managed terminal')
+        if self.listener_pid(port) != pid or self.process_identity(pid) != before:
+            raise ValueError('Listener changed during identity verification')
+        return f"{pid}:{before['birth']}"
+
+    def terminal_environment(self, pid):
+        # Read KERN_PROCARGS2 directly, separating argv from env. Parsing ps
+        # output would let a command-line argument impersonate an env binding.
+        import ctypes
+        import struct
+        libc = ctypes.CDLL('/usr/lib/libSystem.B.dylib', use_errno=True)
+        mib = (ctypes.c_int * 3)(1, 49, pid)
+        argument_limit = os.sysconf('SC_ARG_MAX')
+        if not 0 < argument_limit <= 2 * 1024 * 1024:
+            raise ValueError('Unsupported native argument limit')
+        size = ctypes.c_size_t(argument_limit)
+        buffer = ctypes.create_string_buffer(size.value)
+        if libc.sysctl(mib, 3, buffer, ctypes.byref(size), None, 0) != 0:
+            raise ValueError('Listener environment unavailable')
+        data = buffer.raw[:size.value]
+        argc = struct.unpack_from('i', data)[0]
+        if not 0 <= argc <= 65536:
+            raise ValueError('Invalid listener argument count')
+        offset = data.index(b'\0', 4) + 1
+        while offset < len(data) and data[offset] == 0:
+            offset += 1
+        for _ in range(argc):
+            offset = data.index(b'\0', offset) + 1
+        # Do not log or persist the buffer: other entries may be credentials.
+        matches = [part.split(b'=', 1)[1] for part in data[offset:].split(b'\0')
+                   if part.startswith(b'PASEO_TERMINAL_ID=')]
+        return matches[0].decode('ascii') if len(matches) == 1 else None
+
+    def backend_ready(self, port):
+        self.command(['/usr/bin/curl', '--fail', '--silent', '--show-error', '--max-time', '3',
+                      '--output', '/dev/null', f'http://127.0.0.1:{port}/'])
+
+    def free(self, port, retained=False):
+        try:
+            with socket.socket() as listener:
+                listener.bind(('0.0.0.0', port))
+        except OSError as error:
+            if retained and self.only_retained_tailnet_connections(port):
+                return
+            raise subprocess.SubprocessError('Port is occupied') from error
+
+    def only_retained_tailnet_connections(self, port):
+        # macOS keeps accepted TLS sockets after Serve removes a route. They
+        # prevent wildcard bind, even though no listener remains. Only an owned
+        # reservation may take this path; fresh reservations still require bind.
+        status = json.loads(self.ts(['status', '--json']))['Self']
+        if status['ID'] != self.c['nodeId'] or status['DNSName'].rstrip('.') != self.c['hostname']:
+            raise ValueError('Tailscale identity changed during port verification')
+        addresses = set(status['TailscaleIPs'])
+        states = {'ESTABLISHED', 'FIN_WAIT_1', 'FIN_WAIT_2', 'CLOSE_WAIT', 'CLOSING', 'LAST_ACK', 'TIME_WAIT'}
+        connections = []
+        for line in self.command(['/usr/sbin/netstat', '-an', '-p', 'tcp']).splitlines():
+            fields = line.split()
+            if len(fields) < 6 or not fields[0].startswith('tcp'):
+                continue
+            address, separator, local_port = fields[3].rpartition('.')
+            if separator and local_port == str(port):
+                connections.append((address, fields[5]))
+        return bool(connections) and all(address in addresses and state in states for address, state in connections)
+
+
+def runtime_for(config):
+    kind = config.get('runtime', 'container')
+    if kind == 'native':
+        return NativeRuntime(config)
+    if kind == 'container':
+        return Runtime(config)
+    raise ValueError('Unsupported preview runtime')
+
+
 class Broker:
     def __init__(self, config, runtime=None):
         self.c = config
         self.root = Path(config['deployment'])
-        self.runtime = runtime or Runtime(config)
+        self.runtime = runtime or runtime_for(config)
         self.ledger_path = self.root / 'https-broker-ledger.json'
         self.channel = Path(config['channel'])
         self.ledger = safe_read(self.ledger_path, 2 * 1024 * 1024) if self.ledger_path.exists() else {'entries': {}, 'requests': {}}
@@ -371,7 +544,9 @@ class Broker:
         port = current.get('port')
         if current.get('lifecycle') != 'running' or not current.get('terminalId'):
             raise ValueError('Managed service stopped; explicit start required')
-        if type(port) is not int or not 32768 <= port <= 60999 or port in self.c['reservedPorts'] or any(e.get('frontend') == port for e in self.ledger['entries'].values()):
+        # Native macOS allocation can use the full ephemeral range. The private
+        # HTTPS reservation range constrains frontends, not loopback backends.
+        if type(port) is not int or not 32768 <= port <= 65535 or port in self.c['reservedPorts'] or any(e.get('frontend') == port for e in self.ledger['entries'].values()):
             raise ValueError('Backend allocation conflicts with control plane or frontend')
         if entry.get('terminal') and (entry['terminal'] != current['terminalId'] or entry.get('backend') != port):
             raise ValueError('Service process identity changed; explicit start required')
@@ -391,7 +566,7 @@ class Broker:
             if web != self.route(entry) or tcp != {'HTTPS': True}:
                 raise ValueError('Publication conflict; unrelated mapping preserved')
         else:
-            self.runtime.free(entry['frontend'])
+            self.runtime.free(entry['frontend'], retained=bool(entry.get('mappingIntent')))
             # Ownership is persisted before mutation so a crash is recoverable.
             entry['mappingIntent'] = True
             self.save()

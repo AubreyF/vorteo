@@ -126,11 +126,17 @@ import {
 } from "./agent-goals.js";
 import {
   CoordinatorBootstrapListRequestSchema,
+  BootstrapPreclaimRecoveryListRequestSchema,
   CoordinatorBootstrapPrepareRequestSchema,
+  BootstrapPreclaimRecoveryPrepareRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
+  BootstrapPreclaimRecoveryDecideRequestSchema,
   CoordinatorBootstrapListResponseSchema,
+  BootstrapPreclaimRecoveryListResponseSchema,
   CoordinatorBootstrapPrepareResponseSchema,
+  BootstrapPreclaimRecoveryPrepareResponseSchema,
   CoordinatorBootstrapDecideResponseSchema,
+  BootstrapPreclaimRecoveryDecideResponseSchema,
 } from "./coordinator-bootstrap.js";
 import { QuotaReserveLaunchPolicySchema } from "./quota-reserve.js";
 import { QuotaObservationSchema } from "./quota-governor.js";
@@ -3534,8 +3540,11 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetRequestSchema,
   AgentGoalClearRequestSchema,
   CoordinatorBootstrapListRequestSchema,
+  BootstrapPreclaimRecoveryListRequestSchema,
   CoordinatorBootstrapPrepareRequestSchema,
+  BootstrapPreclaimRecoveryPrepareRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
+  BootstrapPreclaimRecoveryDecideRequestSchema,
   SetAgentFeatureRequestMessageSchema,
   AgentConfigApplyRequestMessageSchema,
   AgentDetachRequestMessageSchema,
@@ -3950,12 +3959,17 @@ export const ServerInfoStatusPayloadSchema = z
         agentDetach: z.boolean().optional(),
         agentGoals: z.boolean().optional(),
         coordinatorBootstrapReview: z.boolean().optional(),
+        coordinatorBootstrapPreclaimRecovery: z.boolean().optional(),
+        coordinatorBootstrapPreclaimOwnerCancellation: z.boolean().optional(),
+        coordinatorBootstrapPreclaimObservation: z.boolean().optional(),
         // Optional diagnostic for clients that can explain unavailable maintenance.
         coordinatorBootstrapUnavailableReason: z.string().optional(),
         // COMPAT(factoryRuntimeAdoption): v0.11.0-beta.3.vorteo.285 request review opt-in.
         coordinatorBootstrapFactoryAdoption: z.boolean().optional(),
         coordinatorBootstrapCompatibleRecovery: z.boolean().optional(),
         coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
+        // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
+        coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),
         // COMPAT(daemonDiagnostics): added in v0.1.100, remove gate after 2026-12-25 once daemon floor >= v0.1.100.
@@ -7339,8 +7353,11 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetResponseSchema,
   AgentGoalClearResponseSchema,
   CoordinatorBootstrapListResponseSchema,
+  BootstrapPreclaimRecoveryListResponseSchema,
   CoordinatorBootstrapPrepareResponseSchema,
+  BootstrapPreclaimRecoveryPrepareResponseSchema,
   CoordinatorBootstrapDecideResponseSchema,
+  BootstrapPreclaimRecoveryDecideResponseSchema,
   SetAgentFeatureResponseMessageSchema,
   AgentConfigApplyResponseMessageSchema,
   AgentDetachResponseMessageSchema,

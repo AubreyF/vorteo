@@ -1,5 +1,9 @@
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { StreamColumns, StreamColumnWidthContext, useStreamColumns } from "./columns/layout";
+import {
+  useWorkspaceCardHost,
+  WorkspaceCardsPortal,
+} from "@/screens/workspace/supporting-cards-context";
 import { COLUMN_FADE_HEIGHT } from "./columns/geometry";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
@@ -142,6 +146,31 @@ function StreamJumpButton({
       <ChevronDown size={24} color={stylesheet.scrollToBottomIcon.color} />
     </Pressable>
   );
+}
+
+interface WorkspaceStreamColumnsInput {
+  agentId: string;
+  showTaskCards?: boolean;
+  trailingCards?: ReactNode;
+  contentMaxWidth: number;
+}
+
+function useWorkspaceStreamColumns({
+  agentId,
+  showTaskCards,
+  trailingCards,
+  contentMaxWidth,
+}: WorkspaceStreamColumnsInput) {
+  const workspaceCardHost = useWorkspaceCardHost(agentId);
+  const columns = useStreamColumns(
+    {
+      showTaskCards: !workspaceCardHost && showTaskCards,
+      trailingCards: workspaceCardHost ? null : trailingCards,
+      externalCards: !!workspaceCardHost,
+    },
+    contentMaxWidth,
+  );
+  return { workspaceCardHost, columns, splitColumns: columns.split || !!workspaceCardHost };
 }
 
 function shouldRenderTaskCards(show: boolean | undefined, serverId: string | undefined): boolean {
@@ -405,8 +434,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const toolCallDetailLevel = useSettings((settings) => settings.toolCallDetailLevel);
     const chatOutlineEnabled = useSettings((settings) => settings.chatOutlineEnabled);
     const contentMaxWidth = useSettings(resolveContentMaxWidth);
-    const columns = useStreamColumns({ showTaskCards, trailingCards }, contentMaxWidth);
-    const splitColumns = columns.split;
+    const { workspaceCardHost, columns, splitColumns } = useWorkspaceStreamColumns({
+      agentId,
+      showTaskCards,
+      trailingCards,
+      contentMaxWidth,
+    });
     const viewportRef = useRef<StreamViewportHandle | null>(null);
     const pendingClientMessageIds = useMemo(
       () => new Set(pendingMessageSubmissions.map((submission) => submission.clientMessageId)),
@@ -438,7 +471,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       state.sessions[resolvedServerId]?.agentStreamHead?.get(agentId),
     );
     const streamHead = providedStreamHead ?? sessionStreamHead;
-    const forkAgent = useForkAgent({ serverId: resolvedServerId, toast, readOnly });
+    const forkAgent = useForkAgent({
+      serverId: resolvedServerId,
+      toast,
+      readOnly,
+    });
     const supportsAgentForkContextCursor = useSessionStore(
       (state) =>
         state.sessions[resolvedServerId]?.serverInfo?.features?.agentForkContextCursor === true,
@@ -795,7 +832,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               {(renderFullContent) => (
                 <AssistantMessage
                   renderFullContent={renderFullContent}
-                  occurrenceKey={createAssistantImageOccurrenceKey({ agentId, itemId: item.id })}
+                  occurrenceKey={createAssistantImageOccurrenceKey({
+                    agentId,
+                    itemId: item.id,
+                  })}
                   message={item.text}
                   timestamp={item.timestamp.getTime()}
                   workspaceRoot={workspaceRoot}
@@ -1064,7 +1104,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const scrollToBottomContainerStyle = useMemo(
       () => [
         stylesheet.scrollToBottomContainer,
-        { bottom: resolveBottomOverlayControlOffset(bottomOverlayControlClearance) },
+        {
+          bottom: resolveBottomOverlayControlOffset(bottomOverlayControlClearance),
+        },
       ],
       [bottomOverlayControlClearance],
     );
@@ -1133,19 +1175,27 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           renderStreamItem,
         }),
     );
-    const taskCards = useMemo(
-      () =>
-        trailingCards ??
-        (shouldRenderTaskCards(showTaskCards, serverId) ? (
-          <AgentTaskCards
-            serverId={serverId!}
-            agentId={agentId}
-            workspaceId={context.workspaceId}
-            cwd={context.cwd}
-          />
-        ) : null),
-      [trailingCards, showTaskCards, serverId, agentId, context.workspaceId, context.cwd],
-    );
+    const taskCards = useMemo(() => {
+      if (trailingCards) return trailingCards;
+      if (!shouldRenderTaskCards(showTaskCards, serverId)) return null;
+      return (
+        <AgentTaskCards
+          serverId={serverId!}
+          agentId={agentId}
+          workspaceId={context.workspaceId}
+          cwd={context.cwd}
+          queueHostName={workspaceCardHost ? `${workspaceCardHost}:queue` : undefined}
+        />
+      );
+    }, [
+      trailingCards,
+      showTaskCards,
+      serverId,
+      agentId,
+      context.workspaceId,
+      context.cwd,
+      workspaceCardHost,
+    ]);
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
         auxiliary.turnFooter && !auxiliary.pendingPermissions ? TURN_FOOTER_BOTTOM_SPACING : 0;
@@ -1221,6 +1271,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
+          <WorkspaceCardsPortal hostName={workspaceCardHost}>
+            {taskCards}
+            {pendingActionPermissionsNode}
+          </WorkspaceCardsPortal>
           <StreamColumns layout={columns} outline={outline} composer={composer}>
             <AssistantSelectionCopySurface style={stylesheet.container}>
               <QueueDragScrollContext.Provider value={queueDragScroll.onDragActive}>

@@ -91,7 +91,11 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
   private snapshots() {
     const main = RecordsSchema.parse(this.readFile(this.file) ?? { version: 1, requests: [] });
     const pending = PendingSchema.parse(
-      this.readFile(this.pendingFile) ?? { version: 1, requests: [], promotions: [] },
+      this.readFile(this.pendingFile) ?? {
+        version: 1,
+        requests: [],
+        promotions: [],
+      },
     );
     for (const records of [main.requests, pending.requests, pending.promotions]) {
       if (new Set(records.map((record) => record.id)).size !== records.length)
@@ -126,7 +130,11 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
       throw new BootstrapRequestConflict("Bootstrap promotion generation changed");
     // Only execution progress and its revision may differ. In particular, this
     // preserves decisionAt, reason, plan digest, recovered ancestry and every plan field.
-    const normalized = { ...current, revision: source.revision, execution: source.execution };
+    const normalized = {
+      ...current,
+      revision: source.revision,
+      execution: source.execution,
+    };
     if (
       !isDeepStrictEqual(normalized, source) ||
       (current.execution.stage === "claimed" && !isDeepStrictEqual(current, source))
@@ -192,46 +200,74 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
   }
 
   replace(expected: CoordinatorBootstrapRequest[], next: CoordinatorBootstrapRequest[]): void {
-    this.withLock(() => {
-      if (!isDeepStrictEqual(this.read(), expected))
-        throw new BootstrapRequestConflict("Bootstrap request changed. Refresh its review.");
-      const { main, pending } = this.snapshots();
-      const parsed = RecordsSchema.parse({ version: 1, requests: next });
-      const mainIds = new Set(main.requests.map((record) => record.id));
-      for (const intent of pending.promotions) {
-        if (!mainIds.has(intent.id))
-          throw new BootstrapRequestConflict("Bootstrap promotion requires reconciliation");
-      }
-      const nextMain = parsed.requests.filter(
-        (record) =>
-          mainIds.has(record.id) || record.plan.automaticRecovery !== "restore-compatible",
-      );
-      const nextPending = parsed.requests.filter(
-        (record) =>
-          !mainIds.has(record.id) && record.plan.automaticRecovery === "restore-compatible",
-      );
-      for (const intent of pending.promotions) {
-        const retained = nextMain.find((record) => record.id === intent.id);
-        if (!retained)
-          throw new BootstrapRequestConflict("Promoted bootstrap history cannot be removed");
-        this.verifyPromotion(intent, retained);
-      }
-      const mainChanged = !isDeepStrictEqual(main.requests, nextMain);
-      const pendingChanged = !isDeepStrictEqual(pending.requests, nextPending);
-      // One request mutation has one authority file. Stale duplicate cleanup is
-      // unnecessary; retained promotion evidence makes main authoritative forever.
-      if (mainChanged) {
-        const retainedPending = pending.requests.filter((record) => !mainIds.has(record.id));
-        if (!isDeepStrictEqual(retainedPending, nextPending))
-          throw new BootstrapRequestConflict("Bootstrap mutation crosses journal authority");
-        this.write(this.file, { version: 1, requests: nextMain });
-      } else if (pendingChanged) {
-        this.write(this.pendingFile, { ...pending, requests: nextPending });
+    this.withLock(() => this.replaceLocked(expected, next));
+  }
+
+  /** Recovery must cancel a legacy claim under the same exclusion. The callback
+   * is synchronous: persist its intent before replace, and never perform native effects here. */
+  withRecoveryTransaction<T>(
+    operation: (
+      records: CoordinatorBootstrapRequest[],
+      replace: (next: CoordinatorBootstrapRequest[]) => void,
+    ) => T,
+  ): T {
+    return this.withLock(() => {
+      const expected = this.read();
+      let active = true;
+      try {
+        const result = operation(structuredClone(expected), (next) => {
+          if (!active) throw new BootstrapRequestConflict("Recovery journal transaction ended");
+          this.replaceLocked(expected, next);
+        });
+        if (result instanceof Promise)
+          throw new BootstrapRequestConflict("Recovery journal transaction must be synchronous");
+        return result;
+      } finally {
+        active = false;
       }
     });
   }
 
-  private withLock(operation: () => void): void {
+  private replaceLocked(
+    expected: CoordinatorBootstrapRequest[],
+    next: CoordinatorBootstrapRequest[],
+  ): void {
+    if (!isDeepStrictEqual(this.read(), expected))
+      throw new BootstrapRequestConflict("Bootstrap request changed. Refresh its review.");
+    const { main, pending } = this.snapshots();
+    const parsed = RecordsSchema.parse({ version: 1, requests: next });
+    const mainIds = new Set(main.requests.map((record) => record.id));
+    for (const intent of pending.promotions) {
+      if (!mainIds.has(intent.id))
+        throw new BootstrapRequestConflict("Bootstrap promotion requires reconciliation");
+    }
+    const nextMain = parsed.requests.filter(
+      (record) => mainIds.has(record.id) || record.plan.automaticRecovery !== "restore-compatible",
+    );
+    const nextPending = parsed.requests.filter(
+      (record) => !mainIds.has(record.id) && record.plan.automaticRecovery === "restore-compatible",
+    );
+    for (const intent of pending.promotions) {
+      const retained = nextMain.find((record) => record.id === intent.id);
+      if (!retained)
+        throw new BootstrapRequestConflict("Promoted bootstrap history cannot be removed");
+      this.verifyPromotion(intent, retained);
+    }
+    const mainChanged = !isDeepStrictEqual(main.requests, nextMain);
+    const pendingChanged = !isDeepStrictEqual(pending.requests, nextPending);
+    // One request mutation has one authority file. Stale duplicate cleanup is
+    // unnecessary; retained promotion evidence makes main authoritative forever.
+    if (mainChanged) {
+      const retainedPending = pending.requests.filter((record) => !mainIds.has(record.id));
+      if (!isDeepStrictEqual(retainedPending, nextPending))
+        throw new BootstrapRequestConflict("Bootstrap mutation crosses journal authority");
+      this.write(this.file, { version: 1, requests: nextMain });
+    } else if (pendingChanged) {
+      this.write(this.pendingFile, { ...pending, requests: nextPending });
+    }
+  }
+
+  private withLock<T>(operation: () => T): T {
     this.checkDirectory();
     const lock = this.openLock();
     try {
@@ -281,7 +317,7 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
       } finally {
         closeSync(directory);
       }
-      operation();
+      return operation();
     } finally {
       // flock belongs to this inherited open file description. Closing the
       // parent's descriptor, including process death, releases it automatically.

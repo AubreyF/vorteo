@@ -13,17 +13,10 @@ import {
   type HelperReviewAction,
 } from "./helper-review";
 import { ActionFooter } from "@/components/ui/action-footer";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-  type ComponentProps,
-} from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps } from "react";
 import { Text, View } from "react-native";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
-import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
 import { Field, FormTextInput } from "@/components/ui/form-field";
 import { EditingTextInput } from "@/components/ui/text-input";
@@ -31,16 +24,21 @@ import { usePathname, useRouter } from "expo-router";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { settingsStyles } from "@/styles/settings";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-badge";
-import { SidebarCallout } from "@/components/sidebar-callout";
+import { MaintenanceNotice, MaintenanceNoticePlacement } from "./maintenance-notice";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import type { Theme } from "@/styles/theme";
 
 import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
-import { getBootstrapPanel, BootstrapReview, BootstrapBanner } from "./bootstrap-panel";
+import {
+  getBootstrapPanel,
+  BootstrapReview,
+  BootstrapBanner,
+  getPreclaimRecoveryPanel,
+  PreclaimRecoveryReview,
+  PreclaimRecoveryBanner,
+} from "./bootstrap-panel";
 import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
 import {
@@ -52,9 +50,6 @@ import {
   restartActionDisabledReason,
 } from "./panel-model";
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
-
-const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
-const spinnerColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
 const collapsedDisclosure = { leftIcon: ChevronDown, accessibilityState: { expanded: false } };
@@ -90,6 +85,8 @@ export function InstallationWelcome() {
 }
 
 function InstallationWelcomeForm({ model }: { model: InstallationPanelModel }) {
+  // The model outlives this dialog; dismissed password drafts must not.
+  useEffect(() => () => model.clearPasswordDraft(), [model]);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const setPassword = useCallback((value: string) => model.setPassword(value), [model]);
   const connect = useCallback(() => {
@@ -163,9 +160,11 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
   useEffect(() => {
     void model.initialize();
     void getBootstrapPanel()?.refresh();
+    void getPreclaimRecoveryPanel()?.refresh();
     const timer = setInterval(() => {
       void model.refresh();
       void getBootstrapPanel()?.refresh(true);
+      void getPreclaimRecoveryPanel()?.refresh(true);
     }, 5000);
     return () => clearInterval(timer);
   }, [model]);
@@ -208,6 +207,17 @@ function restartStatus(job: RestartJob, historical = false) {
   return { label: labels[job.status], variant };
 }
 
+function CoordinatorMaintenanceReviews() {
+  const bootstrap = getBootstrapPanel();
+  const recovery = getPreclaimRecoveryPanel();
+  return (
+    <>
+      {recovery ? <PreclaimRecoveryReview model={recovery} /> : null}
+      {bootstrap ? <BootstrapReview model={bootstrap} /> : null}
+    </>
+  );
+}
+
 function InstallationPanel({
   model,
   requestId,
@@ -215,7 +225,6 @@ function InstallationPanel({
   model: InstallationPanelModel;
   requestId: string | null;
 }) {
-  const bootstrap = getBootstrapPanel();
   const controlSize = useVortonTouch() ? "md" : "sm";
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const [historyVisible, setHistoryVisible] = useState(false);
@@ -248,7 +257,7 @@ function InstallationPanel({
     <SettingsSection title="Installation" testID="installation-panel">
       <View style={settingsStyles.card} testID="installation-card">
         <InstallationOwnerAccess model={model} state={state} />
-        {bootstrap ? <BootstrapReview model={bootstrap} /> : null}
+        <CoordinatorMaintenanceReviews />
         <HelperActionError model={model} />
         {state.error ? (
           <Text accessibilityRole="alert" style={[styles.textInset, styles.error]}>
@@ -1137,14 +1146,20 @@ function RestartActivity({ job }: { job: RestartJob }) {
   );
 }
 
-export function InstallationRestartBanner() {
+export function InstallationRestartBanner({
+  placement = "floating",
+}: {
+  placement?: "floating" | "sidebar" | "rail";
+}) {
   const model = getInstallationPanel(useHostRegistryLoaded());
   const bootstrap = getBootstrapPanel();
+  const recovery = getPreclaimRecoveryPanel();
   return (
-    <>
+    <MaintenanceNoticePlacement.Provider value={placement}>
+      {placement === "floating" && recovery ? <PreclaimRecoveryBanner model={recovery} /> : null}
       {bootstrap ? <BootstrapBanner model={bootstrap} /> : null}
       {model ? <RestartBanner model={model} /> : null}
-    </>
+    </MaintenanceNoticePlacement.Provider>
   );
 }
 
@@ -1162,10 +1177,19 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
     if (!description) return null;
     return (
       <View testID="installation-restart-banner">
-        <SidebarCallout
+        <MaintenanceNotice
+          needsAction={
+            summary.requested > 0 ||
+            (summary.nativeHelper?.requested ?? 0) > 0 ||
+            (summary.nativeHelper?.recovery ?? 0) > 0 ||
+            (summary.previewMonitor?.requested ?? 0) > 0 ||
+            (summary.previewMonitor?.recovery ?? 0) > 0
+          }
+          revision={description}
           title="Installation maintenance"
           description={description}
-          actions={[{ label: "Review restart", onPress: open }]}
+          reviewLabel="Review restart"
+          onReview={open}
         />
       </View>
     );
@@ -1188,30 +1212,36 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
       ) : null}
       {monitors.map((job) => (
         <View key={job.id}>
-          <SidebarCallout
+          <MaintenanceNotice
+            needsAction={job.status === "pending" || job.stage === "recovery_required"}
+            revision={`${job.id}:${job.revision}:${job.status}:${job.stage}`}
             title="Preview monitor maintenance"
             description={monitorReviewSummary(job)}
-            actions={[{ label: "Review monitor", onPress: open }]}
+            reviewLabel="Review monitor"
+            onReview={open}
           />
         </View>
       ))}
       {helpers.map((job) => (
         <View key={job.id}>
-          <SidebarCallout
+          <MaintenanceNotice
+            needsAction={job.status === "pending" || job.stage === "recovery_required"}
+            revision={`${job.id}:${job.revision}:${job.status}:${job.stage}`}
             title="Native helper maintenance"
             description={helperReviewSummary(job)}
-            actions={[{ label: "Review helper", onPress: open }]}
+            reviewLabel="Review helper"
+            onReview={open}
           />
         </View>
       ))}
       {jobs.map((job) => (
-        <RestartBannerItem key={job.id} job={job} showTopBorder={true} />
+        <RestartBannerItem key={job.id} job={job} />
       ))}
     </View>
   );
 }
 
-function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBorder: boolean }) {
+function RestartBannerItem({ job }: { job: RestartJob }) {
   const router = useRouter();
   const open = useCallback(
     () =>
@@ -1221,40 +1251,15 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
       }),
     [router, job.id],
   );
-  const description = useMemo(
-    () => (
-      <View style={styles.details}>
-        <Text style={styles.text}>{restartRepairGuidance(job) ?? restartRequestSummary(job)}</Text>
-        {job.status === "approved" || job.status === "running" ? (
-          <RestartActivity job={job} />
-        ) : null}
-      </View>
-    ),
-    [job],
-  );
-  const title = restartBannerTitle(job);
-  const inProgress = job.status === "approved" || job.status === "running";
-  const icon = useMemo(
-    () =>
-      inProgress ? (
-        <View testID={`restart-progress-${job.id}`}>
-          <ThemedLoadingSpinner uniProps={spinnerColor} size={16} />
-        </View>
-      ) : undefined,
-    [inProgress, job.id],
-  );
   return (
-    <SidebarCallout
-      title={title}
-      actions={[
-        {
-          label: job.update || job.sourceBatch ? "Review update" : "Review restart",
-          onPress: open,
-        },
-      ]}
-      icon={icon}
-      description={description}
-      showTopBorder={showTopBorder}
+    <MaintenanceNotice
+      title={restartBannerTitle(job)}
+      description={restartRepairGuidance(job) ?? restartRequestSummary(job)}
+      needsAction={job.status === "pending"}
+      revision={`${job.id}:${job.revision}:${job.status}:${job.sourceBatch?.status ?? ""}`}
+      reviewLabel={job.update || job.sourceBatch ? "Review update" : "Review restart"}
+      onReview={open}
+      testID={`restart-notice-${job.id}`}
     />
   );
 }

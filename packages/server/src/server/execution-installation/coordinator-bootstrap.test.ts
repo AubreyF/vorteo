@@ -2120,3 +2120,115 @@ test.each(["enable", "remove"] as const)(
     expect(reply.payload.requests![0]!.planSha256).toBe(pending.planSha256);
   },
 );
+
+test("source tooling selection is literal true and binds exact review identity and durable retries", async () => {
+  const f = fixture();
+  const original = coordinatorPlanDigest(f.plan);
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({ ...f.plan, sourceUpdateTooling: false }),
+  ).toThrow();
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({ ...f.plan, sourceUpdateTooling: null }),
+  ).toThrow();
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({ ...f.plan, sourceUpdateTooling: "/other/tools" }),
+  ).toThrow();
+  f.plan.sourceUpdateTooling = true;
+  expect(coordinatorPlanDigest(f.plan)).not.toBe(original);
+  const input = { id: randomUUID(), reason: "Select reviewed source tooling", plan: f.plan };
+  const pending = await f.service().prepare(input);
+  expect(pending.status).toBe("pending");
+  expect(f.service().list()).toEqual([pending]);
+  expect(await f.service().prepare(input)).toEqual(pending);
+  await expect(
+    f.service().prepare({ ...input, plan: { ...f.plan, sourceUpdateTooling: undefined } }),
+  ).rejects.toThrow("different prepared work");
+});
+
+test("source tooling legacy projection parses strictly and blocks hidden approval before decision", async () => {
+  const f = fixture();
+  f.plan.sourceUpdateTooling = true;
+  const pending = await f.prepare();
+  const service = f.service();
+  const decide = vi.spyOn(service, "decide");
+  const legacyRequest = CoordinatorBootstrapRequestSchema.extend({
+    plan: CoordinatorBootstrapPlanSchema.omit({ sourceUpdateTooling: true }),
+  });
+  const legacyResponse = CoordinatorBootstrapListResponseSchema.extend({
+    payload: CoordinatorBootstrapListResponseSchema.shape.payload.extend({
+      requests: z.array(legacyRequest).nullable(),
+    }),
+  });
+  expect(() => legacyRequest.parse(pending)).toThrow();
+  const reply = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "legacy" },
+    service,
+  );
+  expect(() => legacyResponse.parse(reply)).not.toThrow();
+  const projected = reply.payload.requests![0]!;
+  expect(projected.plan).not.toHaveProperty("sourceUpdateTooling");
+  expect(projected.planSha256).toBe(pending.planSha256);
+  expect(projected.revision).toBe(pending.revision);
+  expect(projected.reason).toContain("Cancellation remains available");
+  const hidden = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "hidden",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    service,
+  );
+  expect(hidden.payload.error).toContain("source update tooling");
+  expect(decide).not.toHaveBeenCalled();
+  expect(service.list()).toEqual([pending]);
+});
+
+test.each(["approve", "cancel"] as const)(
+  "source tooling permits exact supported %s and durable recovery",
+  async (action) => {
+    const f = fixture();
+    f.plan.sourceUpdateTooling = true;
+    const pending = await f.prepare();
+    const service = f.service();
+    const decide = vi.spyOn(service, "decide");
+    const input = { ...pickDecision(pending), decision: action };
+    const reply = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId: "supported",
+        ownerPassword,
+        sourceUpdateTooling: true,
+        input,
+      },
+      service,
+    );
+    expect(reply.payload.error).toBeNull();
+    expect(decide).toHaveBeenCalledExactlyOnceWith(input, ownerPassword);
+    const recorded = reply.payload.requests![0]!;
+    expect(recorded.status).toBe(action === "approve" ? "approved" : "canceled");
+    expect(recorded.plan).toEqual(pending.plan);
+    expect(recorded.planSha256).toBe(pending.planSha256);
+    expect(f.service().list()).toEqual([recorded]);
+  },
+);
+
+test("source tooling legacy cancellation preserves the exact hidden plan", async () => {
+  const f = fixture();
+  f.plan.sourceUpdateTooling = true;
+  const pending = await f.prepare();
+  const service = f.service();
+  const reply = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "cancel",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "cancel" },
+    },
+    service,
+  );
+  expect(reply.payload.error).toBeNull();
+  expect(reply.payload.requests![0]!.status).toBe("canceled");
+  expect(reply.payload.requests![0]!.planSha256).toBe(pending.planSha256);
+  expect(service.list()[0]!.plan).toEqual(pending.plan);
+});

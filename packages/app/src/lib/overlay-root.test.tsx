@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dispatchTopWebOverlayKeyDown, useWebOverlayRegistration } from "./overlay-root";
+import {
+  dispatchTopWebOverlayKeyDown,
+  hasActiveWebOverlay,
+  useWebOverlayRegistration,
+} from "./overlay-root";
 
 describe("useWebOverlayRegistration", () => {
   let opener: HTMLButtonElement;
@@ -87,5 +91,53 @@ describe("useWebOverlayRegistration", () => {
     const event = new KeyboardEvent("keydown", { key: "Process", bubbles: true });
     expect(dispatchTopWebOverlayKeyDown(event)).toBe(false);
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("dismisses a tooltip before its dialog without moving or trapping focus in the tooltip", () => {
+    const dialogKey = vi.fn(() => true);
+    const tooltipKey = vi.fn((event: KeyboardEvent) => event.key === "Escape");
+    const dialog = renderHook(() =>
+      useWebOverlayRegistration({ active: true, layer: 20, onKeyDown: dialogKey }),
+    );
+    act(() => dialog.result.current(scope));
+    input.focus();
+    const tooltipScope = document.createElement("div");
+    document.body.append(tooltipScope);
+    const tooltip = renderHook(() =>
+      useWebOverlayRegistration({
+        active: true,
+        layer: 20_000,
+        onKeyDown: tooltipKey,
+        focusBehavior: "none",
+      }),
+    );
+    act(() => tooltip.result.current(tooltipScope));
+    expect(document.activeElement).toBe(input);
+    const escape = new KeyboardEvent("keydown", { key: "Escape" });
+    expect(dispatchTopWebOverlayKeyDown(escape)).toBe(true);
+    expect(tooltipKey).toHaveBeenCalledWith(escape);
+    expect(dialogKey).not.toHaveBeenCalled();
+    expect(dispatchTopWebOverlayKeyDown(new KeyboardEvent("keydown", { key: "Enter" }))).toBe(true);
+    expect(dialogKey).toHaveBeenCalledTimes(1);
+    const inputFocus = vi.spyOn(input, "focus");
+    tooltip.unmount();
+    expect(inputFocus).not.toHaveBeenCalled();
+    dialog.unmount();
+  });
+
+  it("does not treat a tooltip alone as an interactive overlay or consume Tab", () => {
+    const tooltip = renderHook(() =>
+      useWebOverlayRegistration({
+        active: true,
+        layer: 20_000,
+        onKeyDown: () => false,
+        focusBehavior: "none",
+      }),
+    );
+    act(() => tooltip.result.current(scope));
+    expect(hasActiveWebOverlay()).toBe(false);
+    expect(document.activeElement).toBe(opener);
+    expect(dispatchTopWebOverlayKeyDown(new KeyboardEvent("keydown", { key: "Tab" }))).toBe(false);
+    tooltip.unmount();
   });
 });

@@ -13,6 +13,9 @@ import { createProviderSnapshotManagerStub } from "./test-utils/session-stubs.js
 import type { PushNotificationSender, PushPayload } from "./push/index.js";
 import type { WorkspaceAutoName } from "./workspace-auto-name.js";
 
+import { deferBootstrapReview } from "./execution-installation/coordinator-bootstrap-launch.js";
+import type { BootstrapReviewService } from "./execution-installation/coordinator-bootstrap-session.js";
+
 const WORKSPACE_ID = "workspace-1";
 
 const wsModuleMock = vi.hoisted(() => {
@@ -46,6 +49,9 @@ import { VoiceAssistantWebSocketServer } from "./websocket-server.js";
 
 interface WebSocketServerInternals {
   sessions: Map<unknown, unknown>;
+  buildServerInfoStatusPayload(session: unknown): {
+    features: { coordinatorBootstrapSourceUpdateTooling: boolean };
+  };
   broadcastAgentAttention(params: {
     agentId: string;
     reason: string;
@@ -82,7 +88,10 @@ class RecordingPushNotificationSender implements PushNotificationSender {
   }
 }
 
-function createServer(agentManagerOverrides?: Record<string, unknown>) {
+function createServer(
+  agentManagerOverrides?: Record<string, unknown>,
+  coordinatorBootstrap?: BootstrapReviewService,
+) {
   const pushNotifications = new RecordingPushNotificationSender();
   const agentManager = {
     subscribe: vi.fn(() => () => {}),
@@ -101,6 +110,8 @@ function createServer(agentManagerOverrides?: Record<string, unknown>) {
     ...agentManagerOverrides,
   };
   const daemonConfigStore = {
+    hasOriginAdmissionOwner: vi.fn(() => false),
+    get: vi.fn(() => ({})),
     onApply: vi.fn(() => () => {}),
     onChange: vi.fn(() => () => {}),
   };
@@ -115,7 +126,7 @@ function createServer(agentManagerOverrides?: Record<string, unknown>) {
     "/tmp/paseo-test",
     createStub<DaemonConfigStore>(daemonConfigStore),
     null,
-    { allowedOrigins: new Set() },
+    { allowedOrigins: new Set(), coordinatorBootstrap },
     createWorkspaceAutoNameStub(),
     undefined,
     undefined,
@@ -363,3 +374,52 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
     expect(pushNotifications.sent).toEqual([]);
   });
 });
+
+it.each(["ready", "failed", "absent"] as const)(
+  "broadcasts tooling capability only after validated bootstrap readiness: %s",
+  async (outcome) => {
+    const validation = Promise.withResolvers<BootstrapReviewService | undefined>();
+    const service = deferBootstrapReview(() => validation.promise);
+    const { server } = createServer(undefined, service);
+    const internals = asInternals<WebSocketServerInternals>(server);
+    const publish = vi.fn();
+    const session = {
+      getPermissions: () => ({}),
+      wantsSourceEvent: () => true,
+      publish,
+    };
+    const socket = createOpenSocket();
+    internals.sessions.set(socket, { session, sockets: new Set([socket]) });
+    expect(internals.buildServerInfoStatusPayload(session).features).toMatchObject({
+      coordinatorBootstrapReview: false,
+      coordinatorBootstrapSourceUpdateTooling: false,
+      coordinatorBootstrapUnavailableReason: expect.stringContaining("Checking"),
+    });
+    expect(publish).not.toHaveBeenCalled();
+    if (outcome === "failed") validation.reject(new Error("private fixture config"));
+    else
+      validation.resolve(
+        outcome === "ready"
+          ? {
+              list: () => [],
+              prepare: vi.fn(),
+              decide: vi.fn(),
+            }
+          : undefined,
+      );
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledOnce());
+    expect(publish.mock.calls[0]![0]).toMatchObject({
+      type: "status",
+      payload: {
+        status: "server_info",
+        features: {
+          coordinatorBootstrapReview: outcome === "ready",
+          coordinatorBootstrapSourceUpdateTooling: outcome === "ready",
+        },
+      },
+    });
+    expect(JSON.stringify(publish.mock.calls)).not.toContain("private fixture config");
+    internals.sessions.clear();
+    await server.close();
+  },
+);

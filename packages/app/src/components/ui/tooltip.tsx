@@ -7,30 +7,33 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   type PropsWithChildren,
   type ReactElement,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  Dimensions,
+  useWindowDimensions,
   Platform,
   Modal,
   Pressable,
   StatusBar,
+  Text,
   View,
   type PressableProps,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { FadeIn, FadeOut } from "react-native-reanimated";
+import { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { FloatingSurface } from "@/components/ui/floating";
 import { isNative, isWeb } from "@/constants/platform";
-import { getOverlayRoot, OVERLAY_Z } from "@/lib/overlay-root";
+import { getOverlayRoot, OVERLAY_Z, useWebOverlayRegistration } from "@/lib/overlay-root";
 
 type Side = "top" | "bottom" | "left" | "right";
 type Align = "start" | "center" | "end";
@@ -43,6 +46,7 @@ interface Rect {
 }
 
 interface TooltipContextValue {
+  contentId: string;
   open: boolean;
   setOpen: (open: boolean) => void;
   triggerRef: React.RefObject<View | null>;
@@ -135,17 +139,20 @@ function resolveActualSide(args: {
   contentSize: { width: number; height: number };
   displayArea: Rect;
   side: Side;
+  offset: number;
 }): Side {
-  const { triggerRect, contentSize, displayArea, side } = args;
+  const { triggerRect, contentSize, displayArea, side, offset } = args;
   const spaceTop = triggerRect.y - displayArea.y;
   const spaceBottom = displayArea.y + displayArea.height - (triggerRect.y + triggerRect.height);
   const spaceLeft = triggerRect.x - displayArea.x;
   const spaceRight = displayArea.x + displayArea.width - (triggerRect.x + triggerRect.width);
 
-  if (side === "bottom" && spaceBottom < contentSize.height && spaceTop > spaceBottom) return "top";
-  if (side === "top" && spaceTop < contentSize.height && spaceBottom > spaceTop) return "bottom";
-  if (side === "left" && spaceLeft < contentSize.width && spaceRight > spaceLeft) return "right";
-  if (side === "right" && spaceRight < contentSize.width && spaceLeft > spaceRight) return "left";
+  const requiredHeight = contentSize.height + offset + 12;
+  const requiredWidth = contentSize.width + offset + 12;
+  if (side === "bottom" && spaceBottom < requiredHeight && spaceTop > spaceBottom) return "top";
+  if (side === "top" && spaceTop < requiredHeight && spaceBottom > spaceTop) return "bottom";
+  if (side === "left" && spaceLeft < requiredWidth && spaceRight > spaceLeft) return "right";
+  if (side === "right" && spaceRight < requiredWidth && spaceLeft > spaceRight) return "left";
   return side;
 }
 
@@ -177,7 +184,7 @@ function computePosition({
   offset: number;
 }): { x: number; y: number; actualSide: Side } {
   const { width: contentWidth, height: contentHeight } = contentSize;
-  const actualSide = resolveActualSide({ triggerRect, contentSize, displayArea, side });
+  const actualSide = resolveActualSide({ triggerRect, contentSize, displayArea, side, offset });
 
   let x = 0;
   let y = 0;
@@ -216,7 +223,7 @@ function computePosition({
     });
   }
 
-  const padding = 8;
+  const padding = 12;
   x = Math.max(padding, Math.min(displayArea.width - contentWidth - padding, x));
   y = Math.max(
     displayArea.y + padding,
@@ -242,6 +249,7 @@ export function Tooltip({
   enabledOnDesktop?: boolean;
   enabledOnMobile?: boolean;
 }>): ReactElement {
+  const contentId = useId();
   const triggerRef = useRef<View>(null);
   const [isOpen, setIsOpen] = useControllableOpenState({
     open,
@@ -272,6 +280,7 @@ export function Tooltip({
 
   const value = useMemo<TooltipContextValue>(
     () => ({
+      contentId,
       open: isOpen,
       setOpen: setIsOpen,
       triggerRef,
@@ -280,7 +289,7 @@ export function Tooltip({
       touch: useTouchInteraction,
       delayDuration,
     }),
-    [isOpen, setIsOpen, enabled, useTouchInteraction, delayDuration],
+    [contentId, isOpen, setIsOpen, enabled, useTouchInteraction, delayDuration],
   );
 
   return <TooltipContext.Provider value={value}>{children}</TooltipContext.Provider>;
@@ -298,6 +307,7 @@ export function TooltipTrigger({
   triggerRefProp = "ref",
   ...props
 }: PressableProps & {
+  "aria-describedby"?: string;
   asChild?: boolean;
   triggerRefProp?: string;
 }): ReactElement {
@@ -388,6 +398,10 @@ export function TooltipTrigger({
 
   const triggerProps = {
     ...props,
+    "aria-describedby":
+      [props["aria-describedby"], ctx.open && ctx.enabled ? ctx.contentId : undefined]
+        .filter(Boolean)
+        .join(" ") || undefined,
     disabled,
     onHoverIn: handleHoverIn,
     onHoverOut: handleHoverOut,
@@ -430,6 +444,11 @@ export function TooltipTrigger({
       onMouseLeave: composeEventHandlers(Reflect.get(rawProps, "onMouseLeave"), handleHoverOut),
     };
 
+    // Preserve descriptions supplied by the control while associating the open tooltip.
+    const descriptions = [Reflect.get(rawProps, "aria-describedby"), props["aria-describedby"]];
+    if (ctx.open && ctx.enabled) descriptions.push(ctx.contentId);
+    mergedProps["aria-describedby"] = descriptions.filter(Boolean).join(" ") || undefined;
+
     const existingRefProp = Reflect.get(rawProps, triggerRefProp);
     mergedProps[triggerRefProp] = (node: View) => {
       if (isCallable(existingRefProp)) {
@@ -454,10 +473,10 @@ export function TooltipContent({
   children,
   side = "top",
   align = "center",
-  offset = 6,
+  offset = 12,
   style,
   testID,
-  maxWidth = 280,
+  maxWidth = 288,
 }: PropsWithChildren<{
   side?: Side;
   align?: Align;
@@ -467,9 +486,25 @@ export function TooltipContent({
   maxWidth?: number;
 }>): ReactElement | null {
   const ctx = useTooltipContext("TooltipContent");
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const handleOverlayKey = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return false;
+      event.preventDefault();
+      ctx.setOpen(false);
+      return true;
+    },
+    [ctx],
+  );
+  const setOverlayScope = useWebOverlayRegistration({
+    active: isWeb && ctx.open && ctx.enabled,
+    layer: OVERLAY_Z.tooltip,
+    onKeyDown: handleOverlayKey,
+    focusBehavior: "none",
+  });
   const [triggerRect, setTriggerRect] = useState<Rect | null>(null);
   const [contentSize, setContentSize] = useState<{ width: number; height: number } | null>(null);
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const [position, setPosition] = useState<ReturnType<typeof computePosition> | null>(null);
 
   useEffect(() => {
     if (!ctx.open || !ctx.enabled || !ctx.triggerRef.current) {
@@ -490,11 +525,17 @@ export function TooltipContent({
     return () => {
       cancelled = true;
     };
-  }, [ctx.enabled, ctx.open, ctx.triggerRef]);
+  }, [ctx.enabled, ctx.open, ctx.triggerRef, screenWidth, screenHeight]);
+
+  useEffect(() => {
+    if (!isWeb || !ctx.open || !ctx.enabled) return;
+    const dismissOnScroll = () => ctx.setOpen(false);
+    window.addEventListener("scroll", dismissOnScroll, true);
+    return () => window.removeEventListener("scroll", dismissOnScroll, true);
+  }, [ctx]);
 
   useEffect(() => {
     if (!triggerRect || !contentSize) return;
-    const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
     const displayArea = { x: 0, y: 0, width: screenWidth, height: screenHeight };
     const result = computePosition({
       triggerRect,
@@ -504,8 +545,8 @@ export function TooltipContent({
       align,
       offset,
     });
-    setPosition({ x: result.x, y: result.y });
-  }, [triggerRect, contentSize, side, align, offset]);
+    setPosition(result);
+  }, [triggerRect, contentSize, side, align, offset, screenWidth, screenHeight]);
 
   const handleLayout = useCallback(
     (event: { nativeEvent: { layout: { width: number; height: number } } }) => {
@@ -521,12 +562,39 @@ export function TooltipContent({
         position: "absolute" as const,
         top: position?.y ?? -9999,
         left: position?.x ?? -9999,
-        maxWidth,
+        maxWidth: Math.min(maxWidth, Math.max(0, screenWidth - 24)),
       },
     ],
-    [maxWidth, position?.x, position?.y],
+    [maxWidth, position?.x, position?.y, screenWidth],
   );
   const contentStyle = useMemo(() => [styles.content, style], [style]);
+
+  const arrow =
+    position && triggerRect && contentSize ? (
+      <View
+        testID="tooltip-arrow"
+        accessible={false}
+        aria-hidden
+        style={[
+          styles.arrow,
+          styles.arrowPlacement(position.actualSide),
+          {
+            left: resolveArrowCoordinate({
+              side: position.actualSide,
+              axis: "x",
+              trigger: triggerRect.x + triggerRect.width / 2 - position.x,
+              size: contentSize.width,
+            }),
+            top: resolveArrowCoordinate({
+              side: position.actualSide,
+              axis: "y",
+              trigger: triggerRect.y + triggerRect.height / 2 - position.y,
+              size: contentSize.height,
+            }),
+          },
+        ]}
+      />
+    ) : null;
 
   const handleDismiss = useCallback(() => ctx.setOpen(false), [ctx]);
 
@@ -540,15 +608,18 @@ export function TooltipContent({
       <View pointerEvents="none" style={styles.portalOverlay}>
         <FloatingSurface
           pointerEvents="none"
-          entering={FadeIn.duration(80)}
-          exiting={FadeOut.duration(80)}
+          ref={setOverlayScope}
+          entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
+          exiting={FadeOut.duration(180).reduceMotion(ReduceMotion.System)}
           collapsable={false}
           role="tooltip"
+          nativeID={ctx.contentId}
           testID={testID}
           onLayout={handleLayout}
           style={contentStyle}
           frameStyle={frameStyle}
         >
+          {arrow}
           {children}
         </FloatingSurface>
       </View>,
@@ -567,15 +638,17 @@ export function TooltipContent({
       <Pressable testID="tooltip-dismiss" style={styles.overlay} onPress={handleDismiss}>
         <FloatingSurface
           pointerEvents="none"
-          entering={FadeIn.duration(80)}
-          exiting={FadeOut.duration(80)}
+          entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
+          exiting={FadeOut.duration(180).reduceMotion(ReduceMotion.System)}
           collapsable={false}
           role="tooltip"
+          nativeID={ctx.contentId}
           testID={testID}
           onLayout={handleLayout}
           style={contentStyle}
           frameStyle={frameStyle}
         >
+          {arrow}
           {children}
         </FloatingSurface>
       </Pressable>
@@ -583,7 +656,64 @@ export function TooltipContent({
   );
 }
 
+function resolveArrowCoordinate({
+  side,
+  axis,
+  trigger,
+  size,
+}: {
+  side: Side;
+  axis: "x" | "y";
+  trigger: number;
+  size: number;
+}): number {
+  if (axis === "x" && side === "right") return -5;
+  if (axis === "x" && side === "left") return size - 5;
+  if (axis === "y" && side === "bottom") return -5;
+  if (axis === "y" && side === "top") return size - 5;
+  return Math.min(Math.max(18, trigger), Math.max(18, size - 18)) - 5;
+}
+
+/** Shared label and explanatory copy for non-interactive tooltips. */
+export function TooltipText({ label, description }: { label: string; description?: ReactNode }) {
+  return (
+    <View style={styles.textBody}>
+      <Text style={styles.label}>{label}</Text>
+      {description ? <Text style={styles.description}>{description}</Text> : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create((theme) => ({
+  arrow: {
+    position: "absolute",
+    width: 10,
+    height: 10,
+    backgroundColor: theme.colors.popover,
+    borderColor: theme.colors.borderAccent,
+    transform: [{ rotate: "45deg" }],
+  },
+  arrowPlacement: (side: Side) => ({
+    borderTopWidth: side === "bottom" || side === "left" ? 1 : 0,
+    borderRightWidth: side === "top" || side === "left" ? 1 : 0,
+    borderBottomWidth: side === "top" || side === "right" ? 1 : 0,
+    borderLeftWidth: side === "bottom" || side === "right" ? 1 : 0,
+  }),
+  textBody: { alignItems: "center", gap: 4 },
+  label: {
+    color: theme.colors.foreground,
+    fontFamily: theme.fontFamily.ui,
+    fontSize: theme.fontSize.base * (13 / 14),
+    fontWeight: theme.fontWeight.semibold,
+    textAlign: "center",
+  },
+  description: {
+    color: theme.colors.foregroundMuted,
+    fontFamily: theme.fontFamily.ui,
+    fontSize: theme.fontSize.sm,
+    lineHeight: theme.fontSize.sm * 1.5,
+    textAlign: "center",
+  },
   overlay: { flex: 1 },
   portalOverlay: {
     position: "absolute",
@@ -594,9 +724,9 @@ const styles = StyleSheet.create((theme) => ({
     zIndex: OVERLAY_Z.tooltip,
   },
   content: {
-    paddingVertical: theme.spacing[1],
-    paddingHorizontal: theme.spacing[2],
-    borderRadius: theme.borderRadius.xl,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
     backgroundColor: theme.colors.popover,
     borderWidth: theme.borderWidth[1],
     borderColor: theme.colors.borderAccent,

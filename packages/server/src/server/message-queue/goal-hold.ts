@@ -37,7 +37,7 @@ export interface QueueGoalPort {
   hold(): QueueGoalHold | undefined;
   persist(hold: QueueGoalHold | undefined): Promise<void>;
   read(): Promise<AgentGoalState>;
-  set(status: "paused" | "active"): Promise<AgentGoalState>;
+  set(status: "blocked" | "paused" | "active"): Promise<AgentGoalState>;
   mayResume(): Promise<boolean>;
   prepareResume?(): Promise<void>;
   mayRemainActive(): Promise<boolean>;
@@ -64,7 +64,7 @@ export async function pauseGoalForQueue(port: QueueGoalPort, reason?: "restart")
   const original = state.goal;
   if (!port.canPause()) return;
   await port.persist({ phase: "pausing", goal: original, reason });
-  const paused = await port.set("paused");
+  const paused = await port.set("blocked");
   if (!port.canPause() || port.hold()?.phase !== "pausing") {
     await port.persist(undefined);
     return;
@@ -72,10 +72,10 @@ export async function pauseGoalForQueue(port: QueueGoalPort, reason?: "restart")
   if (
     paused.status !== "ready" ||
     !paused.goal ||
-    paused.goal.status !== "paused" ||
+    paused.goal.status !== "blocked" ||
     !sameGoal(original, paused.goal)
   )
-    throw new Error("The goal pause could not be confirmed. Review the goal before continuing.");
+    throw new Error("The goal block could not be confirmed. Review the goal before continuing.");
   await port.persist({ phase: "held", goal: paused.goal, reason });
 }
 
@@ -87,7 +87,7 @@ export async function resumeGoalAfterQueue(port: QueueGoalPort): Promise<void> {
   const goal = current.goal;
   if (
     !goal ||
-    goal.status !== "paused" ||
+    !isOwnedHoldStatus(goal, hold) ||
     !sameGoal(hold.goal, goal) ||
     goal.updatedAt !== hold.goal.updatedAt
   ) {
@@ -118,19 +118,27 @@ export async function resumeGoalAfterQueue(port: QueueGoalPort): Promise<void> {
 }
 
 async function pauseResumedGoal(port: QueueGoalPort, hold: QueueGoalHold): Promise<void> {
-  const paused = await port.set("paused");
+  const paused = await port.set("blocked");
   if (
     paused.status !== "ready" ||
     !paused.goal ||
     !sameGoal(hold.goal, paused.goal) ||
-    paused.goal.status !== "paused"
+    paused.goal.status !== "blocked"
   )
     throw new Error("The goal stop could not be confirmed. Review the goal before continuing.");
   // New queued work still owns continuation; task Stop revokes that ownership.
   await port.persist(port.canPause() ? { ...hold, phase: "held", goal: paused.goal } : undefined);
 }
 
-/** Preserve native status while exposing who owns a confirmed temporary pause. */
+function isOwnedHoldStatus(goal: AgentGoal, hold: QueueGoalHold): boolean {
+  // COMPAT(queuePausedHold): receipts written before automatic waits used
+  // blocked may still own a paused goal. Never adopt a pause without its receipt.
+  return (
+    goal.status === hold.goal.status && (goal.status === "blocked" || goal.status === "paused")
+  );
+}
+
+/** Preserve native status while exposing who owns a confirmed temporary block. */
 export function projectQueueGoalState(
   state: AgentGoalState,
   hold: QueueGoalHold | undefined,
@@ -142,13 +150,15 @@ export function projectQueueGoalState(
     restartContinuationHeld: Boolean(
       hold?.reason === "restart" &&
       hold.phase === "held" &&
-      goal?.status === "paused" &&
+      goal &&
+      isOwnedHoldStatus(goal, hold) &&
       sameGoal(hold.goal, goal) &&
       hold.goal.updatedAt === goal.updatedAt,
     ),
     queueContinuationHeld: Boolean(
       hold?.phase === "held" &&
-      goal?.status === "paused" &&
+      goal &&
+      isOwnedHoldStatus(goal, hold) &&
       sameGoal(hold.goal, goal) &&
       hold.goal.updatedAt === goal.updatedAt,
     ),

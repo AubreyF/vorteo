@@ -1,3 +1,4 @@
+import { demoStorageName } from "@/demo/mode";
 import {
   type AttachmentStore,
   type AttachmentMetadata,
@@ -124,7 +125,9 @@ async function loadBlob(db: IDBDatabase, id: string): Promise<Blob> {
   return record.blob;
 }
 
-export function createIndexedDbAttachmentStore(databaseName = DB_NAME): AttachmentStore {
+export function createIndexedDbAttachmentStore(
+  databaseName = demoStorageName(DB_NAME),
+): AttachmentStore {
   return {
     storageType: "web-indexeddb",
 

@@ -1,4 +1,5 @@
 import { i18n } from "@/i18n/i18next";
+import { isDemoSession } from "@/demo/mode";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { getDesktopHost, isElectronRuntime } from "@/desktop/host";
 import { invokeDesktopCommand } from "@/desktop/electron/invoke";
@@ -179,7 +180,7 @@ function parseDesktopUpdaterDiagnostics(raw: unknown): DesktopUpdaterDiagnostics
 }
 
 export function shouldUseDesktopDaemon(): boolean {
-  return isElectronRuntime();
+  return !isDemoSession() && isElectronRuntime();
 }
 
 export async function getDesktopDaemonStatus(): Promise<DesktopDaemonStatus> {

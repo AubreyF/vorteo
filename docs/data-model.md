@@ -46,7 +46,7 @@ Before host acknowledgement, the device outbox owns the message and its attachme
 
 An unfinished delivery claim becomes uncertain after restart. Only matching raw provider message identity can reconcile it automatically. Similar text, optimistic timeline rows and the absence of a provider message do not prove whether a send succeeded. Explicit retry can duplicate execution when the provider accepted the original send but supplies no usable receipt.
 
-Queue-owned native goal pauses persist separately from the queue record in agent state. An unconfirmed goal transition requires review before delivery continues; restart must not guess that it owns a user's paused goal.
+Queue-owned native goal blocks persist separately from the queue record in agent state. An unconfirmed goal transition requires review before delivery continues; restart must not guess that it owns a user's paused goal. Older matching pause receipts remain readable for recovery.
 
 ---
 
