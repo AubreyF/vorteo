@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { StandingInterruptionSchema } from "./maintenance-interruption.js";
 import {
   ProviderPreferencesSchema,
   SharedProviderPreferencesSchema,
@@ -44,7 +45,93 @@ export const InstallationUnlockSchema = z.strictObject({
 export type InstallationUnlock = z.infer<typeof InstallationUnlockSchema>;
 
 export const RestartTargetSchema = z.enum(["host", "container-daemon"]);
+/** Send only to coordinators advertising workerLaunch.available.
+ * Hints are never retained authority or an executable launch specification. */
+export const WorkerLaunchCauseHintSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("predecessor"), generation: z.string().uuid() }),
+  z.strictObject({ kind: z.literal("startup"), registrationGeneration: z.string().uuid() }),
+]);
+export const WorkerLaunchCauseSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("predecessor"),
+    generation: z.string().uuid(),
+    settlementSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+  z.strictObject({
+    kind: z.literal("startup"),
+    registrationGeneration: z.string().uuid(),
+    registrationSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+]);
+export const WorkerLaunchRequestSchema = z.strictObject({
+  profileSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  supervisorPid: z.number().int().positive(),
+  cause: WorkerLaunchCauseHintSchema,
+});
+export type WorkerLaunchRequest = z.infer<typeof WorkerLaunchRequestSchema>;
+
+export const WorkerLaunchNativeIdentitySchema = z.strictObject({
+  pid: z.number().int().positive(),
+  parentPid: z.number().int().nonnegative(),
+  uid: z.number().int().nonnegative(),
+  bootId: z.string().min(1).max(200),
+  // Linux start ticks. Mac birth timestamps require a different native verifier.
+  startTicks: z.string().regex(/^[0-9]+$/),
+});
+export const WorkerLaunchBindingSchema = z.strictObject({
+  requestId: z.string().uuid(),
+  approvalRevision: z.string().uuid(),
+  generation: z.string().uuid(),
+  grantId: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  manifestSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  profileSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  targetIdentitySha256: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  publicationSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  cause: WorkerLaunchCauseSchema,
+  supervisor: WorkerLaunchNativeIdentitySchema,
+});
+export const WorkerLaunchVerifiedCauseSchema = WorkerLaunchBindingSchema.pick({
+  supervisor: true,
+  cause: true,
+  profileSha256: true,
+  targetIdentitySha256: true,
+});
+export type WorkerLaunchVerifiedCause = z.infer<typeof WorkerLaunchVerifiedCauseSchema>;
+const workerLaunchRecord = {
+  binding: WorkerLaunchBindingSchema,
+  reservedAt: z.string().datetime(),
+};
+/** Controller-owned suboperation, never accepted as a requester payload. */
+export const WorkerLaunchSchema = z.discriminatedUnion("phase", [
+  z.strictObject({ ...workerLaunchRecord, phase: z.literal("reserved") }),
+  z.strictObject({
+    ...workerLaunchRecord,
+    phase: z.literal("consumed"),
+    consumedAt: z.string().datetime(),
+  }),
+  z.strictObject({
+    ...workerLaunchRecord,
+    phase: z.literal("uncertain"),
+    consumedAt: z.string().datetime(),
+  }),
+  z.strictObject({
+    ...workerLaunchRecord,
+    phase: z.literal("settled"),
+    consumedAt: z.string().datetime(),
+    observedAt: z.string().datetime(),
+    observationSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+]);
+export type WorkerLaunch = z.infer<typeof WorkerLaunchSchema>;
+export type WorkerLaunchBinding = z.infer<typeof WorkerLaunchBindingSchema>;
+
 export const RestartRequestSchema = z.strictObject({
+  // COMPAT(requireOwnerApproval): optional in v311; project out for clients until 2027-04-11.
+  requireOwnerApproval: z.boolean().optional(),
+  workerLaunchRequest: WorkerLaunchRequestSchema.optional(),
   factoryRuntimeRecoveryOf: z.string().uuid().optional(),
   // COMPAT(factoryRuntimeAdoption): optional in v285; remove legacy projection after 2027-04-10.
   factoryRuntimePlanSha256: z
@@ -63,6 +150,23 @@ export const RestartRequestSchema = z.strictObject({
 export type RestartRequest = z.infer<typeof RestartRequestSchema>;
 
 export const RestartSummarySchema = z.object({
+  serviceMaintenance: z
+    .object({
+      requested: z.number().int().nonnegative(),
+      queued: z.number().int().nonnegative(),
+      unverified: z.number().int().nonnegative(),
+      attention: z.number().int().nonnegative(),
+    })
+    .optional(),
+  // COMPAT(previewMonitorMaintenance): older clients ignore distinct monitor counts.
+  previewMonitor: z
+    .object({
+      requested: z.number().int().nonnegative(),
+      queued: z.number().int().nonnegative(),
+      running: z.number().int().nonnegative(),
+      recovery: z.number().int().nonnegative(),
+    })
+    .optional(),
   // COMPAT(nativeHelperMaintenance): older clients ignore helper-only counts.
   nativeHelper: z
     .object({
@@ -85,6 +189,11 @@ export const RestartImpactSchema = z.object({
   pendingStarts: z.number().int().nonnegative(),
   idleRestartSupported: z.boolean(),
   gracefulRestartSupported: z.boolean().optional(),
+  restartDrainObservationSupported: z.boolean().optional(),
+  restartDrainId: z.string().uuid().nullable().optional(),
+  workerInstanceId: z.string().uuid().optional(),
+  workerPid: z.number().int().positive().optional(),
+  heldIdleRestartSupported: z.boolean().optional(),
   error: z.string().nullable(),
 });
 export type RestartImpact = z.infer<typeof RestartImpactSchema>;
@@ -103,6 +212,7 @@ export type SourceUpdate = z.infer<typeof SourceUpdateSchema>;
 
 // COMPAT(sourceBatches): opt-in metadata; old strict clients receive legacy job fields only.
 export const SourceContributionSchema = z.strictObject({
+  requireOwnerApproval: z.boolean().optional(),
   id: z.string().uuid(),
   update: SourceUpdateSchema,
   reason: z.string(),
@@ -135,7 +245,182 @@ export const AutomaticRestartApprovalSchema = z.strictObject({
     .optional(),
 });
 
+// COMPAT(devSourceRepair): retained privately; legacy replies omit repair captures.
+export const DevRepairCaptureSchema = z.strictObject({
+  hostReleaseDirectory: z.string().startsWith("/"),
+  baseCommit: SourceUpdateSchema.shape.baseCommit,
+  sourceCommit: SourceUpdateSchema.shape.sourceCommit,
+  integrationRef: z.string().startsWith("refs/heads/"),
+  contributionCommits: z.array(SourceUpdateSchema.shape.sourceCommit).max(100),
+});
+export type DevRepairCapture = z.infer<typeof DevRepairCaptureSchema>;
+export const DevRepairAttemptSchema = z.strictObject({
+  id: z.string().uuid(),
+  capturedRevision: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  capture: DevRepairCaptureSchema,
+  status: z.enum(["preparing", "prepared", "failed"]),
+  detail: z.string(),
+});
+
+// Protected standing decisions are exposed only through negotiated maintenance views.
+export const StandingRestartDecisionSchema = z.strictObject({
+  activationStep: z
+    .strictObject({
+      stepId: z.string().uuid(),
+      generation: z.string().uuid(),
+      candidateArtifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .optional(),
+  grantId: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  manifestSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  planSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  targetIdentitySha256: z.string().regex(/^[a-f0-9]{64}$/),
+  authoritySha256: z.string().regex(/^[a-f0-9]{64}$/),
+  policyActivatedAt: z.string().datetime(),
+  requestRevision: z.string().uuid(),
+});
+export type StandingRestartDecision = z.infer<typeof StandingRestartDecisionSchema>;
+export const StandingRestartHoldSchema = z.strictObject({
+  generation: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  decisionSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  reservedAt: z.string().datetime(),
+  observedAt: z.string().datetime().optional(),
+  /** Only the reserved initial migration may use an acknowledged legacy drain.
+   * It remains bound to one independently inspected daemon lifetime. */
+  initialDaemonInstanceSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  acknowledgedAt: z.string().datetime().optional(),
+  releaseRequestedAt: z.string().datetime().optional(),
+});
+
+const supervisorEffectDigest = z.string().regex(/^[a-f0-9]{64}$/);
+export const SupervisorEffectExecutorSchema = z.strictObject({
+  pid: z.number().int().positive(),
+  parentPid: z.number().int().nonnegative(),
+  uid: z.number().int().nonnegative(),
+  bootId: z.string().min(1).max(100),
+  startIdentity: z.string().min(1).max(200),
+  argumentsSha256: supervisorEffectDigest,
+  auditToken: z.array(z.number().int().min(0).max(0xffffffff)).length(8),
+  executable: z.strictObject({ path: z.string().startsWith("/"), sha256: supervisorEffectDigest }),
+  entrypoint: z.strictObject({ path: z.string().startsWith("/"), sha256: supervisorEffectDigest }),
+  artifactSha256: supervisorEffectDigest,
+});
+export const SupervisorEffectBindingSchema = z.strictObject({
+  requestId: z.uuid(),
+  requestRevision: z.uuid(),
+  approvedAt: z.string().datetime(),
+  decisionSha256: supervisorEffectDigest,
+  requestPlanSha256: supervisorEffectDigest,
+  supervisorPlanSha256: supervisorEffectDigest,
+  registrationPlanSha256: supervisorEffectDigest,
+  operation: z.enum(["replace", "rollback"]),
+  preparationNonce: z.uuid(),
+  original: z.strictObject({ requestId: z.uuid(), claimSha256: supervisorEffectDigest }).nullable(),
+  generation: z.uuid(),
+  candidateSha256: supervisorEffectDigest,
+  grantId: z.uuid(),
+  grantRevision: z.uuid(),
+  manifestSha256: supervisorEffectDigest,
+  stepId: z.uuid(),
+  activationGeneration: z.uuid(),
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  artifactSha256: supervisorEffectDigest,
+  nativeIdentitySha256: supervisorEffectDigest,
+  preconditionSha256: supervisorEffectDigest,
+  settlementSha256: supervisorEffectDigest,
+  controller: SupervisorEffectExecutorSchema,
+});
+export const SupervisorEffectObservationSchema = z.strictObject({
+  observedAt: z.string().datetime(),
+  evidenceSha256: supervisorEffectDigest,
+  outcome: z.enum(["unresolved", "stopped", "candidate-ready-unpublished", "published"]),
+  /** Both the exact executor and the affected workload must be independently settled. */
+  settled: z.boolean(),
+  publication: z
+    .strictObject({
+      receiptSha256: supervisorEffectDigest,
+      configurationSha256: supervisorEffectDigest,
+    })
+    .nullable(),
+});
+const supervisorEffectRecord = {
+  binding: SupervisorEffectBindingSchema,
+  reservedAt: z.string().datetime(),
+};
+export const SupervisorEffectChildSchema = z.strictObject({
+  reservationSha256: supervisorEffectDigest,
+  executor: SupervisorEffectExecutorSchema,
+  acknowledgedAt: z.string().datetime(),
+});
+export const SupervisorEffectSchema = z.discriminatedUnion("phase", [
+  z.strictObject({ ...supervisorEffectRecord, phase: z.literal("reserved") }),
+  z.strictObject({
+    ...supervisorEffectRecord,
+    phase: z.literal("consumed"),
+    consumedAt: z.string().datetime(),
+    child: SupervisorEffectChildSchema,
+  }),
+  z.strictObject({
+    ...supervisorEffectRecord,
+    phase: z.literal("uncertain"),
+    consumedAt: z.string().datetime().nullable(),
+    child: SupervisorEffectChildSchema.nullable(),
+  }),
+  z.strictObject({
+    ...supervisorEffectRecord,
+    phase: z.literal("observed"),
+    consumedAt: z.string().datetime().nullable(),
+    child: SupervisorEffectChildSchema.nullable(),
+    observation: SupervisorEffectObservationSchema,
+  }),
+]);
+export type SupervisorEffect = z.infer<typeof SupervisorEffectSchema>;
+export type SupervisorEffectBinding = z.infer<typeof SupervisorEffectBindingSchema>;
+export type SupervisorEffectExecutor = z.infer<typeof SupervisorEffectExecutorSchema>;
+export type SupervisorEffectChild = z.infer<typeof SupervisorEffectChildSchema>;
+export type SupervisorEffectObservation = z.infer<typeof SupervisorEffectObservationSchema>;
+
 export const RestartJobSchema = RestartRequestSchema.extend({
+  // Protected ledger metadata only; legacy restart replies omit this one-use claim.
+  supervisorEffect: SupervisorEffectSchema.optional(),
+  workerLaunch: WorkerLaunchSchema.optional(),
+  standingDecision: StandingRestartDecisionSchema.optional(),
+  standingHold: StandingRestartHoldSchema.optional(),
+  standingInterruption: StandingInterruptionSchema.optional(),
+  interruptionChecks: z
+    .strictObject({
+      attempts: z.number().int().min(0).max(3),
+      checkedAt: z.string().datetime(),
+      nextCheckAt: z.string().datetime(),
+    })
+    .optional(),
+  standingManualApprovals: z
+    .array(
+      z.strictObject({
+        previousRevision: z.string().uuid(),
+        revision: z.string().uuid(),
+        approvedAt: z.string().datetime(),
+        decision: z.enum(["approve", "finish-current-turns"]),
+      }),
+    )
+    .max(16)
+    .optional(),
+  updatePreparation: z.enum(["preparing", "prepared"]).optional(),
+  // Protected ledger metadata; legacy HTTP receipts omit it.
+  supervisorRecoveredBy: z.string().uuid().optional(),
+  // Protected ledger metadata; projected out of legacy HTTP receipts.
+  automaticAuthority: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  automaticDispatchAfter: z.string().datetime().optional(),
+  devRepairs: z.array(DevRepairAttemptSchema).max(100).optional(),
   factoryRuntimeRecoveryRequired: z.boolean().optional(),
   factoryRuntimeRecoveredBy: z.string().uuid().optional(),
   automaticApproval: AutomaticRestartApprovalSchema.optional(),
@@ -223,7 +508,11 @@ export const ProfileSharingStatusSchema = z.object({
       error: z.string().nullable(),
       conflicts: z.array(z.string()),
       conflictValues: z.array(
-        z.object({ field: z.string(), sharedValue: z.string(), environmentValue: z.string() }),
+        z.object({
+          field: z.string(),
+          sharedValue: z.string(),
+          environmentValue: z.string(),
+        }),
       ),
     }),
   ),
@@ -232,6 +521,7 @@ export type ProfileSharingStatus = z.infer<typeof ProfileSharingStatusSchema>;
 
 export const InstallationProfilesSnapshotSchema = ProfileSharingStatusSchema.extend({
   workerAccounts: z.boolean().optional(),
+  uncappedManagedWorkers: z.boolean().optional(),
   providers: z.record(z.string(), ProviderPreferencesSchema),
 });
 export type InstallationProfilesSnapshot = z.infer<typeof InstallationProfilesSnapshotSchema>;
@@ -249,3 +539,63 @@ export const InstallationProfilesAdmissionSchema = z.strictObject({
   preferences: SharedProviderPreferencesSchema,
 });
 export type InstallationProfilesAdmission = z.infer<typeof InstallationProfilesAdmissionSchema>;
+
+export const MaintenanceServiceSchema = z.enum([
+  "host",
+  "container-daemon",
+  "coordinator",
+  "supervisor",
+]);
+export type MaintenanceService = z.infer<typeof MaintenanceServiceSchema>;
+export const MaintenanceServicePermissionsSchema = z.object({
+  host: z.string().datetime().nullable(),
+  "container-daemon": z.string().datetime().nullable(),
+  coordinator: z.string().datetime().nullable(),
+  supervisor: z.string().datetime().nullable(),
+});
+
+// Owner-authenticated HTTP preference; old coordinators return 404 without changing policy.
+export const DaemonAutomationPreferenceSchema = z.strictObject({
+  revision: z.string().uuid().nullable(),
+  enabled: z.boolean(),
+  enabledAfter: z.string().datetime().nullable(),
+  legacyHostOnly: z.boolean(),
+  services: MaintenanceServicePermissionsSchema.optional(),
+});
+export type DaemonAutomationPreference = z.infer<typeof DaemonAutomationPreferenceSchema>;
+export const DaemonAutomationChangeSchema = z.strictObject({
+  expectedRevision: z.string().uuid().nullable(),
+  enabled: z.boolean(),
+  service: MaintenanceServiceSchema.optional(),
+});
+
+// COMPAT(maintenanceStatus): separate versioned route; older coordinators return 404.
+export const InstallationMaintenanceStatusSchema = z.object({
+  version: z.literal(1),
+  checkedAt: z.string().datetime(),
+  preference: DaemonAutomationPreferenceSchema,
+  services: z
+    .array(
+      z.object({
+        service: MaintenanceServiceSchema,
+        readiness: z.enum(["ready", "blocked"]),
+        reason: z.string(),
+      }),
+    )
+    .optional(),
+  paths: z.array(
+    z.object({
+      requester: z.enum(["host-agent", "container-agent"]),
+      target: RestartTargetSchema,
+      operation: z.enum(["restart", "source-update"]),
+      authorization: z.enum(["automatic", "manual"]),
+      readiness: z.enum(["ready", "blocked"]),
+      reason: z.string(),
+      selectedSource: z
+        .string()
+        .regex(/^[a-f0-9]{40}$/)
+        .nullable(),
+    }),
+  ),
+});
+export type InstallationMaintenanceStatus = z.infer<typeof InstallationMaintenanceStatusSchema>;

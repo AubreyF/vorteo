@@ -1,12 +1,20 @@
+import { CardDisclosureLayoutContext } from "./use-card-disclosure";
+import { CardGrid } from "./card-grid";
+import { PortalHost } from "@gorhom/portal";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { StreamColumns, StreamColumnWidthContext, useStreamColumns } from "./columns/layout";
-import { COLUMN_FADE_HEIGHT } from "./columns/geometry";
+import {
+  useWorkspaceCardHost,
+  useInlineCardsHost,
+  WorkspaceCardsPortal,
+} from "@/screens/workspace/supporting-cards-context";
+import { CARD_GAP, COLUMN_FADE_HEIGHT } from "./columns/geometry";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
-import { AgentTaskCards } from "./task-cards";
+import { AgentTaskCards, AgentQueueCards } from "./task-cards";
 import { JumpToLatest } from "./jump-to-latest";
 
 import { isQuotaExhaustionMessage } from "./quota-notice";
@@ -144,6 +152,35 @@ function StreamJumpButton({
   );
 }
 
+interface WorkspaceStreamColumnsInput {
+  agentId: string;
+  showTaskCards?: boolean;
+  trailingCards?: ReactNode;
+  contentMaxWidth: number;
+}
+
+function resolveCardsHost(inline: string | null, sidebar: string | null) {
+  return inline ?? sidebar;
+}
+
+function useWorkspaceStreamColumns({
+  agentId,
+  showTaskCards,
+  trailingCards,
+  contentMaxWidth,
+}: WorkspaceStreamColumnsInput) {
+  const workspaceCardHost = useWorkspaceCardHost(agentId);
+  const columns = useStreamColumns(
+    {
+      showTaskCards: !workspaceCardHost && showTaskCards,
+      trailingCards: workspaceCardHost ? null : trailingCards,
+      externalCards: !!workspaceCardHost,
+    },
+    contentMaxWidth,
+  );
+  return { workspaceCardHost, columns, splitColumns: columns.split || !!workspaceCardHost };
+}
+
 function shouldRenderTaskCards(show: boolean | undefined, serverId: string | undefined): boolean {
   return !!show && !!serverId;
 }
@@ -153,11 +190,13 @@ function renderLiveAuxiliaryNode(input: {
   turnFooter: ReactNode;
   bottomOverlayInset: number;
   taskCards: ReactNode;
+  queueCards: ReactNode;
 }): ReactNode {
   if (
     !input.pendingPermissions &&
     !input.turnFooter &&
     !input.taskCards &&
+    !input.queueCards &&
     input.bottomOverlayInset === 0
   ) {
     return null;
@@ -169,8 +208,9 @@ function renderLiveAuxiliaryNode(input: {
         style={[stylesheet.contentWrapper, stylesheet.bottomCardStack]}
         testID={input.taskCards ? "agent-history-task-cards" : undefined}
       >
-        {input.taskCards}
+        <CardGrid>{input.taskCards}</CardGrid>
         {input.pendingPermissions}
+        {input.queueCards}
       </View>
       {input.bottomOverlayInset > 0 ? (
         <BottomOverlayInset height={input.bottomOverlayInset} />
@@ -321,6 +361,7 @@ export interface AgentStreamViewHandle {
 export interface AgentStreamViewProps {
   showTaskCards?: boolean;
   trailingCards?: ReactNode;
+  composer?: ReactNode;
   agentId: string;
   serverId?: string;
   context: AgentScreenAgent;
@@ -379,6 +420,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     {
       showTaskCards,
       trailingCards,
+      composer,
       agentId,
       serverId,
       context,
@@ -403,8 +445,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const toolCallDetailLevel = useSettings((settings) => settings.toolCallDetailLevel);
     const chatOutlineEnabled = useSettings((settings) => settings.chatOutlineEnabled);
     const contentMaxWidth = useSettings(resolveContentMaxWidth);
-    const columns = useStreamColumns({ showTaskCards, trailingCards }, contentMaxWidth);
-    const splitColumns = columns.split;
+    const { workspaceCardHost, columns, splitColumns } = useWorkspaceStreamColumns({
+      agentId,
+      showTaskCards,
+      trailingCards,
+      contentMaxWidth,
+    });
     const viewportRef = useRef<StreamViewportHandle | null>(null);
     const pendingClientMessageIds = useMemo(
       () => new Set(pendingMessageSubmissions.map((submission) => submission.clientMessageId)),
@@ -436,7 +482,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       state.sessions[resolvedServerId]?.agentStreamHead?.get(agentId),
     );
     const streamHead = providedStreamHead ?? sessionStreamHead;
-    const forkAgent = useForkAgent({ serverId: resolvedServerId, toast, readOnly });
+    const forkAgent = useForkAgent({
+      serverId: resolvedServerId,
+      toast,
+      readOnly,
+    });
     const supportsAgentForkContextCursor = useSessionStore(
       (state) =>
         state.sessions[resolvedServerId]?.serverInfo?.features?.agentForkContextCursor === true,
@@ -793,7 +843,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               {(renderFullContent) => (
                 <AssistantMessage
                   renderFullContent={renderFullContent}
-                  occurrenceKey={createAssistantImageOccurrenceKey({ agentId, itemId: item.id })}
+                  occurrenceKey={createAssistantImageOccurrenceKey({
+                    agentId,
+                    itemId: item.id,
+                  })}
                   message={item.text}
                   timestamp={item.timestamp.getTime()}
                   workspaceRoot={workspaceRoot}
@@ -1062,7 +1115,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const scrollToBottomContainerStyle = useMemo(
       () => [
         stylesheet.scrollToBottomContainer,
-        { bottom: resolveBottomOverlayControlOffset(bottomOverlayControlClearance) },
+        {
+          bottom: resolveBottomOverlayControlOffset(bottomOverlayControlClearance),
+        },
       ],
       [bottomOverlayControlClearance],
     );
@@ -1131,40 +1186,66 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           renderStreamItem,
         }),
     );
-    const taskCards = useMemo(
+    const [queueReviewRequest, setQueueReviewRequest] = useState(0);
+    const reviewMessages = useCallback(() => setQueueReviewRequest((value) => value + 1), []);
+    const inlineCardsHost = useInlineCardsHost(agentId);
+    const cardsPortalHost = resolveCardsHost(inlineCardsHost, workspaceCardHost);
+    const inlineCards = useMemo(
       () =>
-        trailingCards ??
-        (shouldRenderTaskCards(showTaskCards, serverId) ? (
-          <AgentTaskCards
-            serverId={serverId!}
-            agentId={agentId}
-            workspaceId={context.workspaceId}
-            cwd={context.cwd}
-          />
-        ) : null),
-      [trailingCards, showTaskCards, serverId, agentId, context.workspaceId, context.cwd],
+        inlineCardsHost ? (
+          <CardDisclosureLayoutContext value="sidebar">
+            <PortalHost name={inlineCardsHost} />
+            <PortalHost name={`${inlineCardsHost}:supporting`} />
+          </CardDisclosureLayoutContext>
+        ) : null,
+      [inlineCardsHost],
     );
-    const cards = useMemo(
-      () =>
-        renderLiveAuxiliaryNode({
-          pendingPermissions: pendingActionPermissionsNode,
-          turnFooter: null,
-          taskCards,
-          bottomOverlayInset: 0,
-        }),
-      [pendingActionPermissionsNode, taskCards],
-    );
+    const taskCards = useMemo(() => {
+      if (trailingCards) return trailingCards;
+      if (!shouldRenderTaskCards(showTaskCards, serverId)) return null;
+      return (
+        <AgentTaskCards
+          serverId={serverId!}
+          agentId={agentId}
+          workspaceId={context.workspaceId}
+          cwd={context.cwd}
+          hasWorkspaceCards={Boolean(workspaceCardHost)}
+          onReviewMessages={reviewMessages}
+        />
+      );
+    }, [
+      trailingCards,
+      showTaskCards,
+      serverId,
+      agentId,
+      context.workspaceId,
+      context.cwd,
+      workspaceCardHost,
+      reviewMessages,
+    ]);
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
         auxiliary.turnFooter && !auxiliary.pendingPermissions ? TURN_FOOTER_BOTTOM_SPACING : 0;
+      const reserveColumnFade = splitColumns && !inlineCardsHost;
       const bottomOverlayInset = resolveBottomOverlayTailInset({
-        requiredTailClearance: splitColumns ? COLUMN_FADE_HEIGHT : bottomOverlayTailClearance,
+        requiredTailClearance: reserveColumnFade ? COLUMN_FADE_HEIGHT : bottomOverlayTailClearance,
         existingTailSpacing,
       });
       return renderLiveAuxiliaryNode({
         pendingPermissions: splitColumns ? pendingQuestionsNode : auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
-        taskCards: splitColumns ? null : taskCards,
+        taskCards: splitColumns ? inlineCards : taskCards,
+        queueCards:
+          shouldRenderTaskCards(showTaskCards, serverId) && !trailingCards ? (
+            <CardDisclosureLayoutContext value="inline">
+              <AgentQueueCards
+                serverId={serverId!}
+                agentId={agentId}
+                cwd={context.cwd}
+                reviewRequest={queueReviewRequest}
+              />
+            </CardDisclosureLayoutContext>
+          ) : null,
         bottomOverlayInset,
       });
     }, [
@@ -1173,7 +1254,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       pendingQuestionsNode,
       bottomOverlayTailClearance,
       splitColumns,
+      inlineCardsHost,
+      inlineCards,
       taskCards,
+      showTaskCards,
+      serverId,
+      trailingCards,
+      agentId,
+      context.cwd,
+      queueReviewRequest,
     ]);
 
     const renderers = useMemo<StreamSegmentRenderers>(
@@ -1229,7 +1318,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <StreamColumns layout={columns} outline={outline}>
+          <WorkspaceCardsPortal key={cardsPortalHost} hostName={cardsPortalHost}>
+            {taskCards}
+            {pendingActionPermissionsNode}
+          </WorkspaceCardsPortal>
+          <StreamColumns layout={columns} outline={outline} composer={composer}>
             <AssistantSelectionCopySurface style={stylesheet.container}>
               <QueueDragScrollContext.Provider value={queueDragScroll.onDragActive}>
                 <MessageOuterSpacingProvider disableOuterSpacing>
@@ -1272,7 +1365,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 </View>
               )}
             </AssistantSelectionCopySurface>
-            {cards}
+            <>
+              {taskCards}
+              {pendingActionPermissionsNode}
+            </>
           </StreamColumns>
         </ToolCallSheetProvider>
       </ChatFind>
@@ -1373,6 +1469,7 @@ function agentStreamViewPropsEqual(
 ): boolean {
   const reasons: string[] = [];
   if (left.agentId !== right.agentId) reasons.push("agentId");
+  if (left.composer !== right.composer) reasons.push("composer");
   if (left.trailingCards !== right.trailingCards) reasons.push("trailingCards");
   if (left.showTaskCards !== right.showTaskCards) reasons.push("showTaskCards");
   if (left.serverId !== right.serverId) reasons.push("serverId");
@@ -1781,7 +1878,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[12],
   },
   bottomCardStack: {
-    gap: theme.spacing[4],
+    gap: CARD_GAP,
   },
   syncingIndicator: {
     flexDirection: "row",

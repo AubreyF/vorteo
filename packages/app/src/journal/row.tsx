@@ -2,6 +2,12 @@ import { useCallback, type RefObject } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { AgentJournalEntry } from "@getpaseo/protocol/agent-journal";
+import { useVortonTouch } from "@/vorton-touch";
+import {
+  taskCardStyles,
+  TASK_CARD_ICON_CENTER,
+  TASK_CARD_TOUCH_ICON_CENTER,
+} from "@/agent-stream/task-card-styles";
 import { JournalSpark } from "./spark";
 
 interface JournalRowProps {
@@ -23,6 +29,7 @@ export function JournalRow({
   animate,
   timestamps,
 }: JournalRowProps) {
+  const touch = useVortonTouch();
   const timestamp = new Date(entry.timestamp);
   const register = useCallback(
     (node: View | null) => {
@@ -32,16 +39,27 @@ export function JournalRow({
     [entry.id, timestamps],
   );
   return (
-    <View testID={`journal-entry-${entry.id}`} style={styles.row}>
-      {!first ? <View style={styles.lineAbove} /> : null}
-      {!last ? <View style={styles.lineBelow} /> : null}
-      <View ref={register} collapsable={false} style={styles.timestampGroup}>
+    <View
+      testID={`journal-entry-${entry.id}`}
+      style={[styles.row, taskCardStyles.proseEndInset, touch && styles.touchRow]}
+    >
+      {!first ? (
+        <View testID="journal-line-above" style={[styles.lineAbove, touch && styles.touchLine]} />
+      ) : null}
+      {!last ? (
+        <View testID="journal-line-below" style={[styles.lineBelow, touch && styles.touchLine]} />
+      ) : null}
+      <View style={styles.marker}>
         {ready ? (
           <JournalSpark seen={seen} entryId={entry.id} animate={animate} />
         ) : (
           <View style={styles.markerPlaceholder} />
         )}
+      </View>
+      <View style={styles.content}>
         <View
+          ref={register}
+          collapsable={false}
           testID="journal-timestamp"
           style={styles.timestamp}
           accessibilityLabel={timestamp.toLocaleString()}
@@ -53,33 +71,30 @@ export function JournalRow({
             {timestamp.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
           </Text>
         </View>
+        <Text testID="journal-text" selectable style={styles.text}>
+          {entry.text}
+        </Text>
       </View>
-      <Text testID="journal-text" selectable style={styles.text}>
-        {entry.text}
-      </Text>
     </View>
   );
 }
 const styles = StyleSheet.create((theme) => ({
-  timestampGroup: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: theme.spacing[2],
-    flexShrink: 0,
-  },
+  marker: { flexShrink: 0, marginTop: -2 },
+  content: { flex: 1, minWidth: 0, gap: 2 },
   markerPlaceholder: { width: 20, height: 20 },
   lineAbove: {
     position: "absolute",
-    left: theme.spacing[2] + 9.5,
+    left: TASK_CARD_ICON_CENTER - 0.5,
     top: 0,
-    height: theme.spacing[2] + 10,
+    // Stop at the transparent marker frame instead of painting behind its icon.
+    height: theme.spacing[1] - 2,
     width: 1,
     backgroundColor: theme.colors.borderAccent,
   },
   lineBelow: {
     position: "absolute",
-    left: theme.spacing[2] + 9.5,
-    top: theme.spacing[2] + 10,
+    left: TASK_CARD_ICON_CENTER - 0.5,
+    top: theme.spacing[1] + 18,
     bottom: 0,
     width: 1,
     backgroundColor: theme.colors.borderAccent,
@@ -87,23 +102,28 @@ const styles = StyleSheet.create((theme) => ({
   row: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-    paddingLeft: theme.spacing[2],
+    gap: theme.spacing[2],
+    paddingVertical: 2,
+    paddingLeft: TASK_CARD_ICON_CENTER - 10,
   },
-  timestamp: { width: 64, flexShrink: 0, gap: theme.spacing[1] },
-  date: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm - 2 },
+  touchRow: { paddingLeft: TASK_CARD_TOUCH_ICON_CENTER - 10 },
+  touchLine: { left: TASK_CARD_TOUCH_ICON_CENTER - 0.5 },
+  timestamp: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    minHeight: 16,
+  },
+  date: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm - 2, lineHeight: 16 },
   time: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm - 2,
+    lineHeight: 16,
     fontVariant: ["tabular-nums"],
   },
   text: {
-    flex: 1,
-    minWidth: 0,
     color: theme.colors.foreground,
-    // Compensate for the prose line leading without tightening paragraph spacing.
-    marginTop: -Math.round(theme.fontSize.sm / 6),
     fontSize: theme.fontSize.sm,
     lineHeight: Math.round(theme.fontSize.sm * 1.5),
   },

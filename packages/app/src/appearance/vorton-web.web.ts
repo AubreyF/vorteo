@@ -2,7 +2,17 @@ import { observeWebViewport } from "../diagnostics/web-viewport.web";
 import { isAppleHandheldPlatform } from "../utils/terminal-keys";
 const CSS = `
 @supports (height: 100dvh) {
-  html, html body { height: 100dvh; }
+  html, html body { height: calc(100dvh / var(--interface-scale, 1)); }
+}
+/* Safari can pan its visual viewport to the focused editor. Keep the complete shell
+   inside that visible rectangle rather than scrolling its workspace header away. */
+html[data-vorton-keyboard="true"] #root {
+  position: fixed;
+  top: calc(var(--vorton-visible-top) / var(--interface-scale, 1));
+  left: 0;
+  width: 100%;
+  height: calc(var(--vorton-visible-height) / var(--interface-scale, 1)) !important;
+  overflow: hidden;
 }
 /* Header and panel shells own safe-area spacing. Do not add a second top inset here. */
 html[data-vorton-ios-standalone="true"] #root {
@@ -14,6 +24,9 @@ html[data-vorton-touch="true"] :is(button, [role="button"], [role="tab"], [role=
   min-width: 44px !important;
   touch-action: manipulation;
 }
+/* Card drag columns own their compact width; keep the shared 44px height. */
+html[data-vorton-touch="true"] [data-vorton-row-handle] { min-width: 0 !important; }
+html[data-vorton-touch="true"] [data-keyboard-reorder] { touch-action: none; }
 html[data-vorton-touch="true"] :is(input, textarea, [contenteditable="true"]) { font-size: max(16px, 1em); }
 html :is(button, [role="button"], [role="tab"], [role="menuitem"], [role="combobox"]):focus-visible {
   outline: 2px solid currentColor;
@@ -42,8 +55,43 @@ export function applyVortonWeb(touch: boolean): () => void {
   style.textContent = CSS;
   document.head.appendChild(style);
   const stopObserving = observeWebViewport();
+  const viewport = window.visualViewport;
+  const syncKeyboardViewport = () => {
+    const focused = document.activeElement;
+    const editing =
+      focused instanceof HTMLElement &&
+      (focused.matches("input, textarea") || focused.isContentEditable);
+    // Pinch zoom owns its viewport. Never interpret zooming as a keyboard.
+    const keyboard =
+      touch &&
+      viewport &&
+      Math.abs(viewport.scale - 1) < 0.01 &&
+      editing &&
+      window.innerHeight - viewport.height > 100;
+    if (keyboard && viewport) {
+      root.style.setProperty("--vorton-visible-top", `${viewport.offsetTop}px`);
+      root.style.setProperty("--vorton-visible-height", `${viewport.height}px`);
+      root.dataset.vortonKeyboard = "true";
+    } else {
+      delete root.dataset.vortonKeyboard;
+      root.style.removeProperty("--vorton-visible-top");
+      root.style.removeProperty("--vorton-visible-height");
+    }
+  };
+  viewport?.addEventListener("resize", syncKeyboardViewport);
+  viewport?.addEventListener("scroll", syncKeyboardViewport);
+  document.addEventListener("focusin", syncKeyboardViewport);
+  document.addEventListener("focusout", syncKeyboardViewport);
+  syncKeyboardViewport();
   return () => {
     stopObserving();
+    viewport?.removeEventListener("resize", syncKeyboardViewport);
+    viewport?.removeEventListener("scroll", syncKeyboardViewport);
+    document.removeEventListener("focusin", syncKeyboardViewport);
+    document.removeEventListener("focusout", syncKeyboardViewport);
+    delete root.dataset.vortonKeyboard;
+    root.style.removeProperty("--vorton-visible-top");
+    root.style.removeProperty("--vorton-visible-height");
     if (statusBar && originalStatusBar) statusBar.content = originalStatusBar;
     style.remove();
     delete root.dataset.vortonTouch;

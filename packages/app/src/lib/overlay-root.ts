@@ -66,7 +66,7 @@ export function useGlobalWebOverlayLayer(kind: OverlayKind, active: boolean): nu
   const contextualLayer = useOverlayLayer(kind);
   return useMemo(() => {
     if (!active) return contextualLayer;
-    const topLayer = getTopWebOverlay()?.getLayer() ?? 0;
+    const topLayer = getTopWebOverlay(true)?.getLayer() ?? 0;
     return Math.max(contextualLayer, topLayer + OVERLAY_Z[kind]);
   }, [active, contextualLayer, kind]);
 }
@@ -82,6 +82,7 @@ export function OverlayLayerProvider({ layer, children }: { layer: number; child
 type WebOverlayKeyHandler = (event: KeyboardEvent) => boolean;
 
 interface WebOverlayEntry {
+  focusBehavior: "trap" | "none";
   id: symbol;
   order: number;
   getLayer: () => number;
@@ -99,8 +100,9 @@ interface RemoveWebOverlayOptions {
   restoreFocus?: boolean;
 }
 
-function getTopWebOverlay(): WebOverlayEntry | undefined {
+function getTopWebOverlay(focusOnly = false): WebOverlayEntry | undefined {
   return webOverlayEntries.reduce<WebOverlayEntry | undefined>((top, entry) => {
+    if (focusOnly && entry.focusBehavior === "none") return top;
     if (!top) return entry;
     const layerDifference = entry.getLayer() - top.getLayer();
     return layerDifference > 0 || (layerDifference === 0 && entry.order > top.order) ? entry : top;
@@ -108,7 +110,7 @@ function getTopWebOverlay(): WebOverlayEntry | undefined {
 }
 
 export function hasActiveWebOverlay(): boolean {
-  return getTopWebOverlay() !== undefined;
+  return getTopWebOverlay(true) !== undefined;
 }
 
 function getFocusableElements(scope: HTMLElement): HTMLElement[] {
@@ -138,7 +140,7 @@ function focusFirstElement(scope: HTMLElement): void {
 }
 
 function handleWebOverlayFocus(event: FocusEvent): void {
-  const top = getTopWebOverlay();
+  const top = getTopWebOverlay(true);
   const scope = top?.getScope();
   if (!scope || scope.contains(event.target as Node)) return;
   if (webOverlayFocusCheckQueued) return;
@@ -149,7 +151,7 @@ function handleWebOverlayFocus(event: FocusEvent): void {
   webOverlayFocusCheckQueued = true;
   queueMicrotask(() => {
     webOverlayFocusCheckQueued = false;
-    const currentScope = getTopWebOverlay()?.getScope();
+    const currentScope = getTopWebOverlay(true)?.getScope();
     if (!currentScope || currentScope.contains(document.activeElement)) return;
     focusFirstElement(currentScope);
   });
@@ -165,7 +167,14 @@ export function dispatchTopWebOverlayKeyDown(event: KeyboardEvent): boolean {
   // committed the composed text.
   if (event.isComposing || event.key === "Process") return false;
 
-  const top = getTopWebOverlay();
+  const paintedTop = getTopWebOverlay();
+  // Non-interactive tooltips own dismissal, but leave navigation and focus with
+  // the underlying dialog or menu. They never become a keyboard focus scope.
+  if (paintedTop?.focusBehavior === "none" && paintedTop.getKeyHandler()(event)) {
+    event.stopImmediatePropagation();
+    return true;
+  }
+  const top = getTopWebOverlay(true);
   const scope = top?.getScope();
   if (!top || !scope) return false;
 
@@ -212,15 +221,22 @@ function addWebOverlay(entry: WebOverlayEntry): (options?: RemoveWebOverlayOptio
   webOverlayEntries.push(entry);
   attachWebOverlayListeners();
 
-  const focusFrame = window.requestAnimationFrame(() => {
-    const scope = entry.getScope();
-    if (getTopWebOverlay() === entry && scope && !scope.contains(document.activeElement)) {
-      focusFirstElement(scope);
-    }
-  });
+  const focusFrame =
+    entry.focusBehavior === "trap"
+      ? window.requestAnimationFrame(() => {
+          const scope = entry.getScope();
+          if (
+            getTopWebOverlay(true) === entry &&
+            scope &&
+            !scope.contains(document.activeElement)
+          ) {
+            focusFirstElement(scope);
+          }
+        })
+      : null;
 
   return (options) => {
-    window.cancelAnimationFrame(focusFrame);
+    if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
     const index = webOverlayEntries.findIndex((candidate) => candidate.id === entry.id);
     if (index !== -1) webOverlayEntries.splice(index, 1);
     detachWebOverlayListeners();
@@ -235,6 +251,7 @@ function addWebOverlay(entry: WebOverlayEntry): (options?: RemoveWebOverlayOptio
 }
 
 interface WebOverlayRegistration {
+  focusBehavior?: "trap" | "none";
   active: boolean;
   layer: number;
   onKeyDown: WebOverlayKeyHandler;
@@ -243,19 +260,21 @@ interface WebOverlayRegistration {
 
 /**
  * Registers a focus scope in the same relative layer model used for painting.
- * Only the highest painted overlay receives keyboard input; focus is trapped
- * there and restored to the opener when that overlay closes.
+ * The highest painted overlay receives keyboard input first. Focus is trapped
+ * and restored by default; non-interactive tooltips opt out of focus ownership.
  */
 export function useWebOverlayRegistration({
   active,
   layer,
   onKeyDown,
+  focusBehavior = "trap",
   restoreFocusRef: preferredRestoreFocusRef,
 }: WebOverlayRegistration) {
   const idRef = useRef(Symbol("web-overlay"));
   const scopeRef = useRef<HTMLElement | null>(null);
   const layerRef = useRef(layer);
   const keyHandlerRef = useRef(onKeyDown);
+  const focusBehaviorRef = useRef(focusBehavior);
   const capturedRestoreFocusRef = useRef<HTMLElement | null>(null);
   const removeEntryRef = useRef<((options?: RemoveWebOverlayOptions) => void) | null>(null);
   const detachedRemoveEntryRef = useRef<((options?: RemoveWebOverlayOptions) => void) | null>(null);
@@ -266,6 +285,7 @@ export function useWebOverlayRegistration({
   activeRef.current = active;
   layerRef.current = layer;
   keyHandlerRef.current = onKeyDown;
+  focusBehaviorRef.current = focusBehavior;
   if (active && !wasActiveRef.current && typeof document !== "undefined") {
     const requestedRestoreTarget = preferredRestoreFocusRef?.current;
     if (requestedRestoreTarget instanceof HTMLElement) {
@@ -299,12 +319,13 @@ export function useWebOverlayRegistration({
 
     detachedRemoveEntryRef.current = null;
     const entry: WebOverlayEntry = {
+      focusBehavior: focusBehaviorRef.current,
       id: idRef.current,
       order: ++webOverlayOrder,
       getLayer: () => layerRef.current,
       getScope: () => scopeRef.current,
       getKeyHandler: () => keyHandlerRef.current,
-      restoreFocus: capturedRestoreFocusRef.current,
+      restoreFocus: focusBehaviorRef.current === "trap" ? capturedRestoreFocusRef.current : null,
     };
     removeEntryRef.current = addWebOverlay(entry);
     registeredRef.current = true;

@@ -11,8 +11,12 @@ export const GOAL_STATUS_LABELS: Record<AgentGoal["status"], string> = {
   complete: "Goal complete",
 };
 
-export function formatGoalElapsed(seconds: number): string {
+export function formatGoalElapsed(seconds: number, narrow = false): string {
   const total = Math.floor(seconds);
+  if (narrow) {
+    if (total >= 3600) return `${Math.floor(total / 3600)}h`;
+    return total < 60 ? "<1m" : `${Math.floor(total / 60)}m`;
+  }
   if (total < 60) return `${total}s`;
   const minutes = Math.floor(total / 60);
   if (minutes < 60) return `${minutes}m ${total % 60}s`;
@@ -49,8 +53,8 @@ export function isGoalContinuationEnabled(state: AgentGoalState | undefined): bo
 
 export function goalStatusLabel(state: AgentGoalState | undefined): string {
   if (state?.status !== "ready") return "Goal state unconfirmed";
-  if (state.restartContinuationHeld) return "Goal paused for restart";
-  if (state.queueContinuationHeld) return "Goal (waiting for messages)";
+  if (state.restartContinuationHeld) return "Goal blocked by restart";
+  if (state.queueContinuationHeld) return "Goal";
   return state.goal ? GOAL_STATUS_LABELS[state.goal.status] : "No goal";
 }
 

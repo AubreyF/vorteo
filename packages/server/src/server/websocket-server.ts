@@ -1,3 +1,5 @@
+import { SidebarStateStore } from "./sidebar-state/store.js";
+import { bootstrapReviewFeatures } from "./execution-installation/coordinator-bootstrap-session.js";
 import { serializeLegacyChecklistMessage } from "./agent/task-checklist/compatibility.js";
 import { QueueAttachmentStore } from "./message-queue/attachments.js";
 import { createAgentQueueDelivery } from "./message-queue/agent-delivery.js";
@@ -163,6 +165,7 @@ interface WebSocketConnectionIdentity {
 }
 
 interface WebSocketServerConfig {
+  maintenanceRestart?: SessionOptions["maintenanceRestart"];
   coordinatorBootstrap?: SessionOptions["coordinatorBootstrap"];
   allowedOrigins?: Set<string>;
   hostnames?: HostnamesConfig;
@@ -568,6 +571,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly workspaceGitService: WorkspaceGitService;
   private readonly workspaceAutoName: WorkspaceAutoName;
   private readonly downloadTokenStore: DownloadTokenStore;
+  private readonly sidebarState: SidebarStateStore;
   private readonly paseoHome: string;
   private readonly passwordHash: string | undefined;
   private readonly credentialSource: DaemonAuthConfig | undefined;
@@ -598,6 +602,7 @@ export class VoiceAssistantWebSocketServer {
     | null;
   private serverCapabilities: ServerCapabilities | undefined;
   private readonly coordinatorBootstrap: SessionOptions["coordinatorBootstrap"];
+  private readonly maintenanceRestart: SessionOptions["maintenanceRestart"];
   private readonly runtimeMetrics = new WebSocketRuntimeMetricsWindow();
   private lastRuntimeMetricsSnapshot: WebSocketRuntimeDiagnosticPayload | null = null;
   private runtimeMetricsInterval: ReturnType<typeof setInterval> | null = null;
@@ -605,6 +610,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly applicationSocketLease = new ApplicationSocketLease<WebSocketLike>();
   private eventLoopDelayMonitor: ReturnType<typeof monitorEventLoopDelay> | null = null;
   private unsubscribeSpeechReadiness: (() => void) | null = null;
+  private unsubscribeBootstrapAvailability: (() => void) | null = null;
   private unsubscribeDaemonConfigChange: (() => void) | null = null;
   private readonly providerUsageService: ProviderUsageService;
   private readonly providerLoginService: ProviderLoginService;
@@ -693,6 +699,7 @@ export class VoiceAssistantWebSocketServer {
     this.logger = logger.child({ module: "websocket-server" });
     this.workspaceSetupRuntime = workspaceSetupRuntime;
     this.coordinatorBootstrap = wsConfig.coordinatorBootstrap;
+    this.maintenanceRestart = wsConfig.maintenanceRestart;
     this.advertiseDaemonStatusRpc = wsConfig.daemonStatusRpc !== false;
     this.advertiseRelayConfig = wsConfig.relayConfig !== false;
     this.connectionLifecycle = wsConfig.startPaused === true ? "starting" : "accepting";
@@ -732,6 +739,7 @@ export class VoiceAssistantWebSocketServer {
     this.workspaceAutoName = workspaceAutoName;
     this.downloadTokenStore = downloadTokenStore;
     this.paseoHome = paseoHome;
+    this.sidebarState = new SidebarStateStore(join(paseoHome, "sidebar-state.json"));
     this.passwordHash = auth?.password;
     this.worktreesRoot = daemonRuntimeConfig?.worktreesRoot;
     this.daemonConfigStore = daemonConfigStore;
@@ -827,6 +835,7 @@ export class VoiceAssistantWebSocketServer {
     });
 
     this.wss = this.createWebSocketServer(server, wsConfig, auth);
+    this.subscribeBootstrapAvailability();
     this.startRuntimeMetricsInterval();
     this.startApplicationSocketLeaseInterval();
 
@@ -1169,6 +1178,8 @@ export class VoiceAssistantWebSocketServer {
     this.prepareForShutdown();
     this.unsubscribeSpeechReadiness?.();
     this.unsubscribeSpeechReadiness = null;
+    this.unsubscribeBootstrapAvailability?.();
+    this.unsubscribeBootstrapAvailability = null;
     this.unsubscribeDaemonConfigChange?.();
     this.unsubscribeDaemonConfigChange = null;
     this.unsubscribeTerminalActivity?.();
@@ -1289,24 +1300,25 @@ export class VoiceAssistantWebSocketServer {
     }
 
     const payloadBytes = outboundFrameByteLength(payload);
-    let legacyPayload: string | undefined;
-    let legacyBytes = 0;
+    const projections = new Map<string, { payload: string; bytes: number }>();
     for (const ws of writableSockets) {
-      const supportsBlocked =
-        this.sessions.get(ws)?.session.supportsForSource(CLIENT_CAPS.checklistBlockedStatus, ws) ===
-        true;
-      if (!supportsBlocked && legacyPayload === undefined) {
-        legacyPayload = serializeLegacyChecklistMessage(message, payload);
-        legacyBytes = outboundFrameByteLength(legacyPayload);
+      const session = this.sessions.get(ws)?.session;
+      const blocked = session?.supportsForSource(CLIENT_CAPS.checklistBlockedStatus, ws) === true;
+      const review = session?.supportsForSource(CLIENT_CAPS.checklistReviewStatus, ws) === true;
+      const key = `${blocked}:${review}`;
+      let frame = { payload, bytes: payloadBytes };
+      if (!blocked || !review) {
+        const cached = projections.get(key);
+        if (cached) frame = cached;
+        else {
+          const projected = serializeLegacyChecklistMessage(message, payload, { blocked, review });
+          frame = { payload: projected, bytes: outboundFrameByteLength(projected) };
+          projections.set(key, frame);
+        }
       }
-      this.sendFrameToClient(
-        ws,
-        supportsBlocked ? payload : legacyPayload!,
-        supportsBlocked ? payloadBytes : legacyBytes,
-        () => {
-          this.runtimeMetrics.recordOutboundMessage(message, ws.bufferedAmount);
-        },
-      );
+      this.sendFrameToClient(ws, frame.payload, frame.bytes, () => {
+        this.runtimeMetrics.recordOutboundMessage(message, ws.bufferedAmount);
+      });
     }
   }
 
@@ -1573,9 +1585,18 @@ export class VoiceAssistantWebSocketServer {
     return connection;
   }
 
+  private supportsSidebarState(): boolean {
+    return (
+      this.daemonConfigStore.get().sharedProviderPreferences?.installation?.environment !==
+      "container"
+    );
+  }
+
   private createSocketSession(options: SocketSessionOptions): Session {
     return new Session({
+      sidebarState: this.supportsSidebarState() ? this.sidebarState : undefined,
       coordinatorBootstrap: this.coordinatorBootstrap,
+      maintenanceRestart: this.maintenanceRestart,
       browserToolsBroker: this.browserToolsBroker,
       clientId: options.clientId,
       principalId: options.principalId,
@@ -1928,7 +1949,9 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(directorySync): added in v0.3.x, remove gate after 2027-02-12.
         directorySync: true,
         // COMPAT(workspaceLabels): added in v0.5.0, remove after 2027-08-14.
-        ...(this.workspaceLabelService ? { workspaceLabels: true } : {}),
+        ...(this.workspaceLabelService
+          ? { workspaceLabels: true, workspaceLabelNeutralColors: true }
+          : {}),
         // COMPAT(workspaceSetupRun): added in v0.7.3, remove gate after 2027-09-02.
         workspaceSetupRun: true,
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
@@ -2013,6 +2036,8 @@ export class VoiceAssistantWebSocketServer {
         workspaceTaskEnvironments: true,
         idleRestart: true,
         gracefulRestart: true,
+        restartDrainObservation: true,
+        heldIdleRestart: this.maintenanceRestart?.supported() === true,
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: true,
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -2041,9 +2066,7 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: true,
         agentGoals: true,
-        ...(this.coordinatorBootstrap
-          ? { coordinatorBootstrapReview: true, coordinatorBootstrapFactoryAdoption: true }
-          : {}),
+        ...bootstrapReviewFeatures(this.coordinatorBootstrap),
         durableMessageQueue: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: true,
@@ -2060,6 +2083,8 @@ export class VoiceAssistantWebSocketServer {
         agentTaskSnapshots: true,
         agentChecklistMutations: true,
         checklistBlockedStatus: true,
+        sidebarState: this.supportsSidebarState(),
+        checklistReviewStatus: true,
         agentJournal: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
         projectedSubagentTimeline: true,
@@ -2114,6 +2139,7 @@ export class VoiceAssistantWebSocketServer {
         sharedProviderPreferences: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         accountIndependentProfiles: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         explicitWorkerAccounts: true,
+        uncappedManagedWorkers: true,
         profileWorkflowAliases: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         installationProfileAuthority: Boolean(
           this.daemonConfigStore.get().sharedProviderPreferences,
@@ -2145,6 +2171,13 @@ export class VoiceAssistantWebSocketServer {
         config,
       },
     });
+  }
+
+  private subscribeBootstrapAvailability(): void {
+    this.unsubscribeBootstrapAvailability =
+      this.coordinatorBootstrap?.subscribeAvailability?.(() =>
+        this.broadcastCapabilitiesUpdate(),
+      ) ?? null;
   }
 
   private broadcastCapabilitiesUpdate(): void {

@@ -1,4 +1,5 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import fs from "node:fs/promises";
 import {
   mkdtempSync,
   mkdirSync,
@@ -7,18 +8,27 @@ import {
   writeFileSync,
   readFileSync,
   existsSync,
+  chmodSync,
+  realpathSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { createServer } from "node:http";
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import os from "node:os";
 import {
   assertContainerProfileLauncher,
   assertProtectedPaths,
   validateInstallPlan,
+  configureWebSource,
 } from "./install-execution-host.mjs";
+
+import {
+  digest,
+  publicationBindingPath,
+  readPublicationBinding,
+} from "./instance-web-artifact.mjs";
 
 test("Dev bootstrap requires the fixed profile client in both supervisor and worker", () => {
   const expected = "/fixture/.local/share/vorteo-installation-client/client.json";
@@ -120,12 +130,12 @@ test("installed agent commands return a public approval link without authorizing
     expect(calls).toEqual([
       {
         method: "POST",
-        url: "/api/installation/restart-requests",
+        url: "/api/installation/restart-requests?requireOwnerApproval=1",
         token: "Bearer scoped-test-token",
       },
       {
         method: "GET",
-        url: `/api/installation/restart-requests/${id}`,
+        url: `/api/installation/restart-requests/${id}?requireOwnerApproval=1`,
         token: "Bearer scoped-test-token",
       },
     ]);
@@ -426,7 +436,28 @@ test("Dev builds remain inactive until exact-source activation and retain the pr
     );
     const candidate = await prepare("a430b160-00a2-4d3e-bd91-d2eef4db7494");
     expect((await command({ action: "inspect" })).release).toBe(previous);
-    const activation = { action: "activate", previous, release: candidate.release, update };
+    expect(candidate.artifactSha256).toMatch(/^[a-f0-9]{64}$/);
+    const activation = {
+      action: "activate",
+      previous,
+      release: candidate.release,
+      update,
+      artifactSha256: candidate.artifactSha256,
+    };
+    expect((await command({ ...activation, action: "verify-candidate" })).artifactSha256).toBe(
+      candidate.artifactSha256,
+    );
+    const workerFile = path.join(
+      candidate.release,
+      "packages/server/dist/server/server/daemon-worker.js",
+    );
+    writeFileSync(workerFile, "throw new Error('changed candidate');");
+    await expect(command({ ...activation, action: "verify-candidate" })).rejects.toThrow(
+      "content changed",
+    );
+    await expect(command(activation)).rejects.toThrow("content changed");
+    expect((await command({ action: "inspect" })).release).toBe(previous);
+    writeFileSync(workerFile, "process.exit(0)");
     await expect(
       command({ ...activation, update: { ...update, sha256: "e".repeat(64) } }),
     ).rejects.toThrow("differs from approval");
@@ -445,3 +476,249 @@ test("Dev builds remain inactive until exact-source activation and retain the pr
     rmSync(root, { recursive: true, force: true });
   }
 }, 60000);
+
+async function webSourceFixture() {
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "web-source-setup-")));
+  const repository = path.join(root, "publishing");
+  const protectedRepository = path.join(root, "protected");
+  const destination = path.join(root, "served");
+  mkdirSync(repository);
+  mkdirSync(destination);
+  function git(directory, ...args) {
+    return execFileSync("git", args, {
+      cwd: directory,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  }
+  git(repository, "init", "-b", "integration");
+  git(repository, "config", "user.email", "test@example.invalid");
+  git(repository, "config", "user.name", "Test");
+  writeFileSync(path.join(repository, "source.txt"), "installed source");
+  git(repository, "add", ".");
+  git(repository, "commit", "-qm", "Installed");
+  git(root, "clone", "--no-hardlinks", repository, protectedRepository);
+  writeFileSync(path.join(repository, "source.txt"), "current interface source");
+  git(repository, "commit", "-qam", "Interface");
+  const sourceCommit = git(repository, "rev-parse", "HEAD");
+  const html = "verified interface";
+  writeFileSync(path.join(destination, "index.html"), html);
+  writeFileSync(
+    path.join(destination, "release.json"),
+    JSON.stringify({
+      sha256: digest(html),
+      sourceCommit,
+      integrationRef: "refs/heads/integration",
+    }),
+  );
+  const calls = path.join(root, "docker-calls.jsonl");
+  const mounts = path.join(root, "mounts.json");
+  writeFileSync(mounts, "[]");
+  const docker = path.join(root, "docker-fixture");
+  writeFileSync(
+    docker,
+    `#!${process.execPath}\nconst fs = require('node:fs');\nfs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)) + '\\n');\nif(process.argv[2] === 'ps') console.log('fixture');\nelse if(process.argv[2] === 'inspect') console.log(JSON.stringify([{Mounts: JSON.parse(fs.readFileSync(${JSON.stringify(mounts)}, 'utf8'))}]));\nelse process.exit(91);\n`,
+    { mode: 0o700 },
+  );
+  const config = {
+    sourceUpdates: {
+      sourceRepository: protectedRepository,
+      webDirectory: destination,
+      integrationRef: "refs/heads/integration",
+    },
+    webDistDir: destination,
+    fixtureUnrelated: "preserve config verbatim",
+  };
+  const configFile = path.join(root, "coordinator.json");
+  writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+  const plan = path.join(root, "plan.json");
+  writeFileSync(plan, JSON.stringify({ configFile, docker, repository }), { mode: 0o600 });
+  return {
+    root,
+    repository,
+    protectedRepository,
+    destination,
+    sourceCommit,
+    configFile,
+    plan,
+    mounts,
+    calls,
+    config,
+    git,
+    docker,
+  };
+}
+
+test("web source setup reads actual config, seeds live history and preserves config and selection", async () => {
+  const f = await webSourceFixture();
+  try {
+    const original = readFileSync(f.configFile);
+    const index = readFileSync(path.join(f.destination, "index.html"));
+    const receipt = readFileSync(path.join(f.destination, "release.json"));
+    const head = f.git(f.protectedRepository, "rev-parse", "HEAD");
+    const refs = f.git(f.protectedRepository, "show-ref");
+    const { stdout } = await promisify(execFile)(process.execPath, [
+      path.resolve("scripts/install-execution-host.mjs"),
+      "configure-web-source",
+      "--plan",
+      f.plan,
+    ]);
+    const result = JSON.parse(stdout);
+    expect(result.sourceCommit).toBe(f.sourceCommit);
+    expect(result.bindingFile).toBe(publicationBindingPath(f.destination));
+    expect(await readPublicationBinding(f.destination)).toMatchObject({
+      sourceRepository: f.protectedRepository,
+      webDirectory: f.destination,
+    });
+    const binding = readFileSync(result.bindingFile);
+    await configureWebSource(f.plan);
+    expect(readFileSync(result.bindingFile)).toEqual(binding);
+    expect(readFileSync(f.configFile)).toEqual(original);
+    expect(readFileSync(path.join(f.destination, "index.html"))).toEqual(index);
+    expect(readFileSync(path.join(f.destination, "release.json"))).toEqual(receipt);
+    expect(existsSync(path.join(f.destination, ".current"))).toBe(false);
+    expect(f.git(f.protectedRepository, "rev-parse", "HEAD")).toBe(head);
+    expect(f.git(f.protectedRepository, "show-ref")).toBe(
+      `${refs}\n${f.sourceCommit} refs/vorteo-publications/${f.sourceCommit}`,
+    );
+    expect(readFileSync(f.calls, "utf8").trim().split("\n").map(JSON.parse)).toEqual([
+      ["ps", "-aq"],
+      ["inspect", "fixture"],
+      ["ps", "-aq"],
+      ["inspect", "fixture"],
+    ]);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test.each(["new binding", "matching retry"])(
+  "web source setup retains %s after directory sync failure and reconciles on retry",
+  async (mode) => {
+    const f = await webSourceFixture();
+    try {
+      if (mode === "matching retry") await configureWebSource(f.plan);
+      const bindingFile = publicationBindingPath(f.destination);
+      const beforeBinding = existsSync(bindingFile) ? readFileSync(bindingFile) : null;
+      const original = readFileSync(f.configFile);
+      const index = readFileSync(path.join(f.destination, "index.html"));
+      const receipt = readFileSync(path.join(f.destination, "release.json"));
+      const open = fs.open.bind(fs);
+      const syncs = [];
+      const closes = [];
+      vi.spyOn(fs, "open").mockImplementation(async (file, ...args) => {
+        const handle = await open(file, ...args);
+        if (file === f.root && args[0] === "r") {
+          const sync = vi.spyOn(handle, "sync");
+          if (syncs.length === 0)
+            sync.mockRejectedValueOnce(new Error("injected directory sync failure"));
+          syncs.push(sync);
+          closes.push(vi.spyOn(handle, "close"));
+        }
+        return handle;
+      });
+      await expect(configureWebSource(f.plan)).rejects.toThrow("directory sync failure");
+      expect(syncs).toHaveLength(1);
+      expect(syncs[0]).toHaveBeenCalledOnce();
+      expect(closes[0]).toHaveBeenCalledOnce();
+      const binding = readFileSync(bindingFile);
+      if (beforeBinding) expect(binding).toEqual(beforeBinding);
+      const inode = (await fs.stat(bindingFile)).ino;
+      expect(await readPublicationBinding(f.destination)).toMatchObject({
+        sourceRepository: f.protectedRepository,
+        webDirectory: f.destination,
+      });
+      expect((await fs.readdir(f.root)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+      expect(existsSync(path.join(f.destination, ".publish-lock"))).toBe(false);
+      const refs = f.git(f.protectedRepository, "show-ref");
+      expect(await configureWebSource(f.plan)).toEqual({
+        bindingFile,
+        sourceCommit: f.sourceCommit,
+      });
+      expect(syncs).toHaveLength(2);
+      expect(syncs[1]).toHaveBeenCalledOnce();
+      expect(closes[1]).toHaveBeenCalledOnce();
+      expect(readFileSync(bindingFile)).toEqual(binding);
+      expect((await fs.stat(bindingFile)).ino).toBe(inode);
+      expect(f.git(f.protectedRepository, "show-ref")).toBe(refs);
+      expect(readFileSync(f.configFile)).toEqual(original);
+      expect(readFileSync(path.join(f.destination, "index.html"))).toEqual(index);
+      expect(readFileSync(path.join(f.destination, "release.json"))).toEqual(receipt);
+      expect(existsSync(path.join(f.destination, ".current"))).toBe(false);
+      expect(existsSync(path.join(f.destination, ".publish-lock"))).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  },
+);
+
+test.each(["repository", "config", "binding-parent", "writable-parent"])(
+  "web source setup rejects unsafe protection: %s",
+  async (mode) => {
+    const f = await webSourceFixture();
+    try {
+      let source = f.protectedRepository;
+      if (mode === "config") source = f.configFile;
+      if (mode === "binding-parent") {
+        source = path.join(f.root, "guest-descendant");
+        mkdirSync(source);
+      }
+      if (mode === "writable-parent") chmodSync(f.root, 0o777);
+      else writeFileSync(f.mounts, JSON.stringify([{ Type: "bind", RW: true, Source: source }]));
+      await expect(configureWebSource(f.plan)).rejects.toThrow(
+        /writable container bind|protected and Host-owned/,
+      );
+      expect(existsSync(publicationBindingPath(f.destination))).toBe(false);
+      expect(existsSync(path.join(f.destination, ".publish-lock"))).toBe(false);
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  },
+);
+
+test.each(["lineage", "conflict", "config-mismatch", "config-race", "missing-graph"])(
+  "web source setup refuses invalid setup: %s",
+  async (mode) => {
+    const f = await webSourceFixture();
+    try {
+      const beforeConfig = readFileSync(f.configFile);
+      if (mode === "lineage")
+        writeFileSync(
+          path.join(f.destination, "release.json"),
+          JSON.stringify({ sha256: digest("verified interface") }),
+        );
+      else if (mode === "conflict") {
+        await configureWebSource(f.plan);
+        const another = path.join(f.root, "another-protected");
+        f.git(f.root, "clone", "--no-hardlinks", f.protectedRepository, another);
+        f.config.sourceUpdates.sourceRepository = another;
+        writeFileSync(f.configFile, JSON.stringify(f.config));
+      } else if (mode === "config-mismatch") {
+        f.config.webDistDir = f.repository;
+        writeFileSync(f.configFile, JSON.stringify(f.config));
+      } else if (mode === "config-race") {
+        writeFileSync(
+          f.docker,
+          readFileSync(f.docker, "utf8") +
+            `\nfs.appendFileSync(${JSON.stringify(f.configFile)}, '\\n');\n`,
+        );
+      } else {
+        const blob = f.git(f.repository, "rev-parse", `${f.sourceCommit}:source.txt`);
+        rmSync(path.join(f.repository, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
+      }
+      const expectedConfig = readFileSync(f.configFile);
+      await expect(configureWebSource(f.plan)).rejects.toThrow();
+      if (mode === "config-race")
+        expect(readFileSync(f.configFile, "utf8")).toBe(expectedConfig.toString() + "\n\n");
+      else expect(readFileSync(f.configFile)).toEqual(expectedConfig);
+      if (mode !== "conflict")
+        expect(existsSync(publicationBindingPath(f.destination))).toBe(false);
+      expect(existsSync(path.join(f.destination, ".publish-lock"))).toBe(false);
+      if (mode === "lineage" || mode === "missing-graph")
+        expect(expectedConfig).toEqual(beforeConfig);
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  },
+);

@@ -1,3 +1,4 @@
+import { handleDesktopCommand } from "../../desktop-ipc.js";
 import { ipcMain } from "electron";
 import { PaseoBrowserWebviewRegistry } from "../browser-webviews/registry.js";
 import {
@@ -64,7 +65,7 @@ export class BrowserKeyboard {
   public constructor(private readonly browserRegistry: PaseoBrowserWebviewRegistry) {}
 
   public registerIpc(): void {
-    ipcMain.handle(POLICY_INPUT_CHANNEL, (event, rawPolicy: unknown) => {
+    handleDesktopCommand(POLICY_INPUT_CHANNEL, (event, rawPolicy: unknown) => {
       this.publish(event.sender.id, rawPolicy);
     });
     ipcMain.on(SHORTCUT_INPUT_CHANNEL, (event, rawInput: unknown) => {

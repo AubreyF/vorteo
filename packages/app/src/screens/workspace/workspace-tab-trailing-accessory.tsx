@@ -7,7 +7,7 @@ import {
   ArrowRightToLine,
   Copy,
   CopyX,
-  Ellipsis,
+  MoreVertical,
   Pencil,
   RotateCw,
   X,
@@ -22,7 +22,7 @@ import {
 import type { WorkspaceTabMenuEntry } from "@/screens/workspace/workspace-tab-menu";
 import type { Theme } from "@/styles/theme";
 
-const ThemedEllipsis = withUnistyles(Ellipsis);
+const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedArrowLeftToLine = withUnistyles(ArrowLeftToLine);
@@ -103,7 +103,7 @@ export function MobileTabTrailingAccessory({
         hitSlop={8}
         style={mobileTabMenuTriggerStyle}
       >
-        <ThemedEllipsis size={14} uniProps={mutedColorMapping} />
+        <ThemedMoreVertical size={14} uniProps={mutedColorMapping} />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="bottom"

@@ -27,3 +27,19 @@ describe("profile schema compatibility", () => {
     expect(AgentProfileSchema.parse(profile)).toEqual(profile);
   });
 });
+
+it("uses an explicit uncapped flag without changing finite or omitted limits", () => {
+  const base = { id: "team", name: "Team", provider: "codex" };
+  expect(AgentProfileSchema.parse({ ...base, uncappedWorkers: true })).toEqual({
+    ...base,
+    uncappedWorkers: true,
+  });
+  expect(AgentProfileSchema.parse({ ...base, maxWorkers: 8, uncappedWorkers: false })).toEqual({
+    ...base,
+    maxWorkers: 8,
+    uncappedWorkers: false,
+  });
+  expect(AgentProfileSchema.safeParse({ ...base, maxWorkers: null }).success).toBe(false);
+  expect(AgentProfileSchema.safeParse({ ...base, maxWorkers: 0 }).success).toBe(false);
+  expect(AgentProfileSchema.safeParse({ ...base, uncappedWorkers: "yes" }).success).toBe(false);
+});

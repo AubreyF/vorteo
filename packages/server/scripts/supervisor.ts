@@ -1,3 +1,8 @@
+import {
+  createSupervisorWorkerLaunch,
+  type SupervisorWorkerLaunchOptions,
+  type SupervisorWorkerLaunchState,
+} from "./supervisor-worker-launch.js";
 import { fork, spawn, type ChildProcess, type StdioOptions } from "child_process";
 import { fstatSync } from "node:fs";
 import path from "node:path";
@@ -31,15 +36,24 @@ type WorkerLifecycleMessage =
   | {
       type: "paseo:restart";
       reason?: string;
+    }
+  | {
+      type: "paseo:maintenance-restart";
+      requestId: string;
+      generation: string;
+      workerPid: number;
+      terminateAt: number;
     };
 
 interface SupervisorHeartbeatMessage {
   type: "paseo:supervisor-heartbeat";
+  maintenanceRestartProtocol: 1;
 }
 
 interface SupervisorGracefulShutdownMessage {
   type: "paseo:graceful-shutdown";
   reason: string;
+  terminateAt?: number;
 }
 
 interface SupervisorOptions {
@@ -53,6 +67,8 @@ interface SupervisorOptions {
    * Native worker custody and settlement remain separate requirements.
    */
   controllerLifetimeFd?: number;
+  /** Injection only. The installed entrypoint never supplies this option. */
+  workerLaunch?: SupervisorWorkerLaunchOptions;
   resolveWorkerSpawnSpec?: (workerEntry: string) => {
     command: string;
     args: string[];
@@ -67,6 +83,8 @@ interface SupervisorOptions {
 
 export interface SupervisorController {
   requestShutdown(reason: string): void;
+  reopenWorkerLaunch?(): Promise<void>;
+  workerLaunchState?(): SupervisorWorkerLaunchState;
 }
 
 export function parseControllerLifetimeFd(value: string | undefined): number | undefined {
@@ -111,6 +129,8 @@ function parseLifecycleMessage(msg: unknown): WorkerLifecycleMessage | null {
     }
     return { type: "paseo:ready", listen, serverId };
   }
+  if (type === "paseo:maintenance-restart")
+    return parseMaintenanceRestart(msg as Record<string, unknown>);
   if (type === "paseo:restart") {
     const reason = (msg as { reason?: unknown }).reason;
     return {
@@ -119,6 +139,32 @@ function parseLifecycleMessage(msg: unknown): WorkerLifecycleMessage | null {
     };
   }
   return null;
+}
+
+function parseMaintenanceRestart(
+  msg: Record<string, unknown>,
+): Extract<WorkerLifecycleMessage, { type: "paseo:maintenance-restart" }> | null {
+  const input = msg;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (
+    typeof input.requestId !== "string" ||
+    !uuid.test(input.requestId) ||
+    typeof input.generation !== "string" ||
+    !uuid.test(input.generation) ||
+    typeof input.workerPid !== "number" ||
+    !Number.isSafeInteger(input.workerPid) ||
+    input.workerPid <= 0 ||
+    typeof input.terminateAt !== "number" ||
+    !Number.isSafeInteger(input.terminateAt)
+  )
+    return null;
+  return {
+    type: "paseo:maintenance-restart",
+    requestId: input.requestId,
+    generation: input.generation,
+    workerPid: input.workerPid,
+    terminateAt: input.terminateAt,
+  };
 }
 
 function toRotatingFileStreamSize(size: string): string {
@@ -191,6 +237,7 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
   const controllerLifetimeFd = parseControllerLifetimeFd(
     options.controllerLifetimeFd === undefined ? undefined : String(options.controllerLifetimeFd),
   );
+  if (options.workerLaunch) return runInjectedWorkerSupervisor(options, controllerLifetimeFd);
   const restartOnCrash = options.restartOnCrash ?? false;
   const workerArgs = options.workerArgs ?? process.argv.slice(2);
   const workerEnv = options.workerEnv ?? process.env;
@@ -204,6 +251,10 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
   let lifecycleFailed = false;
   let publication = Promise.resolve();
   let forceKillTimer: NodeJS.Timeout | null = null;
+  let maintenanceRestart: Extract<
+    WorkerLifecycleMessage,
+    { type: "paseo:maintenance-restart" }
+  > | null = null;
   const durableLog = createDurableLog(options.logFile, (message) => {
     process.stderr.write(`[${options.name}] ${message}\n`);
   });
@@ -255,33 +306,38 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
     }
   };
 
-  const scheduleForceKill = (reason: string): void => {
+  const scheduleForceKill = (reason: string, terminateAt?: number): void => {
     if (!child) {
       return;
     }
     const currentChild = child;
     clearForceKillTimer();
-    forceKillTimer = setTimeout(() => {
-      forceKillTimer = null;
-      if (child !== currentChild) {
-        return;
-      }
-      writeLifecycleLog(
-        "Worker did not exit after graceful shutdown request; forcing process tree kill",
-        {
-          reason,
-          supervisorPid: process.pid,
-          workerPid: currentChild.pid ?? null,
-        },
-      );
-      void signalProcessTree(currentChild, "SIGKILL").catch((error) => {
-        writeLifecycleLog("Failed to force-kill worker process tree", {
-          error: error instanceof Error ? error.message : String(error),
-          supervisorPid: process.pid,
-          workerPid: currentChild.pid ?? null,
+    forceKillTimer = setTimeout(
+      () => {
+        forceKillTimer = null;
+        if (child !== currentChild) {
+          return;
+        }
+        writeLifecycleLog(
+          "Worker did not exit after graceful shutdown request; forcing process tree kill",
+          {
+            reason,
+            supervisorPid: process.pid,
+            workerPid: currentChild.pid ?? null,
+          },
+        );
+        void signalProcessTree(currentChild, "SIGKILL").catch((error) => {
+          writeLifecycleLog("Failed to force-kill worker process tree", {
+            error: error instanceof Error ? error.message : String(error),
+            supervisorPid: process.pid,
+            workerPid: currentChild.pid ?? null,
+          });
         });
-      });
-    }, WORKER_TERMINATION_GRACE_MS);
+      },
+      terminateAt === undefined
+        ? WORKER_TERMINATION_GRACE_MS
+        : Math.max(0, terminateAt - Date.now()),
+    );
     forceKillTimer.unref();
   };
 
@@ -323,10 +379,43 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
     }
 
     const currentChild = child;
+    maintenanceRestart = null;
+    let workerStreamsClosed = false;
+    const closed = new Promise<void>((resolve) => {
+      currentChild.once("close", () => {
+        workerStreamsClosed = true;
+        resolve();
+      });
+    });
+    const verifyMaintenanceStreamClosure = async (): Promise<void> => {
+      const retained = maintenanceRestart;
+      if (!retained || workerStreamsClosed) return;
+      let timer: ReturnType<typeof setTimeout>;
+      try {
+        const expired = new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error("Maintenance worker streams did not close before the retained deadline"),
+              ),
+            Math.max(0, retained.terminateAt - Date.now()),
+          );
+        });
+        // Exit alone does not close pipes inherited by provider descendants.
+        // Failure stays uncertainty; never start a replacement behind them.
+        // Closed streams are only a necessary check, not full native exit proof.
+        await Promise.race([closed, expired]);
+      } finally {
+        clearTimeout(timer!);
+      }
+    };
     let reachedReady = false;
     // Serialize endpoint writes with exit/clear before allowing another worker to spawn.
     const heartbeat = setInterval(() => {
-      const message: SupervisorHeartbeatMessage = { type: "paseo:supervisor-heartbeat" };
+      const message: SupervisorHeartbeatMessage = {
+        type: "paseo:supervisor-heartbeat",
+        maintenanceRestartProtocol: 1,
+      };
       if (currentChild.connected) {
         currentChild.send?.(message, (error) => {
           if (error) {
@@ -387,6 +476,11 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
         return;
       }
 
+      if (lifecycleMessage.type === "paseo:maintenance-restart") {
+        requestMaintenanceRestart(currentChild, lifecycleMessage);
+        return;
+      }
+
       const reason = lifecycleMessage.reason ?? "worker_requested_restart";
       writeLifecycleLog("Worker requested restart", { reason });
       requestRestart(reason);
@@ -404,9 +498,10 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
       child = null;
       publication = publication
         .then(() => options.onWorkerExit?.())
+        .then(verifyMaintenanceStreamClosure)
         .catch((error) => {
           lifecycleFailed = true;
-          log(`Worker exit callback failed: ${String(error)}`);
+          log(`Worker exit verification failed: ${String(error)}`);
         });
       void publication.then(() => {
         const exitDescriptor = describeExit(code, signal);
@@ -446,7 +541,7 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
     });
   };
 
-  const requestWorkerShutdown = (reason: string): void => {
+  const requestWorkerShutdown = (reason: string, terminateAt?: number): void => {
     if (!child) {
       return;
     }
@@ -454,6 +549,7 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
     const message: SupervisorGracefulShutdownMessage = {
       type: "paseo:graceful-shutdown",
       reason,
+      ...(terminateAt === undefined ? {} : { terminateAt }),
     };
     writeLifecycleLog("Supervisor requesting graceful worker shutdown", {
       reason,
@@ -478,6 +574,46 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
         });
       }
     });
+  };
+
+  const requestMaintenanceRestart = (
+    sender: ChildProcess,
+    intent: Extract<WorkerLifecycleMessage, { type: "paseo:maintenance-restart" }>,
+  ): void => {
+    const duplicate =
+      maintenanceRestart !== null && JSON.stringify(maintenanceRestart) === JSON.stringify(intent);
+    const remaining = intent.terminateAt - Date.now();
+    const accepted =
+      child === sender &&
+      sender.pid === intent.workerPid &&
+      (duplicate || (!shuttingDown && !restarting && remaining > 0 && remaining <= 300_000));
+    if (accepted && !duplicate) {
+      // The coordinator's durable generation reservation precedes this IPC.
+      // A lost acceptance is uncertainty, never permission to send another effect.
+      maintenanceRestart = intent;
+      restarting = true;
+      writeLifecycleLog("Maintenance restart accepted", { ...intent, supervisorPid: process.pid });
+    }
+    if (sender.connected)
+      sender.send?.(
+        {
+          type: "paseo:maintenance-restart-accepted",
+          accepted,
+          requestId: intent.requestId,
+          generation: intent.generation,
+          workerPid: intent.workerPid,
+          terminateAt: intent.terminateAt,
+        },
+        (error) => {
+          if (error)
+            writeLifecycleLog("Maintenance restart acceptance delivery failed", {
+              error: String(error),
+            });
+        },
+      );
+    if (!accepted || duplicate) return;
+    requestWorkerShutdown("approved_maintenance_interruption", intent.terminateAt);
+    scheduleForceKill("approved_maintenance_interruption", intent.terminateAt);
   };
 
   const requestRestart = (reason: string) => {
@@ -506,8 +642,9 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
       });
       return;
     }
-    requestWorkerShutdown(reason);
-    scheduleForceKill(reason);
+    // A later stop request may not extend a maintenance termination budget.
+    requestWorkerShutdown(reason, maintenanceRestart?.terminateAt);
+    scheduleForceKill(reason, maintenanceRestart?.terminateAt);
   };
 
   const forwardSignal = (signal: NodeJS.Signals) => {
@@ -522,4 +659,58 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
   spawnWorker();
 
   return { requestShutdown };
+}
+
+function runInjectedWorkerSupervisor(
+  options: SupervisorOptions,
+  controllerLifetimeFd: number | undefined,
+): SupervisorController {
+  const launch = options.workerLaunch;
+  if (!launch || launch.supervisor.pid !== process.pid)
+    throw new Error("Injected custody must bind the actual NodeSupervisor PID");
+  const durableLog = createDurableLog(options.logFile, (message) =>
+    process.stderr.write(`[${options.name}] ${message}\n`),
+  );
+  const report = (message: string): void => {
+    process.stderr.write(`[${options.name}] ${message}\n`);
+    durableLog.write(
+      `${JSON.stringify({ time: new Date().toISOString(), pid: process.pid, name: options.name, msg: message })}\n`,
+    );
+  };
+  let heartbeat: NodeJS.Timeout | null = null;
+  const onInterrupt = (): void => adapter.shutdown("supervisor_received_SIGINT");
+  const onTerminate = (): void => adapter.shutdown("supervisor_received_SIGTERM");
+  const adapter = createSupervisorWorkerLaunch(launch, {
+    controllerLifetimeFd,
+    restartOnCrash: options.restartOnCrash ?? false,
+    onReady: (message) => options.onWorkerReady?.(message),
+    onWorkerExit: () => options.onWorkerExit?.(),
+    report,
+    onExit: async (code) => {
+      if (heartbeat) clearInterval(heartbeat);
+      process.removeListener("SIGINT", onInterrupt);
+      process.removeListener("SIGTERM", onTerminate);
+      try {
+        await options.onSupervisorExit?.();
+      } finally {
+        await durableLog.close();
+      }
+      process.exit(code);
+    },
+  });
+  process.on("SIGINT", onInterrupt);
+  process.on("SIGTERM", onTerminate);
+  process.stdout.write(`[${options.name}] ${options.startupMessage}\n`);
+  // Reuse the supervisor heartbeat cadence for read-only reconciliation. Only
+  // exact native settlement can cause a fresh request through the lifecycle owner.
+  heartbeat = setInterval(() => {
+    adapter.heartbeat();
+    void adapter.reopen().catch((error) => report(String(error)));
+  }, WORKER_HEARTBEAT_INTERVAL_MS);
+  void adapter.reopen().catch((error) => report(String(error)));
+  return {
+    requestShutdown: adapter.shutdown,
+    reopenWorkerLaunch: adapter.reopen,
+    workerLaunchState: adapter.snapshot,
+  };
 }

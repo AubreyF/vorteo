@@ -1,3 +1,4 @@
+import { interfaceRect } from "@/appearance/interface-geometry";
 import {
   createContext,
   type ReactElement,
@@ -25,7 +26,7 @@ const portalHostElements = new Map<string, View>();
 function measureElement(element: View): Promise<Rect> {
   return new Promise((resolve) => {
     element.measureInWindow((x, y, width, height) => {
-      resolve({ x, y, width, height });
+      resolve(interfaceRect({ x, y, width, height }));
     });
   });
 }

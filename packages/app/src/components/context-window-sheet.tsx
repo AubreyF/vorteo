@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react";
-import { View, useWindowDimensions } from "react-native";
+import { View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";

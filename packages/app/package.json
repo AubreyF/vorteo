@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/app",
-  "version": "0.11.0-beta.3.vorteo.288",
+  "version": "0.11.0-beta.3.vorteo.688",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -87,6 +87,7 @@
     "expo-dev-client": "^6.0.15",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.17",
+    "expo-font": "~14.0.11",
     "expo-haptics": "~15.0.7",
     "expo-image": "~3.0.10",
     "expo-image-manipulator": "~14.0.8",
@@ -104,8 +105,8 @@
     "htmlparser2": "^12.0.0",
     "i18next": "^26.3.0",
     "lucide-react-native": "^1.50.0",
-    "markdown-it": "^10.0.0",
-    "mermaid": "^11.16.0",
+    "markdown-it": "^14.3.2",
+    "mermaid": "^11.16.1",
     "mnemonic-id": "^3.2.7",
     "qrcode": "^1.5.4",
     "react": "19.1.0",
@@ -146,8 +147,8 @@
     "@types/react": "~19.2.0",
     "@types/turndown": "^5.0.6",
     "@types/ws": "^8.18.1",
-    "@vitest/browser": "^4.1.7",
-    "@vitest/browser-playwright": "^4.1.7",
+    "@vitest/browser": "^4.1.11",
+    "@vitest/browser-playwright": "^4.1.11",
     "@xterm/headless": "^6.1.0-beta.213",
     "dotenv": "^17.2.3",
     "eas-cli": "^16.24.1",
@@ -161,9 +162,9 @@
     "playwright": "^1.56.1",
     "serve-sim": "^0.1.40",
     "typescript": "~5.9.2",
-    "vitest": "^4.1.6",
+    "vitest": "^4.1.11",
     "wrangler": "^4.105.0",
-    "ws": "^8.20.0"
+    "ws": "^8.21.0"
   },
   "reanimated": {
     "staticFeatureFlags": {

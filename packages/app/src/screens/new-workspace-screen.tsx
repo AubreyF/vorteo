@@ -1,4 +1,5 @@
 import { useNewWorkspaceProjectDirectory } from "./new-workspace/project-directory";
+import { useAppSettings } from "@/hooks/use-settings";
 import { transferTaskAttachments } from "@/task-environments/attachments";
 import {
   readExecutionInstallation,
@@ -40,6 +41,8 @@ import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { SidebarMenuToggle } from "@/components/headers/menu-header";
+import { isNative } from "@/constants/platform";
+import { ScreenTitle } from "@/components/headers/screen-title";
 import { ScreenHeader } from "@/components/headers/screen-header";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useToast } from "@/contexts/toast-context";
@@ -318,6 +321,7 @@ function ProjectPickerTrigger({
   iconDataUri,
   iconColor,
   iconSize,
+  heading,
 }: {
   pickerAnchorRef: React.RefObject<View | null>;
   onPress: () => void;
@@ -329,6 +333,7 @@ function ProjectPickerTrigger({
   iconDataUri: string | null;
   iconColor: string;
   iconSize: number;
+  heading?: string;
 }) {
   const placeholderLabel = projectIconPlaceholderLabelFromDisplayName(label);
   const placeholderInitial = placeholderLabel.charAt(0).toUpperCase() || "?";
@@ -345,22 +350,29 @@ function ProjectPickerTrigger({
           accessibilityRole="button"
           accessibilityLabel="Workspace project"
         >
-          <View style={styles.badgeIconBox}>
-            {projectViewKey ? (
-              <ProjectIconView
-                iconDataUri={iconDataUri}
-                initial={placeholderInitial}
-                projectViewKey={projectViewKey}
-                size={ICON_SIZE.md}
-                textStyle={styles.projectIconFallbackText}
-              />
-            ) : (
-              <Folder size={iconSize} color={iconColor} />
-            )}
+          <View style={heading ? styles.compactHeadingText : styles.projectLabelRow}>
+            {heading ? (
+              <ScreenTitle testID="new-workspace-header-title">{heading}</ScreenTitle>
+            ) : null}
+            <View style={styles.projectLabelRow}>
+              <View style={styles.badgeIconBox}>
+                {projectViewKey ? (
+                  <ProjectIconView
+                    iconDataUri={iconDataUri}
+                    initial={placeholderInitial}
+                    projectViewKey={projectViewKey}
+                    size={ICON_SIZE.md}
+                    textStyle={styles.projectIconFallbackText}
+                  />
+                ) : (
+                  <Folder size={iconSize} color={iconColor} />
+                )}
+              </View>
+              <Text style={styles.badgeText} numberOfLines={1}>
+                {label}
+              </Text>
+            </View>
           </View>
-          <Text style={styles.badgeText} numberOfLines={1}>
-            {label}
-          </Text>
         </ComboboxTrigger>
       </TooltipTrigger>
       <TooltipContent side="top" align="center" offset={8}>
@@ -1236,11 +1248,15 @@ function useNewWorkspaceHostSelector(input: {
   hostConnectionStatusByServerId: ReadonlyMap<string, HostRuntimeConnectionStatus>;
   workspaceMultiplicityByServerId: ReadonlyMap<string, boolean>;
 }) {
+  const { settings } = useAppSettings();
+  const preferredServerId =
+    settings.workspaceDefaults.environment ??
+    installationDefaultServerId(readExecutionInstallation());
   const routeServerId = input.initialServerId.trim();
   const defaultServerId = useMemo(
     () =>
       resolveNewWorkspaceInitialServerId({
-        defaultExecutionServerId: installationDefaultServerId(readExecutionInstallation()),
+        defaultExecutionServerId: preferredServerId,
         allServerIds: input.allServerIds,
         routeServerId: input.initialServerId,
         lastActiveProject: input.lastActiveProject,
@@ -1249,6 +1265,7 @@ function useNewWorkspaceHostSelector(input: {
         workspaceMultiplicityByServerId: input.workspaceMultiplicityByServerId,
       }),
     [
+      preferredServerId,
       input.allServerIds,
       input.hostConnectionStatusByServerId,
       input.initialServerId,
@@ -1272,7 +1289,7 @@ function useNewWorkspaceHostSelector(input: {
       const nextServerId =
         current.routeServerId === routeServerId
           ? resolveNewWorkspaceAutomaticServerId({
-              defaultExecutionServerId: installationDefaultServerId(readExecutionInstallation()),
+              defaultExecutionServerId: preferredServerId,
               allServerIds: input.allServerIds,
               routeServerId: input.initialServerId,
               lastActiveProject: input.lastActiveProject,
@@ -1291,6 +1308,7 @@ function useNewWorkspaceHostSelector(input: {
       return { routeServerId, serverId: nextServerId };
     });
   }, [
+    preferredServerId,
     defaultServerId,
     input.allServerIds,
     input.hostConnectionStatusByServerId,
@@ -1483,7 +1501,7 @@ interface NewWorkspaceFormStackInput {
   };
 }
 
-function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactElement {
+function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const { isCompact, isPending, project, isolation, base, launch } = input;
@@ -1512,7 +1530,8 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
         pickerAnchorRef={project.anchorRef}
         onPress={project.open}
         disabled={isPending}
-        badgePressableStyle={badgePressableStyle}
+        badgePressableStyle={isCompact ? styles.compactProjectTrigger : badgePressableStyle}
+        heading={isCompact ? t("newWorkspace.title") : undefined}
         label={project.triggerLabel}
         tooltipLabel={t("newWorkspace.tooltips.project")}
         projectViewKey={project.selectedProject?.viewKey ?? null}
@@ -1613,15 +1632,11 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
     />
   );
 
-  return isCompact ? (
+  const fields = isCompact ? (
     <View testID="new-workspace-ref-picker-row" style={styles.formStack} pointerEvents="box-none">
-      <FormRow>{projectControl}</FormRow>
       {isolationControl ? <FormRow>{isolationControl}</FormRow> : null}
       {baseControl ? <FormRow>{baseControl}</FormRow> : null}
       <FormRow>{launchControl}</FormRow>
-      {/* Keep fixed stack height without separating the visible controls. */}
-      {isolationControl ? null : <View style={styles.baseSpacer} pointerEvents="none" />}
-      {baseControl ? null : <View style={styles.baseSpacer} pointerEvents="none" />}
     </View>
   ) : (
     <View
@@ -1636,6 +1651,7 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
       {launchControl}
     </View>
   );
+  return { fields, projectControl };
 }
 
 export function NewWorkspaceScreen({
@@ -2350,7 +2366,7 @@ export function NewWorkspaceScreen({
       ? t("newWorkspace.refPicker.searching")
       : t("newWorkspace.refPicker.noMatchingRefs");
 
-  const formStack = useNewWorkspaceFormStack({
+  const { fields: formStack, projectControl } = useNewWorkspaceFormStack({
     isCompact,
     isPending,
     project: {
@@ -2412,7 +2428,10 @@ export function NewWorkspaceScreen({
     },
   });
 
-  const screenHeaderLeft = useMemo(() => <SidebarMenuToggle />, []);
+  const screenHeaderLeft = useMemo(
+    () => <NewWorkspaceHeaderLeft isCompact={isCompact} projectControl={projectControl} />,
+    [isCompact, projectControl],
+  );
   const importSession = useImportSession({ serverId: selectedServerId });
 
   const composer = isTerminalLaunch ? (
@@ -2497,6 +2516,21 @@ export function NewWorkspaceScreen({
   );
 }
 
+function NewWorkspaceHeaderLeft({
+  isCompact,
+  projectControl,
+}: {
+  isCompact: boolean;
+  projectControl: ReactNode;
+}) {
+  return (
+    <>
+      <SidebarMenuToggle />
+      {isCompact ? <View style={styles.compactHeading}>{projectControl}</View> : null}
+    </>
+  );
+}
+
 function NewWorkspaceLayout({
   isCompact,
   title,
@@ -2516,9 +2550,11 @@ function NewWorkspaceLayout({
   const setupFields = (
     <>
       {isCompact ? <View style={styles.compactTopActions}>{importSessionButton}</View> : null}
-      <View style={styles.composerTitleContainer} pointerEvents="none">
-        <Text style={styles.composerTitle}>{title}</Text>
-      </View>
+      {!isCompact ? (
+        <View style={styles.composerTitleContainer} pointerEvents="none">
+          <Text style={styles.composerTitle}>{title}</Text>
+        </View>
+      ) : null}
       {formStack}
     </>
   );
@@ -2529,11 +2565,11 @@ function NewWorkspaceLayout({
         styles.content,
         styles.vortonContent,
         isCompact
-          ? [styles.contentCompact, { paddingBottom: insets.bottom }]
+          ? [styles.contentCompact, { paddingBottom: isNative ? insets.bottom : 0 }]
           : styles.contentCentered,
       ]}
     >
-      <KeyboardTranslateView style={styles.centered}>
+      <KeyboardTranslateView style={[styles.centered, isCompact && styles.centeredCompact]}>
         {setupFields}
         {children}
       </KeyboardTranslateView>
@@ -2542,6 +2578,21 @@ function NewWorkspaceLayout({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  compactHeading: { flex: 1, minWidth: 0 },
+  compactHeadingText: { flexShrink: 1, minWidth: 0 },
+  projectLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  compactProjectTrigger: {
+    height: 52,
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.full,
+  },
+  centeredCompact: { flex: 1, minHeight: 0, justifyContent: "flex-end" },
   centered: { width: "100%", maxWidth: theme.contentMaxWidth },
   container: {
     flex: 1,
@@ -2551,6 +2602,7 @@ const styles = StyleSheet.create((theme) => ({
   content: {
     position: "relative",
     flex: 1,
+    minHeight: 0,
   },
   vortonContent: { alignItems: "center" },
   contentCentered: {
@@ -2558,10 +2610,8 @@ const styles = StyleSheet.create((theme) => ({
     paddingBottom: HEADER_INNER_HEIGHT + theme.spacing[6],
   },
   contentCompact: { justifyContent: "flex-end" },
-  // Takes the free space above the setup fields, so its button sits at the top of the screen.
-  // The inset puts the ghost button's icon on the setup rows' icon rail.
+  // Align the import action with the setup controls without reserving blank rows.
   compactTopActions: {
-    flex: 1,
     paddingHorizontal: theme.spacing[3],
   },
   composerTitleContainer: {
@@ -2580,7 +2630,9 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 20,
   },
   formStack: {
-    marginBottom: theme.spacing[8],
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: theme.spacing[3],
     gap: theme.spacing[2],
   },
   formStackDesktop: {
@@ -2608,9 +2660,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     paddingLeft: theme.spacing[4],
     gap: theme.spacing[1],
-  },
-  baseSpacer: {
-    height: BADGE_HEIGHT,
   },
   // Pushes the launch control to the trailing edge of the desktop meta row,
   // next to project/host/branch. The row's own right inset (formStackDesktop)

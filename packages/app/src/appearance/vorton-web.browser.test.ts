@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyVortonWeb } from "./vorton-web.web";
 
 let stop = () => {};
@@ -18,6 +18,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   stop();
+  vi.restoreAllMocks();
   fixture.remove();
   for (const style of styles) style.remove();
 });
@@ -58,4 +59,39 @@ describe("Home Screen chrome layout", () => {
     }
     expect(document.head.querySelectorAll("style[data-vorton-styles]").length).toBe(initial);
   });
+});
+
+it("keeps the shell inside the keyboard viewport and releases it for zoom and blur", () => {
+  const viewport = window.visualViewport!;
+  let height = window.innerHeight;
+  let top = 0;
+  let scale = 1;
+  vi.spyOn(viewport, "height", "get").mockImplementation(() => height);
+  vi.spyOn(viewport, "offsetTop", "get").mockImplementation(() => top);
+  vi.spyOn(viewport, "scale", "get").mockImplementation(() => scale);
+  const input = document.createElement("textarea");
+  const root = document.getElementById("root")!;
+  root.appendChild(input);
+  stop = applyVortonWeb(true);
+  input.focus();
+  height = window.innerHeight - 300;
+  top = 120;
+  viewport.dispatchEvent(new Event("resize"));
+  expect(root.getBoundingClientRect().top).toBe(top);
+  expect(root.getBoundingClientRect().height).toBe(height);
+  top = 160;
+  viewport.dispatchEvent(new Event("scroll"));
+  expect(root.getBoundingClientRect().top).toBe(top);
+  scale = 1.5;
+  viewport.dispatchEvent(new Event("resize"));
+  expect(document.documentElement.dataset.vortonKeyboard).toBeUndefined();
+  scale = 1;
+  viewport.dispatchEvent(new Event("resize"));
+  input.blur();
+  expect(document.documentElement.dataset.vortonKeyboard).toBeUndefined();
+  input.focus();
+  stop();
+  expect(document.documentElement.dataset.vortonKeyboard).toBeUndefined();
+  viewport.dispatchEvent(new Event("resize"));
+  expect(document.documentElement.dataset.vortonKeyboard).toBeUndefined();
 });

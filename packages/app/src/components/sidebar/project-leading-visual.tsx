@@ -1,4 +1,5 @@
-import { ActivityIndicator, View, type ViewStyle } from "react-native";
+import { View, type ViewStyle } from "react-native";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ChevronDown, ChevronRight, CircleAlert } from "lucide-react-native";
 import { ProjectIconView } from "@/components/project-icon-view";
@@ -38,7 +39,7 @@ const STATUS_BADGE_OFFSET = -4;
 // workspaceBranchText) so the icon centers on the title rather than floating above it.
 const LEADING_SLOT_HEIGHT = 20;
 
-const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
+const ThemedActivityIndicator = withUnistyles(LoadingSpinner);
 const ThemedCircleAlert = withUnistyles(CircleAlert);
 
 const foregroundMutedColorMapping = (theme: Theme) => ({

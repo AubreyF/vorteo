@@ -66,6 +66,11 @@ export interface AgentProfileEditModalProps {
  */
 const UNSET_VALUE = "";
 
+function usesSharedCatalog(scope: AgentProfileEditModalProps["sharedScope"]): boolean {
+  if (!scope) return false;
+  return readExecutionInstallation() !== null;
+}
+
 function openKey(props: AgentProfileEditModalProps): string {
   if (props.mode === "edit") {
     return `edit:${props.profile?.id ?? ""}`;
@@ -151,11 +156,15 @@ interface ProfileLaunchFieldsProps {
   controlSize: FieldControlSize;
   defaults?: boolean;
 }
-const WORKER_LIMIT_OPTIONS = [1, 2, 3, 4, 6, 8].map((count) => ({
-  id: String(count),
-  value: count,
-  label: String(count),
-}));
+const WORKER_LIMIT_OPTIONS: SelectFieldOption<number | "uncapped">[] = [1, 2, 3, 4, 6, 8].map(
+  (count) => ({
+    id: String(count),
+    value: count,
+    label: String(count),
+  }),
+);
+
+const UNCAPPED_WORKER_OPTION = { id: "uncapped", value: "uncapped" as const, label: "Uncapped" };
 
 function ProfileLaunchFields({
   defaults,
@@ -232,6 +241,7 @@ function ProfileWorkerFields({
 }: ProfileLaunchFieldsProps) {
   const { profiles, legacyProfiles } = useAgentProfiles(serverId);
   const explicitAccounts = useHostFeature(serverId, "explicitWorkerAccounts");
+  const uncapped = useHostFeature(serverId, "uncappedManagedWorkers");
   const shared = useInstallationProfiles();
   const { config } = useDaemonConfig(serverId);
   const { entries, isLoading } = useProvidersSnapshot(serverId);
@@ -274,6 +284,9 @@ function ProfileWorkerFields({
       controlSize={controlSize}
       isLoading={isLoading}
       workers={workers}
+      uncappedSupported={
+        uncapped && (!shared.installation || shared.data?.uncappedManagedWorkers === true)
+      }
     />
   );
 }
@@ -284,15 +297,22 @@ function WorkerControls({
   controlSize,
   isLoading,
   workers,
+  uncappedSupported,
 }: {
   state: AgentProfileFormState;
   model: AgentProfileFormModel;
   controlSize: FieldControlSize;
   isLoading: boolean;
   workers: ReturnType<typeof workerChoices>;
+  uncappedSupported: boolean;
 }) {
-  const selectedLimit =
-    WORKER_LIMIT_OPTIONS.find((entry) => entry.value === state.maxWorkers) ?? null;
+  const limits = useMemo(
+    () =>
+      uncappedSupported ? [...WORKER_LIMIT_OPTIONS, UNCAPPED_WORKER_OPTION] : WORKER_LIMIT_OPTIONS,
+    [uncappedSupported],
+  );
+  const finiteLimit = limits.find((entry) => entry.value === state.maxWorkers) ?? null;
+  const selectedLimit = state.maxWorkers === "uncapped" ? UNCAPPED_WORKER_OPTION : finiteLimit;
   return (
     <>
       <SelectField
@@ -335,7 +355,12 @@ function WorkerControls({
           selectedDisplay={selectedLimit}
           placeholder="2"
           emptyText="No limits available"
-          options={WORKER_LIMIT_OPTIONS}
+          options={limits}
+          hint={
+            uncappedSupported
+              ? "Uncapped removes only the profile count limit. Provider and quota limits still apply."
+              : "Update every installation environment to enable Uncapped."
+          }
           onChange={model.setMaxWorkers}
           disabled={state.isSubmitting}
           size={controlSize}
@@ -469,13 +494,14 @@ function OpenAgentProfileEditModal({
 }: AgentProfileEditModalProps & { onDismiss: () => void }): ReactElement {
   const { t } = useTranslation();
   const controlSize: FieldControlSize = useIsCompactFormFactor() ? "md" : "sm";
+  const sharedCatalog = usesSharedCatalog(sharedScope);
   const snapshot = useMemo(
-    () => ({ mode, ...(profile ? { profile } : {}), ...(seed ? { seed } : {}) }),
-    [mode, profile, seed],
+    () => ({ mode, sharedCatalog, ...(profile ? { profile } : {}), ...(seed ? { seed } : {}) }),
+    [mode, profile, seed, sharedCatalog],
   );
   const model = useAgentProfileFormModel(snapshot);
   const state = useAgentProfileFormState(model);
-  useAgentProfileFormCatalog({ serverId, model });
+  useAgentProfileFormCatalog({ serverId, model, sharedScope });
   useAgentProfileFormFeatures({ serverId, model, state });
 
   const editingDefaults = sharedScope?.kind === "defaults";
@@ -617,6 +643,7 @@ function OpenAgentProfileEditModal({
         {state.disclosure.showModelField ? (
           <SelectField
             label={t("settings.host.agentProfiles.modelLabel")}
+            hint={state.compatibilityWarnings.join(" ")}
             value={state.modelId || UNSET_VALUE}
             selectedDisplay={state.modelDisplay}
             options={modelOptions}

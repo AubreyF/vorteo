@@ -267,7 +267,10 @@ function catalogsEqual(
   return (
     left.length === right.length &&
     left.every(
-      (label, index) => label.name === right[index]?.name && label.color === right[index]?.color,
+      (label, index) =>
+        label.name === right[index]?.name &&
+        label.color === right[index]?.color &&
+        label.explicitColor === right[index]?.explicitColor,
     )
   );
 }

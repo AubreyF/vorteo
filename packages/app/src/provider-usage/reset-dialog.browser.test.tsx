@@ -3,8 +3,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import type { ProviderResetView } from "@getpaseo/protocol/provider-reset";
-import { ResetDialogContent } from "./reset-dialog";
+import { ResetDialogContent, ResetDialogActions } from "./reset-dialog";
 import { initialResetFlow, resetFlowReducer, type ResetFlow } from "./reset-flow";
+import { CompactAccountButton } from "./compact-account-button";
+import { applyVortonWeb } from "@/appearance/vorton-web.web";
+import { Text, View } from "react-native";
 import { selectableResetCredits } from "./reset-state";
 
 const credits = [
@@ -36,6 +39,7 @@ const view: ProviderResetView = {
 function noop() {}
 
 beforeEach(async () => {
+  vi.stubGlobal("React", React);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   await page.viewport(1280, 800);
 });
@@ -87,22 +91,26 @@ function Harness({
     [],
   );
   const back = useCallback(() => dispatch({ type: "back" }), []);
+  const props = {
+    name: "Example account",
+    view: source,
+    flow,
+    selectedCreditId,
+    selectionSupported: true,
+    enabled: true,
+    connected: true,
+    readFailed: false,
+    onSelect: select,
+    onBack: back,
+    onClose: noop,
+    onRefresh: noop,
+    onAct: actOnReset,
+  };
   return (
-    <ResetDialogContent
-      name="Example account"
-      view={source}
-      flow={flow}
-      selectedCreditId={selectedCreditId}
-      selectionSupported
-      enabled
-      connected
-      readFailed={false}
-      onSelect={select}
-      onBack={back}
-      onClose={noop}
-      onRefresh={noop}
-      onAct={actOnReset}
-    />
+    <>
+      <ResetDialogContent {...props} />
+      <ResetDialogActions {...props} />
+    </>
   );
 }
 
@@ -141,7 +149,9 @@ test("review replaces the list with the exact selected credit, and submission ha
   expect(container.textContent).not.toContain("First reset");
   expect(container.textContent).not.toContain("Refresh");
   expect(container.textContent).not.toContain("2 resets available");
-  await page.screenshot({ path: "/tmp/reset-confirmation-desktop.png" });
+  await page.screenshot({
+    path: ".vitest-screenshots/reset-confirmation-desktop.png",
+  });
   click("Back");
   expect(
     container
@@ -167,7 +177,9 @@ test("compact confirmation fits and its actions have touch targets", async () =>
     expect(element.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   }
   expect(container.getBoundingClientRect().right).toBeLessThanOrEqual(375);
-  await page.screenshot({ path: "/tmp/reset-confirmation-touch.png" });
+  await page.screenshot({
+    path: ".vitest-screenshots/reset-confirmation-touch.png",
+  });
   await page.viewport(1280, 720);
 });
 
@@ -201,3 +213,47 @@ test("an uncertain result offers the same reset and keeps the error visible", ()
   click("Retry same reset");
   expect(submissions).toEqual(["later"]);
 });
+
+const resetRowStyle = { flexDirection: "row", alignItems: "center" } as const;
+const resetSlotStyle = { minHeight: 20, justifyContent: "center" } as const;
+const resetBadgeTextStyle = { fontSize: 12, lineHeight: 16 };
+for (const width of [390, 1133]) {
+  test(`reset badges center their label and outline in touch targets at ${width}px`, async () => {
+    await page.viewport(width, 800);
+    mount();
+    const stop = applyVortonWeb(true);
+    try {
+      act(() =>
+        root.render(
+          <View testID="reset-row" style={resetRowStyle}>
+            <Text>Resets in 6 days</Text>
+            <View style={resetSlotStyle}>
+              <CompactAccountButton dense testID="reset-alignment" textStyle={resetBadgeTextStyle}>
+                <Text>2 resets</Text>
+              </CompactAccountButton>
+            </View>
+          </View>,
+        ),
+      );
+      const button = container.querySelector<HTMLElement>('[data-testid="reset-alignment"]')!;
+      const outline = button;
+      const target = button.getBoundingClientRect();
+      const border = outline.getBoundingClientRect();
+      expect(getComputedStyle(button).borderTopWidth).toBe("1px");
+      const row = container
+        .querySelector<HTMLElement>('[data-testid="reset-row"]')!
+        .getBoundingClientRect();
+      expect(target.top).toBeGreaterThanOrEqual(row.top);
+      expect(target.bottom).toBeLessThanOrEqual(row.bottom);
+      expect(target.height).toBeGreaterThanOrEqual(44);
+      expect(Math.abs(border.y + border.height / 2 - target.y - target.height / 2)).toBeLessThan(1);
+      const text = button.firstElementChild!.getBoundingClientRect();
+      expect(Math.abs(text.y + text.height / 2 - border.y - border.height / 2)).toBeLessThan(1);
+      await page.screenshot({
+        path: `.vitest-screenshots/reset-alignment-${width}.png`,
+      });
+    } finally {
+      stop();
+    }
+  });
+}

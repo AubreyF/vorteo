@@ -1,5 +1,7 @@
+import { usePointerResize } from "./use-pointer-resize";
+import { SidebarResizeHandle } from "./sidebar-resize-handle";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { View, type PointerEvent as RNPointerEvent } from "react-native";
+import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { startResizeHandleDrag, type ResizeHandleDrag } from "@/components/resize-handle-drag";
@@ -11,6 +13,8 @@ import {
 
 export interface ResizeHandleProps {
   testID?: string;
+  showDivider?: boolean;
+  sidebar?: boolean;
   direction: "horizontal" | "vertical";
   hitAreaAlignment?: "center" | "end";
   groupId: string;
@@ -21,22 +25,10 @@ export interface ResizeHandleProps {
   onResizeSplit: (groupId: string, sizes: number[]) => void;
 }
 
-interface PointerState {
-  containerSize: number;
-  pointerStart: number;
-  drag: ResizeHandleDrag;
-}
-
-function resetWindowHorizontalScroll() {
-  // Clamp any browser scroll introduced while dragging past the viewport edge.
-  if (window.scrollX === 0) {
-    return;
-  }
-  window.scrollTo(0, window.scrollY);
-}
-
 export function ResizeHandle({
   testID,
+  showDivider = true,
+  sidebar,
   direction,
   hitAreaAlignment = "center",
   groupId,
@@ -48,105 +40,27 @@ export function ResizeHandle({
 }: ResizeHandleProps) {
   const { theme } = useUnistyles();
   const finePointer = useHasFinePointer();
-  const pointerStatesRef = useRef(new Map<number, PointerState>());
   const touchDragRef = useRef<ResizeHandleDrag | null>(null);
-  const cursorBeforeDragRef = useRef<string | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [active, setActive] = useState(false);
   const [dragging, setDragging] = useState(false);
   const highlighted = active || dragging;
 
-  const handlePointerDown = useCallback(
-    (event: RNPointerEvent) => {
-      const hitAreaElement = event.currentTarget as unknown as HTMLElement | null;
-      if (!hitAreaElement) {
-        return;
-      }
-
-      if (containerSize <= 0) {
-        return;
-      }
-
-      const pointerId = event.nativeEvent.pointerId;
-      if (pointerStatesRef.current.has(pointerId)) {
-        return;
-      }
-
-      setDragging(true);
-
-      pointerStatesRef.current.set(pointerId, {
-        containerSize,
-        pointerStart:
-          direction === "horizontal" ? event.nativeEvent.clientX : event.nativeEvent.clientY,
-        drag: startResizeHandleDrag({
-          sizes,
-          index,
-          preview: (nextSizes) => onPreviewResizeSplit(groupId, nextSizes),
-          commit: (nextSizes) => onResizeSplit(groupId, nextSizes),
-        }),
-      });
-
-      if (pointerStatesRef.current.size === 1) {
-        cursorBeforeDragRef.current = document.body.style.cursor;
-      }
-      const nextCursor = direction === "horizontal" ? "col-resize" : "row-resize";
-      document.body.style.cursor = nextCursor;
-      event.preventDefault();
-      event.stopPropagation();
-      const pointerCaptureElement = hitAreaElement;
-      pointerCaptureElement.setPointerCapture?.(pointerId);
-      resetWindowHorizontalScroll();
-
-      function cleanup() {
-        pointerStatesRef.current.delete(pointerId);
-        setDragging(pointerStatesRef.current.size > 0);
-        if (pointerStatesRef.current.size === 0) {
-          document.body.style.cursor = cursorBeforeDragRef.current ?? "";
-          cursorBeforeDragRef.current = null;
-        }
-        if (pointerCaptureElement.hasPointerCapture?.(pointerId)) {
-          pointerCaptureElement.releasePointerCapture(pointerId);
-        }
-        resetWindowHorizontalScroll();
-        window.removeEventListener("pointermove", handlePointerMove);
-        window.removeEventListener("pointerup", handlePointerUp);
-        window.removeEventListener("pointercancel", handlePointerUp);
-      }
-
-      function handlePointerMove(moveEvent: PointerEvent) {
-        if (moveEvent.pointerId !== pointerId) {
-          return;
-        }
-
-        const pointerState = pointerStatesRef.current.get(pointerId);
-        if (!pointerState) {
-          return;
-        }
-
-        moveEvent.preventDefault();
-        resetWindowHorizontalScroll();
-        const pointerCurrent = direction === "horizontal" ? moveEvent.clientX : moveEvent.clientY;
-        const deltaRatio =
-          (pointerCurrent - pointerState.pointerStart) / pointerState.containerSize;
-
-        pointerState.drag.move(deltaRatio);
-      }
-
-      function handlePointerUp(upEvent: PointerEvent) {
-        if (upEvent.pointerId !== pointerId) {
-          return;
-        }
-
-        pointerStatesRef.current.get(pointerId)?.drag.finish();
-        cleanup();
-      }
-
-      window.addEventListener("pointermove", handlePointerMove);
-      window.addEventListener("pointerup", handlePointerUp);
-      window.addEventListener("pointercancel", handlePointerUp);
-    },
-    [containerSize, direction, groupId, index, onPreviewResizeSplit, onResizeSplit, sizes],
-  );
+  const beginPointerResize = useCallback(() => {
+    if (containerSize <= 0) return null;
+    const drag = startResizeHandleDrag({
+      sizes,
+      index,
+      preview: (nextSizes) => onPreviewResizeSplit(groupId, nextSizes),
+      commit: (nextSizes) => onResizeSplit(groupId, nextSizes),
+    });
+    return { move: (delta: number) => drag.move(delta / containerSize), finish: drag.finish };
+  }, [containerSize, sizes, index, groupId, onPreviewResizeSplit, onResizeSplit]);
+  const handlePointerDown = usePointerResize({
+    direction,
+    begin: beginPointerResize,
+    onDraggingChange: setDragging,
+  });
 
   const touchGesture = useMemo(() => {
     const gesture = Gesture.Pan()
@@ -198,9 +112,9 @@ export function ResizeHandle({
     () => [
       styles.handle,
       direction === "horizontal" ? styles.handleHorizontal : styles.handleVertical,
-      { backgroundColor: theme.colors.border },
+      { backgroundColor: showDivider ? theme.colors.border : "transparent" },
     ],
-    [direction, theme.colors.border],
+    [direction, showDivider, theme.colors.border],
   );
   const highlightStyle = useMemo(
     () => [
@@ -246,6 +160,18 @@ export function ResizeHandle({
     ],
     [direction, highlighted, theme.colors.foreground],
   );
+
+  if (sidebar)
+    return (
+      <SidebarResizeHandle
+        edge="left"
+        floating
+        gesture={touchGesture}
+        pressed={dragging}
+        testID={testID ?? "sidebar-resize-handle"}
+        onPointerDown={handlePointerDown}
+      />
+    );
 
   return (
     <View style={handleStyle} testID={testID}>

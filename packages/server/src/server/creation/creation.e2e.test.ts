@@ -1,4 +1,11 @@
-import { delegateToContainer } from "../execution-installation/delegation.js";
+import { planProviderPreferencesMigration } from "../agent/provider-preferences/migration.js";
+import { sharedProfileId } from "@getpaseo/protocol/provider-preferences";
+import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
+import {
+  delegateToContainer,
+  DelegationRequestSchema,
+  type DelegationClient,
+} from "../execution-installation/delegation.js";
 import { TaskOwnerEvidenceStore } from "../authorization/task-owner-evidence.js";
 import { execFileSync } from "node:child_process";
 import type { z } from "zod";
@@ -43,11 +50,14 @@ test("creation progresses before agent readiness and continues after the disconn
       },
     ),
     agentClients: createTestAgentClients({
-      beforeCreateSession: async () => {
+      // Workspace naming uses internal sessions through the same fake clients.
+      beforeCreateSession: async (config) => {
+        if (config.internal) return;
         agents++;
         await provider.promise;
       },
-      onStartTurn: () => {
+      onStartTurn: (_prompt, config) => {
+        if (config.internal) return;
         prompts++;
       },
     }),
@@ -303,6 +313,34 @@ test("delegated creation and messages retain attribution without becoming owner 
       source: { kind: "directory", path: directory },
     });
     expect(workspace.error).toBeNull();
+    const ownerCreated = await client.createAgent({
+      provider: "codex",
+      cwd: directory,
+      workspaceId: workspace.workspace!.id,
+      initialPrompt: "Owner initial instruction",
+      clientMessageId: randomUUID(),
+    });
+    const evidence = new TaskOwnerEvidenceStore(daemon.paseoHome);
+    await expect
+      .poll(async () => {
+        const timeline = await client.fetchAgentTimeline(ownerCreated.id, {
+          limit: 0,
+          projection: "canonical",
+        });
+        return timeline.entries
+          .filter((entry) => entry.item.type === "user_message")
+          .map((entry) => entry.item);
+      })
+      .toEqual([expect.objectContaining({ text: "Owner initial instruction" })]);
+    const ownerTimeline = await client.fetchAgentTimeline(ownerCreated.id, {
+      limit: 0,
+      projection: "canonical",
+    });
+    const ownerMessage = ownerTimeline.entries.find((entry) => entry.item.type === "user_message");
+    expect(ownerMessage?.item).not.toHaveProperty("origin");
+    expect(await evidence.list(ownerCreated.id)).toEqual([
+      expect.objectContaining({ text: "Owner initial instruction" }),
+    ]);
     const created = await delegateToContainer(client, {
       operation: "create",
       workspaceId: workspace.workspace!.id,
@@ -312,7 +350,6 @@ test("delegated creation and messages retain attribution without becoming owner 
       idempotencyKey: randomUUID(),
     });
     const agentId = (created as { id: string }).id;
-    const evidence = new TaskOwnerEvidenceStore(daemon.paseoHome);
     const messages = async () => {
       const timeline = await client.fetchAgentTimeline(agentId, {
         limit: 0,
@@ -350,6 +387,174 @@ test("delegated creation and messages retain attribution without becoming owner 
     expect(await evidence.list(agentId)).toEqual([
       expect.objectContaining({ text: "Owner message" }),
     ]);
+  } finally {
+    await client.close();
+    await daemon.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60000);
+
+test("delegation accepts exact profiles without model overrides and preserves legacy create", async () => {
+  const request = {
+    operation: "create" as const,
+    idempotencyKey: randomUUID(),
+    provider: "codex",
+    workspaceId: "workspace-id",
+    title: "Exact task",
+    initialPrompt: "Inspect only",
+  };
+  const profileId = sharedProfileId("codex", "exact");
+  expect(DelegationRequestSchema.parse({ ...request, profileId })).toEqual({
+    ...request,
+    profileId,
+  });
+  for (const invalidProfileId of ["", "   "])
+    expect(
+      DelegationRequestSchema.safeParse({ ...request, profileId: invalidProfileId }).success,
+    ).toBe(false);
+  for (const model of ["other", ""])
+    expect(DelegationRequestSchema.safeParse({ ...request, profileId, model }).success).toBe(false);
+  expect(
+    DelegationRequestSchema.safeParse({ ...request, profileId, callerAgentId: randomUUID() })
+      .success,
+  ).toBe(false);
+  const createAgent = vi.fn().mockResolvedValue({ id: "created" });
+  const fetchWorkspaces = vi
+    .fn()
+    .mockResolvedValueOnce({ entries: [], pageInfo: { hasMore: true, nextCursor: "next" } })
+    .mockResolvedValue({
+      entries: [{ id: request.workspaceId, workspaceDirectory: "/selected/dev" }],
+      pageInfo: { hasMore: false },
+    });
+  const client = { createAgent, fetchWorkspaces } as unknown as DelegationClient;
+  await delegateToContainer(client, DelegationRequestSchema.parse({ ...request, profileId }));
+  expect(createAgent).toHaveBeenLastCalledWith({
+    provider: "codex",
+    cwd: "/selected/dev",
+    workspaceId: request.workspaceId,
+    title: request.title,
+    initialPrompt: request.initialPrompt,
+    origin: "agent",
+    idempotencyKey: request.idempotencyKey,
+    profileId,
+    model: undefined,
+  });
+  expect(fetchWorkspaces).toHaveBeenNthCalledWith(2, { page: { limit: 200, cursor: "next" } });
+  await delegateToContainer(
+    client,
+    DelegationRequestSchema.parse({ ...request, model: "legacy-model" }),
+  );
+  expect(createAgent).toHaveBeenLastCalledWith(
+    expect.objectContaining({ provider: "codex", model: "legacy-model" }),
+  );
+  expect(createAgent.mock.lastCall![0]).not.toHaveProperty("profileId");
+});
+
+test("delegated exact profiles use native identity, account checks and idempotency", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "delegated-profile-"));
+  const daemon = await createTestPaseoDaemon({ agentClients: createTestAgentClients() });
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
+  try {
+    await client.connect();
+    const profiles = [
+      {
+        id: "exact",
+        name: "Exact review",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        featureValues: { test_feature: true },
+        instructions: "Exact preset instructions",
+      },
+      { id: "other", name: "Other review", provider: "codex", model: "gpt-5.4-mini" },
+    ];
+    const preferences = planProviderPreferencesMigration({ profiles, providers: {} }).preferences;
+    const current = (await client.getDaemonConfig()).config;
+    await client.patchDaemonConfig({
+      sharedProviderPreferences: preferences,
+      expectedProviderPreferencesRevision: current.sharedProviderPreferences?.revision ?? null,
+    });
+    const workspace = await client.createWorkspace({
+      source: { kind: "directory", path: directory },
+    });
+    expect(workspace.error).toBeNull();
+    const profileId = sharedProfileId("codex", "exact");
+    const request = DelegationRequestSchema.parse({
+      operation: "create",
+      idempotencyKey: randomUUID(),
+      provider: "codex",
+      profileId,
+      workspaceId: workspace.workspace!.id,
+      title: "Exact delegated task",
+      initialPrompt: "Delegated profile instruction",
+    });
+    const create = vi.spyOn(daemon.daemon.agentManager, "createAgent");
+    const agent = (await delegateToContainer(client, request)) as AgentSnapshotPayload;
+    expect(agent).toMatchObject({
+      provider: "codex",
+      cwd: directory,
+      workspaceId: workspace.workspace!.id,
+      model: "gpt-5.4-mini",
+      profile: { id: profileId, name: "Exact review" },
+    });
+    expect(daemon.daemon.agentManager.getAgent(agent.id)!.config).toMatchObject({
+      model: "gpt-5.4-mini",
+      featureValues: { test_feature: true },
+      systemPrompt: expect.stringContaining("Exact preset instructions"),
+      profileLaunch: { profile: { id: profileId, name: "Exact review" } },
+    });
+    const calls = create.mock.calls.length;
+    expect(((await delegateToContainer(client, request)) as AgentSnapshotPayload).id).toBe(
+      agent.id,
+    );
+    expect(create).toHaveBeenCalledTimes(calls);
+    await expect(
+      delegateToContainer(client, {
+        ...request,
+        profileId: sharedProfileId("codex", "other"),
+      } as typeof request),
+    ).rejects.toThrow("agent_request_key_conflict");
+    for (const change of [
+      { profileId: sharedProfileId("codex", "missing") },
+      { provider: "claude" },
+      { workspaceId: "missing-workspace" },
+    ]) {
+      await expect(
+        delegateToContainer(client, {
+          ...request,
+          ...change,
+          idempotencyKey: randomUUID(),
+        } as typeof request),
+      ).rejects.toThrow();
+    }
+    expect(create).toHaveBeenCalledTimes(calls);
+    const messages = async () =>
+      (await client.fetchAgentTimeline(agent.id, { limit: 0, projection: "canonical" })).entries
+        .filter((entry) => entry.item.type === "user_message")
+        .map((entry) => entry.item);
+    await expect
+      .poll(messages)
+      .toEqual([
+        expect.objectContaining({ text: "Delegated profile instruction", origin: "agent" }),
+      ]);
+    expect(await new TaskOwnerEvidenceStore(daemon.paseoHome).list(agent.id)).toEqual([]);
+    const legacy = (await delegateToContainer(
+      client,
+      DelegationRequestSchema.parse({
+        operation: "create",
+        idempotencyKey: randomUUID(),
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        workspaceId: workspace.workspace!.id,
+        title: "Legacy delegated task",
+        initialPrompt: "Legacy instruction",
+      }),
+    )) as AgentSnapshotPayload;
+    expect(legacy).toMatchObject({
+      provider: "codex",
+      model: "gpt-5.4-mini",
+      workspaceId: workspace.workspace!.id,
+    });
+    expect(legacy.profile).toBeUndefined();
   } finally {
     await client.close();
     await daemon.close();

@@ -2,9 +2,31 @@ import {
   NativeHelperJobSchema,
   type NativeHelperJob,
 } from "@getpaseo/protocol/native-helper-maintenance";
+import {
+  MaintenanceServiceQueueStatusSchema,
+  MaintenanceServiceViewSchema,
+  type MaintenanceServiceView,
+  type MaintenanceServiceQueueStatus,
+} from "@getpaseo/protocol/maintenance-service-status";
+import {
+  InstallationEnrollmentStatusSchema,
+  InstallationRecoveryAccessStatusSchema,
+  type InstallationRecoveryAccessStatus,
+  type InstallationEnrollmentStatus,
+} from "@getpaseo/protocol/installation-enrollment";
+import {
+  PreviewMonitorJobSchema,
+  type PreviewMonitorJob,
+} from "@getpaseo/protocol/preview-monitor-maintenance";
+import type { MonitorAction } from "./preview-monitor-review";
 import type { HelperReviewAction } from "./helper-review";
 import { z } from "zod";
 import {
+  InstallationMaintenanceStatusSchema,
+  type InstallationMaintenanceStatus,
+  DaemonAutomationPreferenceSchema,
+  type DaemonAutomationPreference,
+  type MaintenanceService,
   InstallationUnlockSchema,
   RestartSummarySchema,
   type RestartSummary,
@@ -54,6 +76,14 @@ export class InstallationRouteUnavailable extends Error {}
 export class InstallationClient {
   private password: string | null = null;
   private helperRetryAt = 0;
+  private daemonAutomationSupported = false;
+  private servicePermissionsSupported = false;
+  private maintenanceStatusSupported = false;
+  private enrollmentStatusSupported = false;
+  private recoveryAccessSupported = false;
+  private devRepairSupported = false;
+  private devRepairAvailable = false;
+  private monitorRetryAt = 0;
   sessionsSupported = false;
   passwordFile: string | null = null;
 
@@ -123,6 +153,40 @@ export class InstallationClient {
     return RestartSummarySchema.parse(await response.json());
   }
 
+  async listMonitors(): Promise<PreviewMonitorJob[]> {
+    if (this.password === null) throw new Error("Unlock installation controls first");
+    const now = this.ports.now ?? Date.now;
+    if (now() < this.monitorRetryAt) return [];
+    try {
+      return z
+        .strictObject({ jobs: z.array(PreviewMonitorJobSchema) })
+        .parse(await this.request("monitors/query", {})).jobs;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable) {
+        this.monitorRetryAt = now() + 60_000;
+        return [];
+      }
+      throw error;
+    }
+  }
+  async decideMonitor(job: PreviewMonitorJob, decision: MonitorAction): Promise<PreviewMonitorJob> {
+    const result = PreviewMonitorJobSchema.parse(
+      await this.request("monitors/decision", {
+        operation: job.operation,
+        id: job.id,
+        revision: job.revision,
+        planSha256: job.planSha256,
+        decision,
+      }),
+    );
+    if (
+      result.id !== job.id ||
+      result.revision !== job.revision ||
+      result.planSha256 !== job.planSha256
+    )
+      throw new Error("Monitor receipt changed. Refresh before another action.");
+    return result;
+  }
   async listHelpers(): Promise<NativeHelperJob[]> {
     if (this.password === null) throw new Error("Unlock installation controls first");
     const now = this.ports.now ?? Date.now;
@@ -162,6 +226,40 @@ export class InstallationClient {
     return result;
   }
 
+  async devRepairStatus(): Promise<{
+    available: boolean;
+    preparingIds: string[];
+  }> {
+    try {
+      const result = z
+        .strictObject({
+          available: z.boolean(),
+          preparingIds: z.array(z.string().uuid()),
+        })
+        .parse(await this.request("dev-repair/query", {}));
+      this.devRepairSupported = true;
+      this.devRepairAvailable = result.available;
+      return result;
+    } catch (error) {
+      this.devRepairAvailable = false;
+      if (error instanceof InstallationRouteUnavailable && !this.devRepairSupported)
+        return { available: false, preparingIds: [] };
+      throw error;
+    }
+  }
+
+  async prepareDevRepair(job: RestartJob): Promise<void> {
+    if (!this.devRepairAvailable) throw new Error("Update the coordinator to prepare Dev repairs");
+    const receipt = z.strictObject({ id: z.string().uuid(), revision: z.string().uuid() }).parse(
+      await this.request("dev-repair/prepare", {
+        id: job.id,
+        revision: job.revision,
+      }),
+    );
+    if (receipt.id !== job.id)
+      throw new Error("Dev repair receipt changed. Refresh before another action.");
+  }
+
   async listRestarts(): Promise<RestartJob[]> {
     return z.array(RestartJobSchema).parse(await this.request("restarts/query", {}));
   }
@@ -186,6 +284,114 @@ export class InstallationClient {
         ...(job.factoryRuntimePlanSha256
           ? { factoryRuntimePlanSha256: job.factoryRuntimePlanSha256 }
           : {}),
+      }),
+    );
+  }
+
+  async maintenanceStatus(): Promise<InstallationMaintenanceStatus | null> {
+    try {
+      const status = InstallationMaintenanceStatusSchema.parse(
+        await this.request("maintenance-status/query", {}),
+      );
+      this.maintenanceStatusSupported = true;
+      return status;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable && !this.maintenanceStatusSupported)
+        return null;
+      throw error;
+    }
+  }
+
+  async maintenanceServices(): Promise<MaintenanceServiceQueueStatus> {
+    const status = MaintenanceServiceQueueStatusSchema.parse(
+      await this.request("maintenance-services/query", {}),
+    );
+    if (status.installationId !== this.installation.installationId)
+      throw new Error("Maintenance queue belongs to another installation");
+    return status;
+  }
+
+  async cancelMaintenanceService(job: MaintenanceServiceView): Promise<MaintenanceServiceView> {
+    if (!job.cancelable) throw new Error("Maintenance was already dispatched");
+    const result = MaintenanceServiceViewSchema.parse(
+      await this.request("maintenance-services/cancel", { id: job.id, revision: job.revision }),
+    );
+    if (result.id !== job.id || result.status !== "rejected" || result.cancelable)
+      throw new Error("Maintenance cancellation was not confirmed. Refresh its receipt.");
+    return result;
+  }
+
+  async recoveryAccess(): Promise<InstallationRecoveryAccessStatus | null> {
+    try {
+      const status = InstallationRecoveryAccessStatusSchema.parse(
+        await this.request("recovery-access/query", {}),
+      );
+      if (status.installationId !== this.installation.installationId)
+        throw new Error("Recovery bookmark belongs to another installation");
+      this.recoveryAccessSupported = true;
+      return status;
+    } catch (error) {
+      // COMPAT(recoveryBookmark): added in Vorteo 623; remove when every supported
+      // coordinator provides the separate owner recovery-access query.
+      if (error instanceof InstallationRouteUnavailable && !this.recoveryAccessSupported)
+        return null;
+      throw error;
+    }
+  }
+
+  async enrollmentStatus(): Promise<InstallationEnrollmentStatus | null> {
+    try {
+      const status = InstallationEnrollmentStatusSchema.parse(
+        await this.request("enrollment/query", {}),
+      );
+      if (status.installationId !== this.installation.installationId)
+        throw new Error("Installation status belongs to another installation");
+      this.enrollmentStatusSupported = true;
+      return status;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable && !this.enrollmentStatusSupported)
+        return null;
+      throw error;
+    }
+  }
+
+  async daemonAutomation(): Promise<DaemonAutomationPreference | null> {
+    try {
+      let response: unknown;
+      try {
+        response = await this.request("maintenance-permissions/query", {});
+        this.servicePermissionsSupported = true;
+      } catch (error) {
+        if (!(error instanceof InstallationRouteUnavailable) || this.servicePermissionsSupported)
+          throw error;
+        response = await this.request("daemon-automation/query", {});
+      }
+      const preference = DaemonAutomationPreferenceSchema.parse(response);
+      this.daemonAutomationSupported = true;
+      return preference;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable && !this.daemonAutomationSupported)
+        return null;
+      throw error;
+    }
+  }
+
+  async changeDaemonAutomation(
+    preference: DaemonAutomationPreference,
+    enabled: boolean,
+    service?: MaintenanceService,
+  ): Promise<DaemonAutomationPreference> {
+    if (!this.daemonAutomationSupported)
+      throw new InstallationRouteUnavailable("Automatic daemon maintenance is unavailable");
+    if (service && !preference.services)
+      throw new InstallationRouteUnavailable(
+        "Update the coordinator for separate service permissions",
+      );
+    return DaemonAutomationPreferenceSchema.parse(
+      await this.request(service ? "maintenance-permissions/change" : "daemon-automation/change", {
+        expectedRevision: preference.revision,
+        enabled,
+        ...(service ? { service } : {}),
       }),
     );
   }
@@ -232,6 +438,15 @@ export async function requestInstallationOwner(
     redirect: "error",
     cache: "no-store",
   });
+  // Older coordinators may serve their SPA fallback for an unknown owner query.
+  // A client that already observed support still treats this as a lost capability.
+  if (
+    ["daemon-automation/query", "dev-repair/query"].includes(path) &&
+    response.ok &&
+    !response.headers.get("content-type")?.includes("application/json")
+  ) {
+    throw new InstallationRouteUnavailable("Installation maintenance operation is unavailable");
+  }
   if (response.status === 401)
     throw path === "unlock"
       ? new Error("Incorrect owner password. Use the password generated by the host installer.")

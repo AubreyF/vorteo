@@ -1,0 +1,545 @@
+import { retainCustodyBinding } from "../retained-custody-binding.js";
+import { assertWorkerLaunchAdmission, workerLaunchRequestCompatible } from "./worker-launch.js";
+import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import type {
+  RestartJob,
+  StandingRestartDecision,
+} from "@getpaseo/protocol/execution-installation";
+import type { InstallationEnrollmentState } from "@getpaseo/protocol/installation-enrollment";
+import type { LifecycleJob } from "../lifecycle-journal.js";
+import { BootstrapRequestConflict } from "../coordinator-bootstrap.js";
+import { enrollmentManifestDigest } from "./authorization.js";
+
+type Decision = Omit<StandingRestartDecision, "requestRevision">;
+export type StandingRestartPhase = "preparation" | "hold" | "replacement";
+
+/** Only request content participates; queue progress must not change the reviewed plan. */
+export function standingRestartPlanDigest(job: RestartJob): string {
+  job = RestartJobSchema.parse(job);
+  return digest({
+    id: job.id,
+    target: job.target,
+    requestedBy: job.requestedBy,
+    requester: job.requester ?? null,
+    reason: job.reason,
+    createdAt: job.createdAt,
+    requireOwnerApproval: job.requireOwnerApproval ?? false,
+    ...(job.workerLaunchRequest ? { workerLaunchRequest: job.workerLaunchRequest } : {}),
+    update: job.update ?? null,
+    sourceBatch: job.sourceBatch ?? null,
+    supervisorPlanSha256: job.supervisorPlanSha256 ?? null,
+    factoryRuntimePlanSha256: job.factoryRuntimePlanSha256 ?? null,
+    factoryRuntimeRecoveryOf: job.factoryRuntimeRecoveryOf ?? null,
+    devRepairs: job.devRepairs ?? [],
+  });
+}
+
+function digest(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function enrolledOperation(job: RestartJob) {
+  if (job.workerLaunchRequest) return "worker-launch";
+  if (job.supervisorPlanSha256) return "replacement";
+  if (job.factoryRuntimePlanSha256) return "runtime-adoption";
+  if (job.devRepairs?.some((repair) => repair.status === "prepared")) return "source-repair";
+  return job.update ? "source-update" : "restart";
+}
+
+/** Policy only. The Host supplies independently inspected identity, repository
+ * and credential binding. The locked admission below grants each exact effect. */
+export function evaluateStandingRestart(input: {
+  state: InstallationEnrollmentState;
+  job: RestartJob;
+  installationId: string;
+  nativeIdentitySha256: string;
+  repository: string | null;
+  credentialBindingSha256: string;
+}): Decision | null | undefined {
+  if (input.state.status === "absent") return undefined;
+  const { grant, activation } = input.state;
+  const { job } = input;
+  if (!workerLaunchRequestCompatible(job)) return null;
+  if (
+    job.workerLaunchRequest &&
+    grant.manifest.workerLaunchProfile?.profileSha256 !== job.workerLaunchRequest.profileSha256
+  )
+    return null;
+  const target = job.supervisorPlanSha256 ? "supervisor" : job.target;
+  const binding = grant.manifest.targets.find((item) => item.target === target);
+  if (
+    grant.manifest.installationId !== input.installationId ||
+    grant.paused ||
+    grant.revokedAt ||
+    grant.disabledTargets.includes(target) ||
+    !binding ||
+    binding.identitySha256 !== input.nativeIdentitySha256 ||
+    !binding.operations.includes(enrolledOperation(job))
+  )
+    return null;
+  if (!sourceApprovalAllowed(job, input.repository, grant.manifest.trustedRepositories))
+    return null;
+  const manifestSha256 = enrollmentManifestDigest(grant.manifest);
+  const planSha256 = standingRestartPlanDigest(job);
+  const activationStep = activationChildBinding(input.state, job, target, planSha256);
+  if (activation.steps.some((step) => step.status !== "succeeded") && !activationStep) return null;
+  return {
+    ...(activationStep ? { activationStep } : {}),
+    grantId: grant.id,
+    grantRevision: grant.revision,
+    manifestSha256,
+    planSha256,
+    targetIdentitySha256: binding.identitySha256,
+    authoritySha256: digest({
+      scope: "installation-standing-restart-v1",
+      installationId: input.installationId,
+      grantId: grant.id,
+      grantRevision: grant.revision,
+      manifestSha256,
+      planSha256,
+      nativeIdentitySha256: input.nativeIdentitySha256,
+      credentialBindingSha256: input.credentialBindingSha256,
+      activationStep: activationStep ?? null,
+    }),
+    policyActivatedAt: grant.approval.approvedAt,
+  };
+}
+
+function sourceApprovalAllowed(
+  job: RestartJob,
+  repository: string | null,
+  trustedRepositories: string[],
+): boolean {
+  if (
+    job.requireOwnerApproval ||
+    job.sourceBatch?.contributions.some(
+      (item) => item.status !== "superseded" && item.requireOwnerApproval,
+    )
+  )
+    return false;
+  if (job.update && (!repository || !trustedRepositories.includes(repository))) return false;
+  if (
+    job.update &&
+    (!job.sourceBatch ||
+      job.sourceBatch.status !== "ready" ||
+      !job.sourceBatch.contributions.some((item) => item.status === "included") ||
+      job.sourceBatch.contributions.some(
+        (item) => !["included", "superseded"].includes(item.status),
+      ))
+  )
+    return false;
+  return true;
+}
+
+/** Only one exact reserved initial migration may proceed before enrollment completes.
+ * The plan digest includes the genuine request ID and all contributed source bytes. */
+function activationChildBinding(
+  state: Extract<InstallationEnrollmentState, { status: "enrolled" }>,
+  job: RestartJob,
+  target: "host" | "container-daemon" | "supervisor",
+  planSha256: string,
+): Decision["activationStep"] | null {
+  const candidates = state.grant.manifest.steps.filter(
+    (step) =>
+      step.target === target &&
+      step.operation === enrolledOperation(job) &&
+      step.planSha256 === planSha256,
+  );
+  if (candidates.length !== 1) return null;
+  const step = candidates[0];
+  const progress = state.activation.steps.find((item) => item.id === step.id);
+  if (progress?.status !== "reserved" || progress.grantRevision !== state.grant.revision)
+    return null;
+  if (
+    state.activation.steps.some(
+      (item) => item.id !== step.id && ["reserved", "recovery_required"].includes(item.status),
+    )
+  )
+    return null;
+  if (
+    !step.dependsOn.every((id) =>
+      state.activation.steps.some((item) => item.id === id && item.status === "succeeded"),
+    )
+  )
+    return null;
+  if (job.update && job.update.sourceCommit !== step.candidate.sourceCommit) return null;
+  return {
+    stepId: step.id,
+    generation: progress.generation,
+    candidateArtifactSha256: step.candidate.artifactSha256,
+  };
+}
+
+interface AdmissionInput {
+  now?: number;
+  previous: readonly LifecycleJob[];
+  next: readonly LifecycleJob[];
+  /** Must be read under the same installation lifecycle lock as this transition. */
+  state: InstallationEnrollmentState;
+  evaluate(job: RestartJob, state: InstallationEnrollmentState): Decision | null | undefined;
+  /** Read protected preparation/admission receipts only. Heavy native validation
+   * happens before the lock; the executor rechecks actual selection before effects. */
+  assertEvidence(job: RestartJob, phase: StandingRestartPhase): void;
+  assertRegistrationReadiness?(target: RestartJob["target"]): void;
+  assertNativeWorkerEvidence?: Parameters<
+    typeof assertWorkerLaunchAdmission
+  >[0]["assertNativeWorkerEvidence"];
+}
+
+/** Called only inside FileBootstrapRequestJournal.writeLifecycle's admission hook.
+ * Cancellation, hold release and terminal observations never acquire fresh authority. */
+export function assertStandingRestartAdmission(input: AdmissionInput): void {
+  assertWorkerLaunchAdmission(input);
+  const previous = new Map(input.previous.map((job) => [job.id, job]));
+  const next = new Map(input.next.map((job) => [job.id, job]));
+  for (const retained of input.previous) {
+    if (
+      (retained.target === "host" || retained.target === "container-daemon") &&
+      retained.standingDecision &&
+      !next.has(retained.id)
+    )
+      throw new BootstrapRequestConflict("Standing maintenance history cannot be discarded");
+  }
+  for (const proposed of input.next) {
+    if (proposed.target !== "host" && proposed.target !== "container-daemon") continue;
+    const prior = previous.get(proposed.id);
+    const retained =
+      prior && (prior.target === "host" || prior.target === "container-daemon") ? prior : undefined;
+    assertRetainedBindings(retained, proposed);
+    const phase = effectPhase(retained, proposed);
+    assertInterruptionTransition(input, retained, proposed, phase);
+    if (phase || registrationPreparation(retained, proposed)) {
+      const assertRegistration = input.assertRegistrationReadiness;
+      if (assertRegistration) {
+        const binding = retainCustodyBinding(input, (value, message) => {
+          if (!value) throw new BootstrapRequestConflict(message);
+        });
+        const result: unknown = assertRegistration(proposed.target);
+        if (result !== undefined)
+          throw new BootstrapRequestConflict(
+            "Registration readiness admission must be synchronous",
+          );
+        binding.check();
+      }
+    }
+    if (!phase) continue;
+    // Native worker launch has no accepted executor yet. Neither manual approval
+    // nor ordinary restart evidence may turn these hints into a daemon restart.
+    if (proposed.workerLaunchRequest)
+      throw new BootstrapRequestConflict("Protected Linux worker launch capability is unavailable");
+    assertEffectAdmission(input, retained, proposed, phase);
+  }
+}
+
+function assertInterruptionTransition(
+  input: AdmissionInput,
+  previous: RestartJob | undefined,
+  job: RestartJob,
+  phase: StandingRestartPhase | null,
+): void {
+  const retained = previous?.standingInterruption;
+  const intent = job.standingInterruption;
+  if (retained) {
+    if (
+      !isDeepStrictEqual(retained, intent) ||
+      job.status === "approved" ||
+      job.status === "pending"
+    )
+      throw new BootstrapRequestConflict(
+        "Retained interruption is observation-only; never replay it",
+      );
+    assertInterruptionChecks(input, previous!, job);
+    return;
+  }
+  if (!intent) return;
+  if (job.interruptionChecks)
+    throw new BootstrapRequestConflict("A new interruption cannot inherit observation attempts");
+  const hold = job.standingHold;
+  const decision = job.standingDecision;
+  if (
+    phase !== "replacement" ||
+    previous?.status !== "approved" ||
+    input.state.status !== "enrolled" ||
+    !decision ||
+    !hold?.observedAt ||
+    hold.releaseRequestedAt ||
+    hold.initialDaemonInstanceSha256
+  )
+    throw new BootstrapRequestConflict(
+      "Interruption reservation requires a newly admitted exact hold",
+    );
+  assertInterruptionIdentity(job);
+  assertInterruptionDeadline(input, job);
+  assertInterruptionNative(job);
+}
+
+function assertInterruptionChecks(
+  input: AdmissionInput,
+  previous: RestartJob,
+  job: RestartJob,
+): void {
+  const before = previous.interruptionChecks;
+  const after = job.interruptionChecks;
+  if (isDeepStrictEqual(before, after)) return;
+  const attempts = before?.attempts ?? 0;
+  const now = input.now ?? Date.now();
+  const checkedAt = after ? Date.parse(after.checkedAt) : NaN;
+  if (
+    !after ||
+    job.status !== "running" ||
+    after.attempts !== attempts + 1 ||
+    attempts >= 3 ||
+    checkedAt > now ||
+    now - checkedAt >= 30_000 ||
+    (before && checkedAt < Date.parse(before.nextCheckAt)) ||
+    Date.parse(after.nextCheckAt) !== checkedAt + [5000, 15000, 60000][attempts]
+  )
+    throw new BootstrapRequestConflict("Interruption observation retry budget changed");
+}
+
+function assertInterruptionIdentity(job: RestartJob): void {
+  const intent = job.standingInterruption!;
+  const decision = job.standingDecision!;
+  const hold = job.standingHold!;
+  if (
+    intent.held.requestId !== job.id ||
+    intent.approvedRevision !== job.revision ||
+    intent.grantRevision !== decision.grantRevision ||
+    intent.holdGeneration !== hold.generation ||
+    intent.decisionSha256 !== digest(decision) ||
+    intent.planSha256 !== decision.planSha256
+  )
+    throw new BootstrapRequestConflict(
+      "Interruption reservation differs from the exact approved hold",
+    );
+}
+
+function assertInterruptionNative(job: RestartJob): void {
+  const intent = job.standingInterruption!;
+  const decision = job.standingDecision!;
+  const native = intent.native;
+  if (
+    native.identitySha256 !== decision.targetIdentitySha256 ||
+    native.worker.pid !== intent.held.workerPid ||
+    native.worker.bootId !== native.supervisor.bootId ||
+    Boolean(job.update) !== Boolean(intent.candidate)
+  )
+    throw new BootstrapRequestConflict("Interruption target or candidate evidence differs");
+  if (
+    job.update &&
+    (native.sourceCommit !== job.update.baseCommit ||
+      intent.candidate?.sourceCommit !== job.update.sourceCommit)
+  )
+    throw new BootstrapRequestConflict("Interruption source differs from the approved update");
+}
+
+function assertInterruptionDeadline(input: AdmissionInput, job: RestartJob): void {
+  if (input.state.status !== "enrolled")
+    throw new BootstrapRequestConflict("Enrollment unavailable");
+  const intent = job.standingInterruption!;
+  const hold = job.standingHold!;
+  const limits = input.state.grant.manifest.interruption;
+  const observed = Date.parse(hold.observedAt!);
+  const reserved = Date.parse(intent.reservedAt);
+  const now = input.now ?? Date.now();
+  const finish = observed + limits.finishTurnsSeconds * 1000;
+  const nativeAt = Date.parse(intent.native.observedAt);
+  if (
+    reserved < observed ||
+    reserved > now ||
+    now - reserved >= 30_000 ||
+    nativeAt > reserved ||
+    reserved - nativeAt >= 30_000 ||
+    Date.parse(intent.finishDeadlineAt) !== finish ||
+    intent.held.terminateAt !== Math.min(reserved, finish) + limits.terminateGraceSeconds * 1000 ||
+    intent.held.terminateAt <= now
+  )
+    throw new BootstrapRequestConflict(
+      "Interruption limits or evidence freshness differ from enrollment",
+    );
+}
+
+function assertEffectAdmission(
+  input: AdmissionInput,
+  retained: RestartJob | undefined,
+  proposed: RestartJob,
+  phase: StandingRestartPhase,
+): void {
+  if (input.state.status === "absent") {
+    if (proposed.standingDecision)
+      throw new BootstrapRequestConflict("Standing decision has no retained enrollment");
+    return;
+  }
+  // Enrollment governs standing effects. Exact owner-approved operations retain
+  // the existing authenticated manual path, including while the grant is paused.
+  if (!proposed.standingDecision && !proposed.automaticApproval && !proposed.standingHold) return;
+  if (hasExactManualApproval(proposed)) {
+    if (phase !== "preparation") {
+      const result: unknown = input.assertEvidence(proposed, phase);
+      if (result instanceof Promise)
+        throw new BootstrapRequestConflict("Standing admission must be synchronous");
+    }
+    return;
+  }
+  const current = input.evaluate(proposed, input.state);
+  if (
+    !current ||
+    !proposed.standingDecision ||
+    !proposed.automaticApproval ||
+    !proposed.whenIdle ||
+    !proposed.finishCurrentTurns ||
+    !isDeepStrictEqual(
+      { ...current, requestRevision: proposed.revision },
+      proposed.standingDecision,
+    )
+  )
+    throw new BootstrapRequestConflict("Standing maintenance authority changed before admission");
+  assertStandingEffectPrerequisites(retained, proposed, phase);
+  const result: unknown = input.assertEvidence(proposed, phase);
+  if (result instanceof Promise)
+    throw new BootstrapRequestConflict("Standing admission must be synchronous");
+}
+
+function hasExactManualApproval(job: RestartJob): boolean {
+  const history = job.standingManualApprovals;
+  if (!history?.length || !job.standingDecision || job.automaticApproval) return false;
+  let previousRevision = job.standingDecision.requestRevision;
+  for (const decision of history) {
+    if (decision.previousRevision !== previousRevision) return false;
+    previousRevision = decision.revision;
+  }
+  const last = history.at(-1)!;
+  return (
+    previousRevision === job.revision &&
+    (last.decision === "approve"
+      ? job.whenIdle === false
+      : job.whenIdle === true && job.finishCurrentTurns === true)
+  );
+}
+
+function assertManualHistory(previous: RestartJob, next: RestartJob): void {
+  const before = previous.standingManualApprovals ?? [];
+  const after = next.standingManualApprovals ?? [];
+  if (!isDeepStrictEqual(before, after.slice(0, before.length)) || after.length > before.length + 1)
+    throw new BootstrapRequestConflict("Standing owner approval history changed");
+  if (after.length !== before.length || previous.revision !== next.revision) {
+    const approval = after.at(-1);
+    if (
+      after.length !== before.length + 1 ||
+      approval?.previousRevision !== previous.revision ||
+      approval.revision !== next.revision ||
+      !hasExactManualApproval(next)
+    )
+      throw new BootstrapRequestConflict("Standing revision requires exact owner supersession");
+  }
+}
+
+function assertStandingEffectPrerequisites(
+  retained: RestartJob | undefined,
+  proposed: RestartJob,
+  phase: StandingRestartPhase,
+): void {
+  if (phase !== "preparation" && !proposed.standingHold)
+    throw new BootstrapRequestConflict("Standing effect requires its exact hold reservation");
+  if (
+    phase === "replacement" &&
+    (retained?.status !== "approved" || !holdConfirmed(retained) || !holdConfirmed(proposed))
+  )
+    throw new BootstrapRequestConflict("Standing replacement requires a verified hold");
+  assertHoldBinding(proposed);
+}
+
+function holdConfirmed(job: RestartJob): boolean {
+  const hold = job.standingHold;
+  if (hold?.releaseRequestedAt) return false;
+  if (hold?.initialDaemonInstanceSha256 || hold?.acknowledgedAt)
+    return Boolean(
+      job.standingDecision?.activationStep &&
+      hold.initialDaemonInstanceSha256 &&
+      hold.acknowledgedAt &&
+      !hold.observedAt,
+    );
+  return Boolean(hold?.observedAt);
+}
+
+/** Builds and repair preparation can begin while the ordinary job is pending.
+ * Keep this prerequisite separate from standing policy's existing phase rules. */
+function registrationPreparation(previous: RestartJob | undefined, next: RestartJob): boolean {
+  if (!["pending", "approved", "running"].includes(next.status)) return false;
+  return (
+    (next.sourceBatch?.status === "preparing" &&
+      !isDeepStrictEqual(previous?.sourceBatch, next.sourceBatch)) ||
+    (next.updatePreparation === "preparing" && previous?.updatePreparation !== "preparing") ||
+    (next.devRepairs?.at(-1)?.status === "preparing" &&
+      !isDeepStrictEqual(previous?.devRepairs, next.devRepairs))
+  );
+}
+
+function effectPhase(
+  previous: RestartJob | undefined,
+  next: RestartJob,
+): StandingRestartPhase | null {
+  if (next.status === "running" && previous?.status !== "running") return "replacement";
+  if (next.standingHold && !previous?.standingHold) return "hold";
+  if (
+    next.status === "approved" &&
+    (previous?.status !== "approved" ||
+      !isDeepStrictEqual(previous.standingDecision, next.standingDecision))
+  )
+    return "preparation";
+  return null;
+}
+
+function assertHoldBinding(job: RestartJob): void {
+  if (!job.standingHold) return;
+  if (
+    job.standingHold.grantRevision !== job.standingDecision?.grantRevision ||
+    job.standingHold.decisionSha256 !== digest(job.standingDecision)
+  )
+    throw new BootstrapRequestConflict("Standing hold differs from its recorded policy decision");
+  if (
+    (job.standingHold.initialDaemonInstanceSha256 || job.standingHold.acknowledgedAt) &&
+    (!job.standingDecision?.activationStep ||
+      !job.standingHold.initialDaemonInstanceSha256 ||
+      job.standingHold.observedAt)
+  )
+    throw new BootstrapRequestConflict(
+      "Legacy hold acknowledgment requires the exact initial child",
+    );
+}
+
+function assertRetainedBindings(previous: RestartJob | undefined, next: RestartJob): void {
+  if (!previous?.standingDecision) return;
+  assertManualHistory(previous, next);
+  if (
+    !isDeepStrictEqual(previous.standingDecision, next.standingDecision) ||
+    standingRestartPlanDigest(previous) !== standingRestartPlanDigest(next)
+  )
+    throw new BootstrapRequestConflict("Standing maintenance plan changed after authorization");
+  if (previous.standingHold) {
+    if (!next.standingHold) throw new BootstrapRequestConflict("Standing hold reservation changed");
+    const {
+      observedAt: previousObservation,
+      acknowledgedAt: previousAcknowledgment,
+      releaseRequestedAt: previousRelease,
+      ...previousBinding
+    } = previous.standingHold;
+    const {
+      observedAt: nextObservation,
+      acknowledgedAt: nextAcknowledgment,
+      releaseRequestedAt: nextRelease,
+      ...nextBinding
+    } = next.standingHold;
+    if (
+      !isDeepStrictEqual(previousBinding, nextBinding) ||
+      (previousObservation !== undefined && previousObservation !== nextObservation) ||
+      (previousAcknowledgment !== undefined && previousAcknowledgment !== nextAcknowledgment) ||
+      (previousRelease !== undefined && previousRelease !== nextRelease)
+    )
+      throw new BootstrapRequestConflict("Standing hold reservation changed");
+    if (nextRelease && !["rejected", "failed", "succeeded"].includes(next.status))
+      throw new BootstrapRequestConflict("Hold release requires a terminal lifecycle result");
+  }
+}

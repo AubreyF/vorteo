@@ -1,3 +1,5 @@
+import { FLOATING_PANEL_INSET } from "@/styles/floating-panel";
+import { StreamColumnWidthContext } from "@/agent-stream/columns/layout";
 import { KeyboardTranslateView } from "@/keyboard/shift";
 import { ProfilePermissionWarning } from "@/agent-profiles/permission-warning";
 import { commitComposerQueue } from "@/message-queue/commit-composer";
@@ -20,9 +22,11 @@ import {
   StyleSheet as RNStyleSheet,
   type PressableStateCallbackType,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import type { TFunction } from "i18next";
 import {
   useState,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -36,7 +40,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { NEW_WORKSPACE_CARD_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { useHasFinePointer } from "@/hooks/use-fine-pointer";
 import { useShallow } from "zustand/shallow";
@@ -124,6 +128,8 @@ import { useAppSettings } from "@/hooks/use-settings";
 import { RenderProfile } from "@/utils/render-profiler";
 import { AfterPaintPublication } from "@/composer/after-paint-publication";
 import { isWeb, isNative } from "@/constants/platform";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFloatingNoticeClearance } from "@/contexts/floating-notice-layout";
 import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
 import type {
   AttachmentMetadata,
@@ -2255,14 +2261,44 @@ function ComposerContentImpl({
     [githubSearchItems, selectedAttachments, handleToggleGithubItem],
   );
 
+  const draftInputWrapperStyle = useMemo(
+    () =>
+      agentControls && !isCompactLayout
+        ? {
+            minHeight: NEW_WORKSPACE_CARD_HEIGHT,
+            justifyContent: "space-between" as const,
+            ...inputWrapperStyle,
+          }
+        : inputWrapperStyle,
+    [agentControls, isCompactLayout, inputWrapperStyle],
+  );
   const mobileComposer = useMobileComposerLayout();
+  const { isActiveComposer } = useComposerKeyboardScope();
+  const insets = useSafeAreaInsets();
+  const measureNoticeClearance = useFloatingNoticeClearance(
+    isActiveComposer && isCompactLayout,
+    MOBILE_COMPOSER_MARGIN + (isNative && externalKeyboardShift ? insets.bottom : 0),
+  );
+  // Draft setup controls precede the editor but must not reserve notice space.
+  const handleComposerHeightChange = useCallback(
+    (height: number) => {
+      measureNoticeClearance(height);
+      onComposerHeightChange?.(height);
+    },
+    [measureNoticeClearance, onComposerHeightChange],
+  );
+  const columnWidth = useContext(StreamColumnWidthContext);
+  const { width: viewportWidth } = useWindowDimensions();
+  const narrowDesktop = !isCompactLayout && viewportWidth <= 1200;
   const inputAreaContainerStyle = useMemo(
     () => [
       styles.inputAreaContainer,
+      columnWidth !== undefined && styles.columnInputArea,
+      narrowDesktop && styles.narrowDesktopInputArea,
       mobileComposer.enabled && styles.mobileInputArea,
       isComposerLocked && styles.inputAreaLocked,
     ],
-    [isComposerLocked, mobileComposer.enabled],
+    [columnWidth, isComposerLocked, mobileComposer.enabled, narrowDesktop],
   );
 
   const attachmentTray = useMemo(
@@ -2370,7 +2406,13 @@ function ComposerContentImpl({
         <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
         {/* Input area */}
         <View style={inputAreaContainerStyle} testID="composer-input-area">
-          <View style={[styles.inputAreaContent, styles.bottomCardStack]}>
+          <View
+            style={[
+              styles.inputAreaContent,
+              styles.bottomCardStack,
+              (columnWidth !== undefined || narrowDesktop) && styles.columnInputContent,
+            ]}
+          >
             {sendErrorNode}
             {!agentControls && agentId ? (
               <ProfilePermissionWarning serverId={serverId} agentId={agentId} />
@@ -2390,6 +2432,7 @@ function ComposerContentImpl({
               />
             ) : null}
 
+            {agentControls ? leftContent : null}
             <View ref={messageInputContainerRef} style={styles.messageInputContainer}>
               <ComposerAutocompleteBinding
                 text={textSource}
@@ -2435,7 +2478,7 @@ function ComposerContentImpl({
                   autoFocus={messageInputAutoFocus}
                   autoFocusKey={`${serverId}:${agentId}:${autoFocusKey ?? ""}`}
                   disabled={isSubmitLoading}
-                  leftContent={leftContent}
+                  leftContent={agentControls ? null : leftContent}
                   beforeVoiceContent={beforeVoiceContent}
                   rightContent={rightContent}
                   activeActionContent={activeActionContent}
@@ -2443,13 +2486,13 @@ function ComposerContentImpl({
                   voiceAgentId={agentId}
                   isAgentRunning={isAgentRunning}
                   defaultSendBehavior={activeSendBehavior}
-                  onQueue={handleQueue}
+                  onQueue={hasAgent && supportsMessageQueue ? handleQueue : undefined}
                   onSubmitLoadingPress={submitLoadingPressHandler}
                   onKeyPress={handleCommandKeyPress}
                   onSelectionChange={handleSelectionChange}
                   onFocusChange={handleFocusChange}
-                  onHeightChange={onComposerHeightChange}
-                  inputWrapperStyle={inputWrapperStyle}
+                  onHeightChange={handleComposerHeightChange}
+                  inputWrapperStyle={draftInputWrapperStyle}
                   attachmentSlot={attachmentTray}
                   inputMode={inputMode}
                   readOnly={readOnly}
@@ -2508,9 +2551,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
     alignItems: "center",
     width: "100%",
     overflow: "visible",
-    paddingHorizontal: theme.spacing[4],
-    paddingBottom: theme.spacing[4],
+    paddingHorizontal: FLOATING_PANEL_INSET,
+    paddingBottom: FLOATING_PANEL_INSET,
   },
+  narrowDesktopInputArea: { paddingLeft: 6, paddingRight: 8 },
+  columnInputArea: { paddingHorizontal: theme.spacing[2] },
+  columnInputContent: { maxWidth: "100%" },
   mobileQueueArea: {
     paddingHorizontal: MOBILE_COMPOSER_MARGIN,
     paddingBottom: 12,

@@ -1,12 +1,12 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { SourceUpdateSchema, type RestartJob } from "@getpaseo/protocol/execution-installation";
-import { writePrivateFileAtomicSync } from "../private-files.js";
-import { connectInstallationDaemon } from "./daemon.js";
+import { writeLifecycleReceipt } from "./lifecycle-journal.js";
+import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "./daemon.js";
 import type { InstallationConfig, ContainerSourceUpdates } from "./config.js";
 import type { RestartExecutor } from "./restarts.js";
 
@@ -20,6 +20,8 @@ interface ContainerCommand {
   settings: ContainerSourceUpdates;
   operation: Record<string, unknown>;
   archive?: Buffer;
+  signal?: AbortSignal;
+  assertCurrent?: () => void;
 }
 
 /** Docker remains a Host-only capability. No command, container or credential comes from an upload. */
@@ -27,6 +29,8 @@ async function containerCommand({
   settings,
   operation,
   archive,
+  signal,
+  assertCurrent,
 }: ContainerCommand): Promise<unknown> {
   const helper = readFileSync(
     path.join(settings.toolingDirectory, "installation-container-runtime.mjs"),
@@ -54,10 +58,11 @@ async function containerCommand({
     }),
   ];
   const stdout = await new Promise<string>((resolve, reject) => {
+    assertCurrent?.();
     const child = execFile(
       settings.docker,
       args,
-      { timeout: operation.action === "prepare" ? 60 * 60_000 : 15_000, maxBuffer: 8192 },
+      { timeout: operation.action === "prepare" ? 60 * 60_000 : 150_000, maxBuffer: 8192, signal },
       (error, output) => {
         if (error) reject(error);
         else resolve(output);
@@ -87,17 +92,23 @@ interface ContainerInstallation {
   job: RestartJob;
   bundleFile: string;
   restart: RestartExecutor["restart"];
+  beforeSelection?: () => Promise<void>;
+  assertRegistrationReadiness?: (target: RestartJob["target"]) => void;
 }
 
-export async function installContainerSource({
+export async function prepareContainerSource({
   config,
   job,
   bundleFile,
-  restart,
-}: ContainerInstallation): Promise<string> {
+  assertRegistrationReadiness,
+}: Omit<ContainerInstallation, "restart">): Promise<void> {
   const settings = config.containerSourceUpdates;
   if (!settings || job.target !== "container-daemon")
     throw new Error("Dev source updates are not configured");
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
+  assertReady("container-daemon");
+  if (config.container.persistentRegistration)
+    throw new Error("Dev source updates require independently verified transition-phase readiness");
   const update = SourceUpdateSchema.parse(job.update);
   const installed = SelectionSchema.parse(
     await containerCommand({ settings, operation: { action: "inspect" } }),
@@ -143,10 +154,13 @@ export async function installContainerSource({
   if (statSync(archiveFile).size > 512 * 1024 * 1024)
     throw new Error("Dev source archive exceeds the build limit");
   const archive = readFileSync(archiveFile);
-  const prepared = SelectionSchema.parse(
+  const prepared = SelectionSchema.extend({
+    artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }).parse(
     await containerCommand({
       settings,
       archive,
+      assertCurrent: () => assertReady("container-daemon"),
       operation: {
         action: "prepare",
         jobId: job.id,
@@ -158,13 +172,106 @@ export async function installContainerSource({
   );
   if (prepared.sourceCommit !== update.sourceCommit)
     throw new Error("Prepared Dev source differs from approval");
-  const operation = { release: prepared.release, previous: installed.release, update };
-  const receipt = path.join(work, "activation.json");
-  writeFileSync(receipt, JSON.stringify({ ...operation, status: "activating" }), {
-    mode: 0o600,
-    flag: "wx",
+  writeLifecycleReceipt(path.join(work, "prepared.json"), {
+    release: prepared.release,
+    previous: installed.release,
+    update,
+    artifactSha256: prepared.artifactSha256,
   });
-  await containerCommand({ settings, operation: { ...operation, action: "activate" } });
+}
+
+const PreparedContainerSchema = z.object({
+  release: z.string(),
+  previous: z.string(),
+  update: SourceUpdateSchema,
+  artifactSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+
+export async function verifyPreparedContainerSource(
+  config: InstallationConfig,
+  job: RestartJob,
+  signal?: AbortSignal,
+) {
+  const settings = config.containerSourceUpdates;
+  if (!settings || job.target !== "container-daemon")
+    throw new Error("Dev source updates are not configured");
+  const work = path.join(config.stateDir, "container-source-updates", job.id);
+  const receipt = readFileSync(path.join(work, "prepared.json"));
+  const operation = PreparedContainerSchema.parse(JSON.parse(receipt.toString("utf8")));
+  const receiptSha256 = createHash("sha256")
+    .update(JSON.stringify([createHash("sha256").update(receipt).digest("hex")]))
+    .digest("hex");
+  if (JSON.stringify(operation.update) !== JSON.stringify(SourceUpdateSchema.parse(job.update)))
+    throw new Error("Prepared Dev candidate belongs to different approved source");
+  if (!operation.artifactSha256) {
+    if (job.standingDecision)
+      throw new Error("Standing Dev updates require built candidate evidence");
+    return { operation, receiptSha256 };
+  }
+  if (
+    job.standingDecision?.activationStep &&
+    job.standingDecision.activationStep.candidateArtifactSha256 !== operation.artifactSha256
+  )
+    throw new Error("Built Dev candidate differs from exact activation step");
+  const observed = SelectionSchema.extend({ artifactSha256: z.string() }).parse(
+    await containerCommand({
+      settings,
+      signal,
+      operation: { ...operation, action: "verify-candidate" },
+    }),
+  );
+  if (
+    observed.release !== operation.release ||
+    observed.sourceCommit !== operation.update.sourceCommit ||
+    observed.artifactSha256 !== operation.artifactSha256
+  )
+    throw new Error("Native Dev candidate verification differs from preparation");
+  return { operation, receiptSha256 };
+}
+
+export async function installContainerSource({
+  config,
+  job,
+  restart,
+  beforeSelection,
+  assertRegistrationReadiness,
+}: ContainerInstallation): Promise<string> {
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
+  assertReady("container-daemon");
+  if (config.container.persistentRegistration)
+    throw new Error("Dev source updates require independently verified transition-phase readiness");
+  const settings = config.containerSourceUpdates;
+  if (!settings || job.target !== "container-daemon")
+    throw new Error("Dev source updates are not configured");
+  const update = SourceUpdateSchema.parse(job.update);
+  const work = path.join(config.stateDir, "container-source-updates", job.id);
+  const receipt = path.join(work, "activation.json");
+  if (existsSync(receipt))
+    throw new Error(
+      "Dev activation was already attempted. Inspect its retained receipt before recovery.",
+    );
+  const { operation } = await verifyPreparedContainerSource(config, job);
+  const installed = SelectionSchema.parse(
+    await containerCommand({ settings, operation: { action: "inspect" } }),
+  );
+  if (
+    installed.release !== operation.previous ||
+    installed.sourceCommit !== update.baseCommit ||
+    JSON.stringify(operation.update) !== JSON.stringify(update)
+  )
+    throw new Error("Dev source changed after preparation. No candidate was activated.");
+  const prepared = { release: operation.release };
+
+  await beforeSelection?.();
+  writeLifecycleReceipt(receipt, { ...operation, status: "activating" });
+  await containerCommand({
+    settings,
+    operation: { ...operation, action: "activate" },
+    assertCurrent: () => assertReady("container-daemon"),
+  });
   try {
     await restart("container-daemon");
     const client = await connectInstallationDaemon(config, "container");
@@ -178,35 +285,21 @@ export async function installContainerSource({
       await client.close();
     }
   } catch (error) {
-    let restorationError: unknown;
-    try {
-      await containerCommand({ settings, operation: { ...operation, action: "restore" } });
-    } catch (restoreError) {
-      restorationError = restoreError;
-    }
-    if (restorationError) {
-      const failure = new Error(
-        `Dev update readiness failed and release selection could not be restored. Inspect ${receipt}; no restart was replayed.`,
-        { cause: error },
-      );
-      throw Object.assign(failure, { restorationError });
-    }
+    // Neither a lost restart reply nor failed readiness proves that candidate
+    // startup stopped. Retain the selection and intent for native reconciliation.
     throw new Error(
-      `Dev update readiness failed. Previous release selected at ${installed.release}; inspect the running daemon before requesting recovery. No restart was replayed.`,
+      "Dev restart outcome is unverified. Candidate selection and activation intent retained; reconcile native readiness before recovery. No restart or selection rollback was repeated.",
       { cause: error },
     );
   }
   // This protected receipt supplies the next upload's base. It is not guest-authored metadata.
   try {
-    writePrivateFileAtomicSync(
-      settings.receiptFile,
-      JSON.stringify({
-        sourceCommit: update.sourceCommit,
-        release: prepared.release,
-        sha256: update.sha256,
-      }),
-    );
-    writePrivateFileAtomicSync(receipt, JSON.stringify({ ...operation, status: "succeeded" }));
+    writeLifecycleReceipt(settings.receiptFile, {
+      sourceCommit: update.sourceCommit,
+      release: prepared.release,
+      sha256: update.sha256,
+    });
+    writeLifecycleReceipt(receipt, { ...operation, status: "succeeded" });
   } catch (error) {
     throw new Error(
       `Dev is running approved source ${update.sourceCommit}, but its installation receipt could not be recorded. Reconcile ${receipt} before another update; no restart was replayed.`,

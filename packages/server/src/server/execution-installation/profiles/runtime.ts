@@ -13,14 +13,18 @@ import path from "node:path";
 import type { Logger } from "pino";
 import { writePrivateFileAtomicSync } from "../../private-files.js";
 import type { InstallationConfig } from "../config.js";
-import { connectInstallationDaemon } from "../daemon.js";
+import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import {
   InstallationProfiles,
   ProfileSharingStateSchema,
   type ProfileEnvironment,
 } from "./service.js";
 
-export function createInstallationProfiles(config: InstallationConfig): InstallationProfiles {
+export function createInstallationProfiles(
+  config: InstallationConfig,
+  assertRegistrationReadiness?: (target: "host" | "container-daemon") => void,
+): InstallationProfiles {
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   const directory = path.join(config.stateDir, "shared-profiles");
   const file = path.join(directory, "state.json");
   const environments: ProfileEnvironment[] = config.public.environments.map((environment) => {
@@ -28,22 +32,41 @@ export function createInstallationProfiles(config: InstallationConfig): Installa
       serverId: environment.serverId,
       kind: environment.kind,
       workerAccounts: false,
+      uncappedManagedWorkers: false,
       async read() {
         target.workerAccounts = false;
+        target.uncappedManagedWorkers = false;
+        assertReady(environment.kind === "host" ? "host" : "container-daemon");
         const client = await connectInstallationDaemon(config, environment.kind);
         try {
           if (client.getLastServerInfoMessage()?.features?.installationProfileAuthority !== true)
             throw new Error("Update the daemon to preserve shared profile identities");
           target.workerAccounts =
             client.getLastServerInfoMessage()?.features?.explicitWorkerAccounts === true;
+          target.uncappedManagedWorkers =
+            client.getLastServerInfoMessage()?.features?.uncappedManagedWorkers === true;
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
           return (await client.getDaemonConfig()).config;
         } finally {
           await client.close();
         }
       },
       async patch(patch) {
+        assertReady(environment.kind === "host" ? "host" : "container-daemon");
         const client = await connectInstallationDaemon(config, environment.kind);
         try {
+          const groups = Object.values(patch.sharedProviderPreferences?.providers ?? {});
+          if (
+            groups.some((group) =>
+              [group.defaults, ...group.workflows].some(
+                (profile) => profile.uncappedWorkers === true,
+              ),
+            ) &&
+            client.getLastServerInfoMessage()?.features?.uncappedManagedWorkers !== true
+          ) {
+            throw new Error("Update this daemon before projecting uncapped worker profiles.");
+          }
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
           return (await client.patchDaemonConfig(patch)).config;
         } finally {
           await client.close();

@@ -1,7 +1,11 @@
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { TaskCardRow, TaskCardRowLeading } from "@/agent-stream/task-card-row";
+import { TruncatedText } from "@/components/ui/truncated-text";
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader, TaskCardAction } from "@/agent-stream/task-card";
 import { CountBadge } from "@/components/ui/count-badge";
 import { QueueMessageIndicator } from "./queue-indicator";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
@@ -11,7 +15,7 @@ import { QueueDragScrollContext } from "./drag-scroll";
 import { queueReorderAction } from "./reorder";
 import { SharedQueueAttachments } from "./shared-attachments";
 import { QueueAttachmentSummary } from "./attachment-summary";
-import { ArrowUp, Pencil, RotateCw, Play, Pause, MoreHorizontal } from "lucide-react-native";
+import { ArrowUp, Pencil, RotateCw, Play, Pause, MoreVertical } from "lucide-react-native";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   DropdownMenu,
@@ -91,11 +95,11 @@ function QueueViewContent({
   goalErrorHandled?: boolean;
   reviewRequest?: number;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useCardDisclosure("queue");
   useEffect(() => {
     if (reviewRequest > 0) setExpanded(true);
-  }, [reviewRequest]);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  }, [reviewRequest, setExpanded]);
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const edits = useQueueEditDrafts();
   const snapshot = control.snapshot;
   if (
@@ -109,7 +113,7 @@ function QueueViewContent({
     return !!record.error && !!snapshot?.items.some((item) => item.id === operation.messageId);
   });
   return (
-    <TaskCard testID="shared-message-queue" bodyVisible={expanded}>
+    <TaskCard flushBody testID="shared-message-queue" bodyVisible={expanded}>
       <TaskCardHeader testID="message-queue-header">
         <QueueHeader control={control} expanded={expanded} toggleExpanded={toggleExpanded} />
       </TaskCardHeader>
@@ -119,13 +123,13 @@ function QueueViewContent({
           <QueueDeliveryError control={control} />
         ) : null}
         {edits.error ? (
-          <Text style={styles.error} accessibilityRole="alert">
+          <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
             {edits.error.message}
           </Text>
         ) : null}
         {control.error ? (
           <View style={styles.row}>
-            <Text style={styles.error} accessibilityRole="alert">
+            <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
               {control.error}
             </Text>
             <Button variant="ghost" size="sm" style={styles.inlineAction} onPress={control.refresh}>
@@ -154,25 +158,10 @@ function QueueHeader({
   toggleExpanded: () => void;
 }) {
   const countBadge = useMemo(() => <QueueCountBadge control={control} />, [control]);
-  const touch = useVortonTouch();
   const snapshot = control.snapshot;
-  const pending = control.pending.filter(
-    (record) =>
-      !record.error &&
-      !record.dismissed &&
-      record.operation.kind !== "enqueue" &&
-      record.operation.kind !== "reorder",
-  );
-  const operation = pending[0];
   let status: string | null = null;
   if (snapshot?.paused) status = "Paused";
   if (!control.connected) status = "Offline";
-  if (control.loading) status = "Loading queue...";
-  if (operation) {
-    status =
-      operation.operation.kind === "edit" ? "Saving message" : describePendingChange(operation);
-    if (pending.length > 1) status += ` (+${pending.length - 1})`;
-  }
   const toggle = useCallback(() => {
     if (snapshot)
       void control
@@ -192,19 +181,17 @@ function QueueHeader({
       <CardDisclosure
         icon={HEADING_ICON}
         trailing={headerStatus}
-        title="Queued messages"
+        title="Queue"
         expanded={expanded}
         onPress={toggleExpanded}
         testID="message-queue-toggle"
         count={countBadge}
       />
-      <Button
-        variant="ghost"
-        size="sm"
+      <TaskCardAction
+        iconOnly
         accessibilityLabel={snapshot?.paused ? "Resume queue" : "Pause queue"}
         testID="message-queue-pause-resume"
         leftIcon={snapshot?.paused ? Play : Pause}
-        style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
         disabled={!control.canMutate || !snapshot}
         onPress={toggle}
       />
@@ -307,7 +294,7 @@ function QueueRows({
         touchActivation="movement"
       />
       {error ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {error}
         </Text>
       ) : null}
@@ -353,7 +340,7 @@ function QueueDeliveryError({ control }: { control: MessageQueueControl }) {
   if (!snapshot?.deliveryError) return null;
   return (
     <View style={styles.row}>
-      <Text style={styles.error} accessibilityRole="alert">
+      <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
         {snapshot.deliveryError}
       </Text>
       {!isQueueGoalError(snapshot.deliveryError) ? (
@@ -375,21 +362,23 @@ function PendingRow({ record, control }: { record: OutboxRecord; control: Messag
   const attachments = pendingAttachments(record);
   return (
     <View style={taskCardStyles.item}>
-      <View style={styles.summary}>
-        <QueueMessageIndicator record={record} />
-        <QueueAttachmentSummary
-          count={attachments.length}
-          hasMedia={attachments.some((attachment) => attachment.kind === "image")}
-        />
-        <Text
+      <TaskCardRow>
+        <TaskCardRowLeading>
+          <QueueMessageIndicator record={record} />
+          <QueueAttachmentSummary
+            count={attachments.length}
+            hasMedia={attachments.some((attachment) => attachment.kind === "image")}
+          />
+        </TaskCardRowLeading>
+        <TruncatedText
           selectable
           style={[taskCardStyles.rowText, styles.summaryText]}
           numberOfLines={2}
           ellipsizeMode="tail"
         >
           {describePendingChange(record)}
-        </Text>
-      </View>
+        </TruncatedText>
+      </TaskCardRow>
       <PendingRecovery record={record} control={control} />
     </View>
   );
@@ -430,18 +419,20 @@ function PendingRecovery({
   return (
     <View>
       {record.error && !record.dismissed ? (
-        <Text style={styles.secondary}>Could not synchronize</Text>
+        <Text style={[styles.secondary, taskCardStyles.proseInset]}>Could not synchronize</Text>
       ) : null}
       {record.dismissed ? (
-        <Text style={styles.secondary}>Kept locally. This change will not be sent.</Text>
+        <Text style={[styles.secondary, taskCardStyles.proseInset]}>
+          Kept locally. This change will not be sent.
+        </Text>
       ) : null}
       {record.error && !record.dismissed ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {record.error.message}
         </Text>
       ) : null}
       {error ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {error}
         </Text>
       ) : null}
@@ -504,7 +495,7 @@ function ReviewRejectedEdit({
           : "Review saved copy"}
       </Button>
       {error ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {error}
         </Text>
       ) : null}
@@ -543,6 +534,16 @@ function QueueRow({
 }) {
   const item = row.shared;
   const record = row.local;
+  const savingRecord =
+    record ??
+    control.pending.find(
+      (pending) =>
+        !pending.error &&
+        !pending.dismissed &&
+        pending.operation.kind === "edit" &&
+        pending.operation.messageId === row.id,
+    ) ??
+    null;
   const attachments = row.shared ? row.shared.attachments : pendingAttachments(row.local);
   const text = row.shared ? describeQueuedMessage(row.shared) : describePendingChange(row.local);
   const edits = useQueueEditDrafts();
@@ -564,29 +565,32 @@ function QueueRow({
       testID={`queue-message-${row.id}`}
     >
       {!editing.length ? (
-        <View style={styles.summary}>
-          <QueueMessageIndicator record={record}>
-            {item ? (
-              <ListDragHandle
-                info={dragInfo}
-                disabled={!reorderEnabled}
-                label="Reorder queued message"
-                testID={`queue-drag-${row.id}`}
-              />
-            ) : null}
-          </QueueMessageIndicator>
-          <QueueAttachmentSummary
-            count={attachments.length}
-            hasMedia={attachments.some((attachment) => attachment.kind === "image")}
-          />
-          <Text
+        <TaskCardRow>
+          <TaskCardRowLeading>
+            <QueueMessageIndicator record={savingRecord}>
+              {item ? (
+                <ListDragHandle
+                  inset={false}
+                  info={dragInfo}
+                  disabled={!reorderEnabled}
+                  label="Reorder queued message"
+                  testID={`queue-drag-${row.id}`}
+                />
+              ) : null}
+            </QueueMessageIndicator>
+            <QueueAttachmentSummary
+              count={attachments.length}
+              hasMedia={attachments.some((attachment) => attachment.kind === "image")}
+            />
+          </TaskCardRowLeading>
+          <TruncatedText
             selectable={!!record}
             style={[taskCardStyles.rowText, styles.summaryText]}
             numberOfLines={2}
             ellipsizeMode="tail"
           >
             {text}
-          </Text>
+          </TruncatedText>
           {item ? (
             <QueueActions
               item={item}
@@ -596,7 +600,7 @@ function QueueRow({
               toggleDetails={toggleDetails}
             />
           ) : null}
-        </View>
+        </TaskCardRow>
       ) : null}
       {record ? <PendingRecovery record={record} control={control} /> : null}
       {item && details && !editing.length ? (
@@ -607,21 +611,18 @@ function QueueRow({
           presentation={item}
         />
       ) : null}
-      {item?.delivery.status === "dispatching" ? (
-        <Text style={styles.secondary}>Sending...</Text>
-      ) : null}
       {item && "reason" in item.delivery ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {item.delivery.reason}
         </Text>
       ) : null}
       {item?.delivery.status === "uncertain" ? (
-        <Text style={styles.secondary}>
+        <Text style={[styles.secondary, taskCardStyles.proseInset]}>
           The host could not confirm delivery. Retrying may send this message again.
         </Text>
       ) : null}
       {editError ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {editError}
         </Text>
       ) : null}
@@ -692,18 +693,29 @@ function QueueActions({
       .catch(() => {});
   }, [control, item]);
   return (
-    <View style={[taskCardStyles.actions, !touch && taskCardStyles.actionInset]}>
+    <View style={taskCardStyles.actions}>
       <QueuePrimaryActions
         queued={queued}
         canMutate={control.canMutate}
         sendRequested={!control.canSendNow}
+        dispatching={
+          item.delivery.status === "dispatching" ||
+          control.pending.some(
+            (record) =>
+              !record.error &&
+              !record.dismissed &&
+              record.operation.kind === "send_now" &&
+              record.operation.messageId === item.id,
+          )
+        }
         edit={edit}
         sendNow={sendNow}
       />
       <DropdownMenu>
         <DropdownMenuTrigger
+          accessibilityRole="button"
           accessibilityLabel="Queued message actions"
-          style={[styles.menuTrigger, touch && styles.touch]}
+          style={[taskCardStyles.iconAction, styles.menuTrigger, touch && styles.touch]}
         >
           <ThemedMore size={16} uniProps={mutedIconMapping} />
         </DropdownMenuTrigger>
@@ -738,61 +750,67 @@ function QueuePrimaryActions({
   queued,
   canMutate,
   sendRequested,
+  dispatching,
   edit,
   sendNow,
 }: {
   queued: boolean;
   canMutate: boolean;
   sendRequested: boolean;
+  dispatching: boolean;
   edit: () => void;
   sendNow: () => void;
 }) {
   const touch = useVortonTouch();
+  if (!queued && !dispatching) return null;
   return (
     <>
-      {" "}
-      {queued ? (
-        <>
-          <Button
-            size="sm"
-            variant="ghost"
-            style={[taskCardStyles.iconAction, touch && styles.touch]}
-            leftIcon={Pencil}
-            accessibilityLabel="Edit queued message"
-            disabled={!canMutate}
-            onPress={edit}
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            style={[taskCardStyles.iconAction, touch && styles.touch]}
-            leftIcon={ArrowUp}
-            accessibilityLabel="Send queued message now"
-            disabled={!canMutate || sendRequested}
-            onPress={sendNow}
-          />
-        </>
-      ) : null}
+      <Button
+        size="sm"
+        variant="ghost"
+        style={[taskCardStyles.iconAction, touch && styles.touch]}
+        leftIcon={Pencil}
+        accessibilityLabel="Edit queued message"
+        disabled={!canMutate || dispatching}
+        onPress={edit}
+      />
+      <View style={styles.sendAction}>
+        <Button
+          size="sm"
+          variant="ghost"
+          style={[taskCardStyles.iconAction, touch && styles.touch]}
+          leftIcon={ArrowUp}
+          accessibilityLabel={dispatching ? "Sending queued message" : "Send queued message now"}
+          disabled={!canMutate || sendRequested || dispatching}
+          onPress={sendNow}
+        />
+        {dispatching ? (
+          <View pointerEvents="none" style={styles.sendProgress} testID="queue-send-progress">
+            <ThemedSendingSpinner size={28} />
+          </View>
+        ) : null}
+      </View>
     </>
   );
 }
 
-const ThemedMore = withUnistyles(MoreHorizontal);
+const ThemedSendingSpinner = withUnistyles(LoadingSpinner, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
+
+const ThemedMore = withUnistyles(MoreVertical);
 const mutedIconMapping = (theme: Theme) => ({
   color: theme.colors.foregroundMuted,
 });
 
 const styles = StyleSheet.create((theme) => ({
+  sendAction: { position: "relative" },
+  sendProgress: { position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" },
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
     gap: theme.spacing[1],
-  },
-  summary: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
   },
   summaryText: { flex: 1, minWidth: 0 },
   heading: {
@@ -810,11 +828,8 @@ const styles = StyleSheet.create((theme) => ({
   touch: { minHeight: 44, minWidth: 44 },
   inlineAction: { minHeight: 44, alignSelf: "flex-start" },
   menuTrigger: {
-    width: 32,
-    height: 32,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: theme.borderRadius.full,
   },
   dragActive: { backgroundColor: theme.colors.surface2 },
   editorActions: {

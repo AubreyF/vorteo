@@ -1,5 +1,15 @@
 import express from "express";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -87,10 +97,29 @@ test("authenticated consumer writes only the policy-bound account and rejects ex
   try {
     expect((await request(delivery, false)).status).toBe(401);
     expect((await request({ ...delivery, serverId: "other" })).status).toBe(409);
+    const accountHome = join(home, "claude-accounts", providerId);
+    await mkdir(join(home, "claude-accounts"), { recursive: true });
+    const unrelated = join(home, "unrelated");
+    await mkdir(unrelated, { mode: 0o755 });
+    await chmod(unrelated, 0o755);
+    await symlink(unrelated, accountHome);
+    expect((await request(delivery)).status).toBe(409);
+    expect((await lstat(unrelated)).mode & 0o777).toBe(0o755);
+    await expect(readFile(join(unrelated, ".vorteo-auth", "delivery.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await unlink(accountHome);
+    await mkdir(accountHome, { recursive: true });
+    await chmod(accountHome, 0o500);
+    expect((await request(delivery)).status).toBe(409);
+    expect((await lstat(accountHome)).mode & 0o777).toBe(0o500);
+    await chmod(accountHome, 0o755);
+    await writeFile(join(accountHome, "history-preserved"), "history");
     const applied = await request(delivery);
     expect(applied.status).toBe(200);
     expect(JSON.stringify(await applied.json())).not.toContain(credential.accessToken);
-    const accountHome = join(home, "claude-accounts", providerId);
+    expect((await lstat(accountHome)).mode & 0o777).toBe(0o700);
+    expect(await readFile(join(accountHome, "history-preserved"), "utf8")).toBe("history");
     const artifact = join(accountHome, ".vorteo-auth", "claude-setup-token.json");
     expect(JSON.parse(await readFile(artifact, "utf8"))).toEqual(credential);
     await writeFile(join(accountHome, "history-preserved"), "history");

@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
@@ -10,8 +10,9 @@ import {
 import { useOpenFileExplorerGesture } from "@/mobile-panels/gestures";
 import { useIsMobilePanelActive } from "@/mobile-panels/provider";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import { usePanelStore } from "@/stores/panel-store";
-import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+import { usePanelStore, selectIsCompactFileExplorerOpen } from "@/stores/panel-store";
+import { useWorkspaceLayoutStore, findPaneById } from "@/stores/workspace-layout-store";
+import { SupportingCardsContext } from "@/screens/workspace/supporting-cards-context";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { useWorkspaceCheckoutStatus } from "@/screens/workspace/use-workspace-checkout-status";
 import { openWorkspaceFileFromExplorer } from "@/screens/workspace/workspace-file-open-command";
@@ -21,7 +22,6 @@ import {
   resolveCompactExplorerSidebarHostModel,
   type CompactExplorerSidebarHostModel,
 } from "@/components/compact-explorer-sidebar-host-state";
-import { AppearanceStyleBoundary } from "@/components/appearance-style-boundary";
 
 interface CompactExplorerOpenGestureSurfaceProps {
   children: ReactNode;
@@ -109,6 +109,25 @@ export function CompactExplorerSidebarHost({
   presentation,
 }: CompactExplorerSidebarHostProps) {
   const model = useActiveCompactExplorerSidebarModel(enabled);
+  const cardHostName = `native-workspace-cards-${useId()}`;
+  const explorerOpen = usePanelStore(selectIsCompactFileExplorerOpen);
+  const activeAgentId = useWorkspaceLayoutStore((state) => {
+    if (!model) return null;
+    const layout = state.layoutByWorkspace[model.persistenceKey];
+    if (!layout) return null;
+    const pane = findPaneById(layout.root, layout.focusedPaneId);
+    const tab = state
+      .getWorkspaceTabs(model.persistenceKey)
+      .find((entry) => entry.tabId === pane?.focusedTabId);
+    return tab?.target.kind === "agent" ? tab.target.agentId : null;
+  });
+  const cardHostValue = useMemo(
+    () => ({
+      agentId: activeAgentId,
+      hostName: enabled && presentation === "dock" && explorerOpen ? cardHostName : null,
+    }),
+    [activeAgentId, enabled, presentation, explorerOpen, cardHostName],
+  );
   const [containerWidth, setContainerWidth] = useState(0);
   const openCompactFileExplorer = usePanelStore((state) => state.openCompactFileExplorer);
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
@@ -158,6 +177,7 @@ export function CompactExplorerSidebarHost({
       <DiffDocumentWorkspaceCacheProvider key={model.persistenceKey}>
         {presentation === "dock" ? (
           <NativeExplorerSidebarDock
+            cardHostName={cardHostName}
             serverId={model.serverId}
             workspaceId={model.workspaceId}
             workspaceRoot={model.workspaceRoot}
@@ -178,17 +198,14 @@ export function CompactExplorerSidebarHost({
       </DiffDocumentWorkspaceCacheProvider>
     ) : null;
 
-  let themedExplorer = explorer;
-  if (isWeb) {
-    themedExplorer = <AppearanceStyleBoundary>{explorer}</AppearanceStyleBoundary>;
-  }
-
   if (presentation === "dock") {
     return (
-      <View style={styles.row} onLayout={handleContainerLayout}>
-        <View style={styles.fill}>{children}</View>
-        {themedExplorer}
-      </View>
+      <SupportingCardsContext.Provider value={cardHostValue}>
+        <View style={styles.row} onLayout={handleContainerLayout}>
+          <View style={styles.fill}>{children}</View>
+          {explorer}
+        </View>
+      </SupportingCardsContext.Provider>
     );
   }
 
@@ -200,7 +217,7 @@ export function CompactExplorerSidebarHost({
       >
         {children}
       </CompactExplorerOpenGestureSurface>
-      {themedExplorer}
+      {explorer}
     </>
   );
 }

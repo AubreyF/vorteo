@@ -288,6 +288,7 @@ vi.mock("./worktree-bootstrap.js", async (importOriginal) => {
 });
 
 interface SessionForTestOptions {
+  maintenanceRestart?: SessionOptions["maintenanceRestart"];
   coordinatorBootstrap?: SessionOptions["coordinatorBootstrap"];
   clientId?: string;
   permissions?: readonly DaemonPermission[];
@@ -368,6 +369,7 @@ function createSessionForTest(options: SessionForTestOptions = {}): Session {
   const messages = options.messages ?? [];
 
   const sessionOptions: SessionOptions = {
+    maintenanceRestart: options.maintenanceRestart,
     messageReceipts: createMessageReceiptsStub(),
     creationService: createTestCreationService(),
     clientId: options.clientId ?? "test-client",
@@ -445,6 +447,115 @@ function createSessionForTest(options: SessionForTestOptions = {}): Session {
   };
   return new Session(sessionOptions);
 }
+
+test("held idle restart replies only after exact supervisor acceptance", async () => {
+  const held = {
+    requestId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",
+    generation: "43d76338-6f84-4f82-bfbe-c9b42e8e3ba3",
+    workerPid: 42,
+    workerInstanceId: "44b462bd-ee9e-4136-906d-dc5a885f9387",
+    terminateAt: Date.now() + 1000,
+  };
+  const pending = deferred<{
+    requestId: string;
+    generation: string;
+    workerPid: number;
+    terminateAt: number;
+    accepted: true;
+  }>();
+  const messages: SessionOutboundMessage[] = [];
+  const request = vi.fn(() => pending.promise);
+  const checkpoint = vi.fn(async () => {});
+  const prepare = vi.fn(() => true);
+  const session = createSessionForTest({
+    messages,
+    maintenanceRestart: { supported: () => true, request },
+    agentManager: {
+      getRestartImpact: () => ({
+        agents: [],
+        pendingStarts: 0,
+        restartDrainId: held.requestId,
+        workerPid: held.workerPid,
+        workerInstanceId: held.workerInstanceId,
+      }),
+      checkpointRestartDrain: checkpoint,
+      prepareHeldIdleRestart: prepare,
+    },
+  });
+  const handling = session.handleMessage({
+    type: "restart_server_request",
+    requestId: "held-rpc",
+    idleMode: "restart",
+    restartDrainId: held.requestId,
+    heldRestart: held,
+  });
+  await expect.poll(() => request.mock.calls.length).toBe(1);
+  expect(messages.filter((m) => m.type === "status")).toEqual([]);
+  expect(checkpoint).toHaveBeenCalledWith({
+    requestId: held.requestId,
+    terminateAt: held.terminateAt,
+  });
+  expect(prepare).toHaveBeenCalledWith(held);
+  pending.resolve({
+    requestId: held.requestId,
+    generation: held.generation,
+    workerPid: held.workerPid,
+    terminateAt: held.terminateAt,
+    accepted: true,
+  });
+  await handling;
+  expect(messages).toEqual([
+    {
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        requestId: "held-rpc",
+        clientId: "test-client",
+        accepted: true,
+        heldRestart: held,
+      },
+    },
+  ]);
+});
+
+test.each([
+  { name: "old-supervisor", supported: false, observedPid: 42, checkpoints: 0 },
+  { name: "changed-worker", supported: true, observedPid: 43, checkpoints: 0 },
+  { name: "released-hold", supported: true, observedPid: 42, checkpoints: 1 },
+])("held idle restart refuses $name without supervisor dispatch", async (scenario) => {
+  const held = {
+    requestId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",
+    generation: "43d76338-6f84-4f82-bfbe-c9b42e8e3ba3",
+    workerPid: 42,
+    workerInstanceId: "44b462bd-ee9e-4136-906d-dc5a885f9387",
+    terminateAt: Date.now() + 1000,
+  };
+  const request = vi.fn();
+  const checkpoint = vi.fn(async () => {});
+  const messages: SessionOutboundMessage[] = [];
+  const session = createSessionForTest({
+    messages,
+    maintenanceRestart: { supported: () => scenario.supported, request },
+    agentManager: {
+      getRestartImpact: () => ({
+        workerPid: scenario.observedPid,
+        workerInstanceId: held.workerInstanceId,
+      }),
+      checkpointRestartDrain: checkpoint,
+      prepareHeldIdleRestart: () => false,
+    },
+  });
+  await session.handleMessage({
+    type: "restart_server_request",
+    requestId: "held-refused",
+    idleMode: "restart",
+    restartDrainId: held.requestId,
+    heldRestart: held,
+  });
+  expect(request).not.toHaveBeenCalled();
+  expect(messages.filter((m) => m.type === "status")).toEqual([]);
+  expect(checkpoint).toHaveBeenCalledTimes(scenario.checkpoints);
+});
 
 test("routes host-scoped agent skills requests through the daemon owner", async () => {
   const messages: SessionOutboundMessage[] = [];
@@ -5964,3 +6075,70 @@ test("bootstrap review refuses unconfigured daemons and returns only protected s
   });
   expect(JSON.stringify(messages)).not.toContain("private configuration contents");
 });
+
+test.each(["denied", "unavailable", "ready"])(
+  "claimed recovery session route preserves independent permission and readiness: %s",
+  async (mode) => {
+    const messages: SessionOutboundMessage[] = [];
+    const list = vi.fn(() => []);
+    const reconcile = vi.fn(async () => {});
+    const session = createSessionForTest({
+      messages,
+      permissions: mode === "denied" ? ["workspace.write"] : ["daemon.manage"],
+      coordinatorBootstrap: {
+        list: vi.fn(() => []),
+        prepare: vi.fn(),
+        decide: vi.fn(),
+        claimedRecovery: {
+          available: mode !== "unavailable",
+          list,
+          reconcile,
+          prepare: vi.fn(),
+          decide: vi.fn(),
+        },
+      },
+    });
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      generation: "00000000-0000-4000-8000-000000000003",
+      planSha256: "a".repeat(64),
+    };
+    await session.handleMessage({
+      type: "installation.claimed_recovery.list_requests.request",
+      requestId: "claimed-route",
+      reconcile: input,
+    });
+    if (mode === "ready") {
+      expect(reconcile).toHaveBeenCalledExactlyOnceWith(input);
+      expect(list).toHaveBeenCalledOnce();
+      expect(messages).toContainEqual({
+        type: "installation.claimed_recovery.list_requests.response",
+        payload: { requestId: "claimed-route", requests: [], error: null },
+      });
+    } else {
+      expect(reconcile).not.toHaveBeenCalled();
+      expect(list).not.toHaveBeenCalled();
+      if (mode === "denied")
+        expect(messages).toContainEqual({
+          type: "rpc_error",
+          payload: {
+            requestId: "claimed-route",
+            requestType: "installation.claimed_recovery.list_requests.request",
+            code: "access_denied",
+            error:
+              "Session is not authorized for installation.claimed_recovery.list_requests.request",
+          },
+        });
+      else
+        expect(messages).toContainEqual({
+          type: "installation.claimed_recovery.list_requests.response",
+          payload: {
+            requestId: "claimed-route",
+            requests: null,
+            error: "Claimed coordinator recovery is unavailable on this Host.",
+          },
+        });
+    }
+  },
+);

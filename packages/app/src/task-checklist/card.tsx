@@ -1,8 +1,11 @@
+import { TaskCardRow, TaskCardRowLeading } from "@/agent-stream/task-card-row";
+import { TruncatedText } from "@/components/ui/truncated-text";
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Text, View } from "react-native";
-import { Check, Circle, CircleAlert, Pencil, Plus } from "lucide-react-native";
+import { Text } from "react-native";
+import { BrushCleaning, Check, Circle, CircleAlert, Eye, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -12,14 +15,20 @@ import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
 import { StatusRing } from "@/components/status-ring";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { ReviewTaskBadge } from "@/task-checklist/review-badge";
+import { BlockedTaskBadge } from "@/task-checklist/blocked-badge";
 import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
 import { ListDragHandle } from "@/components/list-drag-handle";
 import { QueueDragScrollContext } from "@/message-queue/drag-scroll";
 import { AgentTaskList } from "@/composer/task-list";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import {
+  TaskCard,
+  TaskCardHeader,
+  TaskCardAction,
+  TaskCardActions,
+} from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { ChecklistProgressFlower } from "./progress-flower";
 import { checklistProgress } from "./progress";
@@ -34,6 +43,11 @@ interface ChecklistCardProps {
 type EditorState = { open: false } | { open: true; task: AgentTaskItem | null };
 const EMPTY_TASKS: AgentTaskItem[] = [];
 const TASK_RUNNING_ICON = <StatusRing variant="task" />;
+function inactiveTaskIcon(status: AgentTaskItem["status"]) {
+  if (status === "blocked") return CircleAlert;
+  if (status === "review") return Eye;
+  return Circle;
+}
 const taskKey = (task: AgentTaskItem, index: number) =>
   `${task.source ?? "provider"}:${task.id ?? index}`;
 
@@ -41,17 +55,17 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
-  const touch = useVortonTouch();
-  const [expanded, setExpanded] = useState(true);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  const [expanded, setExpanded] = useCardDisclosure("tasks");
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const [editor, setEditor] = useState<EditorState>({ open: false });
-  const { supported, supportsBlocked, readOnly } = useSessionStore(
+  const { supported, supportsBlocked, supportsReview, readOnly } = useSessionStore(
     useShallow((state) => {
       const session = state.sessions[serverId];
       const agent = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId);
       return {
         supported: session?.serverInfo?.features?.agentChecklistMutations === true,
         supportsBlocked: session?.serverInfo?.features?.checklistBlockedStatus === true,
+        supportsReview: session?.serverInfo?.features?.checklistReviewStatus === true,
         readOnly: !agent || agent.archivedAt != null,
       };
     }),
@@ -87,13 +101,15 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
         active={progress.active}
         total={progress.total}
         testID="checklist-progress"
+        tooltip={expanded}
       />
     ),
-    [progress.completed, progress.active, progress.total],
+    [progress.completed, progress.active, progress.total, expanded],
   );
   const countBadge = useMemo(
     () => (
       <CountBadge
+        count={progress.total}
         label={`${progress.completed} / ${progress.total}`}
         accessibilityLabel={t("message.todo.tasksProgress", {
           completed: progress.completed,
@@ -119,7 +135,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   if (!supported) return <AgentTaskList inline tasks={tasks} />;
   return (
     <>
-      <TaskCard testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
+      <TaskCard flushBody testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
         <TaskCardHeader>
           <CardDisclosure
             icon={headingIcon}
@@ -129,22 +145,22 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
             count={countBadge}
             testID="checklist-toggle"
           />
-          <Button
-            size="sm"
-            variant="ghost"
-            style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
-            disabled={!canMutate}
-            onPress={add}
-            testID="checklist-add"
-            accessibilityLabel="Add task"
-            leftIcon={Plus}
-          />
-          <ClearCompletedButton
-            available={tasks.some(canClearTask)}
-            pending={clearMutation.isPending}
-            disabled={!canMutate}
-            onPress={clearCompleted}
-          />
+          <TaskCardActions>
+            <TaskCardAction
+              iconOnly
+              disabled={!canMutate}
+              onPress={add}
+              testID="checklist-add"
+              accessibilityLabel="Add task"
+              leftIcon={Plus}
+            />
+            <ClearCompletedButton
+              available={tasks.some(canClearTask)}
+              pending={clearMutation.isPending}
+              disabled={!canMutate}
+              onPress={clearCompleted}
+            />
+          </TaskCardActions>
         </TaskCardHeader>
 
         {expanded && tasks.length > 0 ? (
@@ -157,7 +173,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
           />
         ) : null}
         {error ? (
-          <Text accessibilityRole="alert" style={styles.error}>
+          <Text accessibilityRole="alert" style={[styles.error, taskCardStyles.proseInset]}>
             {error}
           </Text>
         ) : null}
@@ -165,6 +181,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
       {editor.open ? (
         <ChecklistEditor
           supportsBlocked={supportsBlocked}
+          supportsReview={supportsReview}
           task={editor.task}
           tasks={tasks}
           canMutate={canMutate}
@@ -189,21 +206,18 @@ function ClearCompletedButton({
   disabled: boolean;
   onPress: () => void;
 }) {
-  const touch = useVortonTouch();
   if (!available && !pending) return null;
   return (
-    <Button
-      variant="outline"
-      size={touch ? "md" : "sm"}
-      textStyle={taskCardStyles.rowText}
+    <TaskCardAction
       onPress={onPress}
       disabled={disabled}
       loading={pending}
       testID="checklist-clear-completed"
       accessibilityLabel="Clear completed tasks"
-    >
-      {pending ? "Clearing…" : "Clear completed"}
-    </Button>
+      accessibilityHint="Deletes completed Vorteo tasks from this checklist. Unfinished and provider-managed tasks remain."
+      iconOnly
+      leftIcon={BrushCleaning}
+    />
   );
 }
 
@@ -280,7 +294,7 @@ function ChecklistRows({
         touchActivation="movement"
       />
       {reorderError ? (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <Text accessibilityRole="alert" style={[styles.error, taskCardStyles.proseInset]}>
           {reorderError}
         </Text>
       ) : null}
@@ -305,6 +319,7 @@ function ChecklistRow({
   const touch = useVortonTouch();
   const completed = task.completed || task.status === "completed";
   const blocked = !completed && task.status === "blocked";
+  const review = !completed && task.status === "review";
   const running = !completed && task.status === "in_progress";
   const title = running && task.activeForm ? task.activeForm : task.text;
   const managed = task.source === "vorteo" && Boolean(task.id);
@@ -319,35 +334,42 @@ function ChecklistRow({
   }, [task, completed, mutate]);
   const details = useCallback(() => open(task), [open, task]);
   const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
-  const inactiveIcon = blocked ? CircleAlert : Circle;
+  const inactiveIcon = inactiveTaskIcon(task.status);
   const incompleteIcon = running ? TASK_RUNNING_ICON : inactiveIcon;
   const checkboxState = useMemo(
     () => ({ checked: completed, disabled: !managed || !canMutate }),
     [completed, managed, canMutate],
   );
   return (
-    <View style={[styles.row, info.isActive && styles.active]} testID={`checklist-row-${task.id}`}>
-      {managed ? (
-        <ListDragHandle
-          info={info}
-          disabled={!canReorder}
-          label={`Reorder ${task.text}`}
-          testID={`checklist-drag-${task.id}`}
+    <TaskCardRow style={info.isActive && styles.active} testID={`checklist-row-${task.id}`}>
+      <TaskCardRowLeading>
+        {managed ? (
+          <ListDragHandle
+            info={info}
+            disabled={!canReorder}
+            label={`Reorder ${task.text}`}
+            testID={`checklist-drag-${task.id}`}
+          />
+        ) : null}
+        <Button
+          variant="ghost"
+          size="sm"
+          style={iconStyle}
+          accessibilityRole="checkbox"
+          aria-checked={completed}
+          accessibilityState={checkboxState}
+          accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
+          disabled={!managed || !canMutate}
+          onPress={toggle}
+          leftIcon={completed ? Check : incompleteIcon}
         />
-      ) : null}
-      <Button
-        variant="ghost"
-        size="sm"
-        style={iconStyle}
-        accessibilityRole="checkbox"
-        accessibilityState={checkboxState}
-        accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
-        disabled={!managed || !canMutate}
-        onPress={toggle}
-        leftIcon={completed ? Check : incompleteIcon}
-      />
-      <Text
+      </TaskCardRowLeading>
+      <TruncatedText
         numberOfLines={1}
+        tooltipLabel={task.text}
+        tooltipDescription={[title !== task.text ? title : undefined, task.description, task.owner]
+          .filter(Boolean)
+          .join("\n\n")}
         style={[
           taskCardStyles.rowText,
           styles.title,
@@ -356,8 +378,9 @@ function ChecklistRow({
         ]}
       >
         {title}
-      </Text>
-      {blocked ? <StatusBadge label="Blocked" variant="warning" size="xs" /> : null}
+      </TruncatedText>
+      {blocked ? <BlockedTaskBadge task={task} /> : null}
+      {review ? <ReviewTaskBadge task={task} /> : null}
       <Button
         variant="ghost"
         size="sm"
@@ -366,12 +389,11 @@ function ChecklistRow({
         onPress={details}
         leftIcon={Pencil}
       />
-    </View>
+    </TaskCardRow>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  row: { flexDirection: "row", alignItems: "center", minHeight: 40, gap: theme.spacing[1] },
   title: { flex: 1, minWidth: 0 },
   running: { color: theme.colors.foreground },
   completed: { color: theme.colors.foregroundExtraMuted, textDecorationLine: "line-through" },

@@ -133,3 +133,9 @@ Acceptance includes threshold equality, multiple windows, stale data, manual sto
 ### Explicit worker accounts
 
 `workerProfileId` identifies the shared worker definition. The optional `workerAccount` field binds it to a specific account; installation edits use a portable installation account reference so each environment can resolve its own local account ID. Existing profiles without this field keep their previous account resolution. Launch refuses a missing, disabled or mismatched explicit account instead of substituting another account. The `explicitWorkerAccounts` daemon capability and the installation snapshot's `workerAccounts` flag gate editing during mixed-version updates.
+
+### Explicit uncapped managed-worker profiles
+
+A profile can set `uncappedWorkers: true` to remove its managed-worker count cap. Omission or false retains `maxWorkers`, defaulting to two; finite limits remain one through eight. Uncapped does not bypass quota, authorization, ownership, provider limits or native subagent capacity. The profile editor offers **Uncapped** only when the daemon and every configured installation environment advertise `uncappedManagedWorkers`. The coordinator rejects unsupported saves and checks the target capability again before projection.
+
+Existing tasks retain their frozen launch policy. Editing the shared profile affects future launches, not the current supervisor. The supported existing-task path is an explicitly reviewed successor after the task and its workers stop; the current update-agent API edits names and labels, not launch policy. This change adds no silent live-profile mutation.

@@ -1,4 +1,25 @@
-import { parseLifecycleJournal } from "./lifecycle-journal.js";
+import {
+  lookupWorkerLaunch,
+  parseWorkerLaunchLookupQuery,
+  WorkerLaunchLookupError,
+} from "./maintenance/worker-launch-lookup.js";
+import { DaemonAutomation } from "./daemon-automation.js";
+import { createRecoveryAccessStatusReader } from "./maintenance/recovery-access.js";
+import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/maintenance-service-status";
+import { MaintenanceServiceProposalSchema } from "@getpaseo/protocol/maintenance-service";
+import { maintenanceServiceView } from "./maintenance/service-view.js";
+import { FileEnrollmentJournal } from "./maintenance/authorization.js";
+import {
+  projectEnrollmentStatus,
+  readMaintenanceServiceObservations,
+} from "./maintenance/status.js";
+import { createDaemonStandingRuntime } from "./maintenance/daemon-standing-runtime.js";
+import {
+  coordinatorAutomaticStatus,
+  BootstrapRequestConflict,
+  openBootstrapRequests,
+  type BootstrapReconciliationLedger,
+} from "./coordinator-bootstrap.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import {
@@ -17,24 +38,38 @@ import { ProfileSharingConflict } from "./profiles/merge.js";
 import { ProviderPreferencesValidationError } from "../agent/provider-preferences/validation.js";
 import type { InstallationProfiles } from "./profiles/service.js";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, mkdirSync, openSync, fsyncSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { Logger } from "pino";
 import { z } from "zod";
 import {
+  DaemonAutomationChangeSchema,
+  type InstallationMaintenanceStatus,
   SourceUpdateSchema,
   type RestartJob,
+  type RestartImpact,
+  type SourceContribution,
   RestartRequestSchema,
   RestartDecisionSchema,
   InstallationProfilesPatchSchema,
 } from "@getpaseo/protocol/execution-installation";
 import { extractHttpBearerToken, isBearerTokenValidAsync } from "../auth.js";
-import { writePrivateFileAtomicSync } from "../private-files.js";
 import { createWebUiMiddleware } from "../web-ui.js";
-import { InstallationRestarts, RestartRequestError, type RestartExecutor } from "./restarts.js";
+import {
+  InstallationRestarts,
+  RestartRequestError,
+  supportsAutomaticMaintenance,
+  type RestartExecutor,
+} from "./restarts.js";
 import type { InstallationConfig } from "./config.js";
-import { connectInstallationDaemon } from "./daemon.js";
+import {
+  connectInstallationDaemon,
+  submitInstallationCoordinator,
+  reconcileInstallationCoordinator,
+  inspectInstallationCoordinator,
+} from "./daemon.js";
+import { CoordinatorBootstrapPreparationSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import { delegateToContainer, DelegationRequestSchema } from "./delegation.js";
 import {
   InstallationSettingsUpdateSchema,
@@ -90,6 +125,30 @@ function factoryAdoptionReply(job: RestartJob, enabled: boolean | undefined): Re
   };
 }
 
+function pendingUpdateDetail(job: RestartJob, pendingDetail: string) {
+  return job.status === "pending" ? pendingDetail : job.detail;
+}
+
+// COMPAT(requireOwnerApproval): v311; legacy strict contribution decoders omit this field until 2027-04-11.
+function contributionReply(contribution: SourceContribution, requireOwnerApproval: boolean) {
+  if (requireOwnerApproval) return contribution;
+  const { requireOwnerApproval: _required, ...legacy } = contribution;
+  return legacy;
+}
+
+// COMPAT(requireOwnerApproval): v311; legacy strict receipts omit requirements until 2027-04-11.
+function ownerApprovalReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
+  if (enabled) return job;
+  const { requireOwnerApproval: _requirement, ...compatible } = job;
+  if (job.sourceBatch) {
+    compatible.sourceBatch = {
+      ...job.sourceBatch,
+      contributions: job.sourceBatch.contributions.map((item) => contributionReply(item, false)),
+    };
+  }
+  return compatible;
+}
+
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
 function restartReply(
   job: RestartJob,
@@ -101,7 +160,27 @@ function restartReply(
   supervisorMaintenance = false,
   hostAutomaticRestarts = false,
   factoryRuntimeAdoption?: boolean,
+  requireOwnerApproval?: boolean,
 ) {
+  // Captures are retained in the protected journal, not sent to legacy strict clients.
+  // COMPAT(workerLaunchReply): added in v674; remove after 2027-04-17 once requester floor >= v674.
+  const {
+    supervisorEffect: _supervisorEffect,
+    workerLaunch: _workerLaunch,
+    workerLaunchRequest: _workerLaunchRequest,
+    standingDecision: _standingDecision,
+    standingHold: _standingHold,
+    standingInterruption: _standingInterruption,
+    interruptionChecks: _interruptionChecks,
+    standingManualApprovals: _standingManualApprovals,
+    updatePreparation: _preparation,
+    devRepairs: _devRepairs,
+    automaticAuthority: _authority,
+    supervisorRecoveredBy: _supervisorRecovery,
+    automaticDispatchAfter: _dispatchAfter,
+    ...publicJob
+  } = job;
+  job = ownerApprovalReply(publicJob, requireOwnerApproval);
   job = factoryAdoptionReply(job, factoryRuntimeAdoption);
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
@@ -130,7 +209,10 @@ function restartReply(
     return restartReply(
       {
         ...compatible,
-        detail: "Dev source update pending. Reload Vorteo to review and approve its installation.",
+        detail: pendingUpdateDetail(
+          job,
+          "Dev source update pending. Reload Vorteo to review and approve its installation.",
+        ),
       },
       details,
       graceful,
@@ -139,7 +221,13 @@ function restartReply(
   if (job.sourceBatch && !sourceBatches) {
     const { sourceBatch: _batch, ...compatible } = job;
     return restartReply(
-      { ...compatible, detail: "Source batch pending. Reload Vorteo to review contributions." },
+      {
+        ...compatible,
+        detail: pendingUpdateDetail(
+          job,
+          "Source batch pending. Reload Vorteo to review contributions.",
+        ),
+      },
       details,
       graceful,
       sourceUpdates,
@@ -151,7 +239,10 @@ function restartReply(
     return restartReply(
       {
         ...restart,
-        detail: "Source update pending. Reload Vorteo to review installation details.",
+        detail: pendingUpdateDetail(
+          job,
+          "Source update pending. Reload Vorteo to review installation details.",
+        ),
       },
       details,
       graceful,
@@ -189,13 +280,15 @@ export function createInstallationServer(
     resolveInstallationPluginSource(config, input),
   claudeSetup?: ClaudeSetupRuntime,
   startupFence?: InstallationStartupFence,
+  coordinatorRequests?: BootstrapReconciliationLedger,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-  const journal = path.join(config.stateDir, "restart-jobs.json");
   const updates = {
     host: config.sourceUpdates ? new InstallationSourceUpdates(config) : null,
     "container-daemon": config.containerSourceUpdates
-      ? new InstallationSourceUpdates(config, "container-daemon")
+      ? new InstallationSourceUpdates(config, "container-daemon", (target) =>
+          standingRuntime.assertRegistrationReadiness(target),
+        )
       : null,
   };
   const forTarget = (target: RestartJob["target"]) => {
@@ -204,34 +297,94 @@ export function createInstallationServer(
       throw new RestartRequestError("Source updates require installation setup for this target");
     return updater;
   };
+  const standingRuntime = createDaemonStandingRuntime(config, updates);
+  function assertUpdateReadiness(target: RestartJob["target"]): void {
+    standingRuntime.assertRegistrationReadiness(target);
+    if (target === "container-daemon" && config.container.persistentRegistration)
+      throw new RestartRequestError(
+        "Dev source updates require independently verified transition-phase readiness",
+      );
+  }
   const restartExecutor: RestartExecutor = {
     ...executor,
     supportsUpdate: (target) => updates[target] !== null,
     sourceBase: (target) => forTarget(target).source().baseCommit,
     sourceWeb: (target) => forTarget(target).source().webCommit,
-    prepareUpdate: (items, target) => forTarget(target).prepare(items),
-    installUpdate: (job) => forTarget(job.target).install(job, executor.restart),
-  };
-  const restarts = new InstallationRestarts(
-    {
-      read: () =>
-        existsSync(journal) ? parseLifecycleJournal(JSON.parse(readFileSync(journal, "utf8"))) : [],
-      write: (jobs) => {
-        writePrivateFileAtomicSync(journal, JSON.stringify(jobs));
-        // Finish the receipt and directory rename before dispatching a disruption.
-        for (const target of [journal, config.stateDir]) {
-          const fd = openSync(target, "r");
-          try {
-            fsyncSync(fd);
-          } finally {
-            closeSync(fd);
-          }
-        }
-      },
+    prepareUpdate: (items, target) => {
+      assertUpdateReadiness(target);
+      return forTarget(target).prepare(items);
     },
+    captureDevRepair: (items) => {
+      assertUpdateReadiness("container-daemon");
+      return forTarget("container-daemon").captureDevRepair(items);
+    },
+    prepareDevRepair: (capture, items) => {
+      assertUpdateReadiness("container-daemon");
+      return forTarget("container-daemon").prepareDevRepair(capture, items);
+    },
+    prepareInstallation: (job) => {
+      assertUpdateReadiness(job.target);
+      return forTarget(job.target).prepareInstallation(job);
+    },
+    verifyPreparedInstallation: async (job, options) => {
+      await forTarget(job.target).verifyPreparedInstallation(job, options);
+      await standingRuntime.refresh([job], true);
+    },
+    initialActivationInstance: (job) => standingRuntime.initialActivationInstance(job),
+    prepareInterruption: (job) => standingRuntime.prepareInterruption(job),
+    observeInterruption: (job) => standingRuntime.observeInterruption(job),
+    verifyDispatch: (job) => standingRuntime.verifySelection(job, executor),
+    installUpdate: (job) =>
+      forTarget(job.target).install(
+        job,
+        async (target) => {
+          assertUpdateReadiness(target);
+          if (job.standingInterruption) {
+            if (!executor.restartHeld)
+              throw new RestartRequestError("Acknowledged restart executor is unavailable");
+            return executor.restartHeld(job);
+          }
+          if (!job.whenIdle) return executor.restart(target);
+          if (!executor.restartWhenIdle)
+            throw new RestartRequestError("Safe update admission is unavailable");
+          const detail = await executor.restartWhenIdle(target);
+          if (detail === null)
+            throw new RestartRequestError(
+              "Target admitted new work before replacement. No restart dispatched.",
+            );
+          return detail;
+        },
+        () => standingRuntime.verifySelection(job, executor),
+      ),
+  };
+  const daemonAutomation = new DaemonAutomation(
+    config.stateDir,
+    Boolean(config.restartApprovalPolicy),
+    config.restartApprovalPolicy?.hostRequestsAfter,
+  );
+  const restarts = new InstallationRestarts(
+    standingRuntime.journal,
     restartExecutor,
     Date.now,
-    config.restartApprovalPolicy,
+    {
+      ...config.restartApprovalPolicy,
+      standingDecision: standingRuntime.standingDecision,
+      serviceAuthority: standingRuntime.serviceAuthority,
+      daemonRequestsAfter: (target) => daemonAutomation.activation(target),
+      supervisorRequestsAfter: () => daemonAutomation.activation("supervisor") ?? null,
+      cancellationDelayMs: 30_000,
+      authority: () =>
+        createHash("sha256")
+          .update(
+            JSON.stringify({
+              installation: config.public.installationId,
+              host: config.hostAgentTokenHash,
+              container: config.containerAgentTokenHash,
+              policy: "host-only-service-permissions-v2",
+            }),
+          )
+          .digest("hex"),
+    },
     { fenced: startupFence !== undefined },
   );
   const startupReleased = () => {
@@ -239,11 +392,73 @@ export function createInstallationServer(
     restarts.activate();
     return true;
   };
+  let coordinatorReconciliation: Promise<void> | null = null;
+  let drainInProgress = false;
+  let serviceDiscovery: Promise<void> | null = null;
+  let nextServiceDiscovery = 0;
+  function discoverMaintenanceServices(): void {
+    const discover = executor.discoverMaintenanceServices;
+    if (
+      !discover ||
+      restartExecutor.maintenanceServices ||
+      serviceDiscovery ||
+      Date.now() < nextServiceDiscovery
+    )
+      return;
+    let expired = false;
+    const expiresAt = Date.now() + 25_000;
+    const deadline = setTimeout(() => {
+      expired = true;
+    }, 25_000);
+    deadline.unref();
+    // Construction is observation only. Keep the original attempt in flight
+    // after expiry so a hung native read cannot multiply concurrent attempts.
+    serviceDiscovery = Promise.resolve()
+      .then(() => discover())
+      .then(
+        (native) => {
+          if (!expired && Date.now() < expiresAt) restartExecutor.maintenanceServices = native;
+          return undefined;
+        },
+        () => undefined,
+      )
+      .finally(() => {
+        clearTimeout(deadline);
+        nextServiceDiscovery = Date.now() + 5000;
+        serviceDiscovery = null;
+      });
+  }
   const drainRestarts = async () => {
+    if (drainInProgress) return;
+    drainInProgress = true;
     try {
-      if (startupReleased()) await restarts.drain();
+      if (startupReleased()) {
+        // Keep the actual callback owned until settlement. Another timer or
+        // caller must not bypass a slow activation into discovery or dispatch.
+        if (restartExecutor.reconcileInitialHostActivation) {
+          if (serviceDiscovery) return;
+          const progress = await restartExecutor.reconcileInitialHostActivation().catch(() => {
+            logger.warn("Initial Host activation remains unconfirmed");
+            return "unresolved";
+          });
+          if (progress !== "idle" && progress !== "verified") return;
+        }
+        coordinatorRequests?.revokeAutomatic();
+        discoverMaintenanceServices();
+        await standingRuntime.refresh(restarts.list());
+        await restarts.drain();
+        if (coordinatorRequests && !coordinatorReconciliation) {
+          coordinatorReconciliation = reconcileInstallationCoordinator(config, coordinatorRequests)
+            .catch(() => logger.warn("Automatic coordinator reconciliation remains unconfirmed"))
+            .finally(() => {
+              coordinatorReconciliation = null;
+            });
+        }
+      }
     } catch {
       logger.error("Installation restart journal or startup fence failed");
+    } finally {
+      drainInProgress = false;
     }
   };
   const sessions = new OwnerSessions(path.join(config.stateDir, "owner-sessions.json"));
@@ -298,6 +513,28 @@ export function createInstallationServer(
     res.setHeader("Cache-Control", "no-store");
     next();
   });
+  // Resolve retained child state before startup activation can rewrite the queue.
+  app.get("/api/installation/worker-launch-lookup", authenticateUpdate, (req, res, next) => {
+    if (res.locals.updateRequester !== "container-agent") {
+      res.sendStatus(403);
+      return;
+    }
+    try {
+      const lookup = parseWorkerLaunchLookupQuery(req.query, req.originalUrl);
+      const receipt = lookupWorkerLaunch(config, lookup);
+      if (!receipt) {
+        res.sendStatus(404);
+        return;
+      }
+      res.json(receipt);
+    } catch (error) {
+      if (error instanceof WorkerLaunchLookupError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
+  });
   app.use((req, res, next) => {
     try {
       if (startupReleased()) return next();
@@ -329,6 +566,12 @@ export function createInstallationServer(
   }
   async function updateCapability(target: RestartJob["target"]) {
     try {
+      standingRuntime.assertRegistrationReadiness(target);
+      if (target === "container-daemon" && config.container.persistentRegistration)
+        return {
+          available: false,
+          reason: "Dev source updates require independently verified transition-phase readiness.",
+        };
       forTarget(target).source();
       if (target === "container-daemon" && config.containerSourceUpdates)
         await inspectContainerSource(config.containerSourceUpdates);
@@ -340,54 +583,232 @@ export function createInstallationServer(
       };
     }
   }
+  function supervisorMaintenanceStatus(
+    impacts: RestartImpact[],
+  ): NonNullable<InstallationMaintenanceStatus["services"]>[number] {
+    const devImpact = impacts.find((item) => item.target === "container-daemon");
+    let supervisorBlocker = restarts.maintenanceBlocker("container-daemon");
+    if (!supervisorBlocker && (!executor.supervisorPlan?.() || !executor.restartSupervisor))
+      supervisorBlocker = "Prepare and validate the protected supervisor maintenance plan on Host.";
+    if (
+      !supervisorBlocker &&
+      (!supportsAutomaticMaintenance(executor) ||
+        !devImpact?.idleRestartSupported ||
+        devImpact.error)
+    )
+      supervisorBlocker = "Cannot verify safe Dev admission for supervisor maintenance.";
+    return {
+      service: "supervisor",
+      readiness: supervisorBlocker ? "blocked" : "ready",
+      reason:
+        supervisorBlocker ??
+        "The protected supervisor plan is available through the tracked queue. Only a separate supervisor permission can authorize it automatically.",
+    };
+  }
+  async function coordinatorCapability() {
+    const unavailable = { available: false, automaticAvailable: false };
+    if (!coordinatorRequests)
+      return {
+        ...unavailable,
+        reason: "Update the coordinator to expose its durable maintenance ledger.",
+      };
+    try {
+      const open = openBootstrapRequests(coordinatorRequests.list());
+      const awaitingRecovery =
+        open.length > 0 &&
+        open.every((request) => request.execution?.stage === "recovery_required");
+      if (open.length > 0 && !awaitingRecovery)
+        return {
+          ...unavailable,
+          reason: "Inspect the retained coordinator request before preparing another operation.",
+        };
+      const capability = await inspectInstallationCoordinator(config);
+      if (awaitingRecovery)
+        return {
+          ...capability,
+          automaticAvailable: false,
+          reason:
+            "Coordinator recovery requires an exact manually reviewed successor. Inspect the retained failure before preparing it.",
+        };
+      const reason = capability.automaticAvailable
+        ? "Tracked coordinator maintenance and independent recovery are available."
+        : "Update the Host to support authenticated coordinator submission and independent recovery.";
+      return { ...capability, reason };
+    } catch {
+      return {
+        ...unavailable,
+        reason:
+          "Coordinator ledger inspection failed. Inspect Installation controls before preparing maintenance.",
+      };
+    }
+  }
+  async function coordinatorMaintenanceStatus(): Promise<
+    NonNullable<InstallationMaintenanceStatus["services"]>[number]
+  > {
+    const capability = await coordinatorCapability();
+    return {
+      service: "coordinator",
+      readiness: capability.automaticAvailable ? "ready" : "blocked",
+      reason: capability.reason,
+    };
+  }
+  async function maintenanceStatus(): Promise<InstallationMaintenanceStatus> {
+    const preference = daemonAutomation.read();
+    const impacts = await restarts.impacts();
+    const paths: InstallationMaintenanceStatus["paths"] = [];
+    const executorReady = supportsAutomaticMaintenance(executor);
+    for (const target of ["host", "container-daemon"] as const) {
+      const sourceUpdate = await updateCapability(target);
+      const selectedSource = sourceUpdate.available ? forTarget(target).source().baseCommit : null;
+      const impact = impacts.find((item) => item.target === target);
+      const recoveryBlocker = restarts.maintenanceBlocker(target);
+      for (const requester of ["host-agent", "container-agent"] as const) {
+        const automatic =
+          requester === "host-agent" && Boolean(daemonAutomation.effectiveActivation(target));
+        for (const operation of ["restart", "source-update"] as const) {
+          let blocker: string | null = null;
+          if (recoveryBlocker) blocker = recoveryBlocker;
+          else if (!executorReady)
+            blocker = "Update the coordinator to support safe maintenance admission.";
+          else if (!impact || impact.error || !impact.idleRestartSupported)
+            blocker =
+              "Cannot verify safe admission. Check the target daemon's connection and compatibility.";
+          else if (operation === "source-update" && !sourceUpdate.available)
+            blocker = "Repair the target source updater before submitting an update.";
+          const authorization = automatic ? "automatic" : "manual";
+          const readiness = blocker ? "blocked" : "ready";
+          const reason =
+            blocker ??
+            (automatic
+              ? "Fresh routine requests may be approved automatically. Current turns finish before dispatch."
+              : "An exact owner approval is required. Maintenance policy does not authorize this requester.");
+          paths.push({
+            requester,
+            target,
+            operation,
+            authorization,
+            readiness,
+            reason,
+            selectedSource,
+          });
+        }
+      }
+    }
+    const services: NonNullable<InstallationMaintenanceStatus["services"]> = [
+      "host",
+      "container-daemon",
+    ].map((target) => {
+      const entries = paths.filter(
+        (item) => item.target === target && item.requester === "host-agent",
+      );
+      const blocked = entries.find((item) => item.readiness === "blocked");
+      return {
+        service: target as "host" | "container-daemon",
+        readiness: blocked ? "blocked" : "ready",
+        reason:
+          blocked?.reason ??
+          "Routine updates and restarts are available through the tracked queue.",
+      };
+    });
+    services.push(await coordinatorMaintenanceStatus(), supervisorMaintenanceStatus(impacts));
+    return { version: 1, checkedAt: new Date().toISOString(), preference, paths, services };
+  }
+  app.get("/api/installation/maintenance-status", authenticateUpdate, (_req, res, next) => {
+    void maintenanceStatus().then((status) => res.json(status), next);
+  });
   app.get("/api/installation/capabilities", authenticateUpdate, (req, res, next) => {
     const host = matchesToken(
       extractHttpBearerToken(req.header("authorization")),
       config.hostAgentTokenHash,
     );
-    const supervisorPlan = host ? executor.supervisorPlan?.() : undefined;
-    const factoryRuntimePlan = host ? executor.factoryRuntimePlan?.() : undefined;
+    const devReady = standingRuntime.registrationReadiness().available;
+    const supervisorPlan =
+      host && devReady && !config.container.persistentRegistration
+        ? executor.supervisorPlan?.()
+        : undefined;
+    const factoryRuntimePlan =
+      host && devReady && !config.container.persistentRegistration
+        ? executor.factoryRuntimePlan?.()
+        : undefined;
+    const permissions = daemonAutomation.servicePermissions();
+    const automaticSupported = supportsAutomaticMaintenance(executor);
+    // COMPAT(hostAutomaticRestarts): per-target permissions added v543; retain
+    // the conservative aggregate until legacy capability clients retire after 2027-04-15.
     const automaticHost = Boolean(
-      config.restartApprovalPolicy &&
-      executor.inspect &&
-      executor.holdCurrentTurns &&
-      executor.releaseCurrentTurns &&
-      executor.restartWhenIdle,
+      permissions.host && permissions["container-daemon"] && automaticSupported && devReady,
     );
-    void Promise.all(
-      (["host", "container-daemon"] as const).map(async (target) => ({
-        target,
-        restart: true,
-        sourceUpdate: await updateCapability(target),
-      })),
-    ).then(
-      (targets) =>
-        res.json({
-          version: 1,
-          targets,
-          ownerApprovalRequired: !host || !automaticHost,
-          hostAutomaticRestarts: automaticHost,
-          nativeHelper: {
-            available: Boolean(
-              host &&
-              executor.validateHelperPlan &&
-              executor.installHelper &&
-              executor.verifyHelperRecovery,
-            ),
-            ownerApprovalRequired: true,
-          },
-          supervisorMaintenance: {
-            available: Boolean(supervisorPlan && executor.restartSupervisor),
-            ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
-          },
-          factoryRuntimeAdoption: {
-            available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
-            ownerApprovalRequired: true,
-            ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
-          },
-        }),
-      next,
-    );
+    void (async () => {
+      const monitorCompatible = host ? ((await executor.monitorCompatible?.()) ?? false) : false;
+      const coordinator = await coordinatorCapability();
+      return Promise.all(
+        (["host", "container-daemon"] as const).map(async (target) => ({
+          target,
+          restart: target === "host" || devReady,
+          ownerApprovalRequired: !(
+            host &&
+            permissions[target] &&
+            automaticSupported &&
+            (target === "host" || devReady)
+          ),
+          hostAutomaticRestarts: Boolean(
+            permissions[target] && automaticSupported && (target === "host" || devReady),
+          ),
+          sourceUpdate: await updateCapability(target),
+        })),
+      ).then(
+        (targets) =>
+          res.json({
+            version: 1,
+            targets,
+            // No protected per-worker native launch capability has been installed.
+            workerLaunch: { available: false },
+            ownerApprovalRequired: !automaticHost || !host,
+            hostAutomaticRestarts: automaticHost,
+            requireOwnerApproval: host,
+            maintenanceServices: {
+              available: host && restarts.serviceMaintenanceAvailable(),
+              operations: host ? restarts.serviceMaintenanceOperations() : [],
+            },
+            coordinatorMaintenance: {
+              ...coordinator,
+              ownerApprovalRequired: !(host && daemonAutomation.activation("coordinator")),
+            },
+            previewMonitor: {
+              available: Boolean(
+                host &&
+                executor.validateMonitorPlan &&
+                executor.installMonitor &&
+                monitorCompatible,
+              ),
+              ownerApprovalRequired: true,
+            },
+            nativeHelper: {
+              available: Boolean(
+                host &&
+                executor.validateHelperPlan &&
+                executor.installHelper &&
+                executor.verifyHelperRecovery,
+              ),
+              ownerApprovalRequired: true,
+            },
+            supervisorMaintenance: {
+              available: Boolean(supervisorPlan && executor.restartSupervisor),
+              ownerApprovalRequired: !(
+                host &&
+                daemonAutomation.activation("supervisor") &&
+                supportsAutomaticMaintenance(executor)
+              ),
+              ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
+            },
+            factoryRuntimeAdoption: {
+              available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
+              ownerApprovalRequired: true,
+              ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
+            },
+          }),
+        next,
+      );
+    })().then(undefined, next);
   });
   const updateTarget = (req: Request) => RestartTargetSchema.parse(req.query.target ?? "host");
   function requireUpdate(req: Request, res: Response, next: NextFunction) {
@@ -504,6 +925,10 @@ export function createInstallationServer(
         );
         res.status(201).json({
           ...receipt,
+          contribution: contributionReply(
+            receipt.contribution,
+            req.query.requireOwnerApproval === "1",
+          ),
           batch: restartReply(
             receipt.batch,
             true,
@@ -514,10 +939,27 @@ export function createInstallationServer(
             true,
             req.query.hostAutomaticRestarts === "1",
             req.query.factoryRuntimeAdoption === "1",
+            req.query.requireOwnerApproval === "1",
           ),
         });
         void drainRestarts();
-      } else res.status(201).json(restarts.request(input.request, requester, input.update));
+      } else
+        res
+          .status(201)
+          .json(
+            restartReply(
+              restarts.request(input.request, requester, input.update),
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              req.query.hostAutomaticRestarts === "1",
+              true,
+              req.query.requireOwnerApproval === "1",
+            ),
+          );
     },
   );
   app.get("/api/installation/source-contributions/:id", authenticateUpdate, (req, res) => {
@@ -528,6 +970,7 @@ export function createInstallationServer(
     }
     res.json({
       ...receipt,
+      contribution: contributionReply(receipt.contribution, req.query.requireOwnerApproval === "1"),
       batch: restartReply(
         receipt.batch,
         true,
@@ -537,6 +980,8 @@ export function createInstallationServer(
         true,
         true,
         req.query.hostAutomaticRestarts === "1",
+        undefined,
+        req.query.requireOwnerApproval === "1",
       ),
     });
   });
@@ -549,7 +994,33 @@ export function createInstallationServer(
   app.get("/api/installation/restart-summary", (_req, res) => {
     const jobs = restarts.list();
     const helpers = restarts.listHelpers();
+    const monitors = restarts.listMonitors();
+    const services = restarts.listServices();
     res.json({
+      ...(services.length
+        ? {
+            serviceMaintenance: {
+              requested: services.filter((job) => job.status === "pending").length,
+              queued: services.filter((job) => job.status === "approved").length,
+              unverified: services.filter((job) => job.status === "running").length,
+              attention: services.filter(
+                (job) =>
+                  ["pending", "approved", "running"].includes(job.status) &&
+                  job.reconciliation?.attempts === 3,
+              ).length,
+            },
+          }
+        : {}),
+      ...(monitors.length
+        ? {
+            previewMonitor: {
+              requested: monitors.filter((j) => j.status === "pending").length,
+              queued: monitors.filter((j) => j.status === "approved").length,
+              running: monitors.filter((j) => j.status === "running").length,
+              recovery: monitors.filter((j) => j.stage === "recovery_required").length,
+            },
+          }
+        : {}),
       ...(helpers.length
         ? {
             nativeHelper: {
@@ -614,7 +1085,87 @@ export function createInstallationServer(
     });
   });
 
+  app.get("/api/installation/monitor-selection", (req, res, next) => {
+    if (
+      !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
+    ) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!executor.inspectMonitor) {
+      res.status(503).json({ error: "Monitor preparation inspection unavailable" });
+      return;
+    }
+    void executor.inspectMonitor().then((state) => res.json(state), next);
+  });
+  app.get("/api/installation/monitor-requests/:id", (req, res) => {
+    if (
+      !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
+    ) {
+      res.sendStatus(401);
+      return;
+    }
+    const job = restarts.listMonitors().find((j) => j.id === req.params.id);
+    if (!job) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(job);
+  });
+  app.post("/api/installation/monitor-requests", (req, res, next) => {
+    if (
+      !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
+    ) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!executor.validateMonitorPlan || !executor.installMonitor || !executor.monitorCompatible) {
+      res.status(503).json({ error: "Preview monitor maintenance unavailable" });
+      return;
+    }
+    void restarts
+      .prepareMonitor(req.body, "host-agent")
+      .then((job) => res.status(201).json(job), next);
+  });
   // Request-only credentials never authorize login, approval, delegation, or another daemon.
+  app.get("/api/installation/service-maintenance-requests/:id", authenticateUpdate, (req, res) => {
+    if (res.locals.updateRequester !== "host-agent") {
+      res.sendStatus(403);
+      return;
+    }
+    const job = restarts.listServices().find((item) => item.id === req.params.id);
+    if (!job) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(maintenanceServiceView(job));
+  });
+  app.post("/api/installation/service-maintenance-requests", authenticateUpdate, (req, res) => {
+    if (res.locals.updateRequester !== "host-agent") {
+      res.sendStatus(403);
+      return;
+    }
+    if (!restarts.serviceMaintenanceAvailable()) {
+      res.status(503).json({ error: "Native maintenance is unavailable" });
+      return;
+    }
+    const input = z
+      .strictObject({
+        proposal: MaintenanceServiceProposalSchema,
+        reason: z.string().min(1).max(4096),
+        requester: z.string().min(1).max(256).optional(),
+      })
+      .parse(req.body);
+    if (input.proposal.installationId !== config.public.installationId)
+      throw new RestartRequestError("Maintenance proposal belongs to another installation");
+    const job = restarts.requestService(
+      input.proposal,
+      input.reason,
+      "host-agent",
+      input.requester,
+    );
+    res.status(201).json(maintenanceServiceView(job));
+  });
   app.get("/api/installation/helper-requests/:id", (req, res) => {
     const token = extractHttpBearerToken(req.header("authorization"));
     if (!matchesToken(token, config.hostAgentTokenHash)) {
@@ -643,6 +1194,59 @@ export function createInstallationServer(
       .then((job) => res.status(201).json(job), next);
   });
 
+  app.get("/api/installation/coordinator-requests/:id", authenticateUpdate, (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    try {
+      if (!coordinatorRequests) throw new Error("Coordinator ledger unavailable");
+      const request = coordinatorRequests.list().find((item) => item.id === id);
+      if (!request) {
+        res.status(404).json({
+          error: "Coordinator request not found. Inspect Installation controls before retrying.",
+        });
+        return;
+      }
+      const approvalUrl = new URL("/settings/general", config.public.origin);
+      approvalUrl.searchParams.set("installation", "1");
+      approvalUrl.searchParams.set("bootstrap", id);
+      res.json({
+        id: request.id,
+        revision: request.revision,
+        status: request.status,
+        createdAt: request.createdAt,
+        decisionAt: request.decisionAt,
+        execution: request.execution,
+        automaticStatus: coordinatorAutomaticStatus(request, Date.now()),
+        approvalUrl: approvalUrl.toString(),
+      });
+    } catch {
+      res.status(503).json({
+        error: "Coordinator status is unavailable. Inspect Installation controls before retrying.",
+      });
+    }
+  });
+  app.post("/api/installation/coordinator-requests", authenticateUpdate, (req, res) => {
+    const input = z
+      .strictObject({
+        preparation: CoordinatorBootstrapPreparationSchema,
+        requireOwnerApproval: z.boolean().optional(),
+      })
+      .parse(req.body);
+    const requester = z.enum(["host-agent", "container-agent"]).parse(res.locals.updateRequester);
+    void submitInstallationCoordinator({
+      config,
+      input: input.preparation,
+      requester,
+      requireOwnerApproval: input.requireOwnerApproval === true,
+    }).then(
+      (receipt) => res.status(201).json(receipt),
+      () =>
+        res.status(503).json({
+          error:
+            "Coordinator preparation is unconfirmed. Check Installation controls and Host compatibility before retrying the same request.",
+        }),
+    );
+  });
+
   app.post("/api/installation/restart-requests", (req, res) => {
     const token = extractHttpBearerToken(req.header("authorization"));
     let requestedBy: "host-agent" | "container-agent";
@@ -652,7 +1256,24 @@ export function createInstallationServer(
       res.sendStatus(401);
       return;
     }
-    const job = restarts.request(RestartRequestSchema.parse(req.body), requestedBy);
+    const input = RestartRequestSchema.parse(req.body);
+    if (input.workerLaunchRequest && req.query.workerLaunch !== "1") {
+      res
+        .status(409)
+        .json({ error: "Worker launch requires explicit compatible requester negotiation" });
+      return;
+    }
+    const job = restarts.request(input, requestedBy);
+    if (input.workerLaunchRequest) {
+      res.status(201).json({
+        id: job.id,
+        revision: job.revision,
+        status: job.status,
+        detail: job.detail,
+        workerLaunch: job.workerLaunch ?? null,
+      });
+      return;
+    }
     res
       .status(201)
       .json(
@@ -666,6 +1287,7 @@ export function createInstallationServer(
           true,
           req.query.hostAutomaticRestarts === "1",
           true,
+          req.query.requireOwnerApproval === "1",
         ),
       );
   });
@@ -685,6 +1307,16 @@ export function createInstallationServer(
       res.sendStatus(404);
       return;
     }
+    if (req.query.workerLaunch === "1") {
+      res.json({
+        id: job.id,
+        revision: job.revision,
+        status: job.status,
+        detail: job.detail,
+        workerLaunch: job.workerLaunch ?? null,
+      });
+      return;
+    }
     res.json(
       restartReply(
         job,
@@ -696,6 +1328,7 @@ export function createInstallationServer(
         true,
         req.query.hostAutomaticRestarts === "1",
         true,
+        req.query.requireOwnerApproval === "1",
       ),
     );
   });
@@ -766,6 +1399,25 @@ export function createInstallationServer(
         next(error);
       }
     })();
+  });
+  app.post("/api/installation/owner/maintenance-services/query", (_req, res) => {
+    res.json({
+      installationId: config.public.installationId,
+      available: restarts.serviceMaintenanceAvailable(),
+      jobs: restarts.listServices().map(maintenanceServiceView),
+    });
+  });
+  app.post("/api/installation/owner/maintenance-services/cancel", (req, res) => {
+    const input = MaintenanceServiceCancellationSchema.parse(req.body);
+    res.json(maintenanceServiceView(restarts.cancelService(input.id, input.revision)));
+  });
+  app.post("/api/installation/owner/monitors/query", (_req, res) =>
+    res.json({ jobs: restarts.listMonitors() }),
+  );
+  app.post("/api/installation/owner/monitors/decision", (req, res) => {
+    const job = restarts.decideMonitor(req.body);
+    res.json(job);
+    void restarts.drain().catch(() => logger.error("Monitor lifecycle journal failed"));
   });
   app.post("/api/installation/owner/helpers/query", (_req, res) => {
     res.json({ jobs: restarts.listHelpers() });
@@ -887,6 +1539,89 @@ export function createInstallationServer(
       .parse(req.body);
     void profiles.resolve(input).then(() => res.json(profiles.status()), next);
   });
+  app.post("/api/installation/owner/maintenance-status/query", (_req, res, next) => {
+    void maintenanceStatus().then((status) => res.json(status), next);
+  });
+  async function enrollmentStatus() {
+    const journal = new FileEnrollmentJournal(config.stateDir);
+    const state = journal.read();
+    const native =
+      state.status === "enrolled"
+        ? await readMaintenanceServiceObservations(executor.observeMaintenanceServices)
+        : [];
+    // Read authority after asynchronous native inspection so a concurrent
+    // revocation is reflected without discarding independently verified health.
+    return projectEnrollmentStatus({
+      installationId: config.public.installationId,
+      state: journal.read(),
+      checkedAt: new Date().toISOString(),
+      observations: [...standingRuntime.observations(), ...native],
+      freshnessMs: 30_000,
+    });
+  }
+  const recoveryAccessStatus = createRecoveryAccessStatusReader({
+    installationId: config.public.installationId,
+    read: executor.observeRecoveryAccess,
+  });
+  app.post("/api/installation/owner/recovery-access/query", (_req, res, next) => {
+    void recoveryAccessStatus().then((status) => res.json(status), next);
+  });
+  app.post("/api/installation/owner/enrollment/query", (_req, res, next) => {
+    void enrollmentStatus().then((status) => res.json(status), next);
+  });
+  const legacyAutomation = () => {
+    const { services: _services, ...legacy } = daemonAutomation.read();
+    return legacy;
+  };
+  app.post("/api/installation/owner/maintenance-permissions/query", (_req, res) => {
+    res.json({ ...daemonAutomation.read(), services: daemonAutomation.servicePermissions() });
+  });
+  app.post("/api/installation/owner/maintenance-permissions/change", (req, res) => {
+    const change = DaemonAutomationChangeSchema.parse(req.body);
+    if (!change.service) throw new RestartRequestError("Choose the service permission to change");
+    const preference = daemonAutomation.change(change);
+    coordinatorRequests?.revokeAutomatic();
+    restarts.refreshApprovalPolicy();
+    res.json({ ...preference, services: daemonAutomation.servicePermissions() });
+    void drainRestarts();
+  });
+  app.post("/api/installation/owner/daemon-automation/query", (_req, res) => {
+    res.json(legacyAutomation());
+  });
+  app.post("/api/installation/owner/daemon-automation/change", (req, res) => {
+    const change = DaemonAutomationChangeSchema.parse(req.body);
+    const executorReady = supportsAutomaticMaintenance(executor);
+    if (change.enabled && !executorReady) {
+      throw new RestartRequestError(
+        "Update the coordinator before enabling automatic daemon maintenance",
+      );
+    }
+    daemonAutomation.change(change);
+    coordinatorRequests?.revokeAutomatic();
+    restarts.refreshApprovalPolicy();
+    res.json(legacyAutomation());
+    void drainRestarts();
+  });
+  app.post("/api/installation/owner/dev-repair/query", (_req, res) => {
+    res.json({
+      available: Boolean(updates["container-daemon"] && updates.host),
+      preparingIds: restarts
+        .list()
+        .filter((job) => job.status === "pending" && job.devRepairs?.at(-1)?.status === "preparing")
+        .map((job) => job.id),
+    });
+  });
+  app.post("/api/installation/owner/dev-repair/prepare", (req, res) => {
+    const input = z
+      .strictObject({ id: z.string().uuid(), revision: z.string().uuid() })
+      .parse(req.body);
+    const job = restarts.requestDevRepair(input.id, input.revision);
+    // Durable capture is visible before asynchronous object preparation starts.
+    res.status(202).json({ id: job.id, revision: job.revision });
+    void restarts
+      .prepareBatches()
+      .catch((error) => logger.error({ err: error }, "Dev repair preparation failed"));
+  });
   app.post("/api/installation/owner/restarts/impact", (_req, res, next) => {
     void restarts.impacts().then((impacts) => res.json(impacts), next);
   });
@@ -905,6 +1640,7 @@ export function createInstallationServer(
             req.query.supervisorMaintenance === "1",
             req.query.hostAutomaticRestarts === "1",
             req.query.factoryRuntimeAdoption === "1",
+            req.query.requireOwnerApproval === "1",
           ),
         ),
     );
@@ -964,6 +1700,7 @@ export function createInstallationServer(
         req.query.supervisorMaintenance === "1",
         req.query.hostAutomaticRestarts === "1",
         req.query.factoryRuntimeAdoption === "1",
+        req.query.requireOwnerApproval === "1",
       ),
     );
     void restarts
@@ -1004,12 +1741,20 @@ export function createInstallationServer(
       res.status(409).json({ error: error.message });
       return;
     }
-    if (error instanceof ProfileSharingConflict || error instanceof RestartRequestError) {
+    if (
+      error instanceof ProfileSharingConflict ||
+      error instanceof RestartRequestError ||
+      error instanceof BootstrapRequestConflict
+    ) {
       res.status(409).json({ error: error.message });
       return;
     }
     logger.error({ err: error }, "Installation request failed");
     res.status(500).json({ error: "Installation request failed" });
   });
-  return Object.assign(app, { drainRestarts });
+  return Object.assign(app, {
+    drainRestarts,
+    assertRegistrationReadiness: standingRuntime.assertRegistrationReadiness,
+    registrationReadiness: standingRuntime.registrationReadiness,
+  });
 }

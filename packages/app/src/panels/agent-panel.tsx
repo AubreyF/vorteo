@@ -1,6 +1,5 @@
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardDock } from "@/components/keyboard-dock";
-import { useMobileComposerLayout } from "@/composer/mobile-layout";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -1211,29 +1210,45 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
       composerState,
     ],
   );
-  const composerSection = (
-    <RenderProfile id={`AgentComposerSection:${agentId}`}>
-      <AgentComposerSection
-        agentId={agentId}
-        serverId={serverId}
-        isPaneFocused={isPaneFocused}
-        isArchivingCurrentAgent={isArchivingCurrentAgent}
-        archivedAt={agentState.archivedAt}
-        cwd={cwd}
-        isSubmitLoading={false}
-        agentInputDraft={agentInputDraft}
-        onAttentionInputFocus={onAttentionInputFocus}
-        onAttentionPromptSend={onAttentionPromptSend}
-        onComposerHeightChange={handleComposerHeightChange}
-        onMessageSent={handleMessageSent}
-      />
-    </RenderProfile>
+  const composerSection = useMemo(
+    () => (
+      <RenderProfile id={`AgentComposerSection:${agentId}`}>
+        <AgentComposerSection
+          agentId={agentId}
+          serverId={serverId}
+          isPaneFocused={isPaneFocused}
+          isArchivingCurrentAgent={isArchivingCurrentAgent}
+          archivedAt={agentState.archivedAt}
+          cwd={cwd}
+          isSubmitLoading={false}
+          agentInputDraft={agentInputDraft}
+          onAttentionInputFocus={onAttentionInputFocus}
+          onAttentionPromptSend={onAttentionPromptSend}
+          onComposerHeightChange={handleComposerHeightChange}
+          onMessageSent={handleMessageSent}
+        />
+      </RenderProfile>
+    ),
+    [
+      agentId,
+      serverId,
+      isPaneFocused,
+      isArchivingCurrentAgent,
+      agentState.archivedAt,
+      cwd,
+      agentInputDraft,
+      onAttentionInputFocus,
+      onAttentionPromptSend,
+      handleComposerHeightChange,
+      handleMessageSent,
+    ],
   );
   const streamContent = (
     <View style={animatedStaticStyles.content}>
       <RenderProfile id={`AgentStreamSection:${agentId}`}>
         <AgentStreamSection
           streamViewRef={streamViewRef}
+          composer={composerSection}
           serverId={serverId}
           workspaceId={workspaceId}
           agentId={agentId}
@@ -1272,7 +1287,6 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   const dock = (
     <ChatSurface disabled={isArchivingCurrentAgent}>
       {dockContent}
-      {composerSection}
       {dockOverlay}
     </ChatSurface>
   );
@@ -1302,7 +1316,7 @@ function ChatSurface({
   children,
   disabled,
 }: {
-  children: [ReactNode, ReactNode, ReactNode];
+  children: [ReactNode, ReactNode];
   disabled: boolean;
 }) {
   return (
@@ -1346,6 +1360,7 @@ function TimelineSyncErrorCallout({
 
 const AgentStreamSection = memo(function AgentStreamSection({
   streamViewRef,
+  composer,
   serverId,
   agentId,
   agent,
@@ -1355,6 +1370,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   onOpenWorkspaceFile,
 }: {
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
+  composer: ReactNode;
   serverId: string;
   workspaceId: string;
   agentId?: string;
@@ -1414,6 +1430,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   return (
     <AgentStreamView
       showTaskCards
+      composer={composer}
       ref={streamViewRef}
       agentId={agent.id}
       serverId={serverId}
@@ -1509,7 +1526,6 @@ function ActiveAgentComposer({
   onMessageSent: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const mobileComposer = useMobileComposerLayout();
 
   const isCompactFormFactor = useIsCompactFormFactor();
   const { onLayout: onInputAreaLayout, isBelow: isCompactComposerLayout } = useContainerWidthBelow(
@@ -1587,11 +1603,8 @@ function ActiveAgentComposer({
   );
 
   const inputAreaStyle = useMemo(
-    () => [
-      animatedStaticStyles.inputAreaWrapper,
-      { paddingBottom: mobileComposer.enabled ? 0 : insets.bottom },
-    ],
-    [insets.bottom, mobileComposer.enabled],
+    () => [animatedStaticStyles.inputAreaWrapper, { paddingBottom: isNative ? insets.bottom : 0 }],
+    [insets.bottom],
   );
 
   return (

@@ -1,7 +1,10 @@
+import { PortalHost } from "@gorhom/portal";
+import { SharedWorkspaceToolbarContext } from "@/screens/workspace/shared-toolbar-context";
 import {
   Fragment,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -9,6 +12,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
+import { useWorkspaceShellMeasurement } from "@/hooks/use-responsive-sidebar";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import {
   DndContext,
@@ -33,18 +37,14 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
 import { ResizeHandle } from "@/components/resize-handle";
 import {
   resolveExplorerSidebarDockSizes,
   resolveExplorerSidebarWidth,
 } from "@/components/explorer-sidebar-layout";
 import { RetainedPanel } from "@/components/retained-panel";
-import {
-  hasMultipleVisiblePanes,
-  resolveSplitContainerRoot,
-  splitNodeContainsPane,
-} from "@/components/split-container-focus";
+import { hasMultipleVisiblePanes, splitNodeContainsPane } from "@/components/split-container-panes";
 import { shouldFocusPaneFromEventTarget } from "@/components/split-container-pane-focus";
 import {
   removeWindowChromeCorner,
@@ -73,7 +73,11 @@ import {
   WorkspaceDesktopTabsRow,
   type WorkspaceDesktopTabRowItem,
 } from "@/screens/workspace/workspace-desktop-tabs-row";
-import { ExplorerSidebarDock } from "@/screens/workspace/explorer-sidebar";
+import { SupportingViewCards } from "@/screens/workspace/supporting-view-cards";
+import { SupportingCardsContext } from "@/screens/workspace/supporting-cards-context";
+import { COLUMN_BREAKPOINT } from "@/agent-stream/columns/geometry";
+import { SupportingCardGroup } from "@/screens/workspace/supporting-card-group";
+import { FLOATING_PANEL_INSET } from "@/styles/floating-panel";
 import {
   WorkspaceTabPresentationResolver,
   WorkspaceTabIcon,
@@ -94,8 +98,10 @@ import { panelTargetSupportsHost } from "@/plugins/workspace-panels/locations";
 
 interface SplitContainerProps {
   layout: WorkspaceLayout;
+  supportingCardsCollapsed?: boolean;
+  onSupportingCardsVisibilityChange?: (visible: boolean) => void;
   renderMainHeader?: () => ReactNode;
-  renderExplorerSidebarHeaderAction?: () => ReactNode;
+  renderExplorerSidebarHeaderAction?: (visible: boolean) => ReactNode;
   workspaceKey: string;
   normalizedServerId: string;
   normalizedWorkspaceId: string;
@@ -134,8 +140,6 @@ interface SplitContainerProps {
   onSelectTabInPane: (paneId: string, tabId: string) => void;
   onResizeSplit: (groupId: string, sizes: number[]) => void;
   onReorderTabsInPane: (paneId: string, tabIds: string[]) => void;
-  focusModeEnabled?: boolean;
-  onExitFocusMode: () => void;
 }
 
 interface WorkspaceTabDragData {
@@ -238,7 +242,10 @@ function computeTabOverDropPreview(input: {
   if (!targetPane) {
     return null;
   }
-  const targetTabs = getWorkspacePaneDescriptors({ pane: targetPane, tabs: uiTabs });
+  const targetTabs = getWorkspacePaneDescriptors({
+    pane: targetPane,
+    tabs: uiTabs,
+  });
   return computeTabDropPreview({
     activePaneId: activeData.paneId,
     activeTabId: activeData.tabId,
@@ -307,8 +314,10 @@ const dropCollisionDetection: CollisionDetection = (args) => {
 
 export function SplitContainer({
   layout,
-  renderMainHeader,
+  supportingCardsCollapsed,
+  onSupportingCardsVisibilityChange,
   renderExplorerSidebarHeaderAction,
+  renderMainHeader,
   workspaceKey,
   normalizedServerId,
   normalizedWorkspaceId,
@@ -337,11 +346,9 @@ export function SplitContainer({
   onSelectTabInPane,
   onResizeSplit,
   onReorderTabsInPane,
-  focusModeEnabled,
-  onExitFocusMode,
 }: SplitContainerProps) {
   const inheritedWindowChromeCorners = useWindowChromeCorners();
-  const windowChromeCorners = focusModeEnabled ? inheritedWindowChromeCorners : "none";
+  const windowChromeCorners = "none";
   const [activeDragTabId, setActiveDragTabId] = useState<string | null>(null);
   const [dropPreview, setDropPreview] = useState<SplitDropZoneHover | null>(null);
   const [tabDropPreview, setTabDropPreview] = useState<TabDropPreview | null>(null);
@@ -379,14 +386,11 @@ export function SplitContainer({
   useEffect(() => {
     if (
       maximizedPaneId &&
-      (focusModeEnabled ||
-        !workspaceHasMultiplePanes ||
-        !mainRoot ||
-        !splitNodeContainsPane(mainRoot, maximizedPaneId))
+      (!workspaceHasMultiplePanes || !mainRoot || !splitNodeContainsPane(mainRoot, maximizedPaneId))
     ) {
       setMaximizedPane(null);
     }
-  }, [focusModeEnabled, mainRoot, maximizedPaneId, workspaceHasMultiplePanes]);
+  }, [mainRoot, maximizedPaneId, workspaceHasMultiplePanes]);
   const handleTogglePaneMaximized = useCallback(
     (paneId: string) => {
       setMaximizedPane((current) =>
@@ -397,20 +401,12 @@ export function SplitContainer({
     },
     [workspaceKey],
   );
-  const splitRoot = useMemo(
-    () =>
-      resolveSplitContainerRoot({
-        root: mainRoot ?? createDefaultLayout().root,
-        focusedPaneId: layout.focusedPaneId,
-        focusModeEnabled,
-      }),
-    [focusModeEnabled, layout.focusedPaneId, mainRoot],
-  );
+  const renderedRoot = useMemo(() => mainRoot ?? createDefaultLayout().root, [mainRoot]);
   const storedExplorerSidebarWidth = useWorkspaceLayoutStore(
     (state) => state.explorerSidebarWidthByWorkspace[workspaceKey],
   );
   const resizeExplorerSidebar = useWorkspaceLayoutStore((state) => state.resizeExplorerSidebar);
-  const [workspaceShellWidth, setWorkspaceShellWidth] = useState(0);
+  const { workspaceShellWidth, handleWorkspaceShellLayout } = useWorkspaceShellMeasurement();
   const [previewExplorerSidebarWidth, setPreviewExplorerSidebarWidth] = useState<number | null>(
     null,
   );
@@ -427,21 +423,73 @@ export function SplitContainer({
       }),
     [requestedExplorerSidebarWidth, workspaceShellWidth],
   );
-  const renderExplorerSidebarDock = Boolean(
-    !focusModeEnabled && explorerSidebarPane && explorerSidebarPane.hidden !== true,
+  const supportingViewsVisible = Boolean(
+    explorerSidebarPane && explorerSidebarPane.hidden !== true,
   );
+  const focusedMainPane = mainRoot ? findPaneById(mainRoot, layout.focusedPaneId) : null;
+  const focusedTarget = deriveWorkspacePaneState({
+    pane: focusedMainPane,
+    tabs: uiTabs,
+  }).activeTab?.descriptor.target;
+  const cardsAgentId = focusedTarget?.kind === "agent" ? focusedTarget.agentId : null;
+  const cardHostName = `workspace-cards-${useId()}`;
+  const renderExplorerSidebarDock = shouldShowSupportingCardGroup({
+    collapsed: supportingCardsCollapsed,
+    supportingViewsVisible,
+    cardsAgentId,
+    workspaceShellWidth,
+  });
+  useEffect(() => {
+    onSupportingCardsVisibilityChange?.(renderExplorerSidebarDock);
+  }, [onSupportingCardsVisibilityChange, renderExplorerSidebarDock]);
+  const supportingCards = useMemo(
+    () =>
+      explorerSidebarPane ? (
+        <SupportingViewCards
+          pane={explorerSidebarPane}
+          uiTabs={uiTabs}
+          normalizedServerId={normalizedServerId}
+          normalizedWorkspaceId={normalizedWorkspaceId}
+          isWorkspaceFocused={isWorkspaceFocused}
+          onSelectTab={onSelectTabInPane}
+          buildPaneContentModel={buildPaneContentModel}
+        />
+      ) : null,
+    [
+      explorerSidebarPane,
+      uiTabs,
+      normalizedServerId,
+      normalizedWorkspaceId,
+      isWorkspaceFocused,
+      onSelectTabInPane,
+      buildPaneContentModel,
+    ],
+  );
+  const supportingCardsValue = useMemo(
+    () => ({
+      agentId: cardsAgentId,
+      // The focused conversation hosts every card while the sidebar is closed.
+      hostName: cardHostName,
+      cardsInline: !renderExplorerSidebarDock,
+    }),
+    [cardsAgentId, cardHostName, renderExplorerSidebarDock],
+  );
+  const { toolbarMenuHost, toolbarContext, sharedToolbarStyle, measureToolbar } =
+    useSharedToolbarGeometry(
+      renderExplorerSidebarDock,
+      explorerSidebarWidth,
+      workspaceShellWidth,
+      renderedRoot,
+      maximizedPaneId,
+    );
   const mainColumnWindowChromeCorners = renderExplorerSidebarDock
     ? removeWindowChromeCorner(inheritedWindowChromeCorners, "top-right")
     : inheritedWindowChromeCorners;
   const mainColumnStyle = styles.mainColumn;
   const explorerSidebarDockStyle = useMemo(
-    () => [styles.explorerSidebarDock, { width: explorerSidebarWidth }],
+    () => [styles.explorerSidebarDock, { width: explorerSidebarWidth - FLOATING_PANEL_INSET * 2 }],
     [explorerSidebarWidth],
   );
-  const handleWorkspaceShellLayout = useCallback((event: LayoutChangeEvent) => {
-    const nextWidth = event.nativeEvent.layout.width;
-    setWorkspaceShellWidth((current) => (current === nextWidth ? current : nextWidth));
-  }, []);
   const previewExplorerSidebarResize = useCallback(
     (_groupId: string, sizes: number[]) => {
       const nextRatio = sizes[1];
@@ -472,7 +520,7 @@ export function SplitContainer({
     },
     [resizeExplorerSidebar, workspaceKey, workspaceShellWidth],
   );
-  const renderRoot = useMemo(() => wrapRootPaneForStableMount(splitRoot.root), [splitRoot.root]);
+  const renderRoot = useMemo(() => wrapRootPaneForStableMount(renderedRoot), [renderedRoot]);
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const data = asWorkspaceTabDragData(event.active.data.current);
     if (!data) {
@@ -556,8 +604,14 @@ export function SplitContainer({
         return;
       }
 
-      const sourceTabs = getWorkspacePaneDescriptors({ pane: sourcePane, tabs: uiTabs });
-      const targetTabs = getWorkspacePaneDescriptors({ pane: targetPane, tabs: uiTabs });
+      const sourceTabs = getWorkspacePaneDescriptors({
+        pane: sourcePane,
+        tabs: uiTabs,
+      });
+      const targetTabs = getWorkspacePaneDescriptors({
+        pane: targetPane,
+        tabs: uiTabs,
+      });
       const sourceIndex = sourceTabs.findIndex((tab) => tab.tabId === activeData.tabId);
       const resolvedTabDropPreview =
         tabDropPreview?.paneId === overData.paneId ? tabDropPreview : null;
@@ -630,6 +684,31 @@ export function SplitContainer({
     [applyTabDropEnd, applyPaneDropEnd],
   );
 
+  const sidebarResizeHandle = useMemo(
+    () =>
+      renderExplorerSidebarDock ? (
+        <ResizeHandle
+          sidebar
+          testID="workspace-explorer-sidebar-resize-handle"
+          direction="horizontal"
+          hitAreaAlignment="end"
+          groupId={EXPLORER_SIDEBAR_RESIZE_GROUP_ID}
+          index={0}
+          sizes={explorerSidebarDockSizes}
+          containerSize={workspaceShellWidth}
+          onPreviewResizeSplit={previewExplorerSidebarResize}
+          onResizeSplit={commitExplorerSidebarResize}
+        />
+      ) : null,
+    [
+      renderExplorerSidebarDock,
+      explorerSidebarDockSizes,
+      workspaceShellWidth,
+      previewExplorerSidebarResize,
+      commitExplorerSidebarResize,
+    ],
+  );
+
   return (
     <RenderProfile id="SplitContainer">
       <DndContext
@@ -641,101 +720,78 @@ export function SplitContainer({
         onDragCancel={handleDragCancel}
         onDragEnd={handleDragEnd}
       >
-        <View style={styles.workspaceShell} onLayout={handleWorkspaceShellLayout}>
-          <WindowChromeRegion corners={mainColumnWindowChromeCorners}>
-            <View style={mainColumnStyle}>
-              {renderMainHeader?.()}
-              {splitRoot.usesFallbackStrip && <WindowChromeSafeArea placement="below" />}
-              {renderRoot ? (
-                <SplitNodeView
-                  node={renderRoot}
-                  workspaceKey={workspaceKey}
-                  uiTabs={uiTabs}
-                  focusedPaneId={layout.focusedPaneId}
-                  normalizedServerId={normalizedServerId}
-                  normalizedWorkspaceId={normalizedWorkspaceId}
-                  isWorkspaceFocused={isWorkspaceFocused}
-                  hoveredCloseTabKey={hoveredCloseTabKey}
-                  setHoveredCloseTabKey={setHoveredCloseTabKey}
-                  closingTabIds={closingTabIds}
-                  onNavigateTab={onNavigateTab}
-                  onCloseTab={onCloseTab}
-                  onCopyResumeCommand={onCopyResumeCommand}
-                  onCopyAgentId={onCopyAgentId}
-                  onCopyTerminalId={onCopyTerminalId}
-                  onCopyFilePath={onCopyFilePath}
-                  onReloadAgent={onReloadAgent}
-                  onRenameTab={onRenameTab}
-                  onCloseTabsToLeft={onCloseTabsToLeft}
-                  onCloseTabsToRight={onCloseTabsToRight}
-                  onCloseOtherTabs={onCloseOtherTabs}
-                  onCreateNewTab={onCreateNewTab}
-                  buildPaneContentModel={buildPaneContentModel}
-                  onFocusPane={onFocusPane}
-                  onSplitPane={onSplitPane}
-                  onSplitPaneEmpty={onSplitPaneEmpty}
-                  onResizeSplit={onResizeSplit}
-                  onReorderTabsInPane={onReorderTabsInPane}
-                  activeDragTabId={activeDragTabId}
-                  showDropZones={activeDragTabId !== null}
-                  dropPreview={dropPreview}
-                  tabDropPreview={tabDropPreview}
-                  windowChromeCorners={splitRoot.usesFallbackStrip ? "none" : windowChromeCorners}
-                  maximizedPaneId={maximizedPaneId}
-                  workspaceHasMultiplePanes={workspaceHasMultiplePanes}
-                  onTogglePaneMaximized={handleTogglePaneMaximized}
-                  focusModeEnabled={focusModeEnabled}
-                  onExitFocusMode={onExitFocusMode}
-                />
-              ) : null}
-            </View>
-          </WindowChromeRegion>
-          {renderExplorerSidebarDock && explorerSidebarPane ? (
-            <>
-              <ResizeHandle
-                testID="workspace-explorer-sidebar-resize-handle"
-                direction="horizontal"
-                hitAreaAlignment="end"
-                groupId={EXPLORER_SIDEBAR_RESIZE_GROUP_ID}
-                index={0}
-                sizes={explorerSidebarDockSizes}
-                containerSize={workspaceShellWidth}
-                onPreviewResizeSplit={previewExplorerSidebarResize}
-                onResizeSplit={commitExplorerSidebarResize}
-              />
-              <View style={explorerSidebarDockStyle}>
-                <ExplorerSidebarDock
-                  pane={explorerSidebarPane}
-                  uiTabs={uiTabs}
-                  normalizedServerId={normalizedServerId}
-                  normalizedWorkspaceId={normalizedWorkspaceId}
-                  isWorkspaceFocused={isWorkspaceFocused}
-                  closingTabIds={closingTabIds}
-                  onSelectTab={onSelectTabInPane}
-                  onCloseTab={onCloseTab}
-                  onCreateNewTab={onCreateNewTab}
-                  hoveredCloseTabKey={hoveredCloseTabKey}
-                  setHoveredCloseTabKey={setHoveredCloseTabKey}
-                  onCopyResumeCommand={onCopyResumeCommand}
-                  onCopyAgentId={onCopyAgentId}
-                  onCopyTerminalId={onCopyTerminalId}
-                  onCopyFilePath={onCopyFilePath}
-                  onReloadAgent={onReloadAgent}
-                  onRenameTab={onRenameTab}
-                  onCloseTabsToLeft={onCloseTabsToLeft}
-                  onCloseTabsToRight={onCloseTabsToRight}
-                  onCloseOtherTabs={onCloseOtherTabs}
-                  onExitFocusMode={onExitFocusMode}
-                  buildPaneContentModel={buildPaneContentModel}
-                  onReorderTabsInPane={onReorderTabsInPane}
-                  activeDragTabId={activeDragTabId}
-                  tabDropPreview={tabDropPreview}
-                  headerAction={renderExplorerSidebarHeaderAction?.()}
-                />
+        <WorkspaceChromeProviders toolbar={toolbarContext} cards={supportingCardsValue}>
+          <View style={styles.workspaceShell} onLayout={handleWorkspaceShellLayout}>
+            <WindowChromeRegion corners={mainColumnWindowChromeCorners}>
+              <View style={mainColumnStyle}>
+                {!renderRoot ? renderMainHeader?.() : null}
+                {renderRoot ? (
+                  <SplitNodeView
+                    renderMainHeader={renderMainHeader}
+                    node={renderRoot}
+                    workspaceKey={workspaceKey}
+                    uiTabs={uiTabs}
+                    focusedPaneId={layout.focusedPaneId}
+                    normalizedServerId={normalizedServerId}
+                    normalizedWorkspaceId={normalizedWorkspaceId}
+                    isWorkspaceFocused={isWorkspaceFocused}
+                    hoveredCloseTabKey={hoveredCloseTabKey}
+                    setHoveredCloseTabKey={setHoveredCloseTabKey}
+                    closingTabIds={closingTabIds}
+                    onNavigateTab={onNavigateTab}
+                    onCloseTab={onCloseTab}
+                    onCopyResumeCommand={onCopyResumeCommand}
+                    onCopyAgentId={onCopyAgentId}
+                    onCopyTerminalId={onCopyTerminalId}
+                    onCopyFilePath={onCopyFilePath}
+                    onReloadAgent={onReloadAgent}
+                    onRenameTab={onRenameTab}
+                    onCloseTabsToLeft={onCloseTabsToLeft}
+                    onCloseTabsToRight={onCloseTabsToRight}
+                    onCloseOtherTabs={onCloseOtherTabs}
+                    onCreateNewTab={onCreateNewTab}
+                    buildPaneContentModel={buildPaneContentModel}
+                    onFocusPane={onFocusPane}
+                    onSplitPane={onSplitPane}
+                    onSplitPaneEmpty={onSplitPaneEmpty}
+                    onResizeSplit={onResizeSplit}
+                    onReorderTabsInPane={onReorderTabsInPane}
+                    activeDragTabId={activeDragTabId}
+                    showDropZones={activeDragTabId !== null}
+                    dropPreview={dropPreview}
+                    tabDropPreview={tabDropPreview}
+                    windowChromeCorners={windowChromeCorners}
+                    maximizedPaneId={maximizedPaneId}
+                    workspaceHasMultiplePanes={workspaceHasMultiplePanes}
+                    onTogglePaneMaximized={handleTogglePaneMaximized}
+                  />
+                ) : null}
               </View>
-            </>
-          ) : null}
-        </View>
+            </WindowChromeRegion>
+            <SupportingCardGroup
+              resizeHandle={sidebarResizeHandle}
+              renderHeader={renderToolbarSpacer}
+              visible={renderExplorerSidebarDock}
+              supportingVisible={Boolean(explorerSidebarPane?.tabIds.length)}
+              hostName={cardHostName}
+              inline={Boolean(cardsAgentId) && !renderExplorerSidebarDock}
+              style={explorerSidebarDockStyle}
+            >
+              {supportingCards}
+            </SupportingCardGroup>
+            <View
+              style={sharedToolbarStyle}
+              onLayout={measureToolbar}
+              testID="workspace-shared-toolbar"
+            >
+              <PortalHost name={toolbarMenuHost} />
+              <SharedToolbarActions
+                renderActions={renderExplorerSidebarHeaderAction}
+                visible={renderExplorerSidebarDock}
+              />
+            </View>
+          </View>
+        </WorkspaceChromeProviders>
         <DragOverlay dropAnimation={null}>
           {activeDragTabId ? (
             <DragOverlayTabChip
@@ -797,22 +853,6 @@ function DragOverlayTabChipInner({
   normalizedWorkspaceId: string;
 }) {
   const { t } = useTranslation();
-  const { theme } = useUnistyles();
-
-  const chipStyle = useMemo(
-    () => [
-      styles.dragOverlayChip,
-      {
-        backgroundColor: theme.colors.surface1,
-        borderColor: theme.colors.borderAccent,
-      },
-    ],
-    [theme.colors.surface1, theme.colors.borderAccent],
-  );
-  const chipLabelStyle = useMemo(
-    () => [styles.dragOverlayLabel, { color: theme.colors.foreground }],
-    [theme.colors.foreground],
-  );
 
   return (
     <WorkspaceTabPresentationResolver
@@ -825,9 +865,9 @@ function DragOverlayTabChipInner({
           presentation.titleState === "loading" ? t("common.states.loading") : presentation.label;
 
         return (
-          <View style={chipStyle}>
+          <View style={styles.dragOverlayChip}>
             <WorkspaceTabIcon presentation={presentation} active size={14} backdrop="surface1" />
-            <Text numberOfLines={1} style={chipLabelStyle}>
+            <Text numberOfLines={1} style={styles.dragOverlayLabel}>
               {label}
             </Text>
           </View>
@@ -922,6 +962,7 @@ function isSplitNodeHidden(node: SplitNode): boolean {
 
 function SplitNodeView({
   node,
+  renderMainHeader,
   workspaceKey,
   uiTabs,
   focusedPaneId,
@@ -957,8 +998,6 @@ function SplitNodeView({
   maximizedPaneId,
   workspaceHasMultiplePanes,
   onTogglePaneMaximized,
-  focusModeEnabled,
-  onExitFocusMode,
 }: SplitNodeViewProps) {
   const [groupContainerSize, setGroupContainerSize] = useState(0);
   const groupId = node.kind === "group" ? node.group.id : null;
@@ -1010,6 +1049,7 @@ function SplitNodeView({
       >
         <WindowChromeRegion corners={windowChromeCorners}>
           <SplitPaneView
+            renderMainHeader={renderMainHeader}
             pane={node.pane}
             uiTabs={uiTabs}
             isFocused={node.pane.id === focusedPaneId}
@@ -1043,8 +1083,6 @@ function SplitNodeView({
             maximizedPaneId={maximizedPaneId}
             workspaceHasMultiplePanes={workspaceHasMultiplePanes}
             onTogglePaneMaximized={onTogglePaneMaximized}
-            focusModeEnabled={focusModeEnabled}
-            onExitFocusMode={onExitFocusMode}
           />
         </WindowChromeRegion>
       </RetainedPanel>
@@ -1061,6 +1099,14 @@ function SplitNodeView({
             hidden={isSplitNodeHiddenForPresentation(child, maximizedPaneId)}
           >
             <SplitNodeView
+              renderMainHeader={
+                index ===
+                node.group.children.findIndex(
+                  (candidate) => !isSplitNodeHiddenForPresentation(candidate, maximizedPaneId),
+                )
+                  ? renderMainHeader
+                  : undefined
+              }
               node={child}
               workspaceKey={workspaceKey}
               uiTabs={uiTabs}
@@ -1097,8 +1143,6 @@ function SplitNodeView({
               maximizedPaneId={maximizedPaneId}
               workspaceHasMultiplePanes={workspaceHasMultiplePanes}
               onTogglePaneMaximized={onTogglePaneMaximized}
-              focusModeEnabled={focusModeEnabled}
-              onExitFocusMode={onExitFocusMode}
             />
           </SplitGroupChild>
           {index < node.group.children.length - 1 &&
@@ -1123,6 +1167,7 @@ function SplitNodeView({
 
 function SplitPaneView({
   pane,
+  renderMainHeader,
   uiTabs,
   isFocused,
   normalizedServerId,
@@ -1155,8 +1200,6 @@ function SplitPaneView({
   maximizedPaneId,
   workspaceHasMultiplePanes,
   onTogglePaneMaximized,
-  focusModeEnabled,
-  onExitFocusMode,
 }: SplitPaneViewProps) {
   const paneRef = useRef<View | null>(null);
   const stableOnFocusPane = useStableEvent(onFocusPane);
@@ -1284,17 +1327,16 @@ function SplitPaneView({
             tabDropPreviewIndex={
               tabDropPreview?.paneId === pane.id ? tabDropPreview.indicatorIndex : null
             }
-            showPaneSplitActions={!focusModeEnabled}
-            showPaneMaximizeAction={workspaceHasMultiplePanes && !focusModeEnabled}
+            showPaneSplitActions
+            showPaneMaximizeAction={workspaceHasMultiplePanes}
             paneMaximized={paneId === maximizedPaneId}
             onTogglePaneMaximized={handleTogglePaneMaximized}
             onSplitRight={handleSplitRight}
             onSplitDown={handleSplitDown}
-            focusModeEnabled={Boolean(focusModeEnabled)}
-            onExitFocusMode={onExitFocusMode}
           />
         </WindowChromeSafeArea>
 
+        {renderMainHeader?.()}
         <View style={styles.paneContent}>
           <WorkspacePanelHost
             paneId={pane.id}
@@ -1380,7 +1422,93 @@ function removePaneFromSplitTree(node: SplitNode, paneId: string | null): SplitN
   };
 }
 
+function topRightToolbarPane(node: SplitNode | null): string | null {
+  if (!node || isSplitNodeHidden(node)) return null;
+  if (node.kind === "pane") return node.pane.id;
+  const children = node.group.children.filter((child) => !isSplitNodeHidden(child));
+  return topRightToolbarPane(
+    (node.group.direction === "horizontal" ? children.at(-1) : children[0]) ?? null,
+  );
+}
+
+function useSharedToolbarGeometry(
+  renderExplorerSidebarDock: boolean,
+  explorerSidebarWidth: number,
+  workspaceShellWidth: number,
+  root: SplitNode | null,
+  maximizedPaneId: string | null,
+) {
+  const paneId = maximizedPaneId ?? topRightToolbarPane(root);
+  const toolbarMenuHost = `workspace-toolbar-${useId()}`;
+  const [toolbarWidth, setToolbarWidth] = useState(0);
+  const measureToolbar = useCallback((event: LayoutChangeEvent) => {
+    setToolbarWidth(event.nativeEvent.layout.width);
+  }, []);
+  const toolbarContext = useMemo(
+    () => ({
+      menuHost: toolbarMenuHost,
+      paneId,
+      reservedWidth: Math.max(
+        0,
+        toolbarWidth +
+          FLOATING_PANEL_INSET -
+          (renderExplorerSidebarDock ? explorerSidebarWidth : 0),
+      ),
+    }),
+    [toolbarMenuHost, toolbarWidth, renderExplorerSidebarDock, explorerSidebarWidth, paneId],
+  );
+  const sharedToolbarStyle = useMemo(
+    () => [
+      styles.sharedToolbar,
+      {
+        maxWidth: Math.max(80, workspaceShellWidth - 120),
+        opacity: toolbarWidth > 0 ? 1 : 0,
+      },
+    ],
+    [workspaceShellWidth, toolbarWidth],
+  );
+  return { toolbarMenuHost, toolbarContext, sharedToolbarStyle, measureToolbar };
+}
+
+function WorkspaceChromeProviders({
+  toolbar,
+  cards,
+  children,
+}: {
+  toolbar: { menuHost: string; reservedWidth: number; paneId: string | null };
+  cards: { agentId: string | null; hostName: string; cardsInline: boolean };
+  children: ReactNode;
+}) {
+  return (
+    <SharedWorkspaceToolbarContext.Provider value={toolbar}>
+      <SupportingCardsContext.Provider value={cards}>{children}</SupportingCardsContext.Provider>
+    </SharedWorkspaceToolbarContext.Provider>
+  );
+}
+
+function SharedToolbarActions({
+  renderActions,
+  visible,
+}: {
+  renderActions?: (visible: boolean) => ReactNode;
+  visible: boolean;
+}) {
+  return renderActions?.(visible);
+}
+
+const renderToolbarSpacer = () => null;
+
 const styles = StyleSheet.create((theme) => ({
+  sharedToolbar: {
+    position: "absolute",
+    top: FLOATING_PANEL_INSET,
+    right: FLOATING_PANEL_INSET,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    zIndex: 5,
+    backgroundColor: theme.colors.surface0,
+  },
   workspaceShell: {
     flex: 1,
     minWidth: 0,
@@ -1388,16 +1516,21 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
   },
   mainColumn: {
+    paddingTop: FLOATING_PANEL_INSET + 1,
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
     minHeight: 0,
   },
   explorerSidebarDock: {
+    flexGrow: 0,
+    flexBasis: "auto",
     flexShrink: 0,
-    minWidth: 240,
+    minWidth: 240 - FLOATING_PANEL_INSET * 2,
     minHeight: 0,
-    backgroundColor: theme.colors.surfaceSidebar,
+    margin: FLOATING_PANEL_INSET,
+    marginTop: FLOATING_PANEL_INSET + 1,
+    marginBottom: FLOATING_PANEL_INSET,
   },
   group: {
     flex: 1,
@@ -1424,6 +1557,7 @@ const styles = StyleSheet.create((theme) => ({
     overflow: "hidden",
   },
   paneTabs: {
+    zIndex: 2,
     position: "relative",
     minWidth: 0,
   },
@@ -1434,6 +1568,8 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 0,
   },
   dragOverlayChip: {
+    backgroundColor: theme.colors.surface1,
+    borderColor: theme.colors.borderAccent,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
@@ -1444,7 +1580,27 @@ const styles = StyleSheet.create((theme) => ({
     maxWidth: 200,
   },
   dragOverlayLabel: {
+    color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
     flexShrink: 1,
   },
 }));
+
+interface SupportingCardGroupVisibility {
+  collapsed?: boolean;
+  supportingViewsVisible: boolean;
+  cardsAgentId: string | null;
+  workspaceShellWidth: number;
+}
+
+function shouldShowSupportingCardGroup({
+  collapsed,
+  supportingViewsVisible,
+  cardsAgentId,
+  workspaceShellWidth,
+}: SupportingCardGroupVisibility): boolean {
+  if (collapsed) return false;
+  if (supportingViewsVisible) return true;
+  if (!cardsAgentId) return false;
+  return workspaceShellWidth >= COLUMN_BREAKPOINT;
+}

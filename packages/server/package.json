@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/server",
-  "version": "0.11.0-beta.3.vorteo.288",
+  "version": "0.11.0-beta.3.vorteo.688",
   "description": "Vorteo backend server",
   "files": [
     "dist/server",
@@ -103,7 +103,7 @@
     "clean": "node ../../scripts/clean-package-dist.mjs",
     "build": "npm run build:factory-contracts && npm run build:lib && npm run build:scripts",
     "build:clean": "npm run clean && npm run build",
-    "build:lib": "tsc -p tsconfig.server.json --incremental false && node scripts/build-opencode-bridge-plugin.mjs && node -e \"const fs=require('node:fs'); fs.mkdirSync('dist/server/server/speech/providers/local/sherpa/assets',{recursive:true}); fs.copyFileSync('src/server/speech/providers/local/sherpa/assets/silero_vad.onnx','dist/server/server/speech/providers/local/sherpa/assets/silero_vad.onnx'); fs.rmSync('dist/server/terminal/shell-integration',{recursive:true,force:true}); fs.cpSync('src/terminal/shell-integration','dist/server/terminal/shell-integration',{recursive:true,filter:()=>true}); fs.rmSync('dist/src/terminal/shell-integration',{recursive:true,force:true}); fs.cpSync('src/terminal/shell-integration','dist/src/terminal/shell-integration',{recursive:true,filter:()=>true}); fs.copyFileSync('src/terminal/terminal-ts-loader.mjs','dist/server/terminal/terminal-ts-loader.mjs'); fs.copyFileSync('src/server/agent/quota-reserve/linux-custody.py','dist/server/server/agent/quota-reserve/linux-custody.py'); fs.rmSync('dist/server/skills',{recursive:true,force:true}); fs.cpSync('../../skills','dist/server/skills',{recursive:true,filter:()=>true}); fs.rmSync('dist/server/builtin-plugins',{recursive:true,force:true}); fs.cpSync('../../plugins','dist/server/builtin-plugins',{recursive:true,filter:(source)=>!source.split(require('node:path').sep).some((segment)=>segment==='node_modules'||segment==='test')&&!/\\.(test|spec)\\.[cm]?[jt]sx?$/.test(source)&&!source.endsWith('.tsbuildinfo')});\"",
+    "build:lib": "tsc -p tsconfig.server.json --incremental false && node scripts/build-maintenance-recovery-assets.mjs && node scripts/build-opencode-bridge-plugin.mjs && node -e \"const fs=require('node:fs'); fs.mkdirSync('dist/server/server/speech/providers/local/sherpa/assets',{recursive:true}); fs.copyFileSync('src/server/speech/providers/local/sherpa/assets/silero_vad.onnx','dist/server/server/speech/providers/local/sherpa/assets/silero_vad.onnx'); fs.rmSync('dist/server/terminal/shell-integration',{recursive:true,force:true}); fs.cpSync('src/terminal/shell-integration','dist/server/terminal/shell-integration',{recursive:true,filter:()=>true}); fs.rmSync('dist/src/terminal/shell-integration',{recursive:true,force:true}); fs.cpSync('src/terminal/shell-integration','dist/src/terminal/shell-integration',{recursive:true,filter:()=>true}); fs.copyFileSync('src/terminal/terminal-ts-loader.mjs','dist/server/terminal/terminal-ts-loader.mjs'); fs.copyFileSync('src/server/agent/quota-reserve/linux-custody.py','dist/server/server/agent/quota-reserve/linux-custody.py'); fs.rmSync('dist/server/skills',{recursive:true,force:true}); fs.cpSync('../../skills','dist/server/skills',{recursive:true,filter:()=>true}); fs.rmSync('dist/server/builtin-plugins',{recursive:true,force:true}); fs.cpSync('../../plugins','dist/server/builtin-plugins',{recursive:true,filter:(source)=>!source.split(require('node:path').sep).some((segment)=>segment==='node_modules'||segment==='test')&&!/\\.(test|spec)\\.[cm]?[jt]sx?$/.test(source)&&!source.endsWith('.tsbuildinfo')});\"",
     "build:scripts": "tsc -p tsconfig.scripts.json --incremental false && node -e \"const fs=require('node:fs'); fs.mkdirSync('dist/scripts',{recursive:true}); fs.copyFileSync('scripts/mcp-stdio-socket-bridge-cli.mjs','dist/scripts/mcp-stdio-socket-bridge-cli.mjs');\"",
     "prepack": "npm run build:clean && npm --prefix ../.. run build:daemon-web-ui",
     "start": "node dist/scripts/supervisor-entrypoint.js",
@@ -137,14 +137,15 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.17.1",
     "@anthropic-ai/claude-agent-sdk": "0.3.246",
+    "@anthropic-ai/claude-code": "2.1.284",
     "@anthropic-ai/sdk": "^0.104.2",
-    "@getpaseo/client": "0.11.0-beta.3.vorteo.288",
-    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.288",
-    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.288",
-    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.288",
-    "@getpaseo/relay": "0.11.0-beta.3.vorteo.288",
+    "@getpaseo/client": "0.11.0-beta.3.vorteo.688",
+    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.688",
+    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.688",
+    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.688",
+    "@getpaseo/relay": "0.11.0-beta.3.vorteo.688",
     "@isaacs/ttlcache": "^2.1.4",
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@opencode-ai/sdk": "1.14.46",
     "@opencode/client": "2.0.10",
     "@xterm/headless": "^6.0.0",
@@ -156,7 +157,7 @@
     "express": "^4.18.2",
     "fast-deep-equal": "^3.1.3",
     "lru-cache": "^11.5.1",
-    "markdown-it": "^10.0.0",
+    "markdown-it": "^14.3.2",
     "mnemonic-id": "^3.2.7",
     "node-pty": "1.2.0-beta.15",
     "openai": "^6.44.0",
@@ -174,7 +175,7 @@
     "typescript": "^5.9.3",
     "uuid": "^9.0.1",
     "which": "^5.0.0",
-    "ws": "^8.14.2",
+    "ws": "^8.21.0",
     "yaml": "2.9.1",
     "zod": "^4.4.3"
   },
@@ -186,12 +187,16 @@
     "@types/qrcode": "^1.5.6",
     "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.8",
-    "@vitest/ui": "^4.1.6",
+    "@vitest/ui": "^4.1.11",
     "cross-env": "^10.1.0",
     "tsx": "^4.6.0",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "lightningcss": "1.30.1"
+  },
+  "vorteoRuntimeContracts": {
+    "independentCoordinatorExecutor": 1,
+    "recoveryServiceExecutor": 1
   }
 }

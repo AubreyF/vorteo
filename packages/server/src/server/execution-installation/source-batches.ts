@@ -16,6 +16,7 @@ import type {
 } from "@getpaseo/protocol/execution-installation";
 
 const execute = promisify(execFile);
+class AmbiguousSourceHistory extends Error {}
 interface PreparationInput {
   directory: string;
   repository: string;
@@ -97,6 +98,7 @@ export async function prepareSourceBatch(
       )
     ).stdout.trim();
   const contributions = structuredClone(input.contributions);
+  const integrationFailures = new Set<string>();
   try {
     await execute("git", ["init", "--bare", "--template=", repository], { env, timeout: 15_000 });
     // Uploaded attributes cannot select custom or union merge drivers. Unspecified
@@ -212,6 +214,7 @@ export async function prepareSourceBatch(
         );
         const merge = await mergeContribution(git, mergeHead, delta);
         if (merge.conflict !== null) {
+          integrationFailures.add(contribution.id);
           contribution.status = "conflict";
           contribution.detail = merge.conflict;
           continue;
@@ -236,11 +239,10 @@ export async function prepareSourceBatch(
         contribution.status = "included";
         contribution.detail = `Included in ${head}`;
       } catch (error) {
-        contribution.status = "invalid";
-        contribution.detail =
-          error instanceof Error ? error.message.slice(0, 8000) : "Contribution validation failed";
+        rejectContribution(contribution, error, integrationFailures);
       }
     }
+    await reconcileIntegratedFailures(git, head, contributions, integrationFailures, parents);
     if (contributions.some((item) => item.status === "conflict" || item.status === "invalid"))
       return { batch: { status: "conflict", contributions } };
     const included = contributions.filter((item) => item.status === "included");
@@ -356,6 +358,38 @@ async function contributionMergeBase(git: InertGit, head: string, incoming: stri
   // source. Reapplying already integrated work creates false conflicts.
   const bases = (await git("merge-base", "--all", head, incoming)).split("\n");
   if (bases.length !== 1 || !/^[a-f0-9]{40}$/.test(bases[0]!))
-    throw new Error("Source has multiple merge bases; integrate explicitly");
+    throw new AmbiguousSourceHistory("Source has multiple merge bases; integrate explicitly");
   return bases[0]!;
+}
+
+function rejectContribution(
+  contribution: SourceContribution,
+  error: unknown,
+  failures: Set<string>,
+) {
+  if (error instanceof AmbiguousSourceHistory) failures.add(contribution.id);
+  contribution.status = "invalid";
+  contribution.detail =
+    error instanceof Error ? error.message.slice(0, 8000) : "Contribution validation failed";
+}
+
+async function reconcileIntegratedFailures(
+  git: InertGit,
+  head: string,
+  contributions: SourceContribution[],
+  failures: Set<string>,
+  parents: Set<string>,
+) {
+  // Later validated source can explicitly integrate an earlier conflict. Corrupt
+  // bundles and invalid metadata never qualify solely through shared ancestry.
+  for (const contribution of contributions) {
+    if (
+      failures.has(contribution.id) &&
+      (await isAncestor(git, contribution.update.sourceCommit, head))
+    ) {
+      contribution.status = "included";
+      contribution.detail = `Included by integrated source ${head}`;
+      parents.add(contribution.update.sourceCommit);
+    }
+  }
 }

@@ -9,6 +9,8 @@ export type LucideIcon = ComponentType<{
 const StubIcon: LucideIcon = () => null;
 
 export const Activity = StubIcon;
+export const Files = StubIcon;
+export const GitCompareArrows = StubIcon;
 export const AlertTriangle = StubIcon;
 export const Archive = StubIcon;
 export const ArrowDownUp = StubIcon;
@@ -23,11 +25,13 @@ export const Bot = StubIcon;
 export const Brain = StubIcon;
 export const ChartPie = StubIcon;
 export const Check = StubIcon;
+export const CheckSquare = StubIcon;
 export const CheckCircle = StubIcon;
 export const CheckCircle2 = StubIcon;
 export const ChevronDown = StubIcon;
 export const ChevronLeft = StubIcon;
 export const ChevronRight = StubIcon;
+export const ChevronUp = StubIcon;
 export const CircleAlert = StubIcon;
 export const CircleCheck = StubIcon;
 export const CircleDot = StubIcon;

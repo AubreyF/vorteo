@@ -1,5 +1,9 @@
 # Forms
 
+Full-page settings forms use `PageLayout`, which enables iOS keyboard insets
+and scrolls the focused field above the keyboard. Keep controls reachable while
+the keyboard is open; verify the lowest fields in a native build.
+
 The paved road for building forms in the app. The schedule form is the golden
 example; when building or fixing any form, copy its shape, not the shape of
 whatever screen you happen to be near.
@@ -85,6 +89,8 @@ The schedule form captures its configuration revision when opened, alongside the
 ## Footer actions
 
 Use `ActionFooter` from `components/ui/action-footer` for dialog and card bottom actions. It supplies top spacing, wrapping and right alignment. Buttons keep their natural width. Put red delete buttons inside `ActionFooterLeading` before the other actions so deletion stays at the far left. Keep field choices and header controls outside the footer.
+
+Modal actions belong in `AdaptiveModalSheet.footer`, never inside its scrolling children. The header and footer remain visible while only the body scrolls, including at compact snap heights and with the keyboard open. The sheet supplies footer padding and safe-area clearance; nested `ActionFooter` rows omit their ordinary body spacing. Verify long content at short desktop and compact viewport heights, checking that Save, Cancel and destructive actions stay visible before and after scrolling.
 
 ## Settings rows
 

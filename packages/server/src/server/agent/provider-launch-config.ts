@@ -1,3 +1,4 @@
+import { managedClaudeCli, isPackagedClaudeCommand } from "./providers/claude/packaged-cli.js";
 import { isAbsolute } from "node:path";
 import {
   executableExists,
@@ -108,7 +109,10 @@ export async function resolveProviderLaunch({
   const normalizedDefault = normalizeLaunchDefault(defaultBinary);
   const args = commandConfig?.mode === "append" ? [...(commandConfig.args ?? [])] : [];
   return {
-    command: normalizedDefault.command,
+    command:
+      normalizedDefault.command === "claude"
+        ? ((await managedClaudeCli()) ?? normalizedDefault.command)
+        : normalizedDefault.command,
     args,
     source: commandConfig?.mode === "append" ? "append" : "default",
   };
@@ -118,6 +122,10 @@ export async function checkProviderLaunchAvailable(
   launch: ResolvedProviderLaunch,
   defaultBinary?: ProviderLaunchDefault,
 ): Promise<ProviderLaunchAvailability> {
+  if (launch.source !== "override" && isPackagedClaudeCommand(launch.command)) {
+    const resolvedPath = executableExists(launch.command);
+    return { available: resolvedPath !== null, resolvedPath };
+  }
   const resolvedPath =
     defaultBinary && launch.source !== "override"
       ? await resolveDefaultLaunchPath(defaultBinary)

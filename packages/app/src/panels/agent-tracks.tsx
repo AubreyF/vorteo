@@ -1,3 +1,4 @@
+import { CardColumnAccessory } from "@/agent-stream/columns/card-column";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useSubagentsForParent, useArchiveFinishedSubagents } from "@/subagents";
@@ -121,14 +122,16 @@ export const AgentTracks = memo(function AgentTracks({
         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
       />
       {hasPluginComposerPills ? (
-        <View style={styles.pills} testID="agent-history-plugin-pills">
-          <PluginComposerPills
-            serverId={serverId}
-            workspaceId={workspaceId}
-            agentId={agentId}
-            compact={isCompact}
-          />
-        </View>
+        <CardColumnAccessory>
+          <View style={styles.pills} testID="agent-history-plugin-pills">
+            <PluginComposerPills
+              serverId={serverId}
+              workspaceId={workspaceId}
+              agentId={agentId}
+              compact={isCompact}
+            />
+          </View>
+        </CardColumnAccessory>
       ) : null}
     </>
   );

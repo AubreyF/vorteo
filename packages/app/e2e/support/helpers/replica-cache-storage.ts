@@ -37,6 +37,8 @@ export interface ReplicaCacheRecord {
 
 interface ReplicaCacheWriteObserverState {
   lastValues: Record<string, string>;
+  writesByKind: Record<string, number>;
+  serializedCharsByKind: Record<string, number>;
   redundantWrites: number;
   serializedChars: number;
   storageDurationMs: number;
@@ -44,6 +46,8 @@ interface ReplicaCacheWriteObserverState {
 }
 
 interface ReplicaCacheWriteObserverReport {
+  writesByKind: Record<string, number>;
+  serializedCharsByKind: Record<string, number>;
   redundantWrites: number;
   serializedChars: number;
   storageDurationMs: number;
@@ -208,6 +212,8 @@ export async function observeReplicaCacheStorageWrites(page: Page): Promise<void
     ({ databaseName, storeName }) => {
       window.__replicaCacheWriteObserver = {
         lastValues: {},
+        writesByKind: {},
+        serializedCharsByKind: {},
         redundantWrites: 0,
         serializedChars: 0,
         storageDurationMs: 0,
@@ -246,6 +252,9 @@ export async function observeReplicaCacheStorageWrites(page: Page): Promise<void
           state.lastValues[rowKey] = payload;
           state.writes += 1;
           state.serializedChars += payload.length;
+          state.writesByKind[kind] = (state.writesByKind[kind] ?? 0) + 1;
+          state.serializedCharsByKind[kind] =
+            (state.serializedCharsByKind[kind] ?? 0) + payload.length;
           state.storageDurationMs += performance.now() - startedAt;
         });
         return request;
@@ -266,6 +275,8 @@ export async function resetReplicaCacheStorageWriteObserver(page: Page): Promise
   await page.evaluate((values) => {
     window.__replicaCacheWriteObserver = {
       lastValues: values,
+      writesByKind: {},
+      serializedCharsByKind: {},
       redundantWrites: 0,
       serializedChars: 0,
       storageDurationMs: 0,
@@ -281,6 +292,8 @@ export async function readReplicaCacheStorageWriteObserver(
     const state = window.__replicaCacheWriteObserver;
     if (!state) throw new Error("Replica cache write observer is not installed");
     return {
+      writesByKind: state.writesByKind,
+      serializedCharsByKind: state.serializedCharsByKind,
       redundantWrites: state.redundantWrites,
       serializedChars: state.serializedChars,
       storageDurationMs: state.storageDurationMs,

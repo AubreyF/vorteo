@@ -1,5 +1,13 @@
-import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  constants,
+  openSync,
+  closeSync,
+  writeFileSync,
+  fsyncSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -7,6 +15,7 @@ import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator
 import { assertFrozenCoordinatorIdle, BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { assertBootstrapPathsProtected } from "./coordinator-bootstrap-artifact.js";
 import { OwnerSessionsSchema } from "./owner-sessions.js";
+import { parseLifecycleJournal } from "./lifecycle-journal.js";
 
 const DigestSchema = z
   .string()
@@ -109,7 +118,10 @@ export async function preserveBootstrapState(
   context: StateContext & { childPids: unknown },
 ): Promise<void> {
   const execution = context.request.execution;
-  if (!execution || execution.stage !== "frozen")
+  const earlyRecovery =
+    execution?.stage === "rollback_pending" &&
+    context.request.plan.automaticRecovery === "restore-compatible";
+  if (!execution || (execution.stage !== "frozen" && !earlyRecovery))
     throw new BootstrapRequestConflict("State preservation requires a frozen handoff");
   const state = await readState(context);
   assertFrozenCoordinatorIdle(state.restartJournal, context.childPids);
@@ -125,16 +137,34 @@ export async function preserveBootstrapState(
     context.request.plan.state.directory,
     `coordinator-transfer-${execution.generation}.json`,
   );
-  const handle = await open(
-    file,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-    0o600,
-  );
-  try {
-    await handle.writeFile(JSON.stringify(receipt));
-    await handle.sync();
-  } finally {
-    await handle.close();
+  const existing = await readStateFile(file);
+  if (existing !== null) {
+    if (!earlyRecovery)
+      throw new BootstrapRequestConflict("Coordinator preservation receipt already exists");
+    // A completed receipt can survive an uncertain directory sync. Never
+    // overwrite a different or partial receipt to make recovery appear settled.
+    await verifyBootstrapState(context);
+  } else {
+    // Execution ownership excludes competing preservation. Atomic rename avoids
+    // exposing a truncated receipt if the executor dies during its creation.
+    const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${randomUUID()}`);
+    const descriptor = openSync(
+      temporary,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      writeFileSync(descriptor, JSON.stringify(receipt));
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+    try {
+      renameSync(temporary, file);
+    } catch (error) {
+      unlinkSync(temporary);
+      throw error;
+    }
   }
   const directory = await open(
     context.request.plan.state.directory,
@@ -173,4 +203,32 @@ export async function verifyBootstrapState(context: StateContext): Promise<void>
     receipt.ownerSessions !== state.sessionDigest
   )
     throw new BootstrapRequestConflict("Coordinator state no longer matches the preserved handoff");
+}
+
+/** After release, normal coordinator writes change journal/session bytes. Observe
+ * their validity and retained transfer provenance without imposing a frozen-state
+ * invariant on a running writer. Dispatch still uses verifyBootstrapState. */
+export async function verifyCompletedBootstrapState(context: StateContext): Promise<void> {
+  const execution = context.request.execution;
+  if (execution?.stage !== "succeeded")
+    throw new BootstrapRequestConflict("Completed state observation requires succeeded execution");
+  const state = await readState(context);
+  parseLifecycleJournal(state.restartJournal);
+  const bytes = await readStateFile(
+    path.join(
+      context.request.plan.state.directory,
+      `coordinator-transfer-${execution.generation}.json`,
+    ),
+  );
+  if (bytes === null)
+    throw new BootstrapRequestConflict("Coordinator state preservation receipt is missing");
+  const receipt = TransferSchema.parse(JSON.parse(bytes.toString("utf8")));
+  if (
+    receipt.requestId !== context.request.id ||
+    receipt.generation !== execution.generation ||
+    receipt.planSha256 !== context.request.planSha256 ||
+    (receipt.restartJournal !== null && state.journalDigest === null) ||
+    (receipt.ownerSessions !== null && state.sessionDigest === null)
+  )
+    throw new BootstrapRequestConflict("Completed coordinator lost its retained state provenance");
 }

@@ -12,6 +12,7 @@ const { values, positionals } = parseArgs({
     config: { type: "string" },
     target: { type: "string" },
     update: { type: "boolean" },
+    "require-owner-approval": { type: "boolean" },
     "supervisor-plan": { type: "string" },
     "factory-runtime-plan": { type: "string" },
     "factory-runtime-recovery-of": { type: "string" },
@@ -36,6 +37,26 @@ const base = new URL(config.origin);
 const local = base.hostname === "127.0.0.1" || base.hostname === "localhost";
 if (base.protocol !== "https:" && !(base.protocol === "http:" && local))
   throw new Error("TLS is required");
+if (values["require-owner-approval"]) {
+  if (
+    config.kind !== "host-agent" ||
+    !["request-restart", "request-coordinator"].includes(positionals[0]) ||
+    values["factory-runtime-plan"] ||
+    (positionals[0] === "request-restart" && !["host", "container-daemon"].includes(values.target))
+  )
+    throw new Error(
+      "--require-owner-approval requires a trusted Host restart, source update, supervisor or coordinator request",
+    );
+  const response = await fetch(new URL("/api/installation/capabilities", base), {
+    headers: { Authorization: `Bearer ${config.token}` },
+    redirect: "error",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok || (await response.json()).requireOwnerApproval !== true)
+    throw new Error(
+      "Coordinator does not advertise explicit owner approval. No request or upload submitted.",
+    );
+}
 if (values["factory-runtime-plan"]) {
   if (
     config.kind !== "host-agent" ||
@@ -78,6 +99,27 @@ switch (positionals[0]) {
   case "capabilities":
     resource = "/api/installation/capabilities";
     break;
+  case "monitor-inspect":
+    if (config.kind !== "host-agent")
+      throw new Error("Monitor inspection requires trusted Host client");
+    resource = "/api/installation/monitor-selection";
+    break;
+  case "request-monitor": {
+    if (config.kind !== "host-agent")
+      throw new Error("Preview monitor maintenance requires the trusted Host client");
+    if (!values["request-file"])
+      throw new Error("Use --request-file with the exact prepared monitor plan and request ID");
+    const capabilityResponse = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!capabilityResponse.ok || !(await capabilityResponse.json()).previewMonitor?.available)
+      throw new Error("Preview monitor maintenance is unavailable. No installation requested.");
+    resource = "/api/installation/monitor-requests";
+    body = JSON.parse(readFileSync(values["request-file"], "utf8"));
+    break;
+  }
   case "request-helper": {
     if (config.kind !== "host-agent")
       throw new Error("Native helper maintenance requires the trusted Host client");
@@ -94,11 +136,89 @@ switch (positionals[0]) {
     body = JSON.parse(readFileSync(values["request-file"], "utf8"));
     break;
   }
+  case "monitor-status":
+    if (config.kind !== "host-agent")
+      throw new Error("Preview monitor inspection requires the trusted Host client");
+    if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
+    resource = `/api/installation/monitor-requests/${positionals[1]}`;
+    break;
   case "helper-status":
     if (config.kind !== "host-agent")
       throw new Error("Native helper inspection requires the trusted Host client");
     if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
     resource = `/api/installation/helper-requests/${positionals[1]}`;
+    break;
+  case "request-coordinator": {
+    if (!values["request-file"])
+      throw new Error(
+        "Use --request-file with the exact coordinator preparation and retained request ID",
+      );
+    if (
+      values.target ||
+      values.update ||
+      values["supervisor-plan"] ||
+      values["factory-runtime-plan"]
+    )
+      throw new Error("Coordinator maintenance requires a separate preparation request");
+    const preparation = JSON.parse(readFileSync(values["request-file"], "utf8"));
+    if (!/^[a-f0-9-]{36}$/.test(preparation.id ?? ""))
+      throw new Error("The coordinator preparation must contain a retained request ID");
+    const capabilityResponse = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!capabilityResponse.ok)
+      throw new Error("Coordinator capability is unavailable. No preparation submitted.");
+    const capability = (await capabilityResponse.json()).coordinatorMaintenance;
+    if (!capability?.available)
+      throw new Error(
+        "Coordinator preparation is unavailable. Inspect retained requests; no preparation submitted.",
+      );
+    if (
+      capability.ownerApprovalRequired === false &&
+      !capability.automaticAvailable &&
+      !values["require-owner-approval"]
+    )
+      throw new Error(
+        "Automatic coordinator preparation is unavailable. Update the Host or request explicit owner review; no preparation submitted.",
+      );
+    resource = "/api/installation/coordinator-requests";
+    body = {
+      preparation,
+      ...(values["require-owner-approval"] ? { requireOwnerApproval: true } : {}),
+    };
+    process.stderr.write(`Coordinator request: ${preparation.id}\n`);
+    break;
+  }
+  case "coordinator-status":
+    if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
+    resource = `/api/installation/coordinator-requests/${positionals[1]}`;
+    break;
+  case "request-worker-launch": {
+    if (config.kind !== "container-agent" || !values["request-file"] || !values["reason-file"])
+      throw new Error("Use the Dev requester with --request-file hints and --reason-file");
+    const response = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+    });
+    const capabilities = response.ok ? await response.json() : null;
+    if (capabilities?.workerLaunch?.available !== true)
+      throw new Error(
+        "Protected Linux worker launch capability is unavailable; no launch requested",
+      );
+    resource = "/api/installation/restart-requests?workerLaunch=1";
+    body = {
+      target: "container-daemon",
+      reason: readFileSync(values["reason-file"], "utf8"),
+      workerLaunchRequest: JSON.parse(readFileSync(values["request-file"], "utf8")),
+      ...(values.requester ? { requester: values.requester } : {}),
+    };
+    break;
+  }
+  case "worker-launch-status":
+    if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
+    resource = `/api/installation/restart-requests/${positionals[1]}?workerLaunch=1`;
     break;
   case "request-restart":
     if (!values["reason-file"])
@@ -106,6 +226,7 @@ switch (positionals[0]) {
     resource = "/api/installation/restart-requests";
     body = {
       target: values.target,
+      ...(values["require-owner-approval"] ? { requireOwnerApproval: true } : {}),
       ...(values["supervisor-plan"] ? { supervisorPlanSha256: values["supervisor-plan"] } : {}),
       ...(values["factory-runtime-plan"]
         ? { factoryRuntimePlanSha256: values["factory-runtime-plan"] }
@@ -136,7 +257,7 @@ switch (positionals[0]) {
     break;
   default:
     throw new Error(
-      "Commands: capabilities, request-restart, restart-status, contribution-status, request-helper, helper-status, container-agents (Host only)",
+      "Commands: capabilities, request-worker-launch, worker-launch-status, request-restart, restart-status, contribution-status, request-coordinator, coordinator-status, request-helper, helper-status, container-agents (Host only)",
     );
 }
 let upload;
@@ -233,7 +354,10 @@ if (values.update) {
 let requestBody;
 if (upload) requestBody = upload;
 else if (body) requestBody = JSON.stringify(body);
-const response = await fetch(new URL(resource, base), {
+const requestUrl = new URL(resource, base);
+if (["request-restart", "restart-status", "contribution-status"].includes(positionals[0]))
+  requestUrl.searchParams.set("requireOwnerApproval", "1");
+const response = await fetch(requestUrl, {
   method: body ? "POST" : "GET",
   headers: {
     Authorization: `Bearer ${config.token}`,
@@ -242,7 +366,7 @@ const response = await fetch(new URL(resource, base), {
   },
   body: requestBody,
   redirect: "error",
-  signal: AbortSignal.timeout(60_000),
+  signal: AbortSignal.timeout(positionals[0] === "request-coordinator" ? 16 * 60_000 : 60_000),
 });
 if (!response.ok) {
   const failure = await response.json().catch(() => null);
@@ -251,6 +375,8 @@ if (!response.ok) {
 }
 const result = await response.json();
 if (
+  positionals[0] === "request-monitor" ||
+  positionals[0] === "monitor-status" ||
   positionals[0] === "request-helper" ||
   positionals[0] === "helper-status" ||
   positionals[0] === "request-restart" ||
@@ -261,6 +387,15 @@ if (
   const approval = new URL("/settings/general", new URL(publicOrigin).origin);
   approval.searchParams.set("installation", "1");
   approval.searchParams.set("restart", result.batch?.id ?? result.id);
+  result.approvalUrl = approval.href;
+}
+if (["request-coordinator", "coordinator-status"].includes(positionals[0])) {
+  const approval = new URL(
+    "/settings/general",
+    new URL(config.publicOrigin ?? config.origin).origin,
+  );
+  approval.searchParams.set("installation", "1");
+  approval.searchParams.set("bootstrap", result.id);
   result.approvalUrl = approval.href;
 }
 process.stdout.write(JSON.stringify(result, null, 2) + "\n");

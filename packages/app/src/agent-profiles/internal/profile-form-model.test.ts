@@ -54,6 +54,225 @@ const DISABLED: ProviderSnapshotEntry = {
 
 const ENTRIES = [CLAUDE, CODEX, DISABLED];
 
+it("defaults a new shared profile to a model supported in every included environment", () => {
+  const host: ProviderSnapshotEntry = {
+    ...CLAUDE,
+    models: [
+      { provider: "claude", id: "claude-opus-5-5", label: "Opus 5.5", isDefault: true },
+      ...CLAUDE.models!.map((model) => Object.assign({}, model, { isDefault: false })),
+    ],
+  };
+  const model = openAgentProfileForm({
+    mode: "create",
+    seed: { provider: "claude", name: "Shared Claude" },
+  });
+  model.applySharedProviderCatalog({
+    entries: [host],
+    environments: [
+      { kind: "host", entries: [host] },
+      { kind: "container", entries: [CLAUDE] },
+    ],
+  });
+  expect(model.getState().modelId).toBe("claude-opus-5");
+  expect(model.getState().compatibilityWarnings).toEqual([]);
+  expect(model.getState().submitValue?.excludedEnvironments).toEqual([]);
+  model.applySharedProviderCatalog({
+    entries: [host],
+    environments: [
+      { kind: "host", entries: [host] },
+      { kind: "container", entries: [host] },
+    ],
+  });
+  expect(model.getState().modelId).toBe("claude-opus-5");
+  model.applySharedProviderCatalog({
+    entries: [host],
+    environments: [
+      { kind: "host", entries: [host] },
+      { kind: "container", entries: [CLAUDE] },
+    ],
+  });
+  model.setModel("claude-opus-5-5", { label: "Opus 5.5" });
+  expect(model.getState().modelId).toBe("claude-opus-5-5");
+  expect(model.getState().compatibilityWarnings).toEqual([
+    "Dev container does not support this model.",
+  ]);
+});
+
+it("waits for verified shared capabilities and preserves an explicit choice through catalog updates", () => {
+  const model = openAgentProfileForm({
+    mode: "create",
+    sharedCatalog: true,
+    seed: { provider: "claude", name: "Shared Claude" },
+  });
+  expect(model.getState().canSubmit).toBe(false);
+  model.applySharedProviderCatalog({
+    entries: [CLAUDE],
+    environments: [
+      { kind: "host", entries: [CLAUDE] },
+      { kind: "container", entries: undefined },
+    ],
+  });
+  expect(model.getState().modelId).toBe("");
+  expect(model.getState().canSubmit).toBe(false);
+  expect(model.getState().compatibilityWarnings).toEqual([
+    "Dev container model compatibility is unknown.",
+  ]);
+  model.setModel("claude-haiku-4-5", { label: "Haiku 4.5" });
+  expect(model.getState().canSubmit).toBe(true);
+  model.applySharedProviderCatalog({
+    entries: [CLAUDE],
+    environments: [
+      { kind: "host", entries: [CLAUDE] },
+      { kind: "container", entries: [CLAUDE] },
+    ],
+  });
+  expect(model.getState().modelId).toBe("claude-haiku-4-5");
+  expect(model.getState().compatibilityWarnings).toEqual([]);
+});
+
+it("compares the resolved provider-family catalog when local account IDs differ", () => {
+  const host = { ...CLAUDE, provider: "host-claude" };
+  const dev = { ...CLAUDE, provider: "dev-claude" };
+  const model = openAgentProfileForm({
+    mode: "create",
+    sharedCatalog: true,
+    seed: { provider: "host-claude", name: "Shared Claude" },
+  });
+  model.applySharedProviderCatalog({
+    entries: [host],
+    environments: [
+      { kind: "host", provider: "host-claude", entries: [host] },
+      { kind: "container", provider: "dev-claude", entries: [dev] },
+    ],
+  });
+  expect(model.getState().modelId).toBe("claude-opus-5");
+  expect(model.getState().compatibilityWarnings).toEqual([]);
+  expect(model.getState().submitValue?.excludedEnvironments).toEqual([]);
+});
+
+it("accepts a common default through another environment's advertised alias", () => {
+  const host: ProviderSnapshotEntry = {
+    ...CLAUDE,
+    models: [{ provider: "claude", id: "opus", label: "Opus", isDefault: true }],
+  };
+  const dev: ProviderSnapshotEntry = {
+    ...CLAUDE,
+    models: [{ provider: "claude", id: "opus-versioned", label: "Opus", aliases: ["opus"] }],
+  };
+  const model = openAgentProfileForm({
+    mode: "create",
+    sharedCatalog: true,
+    seed: { provider: "claude", name: "Shared" },
+  });
+  model.applySharedProviderCatalog({
+    entries: [host],
+    environments: [
+      { kind: "host", entries: [host] },
+      { kind: "container", entries: [dev] },
+    ],
+  });
+  expect(model.getState().submitValue?.model).toBe("opus");
+  expect(model.getState().compatibilityWarnings).toEqual([]);
+});
+
+it("preserves a saved reference valid through advertised aliases in both environments", () => {
+  const host: ProviderSnapshotEntry = {
+    ...CLAUDE,
+    models: [{ provider: "claude", id: "host-opus", label: "Opus", aliases: ["opus"] }],
+  };
+  const dev: ProviderSnapshotEntry = {
+    ...CLAUDE,
+    models: [{ provider: "claude", id: "dev-opus", label: "Opus", aliases: ["opus"] }],
+  };
+  const model = openAgentProfileForm({
+    mode: "edit",
+    sharedCatalog: true,
+    profile: {
+      id: "saved-alias",
+      provider: "claude",
+      name: "Saved",
+      model: "opus",
+    },
+  });
+  model.applySharedProviderCatalog({
+    entries: [host],
+    environments: [
+      { kind: "host", entries: [host] },
+      { kind: "container", entries: [dev] },
+    ],
+  });
+  expect(model.getState().submitValue?.model).toBe("opus");
+  expect(model.getState().compatibilityWarnings).toEqual([]);
+  const unavailable: ProviderSnapshotEntry = {
+    ...dev,
+    models: [
+      { provider: "claude", id: "dev-opus", label: "Opus", aliases: ["opus"], isSelectable: false },
+    ],
+  };
+  model.applySharedProviderCatalog({
+    entries: [host],
+    environments: [
+      { kind: "host", entries: [host] },
+      { kind: "container", entries: [unavailable] },
+    ],
+  });
+  expect(model.getState().submitValue?.model).toBe("opus");
+  expect(model.getState().compatibilityWarnings).toEqual([
+    "Dev container does not support this model.",
+  ]);
+});
+
+it("retains saved unsupported models and checks only explicitly included environments", () => {
+  const model = openAgentProfileForm({
+    mode: "edit",
+    sharedCatalog: true,
+    profile: {
+      id: "saved",
+      provider: "claude",
+      name: "Saved",
+      model: "retired-model",
+    },
+  });
+  model.applySharedProviderCatalog({
+    entries: [CLAUDE],
+    environments: [
+      { kind: "host", entries: [CLAUDE] },
+      { kind: "container", entries: undefined },
+    ],
+  });
+  expect(model.getState().compatibilityWarnings).toEqual([
+    "Host does not support this model.",
+    "Dev container model compatibility is unknown.",
+  ]);
+  expect(model.getState().submitValue?.model).toBe("retired-model");
+  model.setExcludedEnvironments(["container"]);
+  expect(model.getState().compatibilityWarnings).toEqual(["Host does not support this model."]);
+  expect(model.getState().submitValue?.model).toBe("retired-model");
+});
+
+it("does not fall back to a local default when included environments have no common model", () => {
+  const model = openAgentProfileForm({
+    mode: "create",
+    sharedCatalog: true,
+    seed: { provider: "claude", name: "Shared" },
+  });
+  model.applySharedProviderCatalog({
+    entries: [CLAUDE],
+    environments: [
+      { kind: "host", entries: [CLAUDE] },
+      { kind: "container", entries: [{ ...CLAUDE, models: [] }] },
+    ],
+  });
+  expect(model.getState().modelId).toBe("");
+  expect(model.getState().canSubmit).toBe(false);
+  expect(model.getState().compatibilityWarnings).toEqual([
+    "No common model is available. Choose a model explicitly.",
+  ]);
+  model.setExcludedEnvironments(["container"]);
+  expect(model.getState().modelId).toBe("claude-opus-5");
+  expect(model.getState().canSubmit).toBe(true);
+});
+
 it("keeps profile availability independent of the environment catalog and allows clearing exclusions", () => {
   const model = openAgentProfileForm({
     mode: "edit",
@@ -227,6 +446,7 @@ describe("openAgentProfileForm", () => {
       instructions: "",
       workerProfileId: "",
       maxWorkers: 2,
+      uncappedWorkers: false,
       name: "Cheap grunt",
       nickname: "",
       provider: "codex",
@@ -584,4 +804,23 @@ it("requires a worker profile after switching accounts and preserves an explicit
   model.setWorkerAccount("");
   expect(model.getState().canSubmit).toBe(true);
   expect(model.getState().submitValue?.workerProfileId).toBe("");
+});
+
+it("round-trips explicit uncapped policy and allows selecting a finite limit again", () => {
+  const model = openAgentProfileForm({
+    mode: "edit",
+    profile: {
+      id: "team",
+      name: "Team",
+      provider: "claude",
+      model: "claude-opus-5",
+      uncappedWorkers: true,
+    },
+  });
+  model.applyProviderCatalog(ENTRIES);
+  expect(model.getState().maxWorkers).toBe("uncapped");
+  expect(model.getState().submitValue?.uncappedWorkers).toBe(true);
+  model.setMaxWorkers(3);
+  expect(model.getState().submitValue?.maxWorkers).toBe(3);
+  expect(model.getState().submitValue?.uncappedWorkers).toBe(false);
 });

@@ -91,3 +91,20 @@ test("blocked can be selected and cleared without requiring dependencies", async
   await clearCompletedTasks([original], mutate);
   expect(mutate).not.toHaveBeenCalled();
 });
+
+test("preserves Review in the editor without marking the task complete", () => {
+  const task = {
+    id: "approval",
+    text: "Approve",
+    completed: false,
+    status: "review" as const,
+    source: "vorteo" as const,
+  };
+  const form = openChecklistForm(task);
+  expect(form.status).toBe("review");
+  expect(checklistFormMutation(form)).toMatchObject({
+    operation: "update",
+    status: "review",
+    expectedTask: task,
+  });
+});

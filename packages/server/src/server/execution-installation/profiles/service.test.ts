@@ -28,6 +28,7 @@ import { validateProviderPreferences } from "../../agent/provider-preferences/va
 class Environment implements ProfileEnvironment {
   offline = false;
   workerAccounts = false;
+  uncappedManagedWorkers = false;
   reads = 0;
   loseReply = false;
   config;
@@ -1264,4 +1265,83 @@ test("an explicit worker account cannot fall back to another account when unavai
       host.config,
     ),
   ).toThrow("worker account is unavailable");
+});
+
+test("requires every environment to support uncapped profiles before canonical save", async () => {
+  const { host, container, service } = fixture();
+  host.uncappedManagedWorkers = true;
+  await service.synchronize();
+  const snapshot = service.snapshot()!;
+  const providers = structuredClone(snapshot.providers);
+  providers.codex.workflows[0].uncappedWorkers = true;
+  await expect(service.patch({ expectedRevision: snapshot.revision, providers })).rejects.toThrow(
+    "uncapped",
+  );
+  expect(service.snapshot()!.providers).toEqual(snapshot.providers);
+  container.uncappedManagedWorkers = true;
+  const saved = await service.patch({ expectedRevision: snapshot.revision, providers });
+  expect(saved.uncappedManagedWorkers).toBe(true);
+  await service.synchronize();
+  expect(host.config.sharedProviderPreferences?.providers.codex.workflows[0].uncappedWorkers).toBe(
+    true,
+  );
+  expect(
+    container.config.sharedProviderPreferences?.providers.codex.workflows[0].uncappedWorkers,
+  ).toBe(true);
+});
+
+test("old editors cannot erase uncapped policy by omitting the new field", async () => {
+  const { host, container, service } = fixture();
+  host.uncappedManagedWorkers = true;
+  container.uncappedManagedWorkers = true;
+  await service.synchronize();
+  let snapshot = service.snapshot()!;
+  let providers = structuredClone(snapshot.providers);
+  providers.codex.workflows[0].uncappedWorkers = true;
+  await service.patch({ expectedRevision: snapshot.revision, providers });
+  snapshot = service.snapshot()!;
+  providers = structuredClone(snapshot.providers);
+  delete providers.codex.workflows[0].uncappedWorkers;
+  providers.codex.workflows[0].name = "Renamed by old editor";
+  let saved = await service.patch({ expectedRevision: snapshot.revision, providers });
+  expect(saved.providers.codex.workflows[0].uncappedWorkers).toBe(true);
+  providers = structuredClone(saved.providers);
+  providers.codex.workflows[0].uncappedWorkers = false;
+  saved = await service.patch({ expectedRevision: saved.revision, providers });
+  expect(saved.providers.codex.workflows[0].uncappedWorkers).toBe(false);
+});
+
+test("defaults reset survives save and synchronization while existing teams retain their limits", async () => {
+  const { replaceProviderDefaults } =
+    await import("../../../../../app/src/agent-profiles/settings/shared-profile-edits.js");
+  const { host, container, service } = fixture();
+  host.uncappedManagedWorkers = true;
+  container.uncappedManagedWorkers = true;
+  await service.synchronize();
+  let snapshot = service.snapshot()!;
+  let providers = structuredClone(snapshot.providers);
+  providers.codex.defaults.uncappedWorkers = true;
+  providers.codex.workflows[0].uncappedWorkers = false;
+  providers.codex.workflows[0].maxWorkers = 4;
+  await service.patch({ expectedRevision: snapshot.revision, providers });
+  snapshot = service.snapshot()!;
+  providers = structuredClone(snapshot.providers);
+  providers.codex = replaceProviderDefaults(providers.codex, {
+    ...providers.codex.defaults,
+    model: "updated",
+  });
+  const expected = structuredClone(providers.codex);
+  await service.patch({ expectedRevision: snapshot.revision, providers });
+  await service.synchronize();
+  expect(service.snapshot()!.providers.codex).toEqual(expected);
+  expect(service.snapshot()!.providers.codex.defaults.uncappedWorkers).toBe(false);
+  expect(service.snapshot()!.providers.codex.defaults.maxWorkers).toBeUndefined();
+  expect(service.snapshot()!.providers.codex.workflows[0].uncappedWorkers).toBe(false);
+  expect(service.snapshot()!.providers.codex.workflows[0].maxWorkers).toBe(4);
+  expect(
+    service
+      .snapshot()!
+      .providers.codex.workflows.slice(1)
+      .every((w) => w.uncappedWorkers),
+  ).toBe(true);
 });

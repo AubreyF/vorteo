@@ -159,11 +159,8 @@ describe("composer track pill status mark", () => {
     );
 
     expect(animated).toHaveLength(1);
-    // The rotation is on the carrier; the quarter arc it turns is the coloured top border inside.
-    const arc = animated[0]?.firstElementChild as HTMLElement;
-    const arcStyle = getComputedStyle(arc);
-    expect(arcStyle.borderTopColor).toBe("rgb(38, 138, 224)");
-    expect(arcStyle.borderLeftColor).toBe("rgba(0, 0, 0, 0)");
+    // This harness stubs SVG; packaged loader checks verify the actual gradient.
+    expect(animated[0]!.getAnimations()[0]!.playState).toBe("running");
   });
 
   it("draws a still dot for every other state", () => {
@@ -188,6 +185,10 @@ describe("composer track pill status mark", () => {
         throw new Error(`${bucket} mark did not render a glyph`);
       }
 
+      for (const animation of glyph.getAnimations()) {
+        animation.pause();
+        animation.currentTime = 0;
+      }
       const style = getComputedStyle(body);
       const edge = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.borderLeftWidth);
       const inset = glyph.getBoundingClientRect().left - body.getBoundingClientRect().left;

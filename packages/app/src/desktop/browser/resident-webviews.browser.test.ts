@@ -58,8 +58,8 @@ function expectPermanentHostParking(host: HTMLElement): void {
   expect(host.style.position).toBe("fixed");
   expect(host.style.left).toBe("0px");
   expect(host.style.top).toBe("0px");
-  expect(host.style.width).toBe("100vw");
-  expect(host.style.height).toBe("100vh");
+  expect(host.style.width).toBe("calc(100vw / var(--interface-scale, 1))");
+  expect(host.style.height).toBe("calc(100vh / var(--interface-scale, 1))");
   expect(host.style.overflow).toBe("visible");
   expect(host.style.opacity).toBe("1");
   expect(host.style.pointerEvents).toBe("none");
@@ -100,6 +100,7 @@ describe("resident browser webviews", () => {
 
   afterEach(() => {
     clearResidentBrowserWebviewsForTests();
+    delete document.documentElement.dataset.interfaceZoom;
   });
 
   it("parks a browser webview in the permanent paintable 1x1 host", () => {
@@ -202,6 +203,24 @@ describe("resident browser webviews", () => {
     expect(webview.style.top).toBe("-450px");
     expect(webview.parentElement.style.width).toBe("800px");
     expect(webview.parentElement.style.height).toBe("600px");
+  });
+
+  it("positions responsive webviews in logical pixels under interface zoom", () => {
+    document.documentElement.dataset.interfaceZoom = "125";
+    const webview = ensureTestBrowser({
+      browserId: "zoomed",
+      workspaceId: "zoomed",
+      url: "https://example.com",
+    })!;
+    const anchor = document.createElement("div");
+    Object.defineProperty(anchor, "getBoundingClientRect", {
+      value: () => ({ left: 125, top: 250, width: 500, height: 375 }),
+    });
+    presentBrowserWebview("zoomed", webview, anchor, anchor, { mode: "responsive" });
+    expect(webview.parentElement!.style.left).toBe("100px");
+    expect(webview.parentElement!.style.top).toBe("200px");
+    expect(webview.style.width).toBe("400px");
+    expect(webview.style.height).toBe("300px");
   });
 
   it("creates a resident webview for an agent-created unfocused tab", () => {

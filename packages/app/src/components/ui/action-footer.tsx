@@ -1,11 +1,14 @@
-import type { PropsWithChildren } from "react";
+import React, { createContext, useContext, type PropsWithChildren } from "react";
 import { View, type ViewProps } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 
 /** Shared bottom actions for cards and dialogs. Ordinary actions stay on the right. */
+export const FixedActionFooterContext = createContext(false);
+
 export function ActionFooter({ children, style, ...props }: ViewProps) {
+  const fixed = useContext(FixedActionFooterContext);
   return (
-    <View {...props} style={[style, styles.footer]}>
+    <View {...props} style={[style, styles.footer, fixed && styles.fixed]}>
       {children}
     </View>
   );
@@ -22,6 +25,7 @@ export function ActionFooterTrailing({ children }: PropsWithChildren) {
 }
 
 const styles = StyleSheet.create((theme) => ({
+  fixed: { paddingTop: 0, flexShrink: 0 },
   footer: {
     alignSelf: "stretch",
     width: "100%",

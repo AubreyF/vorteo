@@ -5,6 +5,10 @@ import type { SessionOutboundMessage } from "@getpaseo/protocol/messages";
 
 type WorkspaceLabelUpdate = Extract<SessionOutboundMessage, { type: "workspace.label.update" }>;
 
+function labelAppearance(label: WorkspaceLabelDefinition): WorkspaceLabelDefinition {
+  return label.explicitColor === true ? label : { ...label, color: "neutral" };
+}
+
 export class HostWorkspaceLabelReplica {
   private labels = new Map<string, WorkspaceLabelDefinition>();
   private cursor: { generation: string; afterSeq: number } | undefined;
@@ -23,7 +27,8 @@ export class HostWorkspaceLabelReplica {
     if (payload.sync.mode === "snapshot") this.labels.clear();
     for (const removal of payload.sync.removals)
       this.labels.delete(workspaceLabelKey(removal.name));
-    for (const label of payload.labels) this.labels.set(workspaceLabelKey(label.name), label);
+    for (const label of payload.labels)
+      this.labels.set(workspaceLabelKey(label.name), labelAppearance(label));
     this.cursor = { generation: payload.sync.generation, afterSeq: payload.sync.headSeq };
   }
 
@@ -40,7 +45,7 @@ export class HostWorkspaceLabelReplica {
       this.labels.delete(workspaceLabelKey(update.name));
     } else {
       if (update.previousName) this.labels.delete(workspaceLabelKey(update.previousName));
-      this.labels.set(workspaceLabelKey(update.label.name), update.label);
+      this.labels.set(workspaceLabelKey(update.label.name), labelAppearance(update.label));
     }
     this.cursor = { generation: update.generation, afterSeq: update.seq };
     return true;

@@ -1,20 +1,103 @@
 # Design
 
+Vorteo has no focus mode. Sidebar visibility and split-pane maximize controls remain explicit; the former focus-mode shortcut and palette command are removed. Upgrades discard its saved state without resetting other panel preferences.
+
 Tokens — every color, font size, weight, spacing step, radius, icon size — live in `packages/app/src/styles/theme.ts`.
 
 ---
 
 ## 1. Character
 
-Vorteo is minimal, spacious, quiet, confident. Whitespace is deliberate. Nothing crowds, nothing decorates, nothing apologizes. A row, a label, a control. That is the bar.
+Vorteo uses the six Vorton appearances: Starship, Dark Star, Scriptorium, Midas,
+Ember and Neon. Dark Star is the default. All six use Dark Star typography: Barlow for interface and body text,
+Barlow Condensed for headings, and the shared monospace stack for code.
+Theme identity includes surfaces and shell textures. The appearance catalog records reference provenance;
+semantic adapters in `packages/app/src/styles/theme.ts` keep working text,
+status signals and terminal output readable.
 
-The app is calm so the user's work is not. Every visual decision serves either _act on this_ or _understand this_ — never _look at this_.
+Native builds embed the licensed Barlow, Barlow Condensed, Manrope and Space
+Grotesk faces through Expo's font plugin. See the [native font assets](../packages/app/assets/appearance-fonts/README.md)
+for provenance, weight registration and native rebuild requirements. Keep
+authored fallback order when selecting platform fonts.
+
+Theme swatches are graphics, not button text. Keep their surfaces outside the
+shared Button text wrapper so native layout preserves the compact pill dimensions.
+Web uses the catalog's CSS gradients; native uses the matching SVG artwork.
+
+Use Freed's floating panel treatment for navigation and its theme preview and
+tooltip presentation. Keep decorative texture outside dense reading surfaces.
+Honor explicit font overrides and reduced-motion preferences. Code stays
+monospace across themes.
+
+When Freed and Vorton differ in an interaction pattern, follow Freed. Vorton
+supplies the appearance catalog; Vorteo shares Dark Star typography across it. The left sidebar and individual
+right-hand cards share the floating panel surface. Files and Changes belong in
+designated cards with the other right-hand cards. The right group has no outer
+frame; its toolbar stands on the canvas, with the first card aligned to the
+bottom of the left toolbar. The canvas behind every floating panel uses the same flat
+`surface0` color. In Starship light, floating cards and navigation use the lighter
+`surface2` tone through their shared `surfaceSidebar` token. Journal marker frames
+are transparent; timeline segments stop at their edges instead of relying on a
+background mask. The desktop left collapse control and keyboard shortcut retain
+a minimal project rail, including after reload. Put the right collapse control
+at the far right of the shared upper toolbar in either state. Desktop workspace tabs are the only central header, directly above the conversation scroller and its boundary fades. Tabs are 44px tall, grow to 420px for long labels and shrink toward 120px as more tabs open. The foreground tab shares the Latest button’s fully rounded floating surface, border and soft shadow; other tabs use muted text without a persistent fill. Settings and question tab strips retain `styles/tab-shape.ts`.
+The sidebar overflow menu contains the compact Freed theme swatches. The overflow trigger
+sits after Settings at the right end of the left toolbar. All three desktop
+columns use the same 48px top toolbar, aligned to the floating panel inset.
+In Electron, reserve window-control clearance once above all three columns.
+The minimal project rail stays 64px wide because window controls sit above it.
+The upper toolbar spans the central content and right-hand card regions. Its vertical workspace/split menu stays at the left, followed by action controls, with the explorer toggle at the far right. Environment context leads the second line of each tab tooltip, before agent ID and activity. It borrows space from the central tab row when the card column is narrow; tabs reserve that space rather than overlapping. At very small desktop widths, middle controls can scroll horizontally while the edge menu and toggle remain accessible. Collapsing the cards hides their normal actions but keeps the menu and toggle in this shared region.
+
+The isolated demo uses the real file editor against a simulated file store.
+Sample-file saves carry revisions, reject stale writes and notify subscribed
+editors, Changes views and workspace totals. Web edits persist across reloads
+in tab-local session storage; Reset restores the fixtures and preserves unrelated
+browser data. Storage failures reject the save without changing the current file.
+Simulated checklist edits use the shared checklist model, including dependency and
+stale-editor checks, and update subscribed task cards and sidebar progress. Checklist
+edits also persist in tab-local storage and Reset restores the sample catalog.
+The server retains its native ID generation and equality adapter.
+
+The demo composer accepts text and returns explicitly labeled scripted replies
+about current tasks, changed files or appearance controls. Messages stay in
+tab-local storage across reloads, retries do not duplicate them, and Reset clears
+them. Attachments and real execution remain unavailable. Replies never claim
+that a model or command ran.
+
+As the viewport narrows, hide the supporting cards before reducing left navigation to its 64px project rail. Below the compact breakpoint, hide navigation behind its menu. Restore the left sidebar before the right when space returns. Treat responsive changes as presentation constraints, preserving saved widths and manual collapse choices. Explicit opens override the constraint until the next width change.
+
+Supporting card disclosure preferences live in the device-local panel store and apply across every workspace, with separate maps for the right-hand stack and inline cards in the primary content view. Select by actual card placement before rendering; resizing restores that layout's choices without copying over the other map. Existing saved choices seed both maps once on upgrade. Keep Goal, Tasks, Journal, managed subagents, provider subagents, Files and Changes independent. The message queue always stays at the bottom of the primary conversation, outside the details sidebar, and uses its inline disclosure preference. Workspace selection must not reopen a folded card; explicit navigation or review commands may reveal it. Preserve height-only animation and reduced-motion behavior.
+
+Both sidebar resizers use `SidebarResizeHandle` and the same pointer lifecycle.
+Match Freed's centered 2px neutral gap indicator, transparent at rest, with
+matching hover and drag opacity. Touch targets stay within panel bounds so
+native hit testing can reach them. Keep the document, app root and theme-color
+metadata synchronized with the central canvas. Safari owns its final toolbar
+tint; inspect it in Safari during owner acceptance.
+
+Coordinator recovery and repair setup use the existing status rows at the bottom of
+the left sidebar, with accessible review buttons in the collapsed rail and compact
+sidebar. They never float over the conversation composer.
+
+Installation approvals, coordinator maintenance and Host/Dev updates use one
+persistent floating toast stack in the lower right, outside both sidebars. Keep
+the stack available across navigation and sidebar states, respect mobile safe
+areas, and bound its height with scrolling. Pending requests and running updates
+do not expire automatically. Review opens the exact tracked request in
+Installation controls; relocating a notice never changes approval or
+cancellation rules. Omit all operational notices on the welcome screen and its
+connection sheets at every viewport size. Restore them after entering the application.
+On compact workspace screens, place notices above the measured active composer
+and keyboard. Release that clearance when the composer becomes inactive or
+unmounts; retained background tabs must not move the notice stack.
 
 Consistency comes from component reuse, not from hand-matching styles across surfaces. A row in the projects list, a row in settings, and a row in a modal are the same component, not three implementations that happen to look alike. When two surfaces do the same semantic thing in two different ways, one of them is wrong.
 
 ---
 
 ## 2. Component reuse
+
+Loading indicators use `LoadingSpinner` with shared `LOADING_INDICATOR` geometry. Large page loaders use a 48px diameter and 1.5px stroke. Small loaders keep their 20px footprint with a 1px stroke; explicitly smaller icons scale the stroke down. Keep status-ring frames stable when thinning their outlines.
 
 A semantic element used in three or more places is a primitive. One of a kind is a screen.
 
@@ -128,9 +211,9 @@ A section or group explains itself through the `info` prop on `<SettingsSection>
 
 Cards inside a section sit closer than sections. Rows inside a card touch — only the divider separates them. The rhythm is page → spacious; section → spacious; card → tight.
 
-Rows have generous vertical padding: roughly 16px of content plus 16px of vertical padding for settings rows, 8–12px for sidebar list items where many rows must fit. Compressing rows below the established density to fit more on the screen is wrong. Too many rows means more cards or more sections, not smaller rows.
+Settings rows retain their established content padding. Sidebar rows use the shared density with a 32px desktop or 44px touch minimum. Details rows preserve fixed 44px actions without additional vertical padding around those actions.
 
-Conversation cards use `taskCardStyles` for their shared frame and header geometry. Cards with header rows use a 4px outer top inset because the header already provides some vertical clearance; cards that begin directly with content retain their content inset. Headers match the 40px row height; touch headers use 52px to match a 44px action plus row padding. Accordion headings use `accordionTrigger` and `touchAccordionTrigger`, including future goal or question accordions. Their hover fill matches the adjacent action button at 32px on desktop and 44px on touch, centered within the header row. Hover changes the fill without changing the header height.
+Conversation cards use `taskCardStyles` for their shared frame and header geometry. Heading clearance is equal on all edges, using the shared 2px, 3px and 4px width tiers. Headers and row controls are 44px on desktop and touch, without extra row padding. Accordion headings use `accordionTrigger` and `touchAccordionTrigger`, including future goal or question accordions. Their hover fill matches the adjacent action button at 44px on every input mode, centered within the header row. Hover changes the fill without changing the header height.
 
 The whitespace is the design.
 
@@ -321,10 +404,12 @@ Conversation cards stop growing at half the viewport height, including their hea
 
 ### Shared heading geometry
 
-`TaskCard` owns a 12px inset on all four sides. `TaskCardHeader` owns a single centered row, 32px high on desktop and 44px on touch. A 20px icon footprint precedes the title by 8px. `CardDisclosure` keeps the title, arrow and optional count on one line; `TaskCardTitle` gives noncollapsible headings the same typography. Right-side buttons share that centerline. Clear finished therefore has equal top and right clearance. Do not add per-card inset, heading-height or action-margin overrides.
+`TaskCard` owns 12px base horizontal body insets and fixed 2px vertical body insets. Shared panel spacing adds horizontal body clearance and equal heading clearance on every edge: 2px below 340px of panel width, 3px from 340px to below 400px, and 4px at 400px or wider, including cards in the central column. Adjacent cards use a 4px gap on desktop and compact layouts. Transitions animate for 180ms and settle exactly at the target tier; initial measurement and reduced-motion mode settle immediately. Send transient padding through the inline style lane rather than generating a CSS rule for every animation frame. List cards use the shared flush-body option so their row actions align with header controls; prose bodies retain their horizontal inset. `TaskCardHeader` owns a single centered row, 44px high on desktop and touch. A 20px icon footprint precedes the title by 8px. `CardDisclosure` keeps the title and arrow on one line, with the optional count or elapsed-time chip aligned to the right inside the same hover target; `TaskCardTitle` gives noncollapsible headings the same typography. Disclosure and action buttons use ghost hover states and the same radius as the card. All four disclosure and action corners retain the fixed 16px card radius, whether expanded or collapsed, including corners adjoining header divider lines. Edge buttons gain the same shared outer inset as body rows on spacious cards. A divider lighter than the outer border appears below the header only while the body is scrolled away from the top. Use an overlay or a transparent reserved border so this never changes layout. Right-side buttons share the heading centerline. Do not add per-card inset, heading-height or action-margin overrides.
 
-Long question prompts and navigation belong in the body beneath the fixed Questions heading. Plan disclosures follow the same title, arrow order. Sub-agent rows have no dividers. Browser geometry checks compare icon and title columns, heading and action centers, disclosure order, equal button clearance, overflow and collapsed behavior at desktop and compact widths. Keep those checks and screenshot review part of any card change.
+Question cards are content-sized at every viewport width. Use `scrollBody={false}` so prompts, navigation, answers and submission controls scroll together with the conversation instead of creating a nested scroll area. Other cards retain their bounded bodies. Plan disclosures follow the same title, arrow order. Sub-agent rows have no dividers. Browser geometry checks compare icon and title columns, heading and action centers, disclosure order, equal button clearance, overflow and collapsed behavior at desktop and compact widths. Keep those checks and screenshot review part of any card change.
 
 ### Journal cards
 
 Thread journals use the shared `TaskCard`, `TaskCardHeader`, `TaskCardIcon` and `CardDisclosure`. Show a narrow, muted timestamp column on the left and selectable entry text in the remaining width. Keep entries in server append order, oldest first, even if timestamps repeat or the clock moves backward. Do not add edit, delete, drag or clear controls. The card appears after its first entry; its fixed heading and bounded scrolling body follow the conversation card layout contract.
+
+Maintenance that is awaiting dispatch or running belongs in compact two-line status rows at the bottom of the left sidebar. Keep a spinner on the left and Review on the right. Approval and recovery notices remain floating and dismissible; dismissing a notice does not cancel its request. Queued messages stays last in the supporting card group, after Files and Changes.

@@ -1,22 +1,29 @@
 import { Box, Monitor, KeyRound } from "lucide-react-native";
 import { View } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
-import { EXECUTION_ENVIRONMENT_COLORS, ICON_SIZE } from "@/styles/theme";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { findInstallationEnvironment, readExecutionInstallation } from "./policy";
+
+const ThemedBox = withUnistyles(Box);
+const ThemedMonitor = withUnistyles(Monitor);
+const ThemedKey = withUnistyles(KeyRound);
+const neutral = (theme: Theme) => ({ color: theme.colors.foreground });
+const subdued = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 
 export function ExecutionEnvironmentIcon({
   serverId,
   hostOnly = false,
+  muted = false,
 }: {
   serverId: string | null;
   hostOnly?: boolean;
+  muted?: boolean;
 }) {
   const environment = serverId
     ? findInstallationEnvironment(readExecutionInstallation(), serverId)
     : null;
   if (!environment || (hostOnly && environment.kind !== "host")) return null;
   const size = ICON_SIZE.sm;
-  const color = EXECUTION_ENVIRONMENT_COLORS[environment.kind];
   if (environment.kind === "container")
     return (
       <View
@@ -24,7 +31,7 @@ export function ExecutionEnvironmentIcon({
         testID="execution-environment-container-icon"
         accessibilityLabel="Runs in dev container"
       >
-        <Box size={size} color={color} />
+        <ThemedBox size={size} uniProps={muted ? subdued : neutral} />
       </View>
     );
   return (
@@ -33,9 +40,9 @@ export function ExecutionEnvironmentIcon({
       testID="execution-environment-host-icon"
       accessibilityLabel="Runs on host"
     >
-      <Monitor size={size} color={color} />
+      <ThemedMonitor size={size} uniProps={muted ? subdued : neutral} />
       <View style={styles.key}>
-        <KeyRound size={size / 2} color={color} />
+        <ThemedKey size={size / 2} uniProps={muted ? subdued : neutral} />
       </View>
     </View>
   );

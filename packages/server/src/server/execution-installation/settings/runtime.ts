@@ -22,7 +22,7 @@ import type { AgentSkillSelection, MutableDaemonConfigPatch } from "@getpaseo/pr
 import { InstallationSettingsSnapshotSchema } from "@getpaseo/protocol/installation-settings";
 import { ensurePrivateDirectory, writePrivateFileAtomicSync } from "../../private-files.js";
 import type { InstallationConfig } from "../config.js";
-import { connectInstallationDaemon } from "../daemon.js";
+import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import { nativeHostInstallationInstructions } from "./instructions.js";
 import {
   InstallationSettingsService,
@@ -73,7 +73,9 @@ export function createSettingsJournal(directory: string): SettingsJournal {
 
 export function createInstallationSettings(
   config: InstallationConfig,
+  assertRegistrationReadiness?: (target: "host" | "container-daemon") => void,
 ): InstallationSettingsService {
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   const journal = createSettingsJournal(path.join(config.stateDir, "shared-settings"));
   const packages = new InstallationSkillPackages(
     path.join(config.stateDir, "shared-settings/skill-packages"),
@@ -83,8 +85,12 @@ export function createInstallationSettings(
     installationInstructions:
       environment.kind === "host" ? installationHostInstructions(config) : "",
     async read() {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
+        const assertCurrent = () =>
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
+        assertCurrent();
         if (
           client.getLastServerInfoMessage()?.features?.installationSettingsAuthority !== true ||
           client.getLastServerInfoMessage()?.features?.skillSelectionPreview !== true ||
@@ -98,8 +104,12 @@ export function createInstallationSettings(
       }
     },
     async prepareProviderAccounts(definitions: readonly InstallationProvider[]) {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
+        const assertCurrent = () =>
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
+        assertCurrent();
         for (const definition of definitions) {
           validateProviderAccountSetup(definition);
           const setup = definition.accountSetup;
@@ -110,6 +120,7 @@ export function createInstallationSettings(
           if (features?.installationSettingsAuthority !== true || features[capability] !== true)
             throw new Error("Update the daemon before creating shared account bindings.");
           const name = definition.policy.label ?? setup.provider;
+          assertCurrent();
           if (setup.provider === "codex") await client.createCodexAccount(setup.creationId, name);
           else await client.createClaudeAccount(setup.creationId, name);
         }
@@ -118,32 +129,58 @@ export function createInstallationSettings(
       }
     },
     async readSkillCatalog() {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
+        const assertCurrent = () =>
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
+        assertCurrent();
         return await collectInstallationSkills(client, packages);
       } finally {
         await client.close();
       }
     },
     async skillCatalogSettled(definitions: readonly InstallationSkill[]) {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
+        const assertCurrent = () =>
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
+        assertCurrent();
         return await installationSkillsSettled(client, definitions);
       } finally {
         await client.close();
       }
     },
     async projectSkillCatalog(definitions: readonly InstallationSkill[]) {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
-        await projectInstallationSkills(client, definitions, packages);
+        const assertCurrent = () =>
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
+        assertCurrent();
+        await projectInstallationSkills(
+          {
+            readSkillLibrary: (request) => client.readSkillLibrary(request),
+            changeSkillLibrary(request) {
+              assertCurrent();
+              return client.changeSkillLibrary(request);
+            },
+          },
+          definitions,
+          packages,
+        );
       } finally {
         await client.close();
       }
     },
     async readPlugins() {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
+        const assertCurrent = () =>
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
+        assertCurrent();
         return await client.listPlugins();
       } finally {
         await client.close();
@@ -153,24 +190,59 @@ export function createInstallationSettings(
       definitions: readonly InstallationPlugin[],
       excludedIds: readonly string[],
     ) {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
-        await projectInstallationPlugins(client, definitions, excludedIds);
+        const assertCurrent = () =>
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
+        assertCurrent();
+        await projectInstallationPlugins(
+          {
+            listPlugins: () => client.listPlugins(),
+            previewPluginUpdates: (input) => client.previewPluginUpdates(input),
+            installResolvedPluginSource(input) {
+              assertCurrent();
+              return client.installResolvedPluginSource(input);
+            },
+            applyPluginUpdates(proposals) {
+              assertCurrent();
+              return client.applyPluginUpdates(proposals);
+            },
+            enablePlugin(id) {
+              assertCurrent();
+              return client.enablePlugin(id);
+            },
+            disablePlugin(id) {
+              assertCurrent();
+              return client.disablePlugin(id);
+            },
+          },
+          definitions,
+          excludedIds,
+        );
       } finally {
         await client.close();
       }
     },
     async previewSkills(selection: AgentSkillSelection) {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
+        const assertCurrent = () =>
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
+        assertCurrent();
         return await client.previewAgentSkillsSelection(selection);
       } finally {
         await client.close();
       }
     },
     async patch(patch: MutableDaemonConfigPatch, confirmedSkillRemovals: readonly string[] = []) {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
+        const assertCurrent = () =>
+          assertReady(environment.kind === "host" ? "host" : "container-daemon");
+        assertCurrent();
         if (patch.skills?.selection) {
           const result = await client.saveAgentSkillsSelection(
             patch.skills.selection,
@@ -179,6 +251,7 @@ export function createInstallationSettings(
           if (result.confirmationRequired || result.ops.length)
             throw new Error("Skill selection still needs review or reconciliation.");
         }
+        assertCurrent();
         return (await client.patchDaemonConfig(patch)).config;
       } finally {
         await client.close();

@@ -21,18 +21,20 @@ interface ChecklistEditorProps {
   tasks: AgentTaskItem[];
   canMutate: boolean;
   supportsBlocked: boolean;
+  supportsReview: boolean;
   pending: boolean;
   error: string | null;
   mutate: (mutation: ChecklistMutation) => Promise<unknown>;
   onClose: () => void;
 }
 
-const statuses = ["pending", "in_progress", "blocked", "completed"] as const;
+const statuses = ["pending", "in_progress", "review", "blocked", "completed"] as const;
 const statusLabels = {
   pending: "Pending",
   in_progress: "In progress",
   completed: "Completed",
   blocked: "Blocked",
+  review: "Review",
 };
 
 export function ChecklistEditor({
@@ -40,6 +42,7 @@ export function ChecklistEditor({
   tasks,
   canMutate,
   supportsBlocked,
+  supportsReview,
   pending,
   error,
   mutate,
@@ -104,8 +107,46 @@ export function ChecklistEditor({
         })),
     [tasks, task, dependencySource],
   );
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions} testID="checklist-editor-actions">
+        {task && !readOnly ? (
+          <ActionFooterLeading>
+            <Button size={size} variant="destructive" disabled={disabled} onPress={remove}>
+              Delete task
+            </Button>
+          </ActionFooterLeading>
+        ) : null}
+        <ActionFooterTrailing>
+          <Button size={size} variant="ghost" onPress={onClose}>
+            Close
+          </Button>
+          {!readOnly ? (
+            <Button
+              size={size}
+              variant="default"
+              disabled={disabled || !form.text.trim()}
+              loading={pending}
+              onPress={save}
+              testID="checklist-save"
+            >
+              Save task
+            </Button>
+          ) : null}
+        </ActionFooterTrailing>
+      </ActionFooter>
+    ),
+    [task, readOnly, size, disabled, remove, onClose, form, pending, save],
+  );
   return (
-    <AdaptiveModalSheet visible={active} onClose={onClose} header={header} desktopMaxWidth={620}>
+    <AdaptiveModalSheet
+      visible={active}
+      onClose={onClose}
+      header={header}
+      desktopMaxWidth={620}
+      testID="checklist-modal"
+      footer={modalFooter1}
+    >
       <View style={styles.body} testID="checklist-editor">
         <Field label="Task">
           <FormTextInput
@@ -154,7 +195,11 @@ export function ChecklistEditor({
           <Field label="Status">
             <View style={styles.actions}>
               {statusChoices
-                .filter(({ status }) => status !== "blocked" || supportsBlocked)
+                .filter(
+                  ({ status }) =>
+                    (status !== "blocked" || supportsBlocked) &&
+                    (status !== "review" || supportsReview),
+                )
                 .map(({ status, onPress }) => (
                   <Button
                     key={status}
@@ -191,32 +236,6 @@ export function ChecklistEditor({
             {error}
           </Text>
         ) : null}
-        <ActionFooter style={styles.actions} testID="checklist-editor-actions">
-          {task && !readOnly ? (
-            <ActionFooterLeading>
-              <Button size={size} variant="destructive" disabled={disabled} onPress={remove}>
-                Delete task
-              </Button>
-            </ActionFooterLeading>
-          ) : null}
-          <ActionFooterTrailing>
-            <Button size={size} variant="ghost" onPress={onClose}>
-              Close
-            </Button>
-            {!readOnly ? (
-              <Button
-                size={size}
-                variant="default"
-                disabled={disabled || !form.text.trim()}
-                loading={pending}
-                onPress={save}
-                testID="checklist-save"
-              >
-                Save task
-              </Button>
-            ) : null}
-          </ActionFooterTrailing>
-        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

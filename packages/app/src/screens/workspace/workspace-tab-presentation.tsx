@@ -18,7 +18,7 @@ import {
   STATUS_INDICATOR_ALERT_SIZE,
   STATUS_INDICATOR_DOT_SIZE,
 } from "@/utils/status-indicator-geometry";
-import { EXECUTION_ENVIRONMENT_COLORS, type Theme } from "@/styles/theme";
+import { type Theme } from "@/styles/theme";
 import { usePanelInstanceAttributes } from "@/panels/panel-instance-attributes";
 
 export interface WorkspaceTabPresentation {
@@ -101,7 +101,7 @@ function WorkspaceTabPresentationResolverInner({
       kind: tab.kind,
       label: showEnvironment ? `${descriptor.label} · ${environmentLabel}` : descriptor.label,
       subtitle: descriptor.subtitle,
-      tooltip: showEnvironment ? `${descriptor.tooltip} · ${environmentLabel}` : descriptor.tooltip,
+      tooltip: descriptor.tooltip,
       environmentKind: showEnvironment ? installationEnvironment?.kind : undefined,
       modified: attributes.modified,
       showCloseButton: registration.showCloseButton,
@@ -168,10 +168,8 @@ export function WorkspaceTabIcon({
   else if (bucket === "attention") statusDotColor = styles.statusDotAttention.color;
   const showNeedsInputAlert = bucket === "needs_input";
   let Icon = presentation.icon;
-  let executionColor = iconColor;
   if (presentation.environmentKind) {
     Icon = presentation.environmentKind === "host" ? Monitor : Box;
-    executionColor = EXECUTION_ENVIRONMENT_COLORS[presentation.environmentKind];
   }
   const agentIconWrapperStyle = useMemo(
     () => [styles.agentIconWrapper, { width: size, height: size }],
@@ -190,7 +188,7 @@ export function WorkspaceTabIcon({
 
   return (
     <View style={agentIconWrapperStyle}>
-      <Icon size={size} color={executionColor} strokeWidth={strokeWidth} />
+      <Icon size={size} color={iconColor} strokeWidth={strokeWidth} />
       {isRunning ? (
         <View
           style={styles.statusRing}

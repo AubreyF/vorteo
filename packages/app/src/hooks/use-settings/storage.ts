@@ -42,12 +42,18 @@ export type PullRequestOpenLocation = "main" | "side" | "explorer";
 export type SidebarWorkspaceTrailing = "diff" | "timestamp" | "none";
 export type ToolCallDetailLevel = "overview" | "detailed";
 
-const ThemePreferenceSchema = z.enum([
-  ...THEME_OPTIONS.map((option) => option.name),
-  PLUGIN_THEME_PREFERENCE,
-]);
+const ThemePreferenceSchema = z.preprocess(
+  (value) => {
+    if (value === "light") return "starship-light";
+    if (["dark", "zinc", "midnight", "claude", "ghostty", "pureBlack"].includes(String(value))) {
+      return "starship-dark";
+    }
+    return value;
+  },
+  z.enum([...THEME_OPTIONS.map((option) => option.name), PLUGIN_THEME_PREFERENCE]),
+);
 /** Where the theme picker lands when the persisted preference cannot be honoured. */
-export const DEFAULT_THEME_PREFERENCE = "claude" satisfies ThemePreference;
+export const DEFAULT_THEME_PREFERENCE = "starship-dark" satisfies ThemePreference;
 export const DEFAULT_TERMINAL_SCROLLBACK_LINES = 10_000;
 export const MIN_TERMINAL_SCROLLBACK_LINES = 0;
 export const MAX_TERMINAL_SCROLLBACK_LINES = 1_000_000;
@@ -73,7 +79,14 @@ export { DEFAULT_CONTENT_MAX_WIDTH };
 export const MIN_CONTENT_MAX_WIDTH = 600;
 export const MAX_CONTENT_MAX_WIDTH = 4000;
 
+export interface WorkspaceDefaults {
+  environment: string | null;
+  account: string | null;
+  profilesByAccount: Record<string, string>;
+}
+
 export interface AppSettings {
+  workspaceDefaults: WorkspaceDefaults;
   theme: ThemePreference;
   /** Which contributed theme `theme: "plugin"` selects. */
   pluginThemeId: string | null;
@@ -140,6 +153,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   theme: DEFAULT_THEME_PREFERENCE,
   pluginThemeId: null,
   language: "system",
+  workspaceDefaults: { environment: null, account: null, profilesByAccount: {} },
   sendBehavior: "steer",
   serviceUrlBehavior: "ask",
   terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
@@ -216,11 +230,18 @@ const DEFAULT_STORED_APP_SETTINGS = {
 
 const StoredAppSettingsSchema = z
   .looseObject({
-    theme: ThemePreferenceSchema.catch(DEFAULT_THEME_PREFERENCE),
+    theme: z.string().catch(DEFAULT_THEME_PREFERENCE),
     pluginThemeId: z.string().nullable().catch(null),
     language: z
       .enum(["system", "ar", "en", "es", "fr", "ja", "ko", "pt-BR", "ru", "zh-CN"])
       .catch("system"),
+    workspaceDefaults: z
+      .object({
+        environment: z.string().nullable().catch(null),
+        account: z.string().nullable().catch(null),
+        profilesByAccount: z.record(z.string(), z.string()).catch({}),
+      })
+      .catch({ environment: null, account: null, profilesByAccount: {} }),
     sendBehavior: z.enum(["interrupt", "steer", "queue"]).catch("steer"),
     serviceUrlBehavior: z.enum(["ask", "in-app", "external"]).catch("ask"),
     terminalScrollbackLines: clampedNumber(
@@ -246,7 +267,7 @@ const StoredAppSettingsSchema = z
       .or(clampedNumber(MIN_CONTENT_MAX_WIDTH, MAX_CONTENT_MAX_WIDTH))
       .catch(null),
     threadTextWidth: z.null().or(clampedNumber(560, 1600)).catch(null),
-    threadCardsWidth: clampedNumber(440, 760).catch(440),
+    threadCardsWidth: clampedNumber(220, 760).catch(440),
     syntaxTheme: z.string().refine(isSyntaxThemeId).catch("one"),
     workspaceTitleSource: z.enum(["title", "branch"]).catch("title"),
     sidebarWorkspaceTrailing: z.enum(["diff", "timestamp", "none"]).catch("diff"),
@@ -298,10 +319,12 @@ const StoredAppSettingsSchema = z
     releaseChannel: z.enum(["stable", "beta"]).optional().catch(undefined),
   })
   .transform((stored) => {
+    const theme = ThemePreferenceSchema.catch(DEFAULT_THEME_PREFERENCE).parse(stored.theme);
     const { legacyPullRequestsInSidePane, ...openInSidePane } = stored.openInSidePane;
     const needsWrite =
       (stored.uiBaseFontSize === undefined && stored.uiFontSize !== undefined) ||
-      stored.contentFontSize === undefined;
+      stored.contentFontSize === undefined ||
+      stored.theme !== theme;
     const uiBaseFontSize =
       stored.uiBaseFontSize ??
       (stored.uiFontSize === undefined
@@ -330,6 +353,7 @@ const StoredAppSettingsSchema = z
       },
       toolCallDetailLevel,
       needsWrite,
+      theme,
     };
   })
   .catch(DEFAULT_STORED_APP_SETTINGS);
@@ -368,13 +392,21 @@ export async function saveAppSettings(input: {
   const current = normalizeAppSettings(storedCurrent);
   const updates = typeof input.updates === "function" ? input.updates(current) : input.updates;
   const next = { ...current, ...updates };
-  input.queryClient.setQueryData<AppSettings>(APP_SETTINGS_QUERY_KEY, next);
-  await writeAppSettings(
-    input.deps.storage,
-    (await readSettingsObject(input.deps.storage, APP_SETTINGS_KEY)) ??
-      StoredAppSettingsSchema.parse({}),
-    next,
-  );
+  const optimistic = input.queryClient.setQueryData<AppSettings>(APP_SETTINGS_QUERY_KEY, next);
+  try {
+    await writeAppSettings(
+      input.deps.storage,
+      (await readSettingsObject(input.deps.storage, APP_SETTINGS_KEY)) ??
+        StoredAppSettingsSchema.parse({}),
+      next,
+    );
+  } catch (error) {
+    // A delayed failure must not undo a newer settings change.
+    if (input.queryClient.getQueryData(APP_SETTINGS_QUERY_KEY) === optimistic) {
+      input.queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, current);
+    }
+    throw error;
+  }
 }
 
 export async function loadAppSettingsFromStorage(deps: SettingsDeps): Promise<AppSettings> {

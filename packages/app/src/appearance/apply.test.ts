@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { darkHighlightColors, resolveSyntaxColors } from "@getpaseo/highlight";
-import { DEFAULT_UI_FONT_STACK, REGISTERED_THEMES } from "@/styles/theme";
+import { REGISTERED_THEMES } from "@/styles/theme";
 import { applyAppearance, type AppearanceInput } from "./apply";
 
 // Override the global react-native-unistyles mock (vitest.setup.ts) so that
@@ -8,7 +8,11 @@ import { applyAppearance, type AppearanceInput } from "./apply";
 const { runtime, updateTheme } = vi.hoisted(() => {
   const updateThemeSpy = vi.fn();
   return {
-    runtime: { themeName: undefined as string | undefined, updateTheme: updateThemeSpy },
+    runtime: {
+      themeName: undefined as string | undefined,
+      updateTheme: updateThemeSpy,
+      getTheme: vi.fn(),
+    },
     updateTheme: updateThemeSpy,
   };
 });
@@ -83,8 +87,10 @@ function runCapturedUpdater(call = 0): FakeTheme {
 
 describe("applyAppearance", () => {
   beforeEach(() => {
-    updateTheme.mockClear();
+    updateTheme.mockReset();
     runtime.themeName = undefined;
+    runtime.getTheme.mockReset();
+    runtime.getTheme.mockImplementation(() => makeFakeTheme());
   });
 
   it("patches every registered Unistyles theme exactly once", () => {
@@ -94,14 +100,36 @@ describe("applyAppearance", () => {
     expect(updateTheme.mock.calls.map((call) => call[0])).toEqual([...ALL_THEME_KEYS]);
   });
 
+  it("does not republish unchanged appearance when switching or previewing themes", () => {
+    const themes = new Map(ALL_THEME_KEYS.map((key) => [key, makeFakeTheme()]));
+    runtime.getTheme.mockImplementation((key: string) => themes.get(key));
+    updateTheme.mockImplementation((key: string, updater: ThemeUpdater) => {
+      themes.set(key, updater(themes.get(key)!));
+    });
+    applyAppearance(makeInput());
+    updateTheme.mockClear();
+    runtime.themeName = "midas";
+    applyAppearance(makeInput());
+    expect(updateTheme).not.toHaveBeenCalled();
+
+    // A contributed theme can be replaced while the user's settings stay equal.
+    themes.set("midas", makeFakeTheme());
+    applyAppearance(makeInput());
+    expect(updateTheme.mock.calls.map((call) => call[0])).toEqual(["midas"]);
+    updateTheme.mockClear();
+    applyAppearance(makeInput({ uiBaseFontSize: 18 }));
+    expect(updateTheme).toHaveBeenCalledTimes(ALL_THEME_KEYS.length);
+    expect(themes.get("midas")?.fontSize.base).toBe(18);
+  });
+
   it("patches the active theme before inactive registry entries", () => {
-    runtime.themeName = "darkPureBlack";
+    runtime.themeName = "midas";
 
     applyAppearance(makeInput({ uiBaseFontSize: 15 }));
 
     expect(updateTheme.mock.calls.map((call) => call[0])).toEqual([
-      "darkPureBlack",
-      ...ALL_THEME_KEYS.filter((key) => key !== "darkPureBlack"),
+      "midas",
+      ...ALL_THEME_KEYS.filter((key) => key !== "midas"),
     ]);
   });
 
@@ -111,10 +139,14 @@ describe("applyAppearance", () => {
     expect(runCapturedUpdater().contentMaxWidth).toBe(1600);
   });
 
-  it("resolves an empty UI font family to the default stack", () => {
+  it("resolves an empty UI font family to each theme's authored stack", () => {
     applyAppearance(makeInput({ uiFontFamily: "" }));
 
-    expect(runCapturedUpdater().fontFamily.ui).toBe(DEFAULT_UI_FONT_STACK);
+    for (const [index, key] of ALL_THEME_KEYS.entries()) {
+      expect(runCapturedUpdater(index).fontFamily.ui).toBe(
+        REGISTERED_THEMES[key as keyof typeof REGISTERED_THEMES].fontFamily.ui,
+      );
+    }
   });
 
   it("passes a non-empty UI font family through trimmed", () => {

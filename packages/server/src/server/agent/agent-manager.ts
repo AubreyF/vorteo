@@ -1,3 +1,9 @@
+import type { HeldRestart } from "@getpaseo/protocol/messages";
+import {
+  blockedReviewDue,
+  hasReviewableBlockedWork,
+  BLOCKED_REVIEW_PROMPT,
+} from "./task-checklist/blocked-review.js";
 import { JournalError } from "./journal/model.js";
 import { editThreadGoal, type ThreadGoalEdit } from "./agent-goal.js";
 import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
@@ -34,6 +40,7 @@ import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/inde
 import type { PluginSessionOpenRequest } from "@getpaseo/plugin/server";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { managedWorkerLimit } from "./worker-limit.js";
 import { countRunningWorkers } from "./worker-activity.js";
 import { basename, resolve } from "node:path";
 import { stat } from "node:fs/promises";
@@ -171,6 +178,36 @@ export class AgentManagerShuttingDownError extends Error {
   constructor() {
     super("Agent manager is shutting down");
     this.name = "AgentManagerShuttingDownError";
+  }
+}
+
+export interface RestartCheckpointDeadline {
+  requestId: string;
+  terminateAt: number;
+}
+
+export class RestartCheckpointError extends Error {
+  constructor(
+    readonly requestId: string,
+    readonly code: "deadline_exceeded" | "hold_released" | "invalid_deadline",
+  ) {
+    super(`Restart checkpoint is incomplete: ${code}`);
+    this.name = "RestartCheckpointError";
+  }
+}
+
+export class RestartInterruptionError extends Error {
+  constructor(
+    readonly requestId: string,
+    readonly code:
+      | "deadline_exceeded"
+      | "hold_released"
+      | "different_worker"
+      | "different_attempt"
+      | "invalid_deadline",
+  ) {
+    super(`Restart interruption is incomplete: ${code}`);
+    this.name = "RestartInterruptionError";
   }
 }
 
@@ -460,6 +497,7 @@ interface ManagedAgentBase {
   queueGoalHold?: import("../message-queue/goal-hold.js").QueueGoalHold;
   goalSubmissions?: import("./agent-storage.js").GoalSubmission[];
   goalState?: import("@getpaseo/protocol/agent-goals").AgentGoalState;
+  blockedGoalReviewNeeded?: boolean;
   id: string;
   provider: AgentProvider;
   cwd: string;
@@ -1189,22 +1227,28 @@ export class AgentManager {
   private onAgentAttention?: AgentAttentionCallback;
   private onAgentArchived?: AgentArchivedCallback;
   private onWorkspaceStateMayHaveChanged?: (params: { cwd: string }) => void;
-  private messageQueueControl: Pick<
-    MessageQueueService,
-    | "pause"
-    | "wake"
-    | "acceptedHistory"
-    | "recordProviderMessageId"
-    | "reconcileHistory"
-    | "suppressHistoryRestoration"
-    | "queueRestartContinuation"
-  > | null = null;
+  private messageQueueControl:
+    | (Pick<
+        MessageQueueService,
+        | "pause"
+        | "wake"
+        | "acceptedHistory"
+        | "recordProviderMessageId"
+        | "reconcileHistory"
+        | "suppressHistoryRestoration"
+        | "queueRestartContinuation"
+      > &
+        Partial<Pick<MessageQueueService, "withIdleQueue">>)
+    | null = null;
   private readonly queueGoalMutationTails = new Map<string, Promise<void>>();
   private logger: Logger;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
   private readonly beforeSteerUnavailableFallback?: AgentManagerOptions["beforeSteerUnavailableFallback"];
   private acceptingAgentRegistrations = true;
   private restartDrainId: string | null = null;
+  private readonly restartWorkerInstanceId = randomUUID();
+  private committedRestartDrainId: string | null = null;
+  private restartInterruption: { held: HeldRestart; result: Promise<void> } | null = null;
   private readonly cancelledRestartDrains = new Set<string>();
   private readonly restartDrainTasks = new Map<string, Promise<void>>();
   private readonly restartDrainPrepared = new Set<string>();
@@ -1425,9 +1469,82 @@ export class AgentManager {
       | "reconcileHistory"
       | "suppressHistoryRestoration"
       | "queueRestartContinuation"
-    >,
+    > &
+      Partial<Pick<MessageQueueService, "withIdleQueue">>,
   ): void {
     this.messageQueueControl = control;
+  }
+
+  /** Review one existing idle thread; never steer, replace, or resume a goal implicitly. */
+  async startBlockedTaskReview(
+    agentId: string,
+    canContinue: () => boolean,
+  ): Promise<AsyncGenerator<AgentStreamEvent> | null> {
+    const registry = this.registry;
+    const queue = this.messageQueueControl;
+    if (!registry || !queue?.withIdleQueue) return null;
+    return this.runForegroundMutation(agentId, (foregroundAllowsStart) =>
+      this.withQueueGoalMutation(agentId, async (goalAllowsStart) => {
+        const agent = this.agents.get(agentId);
+        if (!agent || !agent.session || agent.lifecycle !== "idle") return null;
+        const threadEligible = () => {
+          const record = registry.getLoadedRecord(agentId);
+          if (!record || !hasReviewableBlockedWork(record)) return false;
+          if (!foregroundAllowsStart() || !goalAllowsStart()) return false;
+          if (!canContinue() || !this.acceptingAgentRegistrations || this.isRestartDraining())
+            return false;
+          if (
+            this.agents.get(agentId) !== agent ||
+            agent.lifecycle !== "idle" ||
+            agent.queueGoalHold
+          )
+            return false;
+          if (agent.activeTurnId || agent.pendingPermissions.size || this.runs.hasRun(agentId))
+            return false;
+          if (agent.config.quotaPausedAt || agent.owner || this.controllerSessions.has(agentId))
+            return false;
+          return true;
+        };
+        const eligible = () => {
+          if (!threadEligible()) return false;
+          const state = agent.session.goals?.state;
+          if (!state) {
+            const record = registry.getLoadedRecord(agentId);
+            return (record?.tasks ?? []).some(
+              (task) => !task.completed && task.status === "blocked",
+            );
+          }
+          if (
+            state.status !== "ready" ||
+            state.queueContinuationHeld ||
+            state.restartContinuationHeld
+          )
+            return false;
+          const goal = state.goal;
+          if (!goal) {
+            const record = registry.getLoadedRecord(agentId);
+            return (record?.tasks ?? []).some(
+              (task) => !task.completed && task.status === "blocked",
+            );
+          }
+          if (goal.status !== "blocked") return false;
+          return goal.tokenBudget === null || goal.tokensUsed < goal.tokenBudget;
+        };
+        if (!threadEligible()) return null;
+        if (agent.session.goals) await this.readAgentGoal(agentId);
+        const record = registry.getLoadedRecord(agentId);
+        if (!eligible() || !record || !blockedReviewDue(record, this.now())) return null;
+        return queue.withIdleQueue!(agentId, async (queueAllowsStart) => {
+          if (!eligible() || !queueAllowsStart()) return null;
+          if (!(await registry.claimBlockedReview(agentId, this.now()))) return null;
+          if (!eligible() || !queueAllowsStart()) return null;
+          // No await between the last admission check and synchronous run reservation.
+          return this.streamAgent(agentId, BLOCKED_REVIEW_PROMPT, {
+            origin: "agent",
+          });
+        });
+      }),
+    );
   }
 
   startQueuedMessage(
@@ -1575,6 +1692,7 @@ export class AgentManager {
   }
 
   cancelRestartDrain(requestId: string): boolean {
+    if (this.committedRestartDrainId === requestId) return false;
     this.cancelledRestartDrains.add(requestId);
     if (this.restartDrainId !== requestId) return true;
     // Let outstanding goal pauses settle before releasing the barrier so cancellation
@@ -1615,12 +1733,108 @@ export class AgentManager {
     return {
       agents,
       pendingStarts: this.agentRegistrationTasks.size + this.restartDrainTasks.size,
+      restartDrainId: this.restartDrainId,
+      workerInstanceId: this.restartWorkerInstanceId,
+      workerPid: process.pid,
     };
   }
 
-  async checkpointRestartDrain(): Promise<void> {
-    await this.flushForShutdown();
-    for (const agent of this.agents.values()) await this.persistSnapshot(agent);
+  async checkpointRestartDrain(input?: RestartCheckpointDeadline): Promise<void> {
+    const deadline = input ? { ...input } : undefined;
+    const assertCurrent = () => {
+      if (!deadline) return;
+      if (
+        this.restartDrainId !== deadline.requestId ||
+        this.cancelledRestartDrains.has(deadline.requestId)
+      )
+        throw new RestartCheckpointError(deadline.requestId, "hold_released");
+      if (Date.now() >= deadline.terminateAt)
+        throw new RestartCheckpointError(deadline.requestId, "deadline_exceeded");
+    };
+    const checkpoint = async () => {
+      assertCurrent();
+      await this.flushForShutdown();
+      assertCurrent();
+      for (const agent of this.agents.values()) {
+        await this.persistSnapshot(agent);
+        assertCurrent();
+      }
+    };
+    if (!deadline) return checkpoint();
+    const remaining = deadline.terminateAt - Date.now();
+    if (!Number.isSafeInteger(deadline.terminateAt) || remaining > 300_000)
+      throw new RestartCheckpointError(deadline.requestId, "invalid_deadline");
+    assertCurrent();
+    let timer: ReturnType<typeof setTimeout>;
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new RestartCheckpointError(deadline.requestId, "deadline_exceeded")),
+        Math.max(0, deadline.terminateAt - Date.now()),
+      );
+    });
+    try {
+      // Persistence already in flight may finish after expiry. It cannot advance
+      // this attempt or start the next snapshot after its hold/deadline changes.
+      await Promise.race([checkpoint(), expired]);
+    } finally {
+      clearTimeout(timer!);
+    }
+  }
+
+  /** Cooperative preparation only. Actual turn settlement is not native process
+   * cleanup proof and cannot authorize a restart or extend its retained budget. */
+  async interruptRestartDrain(input: HeldRestart): Promise<void> {
+    const held = { ...input };
+    const assertCurrent = () => {
+      if (held.workerPid !== process.pid || held.workerInstanceId !== this.restartWorkerInstanceId)
+        throw new RestartInterruptionError(held.requestId, "different_worker");
+      if (
+        this.restartDrainId !== held.requestId ||
+        this.cancelledRestartDrains.has(held.requestId) ||
+        this.committedRestartDrainId !== null
+      )
+        throw new RestartInterruptionError(held.requestId, "hold_released");
+      const remaining = held.terminateAt - Date.now();
+      if (!Number.isSafeInteger(held.terminateAt) || remaining > 300_000)
+        throw new RestartInterruptionError(held.requestId, "invalid_deadline");
+      if (remaining <= 0) throw new RestartInterruptionError(held.requestId, "deadline_exceeded");
+    };
+    assertCurrent();
+    if (this.restartInterruption) {
+      if (!isDeepStrictEqual(this.restartInterruption.held, held))
+        throw new RestartInterruptionError(held.requestId, "different_attempt");
+      return this.restartInterruption.result;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new RestartInterruptionError(held.requestId, "deadline_exceeded")),
+        held.terminateAt - Date.now(),
+      );
+    });
+    const operation = async () => {
+      await Promise.all(this.restartDrainTasks.values());
+      assertCurrent();
+      for (const agent of this.agents.values()) {
+        if (!this.hasInFlightRun(agent.id)) continue;
+        await this.runForegroundMutation(agent.id, async () => {
+          assertCurrent();
+          const run = this.runs.getRun(agent.id) ?? this.runs.trackAutonomousRun(agent.id, null);
+          await this.interruptSession(agent.session, agent.id);
+          assertCurrent();
+          // An interrupt acknowledgement does not settle a turn. In particular,
+          // never synthesize turn_canceled or revoke the restart goal hold here.
+          await run.settledPromise;
+          assertCurrent();
+        });
+      }
+      assertCurrent();
+    };
+    const result = Promise.race([operation(), expired]).finally(() => clearTimeout(timer!));
+    // Retain even rejected attempts: lost or late completion cannot send another
+    // provider interrupt under a different generation in this worker lifetime.
+    this.restartInterruption = { held, result };
+    return result;
   }
 
   prepareIdleRestart(): boolean {
@@ -1629,6 +1843,27 @@ export class AgentManager {
     // This check and admission barrier must stay synchronous: no new turn can
     // enter between observing idleness and dispatching the lifecycle intent.
     this.prepareForShutdown();
+    return true;
+  }
+
+  prepareHeldIdleRestart(
+    input: Pick<HeldRestart, "requestId" | "workerPid" | "workerInstanceId" | "terminateAt">,
+  ): boolean {
+    if (
+      input.workerPid !== process.pid ||
+      input.workerInstanceId !== this.restartWorkerInstanceId ||
+      input.requestId !== this.restartDrainId ||
+      this.cancelledRestartDrains.has(input.requestId) ||
+      this.committedRestartDrainId !== null ||
+      !Number.isSafeInteger(input.terminateAt) ||
+      input.terminateAt <= Date.now() ||
+      input.terminateAt > Date.now() + 300_000
+    )
+      return false;
+    if (!this.prepareIdleRestart()) return false;
+    // The coordinator must reserve this exact attempt durably before the RPC.
+    // Releases after this synchronous barrier are observation-only for this worker.
+    this.committedRestartDrainId = input.requestId;
     return true;
   }
 
@@ -2088,7 +2323,8 @@ export class AgentManager {
           agent.labels[PARENT_AGENT_ID_LABEL] === parent.id &&
           (isAgentBusy(agent.lifecycle) || this.runs.hasRun(agent.id)),
       ).length;
-      if (pending + running >= (parent.config.profileLaunch.profile.maxWorkers ?? 2)) {
+      const limit = managedWorkerLimit(parent.config.profileLaunch.profile);
+      if (limit !== null && pending + running >= limit) {
         throw new Error(
           "Worker limit reached. Wait for a worker to finish before creating another.",
         );
@@ -2937,6 +3173,7 @@ export class AgentManager {
     if (!agent.session.goals) throw new Error("This provider does not support goals");
     const state = await agent.session.goals.read();
     await this.drainSessionEvents(agentId);
+    this.observeGoalState(agent, agent.session.goals.state);
     return projectQueueGoalState(state, agent.queueGoalHold);
   }
 
@@ -3022,10 +3259,15 @@ export class AgentManager {
     });
   }
 
-  private async withQueueGoalMutation<T>(agentId: string, operation: () => Promise<T>): Promise<T> {
+  private async withQueueGoalMutation<T>(
+    agentId: string,
+    operation: (isLatest: () => boolean) => Promise<T>,
+  ): Promise<T> {
     const previous = this.queueGoalMutationTails.get(agentId) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(operation);
-    const tail = run.then(
+    const run: Promise<T> = previous
+      .catch(() => undefined)
+      .then(() => operation(() => this.queueGoalMutationTails.get(agentId) === tail));
+    const tail: Promise<void> = run.then(
       () => undefined,
       () => undefined,
     );
@@ -3773,7 +4015,8 @@ export class AgentManager {
           agent.labels[PARENT_AGENT_ID_LABEL] === parent.id &&
           (isAgentBusy(agent.lifecycle) || this.runs.hasRun(agent.id)),
       ).length;
-      if (running >= (parent.config.profileLaunch.profile.maxWorkers ?? 2)) {
+      const limit = managedWorkerLimit(parent.config.profileLaunch.profile);
+      if (limit !== null && running >= limit) {
         throw new Error(
           "Worker limit reached. Wait for a worker to finish before starting another.",
         );
@@ -4128,10 +4371,15 @@ export class AgentManager {
     });
   }
 
-  private async runForegroundMutation<T>(agentId: string, operation: () => Promise<T>): Promise<T> {
+  private async runForegroundMutation<T>(
+    agentId: string,
+    operation: (isLatest: () => boolean) => Promise<T>,
+  ): Promise<T> {
     const previous = this.foregroundMutationTails.get(agentId) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(operation);
-    const tail = run.then(
+    const run: Promise<T> = previous
+      .catch(() => undefined)
+      .then(() => operation(() => this.foregroundMutationTails.get(agentId) === tail));
+    const tail: Promise<void> = run.then(
       () => undefined,
       () => undefined,
     );
@@ -4355,11 +4603,12 @@ export class AgentManager {
     }
     if (options?.reason === "manual") {
       try {
-        await this.messageQueueControl?.pause(agentId);
+        // Revoke automatic goal resumption without changing queue delivery.
+        await this.releaseQueueGoalHold(agentId);
         await this.pauseGoalForManualStop(agentId);
       } catch (error) {
-        // Queue persistence and goal confirmation failures must not prevent
-        // the user's stop from reaching the current provider turn.
+        // Goal confirmation failures must not prevent the user's stop from
+        // reaching the current provider turn.
         if (this.hasInFlightRun(agentId)) {
           await this.runForegroundMutation(agentId, () => this.cancelAgentRunNow(agentId));
         }
@@ -4380,7 +4629,7 @@ export class AgentManager {
       const current = await this.readAgentGoal(agentId);
       if (current.status !== "ready")
         throw new Error("The goal state could not be confirmed while stopping the task.");
-      if (current.goal?.status !== "active") return;
+      if (current.goal?.status !== "active" && current.goal?.status !== "blocked") return;
       const paused = await this.setAgentGoalUnlocked(
         agentId,
         { status: "paused" },
@@ -4866,6 +5115,7 @@ export class AgentManager {
       }
     }
     managed.goalSubmissions = record?.goalSubmissions;
+    managed.blockedGoalReviewNeeded = record?.blockedGoalReviewNeeded;
     managed.queueGoalHold = record?.queueGoalHold;
   }
 
@@ -5276,13 +5526,35 @@ export class AgentManager {
     }
   }
 
+  private observeGoalState(
+    agent: ManagedAgent,
+    state: import("@getpaseo/protocol/agent-goals").AgentGoalState,
+  ): void {
+    agent.goalState = state;
+    const needed =
+      state.status === "ready" ? state.goal?.status === "blocked" : agent.blockedGoalReviewNeeded;
+    const changed = needed !== agent.blockedGoalReviewNeeded;
+    agent.blockedGoalReviewNeeded = needed;
+    // Persist status transitions, not every usage notification. Loading and
+    // errors retain discovery without authorizing a review or native resume.
+    if (changed && needed !== undefined && this.registry) {
+      const write = this.registry.updateBlockedGoalReview(agent.id, needed).catch((err) => {
+        this.logger.error(
+          { err, agentId: agent.id },
+          "Could not retain blocked goal review discovery",
+        );
+      });
+      this.trackBackgroundTask(write);
+    }
+    this.emitState(agent, { persist: false });
+  }
+
   private async dispatchSessionEvent(
     agent: ActiveManagedAgent,
     event: AgentStreamEvent,
   ): Promise<void> {
     if (event.type === "goal_changed") {
-      agent.goalState = event.state;
-      this.emitState(agent, { persist: false });
+      this.observeGoalState(agent, event.state);
       return;
     }
     if (event.type === "provider_subagent") {
@@ -5796,9 +6068,8 @@ export class AgentManager {
         this.onStreamThreadStarted(agent);
         return undefined;
       case "goal_changed":
-        agent.goalState = event.state;
+        this.observeGoalState(agent, event.state);
         flags.shouldDispatchEvent = false;
-        this.emitState(agent, { persist: false });
         return undefined;
       case "usage_updated":
         agent.lastUsage = event.usage;

@@ -1,0 +1,38 @@
+diff --git a/node_modules/image-size/dist/types/icns.js b/node_modules/image-size/dist/types/icns.js
+index f2bfafe..476d8c5 100644
+--- a/node_modules/image-size/dist/types/icns.js
++++ b/node_modules/image-size/dist/types/icns.js
+@@ -65,6 +65,9 @@ const ICON_TYPE_SIZE = {
+ };
+ function readImageHeader(input, imageOffset) {
+     const imageLengthOffset = imageOffset + ENTRY_LENGTH_OFFSET;
++    if (imageLengthOffset + 4 > input.length || (0, utils_1.readUInt32BE)(input, imageLengthOffset) < 8) {
++        throw new TypeError('Invalid ICNS');
++    }
+     return [
+         (0, utils_1.toUTF8String)(input, imageOffset, imageLengthOffset),
+         (0, utils_1.readUInt32BE)(input, imageLengthOffset),
+diff --git a/node_modules/image-size/dist/types/utils.js b/node_modules/image-size/dist/types/utils.js
+index 5224bba..d6d38bf 100644
+--- a/node_modules/image-size/dist/types/utils.js
++++ b/node_modules/image-size/dist/types/utils.js
+@@ -49,7 +49,7 @@ function readUInt(input, bits, offset, isBigEndian) {
+ }
+ exports.readUInt = readUInt;
+ function readBox(input, offset) {
+-    if (input.length - offset < 4)
++    if (input.length - offset < 8)
+         return;
+     const boxSize = (0, exports.readUInt32BE)(input, offset);
+     if (input.length - offset < boxSize)
+@@ -65,6 +65,10 @@ function findBox(input, boxName, offset) {
+         const box = readBox(input, offset);
+         if (!box)
+             break;
++        if (box.size < 8) {
++            offset += 8;
++            continue;
++        }
+         if (box.name === boxName)
+             return box;
+         // Fix the infinite loop by ensuring offset always increases

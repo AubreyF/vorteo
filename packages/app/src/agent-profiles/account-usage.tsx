@@ -11,9 +11,10 @@ interface UsageProps {
   view: ProviderUsageView;
   providerId: string;
   now: number;
+  compact?: boolean;
 }
 
-export function AccountUsageBadge({ view, providerId, now }: UsageProps) {
+export function AccountUsageBadge({ view, providerId, now, compact = false }: UsageProps) {
   const { window, statusLabel, prepaidLabel } = quotaReading(view, providerId, now);
   const loading = view.kind === "loading" || (view.kind === "ready" && view.isRefreshing);
   const critical = Boolean(window && window.remainingPct < 5);
@@ -42,22 +43,25 @@ export function AccountUsageBadge({ view, providerId, now }: UsageProps) {
             style={[styles.remaining, critical && styles.critical]}
             accessibilityLabel={`${formatPct(window.remainingPct)} left${statusLabel ? `, ${statusLabel}` : ""}`}
           >
-            {formatPct(window.remainingPct)} left
+            {formatPct(window.remainingPct)}
+            {compact ? "" : " left"}
           </Text>
-          <View
-            style={styles.track}
-            accessibilityRole="progressbar"
-            accessibilityLabel="Usage remaining"
-            accessibilityValue={meterValue}
-          >
+          {!compact ? (
             <View
-              style={[
-                styles.fill,
-                critical && styles.criticalFill,
-                { width: `${window.remainingPct}%` },
-              ]}
-            />
-          </View>
+              style={styles.track}
+              accessibilityRole="progressbar"
+              accessibilityLabel="Usage remaining"
+              accessibilityValue={meterValue}
+            >
+              <View
+                style={[
+                  styles.fill,
+                  critical && styles.criticalFill,
+                  { width: `${window.remainingPct}%` },
+                ]}
+              />
+            </View>
+          ) : null}
         </>
       ) : null}
     </View>
@@ -139,5 +143,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   fill: { height: "100%", backgroundColor: theme.colors.accent },
   criticalFill: { backgroundColor: theme.colors.destructive },
-  reset: { justifyContent: "center", height: Math.ceil(theme.fontSize.base * 1.25), flexShrink: 0 },
+  reset: {
+    justifyContent: "center",
+    minHeight: Math.ceil(theme.fontSize.base * 1.25),
+    flexShrink: 0,
+  },
 }));

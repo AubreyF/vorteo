@@ -1,3 +1,4 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import type React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
@@ -50,10 +51,12 @@ export function useScrollToMessage({
             const target = scrollContainerRef.current?.querySelector<HTMLElement>(
               `[data-message-id="${CSS.escape(messageId)}"]`,
             );
-            return target ? target.getBoundingClientRect().top : null;
+            return target ? target.getBoundingClientRect().top / getInterfaceScale() : null;
           },
           getContainerTop() {
-            return scrollContainerRef.current?.getBoundingClientRect().top ?? 0;
+            return (
+              (scrollContainerRef.current?.getBoundingClientRect().top ?? 0) / getInterfaceScale()
+            );
           },
           getScrollMetrics() {
             const container = scrollContainerRef.current;
@@ -120,8 +123,8 @@ export function useScrollToMessage({
       );
       if (mounted) {
         const delta =
-          mounted.getBoundingClientRect().top -
-          container.getBoundingClientRect().top -
+          (mounted.getBoundingClientRect().top - container.getBoundingClientRect().top) /
+            getInterfaceScale() -
           PROMPT_JUMP_TOP_INSET_PX;
         container.scrollTop += delta;
         settleController.start(messageId);

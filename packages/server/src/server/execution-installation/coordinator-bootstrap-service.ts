@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { promisify, isDeepStrictEqual } from "node:util";
@@ -12,6 +12,26 @@ import {
 } from "./coordinator-bootstrap-artifact.js";
 
 const execute = promisify(execFile);
+
+/** Apple's Python launcher can exec the selected developer interpreter and
+ * replace argv[0]. Observe that system-selected executable before comparing
+ * the recovery job; never derive the expected identity from the job itself. */
+export async function inspectBootstrapPythonExecutable(): Promise<string> {
+  const source = [
+    "import ctypes,json,os",
+    "lib=ctypes.CDLL('/usr/lib/libSystem.B.dylib')",
+    "buffer=ctypes.create_string_buffer(4096)",
+    "size=lib.proc_pidpath(os.getpid(),buffer,len(buffer))",
+    "if size <= 0: raise RuntimeError('Native Python identity unavailable')",
+    "print(json.dumps(buffer.value.decode('utf-8')))",
+  ].join("\n");
+  const result = await execute("/usr/bin/python3", ["-I", "-B", "-c", source], {
+    env: { PATH: "/usr/bin:/bin" },
+    timeout: 10_000,
+    maxBuffer: 8192,
+  });
+  return z.string().startsWith("/").parse(JSON.parse(result.stdout));
+}
 
 import {
   ProcessObservationSchema,
@@ -40,10 +60,53 @@ export interface BootstrapServiceReader {
 
 export interface NativeBootstrapServiceReader extends BootstrapServiceReader {
   inspectAuditedProcess(pid: number): Promise<z.infer<typeof AuditedProcessObservationSchema>>;
+  /** Supplied by the native reader; older injected readers must explicitly
+   * refuse callers that require a lock-held live-child recheck. */
+  inspectAuditedProcessSync?(pid: number): z.infer<typeof AuditedProcessObservationSchema>;
   inspectRunningProcess(pid: number): Promise<z.infer<typeof RunningProcessObservationSchema>>;
   verifyProcessExited(pid: number): Promise<void>;
   verifyServiceAbsent(service: string): Promise<void>;
   inspectStoppedProcess(pid: number): Promise<z.infer<typeof FrozenProcessObservationSchema>>;
+}
+
+/** Retained recovery needs the old lifetime to be gone, not its numeric PID to
+ * remain unused forever. Only stable native birth observations establish reuse;
+ * exec/argv changes and inspection failures do not establish process exit. */
+export async function verifyRetainedProcessExited(
+  reader: {
+    verifyProcessExited?(pid: number): Promise<void>;
+    inspectProcess?(pid: number): Promise<unknown>;
+  },
+  expectedValue: z.infer<typeof ProcessObservationSchema>,
+): Promise<void> {
+  const expected = ProcessObservationSchema.parse(expectedValue);
+  if (!reader.verifyProcessExited)
+    throw new BootstrapRequestConflict("Retained process native exit proof is unavailable");
+  try {
+    await reader.verifyProcessExited(expected.pid);
+    return;
+  } catch {
+    // An absence failure alone proves nothing. A separate native observation
+    // may prove the PID now belongs to a later lifetime in the same boot.
+  }
+  if (!reader.inspectProcess)
+    throw new BootstrapRequestConflict("Retained process lifetime exit is unproven");
+  const first = ProcessObservationSchema.parse(await reader.inspectProcess(expected.pid));
+  const second = ProcessObservationSchema.parse(await reader.inspectProcess(expected.pid));
+  const birth = (value: string) => {
+    if (!/^[0-9]+:[0-9]{1,6}$/.test(value))
+      throw new BootstrapRequestConflict("Retained process birth identity is invalid");
+    const [seconds, micros] = value.split(":").map(BigInt);
+    return seconds * 1_000_000n + micros;
+  };
+  if (
+    !isDeepStrictEqual(first, second) ||
+    first.pid !== expected.pid ||
+    first.uid !== expected.uid ||
+    first.bootId !== expected.bootId ||
+    birth(first.startIdentity) <= birth(expected.startIdentity)
+  )
+    throw new BootstrapRequestConflict("Retained process lifetime exit is unproven");
 }
 
 export async function readBootstrapLauncher(
@@ -166,7 +229,9 @@ export async function createNativeBootstrapServiceReader(input: {
     async readService(service) {
       const label = z
         .string()
-        .regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation$/)
+        .regex(
+          /^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation(?:-recovery-[a-f0-9-]{36})?$/,
+        )
         .parse(service);
       if (!label.startsWith(`gui/${uid}/`))
         throw new BootstrapRequestConflict("Coordinator service belongs to another Host account");
@@ -176,7 +241,9 @@ export async function createNativeBootstrapServiceReader(input: {
     async verifyServiceAbsent(service) {
       const label = z
         .string()
-        .regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation$/)
+        .regex(
+          /^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation(?:-recovery-[a-f0-9-]{36})?$/,
+        )
         .parse(service);
       if (!label.startsWith(`gui/${uid}/`))
         throw new BootstrapRequestConflict("Coordinator service belongs to another Host account");
@@ -238,6 +305,15 @@ export async function createNativeBootstrapServiceReader(input: {
       );
       return AuditedProcessObservationSchema.parse(JSON.parse(result.stdout));
     },
+    inspectAuditedProcessSync(pid) {
+      z.number().int().positive().parse(pid);
+      const result = execFileSync(
+        "/usr/bin/python3",
+        ["-I", "-B", "-c", source, String(pid), "--audit-token"],
+        { ...options, encoding: "utf8" },
+      );
+      return AuditedProcessObservationSchema.parse(JSON.parse(result));
+    },
   };
 }
 
@@ -259,6 +335,23 @@ export async function verifyLoadedBootstrapService(input: {
   const finalService = await input.reader.readService(input.plan.service);
   if (loadedCoordinatorPid(input.plan.service, finalService) !== input.plan.expectedProcess.pid)
     throw new BootstrapRequestConflict("Loaded coordinator PID changed during verification");
+}
+
+/** Read-only preparation for restoring supervision after a manual recovery.
+ * This does not authorize signals, dispatch or registration, and must never
+ * replace the loaded-service check in the ordinary migration path. */
+export async function verifyUnregisteredBootstrapCoordinator(input: {
+  plan: CoordinatorBootstrapPlan;
+  hostUid: number;
+  configurationFile: string;
+  reader: Pick<NativeBootstrapServiceReader, "verifyServiceAbsent" | "inspectProcess">;
+}): Promise<void> {
+  for (let observation = 0; observation < 2; observation++) {
+    await input.reader.verifyServiceAbsent(input.plan.service);
+    const process = await input.reader.inspectProcess(input.plan.expectedProcess.pid);
+    verifyBootstrapCoordinatorProcess({ ...input, process });
+  }
+  await input.reader.verifyServiceAbsent(input.plan.service);
 }
 
 /** Read only the top-level PID from launchctl's service record. Nested resource
@@ -314,12 +407,22 @@ export function verifyBootstrapServiceIdentity(input: {
   hostUid: number;
   configurationFile: string;
 }): void {
-  const observation = ProcessObservationSchema.parse(input.process);
   const pid = loadedCoordinatorPid(input.plan.service, input.launchctlOutput);
+  if (pid !== input.plan.expectedProcess.pid)
+    throw new BootstrapRequestConflict("Loaded coordinator process changed since preparation");
+  verifyBootstrapCoordinatorProcess(input);
+}
+
+export function verifyBootstrapCoordinatorProcess(input: {
+  plan: CoordinatorBootstrapPlan;
+  process: unknown;
+  hostUid: number;
+  configurationFile: string;
+}): void {
+  const observation = ProcessObservationSchema.parse(input.process);
   const expected = input.plan.expectedProcess;
   const matchesProcess =
-    pid === expected.pid &&
-    observation.pid === pid &&
+    observation.pid === expected.pid &&
     observation.bootId === expected.bootId &&
     observation.startIdentity === expected.startIdentity &&
     observation.argumentsSha256 === expected.argumentsSha256;
@@ -351,7 +454,19 @@ export async function verifyBootstrapReplacement(input: {
   hostUid: number;
   reader: BootstrapServiceReader;
   readHealth(): Promise<unknown>;
+  /** Supplied only by the native startup recovery runner after boot proof. */
+  recoveryBootId?: string;
 }): Promise<void> {
+  if (
+    input.recoveryBootId !== undefined &&
+    (!input.plan.bootRecovery ||
+      !input.recoveryBootId ||
+      input.recoveryBootId === input.plan.expectedProcess.bootId)
+  )
+    throw new BootstrapRequestConflict(
+      "Replacement boot recovery requires a distinct verified boot",
+    );
+  const expectedBoot = input.recoveryBootId ?? input.plan.expectedProcess.bootId;
   const healthSchema = z.strictObject({
     installationId: z.literal(input.plan.installationId),
     bootstrap: z.strictObject({
@@ -373,14 +488,14 @@ export async function verifyBootstrapReplacement(input: {
   for (let attempt = 0; attempt < 2; attempt++) {
     const service = await input.reader.readService(input.plan.service);
     const pid = loadedCoordinatorPid(input.plan.service, service);
-    if (pid === input.plan.expectedProcess.pid)
+    if (input.recoveryBootId === undefined && pid === input.plan.expectedProcess.pid)
       throw new BootstrapRequestConflict("Coordinator replacement still has the previous PID");
     const observation = ProcessObservationSchema.parse(await input.reader.inspectProcess(pid));
     const matchesCandidate =
       observation.pid === pid &&
       observation.parentPid === 1 &&
       observation.uid === input.hostUid &&
-      observation.bootId === input.plan.expectedProcess.bootId &&
+      observation.bootId === expectedBoot &&
       observation.executable === input.plan.candidate.node.path &&
       observation.argumentsSha256 === argumentsSha256;
     if (!matchesCandidate)

@@ -53,8 +53,38 @@ function SharedSkillForm({ skill, onClose }: { skill?: InstallationSkill; onClos
   const submit = useCallback(async () => {
     if (await model.submit()) onClose();
   }, [model, onClose]);
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions}>
+        <Button
+          size={size}
+          variant="outline"
+          onPress={prepare}
+          disabled={busy || !data}
+          testID="shared-skill-prepare"
+        >
+          {state.phase === "preparing" ? "Preparing..." : "Review package"}
+        </Button>
+        <Button
+          size={size}
+          onPress={submit}
+          disabled={state.phase !== "review"}
+          testID="shared-skill-save"
+        >
+          {state.phase === "saving" ? "Saving..." : "Save shared skill"}
+        </Button>
+      </ActionFooter>
+    ),
+    [size, prepare, busy, data, state, submit],
+  );
   return (
-    <AdaptiveModalSheet visible header={header} onClose={onClose} testID="shared-skill-form">
+    <AdaptiveModalSheet
+      visible
+      header={header}
+      onClose={onClose}
+      testID="shared-skill-form"
+      footer={modalFooter1}
+    >
       <View style={styles.content}>
         <Field label="Repository">
           <FormTextInput
@@ -89,25 +119,6 @@ function SharedSkillForm({ skill, onClose }: { skill?: InstallationSkill; onClos
           <PackageReview current={state.review.current} next={state.review.next} />
         ) : null}
         {state.error ? <Alert variant="error" description={state.error} /> : null}
-        <ActionFooter style={styles.actions}>
-          <Button
-            size={size}
-            variant="outline"
-            onPress={prepare}
-            disabled={busy || !data}
-            testID="shared-skill-prepare"
-          >
-            {state.phase === "preparing" ? "Preparing..." : "Review package"}
-          </Button>
-          <Button
-            size={size}
-            onPress={submit}
-            disabled={state.phase !== "review"}
-            testID="shared-skill-save"
-          >
-            {state.phase === "saving" ? "Saving..." : "Save shared skill"}
-          </Button>
-        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

@@ -81,8 +81,39 @@ function SharedPluginForm({
   const submit = useCallback(async () => {
     if (await model.submit()) onClose();
   }, [model, onClose]);
+  const modalFooter1 = useMemo(
+    () => (
+      <View style={styles.controls}>
+        <Button
+          size={size}
+          variant="outline"
+          disabled={busy || !data || !state.source.trim()}
+          onPress={prepare}
+          testID="shared-plugin-prepare"
+        >
+          {state.phase === "resolving" ? "Preparing..." : "Review plugin"}
+        </Button>
+        <Button
+          size={size}
+          variant="default"
+          disabled={state.phase !== "review"}
+          onPress={submit}
+          testID="shared-plugin-save"
+        >
+          {state.phase === "saving" ? "Saving..." : "Save shared plugin"}
+        </Button>
+      </View>
+    ),
+    [size, busy, data, state, prepare, submit],
+  );
   return (
-    <AdaptiveModalSheet visible onClose={onClose} header={header} testID="shared-plugin-form">
+    <AdaptiveModalSheet
+      visible
+      onClose={onClose}
+      header={header}
+      testID="shared-plugin-form"
+      footer={modalFooter1}
+    >
       <View style={styles.form}>
         {!plugin ? (
           <Field label="Install from">
@@ -111,26 +142,6 @@ function SharedPluginForm({
           </SettingsCard>
         ) : null}
         {state.error ? <Alert variant="error" description={state.error} /> : null}
-        <View style={styles.controls}>
-          <Button
-            size={size}
-            variant="outline"
-            disabled={busy || !data || !state.source.trim()}
-            onPress={prepare}
-            testID="shared-plugin-prepare"
-          >
-            {state.phase === "resolving" ? "Preparing..." : "Review plugin"}
-          </Button>
-          <Button
-            size={size}
-            variant="default"
-            disabled={state.phase !== "review"}
-            onPress={submit}
-            testID="shared-plugin-save"
-          >
-            {state.phase === "saving" ? "Saving..." : "Save shared plugin"}
-          </Button>
-        </View>
       </View>
     </AdaptiveModalSheet>
   );

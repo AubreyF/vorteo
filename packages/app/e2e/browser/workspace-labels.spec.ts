@@ -353,10 +353,9 @@ test.describe("Workspace labels", () => {
         await waitForSidebarHydration(page);
 
         const serverId = getServerId();
-        await page.getByTestId(`sidebar-workspace-kebab-${serverId}:${seeded.workspaceId}`).click();
-        await page
-          .getByTestId(`sidebar-workspace-menu-labels-${serverId}:${seeded.workspaceId}`)
-          .tap();
+        await page.getByTestId(`sidebar-workspace-row-${serverId}:${seeded.workspaceId}`).tap();
+        await page.getByTestId("workspace-header-menu-trigger").tap();
+        await page.getByTestId("workspace-header-labels").tap();
         await expectAssigned(page, "Touch", true);
 
         await labelRow(page, "Touch").tap();

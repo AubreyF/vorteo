@@ -25,6 +25,16 @@ export interface JsonlRpcLaunch {
   env?: Record<string, string>;
 }
 
+export class JsonlRpcProcessCleanupError extends Error {
+  constructor(
+    readonly diagnosticName: string,
+    readonly pid: number | null,
+  ) {
+    super(`${diagnosticName} process cleanup remains unverified`);
+    this.name = "JsonlRpcProcessCleanupError";
+  }
+}
+
 interface JsonlRpcResponse {
   type: "response";
   id?: string;
@@ -224,7 +234,8 @@ export class JsonlRpcProcess {
   }
 
   async close(error = new Error(`${this.diagnosticName} process is closed`)): Promise<void> {
-    if (this.disposed) return;
+    if (this.closing) return this.closing;
+    if (this.exited) return;
     this.failAll(error);
     this.closing = this.terminate();
     await this.closing;
@@ -246,12 +257,8 @@ export class JsonlRpcProcess {
         );
       },
     });
-    if (result === "kill-timeout") {
-      this.options.logger.warn(
-        { timeoutMs: FORCE_SHUTDOWN_TIMEOUT_MS },
-        `${this.diagnosticName} process did not report exit after SIGKILL`,
-      );
-    }
+    if (result === "kill-timeout")
+      throw new JsonlRpcProcessCleanupError(this.diagnosticName, this.child.pid ?? null);
   }
 
   private handleStdoutChunk(chunk: string): void {
@@ -292,13 +299,18 @@ export class JsonlRpcProcess {
     pending.resolve(response.data);
   }
 
-  private handleStdinError(error: unknown): void {
+  private handleStdinError(failure: unknown): void {
     if (this.disposed) {
       return;
     }
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = failure instanceof Error ? failure : new Error(String(failure));
     this.options.logger.warn({ err }, `${this.diagnosticName} stdin write failed`);
-    void this.close(err);
+    void this.close(err).catch((cleanupError: unknown) => {
+      this.options.logger.warn(
+        { err: cleanupError },
+        `${this.diagnosticName} cleanup remains unverified`,
+      );
+    });
   }
 
   private failAll(error: Error): void {

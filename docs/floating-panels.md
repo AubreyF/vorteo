@@ -95,6 +95,20 @@ highest painted scope alone receives overlay keys, traps focus, and restores
 focus when it closes. Do not add component-local global Escape listeners: two
 stacked overlays would both close on one keypress.
 
+Web tooltips must stay owned by React through dismissal. Do not attach Reanimated
+entering or exiting layout animations to their portal surface: exiting clones live
+outside React, and a suppressed animation can leave a floating shell behind after
+the original view and its styles unmount. Native tooltip modals retain their fades.
+The browser regression uses the real animation library and suppresses animation
+events to verify close, navigation and repeated open/close cleanup.
+
+Tooltips register with `focusBehavior: "none"`. They receive Escape before the
+underlying dialog or menu, but never autofocus, trap Tab, restore focus, or count
+as an interactive overlay for app shortcuts. Other keys continue to the active
+dialog or menu. Tooltip triggers retain existing `aria-describedby` references
+and append the visible tooltip's ID. Use `TooltipText` for a shared label and
+optional description rather than styling explanatory text at each call site.
+
 If an overlay is rendered by a global host rather than beneath its opener in
 the React tree, carry the opener's current layer through the host store and
 restore it with `OverlayLayerProvider`. Otherwise painting and keyboard

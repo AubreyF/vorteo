@@ -1045,6 +1045,19 @@ function ScriptEditModal({ script, onChange, onCancel, onSave }: ScriptEditModal
     [script.name, t],
   );
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.modalFooter}>
+        <Button onPress={onCancel} variant="ghost" size="md" testID="script-edit-cancel">
+          {t("settings.project.actions.cancel")}
+        </Button>
+        <Button onPress={handleSavePress} variant="default" size="md" testID="script-edit-save">
+          {t("settings.project.actions.save")}
+        </Button>
+      </ActionFooter>
+    ),
+    [onCancel, t, handleSavePress],
+  );
   return (
     <AdaptiveModalSheet
       visible
@@ -1052,6 +1065,7 @@ function ScriptEditModal({ script, onChange, onCancel, onSave }: ScriptEditModal
       onClose={onCancel}
       testID="script-edit-modal"
       desktopMaxWidth={560}
+      footer={modalFooter1}
     >
       <View style={styles.modalSection}>
         <Text style={styles.modalLabel}>{t("settings.project.scripts.name")}</Text>
@@ -1106,14 +1120,6 @@ function ScriptEditModal({ script, onChange, onCancel, onSave }: ScriptEditModal
           />
         </View>
       </View>
-      <ActionFooter style={styles.modalFooter}>
-        <Button onPress={onCancel} variant="ghost" size="md" testID="script-edit-cancel">
-          {t("settings.project.actions.cancel")}
-        </Button>
-        <Button onPress={handleSavePress} variant="default" size="md" testID="script-edit-save">
-          {t("settings.project.actions.save")}
-        </Button>
-      </ActionFooter>
     </AdaptiveModalSheet>
   );
 }

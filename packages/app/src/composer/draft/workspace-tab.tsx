@@ -5,7 +5,6 @@ import { TaskEnvironmentSelection } from "@/task-environments/selection";
 import type { WorkspaceEnvironmentReference } from "@/task-environments/workspaces";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardTranslateView } from "@/keyboard/shift";
-import { useMobileComposerLayout } from "@/composer/mobile-layout";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { Keyboard, ScrollView, StyleSheet as RNStyleSheet, Text, View } from "react-native";
@@ -50,7 +49,7 @@ import {
 } from "@/attachments/workspace-attachments-store";
 import type { UserMessageImageAttachment } from "@/types/stream";
 import { COMPACT_FORM_FACTOR_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
-import { isWeb } from "@/constants/platform";
+import { isWeb, isNative } from "@/constants/platform";
 import {
   buildWorkspaceTabPersistenceKey,
   type WorkspaceDraftTabSetup,
@@ -337,7 +336,6 @@ export function WorkspaceDraftAgentTab({
 }: WorkspaceDraftAgentTabProps) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const mobileComposer = useMobileComposerLayout();
 
   const workspaceFields = useWorkspaceFields(serverId, workspaceId, (w) => ({
     workspaceDirectory: w.workspaceDirectory,
@@ -650,11 +648,8 @@ export function WorkspaceDraftAgentTab({
   }, []);
 
   const inputAreaWrapperStyle = useMemo(
-    () => [
-      animatedStaticStyles.inputAreaWrapper,
-      { paddingBottom: mobileComposer.enabled ? 0 : insets.bottom },
-    ],
-    [insets.bottom, mobileComposer.enabled],
+    () => [animatedStaticStyles.inputAreaWrapper, { paddingBottom: isNative ? insets.bottom : 0 }],
+    [insets.bottom],
   );
 
   const handleDropdownCloseFocus = useCallback(() => {

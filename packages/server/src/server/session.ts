@@ -1,5 +1,10 @@
+import type { SidebarStateStore } from "./sidebar-state/store.js";
+import type { HeldRestart } from "@getpaseo/protocol/messages";
+import type { MaintenanceRestartBridge } from "./maintenance-restart-channel.js";
 import {
   handleBootstrapReview,
+  handlePreclaimRecoveryReview,
+  handleClaimedRecoveryReview,
   type BootstrapReviewService,
 } from "./execution-installation/coordinator-bootstrap-session.js";
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
@@ -475,6 +480,7 @@ const nodeSessionFileSystem: SessionFileSystem = {
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
 export interface SessionOptions {
+  maintenanceRestart?: MaintenanceRestartBridge;
   coordinatorBootstrap?: BootstrapReviewService;
   messageQueue?: MessageQueueService;
   browserToolsBroker?: BrowserToolsBroker | null;
@@ -515,6 +521,7 @@ export interface SessionOptions {
   renameCurrentBranch?: typeof renameCurrentBranchDefault;
   workspaceGitService: WorkspaceGitService;
   workspaceAutoName: WorkspaceAutoName;
+  sidebarState?: SidebarStateStore;
   daemonConfigStore: DaemonConfigStore;
   pluginRuntime?: {
     before: import("./plugins/lifecycle/index.js").PluginLifecycle["before"];
@@ -791,6 +798,7 @@ export class Session {
   private readonly gitMutation: GitMutationService;
   private readonly workspaceProvisioning: WorkspaceProvisioningService;
   private readonly workspaceRecovery: WorkspaceRecoveryService;
+  private readonly sidebarState: SidebarStateStore | undefined;
   private readonly daemonConfigStore: DaemonConfigStore;
   private readonly pushNotifications: PushNotifications;
   private readonly pluginRuntime: SessionOptions["pluginRuntime"];
@@ -865,9 +873,12 @@ export class Session {
   private readonly creationService: Pick<CreationService, "create" | "subscribe">;
 
   private readonly coordinatorBootstrap: BootstrapReviewService | undefined;
+  private readonly maintenanceRestart: MaintenanceRestartBridge | undefined;
 
   constructor(options: SessionOptions) {
+    this.sidebarState = options.sidebarState;
     this.coordinatorBootstrap = options.coordinatorBootstrap;
+    this.maintenanceRestart = options.maintenanceRestart;
     const {
       clientId,
       permissions,
@@ -2421,8 +2432,34 @@ export class Session {
     if (promise) await promise;
   }
 
+  private dispatchSidebarStateMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "sidebar.state.read.request": {
+        if (!this.sidebarState) throw new Error("Sidebar synchronization is unavailable");
+        return this.sidebarState.read().then((snapshot) => {
+          return this.emit({
+            type: "sidebar.state.read.response",
+            payload: { requestId: msg.requestId, snapshot },
+          });
+        });
+      }
+      case "sidebar.state.change.request": {
+        if (!this.sidebarState) throw new Error("Sidebar synchronization is unavailable");
+        return this.sidebarState.change(msg.change).then((snapshot) => {
+          return this.emit({
+            type: "sidebar.state.change.response",
+            payload: { requestId: msg.requestId, snapshot },
+          });
+        });
+      }
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchWorkspaceLifecycleMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     return (
+      this.dispatchSidebarStateMessage(msg) ??
       this.dispatchWorkspaceStateMessage(msg) ??
       this.dispatchWorkspaceLabelMessage(msg) ??
       this.dispatchWorkspaceSetupMessage(msg) ??
@@ -2739,6 +2776,7 @@ export class Session {
           msg.reason,
           msg.idleMode,
           msg.restartDrainId,
+          msg.heldRestart,
         );
       case "shutdown_server_request":
         return this.handleShutdownServerRequest(msg.requestId);
@@ -3337,13 +3375,41 @@ export class Session {
     }
   }
 
-  private async dispatchMiscMessage(msg: SessionInboundMessage): Promise<void> {
+  private dispatchBootstrapMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
+      case "installation.claimed_recovery.list_requests.request":
+      case "installation.claimed_recovery.prepare.request":
+      case "installation.claimed_recovery.decide.request":
+        return handleClaimedRecoveryReview(msg, this.coordinatorBootstrap?.claimedRecovery).then(
+          (reply) => {
+            this.emit(reply);
+            return undefined;
+          },
+        );
+      case "installation.bootstrap_recovery.list_requests.request":
+      case "installation.bootstrap_recovery.prepare.request":
+      case "installation.bootstrap_recovery.decide.request":
+        return handlePreclaimRecoveryReview(msg, this.coordinatorBootstrap?.preclaimRecovery).then(
+          (reply) => {
+            this.emit(reply);
+            return undefined;
+          },
+        );
       case "installation.bootstrap.list_requests.request":
       case "installation.bootstrap.prepare.request":
       case "installation.bootstrap.decide.request":
-        this.emit(await handleBootstrapReview(msg, this.coordinatorBootstrap));
-        return;
+      case "installation.bootstrap.reconcile_automatic.request":
+        return handleBootstrapReview(msg, this.coordinatorBootstrap).then((reply) => {
+          this.emit(reply);
+          return undefined;
+        });
+      default:
+        return undefined;
+    }
+  }
+
+  private async dispatchMiscMessage(msg: SessionInboundMessage): Promise<void> {
+    switch (msg.type) {
       case "agent.queue.attachment.get.request":
         return this.handleQueueAttachmentRequest(msg);
       case "agent.queue.read.request":
@@ -3373,6 +3439,8 @@ export class Session {
           payload: { requestId: msg.requestId },
         });
         return;
+      default:
+        return this.dispatchBootstrapMessage(msg);
     }
   }
 
@@ -3400,7 +3468,14 @@ export class Session {
     reason?: string,
     idleMode?: "inspect" | "restart" | "drain" | "cancel-drain",
     restartDrainId?: string,
+    heldRestart?: HeldRestart,
   ): Promise<void> {
+    if (heldRestart) {
+      if (idleMode !== "restart" || restartDrainId !== heldRestart.requestId)
+        throw new Error("Acknowledged restart requires the exact held request");
+      await this.handleHeldIdleRestart(requestId, heldRestart);
+      return;
+    }
     if (idleMode === "drain" || idleMode === "cancel-drain") {
       if (!restartDrainId) throw new Error("Restart hold requires the approved request identity");
       const accepted =
@@ -3460,6 +3535,45 @@ export class Session {
       clientId: this.clientId,
       requestId,
       reason: lifecycleReason,
+    });
+  }
+
+  private async handleHeldIdleRestart(requestId: string, input: HeldRestart): Promise<void> {
+    const held = { ...input };
+    const bridge = this.maintenanceRestart;
+    if (!bridge?.supported()) throw new Error("Running supervisor lacks held restart support");
+    const impact = this.agentManager.getRestartImpact();
+    if (impact.workerPid !== held.workerPid || impact.workerInstanceId !== held.workerInstanceId)
+      throw new Error("Held restart names a different worker lifetime");
+    await this.agentManager.checkpointRestartDrain({
+      requestId: held.requestId,
+      terminateAt: held.terminateAt,
+    });
+    if (!bridge.supported() || !this.agentManager.prepareHeldIdleRestart(held))
+      throw new Error("Exact held worker is no longer ready for restart");
+    const accepted = await bridge.request({
+      requestId: held.requestId,
+      generation: held.generation,
+      workerPid: held.workerPid,
+      terminateAt: held.terminateAt,
+    });
+    if (
+      accepted.accepted !== true ||
+      accepted.requestId !== held.requestId ||
+      accepted.generation !== held.generation ||
+      accepted.workerPid !== held.workerPid ||
+      accepted.terminateAt !== held.terminateAt
+    )
+      throw new Error("Supervisor acceptance differs from the reserved restart");
+    this.emit({
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        requestId,
+        clientId: this.clientId,
+        accepted: true,
+        heldRestart: held,
+      },
     });
   }
 

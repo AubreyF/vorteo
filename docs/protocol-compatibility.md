@@ -138,6 +138,19 @@ Clients require `server_info.features.installationProviderRemoval === true` from
 
 Owner settings requests opt into this marker with `X-Vorteo-Provider-Removal: 1`. Responses to older clients omit it because their provider schema rejects unknown fields. While a removed provider exists, older clients cannot replace the provider catalog; they receive a revision conflict and must refresh to the current client. Other shared settings remain editable. Upgraded clients restore a definition explicitly with `removed: false`.
 
+## Automatic goal holds
+
+Queue and restart continuation holds use the existing native goal status `blocked`.
+The durable hold receipt owns automatic resumption after the matching queue or
+restart condition clears. Explicit goal edits and manual pauses release that
+ownership; completion and usage limits are never cleared by recovery.
+
+`COMPAT(queuePausedHold)` reads older receipts whose recorded goal is `paused`.
+Recovery requires the same goal identity, status and update timestamp. A paused
+goal without a matching receipt remains manually paused. Retain this reader until
+persisted receipts from releases that wrote automatic pauses have been drained
+or explicitly reconciled. No new wire status or required field is introduced.
+
 ## Blocked checklist items
 
 Daemons advertise `features.checklistBlockedStatus`. Clients require it before writing
@@ -151,6 +164,8 @@ The blocked status is discretionary and independent of `blockedBy` prerequisite 
 
 Daemons advertise `features.agentJournal`. The interface gates the journal card on that capability. Journal entries travel as an optional `journal` array in existing agent snapshots; older clients ignore the field, and newer clients still accept snapshots that omit it. No new WebSocket message type is sent to older clients. The caller-bound MCP tools assign append sequence and timestamp on the server, commit before broadcasting, and deduplicate retries by entry ID. Ordinary agent snapshot writes preserve the durable journal.
 
+Journal entries and append input accept optional `machineContext` text for agent reference details. The card renders only `text`; machine context remains available in journal reads and snapshots and is not a secret store. Older entries omit it, and older clients ignore it. Agents must inspect the append tool schema before sending this field to an older daemon; no client write path assumes support. Retries must retain both text and machine context exactly. The short-summary limits are writing instructions, not a narrowing of the existing wire text schema; historical entries remain readable.
+
 ## Workspace project membership at creation
 
 Clients require `workspaceCreateProjectMembership` before including optional
@@ -159,3 +174,19 @@ before publishing the workspace and retains it in creation receipts and retries.
 Requests without membership retain directory-based project placement. Older
 clients remain compatible; newer clients refuse project-bound creation on older
 daemons rather than creating a workspace under the wrong project.
+
+## Shared sidebar state
+
+`server_info.features.sidebarState` advertises authenticated `sidebar.state.read` and
+`sidebar.state.change` RPCs. Managed installations use the Host daemon as authority;
+the Dev daemon does not advertise its own independent copy. Existing clients receive no
+new unsolicited message types. New clients gate requests on the capability and show an
+update message for older standalone daemons. Sidebar patches merge individual project
+maps, while concurrent changes to the same field use the last accepted write. Initialization
+only fills an absent shared state; reconnecting never replaces it with an old device cache.
+
+## Installation worker-launch preparation
+
+Worker-launch hints and retained child records are optional additions to the existing installation request schema. They use pure structural declarations. Legacy restart digests omit absent hints, and ordinary HTTP restart replies remove the new fields for older strict requesters. Only explicit `workerLaunch=1` negotiation returns the child record.
+
+The direct installation requester checks `workerLaunch.available` before submission. Production reports it unavailable, so this preparation adds no native launch behavior or new unsolicited messages. Ordinary restart authority does not imply worker launch; the optional enrollment profile and explicit operation must match independently verified native admission before a future implementation can consume a generation.

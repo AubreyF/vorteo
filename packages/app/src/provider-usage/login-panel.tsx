@@ -1,3 +1,5 @@
+import { claudeConnectionStatus } from "./claude-connection-status";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import { useCallback, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -31,9 +33,12 @@ export function ProviderLoginPanel({
     (state) => state.sessions[serverId ?? ""]?.serverInfo?.permissions,
   );
   const canManage = permissions?.includes("daemon.manage") !== false;
-  if (!supported || (provider === "claude" && !claudeSupported))
+  const sharedClaude =
+    provider === "claude" &&
+    Boolean(readExecutionInstallation()?.environments.some((entry) => entry.serverId === serverId));
+  if (!sharedClaude && (!supported || (provider === "claude" && !claudeSupported)))
     return <Text style={styles.text}>Update this host to connect accounts here.</Text>;
-  if (!canManage)
+  if (!sharedClaude && !canManage)
     return (
       <Text style={styles.text}>
         This connection needs permission to manage the host before it can connect an account.
@@ -63,18 +68,21 @@ function LoginPanelContent({
   const login = useProviderLogin(serverId, providerId, provider);
   const { state, connected } = login;
   const showRefresh = login.readFailed || login.actionFailed;
+  const showResumeHint = login.sharedClaude
+    ? state?.status === "waiting"
+    : state?.status !== "succeeded";
   return (
     <View style={styles.body} testID="provider-login-panel">
-      <Text style={styles.text}>
-        Sign in to the {provider === "claude" ? "Claude" : "ChatGPT"} account you want to use for{" "}
-        {name}. Other account configurations and running tasks stay in place.
-      </Text>
       {login.sharedClaude ? (
         <Text style={styles.text}>
-          Connect once for Host and Dev using your Claude subscription. Environment exclusions still
-          apply.
+          Connect Claude once. Your connection synchronizes automatically.
         </Text>
-      ) : null}
+      ) : (
+        <Text style={styles.text}>
+          Sign in to the {provider === "claude" ? "Claude" : "ChatGPT"} account you want to use for{" "}
+          {name}. Other account configurations and running tasks stay in place.
+        </Text>
+      )}
       {!connected ? (
         <Text style={styles.warning}>
           Host connection lost. The sign-in attempt stays on the host; reconnect to see its result.
@@ -100,21 +108,9 @@ function LoginPanelContent({
       ) : (
         <Text style={styles.text}>Loading sign-in status…</Text>
       )}
-      {login.sharedClaude && Boolean(login.synchronization?.environments.length) ? (
-        <View style={styles.body}>
-          {login.synchronization?.environments.map((environment) => (
-            <Text key={environment.serverId} style={styles.text}>
-              {environment.serverId === serverId ? "This environment" : "Other environment"}:{" "}
-              {environment.status}
-            </Text>
-          ))}
-        </View>
-      ) : null}
-      {login.synchronization?.environments.some(
-        (environment) => environment.status === "disconnecting",
-      ) ? (
-        <Text style={styles.text}>
-          Disconnect is saved. Offline environments still need to remove their local credential.
+      {login.sharedClaude ? (
+        <Text accessibilityLiveRegion="polite" style={styles.text}>
+          {claudeConnectionStatus(login.synchronization)}
         </Text>
       ) : null}
       <LoginAction login={login} />
@@ -123,7 +119,7 @@ function LoginPanelContent({
           Disconnect subscription from this installation
         </Button>
       ) : null}
-      {state?.status !== "succeeded" ? (
+      {showResumeHint ? (
         <Text style={styles.muted}>
           You can close this panel while signing in. Reopen the account connection panel to resume.
           A code lasts up to 15 minutes.
@@ -133,15 +129,20 @@ function LoginPanelContent({
   );
 }
 
+function loginActionLabel(login: ReturnType<typeof useProviderLogin>): string {
+  if (login.state?.status === "succeeded") return "Reconnect Claude subscription";
+  if (login.state?.status === "failed" || login.state?.status === "cancelled")
+    return "Try sign-in again";
+  return login.sharedClaude ? "Connect Claude" : "Start sign-in";
+}
+
 function LoginAction({ login }: { login: ReturnType<typeof useProviderLogin> }) {
   const { state, connected, busy } = login;
   if (state?.status === "succeeded" && !login.sharedClaude) return null;
   const active =
     state?.status === "starting" || state?.status === "waiting" || state?.status === "verifying";
   const canStart = Boolean(state && !login.readFailed);
-  const retry = state?.status === "failed" || state?.status === "cancelled";
-  let label = retry ? "Try sign-in again" : "Start sign-in";
-  if (state?.status === "succeeded") label = "Reconnect Claude subscription";
+  const label = loginActionLabel(login);
   return active ? (
     <Button
       variant="outline"
@@ -169,6 +170,7 @@ function LoginProgress({
   state: ProviderLoginState;
   login: ReturnType<typeof useProviderLogin>;
 }) {
+  if (login.sharedClaude && (state.status === "idle" || state.status === "succeeded")) return null;
   if (state.status === "waiting" && state.inputRequired)
     return <BrowserCodeChallenge key={state.attemptId} state={state} login={login} />;
   if (state.status === "waiting")

@@ -83,16 +83,10 @@ function ensureWebSplashShimmerKeyframes() {
 }
 
 function LogoShimmer() {
-  const { theme } = useUnistyles();
-
-  if (isWeb) {
-    return <WebLogoShimmer color={theme.colors.foreground} />;
-  }
-
-  return <NativeLogoShimmer color={theme.colors.foreground} />;
+  return isWeb ? <WebLogoShimmer /> : <NativeLogoShimmer />;
 }
 
-function WebLogoShimmer({ color }: { color: string }) {
+function WebLogoShimmer() {
   useEffect(() => {
     ensureWebSplashShimmerKeyframes();
   }, []);
@@ -105,20 +99,26 @@ function WebLogoShimmer({ color }: { color: string }) {
       WebkitMaskSize: "contain",
       WebkitMaskRepeat: "no-repeat",
       WebkitMaskPosition: "center",
-      background: `linear-gradient(90deg, ${color} 0%, ${color}88 40%, ${color}FF 50%, ${color}88 60%, ${color} 100%)`,
+      position: "absolute",
+      background: "linear-gradient(90deg, transparent 40%, #ffffff55 50%, transparent 60%)",
       backgroundSize: `${LOGO_SIZE + SHIMMER_PEAK_WIDTH * 2}px ${LOGO_SIZE}px`,
       animationName: WEB_SPLASH_SHIMMER_ANIMATION_NAME,
       animationDuration: `${SHIMMER_DURATION_MS}ms`,
       animationTimingFunction: "linear",
       animationIterationCount: "infinite",
     }),
-    [color],
+    [],
   );
 
-  return <View style={shimmerStyle as never} />;
+  return (
+    <View>
+      <VorteoLogo size={LOGO_SIZE} />
+      <View pointerEvents="none" style={shimmerStyle as never} />
+    </View>
+  );
 }
 
-function NativeLogoShimmer({ color }: { color: string }) {
+function NativeLogoShimmer() {
   const shimmerTranslateX = useSharedValue(-SHIMMER_PEAK_WIDTH);
 
   useEffect(() => {
@@ -163,7 +163,7 @@ function NativeLogoShimmer({ color }: { color: string }) {
     <MaskedView style={trackStyle} maskElement={maskElement}>
       <View style={trackStyle}>
         <View style={styles.nativeShimmerBase}>
-          <VorteoLogo size={LOGO_SIZE} color={color} />
+          <VorteoLogo size={LOGO_SIZE} />
         </View>
         <Animated.View style={peakCombinedStyle}>
           <Svg width="100%" height="100%" preserveAspectRatio="none">

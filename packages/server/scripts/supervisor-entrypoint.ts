@@ -17,7 +17,14 @@ import { loadPersistedConfig, readPersistedConfig } from "../src/server/persiste
 import { parseControllerLifetimeFd, runSupervisor } from "./supervisor.js";
 import { resolveSupervisorLogFile } from "./supervisor-log-config.js";
 
-process.title = "Paseo Supervisor";
+// Managed maintenance verifies the launch entry through OS arguments. Changing
+// the title overwrites that evidence, just as it does for a managed worker.
+if (
+  (!process.env.PASEO_MANAGED_RELEASE_LINK || !process.env.PASEO_MANAGED_RELEASE_ROOT) &&
+  !process.env.VORTEO_INSTALLATION_CLIENT_CONFIG &&
+  !process.env.VORTEO_COORDINATOR_BOOTSTRAP_SETUP
+)
+  process.title = "Paseo Supervisor";
 
 interface DaemonRunnerConfig {
   devMode: boolean;

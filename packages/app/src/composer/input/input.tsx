@@ -6,12 +6,12 @@ import {
   View,
   Text,
   Pressable,
-  useWindowDimensions,
   NativeSyntheticEvent,
   TextInputKeyPressEventData,
   TextInputSelectionChangeEventData,
   type LayoutChangeEvent,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import {
   useState,
   useRef,
@@ -77,7 +77,7 @@ import {
 } from "@/components/ui/text-input";
 
 const ComposerTextInput = withUnistyles(EditingTextInput, (theme) => ({
-  placeholderTextColor: theme.colors.surface4,
+  placeholderTextColor: theme.colors.foregroundExtraMuted,
 }));
 import {
   resolveSendTooltipLabel,
@@ -166,7 +166,7 @@ export interface MessageInputProps {
    *  running. "interrupt" and "steer" send immediately, "queue" queues. Required so the default
    *  lives only in DEFAULT_CLIENT_SETTINGS. */
   defaultSendBehavior: "interrupt" | "steer" | "queue";
-  /** Callback for queue button when agent is running */
+  /** Callback for explicitly queueing without starting the agent. */
   onQueue?: (payload: MessagePayload) => void;
   /** Optional handler used when submit button is in loading state. */
   onSubmitLoadingPress?: () => void;
@@ -450,7 +450,7 @@ function handleDesktopKeyPressImpl(
 
   if (ctx.isSubmitDisabled || ctx.isSubmitLoading || ctx.disabled) return;
   event.preventDefault();
-  if ((metaKey || ctrlKey) && ctx.isAgentRunning && ctx.onQueue) {
+  if ((metaKey || ctrlKey) && ctx.onQueue) {
     ctx.handleAlternateSendAction();
     return;
   }
@@ -1286,8 +1286,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const touch = useVortonTouch();
     const mobileComposer = useMobileComposerLayout();
     const showMobileQueue = useMemo(
-      () => mobileComposer.enabled && isAgentRunning && Boolean(onQueue) && !readOnly,
-      [mobileComposer.enabled, isAgentRunning, onQueue, readOnly],
+      () => mobileComposer.enabled && Boolean(onQueue) && !readOnly,
+      [mobileComposer.enabled, onQueue, readOnly],
     );
     const showSubmitModifiers = supportsSubmitModifiers({
       isWeb,
@@ -1297,7 +1297,11 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     });
     const { modifier: submitModifier, reset: resetSubmitModifier } =
       useSubmitModifier(showSubmitModifiers);
-    const isNewlineAction = submitModifier === "newline";
+    const isNewlineAction = !showMobileQueue && submitModifier === "newline";
+    const highlightQueue = useMemo(
+      () => showMobileQueue && submitModifier === "alternate",
+      [showMobileQueue, submitModifier],
+    );
 
     const { height: windowHeight } = useWindowDimensions();
     const maxInputHeight = resolveMaxInputHeight(windowHeight);
@@ -1731,6 +1735,16 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     function handleDesktopKeyPress(event: WebTextInputKeyPressEvent) {
       if (!shouldHandleWebKeyPress) return;
+      const queueShortcut =
+        showMobileQueue &&
+        event.nativeEvent.key === "Enter" &&
+        (event.nativeEvent.metaKey || event.nativeEvent.ctrlKey) &&
+        !event.nativeEvent.shiftKey;
+      if (queueShortcut && !isImeComposingKeyboardEvent(event.nativeEvent)) {
+        event.preventDefault();
+        if (!isSendButtonDisabled) handleQueueMessage();
+        return;
+      }
       handleDesktopKeyPressImpl(event, {
         onKeyPressCallback,
         input: getComposerInputSnapshot(
@@ -1901,6 +1915,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       () => [
         styles.inputWrapper,
         taskCardStyles.surface,
+        touch && !mobileComposer.enabled && styles.touchInputSurface,
         mobileComposer.enabled && { paddingBottom: mobileComposer.bottomPadding },
         readOnly && styles.inputWrapperReadOnly,
         inputWrapperStyle,
@@ -1910,6 +1925,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       ],
       [
         inputWrapperStyle,
+        touch,
         readOnly,
         surfacePresentation.input.opacity,
         mobileComposer.enabled,
@@ -1942,10 +1958,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         styles.sendButton,
         touch && styles.touchButton,
         submitLabel ? styles.sendButtonLabeled : undefined,
-        isNewlineAction && styles.sendButtonNewline,
+        (isNewlineAction || highlightQueue) && styles.sendButtonNewline,
         buttonDisabled && styles.buttonDisabled,
       ],
-      [buttonDisabled, isNewlineAction, submitLabel, touch],
+      [buttonDisabled, isNewlineAction, highlightQueue, submitLabel, touch],
     );
     const overlayContainerStyle = useMemo(
       () => [styles.overlayContainer, { opacity: surfacePresentation.overlay.opacity }],
@@ -2003,17 +2019,18 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
               styles.sendButton,
               styles.touchButton,
               styles.mobileQueueButton,
+              !highlightQueue && styles.sendButtonNewline,
               isSendButtonDisabled && styles.buttonDisabled,
             ]}
           >
             <ThemedListPlus size={buttonIconSize} uniProps={iconAccentForegroundMapping} />
           </Pressable>
         ) : null,
-      [showMobileQueue, isSendButtonDisabled, handleQueueMessage, buttonIconSize],
+      [showMobileQueue, isSendButtonDisabled, handleQueueMessage, buttonIconSize, highlightQueue],
     );
     const queueRecordingAction = useMemo(
-      () => (showMobileQueue ? handleAcceptAndQueueRecording : undefined),
-      [showMobileQueue, handleAcceptAndQueueRecording],
+      () => (onQueue && !readOnly ? handleAcceptAndQueueRecording : undefined),
+      [onQueue, readOnly, handleAcceptAndQueueRecording],
     );
     const dictationPlacement = placeDictationButton(
       voiceButton,
@@ -2042,7 +2059,6 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         >
           {attachmentSlot}
           {dictationPlacement.top}
-          {mobileQueueButton}
           {/* Text input */}
           <RenderProfile id="ComposerTextSurface">
             <ComposerTextSurface
@@ -2072,6 +2088,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             />
           </RenderProfile>
 
+          {mobileQueueButton}
           {/* Button row */}
           <View style={styles.buttonRow}>
             {/* Toolbar left: attachment button + agent controls */}
@@ -2183,14 +2200,21 @@ const styles = StyleSheet.create((theme: Theme) => ({
   inputWrapperReadOnly: {
     borderStyle: "dotted",
   },
+  touchInputSurface: {
+    paddingTop: COMPOSER_CORNER_INSET,
+    paddingBottom: { xs: theme.spacing[3] - 6, md: theme.spacing[4] - 6 },
+    gap: theme.spacing[2],
+  },
   mobileInputSurface: {
     backgroundColor: "transparent",
     borderColor: "transparent",
     borderRadius: 0,
   },
-  mobileQueueSurface: { minHeight: 172, justifyContent: "space-between" },
+  // Three 44px actions, two 8px gaps, and matching 8px top/bottom insets.
+  mobileQueueSurface: { minHeight: 164, justifyContent: "space-between" },
   mobileQueueButton: {
     position: "absolute",
+    zIndex: 1,
     bottom: 59,
     right: 7,
   },

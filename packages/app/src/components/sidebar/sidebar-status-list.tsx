@@ -1,3 +1,6 @@
+import { useScrollReporter } from "../use-scroll-divider";
+import { NestableScrollDivider } from "../nestable-scroll-divider";
+import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
 import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import {
   memo,
@@ -114,6 +117,7 @@ function statusWorkspaceKeyExtractor(workspace: SidebarWorkspaceEntry): string {
 }
 
 interface StatusWorkspaceListProps {
+  onScrolledChange?: (scrolled: boolean) => void;
   groups: SidebarWorkspaceGroup[];
   pinnedWorkspaces: SidebarWorkspaceEntry[];
   projectIconByProjectViewKey: ReadonlyMap<string, string | null>;
@@ -133,6 +137,7 @@ interface StatusWorkspaceListProps {
 }
 
 export function SidebarStatusWorkspaceList({
+  onScrolledChange,
   groups,
   pinnedWorkspaces,
   projectIconByProjectViewKey,
@@ -149,6 +154,7 @@ export function SidebarStatusWorkspaceList({
   parentGestureRef,
   dragGestureHostActive,
 }: StatusWorkspaceListProps) {
+  const onScroll = useScrollReporter(onScrolledChange);
   const collapsedWorkspaceGroupKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedWorkspaceGroupKeys,
   );
@@ -258,8 +264,11 @@ export function SidebarStatusWorkspaceList({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           testID="sidebar-status-list-scroll"
         >
+          <NestableScrollDivider onChange={onScrolledChange} />
           {content}
         </NestableScrollContainer>
       ) : (
@@ -267,6 +276,8 @@ export function SidebarStatusWorkspaceList({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           testID="sidebar-status-list-scroll"
         >
           {content}
@@ -973,9 +984,11 @@ function StatusWorkspaceActionSlot({
   archivePendingLabel?: string;
   archiveShortcutKeys?: ShortcutKey[][] | null;
 }) {
+  const sessionMenu = useWorkspaceSessionMenu(workspace.serverId, workspace.workspaceId);
   const kebab = useOpenKebabMenuVisibility(showKebab);
   return (
     <SidebarWorkspaceTrailingActionSlot>
+      {sessionMenu.sheet}
       <SidebarWorkspaceTrailingActionBase presentation={trailingPresentation}>
         <SidebarWorkspaceTrailingContent workspace={workspace} trailing={trailing} />
       </SidebarWorkspaceTrailingActionBase>
@@ -983,6 +996,7 @@ function StatusWorkspaceActionSlot({
       <SidebarWorkspaceMenuReveal visible={kebab.showKebab} backdrop={backdrop}>
         {kebab.showKebab && onArchive ? (
           <SidebarWorkspaceMenu
+            {...sessionMenu}
             {...kebab.menuProps}
             backdrop={backdrop}
             workspaceKey={workspace.workspaceKey}
@@ -1039,7 +1053,7 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
   },
   listContent: {
-    paddingHorizontal: theme.spacing[2],
+    // The enclosing panel owns adaptive insets, as it does for right-hand cards.
     // Keep status mode's Pinned/Workspaces boundary identical to project mode.
     paddingTop: 2,
     paddingBottom: theme.spacing[4],
@@ -1107,7 +1121,7 @@ const styles = StyleSheet.create((theme) => ({
     marginBottom: theme.spacing[0.5],
     paddingVertical: theme.spacing[2],
     paddingLeft: theme.spacing[2],
-    paddingRight: theme.spacing[3],
+    paddingRight: theme.spacing[2] + theme.spacing[0.5],
     borderRadius: theme.borderRadius.lg,
     flexDirection: "column",
     alignItems: "stretch",

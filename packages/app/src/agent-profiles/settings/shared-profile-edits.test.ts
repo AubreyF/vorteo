@@ -103,3 +103,17 @@ it("saves the exact installation account separately from the shared worker ident
   expect(cleared.workerAccount).toBeUndefined();
   expect(cleared.workerProfileId).toBe("");
 });
+
+it("preserves uncapped worker inheritance while moving delegation out of defaults", () => {
+  const group = {
+    defaults: { workerProfileId: "worker", uncappedWorkers: true },
+    workflows: [{ id: "team", name: "Team", provider: "codex" }],
+    preferredModels: [],
+    preferredThinkingOptions: [],
+    defaultWorkflowId: null,
+  };
+  const changed = replaceProviderDefaults(group, { model: "gpt-5.4" });
+  expect(changed.workflows[0].uncappedWorkers).toBe(true);
+  expect(changed.defaults.uncappedWorkers).toBe(false);
+  expect(replaceProviderDefaults(changed, changed.defaults)).toEqual(changed);
+});

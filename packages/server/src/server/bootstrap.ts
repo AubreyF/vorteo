@@ -1,4 +1,8 @@
-import { createConfiguredBootstrapReview } from "./execution-installation/coordinator-bootstrap-launch.js";
+import { BlockedTaskReviewService } from "./agent/task-checklist/review-service.js";
+import {
+  createConfiguredBootstrapReview,
+  deferBootstrapReview,
+} from "./execution-installation/coordinator-bootstrap-launch.js";
 import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
 import { ScheduleStore } from "./schedule/store.js";
 import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
@@ -261,7 +265,10 @@ import {
 import { NativeFactorySetupService } from "./factory/setup-service.js";
 import { createFactoryCoordinatorBinder } from "./factory/create-coordinator-binder.js";
 import { createFactoryStageNativeRuntime } from "./factory/governed-stage-native.js";
-import { captureFactoryWorkerProfile } from "./factory/capture-worker-profile.js";
+import {
+  captureFactoryWorkerProfile,
+  readFactoryConfiguredProfiles,
+} from "./factory/capture-worker-profile.js";
 import { createFactoryScheduleInspection } from "./factory/native-schedule-inspection.js";
 import { createFactoryPrepaidPolicyApplication } from "./factory/apply-prepaid-policy.js";
 import { createFactoryControllerObservationSource } from "./factory/create-controller-observation-source.js";
@@ -421,6 +428,7 @@ export type DaemonLifecycleIntent =
     };
 
 export interface PaseoDaemonConfig {
+  maintenanceRestart?: import("./maintenance-restart-channel.js").MaintenanceRestartBridge;
   listen: string;
   paseoHome: string;
   daemonVersion?: string;
@@ -696,10 +704,9 @@ export async function createPaseoDaemon(
   });
 
   const serverId = getOrCreateServerId(config.paseoHome, { logger });
-  const coordinatorBootstrap = await createConfiguredBootstrapReview(serverId).catch(() => {
-    logger.warn("Coordinator bootstrap setup is unavailable; maintenance capability disabled");
-    return undefined;
-  });
+  const coordinatorBootstrap = deferBootstrapReview(() =>
+    createConfiguredBootstrapReview(serverId),
+  );
   const daemonKeyPair = await loadOrCreateDaemonKeyPair(config.paseoHome, logger);
   const managedProcesses = createBootstrapManagedProcessRegistry(config, logger);
   // Reconcile the helper-process ledger in the background so it never blocks the
@@ -1527,7 +1534,8 @@ export async function createPaseoDaemon(
         projects: projectRegistry,
         workspaces: workspaceRegistry,
         agents: agentStorage,
-        readProfiles: () => daemonConfigStore.get().agentProfiles ?? [],
+        readProfiles: (provider, profileId) =>
+          readFactoryConfiguredProfiles(daemonConfigStore.get(), provider, profileId),
         store: governorStore,
         canDispatch: canDispatchFactory,
       }),
@@ -1538,7 +1546,8 @@ export async function createPaseoDaemon(
         projects: projectRegistry,
         workspaces: workspaceRegistry,
         agents: agentStorage,
-        readProfiles: () => daemonConfigStore.get().agentProfiles ?? [],
+        readProfiles: (provider, profileId) =>
+          readFactoryConfiguredProfiles(daemonConfigStore.get(), provider, profileId),
       }),
     },
     factoryObservation: {
@@ -1586,6 +1595,7 @@ export async function createPaseoDaemon(
     createPaseoWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
     archiveWorkspace: archiveScheduleWorkspaceExternal,
   });
+  const blockedTaskReviews = new BlockedTaskReviewService({ agentManager, agentStorage, logger });
   quotaReservePolling.start();
   await scheduleService.start();
   factoryScheduleInspection.activate(scheduleService);
@@ -1913,6 +1923,7 @@ export async function createPaseoDaemon(
               mcpBaseUrl,
               {
                 coordinatorBootstrap,
+                maintenanceRestart: config.maintenanceRestart,
                 getAllowedOrigins: () => allowedOrigins,
                 getHostnames: () => configuredHostnames,
                 daemonStatusRpc: dependencies.serverFeatureOverrides?.daemonStatusRpc,
@@ -2020,7 +2031,9 @@ export async function createPaseoDaemon(
       // model loading doesn't block the server from accepting connections.
       speechService.start();
       scriptHealthMonitor.start();
+      blockedTaskReviews.start();
     } catch (error) {
+      blockedTaskReviews.stop();
       factoryScheduleInspection.revoke();
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
@@ -2061,6 +2074,7 @@ export async function createPaseoDaemon(
   };
 
   const stop = async () => {
+    blockedTaskReviews.stop();
     factoryScheduleInspection.revoke();
     quotaPreflight.stop();
     // Close ingress before waiting for metadata processes or other teardown.

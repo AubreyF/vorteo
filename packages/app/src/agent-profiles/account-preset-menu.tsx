@@ -6,14 +6,8 @@ import { ProfileAction } from "./profile-action";
 import { ProfileSelectorTile, ProfileLoading } from "./profile-selector-tile";
 import { profileCatalogState, sharedChoiceState, type LaunchChoices } from "./shared-choices";
 import { useCallback, useMemo, useReducer, useState, type ReactNode } from "react";
-import {
-  Keyboard,
-  ScrollView,
-  Text,
-  View,
-  useWindowDimensions,
-  type LayoutChangeEvent,
-} from "react-native";
+import { Keyboard, ScrollView, Text, View, type LayoutChangeEvent } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -46,6 +40,7 @@ export interface PresetEnvironment {
 }
 
 interface AccountPresetMenuProps {
+  inline?: boolean;
   serverId: string | null;
   environments: PresetEnvironment[];
   onEnvironment: (serverId: string) => void;
@@ -115,6 +110,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
   const list = useMemo(
     () => (
       <AccountList
+        singleLine={props.inline}
         accounts={accounts}
         account={account}
         serverId={props.serverId}
@@ -154,7 +150,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           heading={profileHeading}
         />
       ) : (
-        <View style={[settingsStyles.card, styles.detailCard]}>
+        <View style={[settingsStyles.card, styles.detailCard, props.inline && styles.inlineColumn]}>
           {profileHeading}
           {props.loading ? (
             <ProfileLoading label="Loading profiles" />
@@ -170,6 +166,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
       <View style={styles.accountList}>
         {props.environments.map((item) => (
           <EnvironmentButton
+            singleLine={props.inline}
             key={item.serverId}
             environment={item}
             selected={item.serverId === props.serverId}
@@ -178,7 +175,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
         ))}
       </View>
     ),
-    [props.environments, props.serverId, selectEnvironment],
+    [props.environments, props.serverId, props.inline, selectEnvironment],
   );
   const environmentIcon = useMemo(
     () => <ExecutionEnvironmentIcon serverId={props.serverId} />,
@@ -186,21 +183,24 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
   );
   return (
     <View style={styles.root} testID="account-preset-menu">
-      <View style={styles.header}>
-        <Text style={styles.menuTitle}>Choose profile</Text>
-        {!compact ? (
-          <Button
-            variant="ghost"
-            size={headerSize}
-            onPress={props.onManage}
-            testID="preset-manage-profiles"
-          >
-            Manage profiles
-          </Button>
-        ) : null}
-      </View>
+      {!props.inline ? (
+        <View style={styles.header}>
+          <Text style={styles.menuTitle}>Choose profile</Text>
+          {!compact ? (
+            <Button
+              variant="ghost"
+              size={headerSize}
+              onPress={props.onManage}
+              testID="preset-manage-profiles"
+            >
+              Manage profiles
+            </Button>
+          ) : null}
+        </View>
+      ) : null}
       {compact ? (
         <CompactSelector
+          inline={props.inline}
           navigation={navigation.section}
           onSection={showSection}
           environmentLabel={environment?.label ?? "Current environment"}
@@ -212,19 +212,28 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           details={details}
         />
       ) : (
-        <View style={styles.split}>
+        <View style={[styles.split, props.inline && styles.inlineSplit]}>
           <View
-            style={[settingsStyles.card, styles.environmentCard]}
+            style={[
+              settingsStyles.card,
+              styles.environmentCard,
+              props.inline && styles.inlineColumn,
+            ]}
             testID="preset-environment-card"
           >
             <ColumnHeading section="environment" label="Environment" />
             <ScrollView>{environments}</ScrollView>
           </View>
-          <View style={[settingsStyles.card, styles.accountCard]}>
+          <View
+            style={[settingsStyles.card, styles.accountCard, props.inline && styles.inlineColumn]}
+            testID="preset-account-card"
+          >
             <ColumnHeading section="account" label="Account" />
             <ScrollView keyboardShouldPersistTaps="handled">{list}</ScrollView>
           </View>
-          <View style={styles.profileCard}>{details}</View>
+          <View style={styles.profileCard} testID="preset-profile-column">
+            {details}
+          </View>
         </View>
       )}
     </View>
@@ -232,6 +241,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
 }
 
 function AccountList({
+  singleLine,
   accounts,
   account,
   serverId,
@@ -241,6 +251,7 @@ function AccountList({
   renderBadge,
   renderAccountDetails,
 }: {
+  singleLine?: boolean;
   accounts: AccountPresets[];
   account: AccountPresets | undefined;
   serverId: string | null;
@@ -260,6 +271,7 @@ function AccountList({
           testID={`preset-reveal-account-${group.provider}`}
         >
           <AccountButton
+            singleLine={singleLine}
             serverId={serverId}
             group={group}
             active={group === account}
@@ -281,6 +293,7 @@ function AccountList({
 }
 
 function CompactSelector({
+  inline,
   navigation,
   onSection,
   environmentLabel,
@@ -291,6 +304,7 @@ function CompactSelector({
   accounts,
   details,
 }: {
+  inline?: boolean;
   navigation: SelectorSection;
   onSection: (section: SelectorSection) => void;
   environmentLabel: string;
@@ -301,9 +315,10 @@ function CompactSelector({
   accounts: ReactNode;
   details: ReactNode;
 }) {
+  const ListScrollView = inline ? ScrollView : BottomSheetScrollView;
   return (
-    <View style={styles.compactBody}>
-      <View style={settingsStyles.card}>
+    <View style={[styles.compactBody, inline && styles.inlineCompactBody]}>
+      <View style={[settingsStyles.card, inline && styles.inlineColumn]}>
         <SectionButton
           section="environment"
           label="Environment"
@@ -313,10 +328,11 @@ function CompactSelector({
           onSection={onSection}
         />
         {navigation === "environment" ? (
-          <BottomSheetScrollView style={styles.compactList}>{environments}</BottomSheetScrollView>
+          <ListScrollView style={styles.compactList}>{environments}</ListScrollView>
         ) : null}
       </View>
-      <View style={settingsStyles.card}>
+
+      <View style={[settingsStyles.card, inline && styles.inlineColumn]}>
         <SectionButton
           section="account"
           label="Account"
@@ -325,16 +341,16 @@ function CompactSelector({
           onSection={onSection}
         />
         {navigation === "account" ? (
-          <BottomSheetScrollView style={styles.compactList} keyboardShouldPersistTaps="handled">
+          <ListScrollView style={styles.compactList} keyboardShouldPersistTaps="handled">
             {accounts}
-          </BottomSheetScrollView>
+          </ListScrollView>
         ) : null}
       </View>
       <View style={navigation === "profile" && styles.compactProfile}>
         {navigation === "profile" ? (
           details
         ) : (
-          <View style={settingsStyles.card}>
+          <View style={[settingsStyles.card, inline && styles.inlineColumn]}>
             <SectionButton
               section="profile"
               label="Profile"
@@ -431,10 +447,12 @@ function SectionButton({
 }
 
 function EnvironmentButton({
+  singleLine,
   environment,
   selected,
   onSelect,
 }: {
+  singleLine?: boolean;
   environment: PresetEnvironment;
   selected: boolean;
   onSelect: (id: string) => void;
@@ -449,6 +467,7 @@ function EnvironmentButton({
   );
   return (
     <ProfileSelectorTile
+      singleLine={singleLine}
       label={environment.label}
       leading={environmentIcon}
       selected={selected}
@@ -477,6 +496,7 @@ const ThemedProviderGlyph = withUnistyles(ProviderGlyph, (theme) => ({
 }));
 
 function AccountButton({
+  singleLine,
   serverId,
   group,
   active,
@@ -484,6 +504,7 @@ function AccountButton({
   renderBadge,
   renderAccountDetails,
 }: {
+  singleLine?: boolean;
   serverId: string | null;
   group: AccountPresets;
   active: boolean;
@@ -497,6 +518,7 @@ function AccountButton({
 
   return (
     <ProfileSelectorTile
+      singleLine={singleLine}
       leading={icon}
       badge={renderBadge(group.rows[0])}
       subtitle={renderAccountDetails(group.rows[0])}
@@ -525,7 +547,10 @@ function AccountChoices(props: AccountChoicesProps) {
   }
   if (!loading && !catalogError) return <ReadyAccountChoices {...props} />;
   return (
-    <View style={[settingsStyles.card, styles.detailCard]} testID="preset-profile-card">
+    <View
+      style={[settingsStyles.card, styles.detailCard, props.inline && styles.inlineColumn]}
+      testID="preset-profile-card"
+    >
       {props.heading}
       {loading ? (
         <ProfileLoading label="Loading profiles" />
@@ -555,8 +580,11 @@ function ReadyAccountChoices({ account, inspected, rows, heading, ...props }: Ac
   const measureList = useCallback((event: LayoutChangeEvent) => {
     setListWidth(event.nativeEvent.layout.width);
   }, []);
-  const grid = props.compact ? listWidth >= 340 : width >= 1100;
-  const DetailScrollView = props.compact ? BottomSheetScrollView : ScrollView;
+  const grid = useMemo(
+    () => !props.inline && (props.compact ? listWidth >= 340 : width >= 1100),
+    [props.inline, props.compact, listWidth, width],
+  );
+  const DetailScrollView = props.compact && !props.inline ? BottomSheetScrollView : ScrollView;
   const inspectedId = inspected?.id;
   const entry = props.entries?.find((candidate) => candidate.provider === account.provider);
   const saved = props.definitions.find((profile) => profile.id === inspectedId);
@@ -573,11 +601,14 @@ function ReadyAccountChoices({ account, inspected, rows, heading, ...props }: Ac
     account.provider === props.currentProvider &&
     inspectedId === props.activeProfileId;
   const hasSelection = Boolean(inspected && inspected.id === props.inspectedId);
-  const showAction = hasSelection && !isActive;
+  const showAction = !props.inline && hasSelection && !isActive;
   const actionLabel = props.activeProfileId ? "Switch to Profile" : "Activate Profile";
   return (
     <View style={styles.detail} testID={`preset-choices-${account.provider}`}>
-      <View style={[settingsStyles.card, styles.detailCard]} testID="preset-profile-card">
+      <View
+        style={[settingsStyles.card, styles.detailCard, props.inline && styles.inlineColumn]}
+        testID="preset-profile-card"
+      >
         {heading}
         <DetailScrollView
           testID="preset-profile-scroll"
@@ -598,6 +629,7 @@ function ReadyAccountChoices({ account, inspected, rows, heading, ...props }: Ac
                   testID={`preset-reveal-profile-${row.id}`}
                 >
                   <ProfileChoice
+                    singleLine={props.inline}
                     row={row}
                     selected={hasSelection && row.id === inspectedId}
                     definition={props.definitions.find((profile) => profile.id === row.id)}
@@ -607,23 +639,12 @@ function ReadyAccountChoices({ account, inspected, rows, heading, ...props }: Ac
                 </ChooserReveal>
               ))}
             </View>
-            <ChooserReveal
-              key={`${props.serverId}:${inspectedId}`}
-              sweep
-              style={styles.profileDetails}
-            >
-              {rows.length === 0 ? (
-                <Text style={styles.summary} testID="preset-no-compatible-profiles">
-                  No saved profiles match this account’s available models and reasoning levels.
-                  Manage profiles to review their requirements.
-                </Text>
-              ) : null}
-              {inspected?.localEndpoint ? props.renderRail(inspected) : null}
-              {definition ? (
-                <ProfileDetailsView serverId={props.serverId} profile={definition} compact />
-              ) : null}
-              <WorkflowInstructions definition={definition} definitions={props.definitions} />
-            </ChooserReveal>
+            <ProfileSummary
+              {...props}
+              inspected={inspected}
+              definition={definition}
+              empty={rows.length === 0}
+            />
           </View>
         </DetailScrollView>
       </View>
@@ -634,6 +655,36 @@ function ReadyAccountChoices({ account, inspected, rows, heading, ...props }: Ac
         label={actionLabel}
       />
     </View>
+  );
+}
+
+function ProfileSummary(
+  props: AccountPresetMenuProps & {
+    inspected: AgentProfilePickerRow | undefined;
+    definition: AgentProfile | undefined;
+    empty: boolean;
+  },
+) {
+  return (
+    <ChooserReveal
+      key={`${props.serverId}:${props.inspected?.id}`}
+      sweep
+      style={styles.profileDetails}
+    >
+      {props.empty ? (
+        <Text style={styles.summary} testID="preset-no-compatible-profiles">
+          No saved profiles match this account’s available models and reasoning levels. Manage
+          profiles to review their requirements.
+        </Text>
+      ) : null}
+      {props.inspected?.localEndpoint ? props.renderRail(props.inspected) : null}
+      {!props.inline && props.definition ? (
+        <ProfileDetailsView serverId={props.serverId} profile={props.definition} compact />
+      ) : null}
+      {!props.inline ? (
+        <WorkflowInstructions definition={props.definition} definitions={props.definitions} />
+      ) : null}
+    </ChooserReveal>
   );
 }
 
@@ -658,7 +709,10 @@ function WorkflowInstructions({
           <Text style={[styles.summary, styles.sectionContent]}>
             {definitions.find((profile) => profile.id === definition.workerProfileId)?.name ??
               definition.workerProfileId}{" "}
-            · Up to {definition.maxWorkers ?? 2}
+            ·{" "}
+            {definition.uncappedWorkers === true
+              ? "Uncapped"
+              : `Up to ${definition.maxWorkers ?? 2}`}
           </Text>
         </>
       ) : null}
@@ -667,12 +721,14 @@ function WorkflowInstructions({
 }
 
 function ProfileChoice({
+  singleLine,
   row,
   selected,
   definition,
   entry,
   onInspect,
 }: {
+  singleLine?: boolean;
   row: AgentProfilePickerRow;
   selected: boolean;
   definition: AgentProfile | undefined;
@@ -689,6 +745,7 @@ function ProfileChoice({
     .join(" · ");
   return (
     <ProfileSelectorTile
+      singleLine={singleLine}
       label={row.name}
       subtitle={summary}
       selected={selected}
@@ -721,8 +778,10 @@ const styles = StyleSheet.create((theme) => ({
     paddingTop: 0,
     gap: theme.spacing[2],
   },
+  inlineSplit: { padding: 0, gap: theme.spacing[2] },
   environmentCard: { flex: 0.9, minWidth: 240 },
   accountCard: { flex: 1.3, minWidth: 320 },
+  inlineColumn: { minWidth: 0, borderRadius: theme.borderRadius["2xl"], overflow: "hidden" },
   profileCard: { flex: 1.7, minWidth: 0 },
   sectionIcons: {
     flexDirection: "row",
@@ -765,6 +824,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[3],
     lineHeight: Math.ceil(theme.fontSize.base * 1.5),
   },
+  inlineCompactBody: { padding: 0, gap: theme.spacing[2] },
   compactBody: { flex: 1, minHeight: 0, padding: theme.spacing[3], gap: theme.spacing[2] },
   compactList: { maxHeight: 220 },
   compactProfile: { flex: 1, minHeight: 0 },

@@ -138,12 +138,62 @@ describe("AgentStorage", () => {
   let storage: AgentStorage;
   const logger = createTestLogger();
 
+  test("blocked review claims survive stale snapshots and restart without replay", async () => {
+    const agent = createManagedAgent({
+      id: "blocked-review",
+      persistence: { provider: "claude", sessionId: "retained" },
+    });
+    agent.labels = {};
+    await storage.applySnapshot(agent);
+    await storage.mutateChecklist(agent.id, { operation: "create", id: "task", text: "Review" });
+    await storage.mutateChecklist(agent.id, { operation: "update", id: "task", status: "blocked" });
+    const now = Date.now() + 3_600_001;
+    expect(await storage.claimBlockedReview(agent.id, now)).toBe(true);
+    await storage.applySnapshot(agent);
+    const reopened = new AgentStorage(storagePath, logger);
+    expect(await reopened.claimBlockedReview(agent.id, now + 1)).toBe(false);
+    expect(await reopened.claimBlockedReview(agent.id, now + 3_600_000)).toBe(true);
+    await reopened.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "task",
+      status: "pending",
+    });
+    expect(await reopened.claimBlockedReview(agent.id, now + 7_200_000)).toBe(false);
+  });
+
+  test("blocked goal discovery survives reload and stale snapshots without resetting activity", async () => {
+    const agent = createManagedAgent({
+      id: "blocked-goal-review",
+      persistence: { provider: "codex", sessionId: "retained" },
+    });
+    agent.labels = {};
+    await storage.applySnapshot(agent);
+    const original = await storage.get(agent.id);
+    await storage.updateBlockedGoalReview(agent.id, true);
+    await storage.applySnapshot(agent);
+    const reopened = new AgentStorage(storagePath, logger);
+    expect(await reopened.get(agent.id)).toMatchObject({
+      blockedGoalReviewNeeded: true,
+      lastActivityAt: original!.lastActivityAt,
+      updatedAt: original!.updatedAt,
+    });
+    const now = Date.now() + 3_600_001;
+    expect(await reopened.claimBlockedReview(agent.id, now)).toBe(true);
+    expect(await reopened.claimBlockedReview(agent.id, now + 1)).toBe(false);
+    await reopened.updateBlockedGoalReview(agent.id, false);
+    agent.blockedGoalReviewNeeded = true;
+    await reopened.applySnapshot(agent);
+    expect((await reopened.get(agent.id))?.blockedGoalReviewNeeded).toBe(false);
+    expect(await reopened.claimBlockedReview(agent.id, now + 7_200_000)).toBe(false);
+  });
+
   test("journal appends preserve order, survive stale snapshots and retry without duplication", async () => {
     const agent = createManagedAgent({ id: "journal" });
     await storage.applySnapshot(agent);
     const first = {
       entryId: "11111111-1111-4111-8111-111111111111",
       text: "Chose the durable store.",
+      machineContext: "commit=abc123; task=11111111-1111-4111-8111-111111111111\nRecovery notes.",
     };
     const second = { entryId: "22222222-2222-4222-8222-222222222222", text: "Verified recovery." };
     const entries = await Promise.all([
@@ -152,11 +202,21 @@ describe("AgentStorage", () => {
     ]);
     expect(entries.map((entry) => entry.sequence)).toEqual([1, 2]);
     expect(entries.map((entry) => entry.text)).toEqual([first.text, second.text]);
+    expect(entries.map((entry) => entry.machineContext)).toEqual([first.machineContext, undefined]);
     expect(entries.every((entry) => Number.isFinite(Date.parse(entry.timestamp)))).toBe(true);
     await storage.applySnapshot(agent);
     expect(await storage.appendJournal(agent.id, first)).toEqual(entries[0]);
     await expect(
       storage.appendJournal(agent.id, { ...first, text: "Rewrite history" }),
+    ).rejects.toThrow("already used");
+    await expect(
+      storage.appendJournal(agent.id, { ...first, machineContext: "Different recovery notes" }),
+    ).rejects.toThrow("already used");
+    await expect(
+      storage.appendJournal(agent.id, { entryId: first.entryId, text: first.text }),
+    ).rejects.toThrow("already used");
+    await expect(
+      storage.appendJournal(agent.id, { ...second, machineContext: "Added after append" }),
     ).rejects.toThrow("already used");
     const reopened = new AgentStorage(storagePath, logger);
     expect((await reopened.get(agent.id))?.journal).toEqual(entries);

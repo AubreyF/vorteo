@@ -1,3 +1,21 @@
+import { WorkerLaunchVerifiedCauseSchema } from "@getpaseo/protocol/execution-installation";
+import {
+  reserveWorkerLaunch,
+  progressWorkerLaunch,
+  retainedWorkerLaunchForCause,
+  workerLaunchRequestCompatible,
+} from "./maintenance/worker-launch.js";
+import { selectMaintenanceServiceWork } from "./maintenance/service-recovery.js";
+import {
+  StandingRestartDecisionSchema,
+  type StandingRestartDecision,
+} from "@getpaseo/protocol/execution-installation";
+import {
+  PreviewMonitorPreparationSchema,
+  PreviewMonitorDecisionSchema,
+  type PreviewMonitorJob,
+  type PreviewMonitorPlan,
+} from "@getpaseo/protocol/preview-monitor-maintenance";
 import {
   NativeHelperPreparationSchema,
   NativeHelperRecoveryDecisionSchema,
@@ -10,8 +28,31 @@ import {
   type NativeHelperPlan,
 } from "@getpaseo/protocol/native-helper-maintenance";
 import type { LifecycleJob } from "./lifecycle-journal.js";
+import {
+  MaintenanceServiceJobSchema,
+  type MaintenanceServiceJob,
+} from "@getpaseo/protocol/maintenance-service";
+import type { MaintenanceServiceExecutor } from "./maintenance/service-execution.js";
+import {
+  isMaintenanceService,
+  unresolvedMaintenanceService,
+  type MaintenanceServiceAdmissionEvidence,
+} from "./maintenance/service-admission.js";
+import { isDeepStrictEqual } from "node:util";
+import {
+  approveServiceJob,
+  retainServiceRecoveryObservation,
+  reserveServiceJob,
+  observeServiceJob,
+  serviceInspectionProof,
+  serviceCheckDue,
+  failedServiceCheck,
+} from "./maintenance/service-progress.js";
+import type { MaintenanceServiceNativeObservation } from "./maintenance/service-execution.js";
 import { createHash, randomUUID } from "node:crypto";
+import type { StandingInterruption } from "@getpaseo/protocol/maintenance-interruption";
 import type {
+  DevRepairCapture,
   RestartImpact,
   RestartDecision,
   RestartJob,
@@ -22,15 +63,60 @@ import type {
 } from "@getpaseo/protocol/execution-installation";
 
 export interface RestartApprovalPolicy {
+  serviceAuthority?: (
+    job: MaintenanceServiceJob,
+  ) => import("./maintenance/service-admission.js").MaintenanceServiceStandingAuthority | null;
+  /** Undefined is verified never-enrolled legacy behavior; null denies enrolled work.
+   * Evaluation is policy only. The shared journal must verify each effect admission. */
+  standingDecision?: (
+    job: RestartJob,
+  ) => Omit<StandingRestartDecision, "requestRevision"> | null | undefined;
+  /** Binds grants to the installed policy revision and authenticated credential set. */
+  authority?: () => string;
+  cancellationDelayMs?: number;
   hostRequestsAfter?: string;
+  // Undefined retains legacy Host-only policy; null explicitly disables automation.
+  daemonRequestsAfter?: (target: RestartJob["target"]) => string | null | undefined;
+  /** Controller authority never inherits a daemon or legacy Host grant. */
+  supervisorRequestsAfter?: () => string | null;
 }
 
 export interface RestartJournal {
   read(): LifecycleJob[];
-  write(jobs: LifecycleJob[]): void;
+  mutate?(
+    update: (previous: readonly LifecycleJob[]) => LifecycleJob[],
+    evidence?: MaintenanceServiceAdmissionEvidence,
+  ): void;
+  write(jobs: LifecycleJob[], evidence?: MaintenanceServiceAdmissionEvidence): void;
+  admissionAvailable?(): boolean;
+  activationChildAdmissionAvailable?(job: RestartJob): boolean;
 }
 
 export interface RestartExecutor {
+  /** The selected coordinator's existing drain owns activation continuation.
+   * Unresolved work blocks ordinary discovery/dispatch; this adds no timer. */
+  reconcileInitialHostActivation?(): Promise<"idle" | "verified" | "unresolved">;
+  /** Read only a single captured protected native cause while the lifecycle lock
+   * is held. Absence supplies no root launch authority. */
+  resolveWorkerLaunchCause?: (
+    hints: NonNullable<RestartRequest["workerLaunchRequest"]>,
+  ) => import("@getpaseo/protocol/execution-installation").WorkerLaunchVerifiedCause | null;
+  prepareInterruption?(job: RestartJob): Promise<StandingInterruption>;
+  restartHeld?(job: RestartJob): Promise<string>;
+  /** Read-only verification of the exact candidate/source and old worker exit.
+   * Null retains uncertainty; this must remain available after grant revocation. */
+  observeInterruption?(job: RestartJob): Promise<string | null>;
+  maintenanceServices?: MaintenanceServiceExecutor;
+  /** Read-only construction, retried by existing coordinator reconciliation. */
+  discoverMaintenanceServices?(): Promise<MaintenanceServiceExecutor>;
+  observeMaintenanceServices?: import("./maintenance/status.js").MaintenanceServiceObservationReader;
+  observeRecoveryAccess?: import("./maintenance/recovery-access.js").RecoveryAccessReader;
+  inspectMonitor?(): Promise<
+    import("@getpaseo/protocol/preview-monitor-maintenance").PreviewMonitorSelection
+  >;
+  monitorCompatible?(): Promise<boolean>;
+  validateMonitorPlan?(plan: PreviewMonitorPlan): Promise<void>;
+  installMonitor?(job: PreviewMonitorJob): Promise<string>;
   factoryRuntimePlan?(): string | undefined;
   adoptFactoryRuntime?(job: RestartJob): Promise<string>;
   validateHelperRollback?(job: NativeHelperJob, failed: NativeHelperJob): Promise<void>;
@@ -52,12 +138,32 @@ export interface RestartExecutor {
     contributions: SourceContribution[],
     target: RestartJob["target"],
   ): Promise<{ batch: SourceBatch; update?: SourceUpdate }>;
+  captureDevRepair?(contributions: SourceContribution[]): DevRepairCapture;
+  prepareDevRepair?(
+    capture: DevRepairCapture,
+    contributions: SourceContribution[],
+  ): Promise<SourceUpdate>;
+  prepareInstallation?(job: RestartJob): Promise<void>;
+  verifyPreparedInstallation?(job: RestartJob, options?: { signal?: AbortSignal }): Promise<void>;
+  /** Final independent evidence after the locked running reservation. */
+  verifyDispatch?(job: RestartJob): Promise<void>;
   installUpdate?(job: RestartJob): Promise<string>;
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
   restartWhenIdle?(target: RestartJob["target"]): Promise<string | null>;
   holdCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
+  /** Independently inspected process birth and boot identity, only for initial migration. */
+  initialActivationInstance?(job: RestartJob): Promise<string>;
   releaseCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
+}
+
+export function supportsAutomaticMaintenance(executor: RestartExecutor): boolean {
+  return Boolean(
+    executor.inspect &&
+    executor.holdCurrentTurns &&
+    executor.releaseCurrentTurns &&
+    executor.restartWhenIdle,
+  );
 }
 
 export class RestartRequestError extends Error {}
@@ -72,12 +178,22 @@ function validateSourceDecision(job: RestartJob, decision: RestartDecision, upda
 }
 
 /** The coordinator owns this queue, so daemon restarts cannot destroy the receipt. */
+function requestPredatesPolicy(
+  job: RestartJob,
+  threshold: number,
+  standing: Omit<StandingRestartDecision, "requestRevision"> | null | undefined,
+): boolean {
+  return Date.parse(job.createdAt) < threshold && !standing?.activationStep;
+}
+
 export class InstallationRestarts {
   private jobs: RestartJob[];
   private helpers: NativeHelperJob[];
+  private monitors: PreviewMonitorJob[];
   private snapshot: LifecycleJob[];
   private active = false;
   private running = false;
+  private readonly candidateChecks = new Map<string, AbortController>();
   private refreshingImpacts = false;
   private preparing = false;
   private readonly impactCache = new Map<RestartJob["target"], RestartImpact>();
@@ -90,11 +206,29 @@ export class InstallationRestarts {
     startup: { fenced: boolean } = { fenced: false },
   ) {
     this.snapshot = journal.read();
-    this.jobs = this.snapshot.filter((job): job is RestartJob => job.target !== "native-helper");
+    this.jobs = this.snapshot.filter(
+      (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
+    );
     this.helpers = this.snapshot.filter(
       (job): job is NativeHelperJob => job.target === "native-helper",
     );
+    this.monitors = this.snapshot.filter(
+      (job): job is PreviewMonitorJob => job.target === "preview-monitor",
+    );
     if (!startup.fenced) this.activate();
+  }
+
+  private loadState(): void {
+    this.snapshot = this.journal.read();
+    this.jobs = this.snapshot.filter(
+      (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
+    );
+    this.helpers = this.snapshot.filter(
+      (job): job is NativeHelperJob => job.target === "native-helper",
+    );
+    this.monitors = this.snapshot.filter(
+      (job): job is PreviewMonitorJob => job.target === "preview-monitor",
+    );
   }
 
   /** Only the verified coordinator handoff releases this startup fence. */
@@ -104,6 +238,24 @@ export class InstallationRestarts {
       throw new RestartRequestError("Restart journal changed while startup was fenced");
     // A coordinator crash leaves execution ambiguous. Never replay a disruptive action.
     const recovered = this.jobs.map((job): RestartJob => {
+      if ((job.standingInterruption || job.workerLaunch) && job.status === "running") return job;
+      if (job.status === "pending" && job.devRepairs?.at(-1)?.status === "preparing") {
+        return {
+          ...job,
+          revision: randomUUID(),
+          devRepairs: job.devRepairs.map((attempt) =>
+            attempt.status === "preparing"
+              ? {
+                  ...attempt,
+                  status: "failed" as const,
+                  detail: "Preparation interrupted. Capture a new repair.",
+                }
+              : attempt,
+          ),
+          detail:
+            "Dev repair preparation interrupted. Capture a new repair; no restart was approved.",
+        };
+      }
       // Retry inert validation once after a coordinator upgrade. Never carry an
       // approval into a recomputed batch or replay dispatched installation work.
       if (job.status === "pending" && job.sourceBatch?.status === "conflict") {
@@ -115,6 +267,13 @@ export class InstallationRestarts {
           detail: "Rechecking source contributions",
         };
       }
+      if (job.status === "approved" && job.updatePreparation === "preparing")
+        return {
+          ...job,
+          status: "failed",
+          detail:
+            "Source preparation interrupted before activation. Prepare a new update; the running release was not changed.",
+        };
       if (job.status === "approved" && job.whenIdle) return job;
       if (job.status !== "running" && job.status !== "approved") return job;
       return {
@@ -142,7 +301,24 @@ export class InstallationRestarts {
         };
       return job;
     });
-    this.writeState(recovered, helpers);
+    const monitors = this.monitors.map((job): PreviewMonitorJob => {
+      if (job.status === "approved" || job.status === "running")
+        return {
+          ...job,
+          status: "failed",
+          stage: "recovery_required",
+          detail:
+            "Coordinator interrupted. Inspect retained monitor receipt; never replay or roll back automatically.",
+        };
+      if (job.status === "pending" && job.stage === "preparing")
+        return {
+          ...job,
+          status: "failed",
+          detail: "Preparation interrupted. Prepare a new monitor request.",
+        };
+      return job;
+    });
+    this.writeState(recovered, helpers, monitors);
     this.active = true;
     this.reconcilePending();
   }
@@ -157,6 +333,246 @@ export class InstallationRestarts {
     return structuredClone(
       this.jobs.map((job) => ({ ...job, impact: this.impactCache.get(job.target) })),
     );
+  }
+
+  serviceMaintenanceAvailable(): boolean {
+    return Boolean(
+      this.executor.maintenanceServices &&
+      this.journal.mutate &&
+      this.approvalPolicy.serviceAuthority,
+    );
+  }
+
+  serviceMaintenanceOperations(): MaintenanceServiceJob["operation"][] {
+    if (!this.serviceMaintenanceAvailable()) return [];
+    return [...new Set(this.executor.maintenanceServices!.operations ?? ["replacement" as const])];
+  }
+
+  private hasServiceWork(): boolean {
+    return (
+      this.serviceMaintenanceAvailable() &&
+      this.listServices().some((job) => ["pending", "approved", "running"].includes(job.status))
+    );
+  }
+
+  requestService(
+    proposal: unknown,
+    reason: string,
+    requestedBy: string,
+    requester?: string,
+  ): MaintenanceServiceJob {
+    this.requireActive();
+    if (!this.serviceMaintenanceAvailable())
+      throw new RestartRequestError("Native maintenance is unavailable");
+    const job = MaintenanceServiceJobSchema.parse({
+      id: (proposal as { id?: unknown })?.id,
+      revision: randomUUID(),
+      target: (proposal as { target?: unknown })?.target,
+      operation: (proposal as { operation?: unknown })?.operation,
+      proposal,
+      reason,
+      requester,
+      createdAt: new Date(this.now()).toISOString(),
+      status: "pending",
+      detail: "Native maintenance requested. Verifying source and standing authority.",
+      evidence: [],
+    });
+    if (
+      job.proposal.requestedBy !== requestedBy ||
+      !this.serviceMaintenanceOperations().includes(job.operation) ||
+      (job.operation === "replacement") === Boolean(job.proposal.recoveryOf)
+    )
+      throw new RestartRequestError(
+        "Native maintenance requester or supported operation does not match",
+      );
+    this.journal.mutate!((previous) => {
+      const retained = previous.find((item) => item.id === job.id);
+      if (retained) {
+        if (
+          !isMaintenanceService(retained) ||
+          !isDeepStrictEqual(retained.proposal, job.proposal) ||
+          retained.reason !== reason ||
+          retained.requester !== requester
+        )
+          throw new RestartRequestError("Request identity belongs to different maintenance");
+        return [...previous];
+      }
+      return [...previous, job];
+    });
+    return structuredClone(this.listServices().find((item) => item.id === job.id)!);
+  }
+
+  cancelService(id: string, revision: string): MaintenanceServiceJob {
+    this.requireActive();
+    const job = this.listServices().find((item) => item.id === id);
+    if (
+      !job ||
+      job.revision !== revision ||
+      !["pending", "approved"].includes(job.status) ||
+      job.reservation
+    )
+      throw new RestartRequestError("Maintenance changed or was already dispatched");
+    const next = {
+      ...job,
+      revision: randomUUID(),
+      status: "rejected" as const,
+      detail: "Maintenance cancelled before dispatch.",
+    };
+    this.replaceService(job, next);
+    return structuredClone(next);
+  }
+
+  listMonitors(): PreviewMonitorJob[] {
+    return structuredClone(this.monitors);
+  }
+
+  private replaceMonitor(next: PreviewMonitorJob): void {
+    this.requireActive();
+    this.writeState(
+      this.jobs,
+      this.helpers,
+      this.monitors.some((job) => job.id === next.id)
+        ? this.monitors.map((job) => (job.id === next.id ? next : job))
+        : [...this.monitors, next],
+    );
+  }
+
+  async prepareMonitor(input: unknown, requestedBy: string): Promise<PreviewMonitorJob> {
+    this.requireActive();
+    if (requestedBy !== "host-agent")
+      throw new RestartRequestError("Monitor preparation requires Host access");
+    if (
+      !this.executor.validateMonitorPlan ||
+      !this.executor.installMonitor ||
+      !(await this.executor.monitorCompatible?.())
+    )
+      throw new RestartRequestError(
+        "Monitor maintenance requires compatible selected and recovery coordinators",
+      );
+    const prepared = PreviewMonitorPreparationSchema.parse(input);
+    const planSha256 = createHash("sha256").update(JSON.stringify(prepared.plan)).digest("hex");
+    const existing = this.snapshot.find((job) => job.id === prepared.id);
+    if (existing) {
+      if (
+        existing.target !== "preview-monitor" ||
+        existing.planSha256 !== planSha256 ||
+        existing.reason !== prepared.reason
+      )
+        throw new RestartRequestError("Request identity belongs to different work");
+      return structuredClone(existing);
+    }
+    const job: PreviewMonitorJob = {
+      ...prepared,
+      target: "preview-monitor",
+      operation: prepared.plan.operation,
+      revision: randomUUID(),
+      requestedBy: "host-agent",
+      createdAt: new Date(this.now()).toISOString(),
+      planSha256,
+      status: "pending",
+      stage: "preparing",
+      detail: "Verifying reviewed monitor bytes and selected ancestry",
+    };
+    this.replaceMonitor(job);
+    try {
+      await this.executor.validateMonitorPlan(structuredClone(job.plan));
+      if (this.monitors.find((item) => item.id === job.id)?.status === "pending")
+        this.replaceMonitor({
+          ...job,
+          stage: "prepared",
+          detail: "Review this exact monitor replacement. Host and Dev agents keep running.",
+        });
+    } catch {
+      if (this.monitors.find((item) => item.id === job.id)?.status === "pending")
+        this.replaceMonitor({
+          ...job,
+          status: "failed",
+          detail: "Monitor preparation failed. Inspect artifacts and prepare a new request.",
+        });
+    }
+    return this.listMonitors().find((item) => item.id === job.id)!;
+  }
+
+  decideMonitor(input: unknown): PreviewMonitorJob {
+    this.requireActive();
+    const decision = PreviewMonitorDecisionSchema.parse(input);
+    const job = this.monitors.find((item) => item.id === decision.id);
+    if (
+      !job ||
+      job.revision !== decision.revision ||
+      job.planSha256 !== decision.planSha256 ||
+      createHash("sha256").update(JSON.stringify(job.plan)).digest("hex") !== job.planSha256
+    )
+      throw new RestartRequestError(
+        "Monitor request changed. Review its exact revision and bytes.",
+      );
+    if (decision.decision === "cancel") {
+      if (!["pending", "approved"].includes(job.status))
+        throw new RestartRequestError("Monitor request already dispatched or decided");
+      this.replaceMonitor({
+        ...job,
+        status: "rejected",
+        detail: "Monitor replacement canceled",
+      });
+    } else {
+      if (job.status !== "pending" || job.stage !== "prepared")
+        throw new RestartRequestError("Monitor is not ready for approval");
+      this.replaceMonitor({
+        ...job,
+        status: "approved",
+        approvedAt: new Date(this.now()).toISOString(),
+        detail: "Exact monitor replacement approved",
+      });
+    }
+    return this.listMonitors().find((item) => item.id === job.id)!;
+  }
+
+  private monitorRecoveryRequired(): boolean {
+    return this.monitors.some(
+      (job) => job.status === "running" || job.stage === "recovery_required",
+    );
+  }
+
+  private async dispatchMonitor(job: PreviewMonitorJob): Promise<void> {
+    try {
+      if (
+        !this.executor.validateMonitorPlan ||
+        !this.executor.installMonitor ||
+        !(await this.executor.monitorCompatible?.())
+      )
+        throw new Error("Monitor execution unavailable");
+      if (createHash("sha256").update(JSON.stringify(job.plan)).digest("hex") !== job.planSha256)
+        throw new Error("Monitor plan changed");
+      await this.executor.validateMonitorPlan(structuredClone(job.plan));
+      const current = this.monitors.find((item) => item.id === job.id);
+      if (current?.status !== "approved" || current.revision !== job.revision) return;
+      const dispatched: PreviewMonitorJob = {
+        ...current,
+        status: "running",
+        stage: "dispatch_pending",
+        detail: "Replacing approved monitor and verifying selected pathname",
+      };
+      this.replaceMonitor(dispatched); // Durable dispatch intent before any write.
+      const detail = await this.executor.installMonitor(structuredClone(dispatched));
+      this.replaceMonitor({
+        ...dispatched,
+        status: "succeeded",
+        stage: "succeeded",
+        detail,
+      });
+    } catch {
+      const current = this.monitors.find((item) => item.id === job.id)!;
+      if (current.status === "rejected") return;
+      this.replaceMonitor({
+        ...current,
+        status: "failed",
+        stage: current.status === "running" ? "recovery_required" : "prepared",
+        detail:
+          current.status === "running"
+            ? "Monitor outcome is uncertain. Inspect retained bytes and receipt. Never replay or roll back automatically."
+            : "Monitor validation failed before dispatch. Prepare a new request.",
+      });
+    }
   }
 
   listHelpers(): NativeHelperJob[] {
@@ -499,12 +915,92 @@ export class InstallationRestarts {
     }
   }
 
+  private validateOwnerApprovalOrigin(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+  ) {
+    if (!input.requireOwnerApproval) return;
+    if (requestedBy !== "host-agent")
+      throw new RestartRequestError("Explicit owner approval requires trusted Host provenance");
+    if (input.factoryRuntimePlanSha256 || input.factoryRuntimeRecoveryOf)
+      throw new RestartRequestError("Factory adoption already requires exact owner review");
+  }
+
+  private sharePlainRequest(active: RestartJob, requireOwnerApproval: boolean): RestartJob {
+    if (requireOwnerApproval && (!active.requireOwnerApproval || active.automaticApproval)) {
+      if (active.status !== "pending")
+        throw new RestartRequestError(
+          "An approved request cannot gain an owner-review requirement. Cancel it or wait for its result before submitting a new request.",
+        );
+      const reviewed = { ...active, requireOwnerApproval: true, revision: randomUUID() };
+      this.replace(reviewed);
+      return { ...reviewed };
+    }
+    return { ...active };
+  }
+
   request(
     input: RestartRequest,
     requestedBy: RestartJob["requestedBy"],
     update?: RestartJob["update"],
   ): RestartJob {
+    if (input.workerLaunchRequest) return this.requestWorkerLaunch(input, requestedBy, update);
+    return this.requestRestart(input, requestedBy, update);
+  }
+
+  private requestWorkerLaunch(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): RestartJob {
     this.requireActive();
+    if (requestedBy !== "container-agent" || !workerLaunchRequestCompatible({ ...input, update }))
+      throw new RestartRequestError("Worker launch requires a separate Dev requester scope");
+    this.validateOwnerApprovalOrigin(input, requestedBy);
+    if (!this.journal.mutate)
+      throw new RestartRequestError("Atomic lifecycle journal is unavailable");
+    let retained: RestartJob | undefined;
+    this.journal.mutate((previous) => {
+      const verified = this.executor.resolveWorkerLaunchCause?.(input.workerLaunchRequest!);
+      if (verified)
+        retained = retainedWorkerLaunchForCause(
+          previous,
+          WorkerLaunchVerifiedCauseSchema.parse(verified),
+        );
+      if (!verified)
+        retained = previous.find(
+          (job): job is RestartJob =>
+            (job.target === "host" || job.target === "container-daemon") &&
+            !job.workerLaunch &&
+            Boolean(job.workerLaunchRequest) &&
+            isDeepStrictEqual(job.workerLaunchRequest, input.workerLaunchRequest),
+        );
+      if (retained) return [...previous];
+      if (
+        previous.some(
+          (job) =>
+            (job.target === "host" || job.target === "container-daemon") &&
+            this.conflictsWithRequest(job, input),
+        )
+      )
+        throw new RestartRequestError("Worker launch cannot share an ordinary restart approval");
+      retained = {
+        ...this.newRequest(input, requestedBy),
+        detail: "Protected Linux worker launch capability is unavailable; no effect dispatched.",
+      };
+      return [...previous, retained];
+    });
+    this.loadState();
+    return structuredClone(retained!);
+  }
+
+  private requestRestart(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): RestartJob {
+    this.requireActive();
+    this.validateOwnerApprovalOrigin(input, requestedBy);
     this.validateSupervisorRequest(input, requestedBy, update);
     this.validateFactoryRuntimeRequest(input, requestedBy, update);
     if (update && !this.supportsUpdate(input.target))
@@ -530,8 +1026,20 @@ export class InstallationRestarts {
         "A different restart scope or Factory adoption plan already owns this target",
       );
     // Only plain restart requests share a target approval. Source approvals stay exact.
-    if (active) return { ...active };
-    const job: RestartJob = {
+    if (active && (active.workerLaunchRequest || input.workerLaunchRequest))
+      throw new RestartRequestError("Worker launch cannot share an ordinary restart approval");
+    if (active) return this.sharePlainRequest(active, input.requireOwnerApproval === true);
+    const job = this.newRequest(input, requestedBy, update);
+    this.commit([...this.jobs, job]);
+    return { ...job };
+  }
+
+  private newRequest(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): RestartJob {
+    return {
       ...input,
       ...(update ? { update } : {}),
       id: randomUUID(),
@@ -545,8 +1053,32 @@ export class InstallationRestarts {
         ? `Owner approval required to build and install source on ${input.target === "host" ? "Host and publish the interface" : "Dev"}, and restart its daemon.`
         : "Owner approval required. Running work on the selected daemon may be interrupted.",
     };
-    this.commit([...this.jobs, job]);
-    return { ...job };
+  }
+
+  /** Controller-only child bookkeeping under the existing global lifecycle lock.
+   * The admission adapter independently rereads the current grant and receipts. */
+  reserveWorkerLaunch(input: Parameters<typeof reserveWorkerLaunch>[1]): RestartJob {
+    if (!this.journal.mutate)
+      throw new RestartRequestError("Atomic lifecycle journal is unavailable");
+    let retained: RestartJob | undefined;
+    this.journal.mutate((previous) => {
+      const result = reserveWorkerLaunch(previous, input);
+      retained = result.retained;
+      return result.jobs;
+    });
+    this.loadState();
+    return structuredClone(retained!);
+  }
+
+  observeWorkerLaunch(
+    parentId: string,
+    expected: import("@getpaseo/protocol/execution-installation").WorkerLaunch,
+    observed: import("@getpaseo/protocol/execution-installation").WorkerLaunch,
+  ): void {
+    if (!this.journal.mutate)
+      throw new RestartRequestError("Atomic lifecycle journal is unavailable");
+    this.journal.mutate((previous) => progressWorkerLaunch(previous, parentId, expected, observed));
+    this.loadState();
   }
 
   /** Receipt identity and uploaded metadata never change, even after replacement. */
@@ -566,6 +1098,7 @@ export class InstallationRestarts {
     replaces?: string,
   ) {
     this.requireActive();
+    this.validateOwnerApprovalOrigin(input, requestedBy);
     if (input.factoryRuntimePlanSha256 || input.factoryRuntimeRecoveryOf)
       throw new RestartRequestError(
         "Factory adoption cannot be submitted as a source contribution",
@@ -578,14 +1111,15 @@ export class InstallationRestarts {
       throw new RestartRequestError("Source batching unavailable");
     const existing = this.contribution(id);
     if (existing) {
-      const original = existing.contribution;
       if (
         existing.batch.target !== input.target ||
-        JSON.stringify(original.update) !== JSON.stringify(update) ||
-        original.reason !== input.reason ||
-        original.requester !== input.requester ||
-        original.requestedBy !== requestedBy ||
-        original.replaces !== replaces
+        !this.matchesContributionRequest(
+          existing.contribution,
+          input,
+          requestedBy,
+          update,
+          replaces,
+        )
       )
         throw new RestartRequestError("Contribution ID already belongs to a different submission");
       return existing;
@@ -610,6 +1144,9 @@ export class InstallationRestarts {
       reason: input.reason,
       requester: input.requester,
       requestedBy,
+      ...(this.contributionRequiresOwnerApproval(input, replaces)
+        ? { requireOwnerApproval: true }
+        : {}),
       createdAt: new Date(this.now()).toISOString(),
       replaces,
       status: "queued",
@@ -623,15 +1160,57 @@ export class InstallationRestarts {
         createdAt: new Date(this.now()).toISOString(),
         expiresAt: "9999-12-31T23:59:59.999Z",
       }),
+      requireOwnerApproval:
+        contributions.some((item) => item.status !== "superseded" && item.requireOwnerApproval) ||
+        undefined,
       revision: randomUUID(),
       status: "pending",
       update: undefined,
+      devRepairs: job?.devRepairs?.map((attempt) =>
+        attempt.status === "preparing"
+          ? {
+              ...attempt,
+              status: "failed" as const,
+              detail: "Source contributions changed. Capture a new repair.",
+            }
+          : attempt,
+      ),
       sourceBatch: { status: "preparing", contributions },
       detail: "Combining submitted source. Approval is unavailable until preparation completes.",
     };
     if (this.jobs.some((item) => item.id === job.id)) this.replace(job);
     else this.commit([...this.jobs, job]);
     return this.contribution(id)!;
+  }
+
+  private contributionRequiresOwnerApproval(
+    input: RestartRequest,
+    replaces: string | undefined,
+  ): boolean {
+    // Repairs inherit the durable requirement, including across replacement chains.
+    // Retry matching uses the same effective value when the submitted field was omitted.
+    return Boolean(
+      input.requireOwnerApproval ||
+      (replaces && this.contribution(replaces)?.contribution.requireOwnerApproval),
+    );
+  }
+
+  private matchesContributionRequest(
+    original: SourceContribution,
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update: SourceUpdate,
+    replaces: string | undefined,
+  ): boolean {
+    return (
+      JSON.stringify(original.update) === JSON.stringify(update) &&
+      original.reason === input.reason &&
+      original.requester === input.requester &&
+      original.requestedBy === requestedBy &&
+      original.replaces === replaces &&
+      Boolean(original.requireOwnerApproval) ===
+        this.contributionRequiresOwnerApproval(input, replaces)
+    );
   }
 
   private replaceContribution(input: {
@@ -710,9 +1289,117 @@ export class InstallationRestarts {
     return this.executor.supportsUpdate?.(target) ?? target === "host";
   }
 
+  /** Owner preparation captures source once; it grants no lifecycle approval. */
+  requestDevRepair(id: string, revision: string): RestartJob {
+    this.requireActive();
+    const job = this.jobs.find((item) => item.id === id);
+    if (!job || job.revision !== revision)
+      throw new RestartRequestError("Restart request is missing or changed");
+    if (
+      job.target !== "container-daemon" ||
+      job.status !== "pending" ||
+      job.sourceBatch?.status !== "conflict" ||
+      job.factoryRuntimePlanSha256 ||
+      job.supervisorPlanSha256
+    )
+      throw new RestartRequestError(
+        "Only a pending Dev source conflict can be prepared for repair",
+      );
+    if (!this.executor.captureDevRepair || !this.executor.prepareDevRepair)
+      throw new RestartRequestError("Owner Dev repair preparation is unavailable");
+    if (job.devRepairs?.at(-1)?.status === "preparing")
+      throw new RestartRequestError("Dev repair preparation is already running");
+    if ((job.devRepairs?.length ?? 0) >= 100 || job.sourceBatch.contributions.length >= 100)
+      throw new RestartRequestError("Repair history limit reached");
+    const capture = this.executor.captureDevRepair(structuredClone(job.sourceBatch.contributions));
+    const next: RestartJob = {
+      ...job,
+      revision: randomUUID(),
+      requireOwnerApproval: true,
+      update: undefined,
+      devRepairs: [
+        ...(job.devRepairs ?? []),
+        {
+          id: randomUUID(),
+          capturedRevision: job.revision,
+          createdAt: new Date(this.now()).toISOString(),
+          capture,
+          status: "preparing",
+          detail: "Preparing captured source without restarting Dev",
+        },
+      ],
+      detail: "Preparing Dev repair from captured source. You can cancel before installation.",
+    };
+    this.replace(next);
+    return structuredClone(next);
+  }
+
+  private async prepareOwnerDevRepair(job: RestartJob): Promise<void> {
+    const attempt = job.devRepairs?.at(-1);
+    if (
+      !attempt ||
+      attempt.status !== "preparing" ||
+      !job.sourceBatch ||
+      !this.executor.prepareDevRepair
+    )
+      return;
+    try {
+      const update = await this.executor.prepareDevRepair(
+        structuredClone(attempt.capture),
+        structuredClone(job.sourceBatch.contributions),
+      );
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status !== "pending" || current.revision !== job.revision) return;
+      // Retain every original contribution. Normal batch validation proves the
+      // new owner source contains them before any exact installation review.
+      const contribution: SourceContribution = {
+        id: attempt.id,
+        update,
+        reason: "Repair Dev from the captured installed Host source",
+        requestedBy: "owner",
+        createdAt: attempt.createdAt,
+        requireOwnerApproval: true,
+        status: "queued",
+        detail: "Awaiting integration",
+      };
+      this.replace({
+        ...current,
+        revision: randomUUID(),
+        devRepairs: current.devRepairs!.map((item) =>
+          item.id === attempt.id
+            ? Object.assign({}, item, {
+                status: "prepared" as const,
+                detail: "Captured source prepared for installation review",
+              })
+            : item,
+        ),
+        sourceBatch: {
+          status: "preparing",
+          contributions: [...current.sourceBatch!.contributions, contribution],
+        },
+        detail: "Checking captured repair source before installation review",
+      });
+    } catch (error) {
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status !== "pending" || current.revision !== job.revision) return;
+      const detail = error instanceof Error ? error.message : "Dev repair preparation failed";
+      this.replace({
+        ...current,
+        revision: randomUUID(),
+        devRepairs: current.devRepairs!.map((item) =>
+          item.id === attempt.id
+            ? Object.assign({}, item, { status: "failed" as const, detail })
+            : item,
+        ),
+        detail: `Dev repair preparation failed: ${detail}. Capture a new repair after correcting the cause.`,
+      });
+    }
+  }
+
   async prepareBatches(): Promise<void> {
     if (!this.active) return;
     if (this.running || this.preparing || !this.executor.prepareUpdate) return;
+    if (!this.lifecycleAdmitted()) return;
     this.preparing = true;
     try {
       // Each target owns its pending batch. A Host conflict must not starve Dev.
@@ -725,6 +1412,10 @@ export class InstallationRestarts {
 
   private async prepareBatch(job: RestartJob): Promise<void> {
     if (!job.sourceBatch || !this.executor.prepareUpdate) return;
+    if (job.devRepairs?.at(-1)?.status === "preparing") {
+      await this.prepareOwnerDevRepair(job);
+      return;
+    }
     const blocked = this.jobs.some(
       (item) =>
         item.id !== job.id &&
@@ -820,14 +1511,19 @@ export class InstallationRestarts {
         detail: "Queued restart cancelled by owner",
       };
       this.replace(next);
+      this.candidateChecks.get(job.id)?.abort();
       return { ...next };
     }
     if (job.status === "approved" && job.whenIdle && decision === "approve") {
+      const ownerRevision = randomUUID();
       const next = {
         ...job,
-        revision: randomUUID(),
+        revision: ownerRevision,
         whenIdle: false,
         automaticApproval: undefined,
+        automaticAuthority: undefined,
+        automaticDispatchAfter: undefined,
+        standingManualApprovals: this.manualStandingApproval(job, "approve", ownerRevision),
         detail: "Owner approved an immediate restart, which may interrupt running tasks.",
       };
       this.replace(next);
@@ -987,7 +1683,31 @@ export class InstallationRestarts {
       throw new RestartRequestError("An earlier request is still active for this target");
   }
 
-  private approveFinish(job: RestartJob, policyActivatedAt?: string): RestartJob {
+  private manualStandingApproval(
+    job: RestartJob,
+    decision: "approve" | "finish-current-turns",
+    revision: string,
+  ) {
+    if (!job.standingDecision) return job.standingManualApprovals;
+    const history = job.standingManualApprovals ?? [];
+    if (history.length >= 16)
+      throw new RestartRequestError("Too many owner revisions; cancel and prepare a fresh request");
+    return [
+      ...history,
+      {
+        previousRevision: job.revision,
+        revision,
+        decision,
+        approvedAt: new Date(this.now()).toISOString(),
+      },
+    ];
+  }
+
+  private approveFinish(
+    job: RestartJob,
+    policyActivatedAt?: string,
+    standing?: Omit<StandingRestartDecision, "requestRevision"> | null,
+  ): RestartJob {
     if (!["pending", "approved"].includes(job.status))
       throw new RestartRequestError("Restart request is already dispatched or decided");
     if (
@@ -1001,6 +1721,12 @@ export class InstallationRestarts {
     const next: RestartJob = {
       ...job,
       revision,
+      standingDecision: standing
+        ? StandingRestartDecisionSchema.parse({ ...standing, requestRevision: revision })
+        : job.standingDecision,
+      standingManualApprovals: !policyActivatedAt
+        ? this.manualStandingApproval(job, "finish-current-turns", revision)
+        : job.standingManualApprovals,
       automaticApproval: policyActivatedAt
         ? {
             policyActivatedAt,
@@ -1008,12 +1734,18 @@ export class InstallationRestarts {
             ...(job.update ? { sourceSha256: job.update.sha256 } : {}),
           }
         : undefined,
+      automaticAuthority: policyActivatedAt
+        ? (standing?.authoritySha256 ?? this.approvalPolicy.authority?.())
+        : undefined,
+      automaticDispatchAfter: policyActivatedAt
+        ? new Date(this.now() + (this.approvalPolicy.cancellationDelayMs ?? 0)).toISOString()
+        : undefined,
       status: "approved",
       approvedAt: new Date(this.now()).toISOString(),
       whenIdle: true,
       finishCurrentTurns: true,
       detail: policyActivatedAt
-        ? "Automatically approved by Host policy. Finishing current turns before restart; cancellation remains available."
+        ? "Automatically approved by installation policy. Finishing current turns before restart; cancellation remains available."
         : "Holding new work while current turns finish. You can cancel before restart.",
     };
     this.replace(next);
@@ -1022,18 +1754,119 @@ export class InstallationRestarts {
 
   private async inspectBeforeRestart(job: RestartJob): Promise<RestartImpact> {
     if (!this.executor.inspect) throw new Error("Idle restart inspection is unavailable");
+    if (job.finishCurrentTurns && job.standingDecision) return this.inspectStandingHold(job);
     if (job.finishCurrentTurns) {
       if (!this.executor.holdCurrentTurns) throw new Error("Graceful restart unavailable");
       await this.executor.holdCurrentTurns(job.target, job.id);
     }
-    return this.executor.inspect(job.target);
+    return this.inspectHeldTarget(job);
+  }
+
+  private async inspectHeldTarget(job: RestartJob): Promise<RestartImpact> {
+    if (!this.executor.inspect)
+      throw new RestartRequestError("Idle restart inspection is unavailable");
+    const impact = await this.executor.inspect(job.target);
+    if (this.requiresInterruption(job) && impact.heldIdleRestartSupported !== true)
+      throw new RestartRequestError("Update this environment before unattended restarts.");
+    return impact;
+  }
+
+  private async inspectStandingHold(job: RestartJob): Promise<RestartImpact> {
+    if (!this.executor.inspect || !this.executor.holdCurrentTurns || !job.standingDecision)
+      throw new RestartRequestError("Standing hold inspection is unavailable");
+    let impact = await this.inspectHeldTarget(job);
+    if (!impact.restartDrainObservationSupported || impact.restartDrainId === undefined) {
+      if (job.standingDecision.activationStep && this.executor.initialActivationInstance)
+        return this.inspectInitialLegacyHold(job);
+      throw new RestartRequestError("Target must support verified restart hold observation");
+    }
+    if (!job.standingHold) {
+      if (impact.restartDrainId !== null)
+        throw new RestartRequestError("Another restart hold requires reconciliation");
+      this.refreshApprovalPolicy();
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status !== "approved" || current.revision !== job.revision)
+        throw new RestartRequestError("Standing permission changed before hold reservation");
+      job = {
+        ...current,
+        standingHold: {
+          generation: randomUUID(),
+          grantRevision: job.standingDecision.grantRevision,
+          decisionSha256: createHash("sha256")
+            .update(JSON.stringify(job.standingDecision))
+            .digest("hex"),
+          reservedAt: new Date(this.now()).toISOString(),
+        },
+      };
+      // The journal's locked admission is the hold dispatch boundary. Revocation
+      // after this reservation permits only observation and authorized stabilization.
+      this.replace(job);
+      await this.executor.holdCurrentTurns(job.target, job.id);
+      impact = await this.inspectHeldTarget(job);
+    }
+    if (!impact.restartDrainObservationSupported || impact.restartDrainId !== job.id)
+      throw new RestartRequestError(
+        "Reserved restart hold is unconfirmed; reconcile without repeating it",
+      );
+    const current = this.jobs.find((item) => item.id === job.id);
+    if (!current?.standingHold || current.standingHold.generation !== job.standingHold?.generation)
+      throw new RestartRequestError("Restart hold reservation changed");
+    if (!current.standingHold.observedAt)
+      this.replace({
+        ...current,
+        standingHold: { ...current.standingHold, observedAt: new Date(this.now()).toISOString() },
+      });
+    return impact;
+  }
+
+  private async inspectInitialLegacyHold(job: RestartJob): Promise<RestartImpact> {
+    const instance = await this.executor.initialActivationInstance!(job);
+    if (!job.standingHold) {
+      this.refreshApprovalPolicy();
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status !== "approved" || current.revision !== job.revision)
+        throw new RestartRequestError("Initial permission changed before hold reservation");
+      job = {
+        ...current,
+        standingHold: {
+          generation: randomUUID(),
+          grantRevision: current.standingDecision!.grantRevision,
+          decisionSha256: createHash("sha256")
+            .update(JSON.stringify(current.standingDecision))
+            .digest("hex"),
+          reservedAt: new Date(this.now()).toISOString(),
+          initialDaemonInstanceSha256: instance,
+        },
+      };
+      this.replace(job);
+      await this.executor.holdCurrentTurns!(job.target, job.id);
+      if ((await this.executor.initialActivationInstance!(job)) !== instance)
+        throw new RestartRequestError("Initial daemon lifetime changed during hold admission");
+      const acknowledged = this.jobs.find((item) => item.id === job.id);
+      if (acknowledged?.status !== "approved" || acknowledged.revision !== job.revision)
+        throw new RestartRequestError("Initial hold requires cancellation reconciliation");
+      job = {
+        ...acknowledged,
+        standingHold: {
+          ...job.standingHold!,
+          acknowledgedAt: new Date(this.now()).toISOString(),
+        },
+      };
+      this.replace(job);
+    }
+    if (
+      !job.standingHold?.acknowledgedAt ||
+      job.standingHold.initialDaemonInstanceSha256 !== instance
+    )
+      throw new RestartRequestError(
+        "Initial restart hold is uncertain; reconcile without repeating it",
+      );
+    // A drain acknowledgment only closes admission. Preparation continues
+    // asynchronously and is accounted for by the actual pending-start inventory.
+    return this.executor.inspect!(job.target);
   }
 
   private approveTrustedHostRequests(): void {
-    const enabledAfter = this.approvalPolicy.hostRequestsAfter;
-    if (!enabledAfter) return;
-    const threshold = Date.parse(enabledAfter);
-    if (!Number.isFinite(threshold)) throw new RestartRequestError("Invalid Host approval policy");
     if (
       !this.executor.inspect ||
       !this.executor.holdCurrentTurns ||
@@ -1042,66 +1875,205 @@ export class InstallationRestarts {
     )
       return;
     for (const job of this.jobs) {
-      if (!this.automaticApprovalCandidate(job)) continue;
-      if (Date.parse(job.createdAt) < threshold) continue;
+      if (!this.automaticApprovalCandidate(job) || !this.lifecycleAdmitted(job)) continue;
+      const standing = this.approvalPolicy.standingDecision?.(job);
+      const enabledAfter = this.automaticActivation(job);
+      if (!enabledAfter) continue;
+      const threshold = Date.parse(enabledAfter);
+      if (!Number.isFinite(threshold))
+        throw new RestartRequestError("Invalid Host approval policy");
+      if (requestPredatesPolicy(job, threshold, standing)) continue;
       const batch = job.sourceBatch;
       if (batch) {
         if (batch.status !== "ready" || !job.update) continue;
         const included = batch.contributions.filter((item) => item.status !== "superseded");
         if (
           !included.length ||
-          included.some((item) => item.requestedBy !== "host-agent" || item.status !== "included")
+          included.some(
+            (item) =>
+              item.requireOwnerApproval ||
+              item.requestedBy === "owner" ||
+              (standing === undefined && item.requestedBy !== "host-agent") ||
+              item.status !== "included",
+          )
         )
           continue;
       }
       try {
         this.validateDecision(job, "approve", job.update?.sha256);
+        this.validateSupervisorDecision(job, "approve", job.supervisorPlanSha256);
       } catch (error) {
         if (error instanceof RestartRequestError) continue;
         throw error;
       }
       // Use the normal durable approval and hold path, never an immediate restart.
-      this.approveFinish(job, enabledAfter);
+      this.approveFinish(job, enabledAfter, standing);
     }
   }
 
+  maintenanceBlocker(target: RestartJob["target"]): string | null {
+    if (!this.active) return "Coordinator startup must be verified before maintenance can proceed.";
+    if (this.helperRecoveryRequired())
+      return "Native helper recovery must finish before maintenance can proceed.";
+    if (this.monitorRecoveryRequired())
+      return "Preview monitor recovery must finish before maintenance can proceed.";
+    if (this.factoryRecoveryRequired(target))
+      return "Factory recovery must verify this environment before maintenance can proceed.";
+    if (this.supervisorRecoveryRequired(target))
+      return "Supervisor maintenance did not verify completion. Review a tracked recovery before automatic maintenance can continue.";
+    return null;
+  }
+
+  private automaticActivation(job: RestartJob): string | null | undefined {
+    const standing = this.approvalPolicy.standingDecision?.(job);
+    if (standing !== undefined) return standing?.policyActivatedAt ?? null;
+    if (job.supervisorPlanSha256) return this.approvalPolicy.supervisorRequestsAfter?.() ?? null;
+    const activation = this.approvalPolicy.daemonRequestsAfter?.(job.target);
+    return activation === undefined ? this.approvalPolicy.hostRequestsAfter : activation;
+  }
+
+  private supervisorRecoveryRequired(target: RestartJob["target"]): boolean {
+    // An explicitly reviewed successful successor closes uncertainty. Pending
+    // requests and failed observations never clear the earlier failure.
+    return this.jobs.some(
+      (job) =>
+        job.target === target &&
+        job.supervisorPlanSha256 &&
+        job.status === "failed" &&
+        !job.supervisorRecoveredBy,
+    );
+  }
+
+  private automaticHostOrigin(job: RestartJob): boolean {
+    const standing = this.approvalPolicy.standingDecision?.(job);
+    if (standing !== undefined) return standing !== null;
+    return (
+      job.requestedBy === "host-agent" &&
+      (!job.sourceBatch ||
+        job.sourceBatch.contributions
+          .filter((item) => item.status !== "superseded")
+          .every((item) => item.requestedBy === "host-agent"))
+    );
+  }
+
   private automaticApprovalCandidate(job: RestartJob): boolean {
+    const standing = this.approvalPolicy.standingDecision?.(job);
     return (
       job.status === "pending" &&
-      job.requestedBy === "host-agent" &&
-      !this.factoryRecoveryRequired(job.target) &&
-      !requiresExactMaintenanceApproval(job)
+      !job.workerLaunchRequest &&
+      this.automaticHostOrigin(job) &&
+      !job.requireOwnerApproval &&
+      (standing != null ||
+        (!this.factoryRecoveryRequired(job.target) &&
+          !this.supervisorRecoveryRequired(job.target) &&
+          !job.factoryRuntimePlanSha256))
     );
+  }
+
+  /** Revoke only undispatched automatic grants; explicit owner approvals remain exact. */
+  refreshApprovalPolicy(): void {
+    if (!this.active) return;
+    for (const job of this.jobs) {
+      if (job.status !== "approved" || !job.automaticApproval) continue;
+      const standing = this.approvalPolicy.standingDecision?.(job);
+      const authority = standing?.authoritySha256 ?? this.approvalPolicy.authority?.();
+      const standingChanged = job.standingDecision
+        ? !standing ||
+          JSON.stringify(
+            StandingRestartDecisionSchema.parse({ ...standing, requestRevision: job.revision }),
+          ) !== JSON.stringify(job.standingDecision)
+        : standing !== undefined;
+      const enabledAfter = this.automaticActivation(job);
+      const policyChanged = job.automaticApproval.policyActivatedAt !== enabledAfter;
+      const credentialsChanged = authority !== undefined && job.automaticAuthority !== authority;
+      const planChanged =
+        job.supervisorPlanSha256 && job.supervisorPlanSha256 !== this.executor.supervisorPlan?.();
+      if (
+        !standingChanged &&
+        !policyChanged &&
+        !credentialsChanged &&
+        !planChanged &&
+        this.automaticHostOrigin(job)
+      )
+        continue;
+      this.decide(job.id, job.revision, "cancel");
+    }
+  }
+
+  private async drainMonitors(): Promise<void> {
+    // Factory recovery fences apply to all target maintenance, including monitor writes.
+    const factoryUncertain = this.jobs.some(
+      (job) => job.factoryRuntimeRecoveryRequired && !job.factoryRuntimeRecoveredBy,
+    );
+    if (
+      !factoryUncertain &&
+      !this.jobs.some((job) => job.finishCurrentTurns && !job.holdReleased)
+    ) {
+      for (const job of this.monitors.filter((item) => item.status === "approved")) {
+        if (this.monitorRecoveryRequired()) break;
+        await this.dispatchMonitor(job);
+      }
+    }
+  }
+
+  private lifecycleAdmitted(job?: RestartJob): boolean {
+    if (this.listServices().some(unresolvedMaintenanceService)) return false;
+    if (this.journal.admissionAvailable?.() !== false) return true;
+    return job !== undefined && this.journal.activationChildAdmissionAvailable?.(job) === true;
+  }
+
+  private async drainActivationChildren(): Promise<void> {
+    this.approveTrustedHostRequests();
+    for (const job of this.jobs.filter((item) => item.status === "approved")) {
+      if (this.lifecycleAdmitted(job)) await this.dispatch(job);
+    }
+  }
+
+  private async releaseCompletedHold(job: RestartJob): Promise<void> {
+    if (!this.executor.releaseCurrentTurns) return;
+    try {
+      if (job.standingHold && !job.standingHold.releaseRequestedAt) {
+        job = {
+          ...job,
+          standingHold: {
+            ...job.standingHold,
+            releaseRequestedAt: new Date(this.now()).toISOString(),
+          },
+        };
+        // Invalidate authority before a release can reach the daemon, including
+        // when its response is lost. Release retries never authorize a restart.
+        this.replace(job);
+      }
+      await this.executor.releaseCurrentTurns(job.target, job.id);
+      this.replace({ ...job, holdReleased: true });
+    } catch {
+      this.replace({
+        ...job,
+        detail: "Waiting for the environment to release its restart hold.",
+      });
+    }
   }
 
   async drain(): Promise<void> {
     if (!this.active) return;
+    this.refreshApprovalPolicy();
     if (this.running || this.preparing) return;
     if (this.executor.prepareUpdate) await this.prepareBatches();
     if (this.running || this.preparing) return;
     this.reconcilePending();
     this.running = true;
     try {
-      for (const job of this.jobs.filter(
-        (candidate) =>
-          candidate.finishCurrentTurns &&
-          !candidate.holdReleased &&
-          ["rejected", "failed", "succeeded"].includes(candidate.status),
-      )) {
-        if (!this.executor.releaseCurrentTurns) continue;
-        try {
-          await this.executor.releaseCurrentTurns(job.target, job.id);
-          this.replace({ ...job, holdReleased: true });
-        } catch {
-          // Keep release intent durable and retry without dispatching a restart.
-          this.replace({
-            ...job,
-            detail: "Waiting for the environment to release its restart hold.",
-          });
-        }
+      await this.releaseFinishedHolds();
+      if (await this.reconcileRetainedInterruptions()) return;
+      if (this.hasServiceWork()) await this.drainServices();
+      if (this.listServices().some(unresolvedMaintenanceService)) return;
+      if (!this.lifecycleAdmitted()) {
+        await this.drainActivationChildren();
+        return;
       }
       // Release completed holds above, but never start another lifecycle operation
       // while the installed helper selection remains ambiguous.
+      if (this.monitorRecoveryRequired()) return;
       if (this.helperRecoveryRequired()) {
         const blocked = this.helpers.filter(
           (job) => job.stage === "recovery_required" || job.status === "running",
@@ -1115,10 +2087,10 @@ export class InstallationRestarts {
         if (rollback) await this.dispatchHelper(rollback);
         return;
       }
+      if (this.monitors.some((job) => job.status === "approved")) await this.drainMonitors();
+      if (this.monitorRecoveryRequired()) return;
       this.approveTrustedHostRequests();
-      for (const job of this.jobs.filter((candidate) => candidate.status === "approved")) {
-        await this.dispatch(job);
-      }
+      if (await this.dispatchApprovedRestarts()) return;
       if (!this.jobs.some((job) => job.finishCurrentTurns && !job.holdReleased)) {
         for (const job of this.helpers.filter((candidate) => candidate.status === "approved")) {
           if (this.helperRecoveryRequired()) break;
@@ -1130,7 +2102,165 @@ export class InstallationRestarts {
     }
   }
 
+  private async reconcileRetainedInterruptions(): Promise<boolean> {
+    const jobs = this.jobs.filter((job) => job.standingInterruption && job.status === "running");
+    for (const job of jobs) await this.observeInterruption(job);
+    return jobs.length > 0;
+  }
+
+  private async dispatchApprovedRestarts(): Promise<boolean> {
+    for (const job of this.jobs.filter((candidate) => candidate.status === "approved")) {
+      await this.dispatch(job);
+      if (
+        this.jobs.some(
+          (candidate) => candidate.status === "running" && candidate.standingInterruption,
+        )
+      )
+        return true;
+    }
+    return false;
+  }
+
+  private async releaseFinishedHolds(): Promise<void> {
+    for (const job of this.jobs.filter(
+      (candidate) =>
+        candidate.finishCurrentTurns &&
+        !candidate.holdReleased &&
+        ["rejected", "failed", "succeeded"].includes(candidate.status),
+    ))
+      await this.releaseCompletedHold(job);
+  }
+
+  private automaticDispatchReady(job: RestartJob): boolean {
+    this.refreshApprovalPolicy();
+    const admitted = this.jobs.find((item) => item.id === job.id);
+    if (admitted?.status !== "approved" || admitted.revision !== job.revision) return false;
+    if (job.automaticApproval && this.supervisorRecoveryRequired(job.target)) return false;
+    if (job.automaticDispatchAfter && this.now() < Date.parse(job.automaticDispatchAfter)) {
+      const detail = `Automatically approved. Cancellation is available before ${job.automaticDispatchAfter}; no restart hold has begun.`;
+      if (job.detail !== detail) this.replace({ ...job, detail });
+      return false;
+    }
+    return true;
+  }
+
+  private async prepareApprovedUpdate(job: RestartJob): Promise<RestartJob | null> {
+    if (
+      !job.update ||
+      !job.finishCurrentTurns ||
+      !this.executor.prepareInstallation ||
+      job.updatePreparation === "prepared"
+    )
+      return job;
+    this.replace({
+      ...job,
+      updatePreparation: "preparing",
+      detail:
+        "Building and validating approved source. Current work remains admissible; cancellation is available.",
+    });
+    try {
+      await this.executor.prepareInstallation(job);
+    } catch (error) {
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status === "approved")
+        this.replace({
+          ...current,
+          status: "failed",
+          detail: restartFailureDetail(current, error),
+        });
+      return null;
+    }
+    this.refreshApprovalPolicy();
+    const current = this.jobs.find((item) => item.id === job.id);
+    if (current?.status !== "approved" || current.revision !== job.revision) return null;
+    const prepared: RestartJob = { ...current, updatePreparation: "prepared" };
+    this.replace(prepared);
+    return prepared;
+  }
+
+  private async readyAfterInspection(job: RestartJob): Promise<boolean> {
+    if (!job.whenIdle) return true;
+    let impact: RestartImpact;
+    try {
+      impact = await this.inspectBeforeRestart(job);
+    } catch (error) {
+      impact = {
+        target: job.target,
+        agents: [],
+        pendingStarts: 0,
+        checkedAt: new Date(this.now()).toISOString(),
+        idleRestartSupported: false,
+        error:
+          error instanceof RestartRequestError
+            ? error.message
+            : "Cannot verify agent activity. Waiting for the target.",
+      };
+    }
+    // Policy and credentials may change while the target is being inspected.
+    this.refreshApprovalPolicy();
+    const current = this.jobs.find((candidate) => candidate.id === job.id);
+    if (current?.status !== "approved" || current.revision !== job.revision) return false;
+    const waiting =
+      impact.error ||
+      !impact.idleRestartSupported ||
+      impact.agents.length > 0 ||
+      impact.pendingStarts > 0;
+    if (waiting) {
+      const detail =
+        impact.error ||
+        (!impact.idleRestartSupported
+          ? "Waiting for a daemon update that supports safe idle restarts"
+          : `Waiting for ${impact.agents.length} active agents and ${impact.pendingStarts} starting operations`);
+      if (current.detail !== detail) this.replace({ ...current, detail });
+      return false;
+    }
+    return true;
+  }
+
+  private async standingCandidateReady(job: RestartJob): Promise<boolean> {
+    if (!job.standingDecision || !job.update) return true;
+    const controller = new AbortController();
+    this.candidateChecks.set(job.id, controller);
+    try {
+      if (!this.executor.verifyPreparedInstallation)
+        throw new Error("Standing source updates require built candidate verification");
+      await this.executor.verifyPreparedInstallation(job, { signal: controller.signal });
+    } catch (error) {
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status === "approved" && current.revision === job.revision)
+        this.replace({
+          ...current,
+          status: "failed",
+          detail: restartFailureDetail(current, error),
+        });
+      return false;
+    } finally {
+      this.candidateChecks.delete(job.id);
+    }
+    return this.automaticDispatchReady(job);
+  }
+
   private async dispatch(job: RestartJob): Promise<void> {
+    if (job.workerLaunchRequest) {
+      this.replace({
+        ...job,
+        detail: "Protected Linux worker launch capability is unavailable; no effect dispatched.",
+      });
+      return;
+    }
+    await this.dispatchRestart(job);
+  }
+
+  private async dispatchRestart(job: RestartJob): Promise<void> {
+    if (!this.lifecycleAdmitted(job) || !this.automaticDispatchReady(job)) return;
+    if (!this.interruptionAvailable(job)) {
+      this.replace({
+        ...job,
+        detail:
+          "Unattended restart verification is unavailable. Installation maintenance needs an update.",
+      });
+      return;
+    }
     if (this.factoryDispatchBlocked(job)) {
       this.replace({
         ...job,
@@ -1147,67 +2277,116 @@ export class InstallationRestarts {
       });
       return;
     }
-    if (job.whenIdle) {
-      let impact: RestartImpact;
-      try {
-        impact = await this.inspectBeforeRestart(job);
-      } catch {
-        impact = {
-          target: job.target,
-          agents: [],
-          pendingStarts: 0,
-          checkedAt: new Date(this.now()).toISOString(),
-          idleRestartSupported: false,
-          error: "Cannot verify agent activity. Waiting for the target.",
-        };
-      }
-      // Owner cancellation may arrive while the target is being inspected.
-      const current = this.jobs.find((candidate) => candidate.id === job.id);
-      if (current?.status !== "approved" || current.revision !== job.revision) return;
-      const waiting =
-        impact.error ||
-        !impact.idleRestartSupported ||
-        impact.agents.length > 0 ||
-        impact.pendingStarts > 0;
-      if (waiting) {
-        const detail =
-          impact.error ||
-          (!impact.idleRestartSupported
-            ? "Waiting for a daemon update that supports safe idle restarts"
-            : `Waiting for ${impact.agents.length} active agents and ${impact.pendingStarts} starting operations`);
-        if (job.detail !== detail) this.replace({ ...job, detail });
-        return;
-      }
+    if (job.update && job.finishCurrentTurns && this.executor.prepareInstallation) {
+      const prepared = await this.prepareApprovedUpdate(job);
+      if (!prepared) return;
+      job = prepared;
+      if (!this.automaticDispatchReady(job)) return;
     }
-    job = runningRestart(job);
+    if (!(await this.standingCandidateReady(job))) return;
+    if (job.whenIdle && !(await this.readyAfterInspection(job))) return;
+    // Inspection may have durably reserved and observed an enrolled hold.
+    job = this.jobs.find((item) => item.id === job.id) ?? job;
+    const preparedRunning = await this.prepareRunningRestart(job);
+    if (!preparedRunning || !this.automaticDispatchReady(job)) return;
+    job = preparedRunning;
     // Persist uncertainty before executing any plan code. Coordinator recovery
     // keeps this fence even when the process never returned a phase receipt.
     this.replace(job);
     try {
       const detail = await this.executeApproved(job);
-      if (detail === null) {
-        this.replace({
-          ...job,
-          status: "approved",
-          detail: "Waiting for the daemon to confirm it is idle before restarting.",
-        });
-      } else {
-        if (job.factoryRuntimePlanSha256) this.finishFactoryAdoption(job, detail);
-        else this.replace({ ...job, status: "succeeded", detail });
-      }
+      await this.finishRestartDispatch(job, detail);
     } catch (error) {
       const detail = restartFailureDetail(job, error);
-      this.replace({ ...job, status: "failed", detail });
+      this.replace({
+        ...job,
+        status: job.standingInterruption ? "running" : "failed",
+        detail: job.standingInterruption
+          ? "Restart outcome is unverified. Checking the target without restarting it again."
+          : detail,
+      });
     }
   }
 
-  private executeApproved(job: RestartJob): Promise<string | null> {
+  private requiresInterruption(job: RestartJob): boolean {
+    // Native plan executors retain their own exact claims; worker transport does
+    // not authorize supervisor replacement or Factory adoption.
+    return Boolean(
+      job.standingDecision &&
+      job.automaticApproval &&
+      !job.standingDecision.activationStep &&
+      !job.supervisorPlanSha256 &&
+      !job.factoryRuntimePlanSha256,
+    );
+  }
+
+  private interruptionAvailable(job: RestartJob): boolean {
+    if (!this.requiresInterruption(job)) return true;
+    return Boolean(
+      this.executor.prepareInterruption &&
+      this.executor.restartHeld &&
+      this.executor.observeInterruption,
+    );
+  }
+
+  private async prepareRunningRestart(job: RestartJob): Promise<RestartJob | null> {
+    if (!this.requiresInterruption(job)) return runningRestart(job);
+    try {
+      const intent = await this.serviceCall(() =>
+        this.executor.prepareInterruption!(structuredClone(job)),
+      );
+      return runningRestart({ ...job, standingInterruption: intent });
+    } catch {
+      const current = this.jobs.find((candidate) => candidate.id === job.id);
+      if (current?.status === "approved" && current.revision === job.revision)
+        this.replace({
+          ...current,
+          detail: "Cannot verify current restart evidence. No new restart was dispatched.",
+        });
+      return null;
+    }
+  }
+
+  private async finishRestartDispatch(job: RestartJob, detail: string | null): Promise<void> {
+    if (job.standingInterruption) {
+      this.replace({ ...job, detail: "Restart was dispatched; its outcome is still unverified." });
+      await this.observeInterruption(job);
+    } else if (detail === null) {
+      this.replace({
+        ...job,
+        status: "approved",
+        detail: "Waiting for the daemon to confirm it is idle before restarting.",
+      });
+    } else if (job.factoryRuntimePlanSha256) this.finishFactoryAdoption(job, detail);
+    else if (job.supervisorPlanSha256) this.finishSupervisorMaintenance(job, detail);
+    else this.replace({ ...job, status: "succeeded", detail });
+  }
+
+  private finishSupervisorMaintenance(job: RestartJob, detail: string): void {
+    this.writeState(
+      this.jobs.map((current) => {
+        if (current.id === job.id) return { ...job, status: "succeeded" as const, detail };
+        if (
+          current.target === job.target &&
+          current.supervisorPlanSha256 &&
+          current.status === "failed" &&
+          !current.supervisorRecoveredBy
+        )
+          return { ...current, supervisorRecoveredBy: job.id };
+        return current;
+      }),
+      this.helpers,
+    );
+  }
+
+  private async executeApproved(job: RestartJob): Promise<string | null> {
     if (
       job.automaticApproval &&
       (job.automaticApproval.requestRevision !== job.revision ||
         job.automaticApproval.sourceSha256 !== job.update?.sha256)
     )
       throw new RestartRequestError("Automatic approval no longer matches the prepared request");
+    if (this.executor.verifyDispatch) await this.executor.verifyDispatch(job);
     if (job.factoryRuntimePlanSha256) {
       if (
         !this.executor.adoptFactoryRuntime ||
@@ -1227,6 +2406,11 @@ export class InstallationRestarts {
     if (job.update) {
       if (!this.executor.installUpdate) throw new Error("Source update executor unavailable");
       return this.executor.installUpdate(job);
+    }
+    if (job.standingInterruption) {
+      if (!this.executor.restartHeld)
+        throw new RestartRequestError("Acknowledged restart executor is unavailable");
+      return this.serviceCall(() => this.executor.restartHeld!(structuredClone(job)));
     }
     if (job.whenIdle) {
       if (!this.executor.restartWhenIdle) throw new Error("Idle restart executor unavailable");
@@ -1311,9 +2495,15 @@ export class InstallationRestarts {
     this.requireActive();
     this.writeState(jobs, this.helpers);
   }
-  private writeState(jobs: RestartJob[], helpers: NativeHelperJob[]): void {
+  private writeState(
+    jobs: RestartJob[],
+    helpers: NativeHelperJob[],
+    monitors: PreviewMonitorJob[] = this.monitors,
+    services: MaintenanceServiceJob[] = this.listServices(),
+    evidence?: MaintenanceServiceAdmissionEvidence,
+  ): void {
     const remaining = new Map<string, LifecycleJob>(
-      [...jobs, ...helpers].map((job) => [job.id, job]),
+      [...jobs, ...helpers, ...monitors, ...services].map((job) => [job.id, job]),
     );
     const next: LifecycleJob[] = [];
     for (const previous of this.snapshot) {
@@ -1324,15 +2514,212 @@ export class InstallationRestarts {
       }
     }
     next.push(...remaining.values());
-    this.journal.write(next);
+    this.journal.write(next, evidence);
     this.snapshot = next;
     this.jobs = jobs;
     this.helpers = helpers;
+    this.monitors = monitors;
   }
-}
 
-function requiresExactMaintenanceApproval(job: RestartJob): boolean {
-  return Boolean(job.supervisorPlanSha256 || job.factoryRuntimePlanSha256);
+  private replaceService(
+    previous: MaintenanceServiceJob,
+    next: MaintenanceServiceJob,
+    evidence?: MaintenanceServiceAdmissionEvidence,
+  ): void {
+    if (!this.journal.mutate)
+      throw new RestartRequestError("Atomic maintenance journal is unavailable");
+    this.journal.mutate((jobs) => {
+      const retained = jobs.find((job) => job.id === previous.id);
+      if (!retained || !isDeepStrictEqual(retained, previous))
+        throw new RestartRequestError("Maintenance journal changed; inspect its current receipt");
+      return jobs.map((job) => (job.id === previous.id ? next : job));
+    }, evidence);
+  }
+
+  private async drainServices(): Promise<void> {
+    if (!this.serviceMaintenanceAvailable()) return;
+    const jobs = this.listServices();
+    const job = selectMaintenanceServiceWork(
+      jobs,
+      (candidate) =>
+        candidate.status === "running" ||
+        (this.serviceMaintenanceOperations().includes(candidate.operation) &&
+          (candidate.status !== "pending" || serviceCheckDue(candidate, this.now()))),
+    );
+    if (!job) return;
+    if (job.status === "running") {
+      if (serviceCheckDue(job, this.now())) await this.observeService(job);
+      return;
+    }
+    // A linked successor must pass the same locked chain/exclusion admission.
+    // Its exact uncertain ancestors necessarily make ordinary idle admission false.
+    if (!job.proposal.recoveryOf && this.journal.admissionAvailable?.() === false) return;
+    try {
+      const authority = this.approvalPolicy.serviceAuthority!(job);
+      if (!authority) {
+        if (job.status === "approved") this.cancelService(job.id, job.revision);
+        return;
+      }
+      if (!serviceCheckDue(job, this.now())) return;
+      if (job.status === "approved" && this.now() < Date.parse(job.approval!.dispatchAfter)) return;
+      const proof = serviceInspectionProof(
+        job,
+        await this.serviceCall(() =>
+          this.executor.maintenanceServices!.inspect(structuredClone(job)),
+        ),
+      );
+      if (
+        !isDeepStrictEqual(
+          this.listServices().find((item) => item.id === job.id),
+          job,
+        )
+      )
+        return;
+      if (job.status === "pending") {
+        this.replaceService(job, approveServiceJob(job, authority, proof, this.now()), proof);
+        return;
+      }
+      const reserved = reserveServiceJob(job, proof, this.now());
+      this.replaceService(job, reserved, proof);
+      await this.executeService(reserved);
+    } catch {
+      this.recordServiceCheckFailure(job.id);
+    }
+  }
+
+  private async serviceCall<T>(call: () => Promise<T>): Promise<T> {
+    // Select the Node overload even when client ambient timer types are present.
+    const scheduleTimeout: (callback: () => void, delay: number) => NodeJS.Timeout = setTimeout;
+    let timer: ReturnType<typeof scheduleTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = scheduleTimeout(
+        () =>
+          reject(
+            new RestartRequestError(
+              "Native maintenance response timed out; inspect the retained generation",
+            ),
+          ),
+        30_000,
+      );
+      timer.unref();
+    });
+    try {
+      return await Promise.race([call(), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async observeInterruption(job: RestartJob): Promise<void> {
+    if (!this.executor.observeInterruption) return;
+    if (
+      job.interruptionChecks &&
+      (job.interruptionChecks.attempts >= 3 ||
+        this.now() < Date.parse(job.interruptionChecks.nextCheckAt))
+    )
+      return;
+    let detail: string | null = null;
+    try {
+      detail = await this.serviceCall(() =>
+        this.executor.observeInterruption!(structuredClone(job)),
+      );
+    } catch {
+      // Failed inspection is uncertainty; preserve the same generation.
+    }
+    const retained = this.journal.read().find((candidate) => candidate.id === job.id);
+    if (!retained || (retained.target !== "host" && retained.target !== "container-daemon"))
+      throw new RestartRequestError("Retained interruption request is unavailable");
+    const current = retained;
+    if (
+      current?.status !== "running" ||
+      current.revision !== job.revision ||
+      !isDeepStrictEqual(current.standingInterruption, job.standingInterruption)
+    )
+      throw new RestartRequestError("Retained interruption generation changed during observation");
+    if (detail === null) {
+      const attempts = Math.min(3, (current.interruptionChecks?.attempts ?? 0) + 1);
+      const delays = [5000, 15000, 60000];
+      const checkedAt = this.now();
+      this.replace({
+        ...current,
+        detail:
+          attempts === 3
+            ? "Restart outcome remains unverified after three checks. Review installation recovery."
+            : "Checking whether the approved restart completed. Its outcome is still unverified.",
+        interruptionChecks: {
+          attempts,
+          checkedAt: new Date(checkedAt).toISOString(),
+          nextCheckAt: new Date(checkedAt + delays[attempts - 1]).toISOString(),
+        },
+      });
+      return;
+    }
+    this.replace({ ...current, status: "succeeded", detail });
+  }
+
+  private async executeService(job: MaintenanceServiceJob): Promise<void> {
+    try {
+      // This call is made only on the transition that created the reservation.
+      // Reopened or uncertain generations enter observeService exclusively.
+      const result = await this.serviceCall(() =>
+        this.executor.maintenanceServices!.execute(
+          structuredClone(job),
+          structuredClone(job.reservation!),
+        ),
+      );
+      this.retainServiceObservation(job, result);
+    } catch {
+      this.recordServiceCheckFailure(job.id);
+    }
+  }
+
+  private async observeService(job: MaintenanceServiceJob): Promise<void> {
+    try {
+      const result = await this.serviceCall(() =>
+        this.executor.maintenanceServices!.observe(
+          structuredClone(job),
+          structuredClone(job.reservation!),
+        ),
+      );
+      this.retainServiceObservation(job, result);
+    } catch {
+      this.recordServiceCheckFailure(job.id);
+    }
+  }
+
+  private retainServiceObservation(
+    job: MaintenanceServiceJob,
+    result: MaintenanceServiceNativeObservation,
+  ): void {
+    const current = this.listServices().find((item) => item.id === job.id);
+    if (
+      !current ||
+      current.status !== "running" ||
+      !isDeepStrictEqual(current.reservation, job.reservation)
+    )
+      throw new RestartRequestError("Maintenance generation changed during native observation");
+    const observed = observeServiceJob(current, result, this.now());
+    this.journal.mutate!(
+      (jobs) => retainServiceRecoveryObservation(jobs, current, observed.job),
+      observed.proof,
+    );
+  }
+
+  private recordServiceCheckFailure(id: string): void {
+    const current = this.listServices().find((item) => item.id === id);
+    if (
+      current &&
+      ["pending", "approved", "running"].includes(current.status) &&
+      serviceCheckDue(current, this.now())
+    )
+      this.replaceService(current, failedServiceCheck(current, this.now()));
+  }
+
+  listServices(): MaintenanceServiceJob[] {
+    // Factory may have consumed the native intent independently. Preserve that
+    // fresh receipt when ordinary daemon progress writes the shared journal.
+    return this.journal.read().filter(isMaintenanceService);
+  }
 }
 
 function runningRestart(job: RestartJob): RestartJob {

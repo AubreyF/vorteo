@@ -33,7 +33,7 @@ export function quotaReading(view: ProviderUsageView, providerId: string | undef
   const issue = view.kind === "ready" ? (view.refreshError ?? usage?.refreshError) : undefined;
   let statusLabel: string | null = null;
   if (usage?.authRecovery) statusLabel = "Account disconnected";
-  else if (!window) statusLabel = view.kind === "loading" ? "Loading usage" : "Usage unavailable";
+  else if (!window) statusLabel = missingUsageLabel(view, usage);
   else if (issue) statusLabel = "Last known usage; refresh unavailable";
   else if (stale) statusLabel = "Last known usage";
   const remaining = window?.remainingPct ?? null;
@@ -46,6 +46,14 @@ export function quotaReading(view: ProviderUsageView, providerId: string | undef
     remaining,
     statusLabel,
   };
+}
+
+function missingUsageLabel(view: ProviderUsageView, usage: ProviderUsage | undefined): string {
+  if (view.kind === "loading") return "Loading usage";
+  if (usage?.details?.some((detail) => detail.id === "claude-setup-token")) {
+    return "Usage not provided";
+  }
+  return "Usage unavailable";
 }
 
 function prepaidBalanceLabel(

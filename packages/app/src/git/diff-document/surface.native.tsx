@@ -1,3 +1,5 @@
+import { ScrollDividerContext } from "@/components/use-scroll-divider";
+import { useContext } from "react";
 import { Canvas, Group, Picture, type SkPicture } from "@shopify/react-native-skia";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -213,6 +215,14 @@ export function DiffSurface(props: DiffSurfaceProps) {
     [fileWindowTop, model.files, viewport.height],
   );
 
+  const reportScroll = useContext(ScrollDividerContext);
+  useAnimatedReaction(
+    () => scrollTop.value > 0,
+    (scrolled, previous) => {
+      if (scrolled !== previous) scheduleOnRN(reportScroll, scrolled);
+    },
+    [reportScroll],
+  );
   const scrollHandler = useAnimatedScrollHandler((event) => {
     scrollTop.value = event.contentOffset.y;
   });

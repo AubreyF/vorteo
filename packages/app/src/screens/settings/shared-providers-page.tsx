@@ -1,3 +1,4 @@
+import { ProviderLoginPanel } from "@/provider-usage/login-panel";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
 import type { DraggableListDragHandleProps } from "@/components/draggable-list.types";
 import { ChevronDown, ChevronRight, GripVertical } from "lucide-react-native";
@@ -167,6 +168,62 @@ function ProviderConnectionActions({
           description={error.message}
         />
       ) : null}
+    </View>
+  );
+}
+
+function ManagedProviderContent({
+  provider,
+  environments,
+  selectedServerId,
+  settings,
+}: {
+  provider: InstallationProvider | undefined;
+  environments: InstallationEnvironment[];
+  selectedServerId: string;
+  settings: InstallationSettings;
+}) {
+  if (!provider) return null;
+  if (provider.providerType === "claude") {
+    const environment =
+      environments.find((entry) => entry.kind === "host" && provider.bindings[entry.serverId]) ??
+      environments.find((entry) => provider.bindings[entry.serverId]);
+    if (!environment)
+      return <Alert description="Refresh provider settings to load this connection." />;
+    return <SharedClaudeConnection provider={provider} environment={environment} />;
+  }
+  const environment = environments.find((entry) => entry.serverId === selectedServerId);
+  if (!environment) return null;
+  const excluded =
+    settings.resourceExclusions[environment.serverId]?.providerIds?.includes(provider.id) ?? false;
+  return <ProviderEnvironment provider={provider} environment={environment} excluded={excluded} />;
+}
+
+function SharedClaudeConnection({
+  provider,
+  environment,
+}: {
+  provider: InstallationProvider;
+  environment: InstallationEnvironment;
+}) {
+  const providerId = provider.bindings[environment.serverId]!;
+  const open = useProviderSettingsStore((state) => state.open);
+  const connected = useHostRuntimeIsConnected(environment.serverId);
+  const showModels = useCallback(
+    () => open({ serverId: environment.serverId, provider: providerId }),
+    [open, environment.serverId, providerId],
+  );
+  return (
+    <View>
+      <ProviderLoginPanel
+        serverId={environment.serverId}
+        providerId={providerId}
+        name={providerName(provider)}
+        provider="claude"
+      />
+      <Button variant="outline" onPress={showModels} disabled={!connected}>
+        Models and profiles
+      </Button>
     </View>
   );
 }
@@ -592,9 +649,7 @@ function ProviderCatalog({
         ids: managing?.definitions.map((entry) => entry.id) ?? [selectedDefinition.id],
       });
   }, [selectedDefinition, data, managing]);
-  const manageEnvironment = environments.find(
-    (environment) => environment.serverId === selectedServerId,
-  );
+  const sharedClaude = selectedDefinition?.providerType === "claude";
   return (
     <View>
       <SettingsSection
@@ -649,30 +704,30 @@ function ProviderCatalog({
         onClose={closeManage}
         header={manageHeader}
       >
-        <Text style={settingsStyles.rowHint}>
-          Local sign-in and runtime details. Availability exceptions are managed in Environments.
-        </Text>
-        <SettingsTabs
-          options={options}
-          value={selectedServerId}
-          onValueChange={setRuntimeServerId}
-        />
+        {!sharedClaude ? (
+          <>
+            <Text style={settingsStyles.rowHint}>
+              Local sign-in and runtime details. Availability exceptions are managed in
+              Environments.
+            </Text>
+            <SettingsTabs
+              options={options}
+              value={selectedServerId}
+              onValueChange={setRuntimeServerId}
+            />
+          </>
+        ) : null}
         {selectedDefinition ? (
           <Button variant="outline" onPress={renameSelected}>
             Rename
           </Button>
         ) : null}
-        {selectedDefinition && manageEnvironment ? (
-          <ProviderEnvironment
-            provider={selectedDefinition}
-            environment={manageEnvironment}
-            excluded={
-              data.settings.resourceExclusions[manageEnvironment.serverId]?.providerIds?.includes(
-                selectedDefinition.id,
-              ) ?? false
-            }
-          />
-        ) : null}
+        <ManagedProviderContent
+          provider={selectedDefinition}
+          environments={environments}
+          selectedServerId={selectedServerId}
+          settings={data.settings}
+        />
       </AdaptiveModalSheet>
       {renaming ? (
         <AdaptiveRenameModal

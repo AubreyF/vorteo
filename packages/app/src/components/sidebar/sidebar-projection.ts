@@ -1,4 +1,4 @@
-import { splitStandingWorkspaces } from "@/workspace/lifecycle/grouping";
+import { splitFactoryWorkspaces } from "@/workspace/lifecycle/grouping";
 import { buildStatusGroups } from "@/hooks/sidebar-status-view-model";
 import {
   splitPinnedSidebarGroups,
@@ -46,6 +46,7 @@ export interface SidebarProjectionInput {
   pinnedCollapsed: boolean;
   collapsedProjectKeys: ReadonlySet<string>;
   collapsedWorkspaceGroupKeys: ReadonlySet<string>;
+  factorySupportedHosts?: ReadonlyMap<string, boolean>;
 }
 
 export function buildSidebarProjection(input: SidebarProjectionInput): SidebarProjection {
@@ -71,11 +72,20 @@ export function buildSidebarProjection(input: SidebarProjectionInput): SidebarPr
     sections.push(
       ...pinnedGroups.unpinnedProjects.flatMap((project) => {
         const collapsed = input.collapsedProjectKeys.has(project.viewKey);
-        const groups = splitStandingWorkspaces(project.workspaces, input.workspaceEntriesByKey);
+        const groups = splitFactoryWorkspaces(
+          project.workspaces,
+          input.workspaceEntriesByKey,
+          input.factorySupportedHosts ?? new Map(),
+        );
         const standingCollapsed =
           collapsed || input.collapsedWorkspaceGroupKeys.has(`standing:${project.viewKey}`);
         return [
           { workspaces: groups.work, collapsed },
+          {
+            workspaces: groups.factory,
+            collapsed:
+              collapsed || input.collapsedWorkspaceGroupKeys.has(`factory:${project.viewKey}`),
+          },
           { workspaces: groups.standing, collapsed: standingCollapsed },
         ];
       }),

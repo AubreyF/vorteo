@@ -3,15 +3,17 @@ import { EnvironmentPresetMenu } from "./environment-preset-menu";
 import { AccountDisconnectedIcon } from "@/provider-usage/reconnect-control";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentProfile } from "@getpaseo/protocol/messages";
-import { ActivityIndicator, Text, View, useWindowDimensions } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { Text, View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
 import { Combobox } from "@/components/ui/combobox";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { usePresetData } from "./use-preset-data";
 import type { AgentProfilePicker } from "./internal/use-agent-profile-picker";
 import { useAgentProfiles } from "./internal/use-agent-profiles";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { NEW_WORKSPACE_CARD_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { RemainingRing } from "@/provider-usage/remaining-ring";
 import { useCompactProfileName } from "./use-compact-profile-name";
@@ -21,6 +23,9 @@ import { selectedPresetPresentation } from "./selected-preset-presentation";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 
 const PROFILE_SNAP_POINTS = ["90%"];
+const PendingSpinner = withUnistyles(LoadingSpinner, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
 const EMPTY_OPTIONS: { id: string; label: string }[] = [];
 
 function PresetStatusIcon({
@@ -36,7 +41,7 @@ function PresetStatusIcon({
   remaining: number | null;
   stale: boolean;
 }) {
-  if (waiting) return <ActivityIndicator size="small" style={styles.pendingRing} />;
+  if (waiting) return <PendingSpinner size="small" style={styles.pendingRing} />;
   if (showWarning) return <AccountDisconnectedIcon />;
   if (showRing)
     return (
@@ -48,6 +53,7 @@ function PresetStatusIcon({
 }
 
 interface PresetControlsProps {
+  inline?: boolean;
   serverId: string | null;
   profiles: AgentProfilePicker;
   selectedProfileId?: string;
@@ -68,6 +74,7 @@ export function activePresetPicker(input: {
   return input.enabled && input.supported ? input.picker : null;
 }
 export function PresetControls({
+  inline = false,
   serverId,
   profiles,
   selectedProfileId: storedProfileId,
@@ -162,6 +169,28 @@ export function PresetControls({
     [disabled, profiles],
   );
   const closeMenu = useCallback(() => setOpen(false), []);
+  if (inline)
+    return (
+      <View
+        style={isCompact ? styles.inlineCompact : styles.inline}
+        testID="new-workspace-profile-selector"
+      >
+        <EnvironmentPresetMenu
+          inline
+          now={now}
+          serverId={serverId}
+          profiles={profiles}
+          selectedId={selectedProfileId}
+          compact={isCompact}
+          disabled={selectionDisabled}
+          onApply={select}
+          onClose={closeMenu}
+          currentProvider={currentProvider}
+          currentModel={currentModel}
+          currentThinkingOptionId={currentThinkingOptionId}
+        />
+      </View>
+    );
   return (
     <View ref={controlsRef} style={controlsStyle} testID="preset-controls">
       <View ref={anchorRef} collapsable={false} style={styles.trigger}>
@@ -229,6 +258,8 @@ export function PresetControls({
   );
 }
 const styles = StyleSheet.create((theme) => ({
+  inline: { height: NEW_WORKSPACE_CARD_HEIGHT, width: "100%" },
+  inlineCompact: { height: 340, width: "100%" },
   touchControls: { flex: 1, flexWrap: "nowrap" },
   centerControls: { justifyContent: "center", marginHorizontal: 8 },
   controls: {

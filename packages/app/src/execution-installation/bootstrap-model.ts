@@ -1,28 +1,47 @@
 import type {
-  CoordinatorBootstrapRequest,
+  CoordinatorBootstrapRequestView as CoordinatorBootstrapRequest,
   CoordinatorBootstrapDecision,
   CoordinatorBootstrapStage,
+  BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
+  BootstrapClaimedRecoveryRequestView,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 
-export interface BootstrapReviewClient {
-  listCoordinatorBootstrapRequests(): Promise<CoordinatorBootstrapRequest[]>;
+export type BootstrapRecoveryRequest =
+  | BootstrapPreclaimRecoveryRequest
+  | BootstrapClaimedRecoveryRequestView;
+type BootstrapReviewRequest = CoordinatorBootstrapRequest | BootstrapRecoveryRequest;
+
+export interface BootstrapReviewClient<
+  Request extends BootstrapReviewRequest = CoordinatorBootstrapRequest,
+> {
+  listCoordinatorBootstrapRequests(): Promise<Request[]>;
+  verifyRetainedOutcome?(input: {
+    id: string;
+    revision: string;
+    planSha256: string;
+    generation: string;
+  }): Promise<Request[]>;
   decideCoordinatorBootstrap(
     input: CoordinatorBootstrapDecision,
     password: string,
-  ): Promise<CoordinatorBootstrapRequest[]>;
+  ): Promise<Request[]>;
 }
 
-interface BootstrapPanelState {
+interface BootstrapPanelState<
+  Request extends BootstrapReviewRequest = CoordinatorBootstrapRequest,
+> {
   available: boolean;
-  requests: CoordinatorBootstrapRequest[];
+  requests: Request[];
   busy: boolean;
   hasPassword: boolean;
   passwordEpoch: number;
   error: string | null;
 }
 
-export class BootstrapPanelModel {
-  private state: BootstrapPanelState = {
+export class BootstrapPanelModel<
+  Request extends BootstrapReviewRequest = CoordinatorBootstrapRequest,
+> {
+  private state: BootstrapPanelState<Request> = {
     available: false,
     requests: [],
     busy: false,
@@ -32,10 +51,15 @@ export class BootstrapPanelModel {
   };
   private listeners = new Set<() => void>();
   private password = "";
-  private refreshing = false;
+  private refreshToken: symbol | null = null;
+  private availabilityError: string | null = null;
+  private refreshError: string | null = null;
   private generation = 0;
   private pendingDecision: { id: string; revision: string } | null = null;
-  constructor(private readonly resolveClient: () => BootstrapReviewClient | null) {}
+  constructor(
+    private readonly resolveClient: () => BootstrapReviewClient<Request> | null,
+    private readonly unavailableReason: () => string | null = () => null,
+  ) {}
   getState = () => this.state;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -43,7 +67,7 @@ export class BootstrapPanelModel {
       this.listeners.delete(listener);
     };
   };
-  private publish(patch: Partial<BootstrapPanelState>) {
+  private publish(patch: Partial<BootstrapPanelState<Request>>) {
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners) listener();
   }
@@ -52,20 +76,47 @@ export class BootstrapPanelModel {
     this.publish({ hasPassword: value.length > 0 });
   }
   async refresh(automatic = false) {
-    if (this.refreshing) return;
+    const unavailable = this.unavailableReason();
+    if (unavailable) {
+      this.availabilityError = unavailable;
+      this.generation++;
+      this.refreshToken = null;
+      this.pendingDecision = null;
+      this.password = "";
+      this.publish({
+        available: true,
+        requests: [],
+        busy: false,
+        error: unavailable,
+        hasPassword: false,
+        passwordEpoch: this.state.passwordEpoch + 1,
+      });
+      return;
+    }
+    if (this.refreshToken) return;
     const client = this.resolveClient();
     if (!client) {
+      this.refreshError = "Host connection unavailable. Last known coordinator status is shown.";
       if (this.state.available)
         this.publish({
-          error: "Host connection unavailable. Last known coordinator status is shown.",
+          error: this.refreshError,
         });
       return;
     }
-    this.refreshing = true;
+    const refreshToken = Symbol();
+    this.refreshToken = refreshToken;
     const generation = this.generation;
     try {
       const requests = await client.listCoordinatorBootstrapRequests();
-      if (generation === this.generation) {
+      if (this.refreshToken === refreshToken && generation === this.generation) {
+        const error =
+          automatic &&
+          this.state.error !== this.availabilityError &&
+          this.state.error !== this.refreshError
+            ? this.state.error
+            : null;
+        this.availabilityError = null;
+        this.refreshError = null;
         const pending = this.pendingDecision;
         const recorded = pending && requests.find((item) => item.id === pending.id);
         // A durable revision supersedes the long-running decision response.
@@ -75,20 +126,61 @@ export class BootstrapPanelModel {
           this.pendingDecision = null;
           this.publish({ available: true, requests, busy: false, error: null });
         } else {
-          this.publish({ available: true, requests, error: automatic ? this.state.error : null });
+          this.publish({ available: true, requests, error });
         }
       }
     } catch {
-      if (generation === this.generation)
+      if (this.refreshToken === refreshToken && generation === this.generation) {
+        this.refreshError = "Could not refresh coordinator status. Reconnect Host and retry.";
         this.publish({
           available: true,
-          error: "Could not refresh coordinator status. Reconnect Host and retry.",
+          error: this.refreshError,
         });
+      }
     } finally {
-      this.refreshing = false;
+      if (this.refreshToken === refreshToken) this.refreshToken = null;
     }
   }
-  async decide(request: CoordinatorBootstrapRequest, decision: "approve" | "cancel") {
+  canReconcile = () => typeof this.resolveClient()?.verifyRetainedOutcome === "function";
+
+  async reconcile(request: Request) {
+    if (this.state.busy || !request.execution || this.unavailableReason()) return;
+    const client = this.resolveClient();
+    if (!client?.verifyRetainedOutcome) {
+      this.publish({ error: "Update the Host to verify a retained recovery outcome." });
+      return;
+    }
+    const current = this.state.requests.find((item) => item.id === request.id);
+    if (current?.revision !== request.revision || current.planSha256 !== request.planSha256) {
+      this.publish({ error: "Recovery changed. Refresh before verifying its outcome." });
+      return;
+    }
+    const generation = ++this.generation;
+    this.publish({ busy: true, error: null });
+    try {
+      const requests = await client.verifyRetainedOutcome({
+        id: request.id,
+        revision: request.revision,
+        planSha256: request.planSha256,
+        generation: request.execution.generation,
+      });
+      if (generation === this.generation) this.publish({ requests });
+    } catch {
+      if (generation === this.generation)
+        this.publish({
+          error:
+            "Outcome verification unconfirmed. Refresh the retained receipt; no effects were replayed.",
+        });
+    } finally {
+      if (generation === this.generation) this.publish({ busy: false });
+    }
+  }
+
+  async decide(request: Request, decision: "approve" | "cancel") {
+    if (this.unavailableReason()) {
+      await this.refresh();
+      return;
+    }
     if (this.state.busy) return;
     const current = this.state.requests.find((item) => item.id === request.id);
     if (
@@ -142,7 +234,7 @@ export class BootstrapPanelModel {
 }
 
 export function bootstrapDecisionDisabledReason(
-  request: CoordinatorBootstrapRequest,
+  request: BootstrapReviewRequest,
   state: Pick<BootstrapPanelState, "busy" | "hasPassword">,
 ): string | null {
   if (state.busy) return "Waiting for the current decision to finish.";
@@ -176,8 +268,56 @@ const stageLabels: Record<CoordinatorBootstrapStage, string> = {
 export function bootstrapStatus(request: CoordinatorBootstrapRequest): string {
   if (request.execution) return stageLabels[request.execution.stage];
   if (request.status === "canceled") return "Canceled";
+  if (request.automaticStatus) return automaticLabels[request.automaticStatus.state];
   if (request.status === "approved") return "Approved; awaiting dispatch";
   return "Approval needed";
+}
+
+const automaticLabels = {
+  waiting: "Automatic validation queued",
+  checking: "Automatic check awaiting confirmation",
+  "retry-wait": "Automatic check will retry",
+  "review-required": "Automatic checks stopped; review required",
+  "cancellation-window": "Automatically approved; cancellation available",
+  "dispatch-ready": "Automatically approved; awaiting dispatch",
+  "launch-unconfirmed": "Launch unconfirmed; recovery review required",
+  "owner-approved": "Owner approved; awaiting dispatch",
+  execution: "Executing coordinator maintenance",
+  canceled: "Canceled",
+};
+
+export function bootstrapAutomaticDetail(request: CoordinatorBootstrapRequest): string | null {
+  const status = request.automaticStatus;
+  if (!status) return null;
+  if (status.state === "canceled")
+    return "This automatic request was canceled. It will not dispatch.";
+  if (status.state === "execution")
+    return status.authorization === "owner"
+      ? "The owner approved this operation. Follow its execution status above."
+      : "Your Host permission authorized this operation. Follow its execution status above.";
+  if (status.state === "launch-unconfirmed")
+    return "A launch was reserved, but execution is not confirmed. It will not launch again automatically. Inspect the retained request before recovery.";
+  if (status.state === "review-required")
+    return "Three checks ended without confirmation. Automatic retries have stopped. Review this request or cancel it before preparing a correction.";
+  if (status.state === "cancellation-window" && status.dispatchAfter)
+    return `Your Host permission authorized this request. Dispatch cannot begin before ${new Date(status.dispatchAfter).toLocaleTimeString()}. You can cancel before dispatch.`;
+  if (status.state === "checking" && status.attempt)
+    return `Automatic check ${status.attempt} of 3 has no confirmed result yet. A connection loss does not authorize another launch.`;
+  if (status.state === "retry-wait" && status.nextCheckAt && status.attempt)
+    return `Check ${status.attempt} of 3 was not confirmed. Another check is eligible after ${new Date(status.nextCheckAt).toLocaleTimeString()}. You can cancel before dispatch.`;
+  if (status.authorization === "owner") return "The owner explicitly approved this request.";
+  return "This request uses your separate Host-only coordinator permission. Cancellation remains available until dispatch is claimed.";
+}
+
+export function bootstrapRequiresOwnerAction(request: CoordinatorBootstrapRequest): boolean {
+  if (request.execution) return request.execution.stage === "recovery_required";
+  if (request.status === "canceled") return false;
+  if (request.automaticStatus)
+    return (
+      request.automaticStatus.state === "review-required" ||
+      request.automaticStatus.state === "launch-unconfirmed"
+    );
+  return request.status === "pending";
 }
 export function bootstrapNeedsAttention(request: CoordinatorBootstrapRequest): boolean {
   if (request.status === "canceled") return false;
@@ -199,4 +339,57 @@ export function currentBootstrapRequests(
       .filter((id) => id !== undefined),
   );
   return requests.filter((request) => !superseded.has(request.id));
+}
+
+export function preclaimRecoveryStatus(request: BootstrapRecoveryRequest): string {
+  if (!request.execution) {
+    if (request.status === "canceled") return "Canceled";
+    return request.status === "approved"
+      ? "Approved; awaiting recorded claim"
+      : "Recovery approval needed";
+  }
+  const labels: Record<NonNullable<BootstrapRecoveryRequest["execution"]>["stage"], string> = {
+    claimed: "Checking recovery",
+    cancellation_fenced: "Original operation canceled",
+    claim_fenced: "Original operation cannot dispatch",
+    effect_pending: "Stopping the reviewed executor",
+    verifying: "Verifying exit and preserved selection",
+    succeeded: "Executor cleanup verified",
+    recovery_required: "Outcome requires inspection",
+    aborted_before_effects: "Stopped before effects",
+  };
+  return labels[request.execution.stage];
+}
+
+export function preclaimDispatchDescription(request: BootstrapRecoveryRequest): string | null {
+  const observation = request.dispatch;
+  if (!observation) return null;
+  switch (observation.state) {
+    case "no_receipt":
+      return "No launch receipt recorded.";
+    case "attempt_retained":
+      return "Launch attempt retained; a runner birth receipt is not yet available.";
+    case "birth_retained":
+      return `Recovery runner birth recorded: PID ${observation.executor.pid}, start ${observation.executor.startIdentity}. Current liveness and completion still require verification.`;
+    case "unavailable":
+      return "Launch receipts could not be reconciled. Inspect retained evidence; do not replay approval.";
+  }
+}
+
+export function preclaimRecoveryNeedsAttention(request: BootstrapRecoveryRequest): boolean {
+  return (
+    request.status !== "canceled" &&
+    request.execution?.stage !== "succeeded" &&
+    request.execution?.stage !== "aborted_before_effects"
+  );
+}
+
+export function recoveryTargetDescription(request: BootstrapRecoveryRequest): string {
+  const { plan } = request;
+  if (plan.operation === "bootstrap-claimed-recovery")
+    return `Prevent the stalled operation from dispatching and stop only its reviewed executor, PID ${plan.executor.identity.pid}. Preserve its original approval and recovery history. The selected coordinator and configuration stay in place. Host and Dev tasks keep running.`;
+  const action = plan.ownerCancellation
+    ? `Preserve owner cancellation ${plan.ownerCancellation.revision} recorded ${plan.ownerCancellation.decisionAt} for operation ${plan.original.id}`
+    : `Cancel original operation ${plan.original.id}`;
+  return `${action} and stop only its reviewed executor, PID ${plan.executor.identity.pid}. The selected coordinator and configuration stay in place. Host and Dev tasks keep running.`;
 }

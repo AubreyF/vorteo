@@ -1,5 +1,7 @@
 import { helperReviewFixture } from "../../src/execution-installation/helper-review.fixture";
 import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintenance";
+import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
+import { FileBootstrapRequestJournal } from "../../../server/dist/server/server/execution-installation/coordinator-bootstrap-journal";
 import { ProviderOverrideSchema } from "@getpaseo/protocol/provider-config";
 import { InstallationSkillPackages } from "../../../server/src/server/execution-installation/settings/skill-packages";
 import type { SkillFiles } from "../../../server/src/server/orchestration-skills/internal/inventory";
@@ -12,7 +14,17 @@ import {
 import { sidebarProjectForWorkspace } from "../support/helpers/workspace-ui";
 import { expectComposerVisible, fillComposerDraft } from "../support/helpers/composer";
 import { test, expect, type Page, type TestInfo } from "@playwright/test";
-import { cp, mkdir, mkdtemp, readFile, readdir, writeFile, rm, rename } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  writeFile,
+  rm,
+  rename,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -25,7 +37,9 @@ import {
   type IsolatedHostDaemon,
 } from "../support/helpers/isolated-host-daemon";
 import { hashDaemonPassword } from "../../../server/src/server/auth";
-import { createInstallationServer } from "../../../server/src/server/execution-installation/server";
+// Keep the native coordinator in its Node build boundary. Expo's global
+// environment declarations do not describe its protected subprocess environment.
+import { createInstallationServer } from "../../../server/dist/server/server/execution-installation/server";
 import {
   connectInstallationDaemon,
   createInstallationRestartExecutor,
@@ -33,15 +47,16 @@ import {
 import {
   createInstallationProfiles,
   startProfileSynchronization,
-} from "../../../server/src/server/execution-installation/profiles/runtime";
+} from "../../../server/dist/server/server/execution-installation/profiles/runtime";
 import {
   createInstallationSettings,
   startSettingsReconciliation,
-} from "../../../server/src/server/execution-installation/settings/runtime";
+} from "../../../server/dist/server/server/execution-installation/settings/runtime";
 import type { InstallationConfig } from "../../../server/src/server/execution-installation/config";
 import { pluginRequirements } from "../support/helpers/plugin-fixture";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 
+let claudeAuthorizationStarts = 0;
 const helperInstallations: string[] = [];
 const helperFailures = new Set<string>();
 const helperVerificationFailures = new Set<string>();
@@ -91,7 +106,7 @@ async function request(route: string, token: string, body: unknown) {
 
 test.beforeAll(async () => {
   test.setTimeout(180_000);
-  root = await mkdtemp(path.join(tmpdir(), "vorteo-installation-browser-"));
+  root = await realpath(await mkdtemp(path.join(tmpdir(), "vorteo-installation-browser-")));
   listener = await new Promise((resolve) => {
     const server = createServer();
     server.listen(0, "127.0.0.1", () => resolve(server));
@@ -135,6 +150,7 @@ test.beforeAll(async () => {
     daemons.push(
       await startIsolatedHostDaemon(`installation-${kind}-${randomUUID()}`, {
         paseoHome: home,
+        compiled: kind === "host",
         environment: {
           NODE_ENV: "development",
           HOME: home,
@@ -207,6 +223,7 @@ test.beforeAll(async () => {
         detail: "Approval required",
       },
     ]),
+    { mode: 0o600 },
   );
   const profiles = createInstallationProfiles(config);
   const settings = createInstallationSettings(config);
@@ -235,6 +252,26 @@ test.beforeAll(async () => {
     pino({ level: "silent" }),
     profiles,
     settings,
+    undefined,
+    {
+      // Authorization is inert here. Owner HTTP, the shared catalog and both daemons
+      // remain real; these rendering checks do not claim live provider acceptance.
+      read: () => ({
+        login: { status: "idle" as const },
+        connection: { connected: false, environments: [] },
+      }),
+      start: async () => {
+        claudeAuthorizationStarts++;
+        throw new Error("UI inspection must not start authorization");
+      },
+      submit: async () => {
+        throw new Error("No provider authorization in this fixture");
+      },
+      cancel: async () => ({ status: "idle" as const }),
+      signOut: async () => {},
+      reconcile: async () => {},
+      dispose: async () => {},
+    },
   );
   listener.on("request", app);
   restartTimer = setInterval(() => {
@@ -357,22 +394,136 @@ test.afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
+test("owner maintenance queue shows cancellation failures and cancels the exact request", async ({
+  page,
+}, testInfo) => {
+  const id = randomUUID();
+  const job = MaintenanceServiceJobSchema.parse({
+    id,
+    revision: randomUUID(),
+    target: "maintenance-controller",
+    operation: "replacement",
+    proposal: {
+      id,
+      installationId: config.public.installationId,
+      requestedBy: "host-agent",
+      target: "maintenance-controller",
+      operation: "replacement",
+      identitySha256: "a".repeat(64),
+      planSha256: "b".repeat(64),
+      repository: "https://example.test/maintenance",
+      sourceCommit: "c".repeat(40),
+      artifactSha256: "d".repeat(64),
+      previous: null,
+    },
+    reason: "Review the replacement controller",
+    createdAt: new Date().toISOString(),
+    status: "pending",
+    detail: "Awaiting independently verified native evidence.",
+    evidence: [],
+  });
+  const journal = new FileBootstrapRequestJournal(root);
+  journal.mutateLifecycle((jobs) => [...jobs, job], undefined);
+  await page.goto(`${origin}/settings/general?installation=1`);
+  await expect(page.getByTestId("maintenance-request-queue")).toHaveCount(0);
+  await expect(page.getByTestId("installation-update-toasts")).not.toContainText(
+    "controller or launcher maintenance requests",
+  );
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const queue = page.getByTestId("maintenance-request-queue");
+  const row = page.getByTestId(`maintenance-request-${id}`);
+  await expect(queue).toBeVisible();
+  await expect(row).toContainText(job.reason);
+  await expect(row).toContainText("Requested");
+  await expect(page.getByTestId("installation-update-toasts")).not.toContainText(
+    "Controller maintenance",
+  );
+  if (testInfo.project.name === "desktop")
+    await expect(
+      page.getByTestId("settings-sidebar").getByTestId(`maintenance-service-notice-${id}`),
+    ).toBeVisible();
+  await page.route("**/api/installation/owner/maintenance-services/cancel", async (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Fixture cancellation unavailable" }),
+    }),
+  );
+  await row.getByRole("button", { name: "Cancel maintenance" }).click();
+  await expect(queue.getByRole("alert")).toContainText("Fixture cancellation unavailable");
+  await expect(row.getByRole("button", { name: "Cancel maintenance" })).toBeDisabled();
+  expect(journal.readLifecycle().find((item) => item.id === id)?.status).toBe("pending");
+  await page.unroute("**/api/installation/owner/maintenance-services/cancel");
+  await queue.getByRole("button", { name: "Refresh requests" }).click();
+  await expect(queue.getByRole("alert")).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Cancel maintenance" })).toBeEnabled();
+  // Keep the unrelated historical restart fixture out of this control screenshot.
+  await page
+    .getByTestId("installation-update-toasts")
+    .getByRole("alert")
+    .filter({ hasText: "Restart Host to enable protected workspaces" })
+    .getByRole("button", { name: "Dismiss", exact: true })
+    .last()
+    .click();
+  await queue.screenshot({ path: testInfo.outputPath("maintenance-request-queue.png") });
+  await row.getByRole("button", { name: "Cancel maintenance" }).click();
+  await expect(row).toContainText("Maintenance cancelled before dispatch.");
+  await expect(row.getByRole("button", { name: "Cancel maintenance" })).toHaveCount(0);
+  expect(journal.readLifecycle().find((item) => item.id === id)?.status).toBe("rejected");
+});
+
 test("welcome signs in with the owner password and restores both environments", async ({
   page,
 }, testInfo) => {
   await page.goto(origin);
+  await expect(page.getByText("Welcome to Vorteo", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("welcome-demo")).toBeVisible();
+  await expect(page.getByTestId("installation-update-toasts")).toHaveCount(0);
+  await expect(page.getByTestId("installation-update-toasts-toggle")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Review restart", exact: true })).toHaveCount(0);
+  const rain = page.getByTestId("welcome-rain");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(rain).toHaveAttribute("data-motion", "falling");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(rain).toHaveAttribute("data-motion", "still");
+  await page.screenshot({
+    path: testInfo.outputPath("welcome-without-notices.png"),
+    fullPage: true,
+  });
+  await page.getByTestId("welcome-create-installation").click();
+  await expect(page.getByTestId("installation-command")).toContainText(
+    "docker/multiplex/install.sh",
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByTestId("welcome-direct-connection").click();
   const form = page.getByTestId("installation-welcome");
   await expect(form).toBeVisible();
-  await expect(page.getByText("Welcome to Vorteo", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("welcome-direct-connection")).toHaveCount(0);
+  await expect(page.getByTestId("direct-host-input")).toHaveCount(0);
   await expect(page.getByTestId("welcome-remote-ssh")).toHaveCount(0);
   const password = page.getByRole("textbox", { name: "Owner password" });
   const connect = page.getByRole("button", { name: "Connect", exact: true });
   await expect(connect).toBeDisabled();
+  if (testInfo.project.name === "phone") {
+    // Wait for the sheet to settle and prove maintenance cannot intercept its fields.
+    await expect(async () => {
+      const covered = await password.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) !== node;
+      });
+      expect(covered).toBe(false);
+    }).toPass();
+  }
   await page.screenshot({
     path: testInfo.outputPath("owner-welcome.png"),
     fullPage: true,
   });
+  await password.fill("discard-on-cancel");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(form).not.toBeVisible();
+  await page.getByTestId("welcome-direct-connection").click();
+  await expect(password).toHaveValue("");
+  await expect(connect).toBeDisabled();
   await password.fill("container-test-password");
   await connect.click();
   await expect(form.getByRole("alert")).toContainText("Incorrect owner password");
@@ -380,6 +531,7 @@ test("welcome signs in with the owner password and restores both environments", 
   await password.fill(ownerPassword);
   await password.press("Enter");
   await expect(page).not.toHaveURL(/welcome/);
+  await expect(page.getByTestId("installation-update-toasts")).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(
@@ -400,6 +552,88 @@ test("welcome signs in with the owner password and restores both environments", 
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await page.goto(`${origin}/settings/general?installation=1`);
   await expect(page.getByTestId("installation-lock")).toBeVisible();
+});
+
+test("unavailable coordinator maintenance shows its diagnosis without approval controls", async ({
+  page,
+}, info) => {
+  test.skip(process.platform !== "darwin", "Coordinator maintenance requires native macOS Host");
+  const hostId = config.public.environments.find((item) => item.kind === "host")!.serverId;
+  const host = daemons.find((daemon) => daemon.serverId === hostId)!;
+  const setupFile = path.join(root, "coordinator-bootstrap-runner.json");
+  await writeFile(setupFile, "{}", { mode: 0o600 });
+  try {
+    await host.restart();
+    const client = await connectReadyInstallationDaemon("host");
+    try {
+      const pid = (await client.getDaemonStatus()).pid;
+      const sourceRoot = await realpath(path.resolve(__dirname, "../../../.."));
+      const observed = JSON.parse(
+        execFileSync(
+          "/usr/bin/python3",
+          [path.join(sourceRoot, "scripts/inspect-coordinator-process.py"), String(pid)],
+          { encoding: "utf8" },
+        ),
+      );
+      expect(
+        JSON.parse(
+          execFileSync(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              `
+          import { readFileSync } from "node:fs";
+          import { pathToFileURL } from "node:url";
+          const input = JSON.parse(readFileSync(0, "utf8"));
+          const { verifyRenewalHostProcess } = await import(pathToFileURL(input.module).href);
+          console.log(JSON.stringify(verifyRenewalHostProcess(input.identity)));
+        `,
+            ],
+            {
+              encoding: "utf8",
+              input: JSON.stringify({
+                module: path.join(
+                  sourceRoot,
+                  "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-renewal.js",
+                ),
+                identity: {
+                  observed,
+                  pid,
+                  node: await realpath(process.execPath),
+                  root: sourceRoot,
+                  uid: process.getuid!(),
+                },
+              }),
+            },
+          ),
+        ),
+      ).toEqual(observed);
+      const features = client.getLastServerInfoMessage()!.features!;
+      expect(features.coordinatorBootstrapReview).toBe(false);
+      expect(features.coordinatorBootstrapUnavailableReason).toContain(
+        "maintenance is unavailable",
+      );
+    } finally {
+      await client.close();
+    }
+    await page.goto(origin);
+    await page.getByRole("textbox", { name: "Owner password" }).fill(ownerPassword);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page).not.toHaveURL(/welcome/);
+    await page.goto(`${origin}/settings/general?installation=1`);
+    const review = page.getByTestId("coordinator-bootstrap-review");
+    await expect(review.getByRole("alert")).toContainText("maintenance is unavailable");
+    await expect(review.getByRole("button", { name: "Refresh status" })).toBeVisible();
+    await expect(review.getByRole("textbox")).toHaveCount(0);
+    await expect(review.getByRole("button")).toHaveCount(1);
+    await review.getByRole("button", { name: "Refresh status" }).click();
+    await expect(review.getByRole("alert")).toContainText("maintenance is unavailable");
+    await page.screenshot({ path: info.outputPath("maintenance-unavailable.png"), fullPage: true });
+  } finally {
+    await rm(setupFile);
+    await host.restart();
+  }
 });
 
 test("owner connects two environments, prepares host drafts, and approves a verified container restart", async ({
@@ -427,10 +661,11 @@ test("owner connects two environments, prepares host drafts, and approves a veri
       );
   });
   await page.goto(origin);
+  await page.getByTestId("welcome-direct-connection").click();
   await expect(page.getByTestId("installation-welcome")).toBeVisible();
   await expect(page).toHaveURL(/welcome/);
-  await expect(page.getByTestId("welcome-direct-connection")).toHaveCount(0);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByTestId("direct-host-input")).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(1);
   await page.screenshot({
     path: testInfo.outputPath("installation-owner-access.png"),
     fullPage: true,
@@ -643,10 +878,16 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
 });
 
-test("restart banner names daemons and keeps its top divider fixed while scrolling", async ({
+test("passive maintenance stays in the sidebar and actionable notices can be dismissed", async ({
   page,
 }, testInfo) => {
+  test.skip(
+    testInfo.project.name === "phone",
+    "Sidebar placement uses the desktop sidebar; compact actions have separate coverage.",
+  );
   test.setTimeout(180_000);
+  const width = testInfo.project.name === "phone" ? 390 : 1440;
+  await page.setViewportSize({ width, height: 600 });
   await page.goto(`${origin}/settings/general?installation=1`);
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
@@ -672,15 +913,27 @@ test("restart banner names daemons and keeps its top divider fixed while scrolli
         source: { kind: "directory", path: directory },
       });
       if (!workspace) throw new Error("Missing banner fixture workspace");
-      const blocker = await client.createAgent({
-        config: {
-          provider: "mock",
-          cwd: directory,
-          title: "Keep the banner fixture queued",
-          model: "thirty-minute-stream",
-        },
-        workspaceId: workspace.id,
-        initialPrompt: "Keep this isolated restart queued during the scroll check",
+      const createBlocker = () =>
+        client.createAgent({
+          config: {
+            provider: "mock",
+            cwd: directory,
+            title: "Keep the banner fixture queued",
+            model: "thirty-minute-stream",
+          },
+          workspaceId: workspace.id,
+          initialPrompt: "Keep this isolated restart queued during the scroll check",
+        });
+      // The coordinator may finish its initial settings sync during admission.
+      // This exact guard rejects before agent creation, so one retry is safe.
+      const blocker = await createBlocker().catch((error: unknown) => {
+        if (
+          !(error instanceof Error) ||
+          error.message !==
+            "Local account or settings bindings changed during launch. Retry with the current configuration."
+        )
+          throw error;
+        return createBlocker();
       });
       blockers.push({ client, id: blocker.id });
       await expect
@@ -697,41 +950,59 @@ test("restart banner names daemons and keeps its top divider fixed while scrolli
         ).json(),
       );
       jobs.push(job.id);
+      if (jobs.length === 1) {
+        const floating = page
+          .getByTestId("installation-update-toasts")
+          .getByTestId(`restart-notice-${job.id}`);
+        await expect(
+          floating.getByRole("button", { name: "Review restart", exact: true }),
+        ).toBeVisible();
+        await floating.screenshot({ path: testInfo.outputPath("actionable-maintenance.png") });
+        await floating.getByTestId(`restart-notice-${job.id}-action-1`).click();
+        await expect(floating).toHaveCount(0);
+        const afterDismiss = RestartJobSchema.parse(
+          await (
+            await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
+              headers: { Authorization: `Bearer ${guestToken}` },
+            })
+          ).json(),
+        );
+        expect(afterDismiss.status).toBe("pending");
+      }
       const response = await request(`owner/restarts/${job.id}/decision`, ownerPassword, {
         revision: job.revision,
         decision: "approve-when-idle",
       });
       expect(response.status).toBe(200);
     }
-    const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
+    const sidebar = page.getByTestId("settings-sidebar").filter({ visible: true });
+    const banner = sidebar.getByTestId("installation-restart-banner");
     await expect(banner).toContainText("Dev daemon restart queued");
     await expect(banner).toContainText("Host daemon restart queued");
-    const cards = banner.getByRole("alert");
+    const cards = banner
+      .locator('[data-testid^="restart-notice-"][role="button"]')
+      .filter({ visible: true });
     await expect(cards).toHaveCount(2);
-    await expect(cards.first()).toHaveCSS("border-top-width", "0px");
-    await expect(cards.last()).toHaveCSS("border-top-width", "1px");
-    const bounds = await banner.boundingBox();
-    if (!bounds) throw new Error("Missing restart banner bounds");
-    const overflow = await banner.evaluate(
-      (element) => element.scrollHeight - element.clientHeight,
-    );
-    expect(overflow).toBeGreaterThan(0);
-    for (const fraction of [0, 0.5, 1]) {
-      await banner.evaluate((element, scrollTop) => {
-        element.scrollTop = scrollTop;
-      }, overflow * fraction);
-      await expect
-        .poll(() => banner.evaluate((element) => element.scrollTop))
-        .toBeCloseTo(overflow * fraction, 0);
-      await expect(banner).toHaveCSS("border-top-width", "1px");
-      expect(await banner.boundingBox()).toEqual(bounds);
-      await banner.screenshot({
-        path: testInfo.outputPath(`restart-banner-scroll-${fraction}.png`),
-      });
+    for (const card of await cards.all()) {
+      expect((await card.boundingBox())!.height).toBeLessThanOrEqual(56);
+      await expect(card.getByRole("progressbar")).toBeVisible();
     }
-    const firstCardBounds = await cards.first().boundingBox();
-    if (!firstCardBounds) throw new Error("Missing restart card bounds");
-    expect(firstCardBounds.y).toBeLessThan(bounds.y);
+    const stack = page.getByTestId("installation-update-toasts");
+    await expect(stack.locator('[data-testid^="restart-notice-"]')).toHaveCount(0);
+    await sidebar.screenshot({ path: testInfo.outputPath("compact-passive-maintenance.png") });
+    const reviewRow = cards.filter({ hasText: "Host daemon restart queued" });
+    await expect(reviewRow).toHaveAttribute("role", "button");
+    await expect(reviewRow).not.toContainText("Review restart");
+    await expect(reviewRow.locator('[role="button"]')).toHaveCount(0);
+    await reviewRow.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/installation=1.*restart=/);
+    const reviewedId = new URL(page.url()).searchParams.get("restart");
+    expect(reviewedId).toBe(jobs[1]);
+    const reviewedCard = page.getByTestId(`restart-request-${reviewedId}`);
+    await reviewedCard.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(reviewedCard).toContainText("Rejected");
+    await expect(cards).toHaveCount(1);
   } finally {
     for (const id of jobs) {
       const response = await fetch(`${origin}/api/installation/restart-requests/${id}`, {
@@ -916,6 +1187,23 @@ test("restart links keep rejected and missing requests separate from a pending a
   );
   await expect(page.getByTestId(`restart-request-${pending.id}`)).toBeVisible();
   await expect(page.getByTestId(`restart-confirm-${historicalRestartId}`)).toHaveCount(0);
+  const historyRegion = page.getByTestId("restart-history-content");
+  await expect(historyRegion.getByTestId(`restart-request-${historicalRestartId}`)).toBeVisible();
+  await expect(historyRegion).toHaveCSS("border-top-width", "0px");
+  await expect(historyRegion.getByTestId(`restart-request-${historicalRestartId}`)).toHaveCSS(
+    "border-top-width",
+    "0px",
+  );
+  const historyColor = await historyRegion.evaluate(
+    (node) => getComputedStyle(node).backgroundColor,
+  );
+  expect(historyColor).not.toBe("rgba(0, 0, 0, 0)");
+  await page.getByTestId("installation-sharing-toggle").click();
+  const sharingRegion = page.getByTestId("installation-sharing-content");
+  await expect(sharingRegion).toBeVisible();
+  await expect(sharingRegion).toHaveCSS("background-color", historyColor);
+  await expect(sharingRegion).toHaveCSS("border-top-width", "0px");
+
   await page.goto(`${origin}/settings/general?installation=1&restart=${randomUUID()}`);
   await expect(
     page.getByText("This restart request is no longer available.", { exact: true }),
@@ -1278,6 +1566,272 @@ for (const destinationMode of ["existing", "new"] as const) {
     }
   });
 }
+
+test("shared profile editor renders cross-environment model compatibility", async ({
+  page,
+}, info) => {
+  if (info.project.name === "desktop") await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost"
+      ? route.continue()
+      : route.abort();
+  });
+  let unknownDevCatalog = false;
+  let nonselectableDevModel = false;
+  const observedCatalogs = new Set<string>();
+  const savedAliasId = "compatibility-saved-alias";
+  await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    const host = new URL(socket.url()).port === String(daemons[1]!.port);
+    const provider = host ? "fixture-host-claude" : "fixture-dev-claude";
+    const server = socket.connectToServer();
+    socket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      if (typeof message !== "string") return socket.send(message);
+      const envelope = JSON.parse(message);
+      if (envelope.type !== "session") return socket.send(message);
+      const { type, payload } = envelope.message;
+      if (payload?.config?.providers) {
+        payload.config.providers[provider] = { extends: "claude", enabled: true };
+      }
+      if (type === "get_providers_snapshot_response" || type === "providers_snapshot_update") {
+        observedCatalogs.add(host ? "host" : "container");
+        delete payload.compactSnapshot;
+        delete payload.snapshotHash;
+        delete payload.notModified;
+        payload.entries = [
+          {
+            provider,
+            enabled: true,
+            label: host ? "Fixture Host Claude" : "Fixture Dev Claude",
+            status: !host && unknownDevCatalog ? "error" : "ready",
+            ...(!host && unknownDevCatalog
+              ? { error: "Synthetic catalog unavailable" }
+              : {
+                  defaultModeId: "default",
+                  modes: [{ id: "default", label: "Always Ask" }],
+                  models: host
+                    ? [
+                        {
+                          provider,
+                          id: "host-only-opus",
+                          label: "Host-only Opus",
+                          isDefault: true,
+                        },
+                        { provider, id: "host-opus", label: "Common Opus", aliases: ["opus"] },
+                      ]
+                    : [
+                        {
+                          provider,
+                          id: "dev-opus",
+                          label: "Common Opus",
+                          aliases: ["host-opus", "opus"],
+                          isSelectable: !nonselectableDevModel,
+                          isDefault: true,
+                        },
+                      ],
+                }),
+          },
+        ];
+      }
+      socket.send(JSON.stringify(envelope));
+    });
+  });
+  await page.goto(origin);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  await expect(page.getByTestId("installation-password")).not.toBeVisible();
+  const readProfiles = async () => {
+    const response = await page.request.post(`${origin}/api/installation/owner/profiles/read`, {
+      headers: { Origin: origin },
+    });
+    expect(response.ok()).toBe(true);
+    return response.json();
+  };
+  const before = await readProfiles();
+  const pickerProjects: { kind: "host" | "container"; projectId: string }[] = [];
+  try {
+    const seeded = await page.request.patch(`${origin}/api/installation/owner/profiles`, {
+      headers: { Origin: origin },
+      data: {
+        expectedRevision: before.revision,
+        providers: {
+          ...before.providers,
+          claude: {
+            defaults: {},
+            preferredModels: [],
+            preferredThinkingOptions: [],
+            defaultWorkflowId: null,
+            workflows: [
+              {
+                id: savedAliasId,
+                provider: "claude",
+                name: "Saved alias",
+                model: "opus",
+                modeId: "default",
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(seeded.ok()).toBe(true);
+    await page.goto(`${origin}/settings/profiles`);
+    const dialog = page.getByTestId("agent-profile-edit-modal");
+    const model = page.getByTestId("agent-profile-model-trigger");
+    const modelField = page.getByTestId("agent-profile-model-field");
+    const capture = async (name: string) => {
+      await modelField.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: info.outputPath(`${name}.png`) });
+    };
+    await expect(page.getByTestId(`agent-profile-edit-${savedAliasId}`)).toBeVisible();
+    await page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await expect(dialog).toBeVisible();
+    await expect(model).toContainText("Common Opus");
+    await expect(dialog).not.toContainText("does not support this model");
+    await expect(dialog).not.toContainText("compatibility is unknown");
+    expect([...observedCatalogs].sort()).toEqual(["container", "host"]);
+    await capture("common-default");
+
+    await model.click();
+    await page.getByText("Host-only Opus", { exact: true }).last().click();
+    await expect(page.getByText("host-only-opus", { exact: true })).toHaveCount(0);
+    await expect(model).toContainText("Host-only Opus");
+    await expect(
+      modelField.getByText("Dev container does not support this model.", { exact: true }),
+    ).toBeVisible();
+    await capture("explicit-incompatible");
+    await page.getByTestId("agent-profile-name-input").fill("Explicit incompatible");
+    await page.getByTestId("agent-profile-save-button").click();
+    await expect(dialog).not.toBeVisible();
+    const saved = await readProfiles();
+    const incompatible = saved.providers.claude.workflows.find(
+      (profile: { name: string }) => profile.name === "Explicit incompatible",
+    );
+    expect(incompatible.model).toBe("host-only-opus");
+    expect(incompatible.excludedEnvironments ?? []).toEqual([]);
+    await page.getByTestId(`agent-profile-edit-${incompatible.id}`).click();
+    await expect(model).toContainText("Host-only Opus");
+    await expect(
+      modelField.getByText("Dev container does not support this model.", { exact: true }),
+    ).toBeVisible();
+    await capture("saved-incompatible");
+    await page.getByTestId("agent-profile-cancel-button").click();
+    await expect(dialog).not.toBeVisible();
+
+    await page.getByTestId(`agent-profile-edit-${savedAliasId}`).click();
+    await expect(model).toHaveText("opus");
+    await expect(dialog).not.toContainText("does not support this model");
+    await expect(dialog).not.toContainText("compatibility is unknown");
+    await capture("saved-alias");
+    await page.getByTestId("agent-profile-save-button").click();
+    await expect(dialog).not.toBeVisible();
+    const aliasSaved = await readProfiles();
+    expect(
+      aliasSaved.providers.claude.workflows.find(
+        (profile: { id: string }) => profile.id === savedAliasId,
+      ).model,
+    ).toBe("opus");
+
+    const aliasRow = page.getByTestId(`agent-profile-row-${savedAliasId}`);
+    await expect(aliasRow).not.toContainText("is not offered by this account");
+    await aliasRow.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath("valid-alias-list.png") });
+
+    unknownDevCatalog = true;
+    await page.reload();
+    await page.getByTestId(`agent-profile-edit-${incompatible.id}`).click();
+    // An unavailable source catalog may only supply the saved literal reference.
+    await expect(model).toHaveText(/^(Host-only Opus|host-only-opus)$/);
+    await expect(
+      modelField.getByText("Dev container model compatibility is unknown.", { exact: true }),
+    ).toBeVisible();
+    await expect(dialog).not.toContainText("does not support this model");
+    await capture("unknown-included-catalog");
+    unknownDevCatalog = false;
+    const profileRow = page.getByTestId(`preset-row-shared-profile/claude/${savedAliasId}`);
+    const pickerRoutes = new Map<string, string>();
+    for (const [index, kind] of [
+      [1, "host"],
+      [0, "container"],
+    ] as const) {
+      const client = await connectReadyInstallationDaemon(kind);
+      try {
+        const directory = path.join(daemons[index]!.paseoHome, "alias-picker-project");
+        await mkdir(directory, { recursive: true });
+        const created = await client.createWorkspace({
+          source: { kind: "directory", path: directory },
+          title: "Alias picker fixture",
+        });
+        if (!created.workspace) throw new Error("Missing isolated alias workspace");
+        pickerProjects.push({ kind, projectId: created.workspace.projectId });
+        pickerRoutes.set(
+          kind,
+          `${origin}${buildHostWorkspaceOpenRoute(daemons[index]!.serverId, created.workspace.id, "draft:alias-picker")}`,
+        );
+      } finally {
+        await client.close();
+      }
+      await page.goto(pickerRoutes.get(kind)!);
+      await expectComposerVisible(page, { timeout: 60_000 });
+      await page.getByTestId("agent-preset-selector").click();
+      if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
+      await page
+        .getByTestId(`preset-account-fixture-${kind === "host" ? "host" : "dev"}-claude`)
+        .click();
+      await expect(profileRow).toBeVisible();
+      await profileRow.click();
+      await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
+      await expect(
+        page.getByText("The selected account is unavailable. Choose another account.", {
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      await page.screenshot({ path: info.outputPath(`valid-alias-${kind}-picker.png`) });
+    }
+    nonselectableDevModel = true;
+    await page.goto(pickerRoutes.get("container")!);
+    await expectComposerVisible(page, { timeout: 60_000 });
+    await page.getByTestId("agent-preset-selector").click();
+    if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
+    await page.getByTestId("preset-account-fixture-dev-claude").click();
+    await expect(profileRow).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("nonselectable-alias-dev-picker.png") });
+
+    await info.attach("catalog-compatibility-evidence", {
+      contentType: "application/json",
+      body: JSON.stringify(
+        {
+          viewport: page.viewportSize(),
+          localProviders: ["fixture-host-claude", "fixture-dev-claude"],
+          commonReference: "host-opus",
+          devCanonicalModel: "dev-opus",
+          devAliases: ["host-opus", "opus"],
+          savedExplicitModel: incompatible.model,
+          savedAlias: "opus",
+          exclusions: incompatible.excludedEnvironments ?? [],
+        },
+        null,
+        2,
+      ),
+    });
+  } finally {
+    const current = await readProfiles();
+    const restored = await page.request.patch(`${origin}/api/installation/owner/profiles`, {
+      headers: { Origin: origin },
+      data: { expectedRevision: current.revision, providers: before.providers },
+    });
+    expect(restored.ok()).toBe(true);
+    for (const project of pickerProjects) {
+      const client = await connectReadyInstallationDaemon(project.kind);
+      try {
+        await client.removeProject(project.projectId);
+      } finally {
+        await client.close();
+      }
+    }
+  }
+});
 
 test("profile edits remain shared while environment exclusions change availability", async ({
   page,
@@ -3610,6 +4164,16 @@ test("disabled restart explains the correction on hover, focus and touch without
   await page.route("**/api/installation/owner/restarts/query?*", (route) =>
     route.fulfill({ json: [job] }),
   );
+  const preparations: unknown[] = [];
+  let preparingIds: string[] = [];
+  await page.route("**/api/installation/owner/dev-repair/query", (route) =>
+    route.fulfill({ json: { available: true, preparingIds } }),
+  );
+  await page.route("**/api/installation/owner/dev-repair/prepare", (route) => {
+    preparations.push(route.request().postDataJSON());
+    preparingIds = [id];
+    return route.fulfill({ status: 202, json: { id, revision: job.revision } });
+  });
   const decisions: unknown[] = [];
   await page.route(`**/api/installation/owner/restarts/${id}/decision?*`, (route) => {
     decisions.push(route.request().postDataJSON());
@@ -3619,9 +4183,10 @@ test("disabled restart explains the correction on hover, focus and touch without
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
   const card = page.getByTestId(`restart-request-${id}`);
-  await expect(card).toContainText("Awaiting agent repair");
-  await expect(card).toContainText("The requesting agent must repair this update");
-  await expect(card).toContainText("Leave it queued for repair");
+  await expect(card).toContainText("Source repair needed");
+  await expect(page.getByTestId(`restart-notice-${id}`)).toHaveCount(0);
+  await expect(card).toContainText("Prepare Dev repair captures the installed Host source");
+  await expect(card).toContainText("your running version is unchanged");
   await expect(card.getByRole("button", { name: "Cancel update", exact: true })).toBeVisible();
   await expect(
     card.getByText("Existing release notes were edited; resolve explicitly", { exact: true }),
@@ -3646,6 +4211,19 @@ test("disabled restart explains the correction on hover, focus and touch without
   }
   expect(decisions).toEqual([]);
   await expect(button).toBeDisabled();
+  const prepare = page.getByTestId(`dev-repair-${id}`);
+  await expect(prepare).toBeEnabled();
+  await prepare.click();
+  expect(preparations).toEqual([{ id, revision: job.revision }]);
+  await expect(prepare).toHaveText("Preparing repair");
+  await expect(prepare).toBeDisabled();
+  await expect(card.getByRole("button", { name: "Cancel update", exact: true })).toBeEnabled();
+  expect(decisions).toEqual([]);
+  job.sourceBatch.status = "ready";
+  job.revision = randomUUID();
+  await expect(page.getByTestId(`restart-notice-${id}`)).toBeVisible();
+  await expect(page.getByTestId(`restart-notice-${id}`)).toContainText("Review update");
+  expect(decisions).toEqual([]);
 });
 
 test("native helper review binds approval and cancellation through real owner routes", async ({
@@ -3751,4 +4329,154 @@ test("native helper recovery remains visible through refresh and locked controls
     "The installed helper is verified. The earlier failure remains in history.",
   );
   expect(helperInstallations.filter((value) => value === id)).toHaveLength(1);
+});
+
+for (const width of [1280, 390]) {
+  test(`Claude management connects once without environment tabs at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto(origin);
+    await page.getByTestId("installation-password").fill(ownerPassword);
+    await page.getByTestId("installation-unlock").click();
+    await expect(page.getByTestId("installation-password")).not.toBeVisible();
+    const read = async () =>
+      InstallationSettingsSnapshotSchema.parse(
+        await (
+          await page.request.post(`${origin}/api/installation/owner/settings/read`, {
+            headers: { Origin: origin },
+            data: {},
+          })
+        ).json(),
+      );
+    const before = await read();
+    const definitions = before.settings?.providerDefinitions;
+    if (!definitions) throw new Error("Missing shared provider catalog");
+    const creationId = randomUUID();
+    const id = `claude-browser-${creationId}`;
+    const providerId = `claude-account-${creationId}`;
+    const response = await page.request.patch(`${origin}/api/installation/owner/settings`, {
+      headers: { Origin: origin },
+      data: {
+        expectedRevision: before.revision,
+        settings: {
+          providerDefinitions: [
+            ...definitions,
+            {
+              id,
+              providerType: "claude",
+              accountSetup: { provider: "claude", creationId },
+              bindings: Object.fromEntries(daemons.map((daemon) => [daemon.serverId, providerId])),
+              policy: { label: "Shared Claude fixture", enabled: true },
+            },
+          ],
+        },
+      },
+    });
+    expect(response.ok()).toBe(true);
+    try {
+      await page.goto(`${origin}/settings/providers`);
+      await page
+        .getByTestId("provider-family-claude")
+        .getByRole("button", { name: "Claude", exact: true })
+        .click();
+      await page
+        .getByTestId(`provider-account-${id}`)
+        .getByRole("button", { name: "Manage", exact: true })
+        .click();
+      const sheet =
+        width === 390
+          ? page.getByRole("slider", { name: "Bottom Sheet", exact: true })
+          : page.getByTestId("provider-manage-sheet");
+      await expect(sheet.getByText("Connect Claude once.", { exact: false })).toBeVisible();
+      await expect(sheet.getByRole("button", { name: "Connect Claude", exact: true })).toHaveCount(
+        1,
+      );
+      await expect(
+        sheet.getByRole("button", { name: "Connect Claude", exact: true }),
+      ).toBeEnabled();
+      await expect(sheet.getByRole("tab")).toHaveCount(0);
+      await expect(sheet.getByText("Host", { exact: true })).toHaveCount(0);
+      await expect(sheet.getByText("Dev container", { exact: true })).toHaveCount(0);
+      await expect(
+        sheet.getByRole("button", { name: "Models and profiles", exact: true }),
+      ).toBeVisible();
+      await expect(sheet.getByText("Not connected.", { exact: true })).toBeVisible();
+      await sheet
+        .getByRole("button", { name: "Connect Claude", exact: true })
+        .scrollIntoViewIfNeeded();
+      await expect(
+        sheet.getByRole("button", { name: "Connect Claude", exact: true }),
+      ).toBeInViewport();
+      await page.screenshot({ path: info.outputPath(`claude-shared-${width}.png`) });
+      // Rendering the connection must not initiate provider authorization.
+      const status = await page.request.post(
+        `${origin}/api/installation/owner/claude/setup-token/read`,
+        {
+          headers: { Origin: origin },
+          data: { definitionId: id },
+        },
+      );
+      expect(status.ok()).toBe(true);
+      expect((await status.json()).login.status).toBe("idle");
+      expect(claudeAuthorizationStarts).toBe(0);
+    } finally {
+      const current = await read();
+      const currentDefinitions = current.settings?.providerDefinitions;
+      expect(currentDefinitions).toBeDefined();
+      const restored = await page.request.patch(`${origin}/api/installation/owner/settings`, {
+        headers: { Origin: origin },
+        data: {
+          expectedRevision: current.revision,
+          settings: {
+            providerDefinitions: currentDefinitions!.filter((entry) => entry.id !== id),
+          },
+        },
+      });
+      expect(restored.ok()).toBe(true);
+    }
+  });
+}
+
+test("automatic maintenance shows readiness and preserves owner opt-in across reload", async ({
+  page,
+}, testInfo) => {
+  await page.goto(origin);
+  await page.getByTestId("welcome-direct-connection").click();
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  await expect(page.getByTestId("installation-password")).not.toBeVisible();
+  await page.goto(`${origin}/settings/general?installation=1`);
+  const control = page.getByTestId("maintenance-permission-host");
+  for (const service of ["host", "container-daemon", "coordinator", "supervisor"]) {
+    await expect(page.getByTestId(`maintenance-permission-${service}`)).toBeVisible();
+    await expect(page.getByTestId(`maintenance-permission-${service}`)).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  }
+  const info = page.getByTestId("maintenance-info-host");
+  if (testInfo.project.name === "phone") await info.click();
+  else await info.hover();
+  await expect(page.getByTestId("maintenance-info-host-tooltip")).toContainText(
+    "Only authenticated Host threads qualify",
+  );
+  await page.keyboard.press("Escape");
+  await page.getByText("Automatic maintenance authorization", { exact: true }).click();
+  await expect(control).toBeVisible();
+  await expect(page.getByTestId("maintenance-readiness")).toContainText("manual");
+  await control.click();
+  await expect(control).toHaveAttribute("aria-checked", "true");
+  for (const service of ["container-daemon", "coordinator", "supervisor"])
+    await expect(page.getByTestId(`maintenance-permission-${service}`)).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  await page.reload();
+  await expect(control).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("maintenance-readiness")).toContainText("automatic");
+  await page.screenshot({ path: testInfo.outputPath("maintenance-readiness.png"), fullPage: true });
+  await control.click();
+  await expect(control).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByTestId("maintenance-readiness")).toContainText("manual");
 });

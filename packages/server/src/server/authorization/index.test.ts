@@ -35,6 +35,52 @@ function outboundMessage(type: SessionOutboundMessage["type"]): SessionOutboundM
 }
 
 describe("SessionAuthorization", () => {
+  test("automatic coordinator reconciliation requires daemon management", () => {
+    const inbound = inboundMessage("installation.bootstrap.reconcile_automatic.request");
+    const outbound = outboundMessage("installation.bootstrap.reconcile_automatic.response");
+    for (const permission of [
+      "daemon.read",
+      "workspace.write",
+      "hub.execute",
+      "automation.manage",
+    ] as const) {
+      const denied = new SessionAuthorization([permission]);
+      expect(denied.allowsInbound(inbound)).toBe(false);
+      expect(denied.allowsOutbound(outbound)).toBe(false);
+    }
+    const manager = new SessionAuthorization(["daemon.manage"]);
+    expect(manager.allowsInbound(inbound)).toBe(true);
+    expect(manager.allowsOutbound(outbound)).toBe(true);
+  });
+
+  test("claimed recovery requests and replies require daemon management", () => {
+    for (const permission of [
+      "daemon.read",
+      "workspace.write",
+      "hub.execute",
+      "automation.manage",
+    ] as const) {
+      const denied = new SessionAuthorization([permission]);
+      const manager = new SessionAuthorization(["daemon.manage"]);
+      for (const type of [
+        "installation.claimed_recovery.list_requests.request",
+        "installation.claimed_recovery.prepare.request",
+        "installation.claimed_recovery.decide.request",
+      ] as const) {
+        expect(denied.allowsInbound(inboundMessage(type))).toBe(false);
+        expect(manager.allowsInbound(inboundMessage(type))).toBe(true);
+      }
+      for (const type of [
+        "installation.claimed_recovery.list_requests.response",
+        "installation.claimed_recovery.prepare.response",
+        "installation.claimed_recovery.decide.response",
+      ] as const) {
+        expect(denied.allowsOutbound(outboundMessage(type))).toBe(false);
+        expect(manager.allowsOutbound(outboundMessage(type))).toBe(true);
+      }
+    }
+  });
+
   test("origin inspection is read-only while admission requires daemon management", () => {
     const inspect: SessionInboundMessage = {
       type: "daemon.config.get_origin_admission.request",

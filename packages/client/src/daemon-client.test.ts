@@ -9,6 +9,7 @@ import {
   type DaemonTransport,
   type Logger,
 } from "./daemon-client";
+import { CoordinatorBootstrapPreparationSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import { CLIENT_CAPS } from "@getpaseo/protocol/client-capabilities";
 import { BROWSER_AUTOMATION_COMMAND_NAMES } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import {
@@ -1041,6 +1042,7 @@ test("advertises client capabilities in hello", async () => {
       plugin_timeline_items: true,
       workspace_setup_blocked: true,
       checklist_blocked_status: true,
+      checklist_review_status: true,
       hello_rejection: true,
       browser_host: {
         supportedCommands: ["list_tabs"],
@@ -4125,6 +4127,119 @@ test("idle restart refuses an older daemon before sending any restart command", 
   await expect(client.restartServer(undefined, undefined, { idleMode: "restart" })).rejects.toThrow(
     "Update this daemon",
   );
+  expect(mock.sent).toHaveLength(0);
+});
+
+test("held idle restart requires exact acknowledgement and captures its inputs", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "held-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { heldIdleRestart: true, idleRestart: true } });
+  await connecting;
+  const held = {
+    requestId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",
+    generation: "43d76338-6f84-4f82-bfbe-c9b42e8e3ba3",
+    workerPid: 42,
+    workerInstanceId: "44b462bd-ee9e-4136-906d-dc5a885f9387",
+    terminateAt: Date.now() + 1000,
+  };
+  const expected = { ...held };
+  const result = client.restartServer(undefined, "held-rpc", {
+    idleMode: "restart",
+    restartDrainId: held.requestId,
+    heldRestart: held,
+  });
+  held.generation = "033d712b-90f8-4d76-a925-8596afab26be";
+  expect(parseSentFrame(mock.sent[0])).toMatchObject({ heldRestart: expected });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        clientId: "held-test",
+        requestId: "held-rpc",
+        accepted: true,
+        heldRestart: expected,
+      },
+    }),
+  );
+  await expect(result).resolves.toMatchObject({ accepted: true, heldRestart: expected });
+});
+
+test("held idle restart does not accept a legacy acknowledgement as dispatch proof", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "held-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { heldIdleRestart: true, idleRestart: true } });
+  await connecting;
+  const held = {
+    requestId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",
+    generation: "43d76338-6f84-4f82-bfbe-c9b42e8e3ba3",
+    workerPid: 42,
+    workerInstanceId: "44b462bd-ee9e-4136-906d-dc5a885f9387",
+    terminateAt: Date.now() + 1000,
+  };
+  const result = client.restartServer(undefined, "held-rpc", {
+    idleMode: "restart",
+    restartDrainId: held.requestId,
+    heldRestart: held,
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        clientId: "held-test",
+        requestId: "held-rpc",
+        accepted: true,
+      },
+    }),
+  );
+  await expect(result).rejects.toThrow("observe without replay");
+  expect(mock.sent).toHaveLength(1);
+});
+
+test("held idle restart rejects old supervisor capability before sending", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "held-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { idleRestart: true } });
+  await connecting;
+  const held = {
+    requestId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",
+    generation: "43d76338-6f84-4f82-bfbe-c9b42e8e3ba3",
+    workerPid: 42,
+    workerInstanceId: "44b462bd-ee9e-4136-906d-dc5a885f9387",
+    terminateAt: Date.now() + 1000,
+  };
+  await expect(
+    client.restartServer(undefined, "held-rpc", {
+      idleMode: "restart",
+      restartDrainId: held.requestId,
+      heldRestart: held,
+    }),
+  ).rejects.toThrow("running supervisor");
   expect(mock.sent).toHaveLength(0);
 });
 
@@ -8201,13 +8316,21 @@ test.each([false, true])(
     mock.triggerOpen({
       features: {
         coordinatorBootstrapReview: true,
-        ...(supported ? { coordinatorBootstrapFactoryAdoption: true } : {}),
+        ...(supported
+          ? {
+              coordinatorBootstrapFactoryAdoption: true,
+              coordinatorBootstrapCompatibleRecovery: true,
+              coordinatorBootstrapPreviewMonitor: true,
+            }
+          : {}),
       },
     });
     await connecting;
     const listing = client.listCoordinatorBootstrapRequests();
     const listed = parseSentFrame(mock.sent[0]);
     expect(listed.factoryRuntimeAdoption).toBe(supported ? true : undefined);
+    expect(listed.compatibleRecovery).toBe(supported ? true : undefined);
+    expect(listed.previewMonitor).toBe(supported ? true : undefined);
     mock.triggerMessage(
       wrapSessionMessage({
         type: "installation.bootstrap.list_requests.response",
@@ -8215,6 +8338,16 @@ test.each([false, true])(
       }),
     );
     await expect(listing).resolves.toEqual([]);
+    const preparing = client.prepareCoordinatorBootstrap(bootstrapMonitorPreparation());
+    const prepared = parseSentFrame(mock.sent[1]);
+    expect(prepared.previewMonitor).toBe(supported ? true : undefined);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.prepare.response",
+        payload: { requestId: prepared.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(preparing).resolves.toEqual([]);
     const input = {
       id: "00000000-0000-4000-8000-000000000001",
       revision: "00000000-0000-4000-8000-000000000002",
@@ -8222,13 +8355,15 @@ test.each([false, true])(
       decision: "approve" as const,
     };
     const decision = client.decideCoordinatorBootstrap(input, "fixture-owner-proof");
-    const sent = parseSentFrame(mock.sent[1]);
+    const sent = parseSentFrame(mock.sent[2]);
     expect(sent).toEqual({
       type: "installation.bootstrap.decide.request",
       requestId: expect.any(String),
       input,
       ownerPassword: "fixture-owner-proof",
-      ...(supported ? { factoryRuntimeAdoption: true } : {}),
+      ...(supported
+        ? { factoryRuntimeAdoption: true, compatibleRecovery: true, previewMonitor: true }
+        : {}),
     });
     const rejected = expect(decision).rejects.toThrow();
     mock.triggerClose({ code: 1006 });
@@ -8237,7 +8372,13 @@ test.each([false, true])(
     mock.triggerOpen({
       features: {
         coordinatorBootstrapReview: true,
-        ...(supported ? { coordinatorBootstrapFactoryAdoption: true } : {}),
+        ...(supported
+          ? {
+              coordinatorBootstrapFactoryAdoption: true,
+              coordinatorBootstrapCompatibleRecovery: true,
+              coordinatorBootstrapPreviewMonitor: true,
+            }
+          : {}),
       },
     });
     await reconnected;
@@ -8401,3 +8542,878 @@ test("rejects project-bound workspace creation before sending to an older daemon
   ).rejects.toThrow("Update this environment");
   expect(mock.sent).toEqual([]);
 });
+
+function bootstrapMonitorPreparation(change?: "enable" | "remove") {
+  const file = { path: "/protected/file", sha256: "a".repeat(64) };
+  const release = {
+    sourceCommit: "b".repeat(40),
+    directory: "/protected/release",
+    artifactSha256: "c".repeat(64),
+    node: file,
+    entrypoint: file,
+    configuration: file,
+    launcher: file,
+  };
+  const monitor = {
+    docker: "/protected/docker",
+    socket: "/protected/docker.sock",
+    containerId: "d".repeat(64),
+    home: "/home/paseo",
+    worker: file,
+    recovery: { node: file, journal: file, queue: file },
+  };
+  return CoordinatorBootstrapPreparationSchema.parse({
+    id: "00000000-0000-4000-8000-000000000001",
+    reason: "Prepare monitor configuration",
+    plan: {
+      version: 1,
+      operation: "coordinator-bootstrap",
+      installationId: "00000000-0000-4000-8000-000000000002",
+      service: "gui/501/local.vorteo.fixture.installation",
+      expectedProcess: {
+        pid: 123,
+        bootId: "boot",
+        startIdentity: "start",
+        argumentsSha256: "e".repeat(64),
+      },
+      previous: release,
+      candidate: release,
+      state: {
+        directory: "/protected/state",
+        restartJournal: "/protected/state/restarts.json",
+        ownerSessions: "/protected/state/owners.json",
+      },
+      hostRequestsAfter: null,
+      ...(change ? { previewMonitorConfiguration: change === "remove" ? null : monitor } : {}),
+    },
+  });
+}
+
+test.each(["enable", "remove"] as const)(
+  "bootstrap monitor %s preparation refuses an older Host before transmission",
+  async (change) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "bootstrap-monitor",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+    await connecting;
+    await expect(
+      client.prepareCoordinatorBootstrap(bootstrapMonitorPreparation(change)),
+    ).rejects.toThrow("Update the Host");
+    expect(mock.sent).toEqual([]);
+  },
+);
+
+test.each(["enable", "remove"] as const)(
+  "bootstrap monitor %s preparation sends reviewed change with advertised opt-in",
+  async (change) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "bootstrap-monitor",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: { coordinatorBootstrapReview: true, coordinatorBootstrapPreviewMonitor: true },
+    });
+    await connecting;
+    const input = bootstrapMonitorPreparation(change);
+    const preparing = client.prepareCoordinatorBootstrap(input);
+    const sent = parseSentFrame(mock.sent[0]);
+    expect(sent).toEqual({
+      type: "installation.bootstrap.prepare.request",
+      requestId: expect.any(String),
+      previewMonitor: true,
+      input,
+    });
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.prepare.response",
+        payload: { requestId: sent.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(preparing).resolves.toEqual([]);
+  },
+);
+
+test.each([null, "Prepared artifact changed"])(
+  "bootstrap preparation retains a delayed response with an explicit timeout: %s",
+  async (responseError) => {
+    useHeartbeatClock();
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "bootstrap-long-preparation",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: { coordinatorBootstrapReview: true, coordinatorBootstrapPreviewMonitor: true },
+    });
+    await connecting;
+    const input = bootstrapMonitorPreparation();
+    const preparing = client.prepareCoordinatorBootstrap(input, { timeout: 60 * 60_000 });
+    let settled = false;
+    void preparing.then(
+      () => {
+        settled = true;
+        return undefined;
+      },
+      () => {
+        settled = true;
+        return undefined;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(16 * 60_000);
+    expect(settled).toBe(false);
+    const sessionFrames = () =>
+      mock.sent
+        .filter((data) => JSON.parse(assertStr(data)).type === "session")
+        .map(parseSentFrame);
+    const frames = sessionFrames().filter(
+      (frame) => frame.type === "installation.bootstrap.prepare.request",
+    );
+    expect(frames).toHaveLength(1);
+    expect(frames[0].input).toEqual(input);
+    expect(frames[0].previewMonitor).toBe(true);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.prepare.response",
+        payload: {
+          requestId: frames[0].requestId,
+          requests: responseError ? null : [],
+          error: responseError,
+        },
+      }),
+    );
+    if (responseError) await expect(preparing).rejects.toThrow(responseError);
+    else await expect(preparing).resolves.toEqual([]);
+    expect(
+      sessionFrames().some((frame) => frame.type === "installation.bootstrap.decide.request"),
+    ).toBe(false);
+  },
+);
+
+test.each([null, "Approved artifact changed"])(
+  "bootstrap approval retains a delayed response without resending: %s",
+  async (responseError) => {
+    useHeartbeatClock();
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "bootstrap-long-approval",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: { coordinatorBootstrapReview: true, coordinatorBootstrapPreviewMonitor: true },
+    });
+    await connecting;
+    const input = {
+      id: bootstrapMonitorPreparation().id,
+      revision: "00000000-0000-4000-8000-000000000003",
+      planSha256: "f".repeat(64),
+      decision: "approve" as const,
+    };
+    const preparing = client.decideCoordinatorBootstrap(input, "fixture-owner-password");
+    let settled = false;
+    void preparing.then(
+      () => {
+        settled = true;
+        return undefined;
+      },
+      () => {
+        settled = true;
+        return undefined;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(35 * 60_000);
+    expect(settled).toBe(false);
+    const sessionFrames = () =>
+      mock.sent
+        .filter((data) => JSON.parse(assertStr(data)).type === "session")
+        .map(parseSentFrame);
+    const frames = sessionFrames().filter(
+      (frame) => frame.type === "installation.bootstrap.decide.request",
+    );
+    expect(frames).toHaveLength(1);
+    expect(frames[0].input).toEqual(input);
+    expect(frames[0].previewMonitor).toBe(true);
+    expect(frames[0].ownerPassword).toBe("fixture-owner-password");
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.decide.response",
+        payload: {
+          requestId: frames[0].requestId,
+          requests: responseError ? null : [],
+          error: responseError,
+        },
+      }),
+    );
+    if (responseError) await expect(preparing).rejects.toThrow(responseError);
+    else await expect(preparing).resolves.toEqual([]);
+    expect(
+      sessionFrames().filter((frame) => frame.type === "installation.bootstrap.decide.request"),
+    ).toHaveLength(1);
+  },
+);
+
+test("source tooling preparation refuses an older Host before sending", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "source-tooling",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.sourceUpdateTooling = true;
+  await expect(client.prepareCoordinatorBootstrap(input)).rejects.toThrow(
+    "Update the Host before preparing source update tooling",
+  );
+  expect(mock.sent).toEqual([]);
+});
+
+test("source tooling advertised opt-in is sent for list, exact preparation and decision", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "source-tooling",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({
+    features: { coordinatorBootstrapReview: true, coordinatorBootstrapSourceUpdateTooling: true },
+  });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.sourceUpdateTooling = true;
+  const listing = client.listCoordinatorBootstrapRequests();
+  const preparing = client.prepareCoordinatorBootstrap(input);
+  const decision = {
+    id: input.id,
+    revision: "00000000-0000-4000-8000-000000000003",
+    planSha256: "f".repeat(64),
+    decision: "cancel" as const,
+  };
+  const deciding = client.decideCoordinatorBootstrap(decision, "fixture-owner-password");
+  const frames = mock.sent.map(parseSentFrame);
+  expect(frames).toEqual([
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+    },
+    {
+      type: "installation.bootstrap.prepare.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+      input,
+    },
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+      input: decision,
+      ownerPassword: "fixture-owner-password",
+    },
+  ]);
+  for (const frame of frames)
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: frame.type.replace(".request", ".response"),
+        payload: { requestId: frame.requestId, requests: [], error: null },
+      }),
+    );
+  await expect(Promise.all([listing, preparing, deciding])).resolves.toEqual([[], [], []]);
+});
+
+test.each([false, true])(
+  "preclaim recovery has its own capability and never replays owner proof (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const logger = createMockLogger();
+    const trace = createTraceRecorder();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "recovery-client",
+      logger,
+      trace: trace.trace,
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapPreclaimRecovery: supported,
+      },
+    });
+    await connecting;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      planSha256: "a".repeat(64),
+      decision: "approve" as const,
+    };
+    if (!supported) {
+      await expect(client.listPreclaimRecoveryRequests()).rejects.toThrow("unavailable");
+      await expect(client.decidePreclaimRecovery(input, "recovery-owner-proof")).rejects.toThrow(
+        "unavailable",
+      );
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const listing = client.listPreclaimRecoveryRequests();
+    const listed = parseSentFrame(mock.sent[0]);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap_recovery.list_requests.response",
+        payload: { requestId: listed.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(listing).resolves.toEqual([]);
+    const deciding = client.decidePreclaimRecovery(input, "recovery-owner-proof");
+    expect(parseSentFrame(mock.sent[1])).toEqual({
+      type: "installation.bootstrap_recovery.decide.request",
+      requestId: expect.any(String),
+      input,
+      ownerPassword: "recovery-owner-proof",
+      preclaimRecovery: true,
+    });
+    const rejected = expect(deciding).rejects.toThrow();
+    mock.triggerClose({ code: 1006 });
+    await rejected;
+    const reconnecting = client.connect();
+    mock.triggerOpen({ features: { coordinatorBootstrapPreclaimRecovery: true } });
+    await reconnecting;
+    expect(mock.sent).toEqual([]);
+    expect(
+      JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+        trace.records,
+      ]),
+    ).not.toContain("recovery-owner-proof");
+  },
+);
+
+test.each([false, true])(
+  "retained recovery observation requires its capability (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "observer-client",
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapPreclaimRecovery: true,
+        coordinatorBootstrapPreclaimObservation: supported,
+      },
+    });
+    await connecting;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      generation: "00000000-0000-4000-8000-000000000003",
+      planSha256: "a".repeat(64),
+    };
+    const result = client.reconcilePreclaimRecovery(input);
+    if (!supported) {
+      await expect(result).rejects.toThrow("Update the Host");
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const frame = parseSentFrame(mock.sent[0]);
+    expect(frame).toEqual({
+      type: "installation.bootstrap_recovery.list_requests.request",
+      requestId: expect.any(String),
+      reconcile: input,
+    });
+    const rejected = expect(result).rejects.toThrow();
+    mock.triggerClose({ code: 1006 });
+    await rejected;
+    const reconnecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapPreclaimRecovery: true,
+        coordinatorBootstrapPreclaimObservation: true,
+      },
+    });
+    await reconnecting;
+    expect(mock.sent).toEqual([]);
+  },
+);
+
+test.each([false, true])(
+  "claimed recovery has its own capability and never replays owner proof (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const logger = createMockLogger();
+    const trace = createTraceRecorder();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "recovery-client",
+      logger,
+      trace: trace.trace,
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapClaimedRecovery: supported,
+      },
+    });
+    await connecting;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      planSha256: "a".repeat(64),
+      decision: "approve" as const,
+    };
+    if (!supported) {
+      await expect(client.listClaimedRecoveryRequests()).rejects.toThrow("unavailable");
+      await expect(client.decideClaimedRecovery(input, "recovery-owner-proof")).rejects.toThrow(
+        "unavailable",
+      );
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const listing = client.listClaimedRecoveryRequests();
+    const listed = parseSentFrame(mock.sent[0]);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.claimed_recovery.list_requests.response",
+        payload: { requestId: listed.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(listing).resolves.toEqual([]);
+    const deciding = client.decideClaimedRecovery(input, "recovery-owner-proof");
+    expect(parseSentFrame(mock.sent[1])).toEqual({
+      type: "installation.claimed_recovery.decide.request",
+      requestId: expect.any(String),
+      input,
+      ownerPassword: "recovery-owner-proof",
+      claimedRecovery: true,
+    });
+    const rejected = expect(deciding).rejects.toThrow();
+    mock.triggerClose({ code: 1006 });
+    await rejected;
+    const reconnecting = client.connect();
+    mock.triggerOpen({ features: { coordinatorBootstrapClaimedRecovery: true } });
+    await reconnecting;
+    expect(mock.sent).toEqual([]);
+    expect(
+      JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+        trace.records,
+      ]),
+    ).not.toContain("recovery-owner-proof");
+  },
+);
+
+test.each([false, true])(
+  "retained claimed recovery observation requires its capability (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "observer-client",
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapClaimedRecovery: true,
+        coordinatorBootstrapClaimedObservation: supported,
+      },
+    });
+    await connecting;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      generation: "00000000-0000-4000-8000-000000000003",
+      planSha256: "a".repeat(64),
+    };
+    const result = client.reconcileClaimedRecovery(input);
+    if (!supported) {
+      await expect(result).rejects.toThrow("Update the Host");
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const frame = parseSentFrame(mock.sent[0]);
+    expect(frame).toEqual({
+      type: "installation.claimed_recovery.list_requests.request",
+      requestId: expect.any(String),
+      reconcile: input,
+    });
+    const rejected = expect(result).rejects.toThrow();
+    mock.triggerClose({ code: 1006 });
+    await rejected;
+    const reconnecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapClaimedRecovery: true,
+        coordinatorBootstrapClaimedObservation: true,
+      },
+    });
+    await reconnecting;
+    expect(mock.sent).toEqual([]);
+  },
+);
+
+test("retained owner cancellation review acknowledgment follows the Host capability", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "cancellation-client",
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({
+    features: {
+      coordinatorBootstrapPreclaimRecovery: true,
+      coordinatorBootstrapPreclaimOwnerCancellation: true,
+    },
+  });
+  await connecting;
+  const listing = client.listPreclaimRecoveryRequests();
+  const frame = parseSentFrame(mock.sent[0]);
+  expect(frame.ownerCanceledOriginal).toBe(true);
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "installation.bootstrap_recovery.list_requests.response",
+      payload: { requestId: frame.requestId, requests: [], error: null },
+    }),
+  );
+  await listing;
+  const deciding = client.decidePreclaimRecovery(
+    {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      planSha256: "a".repeat(64),
+      decision: "approve",
+    },
+    "fixture-proof",
+  );
+  expect(parseSentFrame(mock.sent[1]).ownerCanceledOriginal).toBe(true);
+  const rejected = expect(deciding).rejects.toThrow();
+  mock.triggerClose({ code: 1006 });
+  await rejected;
+});
+
+test("startup recovery preparation refuses an older Host before sending", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "startup-recovery",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.bootRecovery = {
+    requestId: input.id,
+    service: `gui/501/local.vorteo.fixture.installation-recovery-${input.id}`,
+    launcher: input.plan.candidate.launcher,
+    installedLauncher: "/protected/startup.plist",
+    setup: input.plan.candidate.configuration,
+    ownerLauncher: input.plan.candidate.entrypoint,
+    node: input.plan.candidate.node,
+    entrypoint: input.plan.candidate.entrypoint,
+  };
+  await expect(client.prepareCoordinatorBootstrap(input)).rejects.toThrow(
+    "Update the Host before preparing startup recovery",
+  );
+  expect(mock.sent).toEqual([]);
+});
+
+test("startup recovery advertised opt-in is sent for list, exact preparation and decision", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "startup-recovery",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({
+    features: { coordinatorBootstrapReview: true, coordinatorBootstrapBootRecovery: true },
+  });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.bootRecovery = {
+    requestId: input.id,
+    service: `gui/501/local.vorteo.fixture.installation-recovery-${input.id}`,
+    launcher: input.plan.candidate.launcher,
+    installedLauncher: "/protected/startup.plist",
+    setup: input.plan.candidate.configuration,
+    ownerLauncher: input.plan.candidate.entrypoint,
+    node: input.plan.candidate.node,
+    entrypoint: input.plan.candidate.entrypoint,
+  };
+  const listing = client.listCoordinatorBootstrapRequests();
+  const preparing = client.prepareCoordinatorBootstrap(input);
+  const decision = {
+    id: input.id,
+    revision: "00000000-0000-4000-8000-000000000003",
+    planSha256: "f".repeat(64),
+    decision: "cancel" as const,
+  };
+  const deciding = client.decideCoordinatorBootstrap(decision, "fixture-owner-password");
+  const frames = mock.sent.map(parseSentFrame);
+  expect(frames).toEqual([
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: expect.any(String),
+      bootRecovery: true,
+    },
+    {
+      type: "installation.bootstrap.prepare.request",
+      requestId: expect.any(String),
+      bootRecovery: true,
+      input,
+    },
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: expect.any(String),
+      bootRecovery: true,
+      input: decision,
+      ownerPassword: "fixture-owner-password",
+    },
+  ]);
+  for (const frame of frames)
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: frame.type.replace(".request", ".response"),
+        payload: { requestId: frame.requestId, requests: [], error: null },
+      }),
+    );
+  await expect(Promise.all([listing, preparing, deciding])).resolves.toEqual([[], [], []]);
+});
+
+test.each([false, true])(
+  "automatic coordinator reconciliation gates transport support: %s",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "automatic-coordinator",
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapAutomaticReconciliation: supported,
+      },
+    });
+    await connecting;
+    const id = "b780bf40-76dd-4a15-82ad-e105e23cbb03";
+    const result = client.reconcileAutomaticCoordinatorBootstrap(id);
+    if (!supported) {
+      await expect(result).rejects.toThrow("Update the Host");
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const sent = parseSentFrame(mock.sent[0]);
+    expect(sent).toMatchObject({ type: "installation.bootstrap.reconcile_automatic.request", id });
+    expect(sent).not.toHaveProperty("ownerPassword");
+    expect(sent).not.toHaveProperty("credentialBinding");
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.reconcile_automatic.response",
+        payload: { requestId: sent.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(result).resolves.toEqual([]);
+    expect(mock.sent).toHaveLength(1);
+  },
+);
+
+test.each([false, true])(
+  "coordinator status projection is negotiated with the Host: %s",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "coordinator-status",
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapAutomaticStatus: supported,
+      },
+    });
+    await connecting;
+    const listing = client.listCoordinatorBootstrapRequests();
+    const sent = parseSentFrame(mock.sent[0]);
+    expect(sent.automaticStatus).toBe(supported ? true : undefined);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.list_requests.response",
+        payload: { requestId: sent.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(listing).resolves.toEqual([]);
+  },
+);
+
+test.each([false, true])(
+  "authenticated coordinator submission requires its Host capability: %s",
+  async (supported) => {
+    const mock = createMockTransport();
+    const logger = createMockLogger();
+    const trace = createTraceRecorder();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "scoped-coordinator",
+      logger,
+      trace: trace.trace,
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapAuthenticatedSubmission: supported,
+      },
+    });
+    await connecting;
+    const submissionProof = {
+      policyActivatedAt: "2026-10-15T00:00:00Z",
+      signature: "a".repeat(64),
+    };
+    const result = client.prepareCoordinatorBootstrap(bootstrapMonitorPreparation(), {
+      submissionProof,
+    });
+    if (!supported) {
+      await expect(result).rejects.toThrow("Update the Host");
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const sent = parseSentFrame(mock.sent[0]);
+    expect(sent).toMatchObject({ type: "installation.bootstrap.prepare.request", submissionProof });
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.prepare.response",
+        payload: { requestId: sent.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(result).resolves.toEqual([]);
+    expect(
+      JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+      ]),
+    ).not.toContain(submissionProof.signature);
+    expect(JSON.stringify(trace.records)).not.toContain(submissionProof.signature);
+  },
+);
+
+test.each([false, true])(
+  "retained startup recovery review flags require advertised support (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "retained-startup",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connected = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapPreclaimRecovery: true,
+        coordinatorBootstrapClaimedRecovery: true,
+        coordinatorBootstrapRecoveryBootPlan: supported,
+      },
+    });
+    await connected;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      planSha256: "a".repeat(64),
+      decision: "cancel" as const,
+    };
+    const calls = [
+      client.listPreclaimRecoveryRequests(),
+      client.listClaimedRecoveryRequests(),
+      client.decidePreclaimRecovery(input, "fixture-proof"),
+      client.decideClaimedRecovery(input, "fixture-proof"),
+    ];
+    const frames = mock.sent.map(parseSentFrame);
+    expect(frames).toHaveLength(4);
+    for (const frame of frames) {
+      expect(frame.recoveryBootPlan).toBe(supported ? true : undefined);
+      mock.triggerMessage(
+        wrapSessionMessage({
+          type: frame.type.replace(".request", ".response"),
+          payload: { requestId: frame.requestId, requests: [], error: null },
+        }),
+      );
+    }
+    await expect(Promise.all(calls)).resolves.toEqual([[], [], [], []]);
+  },
+);

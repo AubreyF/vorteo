@@ -479,6 +479,7 @@ function inheritProviderDefaults(
     "instructions",
     "workerProfileId",
     "maxWorkers",
+    "uncappedWorkers",
     "featureValues",
     "quotaReservePolicy",
   ] as const) {

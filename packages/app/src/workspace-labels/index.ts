@@ -10,6 +10,14 @@ import { mergeWorkspaceLabelCatalogs } from "./internal/merge";
 import { WorkspaceLabelManagerModel, WorkspaceLabelPickerModel } from "./internal/workflow-model";
 import { i18n } from "@/i18n/i18next";
 
+// COMPAT(workspaceLabelNeutralColors): older hosts store a legacy hue, which the
+// new presentation treats as neutral until an explicit color is recorded.
+function compatibleLabelColor(client: DaemonClient, color: WorkspaceLabelDefinition["color"]) {
+  if (color === "neutral") return "violet" as const;
+  if (client.getLastServerInfoMessage()?.features?.workspaceLabelNeutralColors) return color;
+  throw new Error("Update this host to save a custom tag color. Neutral tags are available now.");
+}
+
 export { buildWorkspaceLabelPickerRows } from "./internal/picker-model";
 export type { WorkspaceLabelPickerRow } from "./internal/picker-model";
 export { mergeWorkspaceLabelCatalogs } from "./internal/merge";
@@ -207,7 +215,16 @@ class WorkspaceLabelsController {
     label: WorkspaceLabelDefinition;
     assigned: boolean;
   }) {
-    return this.mutate(input.serverId, (client) => client.setWorkspaceLabel(input));
+    return this.mutate(input.serverId, (client) =>
+      client.setWorkspaceLabel({
+        ...input,
+        label: {
+          ...input.label,
+          color: compatibleLabelColor(client, input.label.color),
+          explicitColor: input.label.color !== "neutral",
+        },
+      }),
+    );
   }
 
   async update(input: {
@@ -216,7 +233,17 @@ class WorkspaceLabelsController {
     newName?: string;
     color?: WorkspaceLabelDefinition["color"];
   }) {
-    return this.mutate(input.serverId, (client) => client.updateWorkspaceLabel(input));
+    return this.mutate(input.serverId, (client) =>
+      client.updateWorkspaceLabel({
+        ...input,
+        ...(input.color === undefined
+          ? {}
+          : {
+              color: compatibleLabelColor(client, input.color),
+              explicitColor: input.color !== "neutral",
+            }),
+      }),
+    );
   }
 
   async delete(input: { serverId: string; name: string }) {

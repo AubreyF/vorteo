@@ -1,3 +1,4 @@
+import { PreviewMonitorConfigurationSchema } from "@getpaseo/protocol/preview-monitor-maintenance";
 import { NativeHelperConfigurationSchema } from "@getpaseo/protocol/native-helper-maintenance";
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -7,6 +8,8 @@ import {
   FactoryRuntimeAdoptionConfigurationSchema,
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
+
+import { DevRegistrationReferenceSchema } from "./maintenance/dev-registration.js";
 
 const DaemonConnectionSchema = z.strictObject({
   endpoint: z.string().min(1),
@@ -31,6 +34,7 @@ export type ContainerSourceUpdates = z.infer<typeof ContainerSourceUpdatesSchema
 export const InstallationConfigSchema = z.strictObject({
   public: ExecutionInstallationSchema,
   nativeHelper: NativeHelperConfigurationSchema.optional(),
+  previewMonitor: PreviewMonitorConfigurationSchema.optional(),
   restartApprovalPolicy: z.strictObject({ hostRequestsAfter: z.string().datetime() }).optional(),
   containerSourceUpdates: ContainerSourceUpdatesSchema.optional(),
   sourceUpdates: z
@@ -69,6 +73,7 @@ export const InstallationConfigSchema = z.strictObject({
       .optional(),
   }),
   container: DaemonConnectionSchema.extend({
+    persistentRegistration: DevRegistrationReferenceSchema.optional(),
     factoryRuntimeAdoption: FactoryRuntimeAdoptionConfigurationSchema.optional(),
     supervisorMaintenance: z
       .strictObject({

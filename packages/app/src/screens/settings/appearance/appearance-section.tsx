@@ -50,6 +50,7 @@ import {
 import { isNative } from "@/constants/platform";
 import type { PluginThemeOption } from "@/plugins/themes";
 import { settingsStyles } from "@/styles/settings";
+import { ThemePreviewGrid } from "./theme-preview-grid";
 import { AppearancePreview } from "./appearance-preview";
 
 // ---------------------------------------------------------------------------
@@ -61,13 +62,21 @@ import { AppearancePreview } from "./appearance-preview";
 const ThemedSun = withUnistyles(Sun);
 const ThemedMoon = withUnistyles(Moon);
 const ThemedMonitor = withUnistyles(Monitor);
+const ThemedFontFamilyInput = withUnistyles(TextInput);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+// Placeholder color is a native prop, so it needs a theme subscription separate
+// from the input's Unistyles text and surface styles.
+const fontPlaceholderMapping = (theme: Theme) => ({
+  placeholderTextColor: theme.colors.foregroundMuted,
+});
 
 type BuiltInThemePreference = Exclude<AppSettings["theme"], typeof PLUGIN_THEME_PREFERENCE>;
 
 function getThemeLabel(t: TFunction, value: BuiltInThemePreference): string {
-  return t(`settings.appearance.theme.options.${value}`);
+  if (value === "auto") return t("settings.appearance.theme.options.auto");
+  const option = THEME_OPTIONS.find((item) => item.name === value);
+  return option && "theme" in option ? option.theme.appearance.name : value;
 }
 
 // Platform default stacks can be the bare native tokens ("normal"/"monospace");
@@ -96,9 +105,9 @@ interface ThemeLeadingProps {
 
 function ThemeLeading({ themeValue }: ThemeLeadingProps) {
   switch (themeValue) {
-    case "light":
+    case "starship-light":
       return <ThemedSun size={ICON_SIZE.md} uniProps={mutedColorMapping} />;
-    case "dark":
+    case "starship-dark":
       return <ThemedMoon size={ICON_SIZE.md} uniProps={mutedColorMapping} />;
     case "auto":
       return <ThemedMonitor size={ICON_SIZE.md} uniProps={mutedColorMapping} />;
@@ -184,12 +193,14 @@ function ThemeRow({
     [builtInValue, selectedPluginTheme],
   );
   return (
-    <View style={settingsStyles.row}>
+    <View style={[settingsStyles.row, { flexWrap: "wrap", gap: 12 }]}>
       <View style={settingsStyles.rowContent}>
         <Text style={settingsStyles.rowTitle}>{t("settings.appearance.theme.title")}</Text>
       </View>
+      <ThemePreviewGrid />
       <DropdownMenu>
         <DropdownTrigger
+          accessibilityRole="button"
           accessibilityLabel={t("settings.appearance.theme.accessibilityLabel", {
             value: selectedLabel,
           })}
@@ -236,7 +247,7 @@ interface FontFamilyRowProps {
   title: string;
   hint: string;
   accessibilityLabel: string;
-  placeholder: string;
+  placeholder?: string;
   value: string;
   draft: string;
   withBorder: boolean;
@@ -267,18 +278,18 @@ function FontFamilyRow({
   }, [value]);
 
   return (
-    <View style={withBorder ? styles.rowWithBorder : settingsStyles.row}>
-      <View style={settingsStyles.rowContent}>
+    <View style={styles.fontFamilyRow(withBorder)}>
+      <View style={styles.fontFamilyDescription}>
         <Text style={settingsStyles.rowTitle}>{title}</Text>
         <Text style={settingsStyles.rowHint}>{hint}</Text>
       </View>
-      <TextInput
+      <ThemedFontFamilyInput
         initialValue={draft}
         onChangeText={onChangeDraft}
         onBlur={handleCommit}
         onSubmitEditing={handleCommit}
         placeholder={placeholder}
-        placeholderTextColor={styles.placeholderColor.color}
+        uniProps={fontPlaceholderMapping}
         autoCapitalize="none"
         autoCorrect={false}
         spellCheck={false}
@@ -287,6 +298,11 @@ function FontFamilyRow({
       />
     </View>
   );
+}
+
+const ThemedInterfaceFontRow = withUnistyles(FontFamilyRow);
+function interfaceFontDefaults(theme: Theme) {
+  return { placeholder: theme.appearance?.previewBodyFont ?? DEFAULT_UI_FONT_STACK };
 }
 
 interface FontSizeRowProps {
@@ -480,7 +496,6 @@ export function AppearanceSection() {
     select: selectPluginTheme,
   } = useContributedThemes();
   const showInterfaceFontFamilyRow = !isNative;
-  const uiFontPlaceholder = resolveDefaultStackPlaceholder(t, DEFAULT_UI_FONT_STACK);
   const monoFontPlaceholder = resolveDefaultStackPlaceholder(t, DEFAULT_MONO_FONT_STACK);
 
   const [uiFontDraft, setUiFontDraft] = useState(settings.uiFontFamily);
@@ -634,11 +649,11 @@ export function AppearanceSection() {
       <SettingsSection title={t("settings.appearance.fonts.title")}>
         <View style={settingsStyles.card}>
           {showInterfaceFontFamilyRow ? (
-            <FontFamilyRow
+            <ThemedInterfaceFontRow
+              uniProps={interfaceFontDefaults}
               title={t("settings.appearance.fonts.interfaceFont")}
               hint={t("settings.appearance.fonts.interfaceFontHint")}
               accessibilityLabel={t("settings.appearance.fonts.interfaceFontAccessibility")}
-              placeholder={uiFontPlaceholder}
               value={settings.uiFontFamily}
               draft={uiFontDraft}
               withBorder={false}
@@ -717,6 +732,21 @@ const styles = StyleSheet.create((theme) => ({
     borderTopWidth: theme.borderWidth[1],
     borderTopColor: theme.colors.border,
   },
+  fontFamilyRow: (withBorder: boolean) => ({
+    flexDirection: { xs: "column", md: "row" },
+    alignItems: { xs: "stretch", md: "center" },
+    justifyContent: "space-between",
+    gap: theme.spacing[3],
+    padding: theme.spacing[4],
+    borderTopWidth: withBorder ? theme.borderWidth[1] : 0,
+    borderTopColor: theme.colors.border,
+  }),
+  fontFamilyDescription: {
+    flexGrow: { xs: 0, md: 1 },
+    flexShrink: 1,
+    flexBasis: { xs: "auto", md: 0 },
+    minWidth: 0,
+  },
   swatch: {
     width: ICON_SIZE.md,
     height: ICON_SIZE.md,
@@ -725,10 +755,11 @@ const styles = StyleSheet.create((theme) => ({
     borderColor: theme.colors.border,
   },
   fontFamilyInput: {
-    flexGrow: 1,
+    flexGrow: 0,
     flexShrink: 1,
-    maxWidth: 280,
-    minHeight: 36,
+    width: { xs: "100%", md: 280 },
+    maxWidth: "100%",
+    minHeight: 44,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
     borderRadius: theme.borderRadius.md,
@@ -773,8 +804,5 @@ const styles = StyleSheet.create((theme) => ({
   unit: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,
-  },
-  placeholderColor: {
-    color: theme.colors.foregroundMuted,
   },
 }));

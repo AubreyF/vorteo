@@ -1,14 +1,11 @@
-import {
-  constants,
-  openSync,
-  closeSync,
-  fstatSync,
-  lstatSync,
-  readFileSync,
-  realpathSync,
-} from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
+import { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
+import { retainServiceFiles } from "./coordinator-bootstrap-maintenance-service-inspection.js";
+import { inspectDevRegistrationConfiguration } from "./coordinator-bootstrap-dev-registration-configuration.js";
+export { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify, isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
@@ -17,16 +14,20 @@ import {
 } from "@getpaseo/protocol/execution-installation";
 import {
   assertRecoveredBootstrapBase,
+  bootstrapRecoveryRelease,
   BootstrapRequestConflict,
   CoordinatorBootstrapRequests,
   type BootstrapHostBinding,
+  type BootstrapReconciliationLedger,
 } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
-import { InstallationConfigSchema } from "./config.js";
+import { InstallationConfigSchema, type InstallationConfig } from "./config.js";
+import { coordinatorAutomaticAuthority } from "./daemon-automation.js";
 import {
-  verifyBootstrapReleaseArtifacts,
+  readProtectedDocument,
+  inspectBootstrapReleaseArtifacts,
   assertBootstrapPathsProtected,
 } from "./coordinator-bootstrap-artifact.js";
 import {
@@ -34,7 +35,10 @@ import {
   readBootstrapLauncher,
   verifyBootstrapLaunchers,
   verifyLoadedBootstrapService,
+  verifyUnregisteredBootstrapCoordinator,
 } from "./coordinator-bootstrap-service.js";
+
+import { verifyBootstrapRecoveryArtifacts } from "./coordinator-bootstrap-boot-recovery.js";
 
 const execute = promisify(execFile);
 
@@ -71,18 +75,64 @@ export const BootstrapAdmissionSetupSchema = z.strictObject({
   helperSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
+/** Coordinator observation and revocation share the Host ledger. Preparation,
+ * approval and dispatch remain exclusively in the validating native Host service. */
+export function createBootstrapReconciliationLedger(
+  configurationFile: string,
+  daemonId: string,
+): BootstrapReconciliationLedger {
+  const initial = readBootstrapHostBinding(configurationFile, daemonId);
+  const readBinding = () => {
+    const current = readBootstrapHostBinding(configurationFile, daemonId);
+    if (
+      current.stateDirectory !== initial.stateDirectory ||
+      current.binding.installationId !== initial.binding.installationId ||
+      current.binding.service !== initial.binding.service
+    )
+      throw new BootstrapRequestConflict("Coordinator binding changed. Reload its service.");
+    return current.binding;
+  };
+  const requests = new CoordinatorBootstrapRequests(
+    new FileBootstrapRequestJournal(initial.stateDirectory),
+    readBinding,
+    async () => {
+      throw new BootstrapRequestConflict("Coordinator preparation requires native Host validation");
+    },
+    Date.now,
+    () => {
+      readBinding();
+      const config = InstallationConfigSchema.parse(
+        readPrivateBootstrapConfiguration(configurationFile, process.getuid!()),
+      );
+      return coordinatorAutomaticAuthority(config);
+    },
+  );
+  return {
+    list: () => requests.list(),
+    revokeAutomatic: () => requests.revokeAutomatic(),
+    reserveAutomaticReconciliation: (value) => requests.reserveAutomaticReconciliation(value),
+    finishAutomaticReconciliation: (id, value) => requests.finishAutomaticReconciliation(id, value),
+  };
+}
+
 /** Construct only from a private launcher-selected Host setup file. The caller
  * must not advertise the capability until review and execution are available. */
 export async function createBootstrapReviewService(
   setupFile: string,
   daemonId: string,
+  renewal?: {
+    setup: z.infer<typeof BootstrapAdmissionSetupSchema>;
+    verify(plan: CoordinatorBootstrapPlan): Promise<void>;
+    verifyPrepared?(plan: CoordinatorBootstrapPlan, host: BootstrapAdmissionHost): Promise<void>;
+  },
 ): Promise<CoordinatorBootstrapRequests> {
   if (process.platform !== "darwin" || !process.getuid)
     throw new BootstrapRequestConflict("Coordinator bootstrap requires native macOS Host");
   const uid = process.getuid();
   const readSetup = () =>
     BootstrapAdmissionSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
-  const setup = readSetup();
+  const original = readSetup();
+  const setup = renewal?.setup ?? original;
   const host = { ...setup, daemonId };
   const initial = readBootstrapHostBinding(setup.configurationFile, daemonId);
   const roots = await inspectBootstrapWritableMountRoots(host);
@@ -99,7 +149,7 @@ export async function createBootstrapReviewService(
     roots,
   );
   const readBinding = () => {
-    if (!isDeepStrictEqual(setup, readSetup()))
+    if (!isDeepStrictEqual(original, readSetup()))
       throw new BootstrapRequestConflict("Bootstrap Host setup changed. Reload its service.");
     const current = readBootstrapHostBinding(setup.configurationFile, daemonId);
     if (current.stateDirectory !== initial.stateDirectory)
@@ -110,14 +160,72 @@ export async function createBootstrapReviewService(
     new FileBootstrapRequestJournal(initial.stateDirectory),
     readBinding,
     async (plan) => {
+      await renewal?.verify(plan);
       const currentRoots = await inspectBootstrapWritableMountRoots(host);
       await assertBootstrapPathsProtected(
         [setupFile, setup.helperPath, setup.docker, setup.socket],
         currentRoots,
       );
-      await verifyBootstrapPlan(plan, host);
+      if (renewal?.verifyPrepared) await renewal.verifyPrepared(plan, host);
+      else await verifyBootstrapPlan(plan, host);
+    },
+    Date.now,
+    () => {
+      readBinding();
+      const config = InstallationConfigSchema.parse(
+        readPrivateBootstrapConfiguration(setup.configurationFile, uid),
+      );
+      return coordinatorAutomaticAuthority(config);
     },
   );
+}
+
+function verifyMonitorBootstrapBinding(
+  plan: CoordinatorBootstrapPlan,
+  host: BootstrapAdmissionHost,
+): void {
+  if (
+    plan.previewMonitorConfiguration &&
+    (plan.previewMonitorConfiguration.docker !== host.docker ||
+      plan.previewMonitorConfiguration.socket !== host.socket ||
+      plan.previewMonitorConfiguration.containerId !== host.containerId ||
+      plan.previewMonitorConfiguration.recovery.node.path !==
+        bootstrapRecoveryRelease(plan).node.path ||
+      plan.previewMonitorConfiguration.recovery.node.sha256 !==
+        bootstrapRecoveryRelease(plan).node.sha256 ||
+      plan.previewMonitorConfiguration.recovery.journal.path !==
+        path.join(
+          bootstrapRecoveryRelease(plan).directory,
+          "packages/server/dist/server/server/execution-installation/lifecycle-journal.js",
+        ) ||
+      plan.previewMonitorConfiguration.recovery.queue.path !==
+        path.join(
+          bootstrapRecoveryRelease(plan).directory,
+          "packages/server/dist/server/server/execution-installation/restarts.js",
+        ))
+  )
+    throw new BootstrapRequestConflict(
+      "Monitor configuration must bind paired container and exact retained coordinator reader",
+    );
+}
+
+/** Tooling is selected only from the reviewed, fully hashed candidate release.
+ * Inspect bytes as protected documents without importing or executing them. */
+async function verifySourceUpdateTooling(
+  plan: CoordinatorBootstrapPlan,
+  writableMountRoots: readonly string[],
+): Promise<void> {
+  if (plan.sourceUpdateTooling !== true) return;
+  const directory = path.join(plan.candidate.directory, "scripts");
+  if (realpathSync(directory) !== directory)
+    throw new BootstrapRequestConflict("Source update tooling requires a canonical directory");
+  const files = [
+    "prepare-installation-update.mjs",
+    "publish-instance-web.mjs",
+    "instance-web-artifact.mjs",
+  ].map((name) => path.join(directory, name));
+  await assertBootstrapPathsProtected([directory, ...files], writableMountRoots);
+  for (const file of files) await readProtectedDocument(file);
 }
 
 /** Host setup supplies this context. Review requests cannot choose collectors,
@@ -126,8 +234,20 @@ export async function verifyBootstrapPlan(
   plan: CoordinatorBootstrapPlan,
   host: BootstrapAdmissionHost,
 ): Promise<void> {
+  const verifyPrevious = plan.supervisionRecovery
+    ? verifyUnregisteredBootstrapCoordinator
+    : verifyLoadedBootstrapService;
+  const verifyRestorationHistory = () => {
+    if (plan.supervisionRecovery)
+      assertRecoveredBootstrapBase(
+        plan,
+        new FileBootstrapRequestJournal(plan.state.directory).read(),
+      );
+  };
+  verifyRestorationHistory();
+  const releaseAssertions: Array<() => void> = [];
   const initial = readBootstrapHostBinding(host.configurationFile, host.daemonId);
-  verifyBootstrapConfiguration({ plan, ...host });
+  const devConfiguration = inspectBootstrapConfiguration({ plan, ...host });
   if (
     plan.nativeHelperConfiguration &&
     (plan.nativeHelperConfiguration.docker !== host.docker ||
@@ -137,13 +257,32 @@ export async function verifyBootstrapPlan(
     throw new BootstrapRequestConflict(
       "Helper configuration must retain the paired Host Docker identity",
     );
+  if (
+    devConfiguration &&
+    (devConfiguration.docker.path !== host.docker ||
+      devConfiguration.docker.socket !== host.socket ||
+      devConfiguration.docker.containerId !== host.containerId)
+  )
+    throw new BootstrapRequestConflict(
+      "Dev registration must retain the paired Host Docker identity",
+    );
+  verifyMonitorBootstrapBinding(plan, host);
   const roots = await inspectBootstrapWritableMountRoots(host);
   await assertBootstrapPathsProtected(
-    [host.configurationFile, host.launcherFile, initial.stateDirectory],
+    [
+      host.configurationFile,
+      host.launcherFile,
+      initial.stateDirectory,
+      ...(devConfiguration?.paths ?? []),
+    ],
     roots,
   );
-  for (const release of [plan.previous, plan.candidate])
-    await verifyBootstrapReleaseArtifacts(release, roots);
+  await verifySourceUpdateTooling(plan, roots);
+  await verifyBootstrapRecoveryArtifacts(plan, roots);
+  for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)])) {
+    const retained = await inspectBootstrapReleaseArtifacts(release, roots);
+    releaseAssertions.push(retained.assertCurrent);
+  }
   const current = await readBootstrapLauncher(
     { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
     roots,
@@ -157,59 +296,219 @@ export async function verifyBootstrapPlan(
     previous,
     candidate,
   });
+  if (plan.compatibleRecovery) {
+    verifyBootstrapLaunchers({
+      plan: { ...plan, candidate: plan.compatibleRecovery },
+      configurationFile: host.configurationFile,
+      current,
+      previous,
+      candidate: await readBootstrapLauncher(plan.compatibleRecovery.launcher, roots),
+    });
+  }
   const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
-  await verifyLoadedBootstrapService({
+  await verifyPrevious({
     plan,
     hostUid: process.getuid!(),
     configurationFile: host.configurationFile,
     reader,
   });
-  const recovered = assertRecoveredBootstrapBase(
-    plan,
-    new FileBootstrapRequestJournal(initial.stateDirectory).read(),
-  );
-  if (recovered) {
-    const recordPath = path.join(
-      initial.stateDirectory,
-      `coordinator-executor-${plan.recoveredFrom!.generation}.json`,
-    );
-    const record = BootstrapExecutorRecordSchema.parse(
-      readPrivateBootstrapConfiguration(recordPath, process.getuid!()),
-    );
-    if (record.id !== recovered.id || record.generation !== plan.recoveredFrom!.generation)
-      throw new BootstrapRequestConflict("Previous updater record changed");
-    await reader.verifyProcessExited(record.pid);
-  }
+  await verifyRecoveredBootstrapExit(plan, roots, reader);
   // Async collection is not a lock. Reject changed evidence before admitting the
   // request, and repeat this entire check under the dispatch fence before acting.
   const finalRoots = await inspectBootstrapWritableMountRoots(host);
   if (!isDeepStrictEqual(roots, finalRoots))
     throw new BootstrapRequestConflict("Writable container mounts changed during verification");
   verifyBootstrapConfiguration({ plan, ...host });
-  for (const release of [plan.previous, plan.candidate])
-    await verifyBootstrapReleaseArtifacts(release, finalRoots);
+  if (devConfiguration) await assertBootstrapPathsProtected(devConfiguration.paths, finalRoots);
+  await verifySourceUpdateTooling(plan, finalRoots);
+  await verifyBootstrapRecoveryArtifacts(plan, finalRoots);
+  for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)])) {
+    const retained = await inspectBootstrapReleaseArtifacts(release, finalRoots);
+    releaseAssertions.push(retained.assertCurrent);
+  }
   await readBootstrapLauncher(
     { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
     finalRoots,
   );
-  await verifyLoadedBootstrapService({
+  await verifyPrevious({
     plan,
     hostUid: process.getuid!(),
     configurationFile: host.configurationFile,
     reader,
   });
+  await verifyRecoveredBootstrapExit(plan, finalRoots, reader);
+  verifyRestorationHistory();
   if (!isDeepStrictEqual(initial, readBootstrapHostBinding(host.configurationFile, host.daemonId)))
     throw new BootstrapRequestConflict("Bootstrap Host binding changed during verification");
+  devConfiguration?.assertCurrent();
+  for (const assertRelease of releaseAssertions) assertRelease();
 }
 
-/** Compare private values without returning them to the review transport. */
-export function verifyBootstrapConfiguration(input: {
+/** Same complete read-only admission, isolated from the execution lock owner.
+ * A lost or timed-out result never authorizes a native effect. */
+export async function verifyBootstrapPlanInChild(input: {
+  plan: CoordinatorBootstrapPlan;
+  host: BootstrapAdmissionHost;
+  node: string;
+}): Promise<void> {
+  const payload = JSON.stringify({ plan: input.plan, host: input.host });
+  if (Buffer.byteLength(payload) > 1024 * 1024)
+    throw new BootstrapRequestConflict("Bootstrap verification input exceeds its bound");
+  const expected = `verified:${createHash("sha256").update(payload).digest("hex")}\n`;
+  const source = `
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { verifyBootstrapPlan } from ${JSON.stringify(import.meta.url)};
+const bytes = readFileSync(0);
+if (bytes.length > 1048576) throw Error("Bootstrap verification input exceeds its bound");
+const input = JSON.parse(bytes.toString("utf8"));
+await verifyBootstrapPlan(input.plan, input.host);
+process.stdout.write("verified:" + createHash("sha256").update(bytes).digest("hex") + "\\n");
+`;
+  await new Promise<void>((resolve, reject) => {
+    let output = "";
+    const fail = () =>
+      reject(new BootstrapRequestConflict("Bounded bootstrap preparation did not complete"));
+    const child = spawn(input.node, ["--input-type=module", "--eval", source], {
+      env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
+      stdio: ["pipe", "pipe", "ignore"],
+      timeout: 120_000,
+      killSignal: "SIGKILL",
+    });
+    child.stdin.on("error", () => {});
+    child.stdout.on("data", (bytes: Buffer) => {
+      output = (output + bytes.toString("utf8")).slice(0, 128);
+    });
+    child.once("error", fail);
+    child.once("close", (code, signal) => {
+      if (code === 0 && signal === null && output === expected) resolve();
+      else fail();
+    });
+    child.stdin.end(payload);
+  });
+}
+
+/** A claimed updater may be fenced before it writes the legacy executor record.
+ * Missing legacy evidence is accepted only through the protected terminal claimed
+ * recovery chain and independent absence proofs for both involved processes. */
+async function verifyRecoveredBootstrapExit(
+  plan: CoordinatorBootstrapPlan,
+  roots: readonly string[],
+  reader: { verifyProcessExited?(pid: number): Promise<void> },
+): Promise<void> {
+  const records = new FileBootstrapRequestJournal(plan.state.directory).read();
+  const recovered = assertRecoveredBootstrapBase(plan, records);
+  if (!recovered) return;
+  const recordPath = path.join(
+    plan.state.directory,
+    `coordinator-executor-${plan.recoveredFrom!.generation}.json`,
+  );
+  let missing = false;
+  try {
+    lstatSync(recordPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    missing = true;
+  }
+  if (!missing) {
+    const record = BootstrapExecutorRecordSchema.parse(
+      readPrivateBootstrapConfiguration(recordPath, process.getuid!()),
+    );
+    if (record.id !== recovered.id || record.generation !== plan.recoveredFrom!.generation)
+      throw new BootstrapRequestConflict("Previous updater record changed");
+    if (!reader.verifyProcessExited)
+      throw new BootstrapRequestConflict("Native updater exit proof is unavailable");
+    await reader.verifyProcessExited(record.pid);
+    return;
+  }
+  const { readClaimedSuccessorEvidence, verifyClaimedSuccessorExit } =
+    await import("./coordinator-bootstrap-claimed-successor.js");
+  const successorExecutions = records
+    .slice(records.indexOf(recovered) + 1)
+    .filter((record) => record.execution);
+  if (
+    successorExecutions.length > 1 ||
+    successorExecutions.some((record) => !isDeepStrictEqual(record.plan, plan))
+  )
+    throw new BootstrapRequestConflict("Recovered coordinator has another successor execution");
+  const { FileClaimedRecoveryReviewJournal } =
+    await import("./coordinator-bootstrap-claimed-journal.js");
+  const reviews = new FileClaimedRecoveryReviewJournal(plan.state.directory).readReviews();
+  if (!reviews.some((review) => review.plan.original.id === recovered.id)) {
+    // No executor receipt exists because admission failed before watchdog setup.
+    // The promoter's exact failed sidecar record cannot authorize native effects.
+    // Preserve it and require this separately approved successor to own the lock.
+    new FileBootstrapRequestJournal(plan.state.directory).verifyUnpromotedFailure(recovered);
+    if (!isDeepStrictEqual(plan.expectedProcess, recovered.plan.expectedProcess))
+      throw new BootstrapRequestConflict("Unpromoted recovery coordinator identity changed");
+    return;
+  }
+  // Dispatch may already have appended this successor's claim. Verify the exact
+  // retained predecessor prefix, while the request journal owns dispatch exclusion.
+  const evidence = await readClaimedSuccessorEvidence({
+    records: records.slice(0, records.indexOf(recovered) + 1),
+    identity: {
+      installationId: plan.installationId,
+      stateDirectory: plan.state.directory,
+      service: plan.service,
+    },
+    roots,
+  });
+  if (!evidence || !isDeepStrictEqual(evidence.recoveredFrom, plan.recoveredFrom))
+    throw new BootstrapRequestConflict("Exact terminal claimed recovery evidence is required");
+  await verifyClaimedSuccessorExit(evidence, reader);
+}
+
+function expectedBootstrapConfiguration(
+  plan: CoordinatorBootstrapPlan,
+  current: InstallationConfig,
+): InstallationConfig {
+  const expected = { ...current, container: { ...current.container } };
+  if (plan.sourceUpdateTooling === true) {
+    if (!current.sourceUpdates)
+      throw new BootstrapRequestConflict("Source update tooling requires existing source updates");
+    expected.sourceUpdates = {
+      ...current.sourceUpdates,
+      toolingDirectory: path.join(plan.candidate.directory, "scripts"),
+    };
+  }
+  if (plan.factoryRuntimeAdoptionConfiguration === null)
+    delete expected.container.factoryRuntimeAdoption;
+  else if (plan.factoryRuntimeAdoptionConfiguration !== undefined)
+    expected.container.factoryRuntimeAdoption = plan.factoryRuntimeAdoptionConfiguration;
+  if (plan.previewMonitorConfiguration === null) delete expected.previewMonitor;
+  else if (plan.previewMonitorConfiguration !== undefined)
+    expected.previewMonitor = plan.previewMonitorConfiguration;
+  if (plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
+  else if (plan.nativeHelperConfiguration !== undefined)
+    expected.nativeHelper = plan.nativeHelperConfiguration;
+  if (plan.hostRequestsAfter !== null)
+    expected.restartApprovalPolicy = { hostRequestsAfter: plan.hostRequestsAfter };
+  return expected;
+}
+
+interface BootstrapConfigurationInput {
   plan: CoordinatorBootstrapPlan;
   configurationFile: string;
   daemonId: string;
-}): void {
-  const context = readBootstrapHostBinding(input.configurationFile, input.daemonId);
+}
+
+/** Compare private values without returning them to the review transport. */
+export function verifyBootstrapConfiguration(input: BootstrapConfigurationInput): void {
+  inspectBootstrapConfiguration(input);
+}
+
+function inspectBootstrapConfiguration(
+  input: BootstrapConfigurationInput,
+): ReturnType<typeof inspectDevRegistrationConfiguration> | null {
   const uid = process.getuid!();
+  const configurationCustody = retainServiceFiles([
+    input.configurationFile,
+    input.plan.previous.configuration.path,
+    input.plan.candidate.configuration.path,
+    bootstrapRecoveryRelease(input.plan).configuration.path,
+  ]);
+  const context = readBootstrapHostBinding(input.configurationFile, input.daemonId);
   const current = InstallationConfigSchema.parse(
     readPrivateBootstrapConfiguration(input.configurationFile, uid),
   );
@@ -231,21 +530,34 @@ export function verifyBootstrapConfiguration(input: {
     throw new BootstrapRequestConflict("Bootstrap installation or state paths changed");
   if (!isDeepStrictEqual(current, previous))
     throw new BootstrapRequestConflict("Previous coordinator configuration no longer matches");
-  const expected = { ...current, container: { ...current.container } };
-  if (input.plan.factoryRuntimeAdoptionConfiguration === null)
-    delete expected.container.factoryRuntimeAdoption;
-  else if (input.plan.factoryRuntimeAdoptionConfiguration !== undefined)
-    expected.container.factoryRuntimeAdoption = input.plan.factoryRuntimeAdoptionConfiguration;
-  if (input.plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
-  else if (input.plan.nativeHelperConfiguration !== undefined)
-    expected.nativeHelper = input.plan.nativeHelperConfiguration;
-  if (input.plan.hostRequestsAfter !== null)
-    expected.restartApprovalPolicy = { hostRequestsAfter: input.plan.hostRequestsAfter };
+  const devConfiguration =
+    candidate.container.persistentRegistration &&
+    candidate.container.supervisorMaintenance &&
+    !current.container.persistentRegistration
+      ? inspectDevRegistrationConfiguration({
+          plan: input.plan,
+          currentFile: input.configurationFile,
+          current,
+          candidate,
+        })
+      : null;
+  const expected = devConfiguration
+    ? devConfiguration.configuration
+    : expectedBootstrapConfiguration(input.plan, current);
   if (!isDeepStrictEqual(candidate, expected))
     throw new BootstrapRequestConflict(
       "Candidate changes configuration outside its approved policy",
     );
+  const recovery = bootstrapRecoveryRelease(input.plan);
+  const recoveryConfiguration = InstallationConfigSchema.parse(
+    readPrivateBootstrapConfiguration(recovery.configuration.path, uid),
+  );
+  if (!isDeepStrictEqual(recoveryConfiguration, current))
+    throw new BootstrapRequestConflict(
+      "Recovery must preserve the previous coordinator configuration",
+    );
   const observations = [
+    { file: recovery.configuration.path, value: recoveryConfiguration },
     { file: input.configurationFile, value: current },
     { file: input.plan.previous.configuration.path, value: previous },
     { file: input.plan.candidate.configuration.path, value: candidate },
@@ -261,8 +573,10 @@ export function verifyBootstrapConfiguration(input: {
     !isDeepStrictEqual(context, readBootstrapHostBinding(input.configurationFile, input.daemonId))
   )
     throw new BootstrapRequestConflict("Bootstrap Host binding changed during verification");
+  devConfiguration?.assertCurrent();
+  configurationCustody();
+  return devConfiguration;
 }
-
 const ContainerMountInspectionSchema = z.object({
   Id: z.string().regex(/^[a-f0-9]{64}$/),
   State: z.object({ Running: z.literal(true) }),
@@ -314,27 +628,101 @@ export function bootstrapWritableMountRoots(input: {
   return [...new Set(roots)].sort();
 }
 
+export interface BootstrapMountInspectionCollection {
+  signal: AbortSignal;
+  remaining(reserveMs?: number): number;
+}
+
+export interface BootstrapMountInspectionReadLimits {
+  env: { PATH: string };
+  encoding: "utf8";
+  timeout: number;
+  maxBuffer: number;
+  signal?: AbortSignal;
+}
+
+export interface BootstrapMountInspectionCommand {
+  execute(
+    file: string,
+    args: readonly string[],
+    limits: BootstrapMountInspectionReadLimits,
+  ): Promise<{ stdout: string }>;
+}
+
 /** The executable, local socket and immutable container ID come from Host setup.
  * Explicit endpoint and environment prevent profile Docker variables redirecting inspection. */
-export async function inspectBootstrapWritableMountRoots(input: {
-  docker: string;
-  socket: string;
-  containerId: string;
-}): Promise<string[]> {
+export async function inspectBootstrapWritableMountRoots(
+  input: { docker: string; socket: string; containerId: string },
+  options: {
+    collection?: BootstrapMountInspectionCollection;
+    command?: BootstrapMountInspectionCommand;
+  } = {},
+): Promise<string[]> {
   if (process.platform !== "darwin")
     throw new BootstrapRequestConflict("Bootstrap Docker inspection requires native macOS Host");
-  if (!path.isAbsolute(input.docker) || !path.isAbsolute(input.socket))
+  const declared = { docker: input.docker, socket: input.socket, containerId: input.containerId };
+  if (!path.isAbsolute(declared.docker) || !path.isAbsolute(declared.socket))
     throw new BootstrapRequestConflict("Bootstrap Docker paths must be absolute");
   z.string()
     .regex(/^[a-f0-9]{64}$/)
-    .parse(input.containerId);
+    .parse(declared.containerId);
+  const collection = options.collection;
+  const signal = collection?.signal;
+  const throwIfAborted = signal?.throwIfAborted;
+  const assertSignal = AbortSignal.prototype.throwIfAborted;
+  const remaining = collection?.remaining;
+  if (
+    collection &&
+    (typeof remaining !== "function" ||
+      !(signal instanceof AbortSignal) ||
+      typeof throwIfAborted !== "function")
+  )
+    throw new BootstrapRequestConflict("Bootstrap mount collection limits are invalid");
+  const suppliedCommand = options.command;
+  const command: BootstrapMountInspectionCommand = suppliedCommand ?? {
+    async execute(file, args, limits) {
+      const result = await execute(file, [...args], limits);
+      return { stdout: result.stdout };
+    },
+  };
+  const read = command.execute;
+  if (typeof read !== "function")
+    throw new BootstrapRequestConflict("Bootstrap mount reader is invalid");
+  const limits = Object.freeze({
+    env: Object.freeze({ PATH: "/usr/bin:/bin" }),
+    encoding: "utf8" as const,
+    timeout: 10_000,
+    maxBuffer: 1024 * 1024,
+    ...(signal ? { signal } : {}),
+  });
+  function assertRetained() {
+    if (
+      input.docker !== declared.docker ||
+      input.socket !== declared.socket ||
+      input.containerId !== declared.containerId ||
+      options.collection !== collection ||
+      options.command !== suppliedCommand ||
+      command.execute !== read ||
+      (collection && (collection.signal !== signal || collection.remaining !== remaining)) ||
+      (signal && signal.throwIfAborted !== throwIfAborted)
+    )
+      throw new BootstrapRequestConflict("Bootstrap mount inspection bindings changed");
+    if (signal) assertSignal.call(signal);
+  }
+  function reserve(bound: number) {
+    assertRetained();
+    if (collection && remaining) {
+      const left = remaining.call(collection, bound);
+      assertRetained();
+      if (!Number.isFinite(left) || left <= 0 || left < bound)
+        throw new BootstrapRequestConflict("Bootstrap mount inspection deadline exceeded");
+    }
+  }
   async function inspect(args: string[]): Promise<unknown> {
-    const result = await execute(input.docker, ["--host", `unix://${input.socket}`, ...args], {
-      env: { PATH: "/usr/bin:/bin" },
-      encoding: "utf8",
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024,
-    });
+    const fixedArgs = Object.freeze(["--host", `unix://${declared.socket}`, ...args]);
+    reserve(10_000);
+    const result = await read.call(command, declared.docker, fixedArgs, limits);
+    reserve(0);
     return JSON.parse(result.stdout);
   }
   const container = ContainerMountInspectionSchema.parse(
@@ -343,10 +731,10 @@ export async function inspectBootstrapWritableMountRoots(input: {
       "inspect",
       "--format",
       '{"Id":{{json .Id}},"State":{"Running":{{json .State.Running}}},"Mounts":{{json .Mounts}}}',
-      input.containerId,
+      declared.containerId,
     ]),
   );
-  if (container.Id !== input.containerId)
+  if (container.Id !== declared.containerId)
     throw new BootstrapRequestConflict("Bootstrap container identity changed");
   const volumes: unknown[] = [];
   const names = new Set<string>();
@@ -360,43 +748,8 @@ export async function inspectBootstrapWritableMountRoots(input: {
     names.add(name);
     volumes.push(await inspect(["volume", "inspect", "--format", "{{json .}}", name]));
   }
-  return bootstrapWritableMountRoots({ container, containerId: input.containerId, volumes });
-}
-
-export function readPrivateBootstrapConfiguration(file: string, uid: number): unknown {
-  if (realpathSync(file) !== file)
-    throw new BootstrapRequestConflict("Bootstrap configuration requires a canonical Host path");
-  const parent = lstatSync(path.dirname(file));
-  if (!parent.isDirectory() || parent.uid !== uid || (parent.mode & 0o077) !== 0)
-    throw new BootstrapRequestConflict("Bootstrap configuration requires a private Host directory");
-  const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try {
-    const before = fstatSync(fd, { bigint: true });
-    if (
-      !before.isFile() ||
-      before.uid !== BigInt(uid) ||
-      before.nlink !== 1n ||
-      (before.mode & 0o077n) !== 0n ||
-      before.size > 1024n * 1024n
-    )
-      throw new BootstrapRequestConflict("Bootstrap configuration must be a private owned file");
-    const bytes = readFileSync(fd, "utf8");
-    const after = fstatSync(fd, { bigint: true });
-    const current = lstatSync(file, { bigint: true });
-    if (
-      before.dev !== current.dev ||
-      before.ino !== current.ino ||
-      before.mtimeNs !== after.mtimeNs ||
-      before.ctimeNs !== after.ctimeNs ||
-      before.size !== after.size ||
-      after.ctimeNs !== current.ctimeNs ||
-      after.mtimeNs !== current.mtimeNs
-    )
-      throw new BootstrapRequestConflict("Bootstrap configuration changed while reading");
-    return JSON.parse(bytes);
-  } finally {
-    closeSync(fd);
-  }
+  reserve(0);
+  return bootstrapWritableMountRoots({ container, containerId: declared.containerId, volumes });
 }
 
 /** The file comes from the native launcher, never a profile or incoming RPC.

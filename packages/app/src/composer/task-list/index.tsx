@@ -70,6 +70,7 @@ function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   const countBadge = useMemo(
     () => (
       <CountBadge
+        count={total}
         label={`${completed} / ${total}`}
         accessibilityLabel={t("message.todo.tasksProgress", { completed, total })}
       />

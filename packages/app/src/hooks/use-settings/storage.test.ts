@@ -43,6 +43,39 @@ function makeDeps(
 }
 
 describe("loadAppSettingsFromStorage", () => {
+  it.each(["light", "dark", "zinc", "midnight", "claude", "ghostty", "pureBlack"])(
+    "migrates and persists retired theme %s without losing font overrides",
+    async (legacy) => {
+      const deps = makeDeps({
+        storage: createInMemoryKeyValueStorage({
+          [APP_SETTINGS_KEY]: JSON.stringify({ theme: legacy, uiFontFamily: "Georgia" }),
+        }),
+      });
+      const expected = legacy === "light" ? "starship-light" : "starship-dark";
+      const result = await loadAppSettingsFromStorage(deps);
+      expect(result.theme).toBe(expected);
+      expect(result.uiFontFamily).toBe("Georgia");
+      expect(JSON.parse(deps.storage.entries.get(APP_SETTINGS_KEY) ?? "{}").theme).toBe(expected);
+      expect((await loadAppSettingsFromStorage(deps)).theme).toBe(expected);
+    },
+  );
+  it("preserves workspace defaults and distinct profiles for each account", async () => {
+    const workspaceDefaults = {
+      environment: "host",
+      account: "installation-account/a",
+      profilesByAccount: {
+        "installation-account/a": "profile-one",
+        "installation-account/b": "profile-two",
+      },
+    };
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ workspaceDefaults }),
+      }),
+    });
+    expect((await loadAppSettingsFromStorage(deps)).workspaceDefaults).toEqual(workspaceDefaults);
+  });
+
   it("preserves a persisted steer send behavior", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
@@ -54,7 +87,7 @@ describe("loadAppSettingsFromStorage", () => {
 
   it("keeps valid settings when another build wrote unknown fields or enum values", async () => {
     const stored = {
-      theme: "dark",
+      theme: "starship-dark",
       contentFontSize: 16,
       sendBehavior: "future-mode",
       futureSetting: { enabled: true },
@@ -68,7 +101,7 @@ describe("loadAppSettingsFromStorage", () => {
 
     const result = await loadAppSettingsFromStorage(deps);
 
-    expect(result.theme).toBe("dark");
+    expect(result.theme).toBe("starship-dark");
     expect(result.sendBehavior).toBe(DEFAULT_CLIENT_SETTINGS.sendBehavior);
     expect(result.sidebarRowItems.host).toBe(false);
     expect(JSON.parse(deps.storage.entries.get(APP_SETTINGS_KEY) ?? "null")).toEqual(stored);
@@ -130,23 +163,23 @@ describe("loadAppSettingsFromStorage", () => {
     expect((await loadAppSettingsFromStorage(deps)).sendBehavior).toBe("interrupt");
   });
 
-  it("defaults theme to Claude when storage is empty", async () => {
+  it("defaults theme to Dark Star when storage is empty", async () => {
     const deps = makeDeps();
 
     const result = await loadAppSettingsFromStorage(deps);
 
-    expect(result.theme).toBe("claude");
+    expect(result.theme).toBe("starship-dark");
   });
 
   it.each([{}, { theme: "removed-theme" }])(
-    "defaults missing or invalid themes to Claude: %j",
+    "defaults missing or invalid themes to Dark Star: %j",
     async (stored) => {
       const deps = makeDeps({
         storage: createInMemoryKeyValueStorage({
           [APP_SETTINGS_KEY]: JSON.stringify(stored),
         }),
       });
-      expect((await loadAppSettingsFromStorage(deps)).theme).toBe("claude");
+      expect((await loadAppSettingsFromStorage(deps)).theme).toBe("starship-dark");
     },
   );
 
@@ -445,7 +478,7 @@ describe("loadAppSettingsFromStorage", () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
         [LEGACY_SETTINGS_KEY]: JSON.stringify({
-          theme: "dark",
+          theme: "starship-dark",
           manageBuiltInDaemon: false,
           releaseChannel: "beta",
         }),
@@ -456,7 +489,7 @@ describe("loadAppSettingsFromStorage", () => {
 
     expect(result).toEqual({
       ...DEFAULT_CLIENT_SETTINGS,
-      theme: "dark",
+      theme: "starship-dark",
       contentFontSize: DEFAULT_UI_BASE_FONT_SIZE,
     });
     expect(JSON.parse(deps.storage.entries.get(APP_SETTINGS_KEY) ?? "null")).toEqual({
@@ -526,6 +559,74 @@ describe("loadAppSettingsFromStorage", () => {
 });
 
 describe("saveAppSettings", () => {
+  it("restores the saved theme after a failed write and allows retry", async () => {
+    const storage = createInMemoryKeyValueStorage({
+      [APP_SETTINGS_KEY]: JSON.stringify(DEFAULT_CLIENT_SETTINGS),
+    });
+    let failWrite = true;
+    const failure = new Error("Storage full");
+    const deps: SettingsDeps = {
+      desktop: createFakeDesktopBridge(),
+      storage: {
+        ...storage,
+        async setItem(key, value) {
+          if (failWrite) throw failure;
+          await storage.setItem(key, value);
+        },
+      },
+    };
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, DEFAULT_CLIENT_SETTINGS);
+
+    await expect(saveAppSettings({ queryClient, updates: { theme: "midas" }, deps })).rejects.toBe(
+      failure,
+    );
+    expect(queryClient.getQueryData(APP_SETTINGS_QUERY_KEY)).toMatchObject({
+      theme: "starship-dark",
+    });
+    expect(JSON.parse(storage.entries.get(APP_SETTINGS_KEY)!)).toMatchObject({
+      theme: "starship-dark",
+    });
+
+    failWrite = false;
+    await saveAppSettings({ queryClient, updates: { theme: "midas" }, deps });
+    expect(queryClient.getQueryData(APP_SETTINGS_QUERY_KEY)).toMatchObject({ theme: "midas" });
+    expect((await loadAppSettingsFromStorage(deps)).theme).toBe("midas");
+  });
+
+  it("does not undo a newer saved theme when an earlier write fails late", async () => {
+    const storage = createInMemoryKeyValueStorage({
+      [APP_SETTINGS_KEY]: JSON.stringify(DEFAULT_CLIENT_SETTINGS),
+    });
+    const firstWrite = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    const deps: SettingsDeps = {
+      desktop: createFakeDesktopBridge(),
+      storage: {
+        ...storage,
+        async setItem(key, value) {
+          if (JSON.parse(value).theme === "midas") {
+            entered.resolve();
+            await firstWrite.promise;
+          }
+          await storage.setItem(key, value);
+        },
+      },
+    };
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, DEFAULT_CLIENT_SETTINGS);
+    const failure = new Error("Storage full");
+    const firstSave = saveAppSettings({ queryClient, updates: { theme: "midas" }, deps });
+    const rejected = expect(firstSave).rejects.toBe(failure);
+    await entered.promise;
+    await saveAppSettings({ queryClient, updates: { theme: "neon" }, deps });
+    firstWrite.reject(failure);
+    await rejected;
+
+    expect(queryClient.getQueryData(APP_SETTINGS_QUERY_KEY)).toMatchObject({ theme: "neon" });
+    expect((await loadAppSettingsFromStorage(deps)).theme).toBe("neon");
+  });
+
   it("applies consecutive functional updates to the latest cached settings", async () => {
     const deps = makeDeps();
     const queryClient = new QueryClient();
@@ -584,7 +685,7 @@ describe("loadSettingsFromStorage", () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
         [APP_SETTINGS_KEY]: JSON.stringify({
-          theme: "light",
+          theme: "starship-light",
           manageBuiltInDaemon: false,
         }),
       }),
@@ -594,7 +695,7 @@ describe("loadSettingsFromStorage", () => {
 
     expect(result).toEqual({
       ...DEFAULT_APP_SETTINGS,
-      theme: "light",
+      theme: "starship-light",
       contentFontSize: DEFAULT_UI_BASE_FONT_SIZE,
     });
   });
@@ -623,7 +724,7 @@ describe("loadSettingsFromStorage", () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
         [APP_SETTINGS_KEY]: JSON.stringify({
-          theme: "light",
+          theme: "starship-light",
           manageBuiltInDaemon: false,
           releaseChannel: "beta",
         }),
@@ -638,7 +739,7 @@ describe("loadSettingsFromStorage", () => {
     ]);
     expect(result).toEqual({
       ...DEFAULT_APP_SETTINGS,
-      theme: "light",
+      theme: "starship-light",
       contentFontSize: DEFAULT_UI_BASE_FONT_SIZE,
       manageBuiltInDaemon: false,
       releaseChannel: "beta",
@@ -649,7 +750,7 @@ describe("loadSettingsFromStorage", () => {
     const desktop = createFakeDesktopBridge({ isElectron: false });
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
-        [APP_SETTINGS_KEY]: JSON.stringify({ theme: "light" }),
+        [APP_SETTINGS_KEY]: JSON.stringify({ theme: "starship-light" }),
       }),
       desktop,
     });
@@ -659,7 +760,7 @@ describe("loadSettingsFromStorage", () => {
     expect(desktop.migrationsApplied).toEqual([]);
     expect(result).toEqual({
       ...DEFAULT_APP_SETTINGS,
-      theme: "light",
+      theme: "starship-light",
       contentFontSize: DEFAULT_UI_BASE_FONT_SIZE,
     });
   });
@@ -670,7 +771,7 @@ describe("saveAppSettings", () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
         [APP_SETTINGS_KEY]: JSON.stringify({
-          theme: "dark",
+          theme: "starship-dark",
           contentFontSize: 16,
           sendBehavior: "future-mode",
           futureSetting: { enabled: true },
@@ -682,12 +783,12 @@ describe("saveAppSettings", () => {
     await loadAppSettingsFromStorage(deps);
     await saveAppSettings({
       queryClient: new QueryClient(),
-      updates: { theme: "light" },
+      updates: { theme: "starship-light" },
       deps,
     });
 
     expect(JSON.parse(deps.storage.entries.get(APP_SETTINGS_KEY) ?? "null")).toMatchObject({
-      theme: "light",
+      theme: "starship-light",
       futureSetting: { enabled: true },
       sidebarRowItems: {
         host: false,
@@ -722,19 +823,19 @@ describe("saveAppSettings", () => {
     const deps = makeDeps();
     const queryClient = new QueryClient();
     queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, {
-      theme: "dark",
+      theme: "starship-dark",
       compactToolCalls: true,
     });
 
     await saveAppSettings({
       queryClient,
-      updates: { theme: "light" },
+      updates: { theme: "starship-light" },
       deps,
     });
 
     expect(JSON.parse(deps.storage.entries.get(APP_SETTINGS_KEY) ?? "null")).toEqual({
       ...DEFAULT_CLIENT_SETTINGS,
-      theme: "light",
+      theme: "starship-light",
       contentFontSize: DEFAULT_UI_BASE_FONT_SIZE,
       toolCallDetailLevel: "overview",
     });
@@ -779,7 +880,7 @@ describe("appearance settings", () => {
   it("defaults the appearance fields when an old blob omits them", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
-        [APP_SETTINGS_KEY]: JSON.stringify({ theme: "dark" }),
+        [APP_SETTINGS_KEY]: JSON.stringify({ theme: "starship-dark" }),
       }),
     });
 
@@ -1114,11 +1215,11 @@ describe("thread column preferences", () => {
     await saveAppSettings({
       queryClient,
       deps,
-      updates: { threadTextWidth: 720, threadCardsWidth: 520 },
+      updates: { threadTextWidth: 720, threadCardsWidth: 220 },
     });
     const settings = await loadAppSettingsFromStorage(deps);
     expect(settings.threadTextWidth).toBe(720);
-    expect(settings.threadCardsWidth).toBe(520);
+    expect(settings.threadCardsWidth).toBe(220);
     expect(settings.contentMaxWidth).toBeNull();
   });
   it("normalizes old and malformed column preferences", async () => {

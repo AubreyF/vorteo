@@ -47,7 +47,13 @@ export function PageLayout({
         <MenuHeader borderless />
       )}
       {fixedHeader ? <View style={styles.fixedHeader}>{fixedHeader}</View> : null}
-      <ScrollView style={styles.scroll} contentContainerStyle={scrollContentStyle} testID={testID}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={scrollContentStyle}
+        testID={testID}
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.content}>
           {showTitle ? (
             <View style={styles.titleRow} testID={titleTestID}>

@@ -46,8 +46,37 @@ export function GoalDetails({ control, draft, onClose, onCreated }: GoalDetailsP
   const title = goal ? "Goal details" : "New goal";
   const submitLabel = goal ? "Save goal" : "Start goal";
   const header = useMemo(() => ({ title }), [title]);
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions}>
+        <Button
+          variant="ghost"
+          onPress={control.refresh}
+          disabled={!control.connected || control.refreshing}
+        >
+          Refresh
+        </Button>
+        <Button
+          variant="default"
+          onPress={save}
+          disabled={disabled}
+          loading={control.pending}
+          testID="agent-goal-save"
+        >
+          {submitLabel}
+        </Button>
+      </ActionFooter>
+    ),
+    [control, save, disabled, submitLabel],
+  );
   return (
-    <AdaptiveModalSheet visible onClose={onClose} header={header} desktopMaxWidth={620}>
+    <AdaptiveModalSheet
+      visible
+      onClose={onClose}
+      header={header}
+      desktopMaxWidth={620}
+      footer={modalFooter1}
+    >
       <View style={styles.body} testID="agent-goal-details">
         {goal ? (
           <Text style={styles.hint} selectable>
@@ -112,24 +141,6 @@ export function GoalDetails({ control, draft, onClose, onCreated }: GoalDetailsP
         {!control.connected ? (
           <Text style={styles.hint}>Reconnect to the host to change this goal.</Text>
         ) : null}
-        <ActionFooter style={styles.actions}>
-          <Button
-            variant="ghost"
-            onPress={control.refresh}
-            disabled={!control.connected || control.refreshing}
-          >
-            Refresh
-          </Button>
-          <Button
-            variant="default"
-            onPress={save}
-            disabled={disabled}
-            loading={control.pending}
-            testID="agent-goal-save"
-          >
-            {submitLabel}
-          </Button>
-        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

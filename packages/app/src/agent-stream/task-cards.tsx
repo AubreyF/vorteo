@@ -1,3 +1,5 @@
+import { useIsCompactFormFactor } from "@/constants/layout";
+import { InlineFilesCard } from "./inline-files-card";
 import { JournalCard } from "@/journal/card";
 import { AgentHistoryTracks } from "@/panels/agent-tracks";
 import { useCallback, useState } from "react";
@@ -16,16 +18,19 @@ export function AgentTaskCards({
   agentId,
   workspaceId,
   cwd,
+  onReviewMessages,
+  hasWorkspaceCards = false,
 }: {
   serverId: string;
   agentId: string;
   workspaceId?: string;
   cwd: string;
+  onReviewMessages: () => void;
+  hasWorkspaceCards?: boolean;
 }) {
+  const compact = useIsCompactFormFactor();
   const queue = useMessageQueue(serverId, agentId);
   const goal = useAgentGoal(serverId, agentId);
-  const [queueReviewRequest, setQueueReviewRequest] = useState(0);
-  const reviewMessages = useCallback(() => setQueueReviewRequest((value) => value + 1), []);
   const [expanded, setExpanded] = useState(false);
   const open = useCallback(() => setExpanded(true), []);
   const close = useCallback(() => setExpanded(false), []);
@@ -35,7 +40,7 @@ export function AgentTaskCards({
         control={goal}
         onExpand={open}
         queueNotice={goalQueueNotice(goal.state, queue.snapshot, queue.error)}
-        onReviewMessages={reviewMessages}
+        onReviewMessages={onReviewMessages}
       />
       {workspaceId ? (
         <AgentHistoryTracks
@@ -47,17 +52,40 @@ export function AgentTaskCards({
       ) : (
         <JournalCard serverId={serverId} agentId={agentId} />
       )}
+      {compact && workspaceId && !hasWorkspaceCards ? (
+        <InlineFilesCard serverId={serverId} workspaceId={workspaceId} cwd={cwd} />
+      ) : null}
+      {expanded && goal.supported ? (
+        <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />
+      ) : null}
+    </>
+  );
+}
+
+/** Keep queue activity in the conversation, outside the retained details dock. */
+export function AgentQueueCards({
+  serverId,
+  agentId,
+  cwd,
+  reviewRequest,
+}: {
+  serverId: string;
+  agentId: string;
+  cwd: string;
+  reviewRequest: number;
+}) {
+  const queue = useMessageQueue(serverId, agentId);
+  const goal = useAgentGoal(serverId, agentId);
+  return (
+    <>
+      <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
       <SharedQueueView
         serverId={serverId}
         agentId={agentId}
         control={queue}
         goalErrorHandled={goal.supported}
-        reviewRequest={queueReviewRequest}
+        reviewRequest={reviewRequest}
       />
-      <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
-      {expanded && goal.supported ? (
-        <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />
-      ) : null}
     </>
   );
 }

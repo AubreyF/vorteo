@@ -66,7 +66,6 @@ function source(gitActions: GitActions): {
         moveTabUp: "Move tab up",
         moveTabDown: "Move tab down",
         closePane: "Close pane",
-        toggleFocusMode: "Toggle focus mode",
         toggleExplorerSidebar: "Toggle Explorer sidebar",
         rename: "Rename workspace",
         copyPath: "Copy workspace path",
@@ -313,40 +312,20 @@ describe("workspace command center contributions", () => {
     expect(withSetup.dispatched).toEqual([{ id: "workspace.setup.show", scope: "workspace" }]);
   });
 
-  // Regression guard for the registration split: these two are handled only by workspace-screen.tsx
-  // behind `enabled: isRouteFocused && ...`, so they must be built here rather than in the global
-  // root set, where they would silently no-op off a workspace route.
-  it("builds the Explorer sidebar and focus toggles in the workspace set", () => {
+  // Regression guard for the registration split: this is handled only by workspace-screen.tsx
+  // behind `enabled: isRouteFocused && ...`, so it must be built here rather than in the global
+  // root set, where it would silently no-op off a workspace route.
+  it("builds the Explorer sidebar toggle in the workspace set", () => {
     const fixture = source({ primary: null, secondary: [], menu: [] });
     fixture.value.capabilities.canSplitPanes = false;
     const contributions = buildWorkspaceCommandCenterContributions(fixture.value);
 
     contributions.find((item) => item.id === "workspace:toggle-explorer-sidebar")?.run();
-    contributions.find((item) => item.id === "workspace:toggle-focus-mode")?.run();
 
-    expect(fixture.dispatched).toEqual([
-      { id: "sidebar.toggle.right", scope: "sidebar" },
-      { id: "workspace.focus.toggle", scope: "workspace" },
-    ]);
+    expect(fixture.dispatched).toEqual([{ id: "sidebar.toggle.right", scope: "sidebar" }]);
     for (const contribution of contributions) {
       expect(contribution.group).toBe("workspace");
     }
-  });
-
-  // `buildPaneContributions` dispatches this same action as `pane:focus-mode-toggle` once split
-  // panes are available, so the standalone entry must step aside there — otherwise the palette
-  // lists "Toggle focus mode" twice for the one `workspace.focus.toggle` action.
-  it("omits the standalone focus toggle when the pane set already covers it", () => {
-    const fixture = source({ primary: null, secondary: [], menu: [] });
-    fixture.value.capabilities.canSplitPanes = true;
-    const contributions = buildWorkspaceCommandCenterContributions(fixture.value);
-
-    const focusToggles = contributions.filter(
-      (item) =>
-        item.presentation.kind === "action" && item.presentation.title === "Toggle focus mode",
-    );
-    expect(focusToggles).toHaveLength(1);
-    expect(focusToggles[0]?.id).toBe("pane:focus-mode-toggle");
   });
 
   it("omits the labels group when the catalog hasn't loaded", () => {

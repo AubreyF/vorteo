@@ -8,6 +8,9 @@ import { useAgentGoal } from "@/goals/use-agent-goal";
 import { goalQueueNotice } from "@/goals/goal-presentation";
 import { SharedQueueView as QueueView } from "./queue-view";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+vi.hoisted(async () => {
+  globalThis.React = await import("react");
+});
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 function SharedQueueView(props: React.ComponentProps<typeof QueueView>) {
   return (
@@ -22,6 +25,8 @@ const state = vi.hoisted(() => ({
   empty: false,
   paused: false,
   pending: false,
+  dispatching: false,
+  pendingEdit: false,
   media: true,
   goalError: false,
   mutate: vi.fn(),
@@ -32,6 +37,7 @@ vi.mock("./use-message-queue", () => ({
     visible: state.visible,
     supported: true,
     connected: true,
+    canSendNow: true,
     canMutate: true,
     mutate: state.mutate,
     snapshot: {
@@ -43,7 +49,12 @@ vi.mock("./use-message-queue", () => ({
       items: state.empty
         ? []
         : [
-            { id: "text", text: "Text only", attachments: [], delivery: { status: "queued" } },
+            {
+              id: "text",
+              text: "Text only",
+              attachments: [],
+              delivery: { status: state.dispatching ? "dispatching" : "queued" },
+            },
             {
               id: "media",
               text: "With attachment",
@@ -52,25 +63,42 @@ vi.mock("./use-message-queue", () => ({
             },
           ],
     },
-    pending: state.pending
-      ? [
-          {
-            operation: {
-              kind: "enqueue",
-              operationId: "local",
-              text: "Local image",
-              attachments: [],
+    pending: [
+      ...(state.pendingEdit
+        ? [
+            {
+              operation: {
+                kind: "edit",
+                messageId: "text",
+                operationId: "edit",
+                text: "Text only",
+                attachments: [],
+              },
+              localAttachments: [],
+              error: null,
             },
-            localAttachments: [{ kind: "image", metadata: { fileName: "photo.png" } }],
-            // Uploaded copies must not count twice while waiting for acknowledgement.
-            prepared: { kind: "enqueue", attachments: [{ id: "uploaded", kind: "image" }] },
-            error: null,
-          },
-        ]
-      : [],
+          ]
+        : []),
+      ...(state.pending
+        ? [
+            {
+              operation: {
+                kind: "enqueue",
+                operationId: "local",
+                text: "Local image",
+                attachments: [],
+              },
+              localAttachments: [{ kind: "image", metadata: { fileName: "photo.png" } }],
+              // Uploaded copies must not count twice while waiting for acknowledgement.
+              prepared: { kind: "enqueue", attachments: [{ id: "uploaded", kind: "image" }] },
+              error: null,
+            },
+          ]
+        : []),
+    ],
   }),
 }));
-vi.mock("@/constants/platform", () => ({ isNative: false }));
+vi.mock("@/constants/platform", () => ({ isNative: false, isWeb: true }));
 vi.mock("@/components/draggable-list", () => ({
   DraggableList: ({
     data,
@@ -96,8 +124,23 @@ vi.mock("./edit-draft-runtime", () => ({
 }));
 vi.mock("./shared-attachments", () => ({ SharedQueueAttachments: () => null }));
 // Animation is covered separately; these checks exercise queue content and actions.
+vi.mock("@/components/ui/loading-spinner", () => ({
+  LoadingSpinner: () => <span role="progressbar" />,
+}));
 vi.mock("./queue-indicator", () => ({
-  QueueMessageIndicator: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  QueueMessageIndicator: ({
+    children,
+    record,
+  }: {
+    children?: React.ReactNode;
+    record: unknown;
+  }) => <div data-testid={record ? "saving-indicator" : undefined}>{children}</div>,
+}));
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => children,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => children,
+  TooltipContent: () => null,
+  TooltipText: () => null,
 }));
 vi.mock("@/components/ui/text-input", () => ({ EditingTextInput: () => null }));
 vi.mock("@/components/ui/button", () => ({
@@ -117,6 +160,7 @@ vi.mock("@/components/ui/button", () => ({
     </button>
   ),
 }));
+vi.mock("@/constants/layout", () => ({ useIsCompactFormFactor: () => false }));
 vi.mock("@/vorton-touch", () => ({ useVortonTouch: () => false }));
 vi.mock("@/goals/use-goal-elapsed", () => ({ useGoalElapsed: () => 0 }));
 vi.mock("@/goals/use-agent-goal", () => ({
@@ -137,6 +181,13 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuItem: () => null,
 }));
 vi.mock("lucide-react-native", () => ({
+  Info: () => null,
+  Files: () => null,
+  GitCompareArrows: () => null,
+  BookOpen: () => null,
+  ChevronDown: () => null,
+  ChevronRight: () => null,
+  BrushCleaning: () => null,
   ChartPie: () => null,
   FileText: () => null,
   MessageCircleQuestion: () => null,
@@ -148,7 +199,7 @@ vi.mock("lucide-react-native", () => ({
   Paperclip: () => <span data-testid="file-icon" />,
   ArrowUp: () => null,
   Pencil: () => null,
-  MoreHorizontal: () => null,
+  MoreVertical: () => null,
   RotateCw: () => null,
   Play: () => null,
   Pause: () => null,
@@ -160,11 +211,37 @@ vi.mock("@/styles/theme", () => ({
   baseColors: { zinc: { 800: "black" } },
   ICON_SIZE: { sm: 16, xs: 12 },
 }));
+vi.mock("react-native-reanimated", () => ({
+  default: { View: "div" },
+  Easing: { bezier: () => undefined },
+  FadeIn: {
+    duration: () => ({
+      easing: () => ({ reduceMotion: () => undefined }),
+      reduceMotion: () => undefined,
+    }),
+  },
+  FadeOut: {
+    duration: () => ({
+      easing: () => ({ reduceMotion: () => undefined }),
+      reduceMotion: () => undefined,
+    }),
+  },
+  ReduceMotion: { System: "system" },
+  useReducedMotion: () => true,
+  useSharedValue: (value: unknown) => ({ value }),
+  useAnimatedStyle: () => ({}),
+  withTiming: (value: unknown) => value,
+}));
 vi.mock("react-native-unistyles", () => ({
   StyleSheet: { create: () => ({}) },
   withUnistyles: (component: unknown) => component,
 }));
+vi.mock("@/storage/app-storage", () => ({
+  default: { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} },
+}));
 vi.mock("react-native", () => ({
+  Dimensions: { get: () => ({ width: 1400, height: 900 }) },
+  StyleSheet: { create: () => ({}) },
   View: ({
     children,
     testID,
@@ -206,6 +283,8 @@ beforeEach(() => {
   state.empty = false;
   state.paused = false;
   state.pending = false;
+  state.dispatching = false;
+  state.pendingEdit = false;
   state.media = true;
   state.goalError = false;
   vi.clearAllMocks();
@@ -274,7 +353,7 @@ it("labels the queue and keeps goal recovery within the goal card", async () => 
   await render();
   const queue = container.querySelector('[data-testid="shared-message-queue"]');
   const goal = container.querySelector('[data-testid="agent-goal-bar"]');
-  expect(queue?.textContent).toContain("Queued messages");
+  expect(queue?.textContent).toContain("Queue");
   expect(queue?.querySelector('[data-testid="message-queue-card-count"]')?.textContent).toBe("2");
   expect(queue?.textContent).not.toContain("goal change");
   expect(container.textContent).not.toContain("Retry delivery");
@@ -324,4 +403,31 @@ it("hides an empty paused queue after Stop while preserving locally pending mess
     ),
   );
   expect(container.textContent).toContain("Local image");
+});
+
+it("keeps row actions in place while dispatching and shows progress around Send", async () => {
+  await render();
+  const row = () => container.querySelector('[data-testid="queue-message-text"]')!;
+  const buttons = row().querySelectorAll("button").length;
+  state.dispatching = true;
+  await render();
+  expect(row().querySelectorAll("button")).toHaveLength(buttons);
+  expect(row().querySelector('[data-testid="queue-send-progress"]')).not.toBeNull();
+  expect(row().querySelector('[aria-label="Sending queued message"]')).not.toBeNull();
+  expect(row().textContent).not.toContain("Sending...");
+  expect(
+    container.querySelector(
+      '[data-testid="queue-message-media"] [data-testid="queue-send-progress"]',
+    ),
+  ).toBeNull();
+});
+
+it("shows a pending edit on its message row without a header status or extra row", async () => {
+  state.pendingEdit = true;
+  await render();
+  expect(container.querySelectorAll('[data-testid^="queue-message-"]')).toHaveLength(2);
+  expect(
+    container.querySelector('[data-testid="queue-message-text"] [data-testid="saving-indicator"]'),
+  ).not.toBeNull();
+  expect(container.textContent).not.toContain("Saving message");
 });

@@ -118,12 +118,33 @@ export function AddRemoteSshHostModal({
   }, []);
   const handleSubmit = useCallback(() => void handleSave(), [handleSave]);
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions}>
+        <Button variant="secondary" onPress={handleCancel} disabled={isSaving}>
+          {t("pairing.remoteSsh.actions.cancel")}
+        </Button>
+        <Button
+          onPress={handleSubmit}
+          disabled={isSaving}
+          leftIcon={ThemedTerminal}
+          testID="remote-ssh-submit"
+        >
+          {isSaving
+            ? t("pairing.remoteSsh.actions.connecting")
+            : t("pairing.remoteSsh.actions.connect")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleCancel, isSaving, t, handleSubmit],
+  );
   return (
     <AdaptiveModalSheet
       header={header}
       visible={visible}
       onClose={handleClose}
       testID="add-remote-ssh-host-modal"
+      footer={modalFooter1}
     >
       <Text style={styles.helper}>{t("pairing.remoteSsh.helper")}</Text>
       <Field
@@ -146,21 +167,6 @@ export function AddRemoteSshHostModal({
           onSubmitEditing={handleSubmit}
         />
       </Field>
-      <ActionFooter style={styles.actions}>
-        <Button variant="secondary" onPress={handleCancel} disabled={isSaving}>
-          {t("pairing.remoteSsh.actions.cancel")}
-        </Button>
-        <Button
-          onPress={handleSubmit}
-          disabled={isSaving}
-          leftIcon={ThemedTerminal}
-          testID="remote-ssh-submit"
-        >
-          {isSaving
-            ? t("pairing.remoteSsh.actions.connecting")
-            : t("pairing.remoteSsh.actions.connect")}
-        </Button>
-      </ActionFooter>
     </AdaptiveModalSheet>
   );
 }

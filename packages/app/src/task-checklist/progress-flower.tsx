@@ -5,6 +5,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Theme } from "@/styles/theme";
+import { isWeb } from "@/constants/platform";
 import type { ChecklistProgress } from "./progress";
 import { petalGeometry, taskPetals, type PetalStatus } from "./flower";
 
@@ -14,25 +15,25 @@ interface FlowerPalette {
   pending: string;
 }
 const palette = (theme: Theme): FlowerPalette => ({
-  completed: theme.colors.statusSuccess,
-  active: theme.colors.statusDotRunning,
-  pending: theme.colors.surface3,
+  completed: theme.colors.foregroundExtraMuted,
+  active: theme.colors.foreground,
+  pending: theme.colors.border,
 });
+const decorativeSvgProps = isWeb
+  ? { "aria-hidden": true as const }
+  : {
+      accessibilityElementsHidden: true,
+      importantForAccessibility: "no-hide-descendants" as const,
+    };
 
 function Flower({ petals, ...colors }: FlowerPalette & { petals: PetalStatus[] }) {
   const geometry = petalGeometry(petals.length);
   return (
-    <Svg
-      width={20}
-      height={20}
-      viewBox="0 0 24 24"
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
+    <Svg width={20} height={20} viewBox="0 0 24 24" {...decorativeSvgProps}>
       {petals.map((status, index) => {
         const angle = (index * 360) / petals.length;
         return (
-          <G key={angle} rotation={angle} origin="12, 12">
+          <G key={angle} transform={`rotate(${angle} 12 12)`}>
             <Path d={geometry.path} fill={colors[status]} />
           </G>
         );
@@ -47,7 +48,8 @@ export const ChecklistProgressFlower = memo(function ChecklistProgressFlower({
   active,
   total,
   testID,
-}: ChecklistProgress & { testID?: string }) {
+  tooltip = true,
+}: ChecklistProgress & { testID?: string; tooltip?: boolean }) {
   const { t } = useTranslation();
   if (total === 0) return null;
   const percent = Math.round((completed / total) * 100);
@@ -55,13 +57,13 @@ export const ChecklistProgressFlower = memo(function ChecklistProgressFlower({
   const detail = `${label} · ${t("message.todo.activeCount", { count: active })}`;
   const petals = taskPetals({ completed, active, total });
   return (
-    <Tooltip>
+    <Tooltip enabledOnDesktop={tooltip}>
       <TooltipTrigger asChild>
         <View
           style={styles.frame}
           testID={testID}
           accessible
-          tabIndex={0}
+          tabIndex={tooltip ? 0 : -1}
           accessibilityRole="progressbar"
           accessibilityLabel={detail}
           aria-valuemin={0}

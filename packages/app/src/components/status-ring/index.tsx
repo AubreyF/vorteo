@@ -1,11 +1,10 @@
 import { memo } from "react";
-import { View } from "react-native";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import {
   StatusRingFrame,
   type StatusRingProps,
   rotatorStyles,
-  styles,
+  StatusRingArc,
 } from "@/components/status-ring/frame";
 import { useStatusRingRotation } from "@/components/status-ring/clock";
 
@@ -25,7 +24,7 @@ export const StatusRing = memo(function StatusRing({ backdrop, variant }: Status
   return (
     <StatusRingFrame backdrop={backdrop} variant={variant}>
       <Animated.View style={[rotatorStyles.rotator, rotatorStyle]}>
-        <View style={[styles.arc, variant === "task" && styles.taskArc]} />
+        <StatusRingArc variant={variant} />
       </Animated.View>
     </StatusRingFrame>
   );

@@ -1,16 +1,25 @@
+import { cardGridGroupStyle } from "@/agent-stream/card-grid";
+import { TaskCardRowIcon } from "@/agent-stream/task-card-row";
+import { TruncatedText } from "@/components/ui/truncated-text";
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
+import { CARD_GAP } from "@/agent-stream/columns/geometry";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
-import { SettingsInfoTip } from "@/components/settings/headings/settings-info-tip";
+import {
+  TaskCard,
+  TaskCardHeader,
+  TaskCardAction,
+  TaskCardActions,
+  TaskCardInfo,
+} from "@/agent-stream/task-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CountBadge } from "@/components/ui/count-badge";
-import { Button } from "@/components/ui/button";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useMemo, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { Archive, Unlink, X } from "lucide-react-native";
+import { BrushCleaning, Archive, Unlink, X } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useProviderIcon } from "@/components/provider-icons";
 import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
@@ -107,7 +116,7 @@ export function SubagentsTrack({
     />
   ));
   if (inline) {
-    return <View style={styles.groups}>{groups}</View>;
+    return <View style={cardGridGroupStyle}>{groups}</View>;
   }
   return (
     <ComposerTrackPill
@@ -137,8 +146,10 @@ function SubagentsGroup({
   ...rowActions
 }: SubagentsGroupProps): ReactElement | null {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(true);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  const [expanded, setExpanded] = useCardDisclosure(
+    kind === "paseo" ? "subagents" : "providerSubagents",
+  );
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const status = kind === "paseo" ? archiveFinishedStatus : IDLE_ARCHIVE_FINISHED_STATUS;
   const clearFinished = useCallback(() => {
     if (kind === "paseo") {
@@ -169,23 +180,26 @@ function SubagentsGroup({
         testID={`subagents-group-${kind}-toggle`}
         count={countBadge}
       />
-      <SettingsInfoTip
-        title={title}
-        info={kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo")}
-        testID={`subagents-group-${kind}-info`}
-      />
-      {showClear ? (
-        <ArchiveFinishedRow
-          inline
-          status={status}
-          disabled={status.kind === "archiving"}
-          onPress={clearFinished}
-        />
-      ) : null}
+      <TaskCardActions>
+        <TaskCardInfo
+          label={t("settings.groupInfo", { title })}
+          testID={`subagents-group-${kind}-info`}
+        >
+          {kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo")}
+        </TaskCardInfo>
+        {showClear ? (
+          <ArchiveFinishedRow
+            inline
+            status={status}
+            disabled={status.kind === "archiving"}
+            onPress={clearFinished}
+          />
+        ) : null}
+      </TaskCardActions>
     </>
   );
   const body = expanded ? (
-    <View style={styles.cardRows}>
+    <View>
       {rows.map((row) => (
         <SubagentsTrackRow
           key={row.id}
@@ -198,9 +212,9 @@ function SubagentsGroup({
     </View>
   ) : null;
   return (
-    <View testID={`subagents-group-${kind}`}>
+    <View testID={`subagents-group-${kind}`} style={inline && cardGridGroupStyle}>
       {inline ? (
-        <TaskCard bodyVisible={expanded} testID={cardTestID}>
+        <TaskCard flushBody bodyVisible={expanded} testID={cardTestID}>
           <TaskCardHeader>{header}</TaskCardHeader>
 
           {body}
@@ -231,18 +245,29 @@ export function ArchiveFinishedRow({
   onPress: () => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const touch = useVortonTouch();
 
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
       <>
-        <ThemedArchive
-          size={ROW_ICON_SIZE}
-          uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
-        />
-        <Text style={[styles.rowLabel, inline && taskCardStyles.rowText]} numberOfLines={1}>
+        {inline ? (
+          <TaskCardRowIcon>
+            <ThemedArchive
+              size={ROW_ICON_SIZE}
+              uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
+            />
+          </TaskCardRowIcon>
+        ) : (
+          <ThemedArchive
+            size={ROW_ICON_SIZE}
+            uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
+          />
+        )}
+        <TruncatedText
+          style={[styles.rowLabel, inline && taskCardStyles.rowText]}
+          numberOfLines={1}
+        >
           {t("subagents.archiveFinishedAction")}
-        </Text>
+        </TruncatedText>
         {status.kind === "archiving" ? (
           <Text style={styles.rowTrailing} testID="subagents-track-archive-progress">
             {status.completedCount}/{status.totalCount}
@@ -267,22 +292,20 @@ export function ArchiveFinishedRow({
   if (status.kind === "failed") actionLabel = "Retry cleanup";
   if (inline) {
     return (
-      <Button
-        variant="outline"
-        size={touch ? "md" : "sm"}
-        textStyle={styles.archiveHeaderText}
+      <TaskCardAction
         onPress={onPress}
         disabled={disabled}
         loading={status.kind === "archiving"}
         testID="subagents-track-archive-finished"
+        iconOnly
+        leftIcon={BrushCleaning}
+        tooltipDescription={`${actionLabel}. Clears finished sub-agents from this track. Running sub-agents remain.`}
         accessibilityLabel={
           status.kind === "failed"
             ? "Retry clearing finished"
             : t("subagents.archiveFinishedAction")
         }
-      >
-        {actionLabel}
-      </Button>
+      />
     );
   }
 
@@ -350,19 +373,32 @@ export function SubagentsTrackRow({
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
       <>
-        <WorkspaceTabIcon presentation={presentation} backdrop={active ? "surface2" : "surface1"} />
-        <Text
+        {inline ? (
+          <TaskCardRowIcon testID={`subagents-track-icon-${row.id}`}>
+            <WorkspaceTabIcon
+              presentation={presentation}
+              backdrop={active && !inline ? "surface2" : "surface1"}
+            />
+          </TaskCardRowIcon>
+        ) : (
+          <WorkspaceTabIcon
+            presentation={presentation}
+            backdrop={active && !inline ? "surface2" : "surface1"}
+          />
+        )}
+        <TruncatedText
           style={[styles.rowLabel, inline && taskCardStyles.rowText]}
           numberOfLines={1}
           testID={`subagents-track-label-${row.id}`}
+          tooltipDescription={presentation.subtitle ?? undefined}
         >
           {displayLabel}
-        </Text>
+        </TruncatedText>
         {row.kind === "provider" ? (
           <StatusBadge label={t(`subagents.providerStatus.${row.status}`)} size="xs" />
         ) : null}
         {presentation.subtitle ? (
-          <Text
+          <TruncatedText
             style={[styles.rowTrailing, styles.rowMetadata]}
             numberOfLines={1}
             accessibilityLabel={presentation.subtitle}
@@ -370,7 +406,7 @@ export function SubagentsTrackRow({
             selectable
           >
             {presentation.subtitle}
-          </Text>
+          </TruncatedText>
         ) : null}
         {canArchive ? (
           <SubagentRowActions
@@ -526,11 +562,7 @@ function SubagentActionButton({
 
 const styles = StyleSheet.create((theme) => ({
   rowMetadata: { maxWidth: "50%", textAlign: "right" },
-  groups: { gap: theme.spacing[3] },
-  cardRows: {
-    marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
-  },
-  archiveHeaderText: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted },
+  groups: { gap: CARD_GAP },
   // `flexBasis: "auto"` rather than `flex: 1`: a zero-basis label contributes nothing to the row's
   // intrinsic width, so the panel measures itself at its floor and truncates every label at once.
   rowLabel: {

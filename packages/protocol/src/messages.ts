@@ -1,3 +1,7 @@
+import { SidebarStateChangeSchema, SidebarStateSnapshotSchema } from "./sidebar-state.js";
+import { HeldRestartSchema } from "./maintenance-interruption.js";
+export { HeldRestartSchema } from "./maintenance-interruption.js";
+export type { HeldRestart } from "./maintenance-interruption.js";
 import {
   AgentTaskItemSchema,
   ChecklistGetRequestSchema,
@@ -125,11 +129,25 @@ import {
 } from "./agent-goals.js";
 import {
   CoordinatorBootstrapListRequestSchema,
+  BootstrapPreclaimRecoveryListRequestSchema,
+  BootstrapClaimedRecoveryListRequestSchema,
   CoordinatorBootstrapPrepareRequestSchema,
+  BootstrapPreclaimRecoveryPrepareRequestSchema,
+  BootstrapClaimedRecoveryPrepareRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
+  CoordinatorBootstrapReconcileAutomaticRequestSchema,
+  BootstrapPreclaimRecoveryDecideRequestSchema,
+  BootstrapClaimedRecoveryDecideRequestSchema,
   CoordinatorBootstrapListResponseSchema,
+  BootstrapPreclaimRecoveryListResponseSchema,
+  BootstrapClaimedRecoveryListResponseSchema,
   CoordinatorBootstrapPrepareResponseSchema,
+  BootstrapPreclaimRecoveryPrepareResponseSchema,
+  BootstrapClaimedRecoveryPrepareResponseSchema,
   CoordinatorBootstrapDecideResponseSchema,
+  CoordinatorBootstrapReconcileAutomaticResponseSchema,
+  BootstrapPreclaimRecoveryDecideResponseSchema,
+  BootstrapClaimedRecoveryDecideResponseSchema,
 } from "./coordinator-bootstrap.js";
 import { QuotaReserveLaunchPolicySchema } from "./quota-reserve.js";
 import { QuotaObservationSchema } from "./quota-governor.js";
@@ -1243,6 +1261,7 @@ export const WorkspaceLabelColorSchema = z.enum(WORKSPACE_LABEL_COLORS);
 export const WorkspaceLabelDefinitionSchema = z.object({
   name: z.string(),
   color: WorkspaceLabelColorSchema,
+  explicitColor: z.boolean().optional(),
 });
 const WorkspaceLabelSyncCursorSchema = z.object({
   generation: z.string(),
@@ -1273,6 +1292,7 @@ export const WorkspaceLabelUpdateRequestSchema = z.object({
   name: z.string(),
   newName: z.string().optional(),
   color: WorkspaceLabelColorSchema.optional(),
+  explicitColor: z.boolean().optional(),
 });
 export const WorkspaceLabelDeleteRequestSchema = z.object({
   type: z.literal("workspace.label.delete.request"),
@@ -1785,6 +1805,24 @@ export const AgentSkillsImportLegacySelectionRequestSchema = z
   })
   .strict();
 
+export const SidebarStateReadRequestSchema = z.object({
+  type: z.literal("sidebar.state.read.request"),
+  requestId: z.string(),
+});
+export const SidebarStateChangeRequestSchema = z.object({
+  type: z.literal("sidebar.state.change.request"),
+  requestId: z.string(),
+  change: SidebarStateChangeSchema,
+});
+export const SidebarStateReadResponseSchema = z.object({
+  type: z.literal("sidebar.state.read.response"),
+  payload: z.object({ requestId: z.string(), snapshot: SidebarStateSnapshotSchema }),
+});
+export const SidebarStateChangeResponseSchema = z.object({
+  type: z.literal("sidebar.state.change.response"),
+  payload: z.object({ requestId: z.string(), snapshot: SidebarStateSnapshotSchema }),
+});
+
 export const GetDaemonConfigRequestMessageSchema = z.object({
   type: z.literal("get_daemon_config_request"),
   requestId: z.string(),
@@ -2037,6 +2075,7 @@ export const RestartServerRequestMessageSchema = z.object({
   type: z.literal("restart_server_request"),
   idleMode: z.enum(["inspect", "restart", "drain", "cancel-drain"]).optional(),
   restartDrainId: z.string().uuid().optional(),
+  heldRestart: HeldRestartSchema.optional(),
   reason: z.string().optional(),
   requestId: z.string(),
 });
@@ -3456,6 +3495,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentSkillsUninstallRequestSchema,
   AgentSkillsSaveSelectionRequestSchema,
   AgentSkillsImportLegacySelectionRequestSchema,
+  SidebarStateReadRequestSchema,
+  SidebarStateChangeRequestSchema,
   GetDaemonConfigRequestMessageSchema,
   SetDaemonConfigRequestMessageSchema,
   ReadProjectConfigRequestMessageSchema,
@@ -3513,8 +3554,15 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetRequestSchema,
   AgentGoalClearRequestSchema,
   CoordinatorBootstrapListRequestSchema,
+  BootstrapPreclaimRecoveryListRequestSchema,
+  BootstrapClaimedRecoveryListRequestSchema,
   CoordinatorBootstrapPrepareRequestSchema,
+  BootstrapPreclaimRecoveryPrepareRequestSchema,
+  BootstrapClaimedRecoveryPrepareRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
+  CoordinatorBootstrapReconcileAutomaticRequestSchema,
+  BootstrapPreclaimRecoveryDecideRequestSchema,
+  BootstrapClaimedRecoveryDecideRequestSchema,
   SetAgentFeatureRequestMessageSchema,
   AgentConfigApplyRequestMessageSchema,
   AgentDetachRequestMessageSchema,
@@ -3818,6 +3866,7 @@ export const ServerInfoStatusPayloadSchema = z
         directorySync: z.boolean().optional(),
         // COMPAT(workspaceLabels): added in v0.5.0, remove after 2027-08-14.
         workspaceLabels: z.boolean().optional(),
+        workspaceLabelNeutralColors: z.boolean().optional(),
         // COMPAT(workspaceSetupRun): added in v0.8.0, remove gate after 2027-09-02.
         workspaceSetupRun: z.boolean().optional(),
         // COMPAT(workspaceTerminals): added in v0.8.0, remove gate after 2027-09-05.
@@ -3903,6 +3952,10 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; retain until the daemon floor supports the admission barrier.
         idleRestart: z.boolean().optional(),
         gracefulRestart: z.boolean().optional(),
+        // COMPAT(restartDrainObservation): added v558; retain until 2027-04-15.
+        restartDrainObservation: z.boolean().optional(),
+        // COMPAT(heldIdleRestart): added v574; retain until daemon floor includes v574.
+        heldIdleRestart: z.boolean().optional(),
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: z.boolean().optional(),
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -3929,8 +3982,25 @@ export const ServerInfoStatusPayloadSchema = z
         agentDetach: z.boolean().optional(),
         agentGoals: z.boolean().optional(),
         coordinatorBootstrapReview: z.boolean().optional(),
+        // COMPAT(claimedRecovery): added 2026-10-14; keep gates until the daemon floor includes claimed recovery after 2027-04-14.
+        coordinatorBootstrapClaimedRecovery: z.boolean().optional(),
+        coordinatorBootstrapClaimedObservation: z.boolean().optional(),
+        coordinatorBootstrapPreclaimRecovery: z.boolean().optional(),
+        coordinatorBootstrapPreclaimOwnerCancellation: z.boolean().optional(),
+        coordinatorBootstrapPreclaimObservation: z.boolean().optional(),
+        // Optional diagnostic for clients that can explain unavailable maintenance.
+        coordinatorBootstrapUnavailableReason: z.string().optional(),
         // COMPAT(factoryRuntimeAdoption): v0.11.0-beta.3.vorteo.285 request review opt-in.
         coordinatorBootstrapFactoryAdoption: z.boolean().optional(),
+        coordinatorBootstrapCompatibleRecovery: z.boolean().optional(),
+        coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
+        // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
+        coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
+        coordinatorBootstrapBootRecovery: z.boolean().optional(),
+        coordinatorBootstrapRecoveryBootPlan: z.boolean().optional(),
+        coordinatorBootstrapAutomaticReconciliation: z.boolean().optional(),
+        coordinatorBootstrapAutomaticStatus: z.boolean().optional(),
+        coordinatorBootstrapAuthenticatedSubmission: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),
         // COMPAT(daemonDiagnostics): added in v0.1.100, remove gate after 2026-12-25 once daemon floor >= v0.1.100.
@@ -3947,6 +4017,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentTaskSnapshots: z.boolean().optional(),
         agentChecklistMutations: z.boolean().optional(),
         checklistBlockedStatus: z.boolean().optional(),
+        sidebarState: z.boolean().optional(),
+        checklistReviewStatus: z.boolean().optional(),
         agentJournal: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
         projectedSubagentTimeline: z.boolean().optional(),
@@ -4014,6 +4086,7 @@ export const ServerInfoStatusPayloadSchema = z
         sharedProviderPreferences: z.boolean().optional(),
         accountIndependentProfiles: z.boolean().optional(),
         explicitWorkerAccounts: z.boolean().optional(),
+        uncappedManagedWorkers: z.boolean().optional(),
         profileWorkflowAliases: z.boolean().optional(),
         installationProfileAuthority: z.boolean().optional(),
         installationResourceBindings: z.boolean().optional(),
@@ -4103,11 +4176,15 @@ export const RestartRequestedStatusPayloadSchema = z.object({
     .object({
       agents: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
       pendingStarts: z.number().int().nonnegative(),
+      restartDrainId: z.string().uuid().nullable().optional(),
+      workerInstanceId: z.string().uuid().optional(),
+      workerPid: z.number().int().positive().optional(),
     })
     .optional(),
   clientId: z.string(),
   reason: z.string().optional(),
   requestId: z.string(),
+  heldRestart: HeldRestartSchema.optional(),
 });
 
 export const ShutdownRequestedStatusPayloadSchema = z.object({
@@ -7292,6 +7369,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   HubManagementDaemonDisconnectResponseSchema,
   HubManagementDaemonPermissionsUpdateResponseSchema,
   DiagnosticsResponseSchema,
+  SidebarStateReadResponseSchema,
+  SidebarStateChangeResponseSchema,
   GetDaemonConfigResponseMessageSchema,
   SetDaemonConfigResponseMessageSchema,
   ReadProjectConfigResponseMessageSchema,
@@ -7310,8 +7389,15 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetResponseSchema,
   AgentGoalClearResponseSchema,
   CoordinatorBootstrapListResponseSchema,
+  BootstrapPreclaimRecoveryListResponseSchema,
+  BootstrapClaimedRecoveryListResponseSchema,
   CoordinatorBootstrapPrepareResponseSchema,
+  BootstrapPreclaimRecoveryPrepareResponseSchema,
+  BootstrapClaimedRecoveryPrepareResponseSchema,
   CoordinatorBootstrapDecideResponseSchema,
+  CoordinatorBootstrapReconcileAutomaticResponseSchema,
+  BootstrapPreclaimRecoveryDecideResponseSchema,
+  BootstrapClaimedRecoveryDecideResponseSchema,
   SetAgentFeatureResponseMessageSchema,
   AgentConfigApplyResponseMessageSchema,
   AgentDetachResponseMessageSchema,
@@ -7926,6 +8012,7 @@ export const WSHelloMessageSchema = z.object({
       voice: z.boolean().optional(),
       [CLIENT_CAPS.helloRejection]: z.boolean().optional(),
       [CLIENT_CAPS.checklistBlockedStatus]: z.boolean().optional(),
+      [CLIENT_CAPS.checklistReviewStatus]: z.boolean().optional(),
       pushNotifications: z.boolean().optional(),
       [CLIENT_CAPS.explicitEventSubscriptions]: z.boolean().optional(),
       [CLIENT_CAPS.allProviders]: z.boolean().optional(),

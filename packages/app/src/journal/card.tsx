@@ -1,5 +1,6 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import type { AgentJournalEntry } from "@getpaseo/protocol/agent-journal";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/storage/app-storage";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFetchQuery } from "@/data/query";
 import { Button } from "@/components/ui/button";
@@ -10,15 +11,16 @@ import {
   parseClearedThrough,
   visibleJournalEntries,
 } from "./view-state";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useShallow } from "zustand/shallow";
 import { useSessionStore } from "@/stores/session-store";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader, TaskCardAction } from "@/agent-stream/task-card";
+import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { BrushCleaning, History } from "lucide-react-native";
 import { useVortonTouch } from "@/vorton-touch";
 import { useAppActivelyVisible } from "@/hooks/use-app-visible";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -58,8 +60,8 @@ function JournalContent({
   agentId: string;
   entries: AgentJournalEntry[];
 }) {
-  const [expanded, setExpanded] = useState(true);
-  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  const [expanded, setExpanded] = useCardDisclosure("journal");
+  const toggle = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const touch = useVortonTouch();
   const buttonSize = touch ? "md" : "xs";
   const storageKey = journalViewKey(serverId, agentId);
@@ -114,7 +116,13 @@ function JournalContent({
     [seenState.failed, seenState.retry],
   );
   return (
-    <TaskCard testID="agent-journal-card" bodyVisible={expanded} bodyRef={viewport} notice={notice}>
+    <TaskCard
+      flushBody
+      testID="agent-journal-card"
+      bodyVisible={expanded}
+      bodyRef={viewport}
+      notice={notice}
+    >
       <TaskCardHeader>
         <CardDisclosure
           icon={HEADING_ICON}
@@ -132,7 +140,7 @@ function JournalContent({
         />
       </TaskCardHeader>
       {expanded && count === 0 ? (
-        <Text style={styles.empty}>
+        <Text style={[styles.empty, taskCardStyles.proseInset]}>
           Journal cleared on this device. New entries will appear here.
         </Text>
       ) : null}
@@ -172,7 +180,9 @@ function JournalSeenError({ failed, onRetry }: { failed: boolean; onRetry: () =>
   if (!failed) return null;
   return (
     <View style={styles.readError}>
-      <Text style={styles.empty}>Could not save or load seen entries on this device.</Text>
+      <Text style={[styles.empty, taskCardStyles.proseInset]}>
+        Could not save or load seen entries on this device.
+      </Text>
       <Button variant="ghost" size={touch ? "md" : "xs"} onPress={onRetry}>
         Retry
       </Button>
@@ -191,45 +201,38 @@ function JournalViewAction({
   onClear: () => void;
   onShowHistory: () => void;
 }) {
-  const compact = useIsCompactFormFactor();
-  const touch = useVortonTouch();
-  const clearLabel = compact ? "Clear" : "Clear journal";
-  const historyLabel = compact ? "History" : "Show history";
   return (
-    <Button
-      variant="ghost"
-      size={touch ? "md" : "xs"}
+    <TaskCardAction
       disabled={disabled}
       accessibilityLabel={count ? "Clear journal" : "Show history"}
-      accessibilityHint="Changes this device's view. Journal history is retained."
+      accessibilityHint={
+        count
+          ? "Hides current journal entries on this device. Nothing is deleted; Show history restores them."
+          : "Restores journal entries hidden on this device."
+      }
+      iconOnly
+      leftIcon={count ? BrushCleaning : History}
       testID={count ? "journal-clear" : "journal-show-history"}
       onPress={count ? onClear : onShowHistory}
-    >
-      {count ? clearLabel : historyLabel}
-    </Button>
+    />
   );
 }
 
 function JournalCount({ count, unread, ready }: { count: number; unread: number; ready: boolean }) {
+  const hasUnread = ready && unread > 0;
   return (
-    <View style={styles.counts}>
-      <CountBadge label={String(count)} accessibilityLabel={`${count} journal entries`} />
-      {ready && unread > 0 ? (
-        <Text
-          style={styles.unreadCount}
-          testID="journal-unread-count"
-          accessibilityLabel={`${unread} unread journal entries`}
-        >
-          {unread} new
-        </Text>
-      ) : null}
-    </View>
+    <CountBadge
+      count={count}
+      label={ready ? `${count - unread} / ${count}` : String(count)}
+      accessibilityLabel={
+        ready ? `${count - unread} of ${count} journal entries read` : `${count} journal entries`
+      }
+      testID={hasUnread ? "journal-unread-count" : undefined}
+    />
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  counts: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
-  unreadCount: { fontSize: theme.fontSize.sm - 2, color: theme.colors.statusDanger },
   readError: {
     flexDirection: "row",
     alignItems: "center",

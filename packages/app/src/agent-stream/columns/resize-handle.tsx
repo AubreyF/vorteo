@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { usePointerResize } from "@/components/use-pointer-resize";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
@@ -12,6 +13,7 @@ interface ColumnResizeHandleProps {
   column: keyof ColumnWidths;
   widths: ColumnWidths;
   containerWidth: number;
+  standaloneText?: boolean;
   onPreview: (column: keyof ColumnWidths, width: number) => void;
   onCommit: (column: keyof ColumnWidths, width: number) => void;
 }
@@ -20,11 +22,33 @@ export function ColumnResizeHandle({
   column,
   widths,
   containerWidth,
+  standaloneText,
   onPreview,
   onCommit,
 }: ColumnResizeHandleProps) {
   const initial = useRef({ widths, pointerX: 0 });
   const [pressed, setPressed] = useState(false);
+  const begin = useCallback(() => {
+    let next = widths;
+    return {
+      move: (translation: number) => {
+        next = resizeColumn({
+          column,
+          initial: widths,
+          translation,
+          containerWidth,
+          standaloneText,
+        });
+        onPreview(column, next[column]);
+      },
+      finish: () => onCommit(column, next[column]),
+    };
+  }, [column, widths, containerWidth, standaloneText, onPreview, onCommit]);
+  const onPointerDown = usePointerResize({
+    direction: "horizontal",
+    begin,
+    onDraggingChange: setPressed,
+  });
   const gesture = useMemo(
     () =>
       Gesture.Pan()
@@ -41,6 +65,7 @@ export function ColumnResizeHandle({
             initial: initial.current.widths,
             translation: event.absoluteX - initial.current.pointerX,
             containerWidth,
+            standaloneText,
           });
           onPreview(column, next[column]);
         })
@@ -50,17 +75,19 @@ export function ColumnResizeHandle({
             initial: initial.current.widths,
             translation: event.absoluteX - initial.current.pointerX,
             containerWidth,
+            standaloneText,
           });
           onCommit(column, next[column]);
         })
         .onFinalize(() => setPressed(false)),
-    [column, widths, containerWidth, onPreview, onCommit],
+    [column, widths, containerWidth, standaloneText, onPreview, onCommit],
   );
   return (
     <View pointerEvents="box-none" style={absoluteFill}>
       <SidebarResizeHandle
         edge={column === "cards" ? "left" : "right"}
         gesture={gesture}
+        onPointerDown={onPointerDown}
         pressed={pressed}
         testID={`thread-${column}-resize`}
       />

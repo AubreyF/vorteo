@@ -5,7 +5,10 @@ import { planProviderPreferencesMigration } from "../provider-preferences/migrat
 import { sharedWorkflowProfileId, sharedProfileId } from "@getpaseo/protocol/provider-preferences";
 import { ProviderDefaultsSchema } from "@getpaseo/protocol/provider-preferences";
 import { AgentProfileSchema } from "@getpaseo/protocol/messages";
-import { captureFactoryWorkerProfile } from "../../factory/capture-worker-profile.js";
+import {
+  captureFactoryWorkerProfile,
+  readFactoryConfiguredProfiles,
+} from "../../factory/capture-worker-profile.js";
 
 it("refuses Factory profile capture and session config when settings revoke the owner", () => {
   const settings = MutableDaemonConfigSchema.parse({
@@ -538,4 +541,44 @@ it("new teams bind same-provider workers to the parent account and retain local 
     settings,
   );
   expect(oldTeam.profileLaunch?.worker?.provider).toBe("two");
+});
+
+it("Factory configured profiles retain exact account and reject missing or ambiguous selections", () => {
+  const profile = { id: "local", name: "Local", provider: "one", model: "sol" };
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    agentProfiles: [profile],
+  });
+  expect(readFactoryConfiguredProfiles(settings, "one", "local")).toEqual([profile]);
+  expect(() => readFactoryConfiguredProfiles(settings, "two", "local")).toThrow("retained account");
+  expect(() => readFactoryConfiguredProfiles(settings, "one", "missing")).toThrow("not found");
+  settings.agentProfiles = [profile, { ...profile }];
+  expect(() => readFactoryConfiguredProfiles(settings, "one", "local")).toThrow("ambiguous");
+});
+
+it("emits truthful uncapped instructions and freezes the selected policy", () => {
+  const profiles = [
+    {
+      id: "team",
+      name: "Team",
+      provider: "codex",
+      uncappedWorkers: true,
+      workerProfileId: "worker",
+    },
+    { id: "worker", name: "Worker", provider: "codex", model: "gpt-5.4" },
+  ];
+  const result = resolveProfileLaunch(
+    { provider: "codex", cwd: "/work", profileId: "team" },
+    profiles,
+    0,
+  );
+  expect(result.systemPrompt).toContain("no managed-worker count cap");
+  expect(result.systemPrompt).not.toContain("At most");
+  expect(result.profileLaunch?.profile.uncappedWorkers).toBe(true);
+  const resumed = resolveProfileLaunch(
+    result,
+    [{ ...profiles[0], uncappedWorkers: false, maxWorkers: 1 }, profiles[1]],
+    0,
+  );
+  expect(resumed.profileLaunch?.profile.uncappedWorkers).toBe(true);
 });

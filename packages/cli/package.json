@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/cli",
-  "version": "0.11.0-beta.3.vorteo.288",
+  "version": "0.11.0-beta.3.vorteo.688",
   "description": "Vorteo CLI - control your AI coding agents from the command line",
   "bin": {
     "paseo": "bin/paseo"
@@ -28,14 +28,14 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",
-    "@getpaseo/client": "0.11.0-beta.3.vorteo.288",
-    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.288",
-    "@getpaseo/server": "0.11.0-beta.3.vorteo.288",
+    "@getpaseo/client": "0.11.0-beta.3.vorteo.688",
+    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.688",
+    "@getpaseo/server": "0.11.0-beta.3.vorteo.688",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
     "mime-types": "^2.1.35",
     "tree-kill": "^1.2.2",
-    "ws": "^8.14.2",
+    "ws": "^8.21.0",
     "yaml": "^2.8.4",
     "zod": "^4.4.3"
   },
@@ -44,7 +44,7 @@
     "@types/ws": "^8.5.8",
     "tsx": "^4.6.0",
     "typescript": "^5.2.2",
-    "vitest": "^4.1.6",
+    "vitest": "^4.1.11",
     "zx": "^8.8.5"
   }
 }

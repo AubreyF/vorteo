@@ -26,6 +26,7 @@ import {
   useDropdownMenuClose,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import { MENU_ITEM_HEIGHT } from "@/components/ui/menu/menu-geometry";
 import { useToast } from "@/contexts/toast-context";
 import { openServiceUrl } from "@/utils/open-service-url";
@@ -36,7 +37,6 @@ import {
 } from "@/utils/workspace-script-links";
 import type { Theme } from "@/styles/theme";
 import { useWorkspaceServiceRoutePreferencesStore } from "@/workspace-service-routes/store";
-import { buttonControlHeight, HEADER_CONTROL_HEIGHT } from "@/components/ui/control-geometry";
 import { extraMutedIconColorMapping } from "@/components/ui/icon-color";
 
 type RowActionIcon = "copy" | "open" | "restart" | "start" | "stop" | "terminal";
@@ -50,7 +50,7 @@ interface WorkspaceScriptsButtonProps {
   onViewTerminal?: (terminalId: string) => void;
   onOpenUrlInBrowserTab?: (url: string) => void;
   hideLabels?: boolean;
-  presentation?: "split" | "ghost";
+  presentation?: "split" | "ghost" | "menu";
 }
 
 const ThemedPlay = withUnistyles(Play);
@@ -534,6 +534,79 @@ function ScriptRow({
   );
 }
 
+function SingleScriptButton({
+  script,
+  activeConnection,
+  preferredRouteKind,
+  liveTerminalIdSet,
+  onStartScript,
+  onViewTerminal,
+  onOpenUrlInBrowserTab,
+  pending,
+}: Pick<
+  ScriptRowProps,
+  | "script"
+  | "activeConnection"
+  | "preferredRouteKind"
+  | "liveTerminalIdSet"
+  | "onStartScript"
+  | "onViewTerminal"
+  | "onOpenUrlInBrowserTab"
+> & { pending: boolean }) {
+  const { t } = useTranslation();
+  const running = script.lifecycle === "running";
+  const links = resolveWorkspaceScriptLink({ script, activeConnection });
+  const link = links.targets.find((target) => target.kind === preferredRouteKind) ?? links.primary;
+  const terminalId =
+    script.terminalId && liveTerminalIdSet.has(script.terminalId) ? script.terminalId : null;
+  let labelKey = "workspace.scripts.accessibility.runScript" as
+    | "workspace.scripts.accessibility.runScript"
+    | "workspace.scripts.accessibility.openService"
+    | "workspace.scripts.accessibility.viewTerminal";
+  if (running)
+    labelKey = link
+      ? "workspace.scripts.accessibility.openService"
+      : "workspace.scripts.accessibility.viewTerminal";
+  const label = t(labelKey, { scriptName: script.scriptName });
+  const handlePress = useCallback(() => {
+    if (!running) onStartScript(script.scriptName);
+    else if (link) void openServiceUrl(link.url, { openInApp: onOpenUrlInBrowserTab });
+    else if (terminalId) onViewTerminal?.(terminalId);
+  }, [
+    running,
+    script.scriptName,
+    link,
+    terminalId,
+    onStartScript,
+    onOpenUrlInBrowserTab,
+    onViewTerminal,
+  ]);
+  return (
+    <Tooltip enabledOnDesktop enabledOnMobile>
+      <TooltipTrigger asChild>
+        <Button
+          testID="workspace-scripts-button"
+          variant="ghost"
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          disabled={pending || (running && !link && !terminalId)}
+          onPress={handlePress}
+          style={styles.singleButton}
+        >
+          <ThemedPlay
+            size={18}
+            uniProps={running ? blueColorMapping : mutedColorMapping}
+            {...playFillTransparent}
+          />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <Text style={styles.tooltipText}>{label}</Text>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function WorkspaceScriptsButton({
   serverId,
   workspaceId,
@@ -676,6 +749,43 @@ export function WorkspaceScriptsButton({
   const triggerPlayProps =
     presentation === "ghost" ? { ...playFillTransparent, ...ghostPlayStroke } : playFillTransparent;
 
+  const scriptRows = (
+    <>
+      {scripts.map((script) => (
+        <ScriptRow
+          key={script.scriptName}
+          script={script}
+          liveTerminalIdSet={liveTerminalIdSet}
+          activeConnection={activeConnection}
+          isStartPending={startScriptMutation.isPending}
+          isStopPending={stopScriptMutation.isPending}
+          onStartScript={handleStartScript}
+          onStopScript={handleStopScript}
+          onRestartScript={handleRestartScript}
+          onCopyUrl={handleCopyUrl}
+          preferredRouteKind={preferredRouteKind}
+          onSelectRouteKind={handleSelectRouteKind}
+          onViewTerminal={onViewTerminal}
+          onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
+        />
+      ))}
+    </>
+  );
+  if (presentation === "menu") return scriptRows;
+  if (scripts.length === 1 && presentation === "split")
+    return (
+      <SingleScriptButton
+        script={scripts[0]}
+        activeConnection={activeConnection}
+        preferredRouteKind={preferredRouteKind}
+        liveTerminalIdSet={liveTerminalIdSet}
+        onStartScript={handleStartScript}
+        onViewTerminal={onViewTerminal}
+        onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
+        pending={startScriptMutation.isPending}
+      />
+    );
+
   return (
     <View style={styles.row}>
       <View style={presentation === "ghost" ? styles.ghostButtonFrame : styles.splitButton}>
@@ -706,24 +816,7 @@ export function WorkspaceScriptsButton({
             maxWidth={280}
             testID="workspace-scripts-menu"
           >
-            {scripts.map((script) => (
-              <ScriptRow
-                key={script.scriptName}
-                script={script}
-                liveTerminalIdSet={liveTerminalIdSet}
-                activeConnection={activeConnection}
-                isStartPending={startScriptMutation.isPending}
-                isStopPending={stopScriptMutation.isPending}
-                onStartScript={handleStartScript}
-                onStopScript={handleStopScript}
-                onRestartScript={handleRestartScript}
-                onCopyUrl={handleCopyUrl}
-                preferredRouteKind={preferredRouteKind}
-                onSelectRouteKind={handleSelectRouteKind}
-                onViewTerminal={onViewTerminal}
-                onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
-              />
-            ))}
+            {scriptRows}
           </DropdownMenuContent>
         </DropdownMenu>
       </View>
@@ -732,6 +825,13 @@ export function WorkspaceScriptsButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  singleButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -739,15 +839,10 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   splitButton: {
-    height: {
-      xs: buttonControlHeight.xs,
-      md: HEADER_CONTROL_HEIGHT,
-    },
+    height: 40,
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: theme.borderRadius.md,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
+    borderRadius: 16,
     overflow: "hidden",
   },
   ghostButtonFrame: {

@@ -13,6 +13,24 @@ const resolvePackageEntry = (packageName: string) => {
 };
 
 export default defineConfig({
+  esbuild: { jsx: "automatic" },
+  plugins: [
+    {
+      name: "reanimated-browser-style-helpers",
+      enforce: "pre",
+      resolveId(source, importer) {
+        // Reanimated's unbundled web module catches browser require() failures.
+        // Supply the same real RN Web helpers through ESM, rather than disabling
+        // layout animation or swallowing its resulting DOM update errors.
+        if (
+          source === "./webUtils" &&
+          importer?.includes("react-native-reanimated/lib/module/ReanimatedModule/js-reanimated/")
+        )
+          return path.resolve(__dirname, "test-stubs/reanimated-web-utils.js");
+        return null;
+      },
+    },
+  ],
   test: {
     environment: "node",
     exclude: [...configDefaults.exclude, "e2e/**"],
@@ -76,6 +94,8 @@ export default defineConfig({
     // Bundle the CJS dependencies of the excluded gesture-handler package for the browser.
     include: [
       "react/jsx-runtime",
+      "react-native-web/dist/exports/StyleSheet/compiler/createReactDOMStyle",
+      "react-native-web/dist/exports/StyleSheet/preprocess",
       "react-native-gesture-handler > hoist-non-react-statics",
       "react-native-gesture-handler > invariant",
     ],

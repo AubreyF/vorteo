@@ -17,6 +17,12 @@ interface AssignmentCommit {
   catalogChanged: boolean;
 }
 
+function storedLabelAppearance(color: WorkspaceLabelDefinition["color"], explicitColor?: boolean) {
+  // Neutral intent uses a legacy hue so older clients can still read the catalog.
+  if (color === "neutral") return { color: "violet" as const, explicitColor: false };
+  return { color, ...(explicitColor === undefined ? {} : { explicitColor }) };
+}
+
 interface UpdateCommit {
   label: WorkspaceLabelDefinition;
   affectedWorkspaceCount: number;
@@ -105,7 +111,10 @@ export class WorkspaceLabelService {
         }
         const key = workspaceLabelKey(name);
         const existing = catalog.find((label) => workspaceLabelKey(label.name) === key);
-        const definition = existing ?? { name, color: input.label.color };
+        const definition = existing ?? {
+          name,
+          ...storedLabelAppearance(input.label.color, input.label.explicitColor),
+        };
         const current = workspace.labels ?? [];
         const workspaceLabels = updateAssignmentLabels(
           current,
@@ -151,6 +160,7 @@ export class WorkspaceLabelService {
     name: string;
     newName?: string;
     color?: WorkspaceLabelDefinition["color"];
+    explicitColor?: boolean;
   }): Promise<{ label: WorkspaceLabelDefinition; affectedWorkspaceCount: number }> {
     return this.exclusive(async () => {
       const fromKey = workspaceLabelKey(requireName(input.name));
@@ -169,7 +179,9 @@ export class WorkspaceLabelService {
           }
         }
         const nameChanged = newName !== null && newName !== existing.name;
-        const colorChanged = input.color !== undefined && input.color !== existing.color;
+        const colorChanged =
+          (input.color !== undefined && input.color !== existing.color) ||
+          (input.explicitColor !== undefined && existing.explicitColor !== input.explicitColor);
         if (!nameChanged && !colorChanged) {
           return {
             labels: [...catalog],
@@ -179,7 +191,10 @@ export class WorkspaceLabelService {
         }
         const label = {
           name: nameChanged && newName !== null ? newName : existing.name,
-          color: input.color ?? existing.color,
+          ...storedLabelAppearance(
+            input.color ?? existing.color,
+            input.explicitColor ?? existing.explicitColor,
+          ),
         };
         // Workspaces store names, so only a rename rewrites assignments; a recolour is catalog-only.
         const workspaceUpdates = nameChanged

@@ -1,11 +1,14 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 import type {
   Options,
   Query,
   SpawnOptions as ClaudeSpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { createTestLogger } from "../../../../test-utils/test-logger.js";
 import * as spawnUtils from "../../../../utils/spawn.js";
@@ -133,8 +136,83 @@ const SPAWN_OPTIONS: ClaudeSpawnOptions = {
 };
 
 describe("Claude runtime exit", () => {
+  let configDirectory: string;
+  beforeEach(() => {
+    configDirectory = mkdtempSync(join(tmpdir(), "claude-runtime-exit-"));
+    vi.stubEnv("CLAUDE_CONFIG_DIR", configDirectory);
+    vi.stubEnv("VORTEO_INSTALLATION_CLIENT_CONFIG", undefined);
+  });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    rmSync(configDirectory, { recursive: true, force: true });
+  });
+
+  test("close preserves failed cleanup without repeating termination or allowing late SDK spawn", async () => {
+    let capturedOptions: Options | undefined;
+    const query = createQueryMock(COMPLETED_TURN_EVENTS);
+    const child = createChildProcessStub();
+    child.kill = (signal) => {
+      child.killSignals.push(signal ?? "SIGTERM");
+      return true;
+    };
+    const spawn = vi.spyOn(spawnUtils, "spawnProcess").mockReturnValue(child);
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      queryFactory: ({ options }) => {
+        capturedOptions = options;
+        return query;
+      },
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+    await session.run("fixture turn");
+    const spawnChild = capturedOptions?.spawnClaudeCodeProcess;
+    if (!spawnChild) throw new Error("Fixture spawn callback missing");
+    spawnChild(SPAWN_OPTIONS);
+    vi.useFakeTimers();
+    try {
+      const first = session.close();
+      const both = Promise.all([
+        expect(first).rejects.toThrow("Claude process cleanup remains unverified"),
+        expect(session.close()).rejects.toThrow("Claude process cleanup remains unverified"),
+      ]);
+      expect(() => spawnChild(SPAWN_OPTIONS)).toThrow("Claude session is closed");
+      await vi.advanceTimersByTimeAsync(4000);
+      await both;
+      expect(child.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+      await expect(session.close()).rejects.toThrow("Claude process cleanup remains unverified");
+      await expect(session.listCommands()).rejects.toThrow("Claude session is closed");
+      expect(() => spawnChild(SPAWN_OPTIONS)).toThrow("Claude session is closed");
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(child.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("successful concurrent close retires the SDK and child only once", async () => {
+    let capturedOptions: Options | undefined;
+    const query = createQueryMock(COMPLETED_TURN_EVENTS);
+    const child = createChildProcessStub();
+    vi.spyOn(spawnUtils, "spawnProcess").mockReturnValue(child);
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      queryFactory: ({ options }) => {
+        capturedOptions = options;
+        return query;
+      },
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+    await session.run("fixture turn");
+    capturedOptions?.spawnClaudeCodeProcess?.(SPAWN_OPTIONS);
+    await Promise.all([session.close(), session.close()]);
+    await session.close();
+    expect(query.close).toHaveBeenCalledTimes(1);
+    expect(query.interrupt).toHaveBeenCalledTimes(1);
+    expect(query.return).toHaveBeenCalledTimes(1);
+    expect(child.killSignals).toEqual(["SIGTERM"]);
   });
 
   test("reports a turn failure when the process dies while the session is idle", async () => {

@@ -725,6 +725,9 @@ export class DaemonConfigStore {
             ? { workerProfileId: previous.workerProfileId }
             : {}),
           ...(previous?.maxWorkers !== undefined ? { maxWorkers: previous.maxWorkers } : {}),
+          ...(previous?.uncappedWorkers !== undefined
+            ? { uncappedWorkers: previous.uncappedWorkers }
+            : {}),
           ...(previous?.isDefault !== undefined ? { isDefault: previous.isDefault } : {}),
           ...profile,
         };

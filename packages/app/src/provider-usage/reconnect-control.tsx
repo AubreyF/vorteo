@@ -90,6 +90,14 @@ export function ProviderReconnectControl({
   );
   const close = useCallback(() => setRecovery(null), []);
 
+  const modalFooter1 = useMemo(
+    () => (
+      <Button variant="outline" onPress={close} testID="provider-login-done">
+        Done
+      </Button>
+    ),
+    [close],
+  );
   return (
     <>
       <ConnectionButton
@@ -106,6 +114,7 @@ export function ProviderReconnectControl({
           onClose={close}
           desktopMaxWidth={560}
           testID="provider-reconnect-dialog"
+          footer={modalFooter1}
         >
           <View style={styles.body}>
             {recovery.method === "device_code" || claude ? (
@@ -143,9 +152,6 @@ export function ProviderReconnectControl({
                 </Button>
               </>
             )}
-            <Button variant="outline" onPress={close} testID="provider-login-done">
-              Done
-            </Button>
           </View>
         </AdaptiveModalSheet>
       ) : null}
