@@ -1,10 +1,10 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): Host release cleanup keeps the releases holding the live Host and Dev update tooling, so cleanup can no longer remove the scripts that Host installs run. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): Host release cleanup runs after an install reports its result, with a receipt and no overlap, and deletes plain trees directly, so cleanup time no longer counts against the install's readiness deadline. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): removed six duplicate vorteo.758 release-note copies; no feature changed. README overview and onboarding are unchanged.
-
-## Startup connection diagnostics
-
-The delayed startup screen exposes the existing device connection checker before the host is available. It separates health HTTP, WebSocket transport, saved app authentication and thread-directory readiness, with elapsed time, reload and a sanitized copyable report. The initial HTML loader distinguishes script transfer errors, JavaScript execution errors, invalid health responses, network rejection and actual timeouts even without the application bundle. A confirmed failed entry-script download can be retried once without reloading, preserving its integrity and browser security attributes. Reports include safe script timing, exception class and allowlisted engine messages, current origin and service-worker control, excluding query strings and private exception text. Clipboard failure exposes selectable text. A cached page, successful health response or loaded directory does not establish remote-client or selected-workspace readiness. This interface change does not restart daemons or change credentials, permissions or network settings. The README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): the pre-commit hook rebuilds stale protocol and client declarations before typecheck. Tooling only. README overview and onboarding are unchanged.
 
@@ -45,6 +45,14 @@ Maintenance review (2026-10-24): the supervisor keeps a worker's final output an
 Maintenance review (2026-10-25): session host markers are written atomically, and the initial Host module contract tests no longer depend on shared folders staying unchanged. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): the Host module contract pins folders above the release by directory identity rather than timestamps, so sibling writes in the home folder no longer refuse coordinator updates; absence is still proven directly. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): the one-time import of device-local model favourites into host profiles now reads preferences saved before Paseo mode was removed, which still carry `vortonMode`. It never deletes the stored preferences; a value it cannot read is copied to a backup key and the host is retried on a later start. The device keeps no other copy of favourites the earlier import deleted; only hosts imported before 471d7f22a still hold them as `legacy_favorite:` profiles. Not yet installed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-25): two app tests mock the host runtime so their setup no longer spends about 10 seconds transforming it. Behavior is unchanged. README overview and onboarding are unchanged.
+
+## Startup connection diagnostics
+
+The delayed startup screen exposes the existing device connection checker before the host is available. It separates health HTTP, WebSocket transport, saved app authentication and thread-directory readiness, with elapsed time, reload and a sanitized copyable report. The initial HTML loader distinguishes script transfer errors, JavaScript execution errors, invalid health responses, network rejection and actual timeouts even without the application bundle. A confirmed failed entry-script download can be retried once without reloading, preserving its integrity and browser security attributes. Reports include safe script timing, exception class and allowlisted engine messages, current origin and service-worker control, excluding query strings and private exception text. Clipboard failure exposes selectable text. A cached page, successful health response or loaded directory does not establish remote-client or selected-workspace readiness. This interface change does not restart daemons or change credentials, permissions or network settings. The README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 

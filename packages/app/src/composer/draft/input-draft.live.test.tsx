@@ -30,6 +30,13 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
   },
 }));
 
+// The draft hooks only ask whether a host client is connected; none is in these tests. The real
+// module pulls in the whole daemon runtime and its protocol validators, about 10 s to transform.
+vi.mock("@/runtime/host-runtime", () => ({
+  useHostRuntimeClient: () => null,
+  useHostRuntimeIsConnected: () => false,
+}));
+
 vi.mock("@/attachments/service", () => ({
   garbageCollectAttachments: async () => undefined,
 }));

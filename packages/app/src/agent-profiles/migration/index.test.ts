@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AgentProfile } from "@getpaseo/protocol/messages";
-import { LegacyFavoriteProfileMigration } from ".";
+import { LegacyFavoriteProfileMigration, UNREADABLE_PREFERENCES_BACKUP_KEY } from ".";
 
 class MemoryStorage {
-  private readonly values = new Map<string, string>();
+  readonly values = new Map<string, string>();
 
   constructor(initial: Record<string, unknown> = {}) {
     for (const [key, value] of Object.entries(initial)) {
@@ -98,6 +98,7 @@ class FakeProfileHost {
 }
 
 const PREFERENCES_KEY = "@paseo:create-agent-preferences";
+const MARKER_KEY = "@paseo:legacy-favorites-to-agent-profiles:v1:host-a";
 
 function migrationStorage() {
   return new MemoryStorage({
@@ -199,5 +200,67 @@ describe("legacy favourite profile migration", () => {
     await migration.migrateHost("host-a", host);
 
     expect(host.patches[0]?.map((profile) => profile.name)).toEqual(["Opus", "Sonnet"]);
+  });
+  it("migrates favourites stored beside the legacy mode setting and keeps the entry", async () => {
+    // Preferences saved before 471d7f22a carry `vortonMode`, which the current schema dropped.
+    const stored = {
+      vortonMode: true,
+      provider: "claude",
+      favoriteModels: [{ provider: "claude", modelId: "opus" }],
+    };
+    const storage = new MemoryStorage({ [PREFERENCES_KEY]: stored });
+    const host = new FakeProfileHost();
+
+    await new LegacyFavoriteProfileMigration(storage).migrateHost("host-a", host);
+
+    expect(host.patches).toEqual([
+      [{ id: "legacy_favorite:claude:opus", name: "Opus", provider: "claude", model: "opus" }],
+    ]);
+    expect(JSON.parse((await storage.getItem(PREFERENCES_KEY)) ?? "null")).toEqual(stored);
+    expect(await storage.getItem(MARKER_KEY)).toBe("1");
+    expect(await storage.getItem(UNREADABLE_PREFERENCES_BACKUP_KEY)).toBeNull();
+  });
+
+  it("does not mark the host while a host write keeps failing", async () => {
+    const storage = migrationStorage();
+    const host = new FakeProfileHost();
+    host.shouldFailPatch = true;
+
+    await expect(
+      new LegacyFavoriteProfileMigration(storage).migrateHost("host-a", host),
+    ).rejects.toThrow("host write failed");
+
+    expect(await storage.getItem(MARKER_KEY)).toBeNull();
+  });
+
+  it.each([
+    ["undecodable JSON", "{not json"],
+    [
+      "an unknown shape",
+      JSON.stringify({ favoriteModels: [{ provider: "claude" }], unexpected: 1 }),
+    ],
+  ])("keeps %s, backs it up and retries later", async (_label, raw) => {
+    const storage = new MemoryStorage();
+    storage.values.set(PREFERENCES_KEY, raw);
+    const host = new FakeProfileHost();
+    const migration = new LegacyFavoriteProfileMigration(storage);
+
+    await migration.migrateHost("host-a", host);
+
+    expect(host.patches).toHaveLength(0);
+    expect(await storage.getItem(PREFERENCES_KEY)).toBe(raw);
+    expect(await storage.getItem(UNREADABLE_PREFERENCES_BACKUP_KEY)).toBe(raw);
+    expect(await storage.getItem(MARKER_KEY)).toBeNull();
+
+    // A readable value on a later start still migrates, and the first backup is not replaced.
+    await storage.setItem(
+      PREFERENCES_KEY,
+      JSON.stringify({ favoriteModels: [{ provider: "claude", modelId: "sonnet" }] }),
+    );
+    await migration.migrateHost("host-a", host);
+
+    expect(host.patches).toHaveLength(1);
+    expect(await storage.getItem(MARKER_KEY)).toBe("1");
+    expect(await storage.getItem(UNREADABLE_PREFERENCES_BACKUP_KEY)).toBe(raw);
   });
 });

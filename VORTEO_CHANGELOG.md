@@ -4,6 +4,61 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.842 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.841 - 2026-10-25
+
+### Maintenance
+
+- Merge background Host release retention: old releases are removed after readiness is verified, plain deletion first, with the outcome recorded in the job folder
+
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Fixed
+
+- Host release cleanup always keeps the releases that hold the coordinator's update tooling. Reviewed tooling selection points the Host updater at an old release's scripts folder, and the first backlog cleanup removed that release, so every later Host install failed at its first step until the folder was restored from git.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Fixed
+
+- Cleaning up old Host releases no longer makes a successful Host install report failure. The first cleanup after release retention shipped deleted a backlog of about 40 old releases inside the install, past its 10-minute readiness deadline, so a verified install was marked failed. Cleanup now starts after the install reports its result, records its outcome in `retention.json` in the job's folder, and never runs twice at once.
+- Old releases are deleted directly. The slower path that first clears immutable file flags, about half a minute per release, runs only for a release that refuses plain deletion.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- Merge draft and agent history test import fix: the two tests mock the host runtime instead of importing it during setup
+
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Maintenance
+
+- Merge draft and agent history test import fix: the two tests mock the host runtime instead of importing it during setup
+
+## 0.11.0-beta.3.vorteo.821 - 2026-10-25
+
+### Tests
+
+- The live draft and agent history tests mock the host runtime instead of loading it. Its module graph, the daemon runtime and protocol validators, took about 10 seconds to transform, so the draft test's setup missed its 10 second limit even on a lightly loaded Mac. Neither test uses a host client. The draft test now takes about 4 seconds and the history test under half a second, both with plain static imports.
+
+## 0.11.0-beta.3.vorteo.839 - 2026-10-25
+
+### Maintenance
+
+- Merge favourites migration fix: legacy model favourites saved beside the old mode setting migrate, stored preferences are never deleted, and a host is marked migrated only after its favourites are imported
+
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Fixed
+
+- The one-time import of device-local model favourites into host profiles no longer deletes saved new-task preferences. Since 0.11.0-beta.3.vorteo.135 (471d7f22a), preferences saved before Paseo mode was removed still carried `vortonMode`; the import rejected them, removed the whole entry and marked the host done without importing anything. It now reads that shape and keeps the entry. A value it still cannot read is copied to a backup key and the host is retried on a later start, and a host is marked done only after its favourites are imported. Favourites already lost this way have no copy on the device; hosts imported before that change still hold them as `legacy_favorite:` profiles.
+
 ## 0.11.0-beta.3.vorteo.838 - 2026-10-25
 
 ### Maintenance
