@@ -17,6 +17,10 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 | Installation or deployment     | [Container installer](docker/multiplex/README.md), [instance continuity](docs/instance-continuity.md)                            |
 | Commit, publication or release | [Versioning](docs/release.md#vorton-commit-versions), [publication hygiene](docs/publication-hygiene.md)                         |
 
+## Task status
+
+Before starting an authorized checklist item, call `update_checklist` with operation update, its returned id, and status `in_progress`. Set `activeForm` to a short description of the current activity. Normally keep one item `in_progress` per agent; multiple active items must reflect work actually running in parallel. Leave future and proposed work pending. Update status at work transitions, not only at the end of the turn: mark completed only after the stated acceptance checks pass, then mark the next item `in_progress` before working on it. If work stops because of a blocker or a switch to another item, return it to pending and record the blocker or remaining work in description; use `blockedBy` for actual prerequisite task IDs. An actively running build or worker may remain `in_progress` while it runs. On continuation or handoff, read the checklist and reconcile stale states with the actual work before proceeding. Use the equivalent native status updates for provider-owned tasks. Do not infer completion from a worker finishing, an agent becoming idle, or a successful tool call alone.
+
 ## Boundaries
 
 - Never restart the main daemon on port `6767` without explicit permission. It owns running agents. A timeout is not a reason to restart it.

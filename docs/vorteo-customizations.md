@@ -92,6 +92,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 9, 2026: Applied accepted task-status guidance to the installed Dev source. Shared launch guidance, checklist tool help and repo/skill instructions require in_progress before execution, accurate work transitions, and completion after acceptance checks. Preserved installed Factory code and complete historical release-note entries from both branches, including repeated version headings. No runtime installation or live acceptance is claimed. README overview and onboarding remain unchanged.
+
 October 8, 2026: Integrated safe retries of rejected agent drafts with installed source. A changed request can retry only with the same workspace, no active creation, no existing agent, and a confirmed failure before agent registration. Reserved identity and prior scheduled-history fixes remain intact.
 
 October 8, 2026: Preserved installed Dev and Factory source while integrating logical project selection and saved history repairs. Unavailable providers no longer hide unarchived threads or prevent reading committed history. Active agent and workspace directories share membership policy so moving a workspace preserves its saved threads when the original backing project is archived. Archived workspaces and agents remain excluded. Projects without a destination placement use exact mapping or the existing folder browser at submission.
