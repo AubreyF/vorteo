@@ -520,3 +520,19 @@ describe("viewed timeline subscription messages", () => {
     });
   });
 });
+
+describe("prompt index provenance compatibility", () => {
+  test.each([undefined, "agent"])("accepts optional origin %s", (origin) => {
+    const prompt = {
+      seq: 1,
+      timestamp: "2026-01-01T00:00:00Z",
+      preview: "hello",
+      ...(origin ? { origin } : {}),
+    };
+    const message = {
+      type: "agent.timeline.list_prompts.response",
+      payload: { requestId: "r", agentId: "a", epoch: "e", prompts: [prompt], error: null },
+    };
+    expect(SessionOutboundMessageSchema.parse(message)).toEqual(message);
+  });
+});

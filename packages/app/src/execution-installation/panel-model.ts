@@ -287,3 +287,32 @@ export function restartBlockingReason(job: RestartJob): string | null {
     .map((item) => item.detail.split("\n")[0]!);
   return [...new Set(reasons)].join("; ") || job.detail;
 }
+
+export function restartActionDisabledReason(
+  job: RestartJob,
+  action: "install" | "idle" | "finish",
+  busy: boolean,
+  supported = true,
+): string | null {
+  if (busy)
+    return "Another installation action is in progress. Wait for it to finish, then try again.";
+  if (action !== "install") {
+    return supported
+      ? null
+      : "This restart mode is unavailable because the environment is disconnected or does not support it. Restore its connection or update its restart support, then retry.";
+  }
+  const blocker = restartBlockingReason(job);
+  if (blocker) {
+    const remedy = /release notes/i.test(blocker)
+      ? "The submitting agent must reconcile the release-note history and resubmit the corrected source. Open Details to identify the blocked contributions."
+      : "The submitting agent must resolve the listed source errors and resubmit. Open Details to identify the blocked contributions.";
+    return `${blocker}. ${remedy}`;
+  }
+  if (job.sourceBatch?.status === "preparing")
+    return "The coordinator is checking and combining the submitted source. Wait for preparation to finish; this button enables when the update is ready.";
+  if (job.sourceBatch?.status === "waiting")
+    return "This update is waiting for an earlier installation. Let that installation finish or cancel it in Installation controls, then review this request.";
+  if (!job.update)
+    return "No validated installation artifact is ready. The submitting agent must finish preparation and resubmit the update.";
+  return null;
+}

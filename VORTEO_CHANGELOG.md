@@ -5,11 +5,105 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.215 - 2026-10-09
+
+### Maintenance
+
+- Combine 6 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.214 - 2026-10-08
+
+### Changed
+
+- Integrate explicit sender provenance and shorter conversation rail marks for agent messages. Preserve previously deployed interface changes and historical release notes.
+
+## 0.11.0-beta.3.vorteo.213 - 2026-10-08
+
+### Changed
+
+- Distinguish agent-sent prompts with shorter conversation navigation marks. Preserve explicit provenance for local agent tool sends, worker creation and steering without guessing the sender of older messages.
+- Cover optional protocol compatibility, saved history, dispatch and desktop navigation after reload. The README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.212 - 2026-10-08
+
+### Fixed
+
+- Recognize verified Claude account authentication when quota reporting cannot read saved macOS credentials. Explicit authentication failures still show Reconnect.
+- Integrate desktop and compact sign-in, reload and sign-out coverage while preserving existing installation changes.
+
+## 0.11.0-beta.3.vorteo.211 - 2026-10-08
+
+### Fixed
+
+- Integrate reviewed goal padding, independently expandable subagent sections and right-aligned question actions while preserving installed project, history, task retry and queue refresh behavior.
+
+## 0.11.0-beta.3.vorteo.210 - 2026-10-08
+
+### Fixed
+
+- Integrate shared queue refresh after rejected operations while preserving local unsynchronized changes and attachment copies. Retain the installed project, history and creation retry fixes.
+
+## 0.11.0-beta.3.vorteo.209 - 2026-10-08
+
+### Fixed
+
+- Allow edited agent drafts to retry confirmed pre-creation failures with their reserved identity. Preserve conflict protection for ambiguous or completed attempts and retain installed source and prior history repairs.
+
+## 0.11.0-beta.3.vorteo.208 - 2026-10-08
+
+### Fixed
+
+- Preserve logical project selection when projects share a Host directory. List projects before their selected environment has a placement, and use existing folder mapping or folder selection at submission.
+- Keep saved threads and schedule associations visible after restart. Read saved history without starting an unavailable provider.
+- Integrate these repairs with the approved Host source and current interface.
+
+## 0.11.0-beta.3.vorteo.207 - 2026-10-08
+
+### Fixed
+
+- Keep restart explanations tappable by separating their hit target from the disabled approval button. Preserve the approved Host source and prior interface changes during integration.
+
+## 0.11.0-beta.3.vorteo.206 - 2026-10-08
+
+### Maintenance
+
+- Preserve the approved Host update ancestry while integrating restart action explanations.
+
 ## 0.11.0-beta.3.vorteo.203 - 2026-10-08
 
 ### Maintenance
 
 - Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.205 - 2026-10-08
+
+### Maintenance
+
+- Integrate compact tooltip interaction with the deployed restart explanations.
+
+## 0.11.0-beta.3.vorteo.204 - 2026-10-08
+
+### Fixed
+
+- Keep tapped tooltips open on compact screens when synthetic hover events follow the tap. Verify restart explanations after keyboard focus transitions.
+
+## 0.11.0-beta.3.vorteo.204 - 2026-10-08
+
+### Maintenance
+
+- Integrate disabled restart explanations and button approval instructions with the deployed installation source.
+
+## 0.11.0-beta.3.vorteo.203 - 2026-10-08
+
+### Fixed
+
+- Explain disabled installation and restart actions with the blocker and recovery steps on hover, keyboard focus and touch, without allowing approval through the tooltip.
+
+## 0.11.0-beta.3.vorteo.202 - 2026-10-08
+
+### Documentation
+
+- Submit prepared maintenance requests without verbal approval prompts. Require the owner's exact button approval, including coordinator maintenance, and report unsupported request types without bypassing the managed workflow.
 
 ## 0.11.0-beta.3.vorteo.202 - 2026-10-08
 

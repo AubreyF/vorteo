@@ -1,4 +1,6 @@
+import type { Page } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
+import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { trackPromptJumpRequests } from "../support/helpers/agent-timeline-gate";
 import {
   clickChatOutlineRowEdge,
@@ -44,7 +46,66 @@ import {
 const WIDE_VIEWPORT = { width: 1440, height: 900 };
 const LOADED_TURNS = 16;
 
+// Dispatch tests cover provenance; this fixture isolates the optional wire field.
+async function markSecondPromptAsAgent(page: Page, agentId: string) {
+  await page.routeWebSocket(daemonWsRoutePattern(), (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((message) => {
+      const envelope = JSON.parse(typeof message === "string" ? message : message.toString("utf8"));
+      const response = envelope.type === "session" ? envelope.message : null;
+      if (
+        response?.type === "agent.timeline.list_prompts.response" &&
+        response.payload.agentId === agentId &&
+        response.payload.prompts[1]
+      ) {
+        response.payload.prompts[1].origin = "agent";
+      }
+      ws.send(JSON.stringify(envelope));
+    });
+  });
+}
+
 test.describe("desktop chat outline", () => {
+  test("renders explicit agent prompts as short marks and keeps navigation after reload", async ({
+    page,
+  }) => {
+    const agent = await seedLongMockAgentTimeline({ turns: 16 });
+    try {
+      await markSecondPromptAsAgent(page, agent.agentId);
+      await page.setViewportSize(WIDE_VIEWPORT);
+      await openAgentTimeline(page, agent);
+      for (const reload of [false, true]) {
+        if (reload) await page.reload({ waitUntil: "domcontentloaded" });
+        await movePointerOffChatOutline(page);
+        await expectChatOutlinePrompts(page, 16);
+        const rail = chatOutlineRail(page);
+        const agentTick = rail.getByRole("tab").nth(1);
+        await expect(agentTick).toHaveAttribute("aria-label", /Agent message:/);
+        const humanMark = rail
+          .getByRole("tab")
+          .first()
+          .locator('[data-testid^="chat-outline-mark-"]');
+        const agentMark = agentTick.locator('[data-testid^="chat-outline-mark-"]');
+        await expect
+          .poll(async () => {
+            const human = await humanMark.boundingBox();
+            const automated = await agentMark.boundingBox();
+            return Boolean(
+              human &&
+              automated &&
+              automated.width < human.width &&
+              automated.height === human.height,
+            );
+          })
+          .toBe(true);
+        await agentTick.click();
+        await expectTimelinePromptLandedBelowTop(page, agent.prompts[1]);
+      }
+    } finally {
+      await agent.cleanup();
+    }
+  });
+
   test("keeps the prompt marked while reading split Markdown blocks and after completion", async ({
     page,
   }) => {

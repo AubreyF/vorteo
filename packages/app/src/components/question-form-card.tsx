@@ -3,7 +3,6 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useState, useCallback, useMemo, useRef, type RefObject } from "react";
 import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import { useIsCompactFormFactor } from "@/constants/layout";
 import { Check, X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import type { PendingPermission } from "@/types/shared";
@@ -325,7 +324,6 @@ function QuestionOtherInput({
 export function QuestionFormCard({ permission, onRespond, isResponding }: QuestionFormCardProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
-  const isMobile = useIsCompactFormFactor();
   const questions = useMemo(
     () => parseQuestionFormQuestions(permission.request.input),
     [permission.request.input],
@@ -502,10 +500,6 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
         : {},
     [activeQuestion],
   );
-  const actionsContainerStyle = useMemo(
-    () => [styles.actionsContainer, !isMobile && styles.actionsContainerDesktop],
-    [isMobile],
-  );
   const dismissActionTextStyle = useMemo(
     () => [styles.actionText, { color: theme.colors.foregroundMuted }],
     [theme.colors.foregroundMuted],
@@ -527,7 +521,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
 
   return (
     <View
-      style={[taskCardStyles.surface, taskCardStyles.contentInsets]}
+      style={[taskCardStyles.surface, taskCardStyles.contentInsets, styles.container]}
       testID="question-form-card"
     >
       <QuestionNav
@@ -580,7 +574,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
         </View>
       ) : null}
 
-      <View style={actionsContainerStyle}>
+      <View style={styles.actionsContainer}>
         <Pressable
           style={dismissButtonStyle}
           onPress={handleDeny}
@@ -622,6 +616,10 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
 }
 
 const styles = StyleSheet.create((theme) => ({
+  container: {
+    paddingVertical: theme.spacing[4],
+    gap: theme.spacing[3],
+  },
   questionBlock: {
     gap: theme.spacing[2],
   },
@@ -630,8 +628,7 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
-    paddingBottom: theme.spacing[1],
-    flex: 1,
+    flexShrink: 0,
   },
   questionText: {
     flex: 1,
@@ -720,10 +717,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   actionsContainer: {
     gap: theme.spacing[2],
-  },
-  actionsContainerDesktop: {
     flexDirection: "row",
-    justifyContent: "flex-start",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
     alignItems: "center",
   },
   actionButton: {

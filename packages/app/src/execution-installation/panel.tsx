@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+} from "react";
 import { ScrollView, Text, View } from "react-native";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -10,6 +17,7 @@ import { settingsStyles } from "@/styles/settings";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-badge";
 import { SidebarCallout } from "@/components/sidebar-callout";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { Theme } from "@/styles/theme";
@@ -23,6 +31,7 @@ import {
   restartExplanation,
   restartBannerTitle,
   restartBlockingReason,
+  restartActionDisabledReason,
 } from "./panel-model";
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
 
@@ -511,8 +520,29 @@ function RestartRequest({
   );
 }
 
-function isInstallReady(job: RestartJob): boolean {
-  return Boolean(job.update) && (!job.sourceBatch || job.sourceBatch.status === "ready");
+function RestartActionButton({
+  disabledReason,
+  ...props
+}: ComponentProps<typeof Button> & { disabledReason: string | null }) {
+  if (!disabledReason) return <Button {...props} />;
+  // A separate hit target avoids browsers suppressing taps on a disabled descendant.
+  return (
+    <Tooltip enabledOnMobile>
+      <View style={styles.disabledAction}>
+        <Button {...props} disabled accessible={false} focusable={false} />
+        <TooltipTrigger
+          style={StyleSheet.absoluteFillObject}
+          accessibilityRole="button"
+          accessibilityLabel={`Why ${String(props.children)} is unavailable`}
+          accessibilityHint={disabledReason}
+          testID={`${props.testID}-explanation`}
+        />
+      </View>
+      <TooltipContent maxWidth={360} testID={`${props.testID}-tooltip`}>
+        <Text style={styles.text}>{disabledReason}</Text>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function RestartActions({
@@ -547,14 +577,14 @@ function RestartActions({
     <>
       {pending && source ? (
         <View style={styles.actions}>
-          <Button
+          <RestartActionButton
             variant="destructive"
-            disabled={busy || !isInstallReady(job)}
+            disabledReason={restartActionDisabledReason(job, "install", busy)}
             onPress={install}
             testID={`restart-install-${job.id}`}
           >
             Install update and restart
-          </Button>
+          </RestartActionButton>
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
@@ -563,25 +593,33 @@ function RestartActions({
       {pending && !source ? (
         <View style={styles.actions}>
           {!job.supervisorPlanSha256 ? (
-            <Button
+            <RestartActionButton
               variant="outline"
-              disabled={busy || !installation?.idleRestarts || !job.impact?.idleRestartSupported}
+              disabledReason={restartActionDisabledReason(
+                job,
+                "idle",
+                busy,
+                Boolean(installation?.idleRestarts && job.impact?.idleRestartSupported),
+              )}
               onPress={queue}
               testID={`restart-queue-${job.id}`}
             >
               Restart when idle
-            </Button>
+            </RestartActionButton>
           ) : null}
-          <Button
+          <RestartActionButton
             variant="outline"
-            disabled={
-              busy || !installation?.gracefulRestarts || !job.impact?.gracefulRestartSupported
-            }
+            disabledReason={restartActionDisabledReason(
+              job,
+              "finish",
+              busy,
+              Boolean(installation?.gracefulRestarts && job.impact?.gracefulRestartSupported),
+            )}
             onPress={finish}
             testID={`restart-finish-${job.id}`}
           >
             Finish turns and restart
-          </Button>
+          </RestartActionButton>
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
@@ -889,6 +927,7 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
 }
 
 const styles = StyleSheet.create((theme) => ({
+  disabledAction: { position: "relative", alignSelf: "flex-start" },
   banner: { maxHeight: 280, flexGrow: 0, borderTopWidth: 1, borderTopColor: theme.colors.border },
   details: { gap: theme.spacing[2] },
   unlockRow: {
