@@ -172,7 +172,7 @@ class FakeDirectoryClient {
     this.listWorkspaceLabelsCalls += 1;
     return {
       requestId: "workspace-labels",
-      labels: [{ name: "Urgent", color: "red" }],
+      labels: [{ name: "Urgent", color: "red", explicitColor: true }],
       sync: { mode: "snapshot", removals: [], generation: "generation-1", headSeq: 0 },
     };
   }

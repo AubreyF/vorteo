@@ -26,6 +26,9 @@ import {
 import type { MaintenanceObservationRuntime } from "../coordinator-bootstrap-maintenance-observation-runtime.js";
 import type { NativeBootstrapServiceReader } from "../coordinator-bootstrap-service.js";
 import { enrollmentManifestDigest } from "./authorization.js";
+
+// The observer only runs on the native macOS Host and refuses every other platform.
+const nativeHostTest = test.runIf(process.platform === "darwin");
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 const FACTORY_ENTRY =
   "const candidate = '/fixture/factory-candidate';\nvoid [candidate + '/modules/factory/launch.py', '/fixture/linux-node/bin/node', '/fixture/bootstrap/packages/server/dist/scripts/supervisor-entrypoint.js', candidate + '/runtime.mjs'];\n";
@@ -535,86 +538,95 @@ function fixture(fixtureOptions: { outsideDocker?: boolean } = {}) {
 }
 afterEach(() => vi.useRealTimers());
 
-test("composes only fixed Docker observation after the exact child exit gate", async () => {
-  const f = fixture();
-  const proof = await f.run();
-  expect(proof.facts).toEqual({ kind: "unresolved", reason: "Inert source observation only" });
-  expect(f.calls.indexOf(`exit:${f.effect.child.executor.pid}`)).toBeLessThan(
-    f.calls.indexOf("metadata"),
-  );
-  expect(f.calls.filter((call) => call === "root")).toHaveLength(1);
-  const rootCommand = f.commands.find((command) => command.args.includes("exec"));
-  expect(rootCommand?.args).toEqual([
-    "--host",
-    `unix://${f.input.provisioner.plan.docker.socket}`,
-    "exec",
-    "-i",
-    "--user",
-    "0:0",
-    f.input.provisioner.plan.docker.containerId,
-    f.input.provisioner.plan.systemPython.path,
-    "-I",
-    "-B",
-    "-c",
-    DEV_REGISTRATION_NATIVE_OBSERVATION_SCRIPT,
-  ]);
-  proof.assertCurrent();
-  expect(f.calls.filter((call) => call.startsWith("exit:"))).toHaveLength(1);
-  expect(f.calls.filter((call) => call === "root")).toHaveLength(2);
-  expect(f.commands.every((command) => command.file === f.input.provisioner.plan.docker.path)).toBe(
-    true,
-  );
-});
+nativeHostTest(
+  "composes only fixed Docker observation after the exact child exit gate",
+  async () => {
+    const f = fixture();
+    const proof = await f.run();
+    expect(proof.facts).toEqual({ kind: "unresolved", reason: "Inert source observation only" });
+    expect(f.calls.indexOf(`exit:${f.effect.child.executor.pid}`)).toBeLessThan(
+      f.calls.indexOf("metadata"),
+    );
+    expect(f.calls.filter((call) => call === "root")).toHaveLength(1);
+    const rootCommand = f.commands.find((command) => command.args.includes("exec"));
+    expect(rootCommand?.args).toEqual([
+      "--host",
+      `unix://${f.input.provisioner.plan.docker.socket}`,
+      "exec",
+      "-i",
+      "--user",
+      "0:0",
+      f.input.provisioner.plan.docker.containerId,
+      f.input.provisioner.plan.systemPython.path,
+      "-I",
+      "-B",
+      "-c",
+      DEV_REGISTRATION_NATIVE_OBSERVATION_SCRIPT,
+    ]);
+    proof.assertCurrent();
+    expect(f.calls.filter((call) => call.startsWith("exit:"))).toHaveLength(1);
+    expect(f.calls.filter((call) => call === "root")).toHaveLength(2);
+    expect(
+      f.commands.every((command) => command.file === f.input.provisioner.plan.docker.path),
+    ).toBe(true);
+  },
+);
 
-test("external path-only Docker refuses before any command", async () => {
+nativeHostTest("external path-only Docker refuses before any command", async () => {
   const f = fixture({ outsideDocker: true });
   await expect(f.run()).rejects.toThrow("static Docker byte pin is missing");
   expect(f.commands).toEqual([]);
 });
 
-test("an unapproved current module cannot stand in for coordinator artifact membership", async () => {
-  const f = fixture();
-  f.ports.moduleFile = () => "/host/other/dev-registration-native-observation-host.js";
-  await expect(f.run()).rejects.toThrow("outside its approved coordinator graph");
-  expect(f.commands).toEqual([]);
-});
+nativeHostTest(
+  "an unapproved current module cannot stand in for coordinator artifact membership",
+  async () => {
+    const f = fixture();
+    f.ports.moduleFile = () => "/host/other/dev-registration-native-observation-host.js";
+    await expect(f.run()).rejects.toThrow("outside its approved coordinator graph");
+    expect(f.commands).toEqual([]);
+  },
+);
 
-test("a Host graph with a different approved artifact cannot authorize observer code", async () => {
-  const f = fixture();
-  f.ports.artifact = async () => ({ sha256: hash("different graph"), assertCurrent() {} });
-  await expect(f.run()).rejects.toThrow("coordinator artifact differs");
-  expect(f.commands).toEqual([]);
-});
+nativeHostTest(
+  "a Host graph with a different approved artifact cannot authorize observer code",
+  async () => {
+    const f = fixture();
+    f.ports.artifact = async () => ({ sha256: hash("different graph"), assertCurrent() {} });
+    await expect(f.run()).rejects.toThrow("coordinator artifact differs");
+    expect(f.commands).toEqual([]);
+  },
+);
 
-test("observed external Docker bytes cannot become their own approval", async () => {
+nativeHostTest("observed external Docker bytes cannot become their own approval", async () => {
   const f = fixture({ outsideDocker: true });
   f.ports.readBytes = () => Buffer.from("unapproved actual bytes");
   await expect(f.run()).rejects.toThrow("static Docker byte pin is missing");
   expect(f.commands).toEqual([]);
 });
 
-test("a changed endpoint or Docker path cannot redirect the protected plan", async () => {
+nativeHostTest("a changed endpoint or Docker path cannot redirect the protected plan", async () => {
   const f = fixture();
   f.runtime.admission.socket = "/host/other.sock";
   await expect(f.run()).rejects.toThrow("endpoint or helper differs");
   expect(f.commands).toEqual([]);
 });
 
-test("cross-boot child absence is refused before Docker inspection", async () => {
+nativeHostTest("cross-boot child absence is refused before Docker inspection", async () => {
   const f = fixture();
   f.setBoot("22222222-2222-4222-8222-222222222222");
   await expect(f.run()).rejects.toThrow("local lifetime or boot differs");
   expect(f.commands).toEqual([]);
 });
 
-test("a native exit error is never converted into absence", async () => {
+nativeHostTest("a native exit error is never converted into absence", async () => {
   const f = fixture();
   f.exitFailure(Error("native permission denied"));
   await expect(f.run()).rejects.toThrow("Unexpected native method");
   expect(f.commands).toEqual([]);
 });
 
-test("stable same-boot later birth can establish the old child exited", async () => {
+nativeHostTest("stable same-boot later birth can establish the old child exited", async () => {
   const f = fixture();
   f.exitFailure(Error("PID is in use"));
   const old = f.effect.child.executor;
@@ -636,7 +648,7 @@ test("stable same-boot later birth can establish the old child exited", async ()
   expect(reads).toBe(2);
 });
 
-test("changed observer boot around exit verification refuses", async () => {
+nativeHostTest("changed observer boot around exit verification refuses", async () => {
   const f = fixture();
   f.setHook((phase) => {
     if (phase === "exit") f.setBoot("22222222-2222-4222-8222-222222222222");
@@ -645,7 +657,7 @@ test("changed observer boot around exit verification refuses", async () => {
   expect(f.commands).toEqual([]);
 });
 
-test("child substitution during a custody callback cannot reach Docker", async () => {
+nativeHostTest("child substitution during a custody callback cannot reach Docker", async () => {
   const f = fixture();
   f.setHook((phase) => {
     if (phase === "exit") f.effect.child.executor.pid += 1;
@@ -654,7 +666,7 @@ test("child substitution during a custody callback cannot reach Docker", async (
   expect(f.commands).toEqual([]);
 });
 
-test("fixed observer remains readable after grant revocation", async () => {
+nativeHostTest("fixed observer remains readable after grant revocation", async () => {
   const f = fixture();
   f.setHook((phase) => {
     if (phase === "exit") f.revoke();
@@ -665,21 +677,21 @@ test("fixed observer remains readable after grant revocation", async () => {
   expect(f.calls.filter((call) => call === "root")).toHaveLength(2);
 });
 
-test("reconstructing observation repeats the actual child exit gate", async () => {
+nativeHostTest("reconstructing observation repeats the actual child exit gate", async () => {
   const f = fixture();
   await f.run();
   await f.run();
   expect(f.calls.filter((call) => call.startsWith("exit:"))).toHaveLength(2);
 });
 
-test("an unsafe current startup never reaches the root observer", async () => {
+nativeHostTest("an unsafe current startup never reaches the root observer", async () => {
   const f = fixture();
   f.container.Path = "/other/startup";
   await expect(f.run()).rejects.toThrow("startup tuple changed");
   expect(f.calls.filter((call) => call === "root")).toEqual([]);
 });
 
-test("root output is discarded if actual mounts change during the command", async () => {
+nativeHostTest("root output is discarded if actual mounts change during the command", async () => {
   const f = fixture();
   f.setHook((phase) => {
     if (phase === "root") f.container.Mounts[0].Source = "/changed";
@@ -687,17 +699,20 @@ test("root output is discarded if actual mounts change during the command", asyn
   await expect(f.run()).rejects.toThrow("writable Host mounts changed");
 });
 
-test("metadata consumes the same command budget and preserves final-read time", async () => {
-  const f = fixture();
-  let reads = 0;
-  f.setHook((phase) => {
-    if (phase === "metadata" && ++reads === 2) f.advance(8500);
-  });
-  await expect(f.run()).rejects.toThrow("command budget exhausted");
-  expect(f.calls.filter((call) => call === "root")).toEqual([]);
-});
+nativeHostTest(
+  "metadata consumes the same command budget and preserves final-read time",
+  async () => {
+    const f = fixture();
+    let reads = 0;
+    f.setHook((phase) => {
+      if (phase === "metadata" && ++reads === 2) f.advance(8500);
+    });
+    await expect(f.run()).rejects.toThrow("command budget exhausted");
+    expect(f.calls.filter((call) => call === "root")).toEqual([]);
+  },
+);
 
-test("synchronous recheck rejects results beyond its shared total budget", async () => {
+nativeHostTest("synchronous recheck rejects results beyond its shared total budget", async () => {
   const f = fixture();
   const proof = await f.run();
   f.setHook((phase) => {
@@ -706,7 +721,7 @@ test("synchronous recheck rejects results beyond its shared total budget", async
   expect(() => proof.assertCurrent()).toThrow("command budget exhausted");
 });
 
-test("expired proofs refuse before another native command", async () => {
+nativeHostTest("expired proofs refuse before another native command", async () => {
   const f = fixture();
   const proof = await f.run();
   const commands = f.commands.length;
@@ -715,16 +730,19 @@ test("expired proofs refuse before another native command", async () => {
   expect(f.commands).toHaveLength(commands);
 });
 
-test("callback replacement after native collection cannot become final custody", async () => {
-  const f = fixture();
-  const proof = await f.run();
-  f.runtime.assertCurrent = () => {};
-  const commands = f.commands.length;
-  expect(() => proof.assertCurrent()).toThrow("input, reader or local owner changed");
-  expect(f.commands).toHaveLength(commands);
-});
+nativeHostTest(
+  "callback replacement after native collection cannot become final custody",
+  async () => {
+    const f = fixture();
+    const proof = await f.run();
+    f.runtime.assertCurrent = () => {};
+    const commands = f.commands.length;
+    expect(() => proof.assertCurrent()).toThrow("input, reader or local owner changed");
+    expect(f.commands).toHaveLength(commands);
+  },
+);
 
-test("raw local child remains owned after timeout until its close event", async () => {
+nativeHostTest("raw local child remains owned after timeout until its close event", async () => {
   vi.useFakeTimers();
   const f = fixture();
   f.pauseChildren();
@@ -745,39 +763,50 @@ test("raw local child remains owned after timeout until its close event", async 
   await expect(checked).rejects.toThrow("timed out");
 });
 
-test("bounded output keeps draining and waits for actual raw-child settlement", async () => {
-  const f = fixture();
-  f.pauseChildren();
-  const pending = f.run();
-  await vi.waitFor(() => expect(f.children).toHaveLength(1));
-  const raw = f.children[0];
-  raw.stdout.write(Buffer.alloc(1024 * 1024 + 1));
-  raw.stderr.write(Buffer.from("still draining"));
-  expect(raw.killed.length).toBeGreaterThan(0);
-  raw.emit("close", null, "SIGKILL");
-  await expect(pending).rejects.toThrow("output exceeded bound");
-  expect(f.calls.filter((call) => call === "root")).toEqual([]);
-});
+nativeHostTest(
+  "bounded output keeps draining and waits for actual raw-child settlement",
+  async () => {
+    const f = fixture();
+    f.pauseChildren();
+    const pending = f.run();
+    await vi.waitFor(() => expect(f.children).toHaveLength(1));
+    const raw = f.children[0];
+    raw.stdout.write(Buffer.alloc(1024 * 1024 + 1));
+    raw.stderr.write(Buffer.from("still draining"));
+    expect(raw.killed.length).toBeGreaterThan(0);
+    raw.emit("close", null, "SIGKILL");
+    await expect(pending).rejects.toThrow("output exceeded bound");
+    expect(f.calls.filter((call) => call === "root")).toEqual([]);
+  },
+);
 
-test("an approved observer module cannot authorize an unrelated process entrypoint", async () => {
-  const f = fixture();
-  const original = f.ports.approvedRuntime;
-  f.ports.approvedRuntime = async (...args) => ({
-    ...(await original(...args)),
-    entrypoint: { path: "/host/unapproved-main.js", sha256: hash("unapproved") },
-  });
-  await expect(f.run()).rejects.toThrow("entrypoint is outside its independently approved runtime");
-  expect(f.commands).toEqual([]);
-});
+nativeHostTest(
+  "an approved observer module cannot authorize an unrelated process entrypoint",
+  async () => {
+    const f = fixture();
+    const original = f.ports.approvedRuntime;
+    f.ports.approvedRuntime = async (...args) => ({
+      ...(await original(...args)),
+      entrypoint: { path: "/host/unapproved-main.js", sha256: hash("unapproved") },
+    });
+    await expect(f.run()).rejects.toThrow(
+      "entrypoint is outside its independently approved runtime",
+    );
+    expect(f.commands).toEqual([]);
+  },
+);
 
-test("adding an unapproved static Docker hash does not alter the consumed commitment", async () => {
-  const f = fixture({ outsideDocker: true });
-  Object.assign(f.input.provisioner.plan.docker, { sha256: hash("reviewed docker"), size: 15 });
-  await expect(f.run()).rejects.toThrow("approved static plan");
-  expect(f.commands).toEqual([]);
-});
+nativeHostTest(
+  "adding an unapproved static Docker hash does not alter the consumed commitment",
+  async () => {
+    const f = fixture({ outsideDocker: true });
+    Object.assign(f.input.provisioner.plan.docker, { sha256: hash("reviewed docker"), size: 15 });
+    await expect(f.run()).rejects.toThrow("approved static plan");
+    expect(f.commands).toEqual([]);
+  },
+);
 
-test("socket custody failure refuses before any Docker command", async () => {
+nativeHostTest("socket custody failure refuses before any Docker command", async () => {
   const f = fixture();
   f.ports.retainSocket = () => {
     throw Error("actual socket replaced");
@@ -786,7 +815,7 @@ test("socket custody failure refuses before any Docker command", async () => {
   expect(f.commands).toEqual([]);
 });
 
-test("synchronous spawn failure has no fallback root invocation", async () => {
+nativeHostTest("synchronous spawn failure has no fallback root invocation", async () => {
   const f = fixture();
   f.ports.spawn = () => {
     throw Error("spawn failed");
@@ -795,14 +824,14 @@ test("synchronous spawn failure has no fallback root invocation", async () => {
   expect(f.calls.filter((call) => call === "root")).toEqual([]);
 });
 
-test("local nonzero exit cannot produce even a parsed metadata observation", async () => {
+nativeHostTest("local nonzero exit cannot produce even a parsed metadata observation", async () => {
   const f = fixture();
   f.ports.spawn = () => new InertChild((child) => child.complete("{}", 1));
   await expect(f.run()).rejects.toThrow("fixed Docker command failed");
   expect(f.calls.filter((call) => call === "root")).toEqual([]);
 });
 
-test("local error events retain ownership until close", async () => {
+nativeHostTest("local error events retain ownership until close", async () => {
   vi.useFakeTimers();
   const f = fixture();
   f.pauseChildren();
@@ -822,7 +851,7 @@ test("local error events retain ownership until close", async () => {
   await expect(pending).rejects.toThrow("raw process error");
 });
 
-test("post-read claim mutation invalidates the retained terminal gate", async () => {
+nativeHostTest("post-read claim mutation invalidates the retained terminal gate", async () => {
   const f = fixture();
   const proof = await f.run();
   f.effect.child.executor.bootId = randomUUID();
@@ -831,14 +860,14 @@ test("post-read claim mutation invalidates the retained terminal gate", async ()
   expect(f.commands).toHaveLength(count);
 });
 
-test("mutable native port replacement cannot become a recheck", async () => {
+nativeHostTest("mutable native port replacement cannot become a recheck", async () => {
   const f = fixture();
   const proof = await f.run();
   f.ports.commandSync = () => JSON.stringify({ kind: "unresolved", reason: "replacement" });
   expect(() => proof.assertCurrent()).toThrow("native port changed");
 });
 
-test("synchronous stdin failure retains the raw child until close", async () => {
+nativeHostTest("synchronous stdin failure retains the raw child until close", async () => {
   vi.useFakeTimers();
   const f = fixture();
   const raw = new InertChild(() => {});
@@ -859,7 +888,7 @@ test("synchronous stdin failure retains the raw child until close", async () => 
   await expect(pending).rejects.toThrow("synchronous stdin failure");
 });
 
-test("drained chunk boundaries preserve UTF-8 native output", async () => {
+nativeHostTest("drained chunk boundaries preserve UTF-8 native output", async () => {
   const f = fixture();
   const originalSpawn = f.ports.spawn;
   f.ports.spawn = (file, args) => {

@@ -1362,8 +1362,10 @@ test("configure-projects-folder writes both daemons and trusts the folder in Dev
     );
     expect(unaliased.dev.commands.dockerRoot).toContain("exec --user root 'dev' sh -c");
     expect(existsSync(path.join(devHome, "projects-folder.json"))).toBe(false);
+    // The Host records the same earlier paths even while Dev is refused.
     expect(JSON.parse(readFileSync(path.join(hostHome, "projects-folder.json"), "utf8"))).toEqual({
       root: folder,
+      migrateFrom: ["/Users/guest/dev"],
     });
 
     // Once the folder's own path leads to the mount inside the container, it is an alias.
@@ -1383,7 +1385,21 @@ test("configure-projects-folder writes both daemons and trusts the folder in Dev
       migrateFrom: ["/Users/guest/dev"],
       aliases: ["/Users/guest/dev"],
     });
+    // The Host gets the alias found in Dev and the kept paths, so shared keys map alike.
+    const kept = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+      keepPaths: ["/Users/guest/dev/freed"],
+    });
+    expect(kept.host.changed).toBe(true);
+    expect(JSON.parse(readFileSync(path.join(hostHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+      migrateFrom: ["/Users/guest/dev"],
+      aliases: ["/Users/guest/dev"],
+      keepPaths: ["/Users/guest/dev/freed"],
+    });
     rmSync(path.join(devHome, "projects-folder.json"));
+    rmSync(path.join(hostHome, "projects-folder.json"));
     rmSync(process.env.FAKE_GIT_LOG);
     delete process.env.FAKE_REALPATHS;
 

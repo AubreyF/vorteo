@@ -18,7 +18,9 @@ test
   async (mode) => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), "maintenance-child-")));
     roots.push(root);
-    const helper = readFileSync(path.resolve("scripts/inspect-coordinator-process.py"));
+    const helper = readFileSync(
+      new URL("../../../../../scripts/inspect-coordinator-process.py", import.meta.url),
+    );
     const helperPath = path.join(root, "inspector.py");
     writeFileSync(helperPath, helper, { mode: 0o600 });
     const expected = JSON.parse(

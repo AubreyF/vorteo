@@ -54,6 +54,8 @@ type ProviderOverride = import("./agent/provider-launch-config.js").ProviderOver
 
 interface SupportedMutableConfigPatch {
   replaceProviders?: MutableDaemonConfig["providers"];
+  /** Providers whose `env` in `providers` replaces, rather than merges into, the current env. */
+  replaceProviderEnv?: string[];
   relay?: { enabled?: boolean };
   mcp?: { injectIntoAgents?: boolean };
   browserTools?: { enabled?: boolean };
@@ -179,6 +181,19 @@ function deepMerge<T extends Record<string, unknown>>(
   return next as T;
 }
 
+/** deepMerge adds env names; a replacement must also drop names absent from the patch. */
+function replaceMergedProviderEnv(
+  merged: MutableDaemonConfig,
+  providers: MutableDaemonConfig["providers"] | undefined,
+  ids: readonly string[],
+): void {
+  for (const id of ids) {
+    const env = providers?.[id]?.env;
+    const provider = merged.providers[id];
+    if (env && provider) provider.env = structuredClone(env);
+  }
+}
+
 function omitProvidersFromConfig<T extends { providers?: Record<string, unknown> }>(
   config: T,
   providers: readonly string[],
@@ -245,8 +260,24 @@ function getValueAtPath(config: MutableDaemonConfig, path: string): unknown {
     .reduce<unknown>((value, segment) => (isRecord(value) ? value[segment] : undefined), config);
 }
 
+/** JSON equality that ignores object key order, so a reordered provider map is not a change. */
 function isEqualValue(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return canonicalJson(a) === canonicalJson(b);
+}
+
+function canonicalJson(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, entry: unknown) =>
+    entry && typeof entry === "object" && !Array.isArray(entry)
+      ? Object.fromEntries(
+          Object.entries(entry).sort(([left], [right]) => compareKeys(left, right)),
+        )
+      : entry,
+  );
+}
+
+function compareKeys(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
 }
 
 const RELOADABLE_PATHS = [
@@ -635,6 +666,20 @@ export class DaemonConfigStore {
     return this.applyPatch({ providers: projected }, admission);
   }
 
+  /**
+   * Replace one provider's env, removing names absent from `env`. Persisted provider overrides
+   * already replace env as a whole; this keeps the running configuration identical to them.
+   * Env is local runtime configuration, never portable installation policy.
+   */
+  public replaceProviderEnv(providerId: string, env: Record<string, string>): MutableDaemonConfig {
+    const provider = this.current.providers[providerId];
+    if (!provider || provider.removed) throw new Error("The provider binding does not exist");
+    return this.applySupportedPatch({
+      providers: { [providerId]: { env: structuredClone(env) } },
+      replaceProviderEnv: [providerId],
+    });
+  }
+
   public async patchFromClient(partial: MutableDaemonConfigPatch): Promise<MutableDaemonConfig> {
     const parsed = MutableDaemonConfigPatchSchema.parse(partial);
     const before = this.current;
@@ -845,7 +890,7 @@ export class DaemonConfigStore {
         "Relay is controlled by a daemon launch override. Remove PASEO_RELAY_ENABLED or the relay CLI flag before changing it here.",
       );
     }
-    const { removeProviders = [], ...configPatch } = parsedPatch;
+    const { removeProviders = [], replaceProviderEnv = [], ...configPatch } = parsedPatch;
     const removedProviders = Array.from(new Set(removeProviders));
     const installationOwned = Boolean(this.current.sharedProviderPreferences?.installation);
     if (
@@ -863,6 +908,7 @@ export class DaemonConfigStore {
     const merged = deepMerge(this.current, configPatch);
     delete merged.replaceProviders;
     if (parsedPatch.replaceProviders) merged.providers = parsedPatch.replaceProviders;
+    replaceMergedProviderEnv(merged, configPatch.providers, replaceProviderEnv);
     if (parsedPatch.skills?.selection !== undefined) {
       merged.skills = { selection: parsedPatch.skills.selection };
     }

@@ -28,6 +28,8 @@ async function fixture() {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_"))),
     HOME: root,
     USERPROFILE: root,
+    // Test daemons start without the System project so project counts stay exact.
+    PASEO_SYSTEM_PROJECT: "0",
   };
   const homes = [path.join(root, "a"), path.join(root, "b")];
   const owned = new Map<string, { pid: number; startedAt: string }>();
@@ -229,7 +231,11 @@ test("an occupied initial or replacement address fails without false readiness o
     const before = await f.liveStatus(a);
     const failed = await f.run(["--json", "start", "--home", b, "--timeout", "30"]);
     expect(failed.code).toBe(1);
-    expect(failed.stderr).toContain("DAEMON_START_FAILED");
+    // A foreign owner is retried with backoff rather than restarting the supervisor in a loop
+    // (listen reclaim), so the start reports a daemon that is running but never ready.
+    expect(failed.stderr).toContain("DAEMON_NOT_READY");
+    expect((await f.liveStatus(a)).workerPid).toBe(before.workerPid);
+    await f.ok(["daemon", "stop", "--home", b]);
     await f.ok(["daemon", "config", "set", "daemon.listen", `127.0.0.1:${portB}`, "--home", b]);
     await f.ok(["start", "--home", b, "--timeout", "30"]);
     await f.ok(["daemon", "config", "set", "daemon.listen", `127.0.0.1:${portA}`, "--home", b]);
@@ -358,10 +364,11 @@ test.skipIf(process.platform === "win32").each([["start"], ["daemon", "run"]])(
         stdio: "ignore",
       });
       const exited = new Promise((resolve) => child!.once("exit", resolve));
-      await expect
-        .poll(async () => existsSync(path.join(home, "paseo.pid")), { timeout: 10_000 })
-        .toBe(true);
-      const lock = JSON.parse(await readFile(path.join(home, "paseo.pid"), "utf8"));
+      // The lock is created exclusively, then written; readers retry while it is empty.
+      const readLock = async () =>
+        (await readFile(path.join(home, "paseo.pid"), "utf8").catch(() => "")) || null;
+      await expect.poll(readLock, { timeout: 10_000 }).not.toBeNull();
+      const lock = JSON.parse((await readLock())!);
       await f.ok(["status", "--home", home]);
       child.kill("SIGINT");
       await exited;

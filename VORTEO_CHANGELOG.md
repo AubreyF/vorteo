@@ -4,6 +4,269 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.808 - 2026-10-23
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-22
+
+### Maintenance
+
+- Merge the installed Host main into Dev's installed source so the Dev update descends from what Dev runs
+
+## 0.11.0-beta.3.vorteo.806 - 2026-10-23
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.805 - 2026-10-22
+
+### Maintenance
+
+- Merge the two-option Add project flow: Choose a folder in the Projects folder or Clone from GitHub, with a folder browser that creates folders inline
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Maintenance
+
+- Merge main into the two-option Add project branch. Main contributed the live Projects folder work (aliases, kept paths, git trust, projects in every environment and per-project exclusions) and the settings and provider pages; there were no textual code conflicts. Both sides had added the Projects folder to the stored server info, so the duplicate is dropped, and Add project now reads the folder through main's shared helper and formats folder errors with main's error wording. Both changelog and customization histories are kept in full.
+
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Added
+
+- Clone from GitHub on hosts with a Projects folder clones into Projects/<repository> with one click. Change location opens the same folder browser, whose footer button reads Clone here, and New folder works there too. The clone runs on the installation's Host daemon.
+
+### Maintenance
+
+- Tests cover the default clone destination, changing it in the folder browser, cloning into a nested or new folder, and the earlier methods on hosts without a Projects folder. This supersedes the work-in-progress note in 0.11.0-beta.3.vorteo.766.
+
+### Known limitations
+
+- Not installed. The browser end-to-end checks for this flow have not been run, so layout and keyboard behaviour are unverified in a real browser.
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Added
+
+- Add project offers two choices on hosts with a Projects folder: Choose a folder and Clone from GitHub. There is no host step and no Search for directory, New project folder or Choose in Finder option. Hosts without a Projects folder keep the earlier flow.
+- The folder browser starts in the Projects folder with a breadcrumb. Its list only moves between folders; a fixed footer names what it will add, and Add is disabled at the Projects folder itself. New folder creates a folder in place without making it a project and opens it. Git checkouts have an inline Add button, registered projects show a Project badge, and the last folder is remembered per host.
+
+## 0.11.0-beta.3.vorteo.804 - 2026-10-22
+
+### Maintenance
+
+- Merge the Playwright helper fix: waiting for a connected host checks Settings > Environments > Connections, and opening Settings waits for the toolbar button
+
+## 0.11.0-beta.3.vorteo.800 - 2026-10-22
+
+### Fixed
+
+- The browser test helper that opens Settings waits up to five seconds for the toolbar Settings button before falling back to the overflow menu, which no longer lists Settings. Specs that opened Settings right after a reload used to time out.
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Fixed
+
+- Browser tests that wait for a second host no longer time out. `waitForConnectedHost` now checks the host's endpoint in Settings > Environments > Connections and returns to the workspace, instead of opening the sidebar Hosts control that was removed on 2026-10-06. This affects the Add project, host appearance and project grouping specs.
+- The sidebar footer check no longer expects the removed Hosts control.
+
+## 0.11.0-beta.3.vorteo.803 - 2026-10-22
+
+### Maintenance
+
+- Merge the Main CI repair: onboarding no longer requests a retired pairing offer, the sidebar stops re-rendering on every status change, test daemons honor PASEO_SYSTEM_PROJECT, provider key order no longer reads as a change, plugin calls survive reconnects, plugin dark themes get status colors, What's New keys are unique, account routes mount behind one provider-neutral function; stale tests repaired or retired and CI jobs build what they test
+
+## 0.11.0-beta.3.vorteo.802 - 2026-10-23
+
+### Maintenance
+
+- Windows server CI skips the whole session host directory, which is POSIX-only by design, so new session host suites no longer need listing one by one. A provider secret test that checks private file modes is skipped on Windows.
+
+## 0.11.0-beta.3.vorteo.801 - 2026-10-22
+
+### Maintenance
+
+- Restore the connection check phone screenshot, which a local browser test run rewrote and the previous commit picked up by mistake.
+
+## 0.11.0-beta.3.vorteo.800 - 2026-10-22
+
+### Maintenance
+
+- Repair macOS-only server tests that Linux CI never runs. Two native recovery suites found the process inspector script from the working directory, and the port allocator test compared a temporary path with its canonical form behind the macOS /var symlink.
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Maintenance
+
+- Merge main at 0.11.0-beta.3.vorteo.797 into the CI repair branch. The provider-neutral installation account mount now also covers the Host-refreshed Claude sign-in and provider secret deliveries, sharing one catalog refresh callback.
+
+## 0.11.0-beta.3.vorteo.790 - 2026-10-22
+
+### Maintenance
+
+- Settle a timing-dependent agent skills test. It created a new query client on every render and kept stale shared settings after a save, so a refetch could report the old selection.
+
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Fixed
+
+- Plugin calls no longer fail with "Plugin daemon identity is unavailable" while a plugin's connection to its daemon reconnects. The plugin process keeps the identity of the one daemon it serves.
+
+### Maintenance
+
+- A CLI lifecycle test waits for the daemon lock file's contents, which are written after the file is created, as product readers already do.
+
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Fixed
+
+- New Codex threads on accounts with remote plugins no longer fail with "Provider skill catalog changed during this task". Codex finishes syncing remote plugin skills after its first skill listing, so the next listing grew, for example from 20 to 64 entries on Codex 1. The check now compares only the selected skills. Each turn still sends a filter rebuilt from the current listing, which keeps plugin skills that appear later disabled.
+
+- Merge main at 0.11.0-beta.3.vorteo.787 into the CI repair branch so it integrates cleanly with the next batch.
+
+## 0.11.0-beta.3.vorteo.784 - 2026-10-22
+
+### Fixed
+
+- Removing a full sign-in Claude account no longer runs Claude's sign-out when the account has no configuration directory of its own. A daemon started from an agent shell inherits another account's directory, so that sign-out could have signed out a different account.
+
+- Stop two server test races. The Host module contract pins every ancestor directory, so its tests retry when a parallel suite touches a shared ancestor mid-inspection. A message queue test waits for its last write before deleting its directory.
+- The browser test helper opens New workspace from the sidebar overflow menu, since it is no longer a default sidebar row.
+
+## 0.11.0-beta.3.vorteo.785 - 2026-10-22
+
+### Fixed
+
+- `PASEO_SYSTEM_PROJECT=0` now reaches the daemon. The configuration allowlist dropped it, so every test daemon, including the browser test harness, seeded the System project and its standing agent.
+- A daemon config reload no longer reports and reapplies provider settings that only changed key order.
+
+### Maintenance
+
+- CI stops a hung Playwright shard after 90 minutes and the app job after 30, instead of holding runners for hours. The app browser run pre-bundles `react/jsx-dev-runtime` so Vite no longer reloads mid-run.
+- Retire the desktop relay pairing E2E spec; the pairing modal it drove was removed with device pairing.
+- CLI lifecycle tests expect a daemon whose address is held by another process to wait as not ready, as listen reclaim intends, and stop it.
+
+## 0.11.0-beta.3.vorteo.783 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+- Skip server suites for POSIX-only Vorteo features on Windows CI: the installation coordinator, session host, Host account delivery and Host process custody, plus `*.posix.test.ts` as the testing guide already promised. Upstream suites keep running there; individual Vorteo cases inside them that need POSIX modes, signals or symlink swaps are gated case by case.
+- Two bootstrap suites now start daemons without the System project, like every other test daemon. On Windows a handle stayed open on its directory after the daemon stopped.
+- The preview monitor test retains its own Node copy, and the Dev installer check runs only for Dev's in-root release layout, matching Linux CI.
+
+## 0.11.0-beta.3.vorteo.783 - 2026-10-22
+
+### Fixed
+
+- Running `paseo` onboarding no longer crashes after starting the daemon. It still asked for a device pairing offer, which the daemon has refused since pairing was retired; it now ends with direct-connection guidance.
+- A workspace status change no longer re-renders the whole sidebar. The sidebar subscribed to every host's workspace map to place managed worktrees; it now subscribes to the placements themselves.
+- What's New keeps distinct list keys when parallel branches publish the same version on the same date.
+
+### Changed
+
+- Plugin dark themes use the same lifted status colors as the built-in appearances, restoring the parity their tests require.
+
+### Maintenance
+
+- Repair app, browser, CLI and desktop tests for CI. Two browser suites hung CI's app job forever: their layout mock awaited a module that now imports itself back through the zoom and shortcut stores. Other suites now wait for entering animations, use desktop viewports where menus became compact sheets, follow retired pairing, the System project, neutral label colors and the status ring, and stop writing screenshots outside the workspace.
+
+## 0.11.0-beta.3.vorteo.774 - 2026-10-22
+
+### Added
+
+- Switch a thread to another account or profile without leaving it. Choosing a profile on another account for an existing thread now offers Switch in this thread by default, with a warning that switching uses extra tokens; New task instead keeps the reviewed successor. The quota notice gains a Switch account button.
+- The daemon closes the thread's native session, starts one on the target account with up to 30 recent messages as session instructions, clears the quota pause and keeps the thread's ID, goal, checklist, journal and questions. Busy threads are refused.
+- A compaction-style marker names both accounts and models. History before each switch is retained, so reloads replay every segment in order.
+- Requires the daemon's `agentProfileSwitch` capability; older interfaces don't receive the marker. Tool results and provider-private state don't carry over, and automatic pooled switching remains planned. See the [profile switching plan](docs/plans/profile-switching.md).
+
+- Merge main at 0.11.0-beta.3.vorteo.781 into the CI repair branch so it integrates cleanly with the next batch; the authorization test keeps main's stronger unknown-observation check.
+
+## 0.11.0-beta.3.vorteo.777 - 2026-10-22
+
+### Maintenance
+
+- Repair the installation test suites that failed on Linux CI. Server tests now use a private temporary root when the system one is shared, because installation custody rightly refuses world-writable ancestors such as Linux /tmp. Tests that read the native macOS launcher, LaunchAgents or Host observer run only on macOS. The server test job builds the server, which the supervisor suites execute. A retained v682 Dev provisioner is now a captured fixture rather than a reconstruction from today's generator, and still verifies.
+
+## 0.11.0-beta.3.vorteo.776 - 2026-10-22
+
+### Maintenance
+
+- Repair the server test suites that failed CI on Linux. The server's own Factory contract imports now resolve to source in tests, so suites load without a server build. Test fakes gain the archive guards, origin admission and per-client capability checks the server now calls. Tests follow deliberate changes: uncertain config writes, saved compaction summaries, shared skill selection, retired device pairing. Built-in plugin fixtures use canonical temporary paths, which the Factory custody checks require on macOS.
+
+### Changed
+
+- Installation account delivery routes mount through one provider-neutral function, keeping Claude-specific wiring out of the daemon bootstrap.
+
+## 0.11.0-beta.3.vorteo.775 - 2026-10-22
+
+### Maintenance
+
+- Format the Builds push guard script and its test, which failed the CI format check on main.
+
+## 0.11.0-beta.3.vorteo.798 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.797 - 2026-10-22
+
+### Maintenance
+
+- Merge the Projects folder follow-up: Dev git trusts repositories inside the Projects folder, membership keys and Host sidebar keys move to the folder path
+
+## 0.11.0-beta.3.vorteo.796 - 2026-10-22
+
+### Fixed
+
+- Dev's git no longer refuses repositories in the Projects folder as dubiously owned. Each daemon git command inside the folder or its aliases trusts that repository's exact physical top level for that command only, found without running git; worktree creation and git status in new worktrees work again. Repositories elsewhere get no override.
+- Agents and terminals in Dev trust new projects and Paseo-owned worktrees too: the daemon appends each exact physical path reached through an alias to its user's global `safe.directory`, once, with no wildcard.
+- Workspaces whose membership key still named the old container path rejoin their project in the sidebar. The startup registry move and every registry write now map `projectMembership.key` to the logical path, respecting kept paths, and the move repairs registries migrated earlier.
+- Projects whose keys moved keep their saved sidebar order, collapse state, filters and folders. The daemon rewrites saved project keys under a Projects folder alias once when it opens `sidebar-state.json`, after a backup, keeping the new key's value when both exist.
+
+### Changed
+
+- `configure-projects-folder` gives the Host the same earlier paths, aliases and kept paths as Dev, including the mount it finds, so shared keys that Dev recorded map alike on the Host. Run it again with the same flags before the Host update.
+
+## 0.11.0-beta.3.vorteo.796 - 2026-10-22
+
+### Maintenance
+
+- Merge the settings redesign: About folded into General, diagnostics into Connected hosts, provider pages in Accounts and profiles, and API keys shared across environments
+
+## 0.11.0-beta.3.vorteo.783 - 2026-10-22
+
+### Fixed
+
+- Opening Settings at a section keeps that section in view while content above it finishes loading, even when several sections grow at once. A jump that lands short because sections below are still mounting completes once they appear instead of leaving the page wherever it stopped.
+
+### Tests
+
+- Settings navigation tests expect Diagnostics under General, and the sticky environment tabs check waits for wheel scrolling to settle before measuring.
+
+## 0.11.0-beta.3.vorteo.782 - 2026-10-22
+
+### Changed
+
+- Settings no longer has a separate About section. App version, What's new and a new GitHub row sit in an About card inside General. Connected hosts moves to General and now holds the connection check (from Environments) and the diagnostics rows (from Maintenance) in one card. Sending moves to Chat & editor, and New workspace defaults move to Workspaces & projects. Old About and Diagnostics links open the new locations.
+- Accounts & profiles lists each provider as a row that opens the provider's own page. The page shows its connections with one combined status ("Ready everywhere", or only the environment that differs), quota bars on each connection, Profiles with a star for the default, Model defaults, and a quiet "Remove from Vorteo" row at the bottom. The per-provider tab row, the separate Plan usage list and the Host / Dev container tabs in the Manage sheet are gone; Environment access in each connection's menu holds the rare per-environment opt-out. Add provider and Add connection install and sign in on Host by default.
+
+### Added
+
+- The installation coordinator stores provider API keys and tokens once and delivers them into every bound environment's provider configuration, withdrawing them from excluded and removed environments. Delivery starts on save and retries every 5 seconds. Owner routes under `/api/installation/owner/provider-secrets/` set and clear keys and report status for each environment, returning only names, last four characters and timestamps. Daemons advertise `providerSecretDelivery`. On first sync a key found in exactly one form is adopted; differing values are reported as conflicts and never overwritten silently.
+- Each connection on a provider page has an API keys sheet showing which environments have the current keys. Codex connections show which environments still need their own sign-in; Codex refresh grants are not copied between environments.
+- Host-owned refresh for full sign-in Claude accounts remains opt-in through `claudeHostRefresh: true`.
+
+### Tests
+
+- The packaged installation browser test opens provider pages and connection menus instead of the removed Manage sheet, installs runtimes on Host by default and in the Dev container explicitly, and removes a provider from its page. Environment access keeps showing Connect for an environment that is turned off, so a restored connection can sign in again.
+
 ## 0.11.0-beta.3.vorteo.797 - 2026-10-22
 
 ### Maintenance
@@ -15,6 +278,72 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Merge the installed Host main into Dev's installed source so the Dev update descends from what Dev runs
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Maintenance
+
+- Merge Dev's installed source so the Dev update is a fast-forward of what Dev runs; main already carries every Dev change
+
+## 0.11.0-beta.3.vorteo.693 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.692 - 2026-10-20
+
+### Fixes
+
+- ACP agents (Cursor, Copilot, Kimi, Kiro and generic ACP providers) now receive the agent's system prompt and the shared agent instructions in a marked block on a new session's first prompt. A failed first prompt keeps them for the next turn, a first-turn slash command defers them, and history replay hides the block.
+
+## 0.11.0-beta.3.vorteo.691 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Fixed
+
+- Accept the read-only Factory qualifier workspace. Governed workers previously had to use a fully writable workspace, so Factory issue qualification, which reads the workspace and writes only its private `.factory-tmp` scratch directory, failed right after launch with "Native worker filesystem confinement is unavailable". The verifier now accepts exactly two strict shapes, the existing writable one and the read-only one with `.factory-tmp` writable, and refuses near misses.
+- Require `.factory-tmp` to be a real directory, not a file or symlink, before a read-only worker starts.
+- Add focused tests for both shapes, near-miss shapes and the scratch directory checks.
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.689 - 2026-10-20
+
+### Fixed
+
+- Bound how long one schedule tick waits for an admitted attempt. A protected attempt that has neither dispatched nor settled within 15 seconds stays running and admitted, and the tick continues with the remaining schedules. Without this, one hung quota preparation would stop all scheduled work until a daemon restart.
+- Log a warning when an attempt reaches the bound, and once when later ticks are skipped behind a long-held tick.
+- Add a regression test for a hung protected admission.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Fixed
+
+- Prevent overlapping schedule ticks. A tick that starts while another is still admitting schedules is skipped, and the guard is released after failures. Dispatched scheduled runs continue concurrently, so long runs do not delay other due schedules.
+- Skip a schedule that changed after the tick's snapshot and retry it on the next tick, instead of aborting the remaining schedules. This removes the repeated "Schedule changed before admission" failures from held protected schedules. Admission rules, protected custody and quota handling are unchanged.
+- Add focused schedule service tests for overlapping ticks, stale admission, guard release after failure and concurrent dispatched runs.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.795 - 2026-10-22
 
@@ -626,6 +955,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - The installation agent tool reports invalid source batch contributions as well as conflicting ones, naming the requester and the rejection, so a batch blocked by an invalid contribution (such as a release-note heading the coordinator refused) no longer looks silently pending. The installation-maintenance skill says to ask the owning task to correct a contribution that is not yours.
 
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Fixed
+
+- Port three fixes that shipped only to Dev (source `0a4ab444`, 2026-10-19 and 2026-10-20) to the Host source, so GitHub main carries everything Dev runs: schedule ticks no longer overlap or admit stale work, schedule tick admission waits are bounded, and Codex workers accept the read-only Factory qualifier workspace profile.
+
 ## 0.11.0-beta.3.vorteo.758 - 2026-10-22
 
 ### Added
@@ -807,78 +1142,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Show Download in the file preview toolbar for every file, not only images, placed immediately after Copy all. Editable text files download the saved copy on disk; unsaved edits are not included. Binary previews keep their larger Download button in the body.
-
-## 0.11.0-beta.3.vorteo.758 - 2026-10-22
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.757 - 2026-10-22
-
-### Maintenance
-
-- Merge Dev's installed source so the Dev update is a fast-forward of what Dev runs; main already carries every Dev change
-
-## 0.11.0-beta.3.vorteo.693 - 2026-10-20
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.692 - 2026-10-20
-
-### Fixes
-
-- ACP agents (Cursor, Copilot, Kimi, Kiro and generic ACP providers) now receive the agent's system prompt and the shared agent instructions in a marked block on a new session's first prompt. A failed first prompt keeps them for the next turn, a first-turn slash command defers them, and history replay hides the block.
-
-## 0.11.0-beta.3.vorteo.691 - 2026-10-20
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.690 - 2026-10-20
-
-### Fixed
-
-- Accept the read-only Factory qualifier workspace. Governed workers previously had to use a fully writable workspace, so Factory issue qualification, which reads the workspace and writes only its private `.factory-tmp` scratch directory, failed right after launch with "Native worker filesystem confinement is unavailable". The verifier now accepts exactly two strict shapes, the existing writable one and the read-only one with `.factory-tmp` writable, and refuses near misses.
-- Require `.factory-tmp` to be a real directory, not a file or symlink, before a read-only worker starts.
-- Add focused tests for both shapes, near-miss shapes and the scratch directory checks.
-
-## 0.11.0-beta.3.vorteo.690 - 2026-10-20
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.689 - 2026-10-20
-
-### Fixed
-
-- Bound how long one schedule tick waits for an admitted attempt. A protected attempt that has neither dispatched nor settled within 15 seconds stays running and admitted, and the tick continues with the remaining schedules. Without this, one hung quota preparation would stop all scheduled work until a daemon restart.
-- Log a warning when an attempt reaches the bound, and once when later ticks are skipped behind a long-held tick.
-- Add a regression test for a hung protected admission.
-
-## 0.11.0-beta.3.vorteo.688 - 2026-10-19
-
-### Fixed
-
-- Prevent overlapping schedule ticks. A tick that starts while another is still admitting schedules is skipped, and the guard is released after failures. Dispatched scheduled runs continue concurrently, so long runs do not delay other due schedules.
-- Skip a schedule that changed after the tick's snapshot and retry it on the next tick, instead of aborting the remaining schedules. This removes the repeated "Schedule changed before admission" failures from held protected schedules. Admission rules, protected custody and quota handling are unchanged.
-- Add focused schedule service tests for overlapping ticks, stale admission, guard release after failure and concurrent dispatched runs.
-
-## 0.11.0-beta.3.vorteo.688 - 2026-10-19
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.756 - 2026-10-22
-
-### Fixed
-
-- Port three fixes that shipped only to Dev (source `0a4ab444`, 2026-10-19 and 2026-10-20) to the Host source, so GitHub main carries everything Dev runs: schedule ticks no longer overlap or admit stale work, schedule tick admission waits are bounded, and Codex workers accept the read-only Factory qualifier workspace profile.
 
 ## 0.11.0-beta.3.vorteo.755 - 2026-10-22
 

@@ -11,10 +11,13 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, test } from "vitest";
 import { SkillLibrary } from "./library";
 import { inventorySkills } from "./inventory";
 import type { SkillLibraryResult } from "@getpaseo/protocol/skill-library";
+
+// These cases need POSIX file modes, signals or rename semantics; Windows cannot run them.
+const posixTest = test.skipIf(process.platform === "win32");
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -198,36 +201,41 @@ it("restores relative discovery links without resolving them from the backup dir
   expect(await realpath(alias.path)).toBe(await realpath(target));
 });
 
-it("shares a personal package without changing its bytes, executable files, or source identity", async () => {
-  const origin = await harness();
-  const destination = await harness();
-  await origin.library.change({
-    kind: "apply",
-    previewId: previewId(await origin.library.change({ kind: "preview_install", source })),
-  });
-  await writeFile(path.join(origin.target, "run.sh"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
-  const binary = Buffer.from([0, 255, 128, 1]);
-  await writeFile(path.join(origin.target, "data.bin"), binary);
-  const skill = (await inventorySkills({ home: origin.home })).skills[0];
-  const exported = await origin.library.read({ kind: "package", id: skill.id });
-  if (exported.kind !== "package") throw new Error("Expected package");
-  expect(JSON.stringify(exported)).not.toContain(origin.home);
-  const preview = await destination.library.change({
-    kind: "preview_import",
-    package: exported.package,
-  });
-  expect((await inventorySkills({ home: destination.home })).skills).toEqual([]);
-  await destination.library.change({ kind: "apply", previewId: previewId(preview) });
-  const copied = (await inventorySkills({ home: destination.home })).skills[0];
-  expect(copied).toMatchObject({ identity: skill.identity, sha256: skill.sha256, source });
-  expect(await readFile(path.join(destination.target, "data.bin"))).toEqual(binary);
-  expect((await stat(path.join(destination.target, "run.sh"))).mode & 0o111).toBe(0o100);
-  await writeFile(path.join(destination.target, "local.txt"), "Preserve this");
-  await expect(
-    destination.library.change({ kind: "preview_import", package: exported.package }),
-  ).rejects.toThrow("changed locally");
-  expect(await readFile(path.join(destination.target, "local.txt"), "utf8")).toBe("Preserve this");
-});
+posixTest(
+  "shares a personal package without changing its bytes, executable files, or source identity",
+  async () => {
+    const origin = await harness();
+    const destination = await harness();
+    await origin.library.change({
+      kind: "apply",
+      previewId: previewId(await origin.library.change({ kind: "preview_install", source })),
+    });
+    await writeFile(path.join(origin.target, "run.sh"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    const binary = Buffer.from([0, 255, 128, 1]);
+    await writeFile(path.join(origin.target, "data.bin"), binary);
+    const skill = (await inventorySkills({ home: origin.home })).skills[0];
+    const exported = await origin.library.read({ kind: "package", id: skill.id });
+    if (exported.kind !== "package") throw new Error("Expected package");
+    expect(JSON.stringify(exported)).not.toContain(origin.home);
+    const preview = await destination.library.change({
+      kind: "preview_import",
+      package: exported.package,
+    });
+    expect((await inventorySkills({ home: destination.home })).skills).toEqual([]);
+    await destination.library.change({ kind: "apply", previewId: previewId(preview) });
+    const copied = (await inventorySkills({ home: destination.home })).skills[0];
+    expect(copied).toMatchObject({ identity: skill.identity, sha256: skill.sha256, source });
+    expect(await readFile(path.join(destination.target, "data.bin"))).toEqual(binary);
+    expect((await stat(path.join(destination.target, "run.sh"))).mode & 0o111).toBe(0o100);
+    await writeFile(path.join(destination.target, "local.txt"), "Preserve this");
+    await expect(
+      destination.library.change({ kind: "preview_import", package: exported.package }),
+    ).rejects.toThrow("changed locally");
+    expect(await readFile(path.join(destination.target, "local.txt"), "utf8")).toBe(
+      "Preserve this",
+    );
+  },
+);
 
 it("rejects unsafe and corrupted transfers before writing a skill package", async () => {
   const origin = await harness();

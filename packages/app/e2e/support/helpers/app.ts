@@ -35,7 +35,12 @@ export const openSettings = async (page: Page) => {
   // Settings sits in the toolbar when there is room, otherwise in its overflow menu.
   const settingsButton = page.locator('[data-testid="sidebar-settings"]:visible').first();
   const overflow = page.getByTestId("sidebar-footer-overflow");
-  if (!(await settingsButton.isVisible()) && (await overflow.isVisible())) {
+  // The toolbar can render after the footer, so give the button a moment before falling back.
+  const inToolbar = await settingsButton
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!inToolbar && (await overflow.isVisible())) {
     await overflow.click();
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   } else {

@@ -45,13 +45,12 @@ vi.mock("@/runtime/host-runtime", () => ({
   useHostRegistryLoaded: () => true,
 }));
 vi.mock("expo-router", () => ({
+  // The panel's plugin navigation imports these; a missing mock export hangs browser mode.
+  router: { push: vi.fn(), replace: vi.fn(), navigate: vi.fn() },
   usePathname: () => "/settings/general",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-}));
-// The Unistyles browser stub has no responsive runtime; supply the compact form factor input.
-vi.mock("@/constants/layout", async (original) => ({
-  ...(await original<typeof import("@/constants/layout")>()),
-  useIsCompactFormFactor: () => window.innerWidth <= 500,
+  useLocalSearchParams: () => ({}),
+  useGlobalSearchParams: () => ({}),
 }));
 // Supply the absolute-fill constant the shared style stub omits, for disabled-action overlays.
 vi.mock("react-native-unistyles", async (original) => {

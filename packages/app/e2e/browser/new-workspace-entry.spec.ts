@@ -76,9 +76,6 @@ test.describe("New workspace entry points", () => {
         workspaceId: seeded.workspaceId,
       });
 
-      const globalButton = page.getByTestId("sidebar-global-new-workspace");
-      await expect(globalButton).toBeVisible({ timeout: 30_000 });
-
       await openGlobalNewWorkspaceComposer(page);
       await expect(page.getByTestId("host-chooser")).toHaveCount(0);
 

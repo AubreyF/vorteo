@@ -740,7 +740,10 @@ export class VoiceAssistantWebSocketServer {
     this.workspaceAutoName = workspaceAutoName;
     this.downloadTokenStore = downloadTokenStore;
     this.paseoHome = paseoHome;
-    this.sidebarState = new SidebarStateStore(join(paseoHome, "sidebar-state.json"));
+    this.sidebarState = new SidebarStateStore(join(paseoHome, "sidebar-state.json"), {
+      projectsFolder: daemonRuntimeConfig?.projectsFolder,
+      logger: this.logger.child({ module: "sidebar-state" }),
+    });
     this.passwordHash = auth?.password;
     this.worktreesRoot = daemonRuntimeConfig?.worktreesRoot;
     this.daemonConfigStore = daemonConfigStore;
@@ -2077,6 +2080,7 @@ export class VoiceAssistantWebSocketServer {
         codexAccountCreation: true,
         claudeAccountCreation: true,
         claudeFullSignIn: true,
+        providerSecretDelivery: true,
         providerCredentialRemoval: true,
         providerOrdering: true,
         providerAccountLogin: Object.values(

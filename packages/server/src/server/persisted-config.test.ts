@@ -17,6 +17,9 @@ import {
 import { ConfigWriterError } from "./config-writer.js";
 import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "./private-files.js";
 
+// These cases need POSIX file modes, signals or rename semantics; Windows cannot run them.
+const posixTest = test.skipIf(process.platform === "win32");
+
 const MODE_MASK = 0o777;
 const PERMISSIVE_FILE_MODE = 0o644;
 
@@ -911,7 +914,7 @@ describe("persisted settings writer ownership", () => {
     }
   });
 
-  test("refuses a competing exported writer in a separate process", () => {
+  posixTest("refuses a competing exported writer in a separate process", () => {
     const home = createTempHome();
     const modulePath = fileURLToPath(new URL("./persisted-config.ts", import.meta.url));
     try {

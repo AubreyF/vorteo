@@ -7,8 +7,7 @@ import {
   createConfiguredBootstrapReview,
   deferBootstrapReview,
 } from "./execution-installation/coordinator-bootstrap-launch.js";
-import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
-import { mountClaudeOAuthConsumer } from "./execution-installation/accounts/claude-oauth-consumer.js";
+import { mountInstallationAccountConsumers } from "./execution-installation/accounts/consumers.js";
 import { ScheduleStore } from "./schedule/store.js";
 import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
 import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
@@ -914,21 +913,16 @@ export async function createPaseoDaemon(
   );
 
   app.use(express.json());
-  const refreshClaudeProvider = (providerId: string) => {
-    void providerSnapshotManager.refreshSettingsSnapshot({ providers: [providerId] }).catch(() => {
-      logger.warn({ providerId }, "Claude provider catalog refresh is pending");
-    });
-  };
-  mountClaudeSetupConsumer(app, {
+  mountInstallationAccountConsumers(app, {
     paseoHome: config.paseoHome,
     store: daemonConfigStore,
-    onApplied: refreshClaudeProvider,
-  });
-  // Inert unless the installation coordinator enables Host-owned Claude refresh.
-  mountClaudeOAuthConsumer(app, {
-    paseoHome: config.paseoHome,
-    store: daemonConfigStore,
-    onApplied: refreshClaudeProvider,
+    onApplied: (providerId) => {
+      void providerSnapshotManager
+        .refreshSettingsSnapshot({ providers: [providerId] })
+        .catch(() => {
+          logger.warn({ providerId }, "Installation account provider catalog refresh is pending");
+        });
+    },
   });
 
   // Serve static files from public directory
@@ -2357,7 +2351,7 @@ async function closeAllAgents(logger: Logger, agentManager: AgentManager): Promi
 }
 
 /**
- * Durable sessions run eligible Claude sessions in the session host when their setting file
+ * Durable sessions run eligible provider sessions in the session host when their setting file
  * enables them. The connection is made lazily, so a disabled setting costs nothing, and a worker
  * never waits on an absent host: such sessions simply run in the worker.
  */

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { ArrowDown, ArrowUp, FileText, Pencil, Trash2 } from "lucide-react-native";
+import { ArrowDown, ArrowUp, FileText, Pencil, Star, Trash2 } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import type { AgentProfile } from "@getpaseo/protocol/messages";
@@ -16,6 +16,7 @@ const ThemedArrowDown = withUnistyles(ArrowDown);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedFileText = withUnistyles(FileText);
+const ThemedStar = withUnistyles(Star);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const destructiveColorMapping = (theme: Theme) => ({ color: theme.colors.destructive });
@@ -24,6 +25,12 @@ const moveUpIcon = <ThemedArrowUp size={ICON_SIZE.sm} uniProps={mutedColorMappin
 const moveDownIcon = <ThemedArrowDown size={ICON_SIZE.sm} uniProps={mutedColorMapping} />;
 const editIcon = <ThemedPencil size={ICON_SIZE.sm} uniProps={mutedColorMapping} />;
 const removeIcon = <ThemedTrash2 size={ICON_SIZE.sm} uniProps={destructiveColorMapping} />;
+const accentFillMapping = (theme: Theme) => ({
+  color: theme.colors.accent,
+  fill: theme.colors.accent,
+});
+const defaultIcon = <ThemedStar size={ICON_SIZE.sm} uniProps={accentFillMapping} />;
+const makeDefaultIcon = <ThemedStar size={ICON_SIZE.sm} uniProps={mutedColorMapping} />;
 
 export interface AgentProfileRowProps {
   profile: AgentProfile;
@@ -36,6 +43,9 @@ export interface AgentProfileRowProps {
   onRemove: (id: string) => void;
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
+  /** Shows a star that marks the default profile; omitted where defaults do not apply. */
+  isDefault?: boolean;
+  onMakeDefault?: (id: string) => void;
 }
 
 export function AgentProfileRow({
@@ -49,6 +59,8 @@ export function AgentProfileRow({
   onRemove,
   onMoveUp,
   onMoveDown,
+  isDefault = false,
+  onMakeDefault,
 }: AgentProfileRowProps): ReactElement {
   const { t } = useTranslation();
 
@@ -56,6 +68,10 @@ export function AgentProfileRow({
   const handleRemove = useCallback(() => onRemove(profile.id), [onRemove, profile.id]);
   const handleMoveUp = useCallback(() => onMoveUp(profile.id), [onMoveUp, profile.id]);
   const handleMoveDown = useCallback(() => onMoveDown(profile.id), [onMoveDown, profile.id]);
+  const handleMakeDefault = useCallback(
+    () => onMakeDefault?.(profile.id),
+    [onMakeDefault, profile.id],
+  );
 
   const formatFeatureCount = useCallback(
     (count: number) =>
@@ -106,6 +122,17 @@ export function AgentProfileRow({
         </View>
       </View>
       <View style={styles.rowActions}>
+        {onMakeDefault ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={isDefault ? defaultIcon : makeDefaultIcon}
+            onPress={handleMakeDefault}
+            disabled={disabled || isDefault}
+            accessibilityLabel={isDefault ? "Default profile" : "Make default profile"}
+            testID={`agent-profile-default-${profile.id}`}
+          />
+        ) : null}
         <Button
           variant="ghost"
           size="sm"

@@ -54,14 +54,19 @@ describe("daemon agent skill selection", () => {
     expect(loadPersistedConfig(root).agents?.skills?.selection).toEqual({ mode: "all" });
   });
 
-  it("does not expose selection through the generic config patch path", async () => {
+  // Vorteo routes selection through the config patch so installation settings admission applies.
+  it("shares one persisted selection with the config patch path", async () => {
     const { config, root, store } = await createStore();
 
     config.patch({
       skills: { selection: { mode: "custom", skills: ["paseo"] } },
-    } as MutableDaemonConfigPatch);
+    } satisfies MutableDaemonConfigPatch);
 
-    expect(await store.isSet()).toBe(false);
-    expect(loadPersistedConfig(root).agents?.skills).toBeUndefined();
+    expect(await store.isSet()).toBe(true);
+    expect(await store.get()).toEqual({ mode: "custom", skills: ["paseo"] });
+    expect(loadPersistedConfig(root).agents?.skills?.selection).toEqual({
+      mode: "custom",
+      skills: ["paseo"],
+    });
   });
 });

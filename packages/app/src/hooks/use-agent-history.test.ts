@@ -19,12 +19,13 @@ let fetchAgentHistoryBatch: UseAgentHistoryModule["fetchAgentHistoryBatch"];
 let fetchAgentHistoryPage: UseAgentHistoryModule["fetchAgentHistoryPage"];
 let collectAgentHistoryHostErrors: UseAgentHistoryModule["collectAgentHistoryHostErrors"];
 
+// Transforming this module graph takes about nine seconds on a loaded machine.
 beforeAll(async () => {
   const module = await import("./use-agent-history");
   fetchAgentHistoryBatch = module.fetchAgentHistoryBatch;
   fetchAgentHistoryPage = module.fetchAgentHistoryPage;
   collectAgentHistoryHostErrors = module.collectAgentHistoryHostErrors;
-});
+}, 30_000);
 
 type FetchAgentHistory = DaemonClient["fetchAgentHistory"];
 type FetchAgentHistoryResult = Awaited<ReturnType<FetchAgentHistory>>;

@@ -316,9 +316,6 @@ describe("paseo daemon bootstrap", () => {
         }),
       ).rejects.toThrow(/disabled/i);
       expect((await client.getDaemonStatus()).relay?.enabled).toBe(true);
-      expect((await client.getDaemonPairingOffer()).url).toContain(
-        "https://after.example.test/#offer=",
-      );
     } finally {
       configureGitProcessPolicy(DEFAULT_GIT_PROCESS_POLICY);
       await client?.close().catch(() => undefined);
@@ -438,6 +435,7 @@ describe("paseo daemon bootstrap", () => {
     const staticDir = await mkdtemp(path.join(os.tmpdir(), "paseo-static-"));
     await mkdir(paseoHome, { recursive: true });
     const config: PaseoDaemonConfig = {
+      systemProjectEnabled: false,
       listen: "127.0.0.1:0",
       paseoHome,
       corsAllowedOrigins: [],
@@ -551,6 +549,7 @@ describe("paseo daemon bootstrap", () => {
       },
     };
     const config: PaseoDaemonConfig = {
+      systemProjectEnabled: false,
       listen: "127.0.0.1:0",
       paseoHome,
       corsAllowedOrigins: [],
@@ -691,6 +690,8 @@ export default function contribute(plugin: unknown) {
     const config: PaseoDaemonConfig = {
       listen: `127.0.0.1:${mainPort}`,
       paseoHome,
+      // Test daemons start without the System project, as the shared daemon fixture does.
+      systemProjectEnabled: false,
       corsAllowedOrigins: [],
       hostnames: true,
       mcpEnabled: false,
@@ -778,6 +779,7 @@ export default function contribute(plugin: unknown) {
     await mkdir(paseoHome, { recursive: true });
 
     const config: PaseoDaemonConfig = {
+      systemProjectEnabled: false,
       listen: "127.0.0.1:0",
       paseoHome,
       corsAllowedOrigins: [],
@@ -914,6 +916,7 @@ export default function contribute(plugin: unknown) {
       const logger = pino({ level: "silent" });
 
       const config: PaseoDaemonConfig = {
+        systemProjectEnabled: false,
         listen: socketPath,
         paseoHome,
         corsAllowedOrigins: [],

@@ -173,6 +173,14 @@ class EmptyDaemonConfigStore {
   onChange() {
     return () => {};
   }
+
+  inspectOriginAdmission() {
+    return { state: "unavailable", reason: null, persistedOrigins: [], activeOrigins: null };
+  }
+
+  admitOrigin(): never {
+    throw new Error("Origin admission is not used by wire compatibility tests");
+  }
 }
 
 class InMemoryWorktreeWorkflow {

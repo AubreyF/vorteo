@@ -35,6 +35,8 @@ describe("daemon managed process bootstrap", () => {
       {
         listen: "127.0.0.1:0",
         paseoHome,
+        // Test daemons start without the System project, as the shared daemon fixture does.
+        systemProjectEnabled: false,
         corsAllowedOrigins: [],
         hostnames: true,
         mcpEnabled: false,
