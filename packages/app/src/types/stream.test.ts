@@ -1452,6 +1452,38 @@ describe("stream reducer canonical tool calls", () => {
     ]);
   });
 
+  it("keeps one profile switch marker when the same switch is replayed", () => {
+    const timestamp = new Date("2026-10-22T10:00:00Z");
+    const switchEvent = {
+      type: "timeline" as const,
+      provider: "codex",
+      item: {
+        type: "profile_switch" as const,
+        switchId: "switch-1",
+        reason: "quota" as const,
+        from: { provider: "claude", model: "claude-opus-4-7", profileName: "Claude 1" },
+        to: { provider: "codex", model: "gpt-5.5", profileId: "profile-2" },
+        carriedContextChars: 4200,
+      },
+    };
+    const state = hydrateStreamState([
+      { timestamp, event: switchEvent },
+      { timestamp, event: switchEvent },
+    ]);
+    expect(state).toEqual([
+      {
+        kind: "profile_switch",
+        id: "profile_switch_switch-1",
+        timestamp,
+        switchId: "switch-1",
+        reason: "quota",
+        from: { provider: "claude", model: "claude-opus-4-7", profileName: "Claude 1" },
+        to: { provider: "codex", model: "gpt-5.5", profileId: "profile-2" },
+        carriedContextChars: 4200,
+      },
+    ]);
+  });
+
   it("terminalizes the loading compaction before a completed turn", () => {
     const state = hydrateStreamState([
       {

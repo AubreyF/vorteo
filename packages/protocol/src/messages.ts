@@ -873,6 +873,22 @@ export type CompactionInspection = z.infer<typeof CompactionInspectionSchema>;
 
 export { AgentTaskItemSchema } from "./task-checklist.js";
 
+const ProfileSwitchEndpointSchema = z.object({
+  provider: z.string(),
+  model: z.string().nullable().optional(),
+  profileId: z.string().optional(),
+  profileName: z.string().optional(),
+});
+
+export const ProfileSwitchTimelineItemSchema = z.object({
+  type: z.literal("profile_switch"),
+  switchId: z.string(),
+  reason: z.enum(["manual", "quota", "auto"]),
+  from: ProfileSwitchEndpointSchema,
+  to: ProfileSwitchEndpointSchema,
+  carriedContextChars: z.number().nonnegative(),
+});
+
 // zod-aot 0.20.4 miscompiles this as a nested discriminated union by omitting
 // the inner tool_call branch from the generated outer dispatch.
 export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknown> = z.union([
@@ -916,6 +932,7 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
     compactionId: z.string().optional(),
     inspection: CompactionInspectionSchema.optional(),
   }),
+  ProfileSwitchTimelineItemSchema,
   z.object({
     type: z.literal("plugin"),
     id: z.string(),
@@ -2294,6 +2311,27 @@ export const AgentConfigApplyResponseMessageSchema = z.object({
   payload: AgentActionResponsePayloadSchema,
 });
 
+/**
+ * Moves an idle thread to another account or profile. The daemon starts a new
+ * native session with recorded context and keeps the thread's identity, goal,
+ * checklist and journal. Gated on `server_info.features.agentProfileSwitch`.
+ */
+export const AgentProfileSwitchRequestMessageSchema = z.object({
+  type: z.literal("agent.profile.switch.request"),
+  agentId: z.string(),
+  provider: z.string(),
+  profileId: z.string().optional(),
+  model: z.string().nullable().optional(),
+  thinkingOptionId: z.string().nullable().optional(),
+  reason: z.enum(["manual", "quota"]).optional(),
+  requestId: z.string(),
+});
+
+export const AgentProfileSwitchResponseMessageSchema = z.object({
+  type: z.literal("agent.profile.switch.response"),
+  payload: AgentActionResponsePayloadSchema,
+});
+
 export const AgentDetachRequestMessageSchema = z.object({
   type: z.literal("agent.detach.request"),
   agentId: z.string(),
@@ -3620,6 +3658,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   BootstrapClaimedRecoveryDecideRequestSchema,
   SetAgentFeatureRequestMessageSchema,
   AgentConfigApplyRequestMessageSchema,
+  AgentProfileSwitchRequestMessageSchema,
   AgentDetachRequestMessageSchema,
   AgentRewindRequestMessageSchema,
   AgentPermissionResponseMessageSchema,
@@ -4167,6 +4206,8 @@ export const ServerInfoStatusPayloadSchema = z
         installationProviderRemoval: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: z.boolean().optional(),
+        // COMPAT(agentProfileSwitch): added in Vorteo 2026-10, remove gate after 2027-04-22.
+        agentProfileSwitch: z.boolean().optional(),
         // COMPAT(localProjectConfig): added in Vorteo 2026-10, remove gate after 2027-04-22.
         // The daemon merges untracked paseo.local.json script entries over paseo.json.
         localProjectConfig: z.boolean().optional(),
@@ -7483,6 +7524,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   BootstrapClaimedRecoveryDecideResponseSchema,
   SetAgentFeatureResponseMessageSchema,
   AgentConfigApplyResponseMessageSchema,
+  AgentProfileSwitchResponseMessageSchema,
   AgentDetachResponseMessageSchema,
   AgentRewindResponseMessageSchema,
   UpdateAgentResponseMessageSchema,
@@ -7701,6 +7743,9 @@ export type SetAgentModelResponseMessage = z.infer<typeof SetAgentModelResponseM
 export type SetAgentThinkingResponseMessage = z.infer<typeof SetAgentThinkingResponseMessageSchema>;
 export type SetAgentFeatureResponseMessage = z.infer<typeof SetAgentFeatureResponseMessageSchema>;
 export type AgentConfigApplyResponseMessage = z.infer<typeof AgentConfigApplyResponseMessageSchema>;
+export type AgentProfileSwitchResponseMessage = z.infer<
+  typeof AgentProfileSwitchResponseMessageSchema
+>;
 export type AgentDetachResponseMessage = z.infer<typeof AgentDetachResponseMessageSchema>;
 export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessageSchema>;
 export type UpdateAgentResponseMessage = z.infer<typeof UpdateAgentResponseMessageSchema>;
@@ -7876,6 +7921,9 @@ export type SetAgentModelRequestMessage = z.infer<typeof SetAgentModelRequestMes
 export type SetAgentThinkingRequestMessage = z.infer<typeof SetAgentThinkingRequestMessageSchema>;
 export type SetAgentFeatureRequestMessage = z.infer<typeof SetAgentFeatureRequestMessageSchema>;
 export type AgentConfigApplyRequestMessage = z.infer<typeof AgentConfigApplyRequestMessageSchema>;
+export type AgentProfileSwitchRequestMessage = z.infer<
+  typeof AgentProfileSwitchRequestMessageSchema
+>;
 export type AgentDetachRequestMessage = z.infer<typeof AgentDetachRequestMessageSchema>;
 export type AgentPermissionResponseMessage = z.infer<typeof AgentPermissionResponseMessageSchema>;
 export type CheckoutStatusRequest = z.infer<typeof CheckoutStatusRequestSchema>;

@@ -19,6 +19,10 @@ import {
   readProfileHandoff,
 } from "./successor";
 import { ProfileHandoffModal } from "../handoff-modal";
+import { ProfileSwitchSheet } from "@/profile-switch/confirm-sheet";
+import { profileSwitchReason } from "@/profile-switch/reason";
+import { useHostFeature } from "@/runtime/host-features";
+import { agentProfileApplyAction } from "./apply-action";
 import type {
   AgentProfile,
   AgentSnapshotPayload,
@@ -144,6 +148,7 @@ export function useAgentProfilePicker(
   } = useProvidersSnapshot(serverId, { cwd: null });
   const { updatePreferences } = useFormPreferences();
   const supportsLaunch = hostSupportsLaunch;
+  const supportsSwitch = useHostFeature(serverId, "agentProfileSwitch");
   const client = useSessionStore((state) => state.sessions[serverId ?? ""]?.client ?? null);
   const toast = useToast();
   const [isApplying, setIsApplying] = useState(false);
@@ -190,7 +195,7 @@ export function useAgentProfilePicker(
     },
     [client, handoff, serverId],
   );
-  const handoffElement = handoff
+  const handoffModal = handoff
     ? createElement(ProfileHandoffModal, {
         key: `${handoff.source.id}:${handoff.profile.id}:${handoff.destinationServerId ?? serverId}`,
         name: handoff.profile.name,
@@ -206,6 +211,27 @@ export function useAgentProfilePicker(
         onConfirm: confirmHandoff,
       })
     : null;
+  const [pendingSwitch, setPendingSwitch] = useState<AgentProfile | null>(null);
+  const closeSwitch = useCallback(() => setPendingSwitch(null), []);
+  const confirmSwitch = useCallback(async () => {
+    if (target.kind !== "agent" || !pendingSwitch || !serverId) {
+      throw new Error("Select a profile for this thread before switching.");
+    }
+    if (!client) throw new Error("Reconnect to the host before switching accounts.");
+    const session = useSessionStore.getState().sessions[serverId];
+    const items = [
+      ...(session?.agentStreamTail.get(target.agentId) ?? []),
+      ...(session?.agentStreamHead.get(target.agentId) ?? []),
+    ];
+    await client.switchAgentProfile(target.agentId, {
+      provider: pendingSwitch.provider,
+      profileId: pendingSwitch.id,
+      model: pendingSwitch.model,
+      thinkingOptionId: pendingSwitch.thinkingOptionId,
+      reason: profileSwitchReason(items),
+    });
+    setPendingSwitch(null);
+  }, [client, pendingSwitch, serverId, target]);
   const createSuccessor = useCallback(
     async (profile: AgentProfile) => {
       if (target.kind !== "agent" || !client || !serverId || applyingRef.current) return;
@@ -225,6 +251,21 @@ export function useAgentProfilePicker(
     },
     [target, client, serverId, toast],
   );
+  const startSuccessorInstead = useCallback(() => {
+    if (!pendingSwitch) return;
+    setPendingSwitch(null);
+    void createSuccessor(pendingSwitch);
+  }, [pendingSwitch, createSuccessor]);
+  let handoffElement: ReactElement | null = handoffModal;
+  if (!handoffElement && pendingSwitch && target.kind === "agent") {
+    handoffElement = createElement(ProfileSwitchSheet, {
+      key: `${target.agentId}:${pendingSwitch.id}:${pendingSwitch.provider}`,
+      profileName: pendingSwitch.name,
+      onSwitch: confirmSwitch,
+      onNewTask: startSuccessorInstead,
+      onClose: closeSwitch,
+    });
+  }
 
   const applyDestinationProfile = useCallback(
     (destinationServerId: string, profile: AgentProfile) => {
@@ -400,7 +441,16 @@ export function useAgentProfilePicker(
         return;
       }
 
-      if (supportsLaunch) {
+      const action = agentProfileApplyAction({
+        target: target.kind,
+        supportsLaunch,
+        supportsSwitch,
+      });
+      if (action === "switch") {
+        setPendingSwitch(profile);
+        return;
+      }
+      if (action === "successor") {
         void createSuccessor(profile);
         return;
       }
@@ -431,6 +481,7 @@ export function useAgentProfilePicker(
       target,
       toast,
       supportsLaunch,
+      supportsSwitch,
       createSuccessor,
     ],
   );

@@ -45,6 +45,9 @@ export const CLIENT_CAPS = {
   timelineNotifications: "timeline_notifications",
   // COMPAT(pluginTimelineItems): added in v0.8.0, remove after 2027-03-07 once client floor >= v0.8.0.
   pluginTimelineItems: "plugin_timeline_items",
+  // COMPAT(profileSwitchTimeline): added in Vorteo 2026-10. Older clients' strict timeline
+  // union rejects profile switch markers, so the daemon omits them. Remove after 2027-04-22.
+  profileSwitchTimeline: "profile_switch_timeline",
   // COMPAT(workspaceSetupBlocked): added in v0.8.0, remove after 2027-03-07 once client floor >= v0.8.0.
   workspaceSetupBlocked: "workspace_setup_blocked",
   browserHost: "browser_host",

@@ -65,6 +65,9 @@ interface PresetControlsProps {
   quotaPausedAt?: string;
   onEdit?: () => void;
   disabled: boolean;
+  /** Opens the picker on behalf of an action outside the composer. */
+  openRequested?: boolean;
+  onOpenRequestHandled?: () => void;
 }
 export function activePresetPicker(input: {
   enabled?: boolean;
@@ -84,8 +87,18 @@ export function PresetControls({
   currentModel,
   currentThinkingOptionId,
   disabled,
+  openRequested = false,
+  onOpenRequestHandled,
 }: PresetControlsProps) {
-  const [open, setOpen] = useState(false);
+  const [openedHere, setOpenedHere] = useState(false);
+  const open = openedHere || openRequested;
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setOpenedHere(next);
+      if (!next && openRequested) onOpenRequestHandled?.();
+    },
+    [openRequested, onOpenRequestHandled],
+  );
   const panelActive = useRetainedPanelActive();
   const touch = useVortonTouch();
   const selectionDisabled = disabled || Boolean(profiles.isApplying);
@@ -139,7 +152,7 @@ export function PresetControls({
   }, [active, hasLocalEndpoint, serverId]);
   useEffect(() => {
     if (!active) setOpen(false);
-  }, [active]);
+  }, [active, setOpen]);
   const selected = profiles.rows.find((row) => row.id === selectedProfileId);
   const compactName = useCompactProfileName(controlsRef, isCompact);
   const { triggerLabel, showWarning, showRing, remaining, statusLabel, accessibilityLabel } =
@@ -156,7 +169,7 @@ export function PresetControls({
     });
   const show = useCallback(() => {
     setOpen(true);
-  }, []);
+  }, [setOpen]);
   const select = useCallback(
     (
       id: string,
@@ -166,9 +179,9 @@ export function PresetControls({
       profiles.applyProfile(id, choices);
       setOpen(false);
     },
-    [disabled, profiles],
+    [disabled, profiles, setOpen],
   );
-  const closeMenu = useCallback(() => setOpen(false), []);
+  const closeMenu = useCallback(() => setOpen(false), [setOpen]);
   if (inline)
     return (
       <View

@@ -4,6 +4,7 @@ import {
   AgentSnapshotPayloadSchema,
   AgentTimelineItemPayloadSchema,
   ServerInfoStatusPayloadSchema,
+  SessionInboundMessageSchema,
   SessionOutboundMessageSchema,
   WSHelloMessageSchema,
   WorkspaceSetupSnapshotSchema,
@@ -387,6 +388,34 @@ test("plugin rows and identity merges require a capable receiver", () => {
   expect(AgentTimelineEntryPayloadSchema.parse(entry)).toEqual(entry);
   const legacyCollapsed = z.array(z.enum(["assistant_merge", "reasoning_merge", "tool_lifecycle"]));
   expect(legacyCollapsed.safeParse(entry.collapsed).success).toBe(false);
+});
+
+test("profile switch markers parse and stay optional in requests and server features", () => {
+  const item = {
+    type: "profile_switch",
+    switchId: "switch",
+    reason: "quota",
+    from: { provider: "claude", model: "claude-opus-4-7", profileId: "p1", profileName: "Deep" },
+    to: { provider: "codex-account-2", model: null },
+    carriedContextChars: 1200,
+  };
+  expect(AgentTimelineItemPayloadSchema.parse(item)).toEqual(item);
+  const request = {
+    type: "agent.profile.switch.request",
+    agentId: "agent",
+    provider: "codex-account-2",
+    requestId: "request",
+  };
+  expect(SessionInboundMessageSchema.parse(request)).toEqual(request);
+  expect(
+    WSHelloMessageSchema.parse({
+      type: "hello",
+      clientId: "compat",
+      clientType: "mobile",
+      protocolVersion: 1,
+      capabilities: { profile_switch_timeline: true },
+    }).capabilities,
+  ).toEqual({ profile_switch_timeline: true });
 });
 
 test("blocked setup preserves the legacy failed shape and optional provenance", () => {

@@ -5,7 +5,7 @@
 
 ## Intelligent Frontier Account Pooling
 
-Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together.
+Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together. When an account hits its limit, switch the thread to another account, even another provider, without leaving it; a marker shows where the model changed. See [profile switching](docs/plans/profile-switching.md).
 
 <img width="800" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
 
