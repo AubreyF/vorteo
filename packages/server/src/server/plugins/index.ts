@@ -41,6 +41,8 @@ import {
   UsageSourceRegistry,
 } from "./usage-sources/index.js";
 import type { PluginUsageSourceMetadata } from "./plugin-process-protocol.js";
+import { NativeFactoryObservationService } from "../factory/observation-service.js";
+import type { NativeFactorySetupService } from "../factory/setup-service.js";
 
 const BUILTIN_PROVIDER_ID_SET: ReadonlySet<string> = new Set(BUILTIN_PROVIDER_IDS);
 
@@ -57,6 +59,7 @@ interface PluginRuntimePort {
   drainEvents?: PluginRuntime["drainEvents"];
   before?: PluginLifecycle["before"];
   catalog: PluginRuntime["catalog"];
+  isBuiltinPluginLoaded?: PluginRuntime["isBuiltinPluginLoaded"];
   invoke(pluginId: string, method: string, input: unknown): Promise<unknown>;
   getLogs(pluginId: string): PluginLogEntry[];
   clearLogs(pluginId: string): void;
@@ -77,6 +80,10 @@ interface PluginRuntimePort {
 }
 
 interface PluginServiceDependencies {
+  /** Startup-owned observer; plugin reload cannot create or replace its owner. */
+  factoryObservation?: () => Pick<NativeFactoryObservationService, "invoke"> | null;
+  factorySetup?: () => Pick<NativeFactorySetupService, "read"> | null;
+  factoryInstallation?: () => Pick<NativeFactorySetupService, "install"> | null;
   usageAgents?: AgentUsageLookup;
   settingsDirectory?: string;
   runtime?: PluginRuntimePort;
@@ -673,8 +680,40 @@ export class PluginService {
     });
   }
 
-  invokePluginRpc(pluginId: string, method: string, input: unknown): Promise<unknown> {
+  async invokePluginRpc(pluginId: string, method: string, input: unknown): Promise<unknown> {
+    if (
+      pluginId === "factory" &&
+      method === "factory.install" &&
+      this.isBuiltinPluginLoaded(pluginId)
+    ) {
+      const installer = this.dependencies.factoryInstallation?.();
+      if (installer) return installer.install(input);
+    }
+    if (
+      pluginId === "factory" &&
+      method === "factory.setup" &&
+      this.builtinPluginIds.has(pluginId) &&
+      this.runtime.isBuiltinPluginLoaded?.(pluginId) === true
+    ) {
+      const setup = this.dependencies.factorySetup?.();
+      if (setup) return setup.read(input);
+    }
+    if (
+      pluginId === "factory" &&
+      this.builtinPluginIds.has(pluginId) &&
+      NativeFactoryObservationService.supports(method) &&
+      this.runtime.isBuiltinPluginLoaded?.(pluginId) === true
+    ) {
+      const observer = this.dependencies.factoryObservation?.();
+      if (observer) return observer.invoke(method, input);
+    }
     return this.runtime.invoke(pluginId, method, input);
+  }
+
+  isBuiltinPluginLoaded(pluginId: string): boolean {
+    return (
+      this.builtinPluginIds.has(pluginId) && this.runtime.isBuiltinPluginLoaded?.(pluginId) === true
+    );
   }
 
   async stopAllPlugins(): Promise<void> {

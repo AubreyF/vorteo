@@ -1827,6 +1827,26 @@ export default function contribute(plugin: any) {
     await runtime.stopAll();
   });
 
+  it("ties builtin provenance to the loaded instance across stop and same-ID replacement", async () => {
+    const directory = await createPlugin(
+      "factory",
+      `export default function contribute(plugin: unknown) { void plugin; return () => undefined; }`,
+    );
+    const runtime = createTestRuntime();
+    expect(runtime.isBuiltinPluginLoaded("factory")).toBe(false);
+    await runtime.startBuiltinPlugin({ id: "factory", directory });
+    expect(runtime.isBuiltinPluginLoaded("factory")).toBe(true);
+    await runtime.stopPluginById("factory");
+    expect(runtime.isBuiltinPluginLoaded("factory")).toBe(false);
+    await runtime.startPlugin("factory", directory);
+    expect(runtime.isBuiltinPluginLoaded("factory")).toBe(false);
+    await runtime.stopPluginById("factory");
+    await runtime.startBuiltinPlugin({ id: "factory", directory });
+    expect(runtime.isBuiltinPluginLoaded("factory")).toBe(true);
+    await runtime.stopAll();
+    expect(runtime.isBuiltinPluginLoaded("factory")).toBe(false);
+  });
+
   it("uses the config key as runtime identity without comparing the manifest id", async () => {
     const directory = await createPlugin(
       "actual",

@@ -33,9 +33,11 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 - **Inspect what survives compaction.** Expand a compaction marker to read, copy or export the saved summary and inspect available token counts. Providers that do not expose readable summaries say so. New summary capture requires the updated daemon; older saved events may have no summary.
 
-- **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene. Vorteo also adds thread-scoped tools for agents to revise their own objective and resume authorized work, even when the provider’s native agent tools cannot edit or resume an existing goal. Goal editing requires the updated daemon and preserves usage, budgets and restart holds.
+- **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene. Vorteo also adds thread-scoped tools for agents to revise their own objective and resume authorized work, even when the provider’s native agent tools cannot edit or resume an existing goal. Goal editing requires the updated daemon and preserves usage, budgets and restart holds. Accounting updates do not invalidate an edit, while changed goal revisions require a fresh read.
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
+
+- **Factory project status and setup.** Inspect native project observations and setup availability in the Factory screen. Initial installation checks the selected host, project and visible revision, sends one correlated request, and holds uncertain outcomes for reconciliation. It requires a reconciled native owner; lifecycle actions remain unavailable. See [Factory](docs/factory.md).
 
 - **Enclaves for streamlined factory operations.** Workspaces with schedules or archive protection appear in Standing. Paused schedules keep their workspace there and show Paused. Protection and non-ended schedules both block archival until you remove them. Manage workspace schedules and custom labels from Tag As. Sidebar badges share compact padding with room above and below their text, and fade beneath the overlaid workspace menu using the current row background.
 

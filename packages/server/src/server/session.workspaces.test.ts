@@ -556,6 +556,7 @@ class CreateAgentTestClient implements AgentClient {
 function createSessionForWorkspaceTests(
   options: {
     appVersion?: string | null;
+    serverId?: string;
     onMessage?: (message: SessionOutboundMessage) => void;
     onWorkspaceRecovered?: SessionOptions["onWorkspaceRecovered"];
     workspaceGitService?: ReturnType<typeof createNoopWorkspaceGitService>;
@@ -649,6 +650,7 @@ function createSessionForWorkspaceTests(
       messageReceipts: createMessageReceiptsStub(),
       creationService: createTestCreationService(),
       clientId: "test-client",
+      serverId: options.serverId,
       permissions: OWNER_PERMISSIONS,
       appVersion: options.appVersion ?? null,
       onMessage: options.onMessage ?? vi.fn(),
@@ -3999,6 +4001,121 @@ test("archiving the last workspace emits a remove carrying the now-empty project
     },
   });
 });
+
+test.each([null, { key: "other", name: "Other project" }])(
+  "Factory workspace refuses ordinary project reassignment %j",
+  async (membership) => {
+    const emitted: SessionOutboundMessage[] = [];
+    const session = createSessionForWorkspaceTests({
+      onMessage: (message) => emitted.push(message),
+    });
+    const original: PersistedWorkspaceRecord = {
+      ...createPersistedWorkspaceRecord({
+        workspaceId: "factory-member",
+        projectId: "factory-project",
+        cwd: REPO_CWD,
+        kind: "local_checkout",
+        displayName: "Member",
+        createdAt: "2026-10-08T00:00:00.000Z",
+        updatedAt: "2026-10-08T00:00:00.000Z",
+      }),
+      factoryMembership: {
+        installationId: "installation",
+        projectId: "factory-project",
+        serverId: "factory-host",
+        role: "worker",
+      },
+    };
+    let retained = original;
+    session.workspaceRegistry.update = async (_id, update) => {
+      retained = update(retained);
+      return retained;
+    };
+    await session.handleMessage({
+      type: "workspace.project.set.request",
+      workspaceId: original.workspaceId,
+      membership,
+      requestId: "factory-project-move",
+    });
+    expect(findByType(emitted, "workspace.project.set.response")?.payload).toMatchObject({
+      accepted: false,
+      error: expect.stringContaining("Factory"),
+    });
+    expect(retained).toEqual(original);
+  },
+);
+
+test.each([null, "2026-10-08T00:00:00.000Z"])(
+  "Factory project removal refuses retained members including archived=%s and assigned children",
+  async (archivedAt) => {
+    const emitted: SessionOutboundMessage[] = [];
+    const session = createSessionForWorkspaceTests({
+      serverId: "factory-host",
+      onMessage: (message) => emitted.push(message),
+    });
+    const project = createPersistedProjectRecord({
+      projectId: "factory-project",
+      rootPath: REPO_CWD,
+      kind: "git",
+      displayName: "Factory",
+      createdAt: "2026-10-08T00:00:00.000Z",
+      updatedAt: "2026-10-08T00:00:00.000Z",
+    });
+    const workspace: PersistedWorkspaceRecord = {
+      ...createPersistedWorkspaceRecord({
+        workspaceId: "factory-member",
+        projectId: project.projectId,
+        cwd: REPO_CWD,
+        kind: "local_checkout",
+        displayName: "Member",
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+        archivedAt,
+      }),
+      protected: false,
+      projectMembership: { key: "some-other-project", name: "Assigned" },
+      factoryMembership: {
+        installationId: "installation",
+        projectId: project.projectId,
+        serverId: "factory-host",
+        role: "builds",
+      },
+    };
+    session.projectRegistry.get = async () => project;
+    session.workspaceRegistry.get = async () => workspace;
+    session.workspaceRegistry.list = async () => [workspace];
+    const remove = vi.fn(async () => {});
+    const archive = vi.fn(async () => {});
+    session.projectRegistry.remove = remove;
+    session.projectRegistry.archive = archive;
+    session.workspaceRegistry.archive = archive;
+    await session.handleMessage({
+      type: "project.remove.request",
+      projectId: project.projectId,
+      requestId: "factory-project-remove",
+    });
+    expect(findByType(emitted, "project.remove.response")?.payload).toMatchObject({
+      accepted: false,
+      removedWorkspaceIds: [],
+      error: expect.stringContaining("Factory"),
+    });
+    expect(remove).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+    expect(await session.workspaceRegistry.get(workspace.workspaceId)).toEqual(workspace);
+    expect(await session.describeWorkspaceRecord(workspace, project)).toMatchObject({
+      factoryMembership: workspace.factoryMembership,
+    });
+    expect(
+      await session.describeWorkspaceRecord(
+        {
+          ...workspace,
+          factoryMembership: { ...workspace.factoryMembership!, serverId: "different-host" },
+        },
+        project,
+      ),
+    ).not.toHaveProperty("factoryMembership");
+  },
+);
 
 test("project.remove.request archives active workspaces and removes the project record", async () => {
   const emitted: SessionOutboundMessage[] = [];
@@ -9703,4 +9820,84 @@ test("workspace.create.request reports an archived explicit project", async () =
     workspace: null,
     errorCode: "archived_project",
   });
+});
+
+test("guarded workspace recovery RPC preserves guard enforcement and does not recover agents", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "paseo-guarded-session-"));
+  const messages: SessionOutboundMessage[] = [];
+  const unarchiveAgent = vi.fn(async () => true);
+  try {
+    const projectRegistry = new FileBackedProjectRegistry(
+      path.join(root, "projects.json"),
+      createTestLogger(),
+    );
+    const workspaceRegistry = new FileBackedWorkspaceRegistry(
+      path.join(root, "workspaces.json"),
+      createTestLogger(),
+    );
+    const project = createPersistedProjectRecord({
+      projectId: "guarded-project",
+      rootPath: root,
+      kind: "non_git",
+      displayName: "project",
+      createdAt: "created",
+      updatedAt: "updated",
+    });
+    const workspace = createPersistedWorkspaceRecord({
+      workspaceId: "guarded-workspace",
+      projectId: project.projectId,
+      cwd: root,
+      kind: "directory",
+      displayName: "workspace",
+      createdAt: "created",
+      updatedAt: "updated",
+      archivedAt: "archived",
+    });
+    await projectRegistry.upsert(project);
+    await workspaceRegistry.upsert(workspace);
+    const session = createSessionForWorkspaceTests({
+      serverId: "srv_guarded",
+      paseoHome: root,
+      projectRegistry,
+      workspaceRegistry,
+      agentManager: { unarchiveSnapshot: unarchiveAgent },
+      onMessage: (message) => messages.push(message),
+    });
+    await session.handleMessage({
+      type: "workspace.recovery.inspect.request",
+      requestId: "inspect",
+      workspaceId: workspace.workspaceId,
+    });
+    const state = findByType(messages, "workspace.recovery.inspect.response")?.payload.state;
+    if (state?.kind !== "recoverable" || !state.guard)
+      throw new Error("Guard missing from actual RPC inspection");
+    await session.handleMessage({
+      type: "workspace.recovery.restore.request",
+      requestId: "wrong-host",
+      workspaceId: workspace.workspaceId,
+      guard: { ...state.guard, serverId: "srv_other" },
+    });
+    expect(findByType(messages, "workspace.recovery.restore.response")?.payload.accepted).toBe(
+      false,
+    );
+    expect(await workspaceRegistry.get(workspace.workspaceId)).toEqual(workspace);
+    await session.handleMessage({
+      type: "workspace.recovery.restore.request",
+      requestId: "guarded",
+      workspaceId: workspace.workspaceId,
+      guard: state.guard,
+    });
+    expect(
+      filterByType(messages, "workspace.recovery.restore.response").at(-1)?.payload,
+    ).toMatchObject({ requestId: "guarded", accepted: true });
+    expect(await workspaceRegistry.get(workspace.workspaceId)).toEqual({
+      ...workspace,
+      archivedAt: null,
+      updatedAt: expect.any(String),
+    });
+    expect(await projectRegistry.get(project.projectId)).toEqual(project);
+    expect(unarchiveAgent).not.toHaveBeenCalled();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

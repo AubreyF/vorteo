@@ -296,6 +296,7 @@ async function resolveEntryPaths(directory: string): Promise<{
 
 export class PluginRuntime {
   private readonly plugins = new Map<string, LoadedPlugin>();
+  private readonly builtinInstances = new WeakSet<LoadedPlugin>();
   private readonly pendingEvents = new Set<Promise<void>>();
   private readonly logTails = new Map<string, PluginLogTail>();
   private readonly logger: pino.Logger;
@@ -362,6 +363,7 @@ export class PluginRuntime {
       bundle: "",
       clientBundle: bundles.clientBundle ?? "",
     });
+    this.builtinInstances.add(loaded);
     this.plugins.set(input.id, loaded);
     this.appendLog(input.id, "stdout", "[paseo] Plugin ready");
   }
@@ -387,6 +389,11 @@ export class PluginRuntime {
     return [...this.plugins.values()]
       .map(({ id, clientBundle, requirements }) => ({ id, clientBundle, requirements }))
       .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  isBuiltinPluginLoaded(pluginId: string): boolean {
+    const loaded = this.plugins.get(pluginId);
+    return loaded !== undefined && this.builtinInstances.has(loaded);
   }
 
   getProviderRegistrations(pluginId: string): readonly PluginProviderMetadata[] {

@@ -68,3 +68,26 @@ test("clear completed skips tasks reopened during cleanup and stops on stale-edi
   await expect(clearCompletedTasks([done, dependent], conflict)).rejects.toThrow("Task changed");
   expect(conflict).toHaveBeenCalledTimes(1);
 });
+
+test("blocked can be selected and cleared without requiring dependencies", async () => {
+  const original: AgentTaskItem = {
+    id: "blocked",
+    text: "Awaiting review",
+    source: "vorteo",
+    status: "blocked",
+    completed: false,
+  };
+  const form = openChecklistForm(original);
+  expect(form.status).toBe("blocked");
+  expect(checklistFormMutation(form)).toMatchObject({
+    status: "blocked",
+    blockedBy: [],
+    expectedTask: original,
+  });
+  expect(
+    checklistFormMutation(updateChecklistForm(form, { field: "status", value: "pending" })),
+  ).toMatchObject({ status: "pending" });
+  const mutate = vi.fn();
+  await clearCompletedTasks([original], mutate);
+  expect(mutate).not.toHaveBeenCalled();
+});

@@ -5,6 +5,97 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.259 - 2026-10-09
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.258 - 2026-10-09
+
+### Maintenance
+
+- Preserve the accepted goal-edit source and complete release history in the checklist correction so the installed coordinator can accept the integrated contribution.
+
+## 0.11.0-beta.3.vorteo.257 - 2026-10-09
+
+### Fixed
+
+- Keep thread goal edits usable while native usage accounting advances, without accepting stale owner edits or bypassing continuation holds
+- Expose optional goal edit revisions and cover accounting, same-value writes, pause/resume cycles and caller-bound tool forwarding
+
+## 0.11.0-beta.3.vorteo.257 - 2026-10-09
+
+### Maintenance
+
+- Integrate the blocked checklist status with the published interface source while preserving every complete installed release-note entry and the original checklist notes.
+- Retain the published helper query, accordion hover and existing Factory source unchanged.
+
+## 0.11.0-beta.3.vorteo.254 - 2026-10-09
+
+### Added
+
+- Add a discretionary blocked checklist status to agent tools and task editing. Retain blocked items as incomplete across saved state, history refresh and client reloads.
+- Show blocked task badges and preserve compatibility with older clients through capability negotiation.
+
+### Maintenance
+
+- Select Node timer overloads in login services so full workspace typechecking remains valid with generated Expo route types.
+
+### Changed
+
+- Teach agents to set and clear blocked status independently of prerequisite links and keep blocked work below completed and active items.
+
+## 0.11.0-beta.3.vorteo.256 - 2026-10-09
+
+### Maintenance
+
+- Preserve the deployed accordion hover and Node timer typing corrections while integrating the helper query retry fix.
+
+## 0.11.0-beta.3.vorteo.255 - 2026-10-09
+
+### Maintenance
+
+- Integrate the native helper query retry correction with current published source, preserving Factory changes and all historical release entries.
+
+## 0.11.0-beta.3.vorteo.254 - 2026-10-09
+
+### Maintenance
+
+- Preserve the two installed maintenance release-note entries during managed integration. Factory implementation and published source remain unchanged.
+
+## 0.11.0-beta.3.vorteo.253 - 2026-10-09
+
+### Added
+
+- Package the existing Factory qualification, delivery and Builds pipeline behind native scheduling, account, custody and governed-stage ports.
+- Add guarded setup and one-shot installation controls in the client and CLI, with persistent reconciliation holds after partial outcomes.
+- Identify native Factory-managed workspaces with an icon and badge, and block ordinary archive and unprotect actions.
+
+### Fixed
+
+- Fence supported settings writers and origin admission, preserving unrelated settings and typed uncertainty after persistence.
+- Preserve native inspection revocation, prepaid authorization expiry, paired admission holds and retained recovery records.
+
+### Maintenance
+
+- Integrate current coordinator bootstrap, account setup and worker sidebar changes without starting another controller or changing live custody.
+- Preserve standard Factory contract compilation, generated asset copying and complete historical release notes. Live installation, authentication and controller acceptance remain required.
+
+## 0.11.0-beta.3.vorteo.253 - 2026-10-09
+
+### Fixed
+
+- Retry unsupported native helper queries once per minute while preserving owner authentication and automatic discovery after coordinator upgrades
+- Update installation client assertions for the existing trusted Host approval capability query
+
+## 0.11.0-beta.3.vorteo.254 - 2026-10-09
+
+### Fixed
+
+- Restore hover highlights on conversation card accordion headings without changing their layout
+- Reuse the reviewed Node timer typing fix so browser fixture imports pass typechecking
+
 ## 0.11.0-beta.3.vorteo.253 - 2026-10-09
 
 ### Maintenance
@@ -1671,3 +1762,157 @@ This baseline summarizes custom features and fixes present through this version,
 - Added compact account pickers and touch controls for phones and tablets
 - Added iOS Home Screen toolbar clearance below the system status-bar blur
 - Returned archived workspaces to the empty New workspace page
+
+## 0.11.0-beta.3.vorteo.220 - 2026-10-09
+
+### Added
+
+- Guard daemon and CLI configuration writes against competing supported writers and stale saved records
+- Add origin inspection and one-shot admission with exact serving identity and separate active and persisted preconditions
+
+### Maintenance
+
+- Preserve current main and installed release-note history alongside reviewed Factory source; controller startup and live origin admission require separate review
+
+## 0.11.0-beta.3.vorteo.211 - 2026-10-09
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.211 - 2026-10-08
+
+### Fixed
+
+- Hide Connect for Claude accounts whose configured CLI has verified authentication, including macOS accounts with saved credentials that usage reporting cannot read. Keep explicit authentication recovery and unavailable quota separate.
+- Cover successful sign-in without a credential file, reload, and subsequent sign-out at desktop and compact widths. Document the account and environment boundaries.
+
+## 0.11.0-beta.3.vorteo.210 - 2026-10-08
+
+### Fixed
+
+- Add room below goal content and align its controls. Give managed and provider subagents independent sections and scoped cleanup actions.
+- Add vertical room to question forms and align wrapping Dismiss, Next and Submit actions to the right at desktop and compact widths.
+- Integrate the reviewed spacing commits while preserving project selection, saved history, agent retry and queue refresh fixes.
+
+## 0.11.0-beta.3.vorteo.210 - 2026-10-08
+
+### Fixed
+
+- Integrate the published moved-workspace history repair. Active agent and workspace directories share membership policy, preserving saved threads after their original backing project is archived while retaining archive exclusions.
+
+## 0.11.0-beta.3.vorteo.209 - 2026-10-09
+
+### Maintenance
+
+- Combine 4 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.208 - 2026-10-08
+
+### Fixed
+
+- Refresh the shared message queue from rejected operation responses while retaining unsynchronized local changes and attachments. Do not replay a rejected operation automatically.
+
+## 0.11.0-beta.3.vorteo.208 - 2026-10-08
+
+### Fixed
+
+- Restore installation profile admission for paired managed Dev workers by discovering their validated private pairing client when supervisor inheritance is missing. Retain exact coordinator identity checks and the installed Factory source.
+
+## 0.11.0-beta.3.vorteo.207 - 2026-10-08
+
+### Fixed
+
+- Allow an edited agent draft to retry after a confirmed pre-creation rejection while retaining its reserved agent identity. Keep changed requests blocked after execution, ambiguous failure, or workspace changes.
+
+## 0.11.0-beta.3.vorteo.207 - 2026-10-08
+
+### Changed
+
+- Preserve explicit provenance for local agent sends, worker creation and steering, and draw shorter conversation navigation marks for these messages. Integrate the reviewed source without changing Factory code or existing release notes.
+
+## 0.11.0-beta.3.vorteo.206 - 2026-10-08
+
+### Fixed
+
+- Preserve logical project selection when projects share a Host directory. List projects before their selected environment has a placement, and use existing folder mapping or folder selection at submission.
+- Keep unarchived saved threads visible when their provider is unavailable, preserving workspace history and schedule badge associations after restart. Read saved history without starting an unavailable provider.
+
+## 0.11.0-beta.3.vorteo.206 - 2026-10-08
+
+### Fixed
+
+- Allow edited agent drafts to retry confirmed pre-creation failures with their reserved identity. Preserve conflict protection for ambiguous or completed attempts and retain installed source and prior history repairs.
+
+## 0.11.0-beta.3.vorteo.205 - 2026-10-08
+
+### Fixed
+
+- Keep restart explanations tappable by separating their hit target from the disabled approval button.
+
+## 0.11.0-beta.3.vorteo.205 - 2026-10-08
+
+### Fixed
+
+- Keep unarchived saved threads and scheduled workspace associations visible when a provider is unavailable. Read durable history without starting the provider.
+- Preserve logical project identity and resolve the chosen environment folder at submission. Retain the installed Dev source and Factory integration.
+
+## 0.11.0-beta.3.vorteo.204 - 2026-10-08
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.203 - 2026-10-08
+
+### Added
+
+- Connect the native Factory setup and initial installation RPC to the same startup-owned adapter, with fresh identity and revision checks and durable reconciliation holds after uncertain dispatch.
+- Add CLI setup observations and guarded initial installation with explicit serving identity, revision and operation correlation. Transport loss never retries the mutation.
+- Add initial installation controls that recheck the displayed native setup revision, send one correlated request and retain uncertain results across panel remounts without automatic retry. Fixtures cannot dispatch installation.
+
+### Maintenance
+
+- Preserve incoming installation policy requiring the matching control button approval before restart or update execution.
+
+- Preserve incoming project-folder/profile-environment selection fixes and their acceptance tests from current main.
+
+- Preserve current main checklist and installation controls, the real installed Dev source ancestry and every parent release-note block alongside independently reviewed Factory and interface source.
+- Keep default observer installation separate from retained-controller adoption. Controller custody, browser origin admission, installed RPC and authenticated client acceptance remain required.
+
+## 0.11.0-beta.3.vorteo.195 - 2026-10-08
+
+### Added
+
+- Bundle Factory project status, read-only setup observations and a client overview with exact host and project identity checks.
+- Add native Factory membership protection, durable installation checkpoints and a retained-owner installation adapter that preserves reconciliation holds after partial effects.
+- Add guarded workspace and retained-agent recovery boundaries and native account-contract observation without another sampler or scheduler.
+
+### Fixed
+
+- Enforce explicit prerelease plugin requirements while preserving ordinary stable-range matching.
+- Preserve reviewed server contract compilation and generated asset copying in the standard build.
+- Keep compact issue details clear of delivery rows and retain failed setup observations with explicit warnings.
+
+### Maintenance
+
+- Preserve current main preview identity, launcher binding and visible coordinator controls alongside reviewed Factory source.
+- Keep installation, controller adoption, execution admission and authenticated client acceptance separate. Loading source does not start another controller or authorize recovery.
+
+## 0.11.0-beta.3.vorteo.192 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.213 - 2026-10-09
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.212 - 2026-10-09
+
+### Changed
+
+- Apply accepted task-status guidance to the installed Dev source: require in-progress updates before execution, current status at work transitions, and verified completion. Preserve installed Factory code and complete release history from both source branches.

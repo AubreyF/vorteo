@@ -224,6 +224,7 @@ export class QuotaExecutionSupervisor {
     const expiresAt = Math.min(
       admittedAt + 1_000,
       Date.parse(request.observation.observedAt) + this.policy.maxObservationAgeSeconds * 1_000,
+      this.prepaidDeadline(),
     );
     return {
       assertValidForDispatch: () => {
@@ -393,8 +394,9 @@ export class QuotaExecutionSupervisor {
         ? Date.parse(this.latestObservation.observedAt)
         : -Infinity;
     const now = this.nowMs();
-    const remaining =
+    const freshnessRemaining =
       observedAt > now ? 0 : observedAt + this.policy.maxObservationAgeSeconds * 1_000 - now;
+    const remaining = Math.min(freshnessRemaining, this.prepaidDeadline() - now);
     this.freshnessTimer = setTimeout(
       () => {
         void this.freeze("quota").catch((error) => this.options.onFailure(error));
@@ -402,6 +404,11 @@ export class QuotaExecutionSupervisor {
       Math.max(0, Number.isFinite(remaining) ? remaining : 0),
     );
     this.freshnessTimer.unref?.();
+  }
+
+  private prepaidDeadline(): number {
+    const prepaid = this.policy.prepaidAuthorization;
+    return prepaid ? Date.parse(prepaid.expiresAt) : Infinity;
   }
 
   async retireAfterCompletion(): Promise<void> {

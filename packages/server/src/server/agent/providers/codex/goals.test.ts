@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { editThreadGoal } from "../../agent-goal.js";
 import { CodexGoals } from "./goals.js";
 
 const goal = {
@@ -199,5 +200,83 @@ it("reports an unconfirmed mutation when its follow-up read fails", async () => 
     status: "error",
     goal,
     message: "confirmation disconnected",
+  });
+});
+
+describe("goal edit revisions", () => {
+  function fixture() {
+    let current = { ...goal };
+    const goals = new CodexGoals({
+      request: async (method, input) => {
+        if (method === "thread/goal/set") current = { ...current, ...input };
+        return { goal: current };
+      },
+      onChange: () => {},
+    });
+    goals.bind(goal.threadId);
+    return {
+      goals,
+      notify: (change: Partial<typeof goal>) => {
+        current = { ...current, ...change };
+        goals.handleNotification("thread/goal/updated", { threadId: goal.threadId, goal: current });
+      },
+    };
+  }
+
+  it("allows editing after usage advances without resetting accounting", async () => {
+    const f = fixture();
+    const before = await f.goals.read();
+    if (before.status !== "ready" || !before.goal) throw Error("Missing goal");
+    expect(before.editRevision).toEqual(expect.any(String));
+    const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = before.goal;
+    f.notify({ tokensUsed: 456, timeUsedSeconds: 19, updatedAt: 119 });
+    const after = await editThreadGoal({
+      edit: {
+        expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+        expectedRevision: before.editRevision,
+        objective: "Finish reviewed migration",
+      },
+      read: () => f.goals.read(),
+      set: (change) => f.goals.set(change),
+    });
+    expect(after.goal).toMatchObject({
+      objective: "Finish reviewed migration",
+      tokensUsed: 456,
+      timeUsedSeconds: 19,
+      tokenBudget: 10000,
+    });
+  });
+
+  it("rejects pause and resume back to the same values even within one timestamp", async () => {
+    const f = fixture();
+    const before = await f.goals.read();
+    if (before.status !== "ready" || !before.goal) throw Error("Missing goal");
+    const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = before.goal;
+    await f.goals.set({ status: "paused" });
+    await f.goals.set({ status: "active" });
+    await expect(
+      editThreadGoal({
+        edit: {
+          expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+          expectedRevision: before.editRevision,
+          objective: "Stale edit",
+        },
+        read: () => f.goals.read(),
+        set: (change) => f.goals.set(change),
+      }),
+    ).rejects.toThrow("goal changed");
+  });
+
+  it("invalidates observations on same-value owner writes and provider invalidation", async () => {
+    const f = fixture();
+    const before = await f.goals.read();
+    if (before.status !== "ready") throw Error("Missing goal");
+    const written = await f.goals.set({ status: "active" });
+    if (written.status !== "ready") throw Error("Missing goal");
+    expect(written.editRevision).not.toBe(before.editRevision);
+    f.goals.invalidate("Disconnected");
+    const recovered = await f.goals.read();
+    if (recovered.status !== "ready") throw Error("Missing goal");
+    expect(recovered.editRevision).not.toBe(written.editRevision);
   });
 });

@@ -9610,6 +9610,218 @@ test("unarchiveSnapshot skips native provider unarchive for active records", asy
   expect(client.unarchivedHandles).toEqual([]);
 });
 
+async function retainedRecoveryFixture() {
+  const directory = mkdtempSync(join(tmpdir(), "retained-agent-recovery-"));
+  const storage = new AgentStorage(join(directory, "agents"), logger);
+  const client = new NativeArchiveRecordingClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  const agent = await manager.createAgent(
+    { provider: "codex", cwd: directory, title: "Retained" },
+    undefined,
+    { workspaceId: "retained-workspace" },
+  );
+  await manager.archiveAgent(agent.id);
+  const expected = structuredClone((await storage.get(agent.id))!);
+  return { directory, storage, client, manager, expected };
+}
+
+test("guarded retained recovery restores only native archive state without loading a runtime", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    const restored = await f.manager.unarchiveRetainedSnapshot({
+      expected: f.expected,
+      assertCurrent() {},
+    });
+    expect(restored).toEqual({ ...f.expected, archivedAt: null, updatedAt: expect.any(String) });
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+    expect(f.client.unarchivedHandles).toEqual([f.expected.persistence]);
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery refuses changed identity before native restoration", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    await f.storage.upsert({
+      ...f.expected,
+      config: { ...f.expected.config, model: "changed-model" },
+    });
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("identity or recovery action changed");
+    expect(f.client.unarchivedHandles).toEqual([]);
+    expect((await f.storage.get(f.expected.id))?.archivedAt).toBe(f.expected.archivedAt);
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery refuses a loaded runtime without interrupting it", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    await f.manager.unarchiveSnapshot(f.expected.id);
+    await ensureAgentLoaded(f.expected.id, {
+      agentManager: f.manager,
+      agentStorage: f.storage,
+      logger,
+    });
+    const loaded = f.manager.getAgent(f.expected.id);
+    const calls = f.client.unarchivedHandles.length;
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("loaded agent runtime");
+    expect(f.manager.getAgent(f.expected.id)).toEqual(loaded);
+    expect(f.client.unarchivedHandles).toHaveLength(calls);
+    await f.manager.closeAgent(f.expected.id);
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery preserves post-provider record drift as a partial failure", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    const changed = { ...f.expected, labels: { ...f.expected.labels, changed: "yes" } };
+    f.client.readArchivedAtDuringUnarchive = async () => {
+      await f.storage.upsert(changed);
+      return changed.archivedAt;
+    };
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("changed");
+    expect(f.client.unarchivedHandles).toEqual([f.expected.persistence]);
+    expect(await f.storage.get(f.expected.id)).toEqual(changed);
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test.each(["provider", "workspace", "persistence", "archive-action"] as const)(
+  "guarded retained recovery rejects %s identity drift before native restoration",
+  async (field) => {
+    const f = await retainedRecoveryFixture();
+    try {
+      const changed = structuredClone(f.expected);
+      if (field === "provider") changed.provider = "claude";
+      if (field === "workspace") changed.workspaceId = "foreign-workspace";
+      if (field === "persistence")
+        changed.persistence = { ...changed.persistence!, sessionId: "foreign-session" };
+      if (field === "archive-action") changed.archivedAt = null;
+      await f.storage.upsert(changed);
+      await expect(
+        f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+      ).rejects.toThrow("identity or recovery action changed");
+      expect(f.client.unarchivedHandles).toEqual([]);
+      expect(await f.storage.get(f.expected.id)).toEqual(changed);
+    } finally {
+      rmSync(f.directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test("guarded retained recovery refuses missing native restoration support without changing retained state", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    Object.defineProperty(f.client, "unarchiveNativeSession", {
+      value: undefined,
+      configurable: true,
+    });
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("does not support native archive restoration");
+    expect(await f.storage.get(f.expected.id)).toEqual(f.expected);
+    expect(f.client.unarchivedHandles).toEqual([]);
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery refuses native restoration method drift after provider side effects", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    f.client.readArchivedAtDuringUnarchive = async () => {
+      Object.defineProperty(f.client, "unarchiveNativeSession", {
+        value: undefined,
+        configurable: true,
+      });
+      return f.expected.archivedAt;
+    };
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("native restoration provider changed");
+    expect(await f.storage.get(f.expected.id)).toEqual(f.expected);
+    expect(f.client.unarchivedHandles).toHaveLength(1);
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery preserves native provider failure without clearing the record", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    f.client.unarchiveFailure = new Error("Provider restoration uncertain");
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("Provider restoration uncertain");
+    expect(f.client.unarchivedHandles).toHaveLength(1);
+    expect(await f.storage.get(f.expected.id)).toEqual(f.expected);
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery fails stop on custody revocation after native restoration", async () => {
+  const f = await retainedRecoveryFixture();
+  let revoked = false;
+  try {
+    f.client.readArchivedAtDuringUnarchive = async () => {
+      revoked = true;
+      return f.expected.archivedAt;
+    };
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({
+        expected: f.expected,
+        assertCurrent() {
+          if (revoked) throw new Error("Custody revoked");
+        },
+      }),
+    ).rejects.toThrow("Custody revoked");
+    expect(f.client.unarchivedHandles).toHaveLength(1);
+    expect(await f.storage.get(f.expected.id)).toEqual(f.expected);
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery retains an applied result after post-persistence custody failure", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({
+        expected: f.expected,
+        assertCurrent() {
+          if (f.storage.getLoadedRecord(f.expected.id)?.archivedAt === null)
+            throw new Error("Custody revoked after persistence");
+        },
+      }),
+    ).rejects.toThrow("Custody revoked after persistence");
+    expect(f.client.unarchivedHandles).toHaveLength(1);
+    expect(await f.storage.get(f.expected.id)).toEqual({
+      ...f.expected,
+      archivedAt: null,
+      updatedAt: expect.any(String),
+    });
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
 test("unarchiveSnapshot unarchives native provider storage before clearing archivedAt", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-native-unarchive-"));
   const storagePath = join(workdir, "agents");
@@ -13229,7 +13441,14 @@ test("Vorteo checklist mutations survive provider updates, history refresh, and 
       id: "api",
       status: "completed",
     });
+    await manager.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "ui",
+      status: "blocked",
+      description: "Awaiting review",
+    });
     const managed = manager.readChecklist(agent.id);
+    expect(managed[1]).toMatchObject({ status: "blocked", completed: false });
     const rejectedWrite = vi
       .spyOn(storage, "mutateChecklist")
       .mockRejectedValueOnce(new Error("Disk full"));

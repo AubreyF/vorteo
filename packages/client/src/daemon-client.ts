@@ -22,7 +22,7 @@ import {
   type TimelineSubscription,
 } from "./connection/index.js";
 import { CreationClient } from "./creation/index.js";
-import type { CreationSnapshot } from "@getpaseo/protocol/messages";
+import type { CreationSnapshot, WorkspaceRecoveryGuard } from "@getpaseo/protocol/messages";
 import type {
   ProjectDirectoryBrowseRequest,
   ProjectDirectoryBrowsePayload,
@@ -44,6 +44,9 @@ import {
   RestartRequestedStatusPayloadSchema,
   ShutdownRequestedStatusPayloadSchema,
   DaemonUpdateResponseSchema,
+  DaemonOriginAdmissionRequestSchema,
+  DaemonOriginAdmissionInputSchema,
+  DaemonOriginAdmissionInspectRequestSchema,
   SessionInboundMessageSchema,
   type ActiveTurnBehavior,
   type ServerInfoStatusPayload,
@@ -119,6 +122,8 @@ import type {
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
   DaemonConfigReloadResponse,
+  DaemonOriginAdmissionResponse,
+  DaemonOriginAdmissionInspectResponse,
   DiagnosticsResponse,
   AgentRewindResponseMessage,
   ListTerminalsResponse,
@@ -770,6 +775,16 @@ export interface ShutdownServerOptions {
   requestId?: string;
   timeout?: number;
 }
+export interface OriginAdmissionOptions extends Omit<
+  z.infer<typeof DaemonOriginAdmissionInspectRequestSchema>,
+  "type" | "requestId"
+> {
+  requestId?: string;
+  timeout?: number;
+}
+export interface OriginAdmissionInput
+  extends OriginAdmissionOptions, z.infer<typeof DaemonOriginAdmissionInputSchema> {}
+
 export interface DaemonStatusOptions {
   requestId?: string;
   timeout?: number;
@@ -3198,13 +3213,26 @@ export class DaemonClient {
     return payload.state;
   }
 
-  async restoreWorkspace(workspaceId: string, requestId?: string): Promise<void> {
+  async restoreWorkspace(
+    workspaceId: string,
+    requestId?: string,
+    guard?: WorkspaceRecoveryGuard,
+  ): Promise<void> {
+    if (guard) {
+      const info = this.getLastServerInfoMessage();
+      // Old hosts can strip unknown request fields. Never send a guard to one.
+      if (info?.features?.workspaceRecoveryGuard !== true)
+        throw new Error("Update the host before using guarded workspace recovery.");
+      if (info.serverId !== guard.serverId)
+        throw new Error("Workspace recovery host identity changed.");
+    }
     const payload =
       await this.sendNamespacedCorrelatedSessionRequest<"workspace.recovery.restore.response">({
         requestId,
         message: {
           type: "workspace.recovery.restore.request",
           workspaceId,
+          ...(guard ? { guard } : {}),
         },
         timeout: 150_000,
       });
@@ -3731,6 +3759,13 @@ export class DaemonClient {
     mutation: import("@getpaseo/protocol/task-checklist").ChecklistMutation,
   ): Promise<import("@getpaseo/protocol/agent-types").AgentTaskItem[]> {
     this.assertChecklistSupport();
+    if (
+      ((mutation.operation === "update" && mutation.status === "blocked") ||
+        ("expectedTask" in mutation && mutation.expectedTask?.status === "blocked")) &&
+      this.lastServerInfoMessage?.features?.checklistBlockedStatus !== true
+    ) {
+      throw new Error("Update the daemon before using blocked checklist status.");
+    }
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"agent.checklist.mutate.response">({
         message: { type: "agent.checklist.mutate.request", agentId, mutation },
@@ -5361,6 +5396,76 @@ export class DaemonClient {
     });
   }
 
+  async inspectOriginAdmission(
+    options: OriginAdmissionOptions,
+  ): Promise<DaemonOriginAdmissionInspectResponse["payload"]> {
+    const request = DaemonOriginAdmissionInspectRequestSchema.parse({
+      ...options,
+      type: "daemon.config.get_origin_admission.request",
+      requestId: this.createRequestId(options.requestId),
+    });
+    const timeout = options.timeout;
+    this.requireOriginAdmissionSupport(request.expectedServerId);
+    const result = await this.sendCorrelatedRequest({
+      requestId: request.requestId,
+      message: request,
+      responseType: "daemon.config.get_origin_admission.response",
+      timeout,
+      options: { skipQueue: true },
+    });
+    this.requireOriginAdmissionSupport(request.expectedServerId);
+    if (result.serverId !== request.expectedServerId)
+      throw new DaemonConnectionError("Origin inspection serving identity changed.");
+    return result;
+  }
+
+  async admitOrigin(
+    options: OriginAdmissionInput,
+  ): Promise<DaemonOriginAdmissionResponse["payload"]> {
+    const request = DaemonOriginAdmissionRequestSchema.parse({
+      ...options,
+      type: "daemon.config.admit_origin.request",
+      requestId: this.createRequestId(options.requestId),
+    });
+    const timeout = options.timeout;
+    this.requireOriginAdmissionSupport(request.expectedServerId);
+    const result = await this.sendCorrelatedRequest({
+      requestId: request.requestId,
+      message: request,
+      responseType: "daemon.config.admit_origin.response",
+      timeout,
+      options: { skipQueue: true },
+    });
+    this.requireOriginAdmissionSupport(request.expectedServerId);
+    if (result.serverId !== request.expectedServerId)
+      throw new DaemonConnectionError(
+        "Origin admission serving identity changed. Reconcile without replay.",
+      );
+    if (result.state === "applied") {
+      const addedToPersisted = !request.expectedPersistedOrigins.includes(request.origin);
+      const addedToActive = !request.expectedActiveOrigins.includes(request.origin);
+      const expectedPersisted = [...request.expectedPersistedOrigins];
+      const expectedActive = [...request.expectedActiveOrigins];
+      if (addedToPersisted) expectedPersisted.push(request.origin);
+      if (addedToActive) expectedActive.push(request.origin);
+      const persistedMatches =
+        JSON.stringify(expectedPersisted) === JSON.stringify(result.persistedOrigins);
+      const activeMatches = JSON.stringify(expectedActive) === JSON.stringify(result.activeOrigins);
+      const additionsMatch =
+        addedToPersisted === result.addedToPersisted && addedToActive === result.addedToActive;
+      if (
+        result.origin !== request.origin ||
+        !persistedMatches ||
+        !activeMatches ||
+        !additionsMatch
+      )
+        throw new Error(
+          "Origin admission response failed exact postconditions. Reconcile without replay.",
+        );
+    }
+    return result;
+  }
+
   async reloadDaemonConfig(requestId?: string): Promise<DaemonConfigReloadResponse["payload"]> {
     this.requireDaemonConfigReloadSupport();
     return this.sendNamespacedCorrelatedSessionRequest({
@@ -6535,6 +6640,7 @@ export class DaemonClient {
     if (options.target.type === "new-agent" && options.target.config.quotaPolicy !== undefined)
       this.assertScheduleQuotaPolicySupport(
         Boolean(options.target.config.quotaPolicy?.estimatedHourly),
+        Boolean(options.target.config.quotaPolicy?.prepaidAuthorization),
       );
     return this.sendCorrelatedSessionRequest({
       requestId: options.requestId,
@@ -6628,7 +6734,7 @@ export class DaemonClient {
     });
   }
 
-  private assertScheduleQuotaPolicySupport(estimatedHourly = false): void {
+  private assertScheduleQuotaPolicySupport(estimatedHourly = false, prepaid = false): void {
     // COMPAT(scheduleQuotaPolicy): added in v0.7.2; remove only when every supported host enforces policies.
     // A policy-unaware host may strip unknown fields and launch ordinary work.
     if (this.lastServerInfoMessage?.features?.scheduleQuotaPolicy !== true)
@@ -6636,12 +6742,17 @@ export class DaemonClient {
     // COMPAT(estimatedHourlyQuota): added in v0.7.2; retain until every supported host enforces estimates.
     if (estimatedHourly && this.lastServerInfoMessage?.features?.estimatedHourlyQuota !== true)
       throw new Error("Update the host before using estimated hourly quota.");
+    // COMPAT(prepaidQuotaAuthorization): prepared 2026-10-09; remove after 2027-04-09
+    // once the supported daemon floor enforces expiring prepaid authorizations.
+    if (prepaid && this.lastServerInfoMessage?.features?.prepaidQuotaAuthorization !== true)
+      throw new Error("Update the host before using prepaid quota authorization.");
   }
 
   async scheduleUpdate(options: UpdateScheduleOptions): Promise<ScheduleUpdatePayload> {
     if (options.newAgentConfig?.quotaPolicy !== undefined)
       this.assertScheduleQuotaPolicySupport(
         Boolean(options.newAgentConfig.quotaPolicy?.estimatedHourly),
+        Boolean(options.newAgentConfig.quotaPolicy?.prepaidAuthorization),
       );
     if (
       options.expectedConfigurationRevision !== undefined &&
@@ -6710,6 +6821,16 @@ export class DaemonClient {
     if (this.lastServerInfoMessage?.features?.hubRelationship !== true) {
       throw new Error("Update the host to use Hub relationship management.");
     }
+  }
+
+  private requireOriginAdmissionSupport(expectedServerId: string): void {
+    const info = this.lastServerInfoMessage;
+    if (info?.features?.guardedOriginAdmission !== true)
+      throw new Error("Update the host before using guarded origin admission.");
+    if (info.serverId !== expectedServerId)
+      throw new DaemonConnectionError(
+        "Origin operation requires the exact expected serving identity.",
+      );
   }
 
   private requireDaemonConfigReloadSupport(): void {

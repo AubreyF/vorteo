@@ -137,3 +137,12 @@ Restart recovery, edit guards and deletion guards recognize unfinished governed 
 Clients require `server_info.features.installationProviderRemoval === true` from each configured environment before removing a provider from the shared catalog. The optional `removed` marker preserves identity and credentials while disabling new launches.
 
 Owner settings requests opt into this marker with `X-Vorteo-Provider-Removal: 1`. Responses to older clients omit it because their provider schema rejects unknown fields. While a removed provider exists, older clients cannot replace the provider catalog; they receive a revision conflict and must refresh to the current client. Other shared settings remain editable. Upgraded clients restore a definition explicitly with `removed: false`.
+
+## Blocked checklist items
+
+Daemons advertise `features.checklistBlockedStatus`. Clients require it before writing
+`status: "blocked"`, and advertise `checklist_blocked_status` to receive that value.
+Older clients receive blocked items as incomplete pending items in checklist replies,
+agent snapshots and todo timelines. The stored status and task metadata remain unchanged.
+A stale edit using the downgraded snapshot fails its existing `expectedTask` check.
+The blocked status is discretionary and independent of `blockedBy` prerequisite edges.

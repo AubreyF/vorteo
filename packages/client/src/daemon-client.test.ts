@@ -1040,6 +1040,7 @@ test("advertises client capabilities in hello", async () => {
       timeline_notifications: true,
       plugin_timeline_items: true,
       workspace_setup_blocked: true,
+      checklist_blocked_status: true,
       hello_rejection: true,
       browser_host: {
         supportedCommands: ["list_tabs"],
@@ -1879,6 +1880,191 @@ test("gates config reload on the daemon capability", async () => {
     "Update the host to reload daemon configuration.",
   );
   expect(mock.sent).toEqual([]);
+});
+
+async function originClient(capability = true) {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "origin_test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { guardedOriginAdmission: capability } });
+  await connected;
+  const serverId = client.getLastServerInfoMessage()?.serverId;
+  if (!serverId) throw new Error("Expected serving identity");
+  return { mock, client, serverId };
+}
+
+test("origin admission gates old hosts and wrong serving identities before transmission", async () => {
+  const old = await originClient(false);
+  await expect(
+    old.client.admitOrigin({
+      expectedServerId: old.serverId,
+      origin: "https://preview.example",
+      expectedPersistedOrigins: [],
+      expectedActiveOrigins: [],
+    }),
+  ).rejects.toThrow("Update the host");
+  expect(old.mock.sent).toEqual([]);
+  const current = await originClient();
+  await expect(
+    current.client.admitOrigin({
+      expectedServerId: "srv_other",
+      origin: "https://preview.example",
+      expectedPersistedOrigins: [],
+      expectedActiveOrigins: [],
+    }),
+  ).rejects.toThrow("expected serving identity");
+  expect(current.mock.sent).toEqual([]);
+});
+
+test("origin inspection sends one nonqueued host-bound observation request", async () => {
+  const { client, mock, serverId } = await originClient();
+  const response = client.inspectOriginAdmission({
+    expectedServerId: serverId,
+    requestId: "inspect-origin",
+  });
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "daemon.config.get_origin_admission.request",
+    requestId: "inspect-origin",
+    expectedServerId: serverId,
+  });
+  const payload = {
+    requestId: "inspect-origin",
+    serverId,
+    observedAt: "2026-10-09T00:00:00Z",
+    state: "ready",
+    reason: null,
+    persistedOrigins: ["https://disk.example"],
+    activeOrigins: ["https://active.example"],
+  };
+  mock.triggerMessage(
+    wrapSessionMessage({ type: "daemon.config.get_origin_admission.response", payload }),
+  );
+  await expect(response).resolves.toEqual(payload);
+});
+
+test("origin admission captures input and verifies separate addition flags and lists", async () => {
+  const { client, mock, serverId } = await originClient();
+  const input = {
+    requestId: "admit-origin",
+    expectedServerId: serverId,
+    origin: "https://preview.example",
+    expectedPersistedOrigins: [],
+    expectedActiveOrigins: ["https://preview.example"],
+  };
+  const response = client.admitOrigin(input);
+  input.expectedServerId = "srv_unverified";
+  input.expectedActiveOrigins.push("https://unshown.example");
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "daemon.config.admit_origin.request",
+    requestId: "admit-origin",
+    expectedServerId: serverId,
+    origin: "https://preview.example",
+    expectedPersistedOrigins: [],
+    expectedActiveOrigins: ["https://preview.example"],
+  });
+  const payload = {
+    requestId: "admit-origin",
+    serverId,
+    observedAt: "2026-10-09T00:00:00Z",
+    state: "applied",
+    origin: "https://preview.example",
+    addedToPersisted: true,
+    addedToActive: false,
+    persistedOrigins: ["https://preview.example"],
+    activeOrigins: ["https://preview.example"],
+  };
+  mock.triggerMessage(wrapSessionMessage({ type: "daemon.config.admit_origin.response", payload }));
+  await expect(response).resolves.toEqual(payload);
+  expect(mock.sent).toHaveLength(1);
+});
+
+test("origin admission rejects contradictory successful postconditions without replay", async () => {
+  const { client, mock, serverId } = await originClient();
+  const response = client.admitOrigin({
+    requestId: "bad-result",
+    expectedServerId: serverId,
+    origin: "https://preview.example",
+    expectedPersistedOrigins: [],
+    expectedActiveOrigins: [],
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "daemon.config.admit_origin.response",
+      payload: {
+        requestId: "bad-result",
+        serverId,
+        observedAt: "2026-10-09T00:00:00Z",
+        state: "applied",
+        origin: "https://preview.example",
+        addedToPersisted: false,
+        addedToActive: true,
+        persistedOrigins: ["https://preview.example"],
+        activeOrigins: ["https://preview.example"],
+      },
+    }),
+  );
+  await expect(response).rejects.toThrow("Reconcile without replay");
+  expect(mock.sent).toHaveLength(1);
+});
+
+test("origin admission retains uncertain native outcome without a second request", async () => {
+  const { client, mock, serverId } = await originClient();
+  const response = client.admitOrigin({
+    requestId: "uncertain-result",
+    expectedServerId: serverId,
+    origin: "https://preview.example",
+    expectedPersistedOrigins: [],
+    expectedActiveOrigins: [],
+  });
+  const payload = {
+    requestId: "uncertain-result",
+    serverId,
+    observedAt: "2026-10-09T00:00:00Z",
+    state: "uncertain",
+    code: "uncertain",
+    writeAttempted: true,
+    reason: "Read-only reconciliation required",
+  };
+  mock.triggerMessage(wrapSessionMessage({ type: "daemon.config.admit_origin.response", payload }));
+  await expect(response).resolves.toEqual(payload);
+  expect(mock.sent).toHaveLength(1);
+});
+
+test("origin admission disconnect rejects rather than retaining a queued mutation", async () => {
+  const { client, mock, serverId } = await originClient();
+  const response = client.admitOrigin({
+    requestId: "lost-origin",
+    expectedServerId: serverId,
+    origin: "https://preview.example",
+    expectedPersistedOrigins: [],
+    expectedActiveOrigins: [],
+  });
+  const rejection = expect(response).rejects.toThrow();
+  mock.triggerClose({ code: 1006, reason: "lost" });
+  await rejection;
+  const reconnect = client.connect();
+  mock.triggerOpen({ preserveSent: true, features: { guardedOriginAdmission: true } });
+  await reconnect;
+  const frames = mock.sent.map((data) =>
+    z
+      .object({
+        type: z.string(),
+        message: z.object({ type: z.string() }).optional(),
+      })
+      .parse(JSON.parse(assertStr(data))),
+  );
+  const mutations = frames.filter(
+    (frame) =>
+      frame.type === "session" && frame.message?.type === "daemon.config.admit_origin.request",
+  );
+  expect(mutations).toHaveLength(1);
 });
 
 test("sends and parses daemon config reload", async () => {
@@ -7439,6 +7625,83 @@ test("estimated hourly policies cannot be silently stripped by older quota-aware
   expect(mock.sent).toEqual([]);
 });
 
+test.each([false, true])(
+  "prepaid schedule authorization requires capability (supported: %s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "prepaid-quota-test",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connected = client.connect();
+    mock.triggerOpen({
+      features: { scheduleQuotaPolicy: true, prepaidQuotaAuthorization: supported },
+    });
+    await connected;
+    const quotaPolicy = {
+      ...scheduleQuotaPolicy,
+      prepaidAuthorization: {
+        bucketId: "coding",
+        windowId: "weekly",
+        startsAt: "2026-09-14T08:00:00Z",
+        expiresAt: "2026-09-15T00:00:00Z",
+      },
+    };
+    const create = () =>
+      client.scheduleCreate({
+        prompt: "Prepaid work",
+        cadence: { type: "cron", expression: "0 * * * *" },
+        target: {
+          type: "new-agent",
+          config: { provider: "secondary", cwd: "/tmp/work", quotaPolicy },
+        },
+      });
+    const update = () => client.scheduleUpdate({ id: "schedule", newAgentConfig: { quotaPolicy } });
+    if (!supported) {
+      await expect(create()).rejects.toThrow("prepaid quota authorization");
+      await expect(update()).rejects.toThrow("prepaid quota authorization");
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const creating = create();
+    const created = JSON.parse(assertStr(mock.sent[0])).message;
+    expect(created.target.config.quotaPolicy.prepaidAuthorization).toEqual(
+      quotaPolicy.prepaidAuthorization,
+    );
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "schedule/create/response",
+        payload: {
+          requestId: created.requestId,
+          schedule: null,
+          error: "synthetic refusal",
+        },
+      }),
+    );
+    await creating;
+    const updating = update();
+    const updated = JSON.parse(assertStr(mock.sent[1])).message;
+    expect(updated.newAgentConfig.quotaPolicy.prepaidAuthorization).toEqual(
+      quotaPolicy.prepaidAuthorization,
+    );
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "schedule/update/response",
+        payload: {
+          requestId: updated.requestId,
+          schedule: null,
+          error: "synthetic refusal",
+        },
+      }),
+    );
+    await updating;
+  },
+);
+
 test("schedule quota policies are preserved on a policy-aware host", async () => {
   const mock = createMockTransport();
   const client = new DaemonClient({
@@ -7974,4 +8237,130 @@ test("bootstrap review correlates decisions without logging owner proof or repla
       trace.records,
     ]),
   ).not.toContain("fixture-owner-proof");
+});
+
+test("blocked checklist writes never reach an older daemon", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "blocked-checklist-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { agentChecklistMutations: true } });
+  await connected;
+  await expect(
+    client.mutateAgentChecklist("agent", { operation: "update", id: "task", status: "blocked" }),
+  ).rejects.toThrow("Update the daemon before using blocked");
+  await expect(
+    client.mutateAgentChecklist("agent", {
+      operation: "delete",
+      id: "task",
+      expectedTask: { id: "task", text: "Waiting", status: "blocked", completed: false },
+    }),
+  ).rejects.toThrow("Update the daemon before using blocked");
+  expect(mock.sent).toEqual([]);
+});
+
+test("guarded workspace recovery sends nothing without capability or matching host", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://localhost:6767/ws",
+    clientId: "guarded-recovery",
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connection = client.connect();
+  mock.triggerOpen({ features: { workspaceRecovery: true } });
+  await connection;
+  const guard = {
+    action: "unarchive" as const,
+    serverId: "srv_test_1",
+    projectId: "project",
+    cwd: "/cwd",
+    kind: "directory" as const,
+    archivedAt: "archived",
+    updatedAt: "updated",
+    recordHash: "a".repeat(64),
+  };
+  await expect(client.restoreWorkspace("workspace", "request", guard)).rejects.toThrow(
+    "Update the host",
+  );
+  expect(mock.sent).toHaveLength(0);
+  const legacy = client.restoreWorkspace("workspace", "legacy-old-host");
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "workspace.recovery.restore.request",
+    workspaceId: "workspace",
+    requestId: "legacy-old-host",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.recovery.restore.response",
+      payload: {
+        requestId: "legacy-old-host",
+        workspaceId: "workspace",
+        accepted: true,
+        error: null,
+      },
+    }),
+  );
+  await legacy;
+  mock.triggerOpen({ features: { workspaceRecoveryGuard: true } });
+  await expect(client.restoreWorkspace("workspace", "request", guard)).rejects.toThrow(
+    "host identity changed",
+  );
+  expect(mock.sent).toHaveLength(0);
+});
+
+test("guarded workspace recovery transmits exact guard while legacy requests remain unchanged", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://localhost:6767/ws",
+    clientId: "guarded-recovery-supported",
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connection = client.connect();
+  mock.triggerOpen({ features: { workspaceRecoveryGuard: true } });
+  await connection;
+  const guard = {
+    action: "unarchive" as const,
+    serverId: "srv_test_1",
+    projectId: "project",
+    cwd: "/cwd",
+    kind: "directory" as const,
+    archivedAt: "archived",
+    updatedAt: "updated",
+    recordHash: "a".repeat(64),
+  };
+  const guarded = client.restoreWorkspace("workspace", "guarded", guard);
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "workspace.recovery.restore.request",
+    workspaceId: "workspace",
+    requestId: "guarded",
+    guard,
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.recovery.restore.response",
+      payload: { requestId: "guarded", workspaceId: "workspace", accepted: true, error: null },
+    }),
+  );
+  await guarded;
+  const legacy = client.restoreWorkspace("workspace", "legacy");
+  expect(parseSentFrame(mock.sent[1])).toEqual({
+    type: "workspace.recovery.restore.request",
+    workspaceId: "workspace",
+    requestId: "legacy",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.recovery.restore.response",
+      payload: { requestId: "legacy", workspaceId: "workspace", accepted: true, error: null },
+    }),
+  );
+  await legacy;
 });

@@ -22,7 +22,7 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-async function fixture(estimated = false) {
+async function fixture(estimated = false, prepaidMs?: number) {
   const directory = await mkdtemp(join(tmpdir(), "quota-supervision-"));
   directories.push(directory);
   let now = Date.parse("2026-09-14T08:00:00Z");
@@ -35,6 +35,16 @@ async function fixture(estimated = false) {
     requiredWindows: [{ bucketId: "coding", windowId: "primary", durationMinutes: 10080 }],
     consumptionLimits: [],
     recovery: "automatic_after_reconciliation",
+    ...(prepaidMs === undefined
+      ? {}
+      : {
+          prepaidAuthorization: {
+            bucketId: "coding",
+            windowId: "primary",
+            startsAt: new Date(now).toISOString(),
+            expiresAt: new Date(now + prepaidMs).toISOString(),
+          },
+        }),
     ...(estimated
       ? { estimatedHourly: { bucketId: "coding", windowId: "primary", maxConsumedPoints: 10 } }
       : {}),
@@ -57,6 +67,13 @@ async function fixture(estimated = false) {
   });
   let observation = sample();
   const store = new QuotaGovernorStore(directory, { nowMs: () => now });
+  if (prepaidMs !== undefined) {
+    await store.configureAccountPolicy({
+      policy,
+      expectedRevision: null,
+      readObservation: async () => observation,
+    });
+  }
   if (estimated) {
     await store.configureAccountingContract({ policy, expectedRevision: null });
     for (let minute = 0; minute <= 60; minute++) {
@@ -130,6 +147,51 @@ async function fixture(estimated = false) {
     },
   };
 }
+
+it("prepaid expiry invalidates dispatch before the normal one-second permit deadline", async () => {
+  const f = await fixture(false, 500);
+  const permit = await f.supervisor.guard({
+    observation: f.sample(),
+    operation: "start",
+    threadId: null,
+    nativeTurnId: null,
+  });
+  permit.assertValidForDispatch();
+  f.advance(500);
+  expect(() => permit.assertValidForDispatch()).toThrow("expired");
+  await f.supervisor.checkNow();
+  expect(await f.execution()).toMatchObject({ state: "frozen" });
+  expect(f.options.freezeAndSettle).toHaveBeenCalledTimes(1);
+});
+
+it("prepaid expiry freezes despite a stalled poll and never overrides manual pause", async () => {
+  const f = await fixture(false, 500);
+  vi.useFakeTimers();
+  const entered = deferred<void>();
+  const read = deferred<QuotaObservation>();
+  f.options.readObservation.mockImplementation(async () => {
+    entered.resolve();
+    return read.promise;
+  });
+  const poll = f.supervisor.checkNow();
+  await entered.promise;
+  f.advance(500);
+  await vi.advanceTimersByTimeAsync(500);
+  await vi.waitFor(() => expect(f.options.freezeAndSettle).toHaveBeenCalledTimes(1));
+  await f.supervisor.freeze("manual");
+  expect(await f.execution()).toMatchObject({ state: "frozen", pauseReason: "manual" });
+  read.resolve(f.sample());
+  await poll;
+  await expect(
+    f.supervisor.guard({
+      observation: f.sample(),
+      operation: "start",
+      threadId: null,
+      nativeTurnId: null,
+    }),
+  ).rejects.toThrow("revoked");
+  expect(f.options.freezeAndSettle).toHaveBeenCalledTimes(1);
+});
 
 it("completion drains pending telemetry before settlement and revokes existing permits", async () => {
   const f = await fixture();
