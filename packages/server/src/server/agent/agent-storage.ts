@@ -294,7 +294,7 @@ export class AgentStorage {
   }
 
   async appendJournal(agentId: string, input: AppendJournalInput): Promise<AgentJournalEntry> {
-    const { entryId, text } = AppendJournalSchema.parse(input);
+    const { entryId, text, machineContext } = AppendJournalSchema.parse(input);
     await this.load();
     let committed: AgentJournalEntry | null = null;
     await this.queueRecordMutation(
@@ -305,10 +305,10 @@ export class AgentStorage {
         const entries = record.journal ?? [];
         const previous = entries.find((entry) => entry.id === entryId);
         if (previous) {
-          if (previous.text !== text)
+          if (previous.text !== text || previous.machineContext !== machineContext)
             throw new JournalError(
               "conflict",
-              "This entry ID was already used for different text. Journal entries cannot be edited.",
+              "This entry ID was already used for different text or machine context. Journal entries cannot be edited.",
             );
           committed = previous;
           return null;
@@ -318,6 +318,7 @@ export class AgentStorage {
           sequence: entries.length + 1,
           timestamp: new Date().toISOString(),
           text,
+          ...(machineContext === undefined ? {} : { machineContext }),
         };
         return { ...record, journal: [...entries, committed] };
       },

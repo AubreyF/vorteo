@@ -193,6 +193,7 @@ describe("AgentStorage", () => {
     const first = {
       entryId: "11111111-1111-4111-8111-111111111111",
       text: "Chose the durable store.",
+      machineContext: "commit=abc123; task=11111111-1111-4111-8111-111111111111\nRecovery notes.",
     };
     const second = { entryId: "22222222-2222-4222-8222-222222222222", text: "Verified recovery." };
     const entries = await Promise.all([
@@ -201,11 +202,21 @@ describe("AgentStorage", () => {
     ]);
     expect(entries.map((entry) => entry.sequence)).toEqual([1, 2]);
     expect(entries.map((entry) => entry.text)).toEqual([first.text, second.text]);
+    expect(entries.map((entry) => entry.machineContext)).toEqual([first.machineContext, undefined]);
     expect(entries.every((entry) => Number.isFinite(Date.parse(entry.timestamp)))).toBe(true);
     await storage.applySnapshot(agent);
     expect(await storage.appendJournal(agent.id, first)).toEqual(entries[0]);
     await expect(
       storage.appendJournal(agent.id, { ...first, text: "Rewrite history" }),
+    ).rejects.toThrow("already used");
+    await expect(
+      storage.appendJournal(agent.id, { ...first, machineContext: "Different recovery notes" }),
+    ).rejects.toThrow("already used");
+    await expect(
+      storage.appendJournal(agent.id, { entryId: first.entryId, text: first.text }),
+    ).rejects.toThrow("already used");
+    await expect(
+      storage.appendJournal(agent.id, { ...second, machineContext: "Added after append" }),
     ).rejects.toThrow("already used");
     const reopened = new AgentStorage(storagePath, logger);
     expect((await reopened.get(agent.id))?.journal).toEqual(entries);

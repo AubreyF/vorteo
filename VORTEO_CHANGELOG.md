@@ -5,6 +5,27 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+
+## 0.11.0-beta.3.vorteo.340 - 2026-10-12
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.339 - 2026-10-12
+
+### Added
+
+- Journal entries accept optional machine context for IDs, paths and recovery details without displaying it in the card. Persistence and retry checks preserve both fields.
+
+### Changed
+
+- Agent and journal tool instructions require summaries of at most three sentences and fewer than 60 words, with the result and its meaning first. Task, goal and blocker text uses plain language and keeps technical references in metadata.
+
+### Fixed
+
+- Blocked task explanations no longer display prerequisite IDs when an agent has not supplied a reason.
+
 ## 0.11.0-beta.3.vorteo.339 - 2026-10-12
 
 ### Maintenance
