@@ -13,6 +13,7 @@ export function replaceProviderDefaults(
     workerProfileId: _worker,
     workerAccount: _account,
     maxWorkers: _limit,
+    uncappedWorkers: _uncapped,
     ...launchDefaults
   } = defaults;
   const inheritedWorker = {
@@ -23,10 +24,17 @@ export function replaceProviderDefaults(
       ? { workerProfileId: group.defaults.workerProfileId }
       : {}),
     ...(group.defaults.maxWorkers !== undefined ? { maxWorkers: group.defaults.maxWorkers } : {}),
+    ...(group.defaults.uncappedWorkers !== undefined
+      ? { uncappedWorkers: group.defaults.uncappedWorkers }
+      : {}),
   };
   return {
     ...group,
-    defaults: launchDefaults,
+    defaults: {
+      ...launchDefaults,
+      // Explicit false distinguishes this reset from an older editor omitting the field.
+      ...(group.defaults.uncappedWorkers !== undefined ? { uncappedWorkers: false } : {}),
+    },
     workflows: group.workflows.map((profile) => Object.assign({}, inheritedWorker, profile)),
   };
 }
@@ -72,6 +80,7 @@ export function editSharedProfile(
     "workerProfileId",
     "workerAccount",
     "maxWorkers",
+    "uncappedWorkers",
     "featureValues",
     "quotaReservePolicy",
   ] as const) {

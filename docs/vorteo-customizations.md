@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Adjacent collapsed details cards share responsive rows in both sidebar and conversation layouts. Narrow tiles progressively hide heading actions and titles while retaining the icon, count and accessible name. Expanding a tile restores its full-width card and controls without moving the other cards in the React tree.
+
 App startup preserves the original shaded white Vorteo artwork inside its radar ring. The shared 48px page loader centers the same stationary artwork inside its rotating ring; small status indicators retain their existing footprint. Production checks verify centered artwork and the transition to visible conversation content while allowing hidden retained panels.
 
 The queue controller reads activity at its visible destination, keeping actions enabled outside a hidden dock. The queue portal is keyed by destination because its transport captures the host when mounted. The desktop queue moves to the bottom of the conversation when the details dock is hidden and returns to the dock when opened. Other details stay in the dock. Local saving and pending edits use the leading row spinner; send requests and server dispatch use a thin spinner around the unchanged Send arrow. Transient progress does not add heading text or a row below the message. Persistent offline, paused and recovery information remains available.
@@ -704,3 +706,7 @@ Coordinator recovery and repair setup share the sidebar maintenance rows, includ
 Claimed recovery initialization and admission can reconstruct authority from their own modules in the selected immutable Host release. Unrelated modules and stale releases remain rejected; process identity, retained recovery evidence and artifact verification are unchanged. README overview and onboarding are unchanged.
 
 Source batching recognizes an earlier merge conflict or ambiguous merge history as resolved when a later validated contribution includes its exact source commit. The original receipt and provenance remain in the combined update. Corrupt bundles and invalid release metadata remain rejected. This source reconciliation does not approve installation or clear Factory runtime recovery requirements. README overview and onboarding are unchanged.
+
+Maintenance: validated explicit uncapped managed-worker profiles with synchronized capability gating, old-editor preservation, intentional defaults resets and frozen-task limits. Independent code review passed; installation remains separate.
+
+Maintenance review: reconciled managed-worker capacity with the installed Host recovery release for a separate tracked Host contribution. Dev recovery and compatible coordinator delivery still gate activation; existing root capacity stays frozen.

@@ -92,7 +92,7 @@ export interface AgentProfileFormState {
   workerProfileId: string;
   workerAccount?: string;
   workerAccountId: string | null;
-  maxWorkers: number;
+  maxWorkers: number | "uncapped";
   provider: string;
   modelId: string;
   modeId: string;
@@ -152,7 +152,7 @@ export interface AgentProfileFormModel {
   setInstructions: (value: string) => void;
   setWorkerAccount: (value: string) => void;
   setWorkerProfileId: (value: string) => void;
-  setMaxWorkers: (value: number) => void;
+  setMaxWorkers: (value: number | "uncapped") => void;
   setProvider: (providerId: string, display: AgentProfileFormDisplay) => void;
   setModel: (modelId: string, display: AgentProfileFormDisplay | null) => void;
   setMode: (modeId: string, display: AgentProfileFormDisplay | null) => void;
@@ -387,7 +387,8 @@ function buildSubmitValue(state: AgentProfileFormState): AgentProfileValue | nul
     ...(state.skillPolicy ? { skillPolicy: state.skillPolicy } : {}),
     workerProfileId: state.workerProfileId,
     workerAccount: state.workerAccount,
-    maxWorkers: state.maxWorkers,
+    maxWorkers: state.maxWorkers === "uncapped" ? undefined : state.maxWorkers,
+    uncappedWorkers: state.maxWorkers === "uncapped",
   };
 }
 
@@ -412,6 +413,13 @@ function seedDisplay(value: string | undefined): AgentProfileFormDisplay | null 
  * Edit mode seeds every value AND display from the stored profile alone: the
  * catalog is not loaded yet, so `applyProviderCatalog` does the upgrading later.
  */
+function savedWorkerLimit(
+  profile: Pick<AgentProfile, "maxWorkers" | "uncappedWorkers">,
+): number | "uncapped" {
+  if (profile.uncappedWorkers === true) return "uncapped";
+  return profile.maxWorkers ?? 2;
+}
+
 function buildInitialState(snapshot: AgentProfileFormSnapshot): AgentProfileFormState {
   const profile = snapshot.profile ?? BLANK_PROFILE;
   const seed = snapshot.mode === "create" ? snapshot.seed : undefined;
@@ -431,7 +439,7 @@ function buildInitialState(snapshot: AgentProfileFormSnapshot): AgentProfileForm
     workerProfileId: profile.workerProfileId ?? "",
     workerAccount: profile.workerAccount,
     workerAccountId: null,
-    maxWorkers: profile.maxWorkers ?? 2,
+    maxWorkers: savedWorkerLimit(profile),
     provider,
     modelId,
     modeId: profile.modeId ?? "",

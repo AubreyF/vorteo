@@ -1,3 +1,4 @@
+import { CardGrid, cardGridExpandedStyle } from "../card-grid";
 import {
   createContext,
   useCallback,
@@ -46,13 +47,14 @@ export function CardColumn({ children }: { children: ReactNode }) {
       testID={active ? "thread-cards-stack" : undefined}
     >
       <CardColumnContext.Provider value={value}>
-        <View style={columnStyle} testID={active ? "agent-history-task-cards" : undefined}>
+        <CardGrid style={gridColumnStyle} testID={active ? "agent-history-task-cards" : undefined}>
           {children}
-        </View>
+        </CardGrid>
       </CardColumnContext.Provider>
     </View>
   );
 }
+const gridColumnStyle = { flex: 1, minHeight: 0, overflow: "hidden" } as const;
 const columnStyle = { flex: 1, minHeight: 0, gap: CARD_GAP, overflow: "hidden" } as const;
 
 /** Include non-card content in the same height budget as the surrounding cards. */
@@ -71,7 +73,7 @@ export function CardColumnAccessory({ children }: { children: ReactNode }) {
     if (width > 0) setHeight(measured);
   }, []);
   return (
-    <View style={accessoryStyle} onLayout={onLayout}>
+    <View style={[accessoryStyle, cardGridExpandedStyle]} onLayout={onLayout}>
       {children}
     </View>
   );

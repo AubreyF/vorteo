@@ -1,3 +1,9 @@
+import {
+  CardGridContext,
+  CardTileContext,
+  cardGridCollapsedStyle,
+  cardGridExpandedStyle,
+} from "./card-grid";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import {
   CardPaneDividerContext,
@@ -44,6 +50,57 @@ import { Info } from "lucide-react-native";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
 import { TASK_CARD_BODY_INSET, taskCardStyles } from "./task-card-styles";
 
+function CardSurfaceContext({
+  report,
+  tile,
+  children,
+}: {
+  report: React.ContextType<typeof ScrollDividerContext>;
+  tile: React.ContextType<typeof CardTileContext>;
+  children: ReactNode;
+}) {
+  return (
+    <ScrollDividerContext value={report}>
+      <CardTileContext value={tile}>{children}</CardTileContext>
+    </ScrollDividerContext>
+  );
+}
+
+function CardBodyBoundary({ children }: { children: ReactNode }) {
+  return (
+    <CardGridContext value={false}>
+      <CardColumnContext value={null}>{children}</CardColumnContext>
+    </CardGridContext>
+  );
+}
+
+function useCardTile(bodyVisible: boolean) {
+  const grid = useContext(CardGridContext);
+  const [width, setWidth] = useState(Infinity);
+  const compact = grid && !bodyVisible;
+  const tile = useMemo(() => ({ compact, width }), [compact, width]);
+  const rootStyle = [grid && cardGridExpandedStyle, compact && cardGridCollapsedStyle];
+  return { tile, setWidth, rootStyle };
+}
+
+function cardHeight({
+  column,
+  compact,
+  id,
+  naturalHeight,
+  viewportHeight,
+}: {
+  column: React.ContextType<typeof CardColumnContext>;
+  compact: boolean;
+  id: string;
+  naturalHeight: number;
+  viewportHeight: number;
+}) {
+  if (compact) return naturalHeight;
+  if (column) return column.heights.get(id) ?? naturalHeight;
+  return Math.min(naturalHeight, viewportHeight / 2);
+}
+
 /** Bound the entire card, including its header, as the viewport resizes. */
 function TaskCardView({
   insets = 0,
@@ -68,8 +125,17 @@ function TaskCardView({
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { tile, setWidth, rootStyle } = useCardTile(bodyVisible);
+  const compact = tile.compact;
   const divider = useScrollDivider();
   const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
+  const onLayout = useCallback(
+    (event: import("react-native").LayoutChangeEvent) => {
+      onPanelLayout(event);
+      if (event.nativeEvent.layout.width > 0) setWidth(event.nativeEvent.layout.width);
+    },
+    [onPanelLayout, setWidth],
+  );
   const paneDivider = useMemo(
     () => ({ scrolled: divider.scrolled, inset: spacingInset }),
     [divider.scrolled, spacingInset],
@@ -100,9 +166,7 @@ function TaskCardView({
   const header = parts.find(isHeader);
   const body = parts.filter((part) => !isHeader(part));
   const { height } = useWindowDimensions();
-  const maxHeight = column
-    ? (column.heights.get(id) ?? naturalHeight)
-    : Math.min(naturalHeight, height / 2);
+  const maxHeight = cardHeight({ column, compact, id, naturalHeight, viewportHeight: height });
   // Animate only height. Positional layout transitions treat a retained hidden
   // card's zero DOM rect as its origin and fly it across the page on reactivation.
   const animationStyle = useAnimatedStyle(
@@ -127,12 +191,12 @@ function TaskCardView({
     [onDragActive, parentDrag],
   );
   return (
-    <ScrollDividerContext.Provider value={divider.report}>
-      <Animated.View entering={cardEnter} exiting={cardExit} style={animationStyle}>
+    <CardSurfaceContext report={divider.report} tile={tile}>
+      <Animated.View entering={cardEnter} exiting={cardExit} style={[animationStyle, rootStyle]}>
         <View
           ref={divider.ref}
           testID={testID}
-          onLayout={onPanelLayout}
+          onLayout={onLayout}
           style={[taskCardStyles.surface, style, { minHeight: 0, flex: 1, overflow: "hidden" }]}
         >
           <View style={taskCardStyles.scrollContent}>
@@ -154,7 +218,9 @@ function TaskCardView({
                 testID={testID ? `${testID}-scroll-divider` : undefined}
                 style={[
                   taskCardStyles.headerDivider,
-                  { opacity: panelHeight === undefined && bodyVisible && divider.scrolled ? 1 : 0 },
+                  {
+                    opacity: panelHeight === undefined && bodyVisible && divider.scrolled ? 1 : 0,
+                  },
                 ]}
               />
             </View>
@@ -171,7 +237,7 @@ function TaskCardView({
                 ]}
               >
                 <CardPaneDividerContext.Provider value={paneDivider}>
-                  <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+                  <CardBodyBoundary>{body}</CardBodyBoundary>
                 </CardPaneDividerContext.Provider>
               </View>
             ) : (
@@ -195,14 +261,14 @@ function TaskCardView({
                 keyboardShouldPersistTaps="handled"
               >
                 <QueueDragScrollContext.Provider value={setDragging}>
-                  <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+                  <CardBodyBoundary>{body}</CardBodyBoundary>
                 </QueueDragScrollContext.Provider>
               </ScrollView>
             )}
           </View>
         </View>
       </Animated.View>
-    </ScrollDividerContext.Provider>
+    </CardSurfaceContext>
   );
 }
 
@@ -265,18 +331,23 @@ function ContentTaskCard({
 }
 const contentCardStyle = { flexShrink: 0 } as const;
 
-/** Explicit heading slot, rendered outside the card's body scroll region. */
+/** Compact tiles reveal their actions by opening the full-width card. */
 export function TaskCardHeader({ children, testID }: { children: ReactNode; testID?: string }) {
   const touch = useVortonTouch();
+  const tile = useContext(CardTileContext);
+  const stacked = tile.compact && tile.width < 100;
+  const parts = Children.toArray(children);
+  const staticHeading = parts.some(
+    (child) => isValidElement(child) && child.type === TaskCardTitle,
+  );
   return (
     <View
       testID={testID}
       style={[
         taskCardStyles.header,
-        Children.toArray(children).some(
-          (child) => isValidElement(child) && child.type === TaskCardTitle,
-        ) && [taskCardStyles.staticHeader, touch && taskCardStyles.touchStaticHeader],
+        staticHeading && [taskCardStyles.staticHeader, touch && taskCardStyles.touchStaticHeader],
         touch && taskCardStyles.touchHeader,
+        stacked && { height: "auto", minHeight: 56 },
       ]}
     >
       {children}
@@ -293,6 +364,8 @@ export function TaskCardTitle({ children }: { children: string }) {
 }
 
 export function TaskCardActions({ children }: { children: ReactNode }) {
+  const tile = useContext(CardTileContext);
+  if (tile.compact && tile.width < 320) return null;
   return <View style={taskCardStyles.actions}>{children}</View>;
 }
 
@@ -311,6 +384,8 @@ export function TaskCardAction({
   ...props
 }: TaskCardActionProps) {
   const touch = useVortonTouch();
+  const tile = useContext(CardTileContext);
+  if (tile.compact && tile.width < 320) return null;
   const button = (
     <Button
       {...props}

@@ -26,6 +26,13 @@ import { RestartRequestError, type RestartExecutor } from "./restarts.js";
 
 import { installContainerSource } from "./container-updates.js";
 import { prepareSourceBatch } from "./source-batches.js";
+import { DevRepairSourceSchema, prepareDevRepairBundle } from "./dev-source-repair.js";
+import { isDeepStrictEqual } from "node:util";
+
+export const DevRepairCaptureSchema = DevRepairSourceSchema.extend({
+  hostReleaseDirectory: z.string().startsWith("/"),
+});
+export type DevRepairCapture = z.infer<typeof DevRepairCaptureSchema>;
 
 const execute = promisify(execFile);
 const ReceiptSchema = z.object({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/) });
@@ -121,6 +128,50 @@ export class InstallationSourceUpdates {
       contributions,
       stage: (update, bundle) => this.stage(update, bundle, true),
     });
+  }
+
+  captureDevRepair(contributions: SourceContribution[]): DevRepairCapture {
+    if (this.target !== "container-daemon")
+      throw new RestartRequestError("Owner source repair is limited to Dev");
+    const hostReleaseDirectory = realpathSync(this.hostSettings().currentReleaseLink);
+    const host = ReceiptSchema.parse(
+      JSON.parse(
+        readFileSync(path.join(hostReleaseDirectory, ".installation-source.json"), "utf8"),
+      ),
+    );
+    const dev = this.source();
+    const active = contributions.filter((item) => item.status !== "superseded");
+    return DevRepairCaptureSchema.parse({
+      hostReleaseDirectory,
+      baseCommit: dev.baseCommit,
+      sourceCommit: host.sourceCommit,
+      integrationRef: dev.integrationRef,
+      contributionCommits: active.map((item) => item.update.sourceCommit),
+    });
+  }
+
+  async prepareDevRepair(capture: DevRepairCapture, contributions: SourceContribution[]) {
+    const snapshot = DevRepairCaptureSchema.parse(capture);
+    const assertCurrent = () => {
+      if (!isDeepStrictEqual(this.captureDevRepair(contributions), snapshot))
+        throw new RestartRequestError(
+          "Dev repair source changed. Capture and review a new repair.",
+        );
+    };
+    assertCurrent();
+    const prepared = await prepareDevRepairBundle({
+      baseCommit: snapshot.baseCommit,
+      sourceCommit: snapshot.sourceCommit,
+      integrationRef: snapshot.integrationRef,
+      contributionCommits: snapshot.contributionCommits,
+      repository: this.hostSettings().sourceRepository,
+      directory: this.directory,
+    });
+    assertCurrent();
+    // Staging bytes grants no approval. The queue must compare the captured
+    // request revision before attaching this contribution to a pending batch.
+    this.stage(prepared.update, prepared.bundle, true);
+    return prepared.update;
   }
 
   async install(job: RestartJob, restart: RestartExecutor["restart"]): Promise<string> {

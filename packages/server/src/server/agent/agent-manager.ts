@@ -39,6 +39,7 @@ import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/inde
 import type { PluginSessionOpenRequest } from "@getpaseo/plugin/server";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { managedWorkerLimit } from "./worker-limit.js";
 import { countRunningWorkers } from "./worker-activity.js";
 import { basename, resolve } from "node:path";
 import { stat } from "node:fs/promises";
@@ -2170,7 +2171,8 @@ export class AgentManager {
           agent.labels[PARENT_AGENT_ID_LABEL] === parent.id &&
           (isAgentBusy(agent.lifecycle) || this.runs.hasRun(agent.id)),
       ).length;
-      if (pending + running >= (parent.config.profileLaunch.profile.maxWorkers ?? 2)) {
+      const limit = managedWorkerLimit(parent.config.profileLaunch.profile);
+      if (limit !== null && pending + running >= limit) {
         throw new Error(
           "Worker limit reached. Wait for a worker to finish before creating another.",
         );
@@ -3861,7 +3863,8 @@ export class AgentManager {
           agent.labels[PARENT_AGENT_ID_LABEL] === parent.id &&
           (isAgentBusy(agent.lifecycle) || this.runs.hasRun(agent.id)),
       ).length;
-      if (running >= (parent.config.profileLaunch.profile.maxWorkers ?? 2)) {
+      const limit = managedWorkerLimit(parent.config.profileLaunch.profile);
+      if (limit !== null && running >= limit) {
         throw new Error(
           "Worker limit reached. Wait for a worker to finish before starting another.",
         );

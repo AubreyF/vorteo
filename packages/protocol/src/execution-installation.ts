@@ -248,6 +248,7 @@ export type ProfileSharingStatus = z.infer<typeof ProfileSharingStatusSchema>;
 
 export const InstallationProfilesSnapshotSchema = ProfileSharingStatusSchema.extend({
   workerAccounts: z.boolean().optional(),
+  uncappedManagedWorkers: z.boolean().optional(),
   providers: z.record(z.string(), ProviderPreferencesSchema),
 });
 export type InstallationProfilesSnapshot = z.infer<typeof InstallationProfilesSnapshotSchema>;

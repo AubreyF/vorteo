@@ -1,3 +1,4 @@
+import { cardGridGroupStyle } from "@/agent-stream/card-grid";
 import { TaskCardRowIcon } from "@/agent-stream/task-card-row";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
@@ -115,7 +116,7 @@ export function SubagentsTrack({
     />
   ));
   if (inline) {
-    return <View style={styles.groups}>{groups}</View>;
+    return <View style={cardGridGroupStyle}>{groups}</View>;
   }
   return (
     <ComposerTrackPill
@@ -211,7 +212,7 @@ function SubagentsGroup({
     </View>
   ) : null;
   return (
-    <View testID={`subagents-group-${kind}`}>
+    <View testID={`subagents-group-${kind}`} style={inline && cardGridGroupStyle}>
       {inline ? (
         <TaskCard flushBody bodyVisible={expanded} testID={cardTestID}>
           <TaskCardHeader>{header}</TaskCardHeader>

@@ -446,6 +446,7 @@ describe("openAgentProfileForm", () => {
       instructions: "",
       workerProfileId: "",
       maxWorkers: 2,
+      uncappedWorkers: false,
       name: "Cheap grunt",
       nickname: "",
       provider: "codex",
@@ -803,4 +804,23 @@ it("requires a worker profile after switching accounts and preserves an explicit
   model.setWorkerAccount("");
   expect(model.getState().canSubmit).toBe(true);
   expect(model.getState().submitValue?.workerProfileId).toBe("");
+});
+
+it("round-trips explicit uncapped policy and allows selecting a finite limit again", () => {
+  const model = openAgentProfileForm({
+    mode: "edit",
+    profile: {
+      id: "team",
+      name: "Team",
+      provider: "claude",
+      model: "claude-opus-5",
+      uncappedWorkers: true,
+    },
+  });
+  model.applyProviderCatalog(ENTRIES);
+  expect(model.getState().maxWorkers).toBe("uncapped");
+  expect(model.getState().submitValue?.uncappedWorkers).toBe(true);
+  model.setMaxWorkers(3);
+  expect(model.getState().submitValue?.maxWorkers).toBe(3);
+  expect(model.getState().submitValue?.uncappedWorkers).toBe(false);
 });

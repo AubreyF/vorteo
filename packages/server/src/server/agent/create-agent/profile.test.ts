@@ -555,3 +555,30 @@ it("Factory configured profiles retain exact account and reject missing or ambig
   settings.agentProfiles = [profile, { ...profile }];
   expect(() => readFactoryConfiguredProfiles(settings, "one", "local")).toThrow("ambiguous");
 });
+
+it("emits truthful uncapped instructions and freezes the selected policy", () => {
+  const profiles = [
+    {
+      id: "team",
+      name: "Team",
+      provider: "codex",
+      uncappedWorkers: true,
+      workerProfileId: "worker",
+    },
+    { id: "worker", name: "Worker", provider: "codex", model: "gpt-5.4" },
+  ];
+  const result = resolveProfileLaunch(
+    { provider: "codex", cwd: "/work", profileId: "team" },
+    profiles,
+    0,
+  );
+  expect(result.systemPrompt).toContain("no managed-worker count cap");
+  expect(result.systemPrompt).not.toContain("At most");
+  expect(result.profileLaunch?.profile.uncappedWorkers).toBe(true);
+  const resumed = resolveProfileLaunch(
+    result,
+    [{ ...profiles[0], uncappedWorkers: false, maxWorkers: 1 }, profiles[1]],
+    0,
+  );
+  expect(resumed.profileLaunch?.profile.uncappedWorkers).toBe(true);
+});

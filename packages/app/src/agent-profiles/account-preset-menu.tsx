@@ -715,7 +715,10 @@ function WorkflowInstructions({
           <Text style={[styles.summary, styles.sectionContent]}>
             {definitions.find((profile) => profile.id === definition.workerProfileId)?.name ??
               definition.workerProfileId}{" "}
-            · Up to {definition.maxWorkers ?? 2}
+            ·{" "}
+            {definition.uncappedWorkers === true
+              ? "Uncapped"
+              : `Up to ${definition.maxWorkers ?? 2}`}
           </Text>
         </>
       ) : null}
