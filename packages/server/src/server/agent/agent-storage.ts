@@ -1,3 +1,4 @@
+import { blockedReviewDue } from "./task-checklist/blocked-review.js";
 import {
   AgentJournalEntrySchema,
   AppendJournalSchema,
@@ -92,6 +93,7 @@ const STORED_AGENT_SCHEMA = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   lastActivityAt: z.string().optional(),
+  lastBlockedReviewAt: z.string().datetime().optional(),
   lastUserMessageAt: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
   labels: z.record(z.string(), z.string()).default({}),
@@ -265,6 +267,21 @@ export class AgentStorage {
     return this.queueRecordMutation(record.id, () => record);
   }
 
+  async claimBlockedReview(agentId: string, now: number): Promise<boolean> {
+    await this.load();
+    let claimed = false;
+    await this.queueRecordMutation(
+      agentId,
+      (record) => {
+        if (!record || !blockedReviewDue(record, now)) return null;
+        claimed = true;
+        return { ...record, lastBlockedReviewAt: new Date(now).toISOString() };
+      },
+      { blockedReviewWrite: true },
+    );
+    return claimed;
+  }
+
   async appendJournal(agentId: string, input: AppendJournalInput): Promise<AgentJournalEntry> {
     const { entryId, text } = AppendJournalSchema.parse(input);
     await this.load();
@@ -327,7 +344,7 @@ export class AgentStorage {
   private queueRecordMutation(
     agentId: string,
     mutate: (existing: StoredAgentRecord | null) => StoredAgentRecord | null,
-    options: { checklistWrite?: boolean; journalWrite?: boolean } = {},
+    options: RecordMutationOptions = {},
   ): Promise<void> {
     const prev = this.pendingWrites.get(agentId) ?? Promise.resolve();
     const next = prev.then(async () => {
@@ -338,9 +355,7 @@ export class AgentStorage {
       const existing = this.cache.get(agentId) ?? null;
       const record = mutate(existing);
       if (!record) return undefined;
-      // Only the append operation may change a journal. Stale snapshots cannot rewrite history.
-      if (!options.journalWrite && existing) record.journal = existing.journal;
-      if (!options.checklistWrite) preserveManagedChecklist(record, existing);
+      preserveOwnedRecordFields({ record, existing, options });
       // Loading sessions and metadata writers can hold snapshots from before
       // a reserve transition. All writes preserve the newest durable revision.
       const reserve = existing?.config?.quotaReserve;
@@ -640,4 +655,24 @@ function preserveManagedChecklist(
   if (!existing) return;
   if (record.tasks === undefined && existing.tasks === undefined) return;
   record.tasks = mergeProviderChecklist(record.tasks ?? [], existing.tasks ?? []);
+}
+
+interface RecordMutationOptions {
+  checklistWrite?: boolean;
+  journalWrite?: boolean;
+  blockedReviewWrite?: boolean;
+}
+
+interface OwnedRecordFields {
+  record: StoredAgentRecord;
+  existing: StoredAgentRecord | null;
+  options: RecordMutationOptions;
+}
+
+// Snapshot writers cannot rewrite state owned by dedicated serialized mutations.
+function preserveOwnedRecordFields({ record, existing, options }: OwnedRecordFields): void {
+  if (!options.journalWrite && existing) record.journal = existing.journal;
+  if (!options.checklistWrite) preserveManagedChecklist(record, existing);
+  if (!options.blockedReviewWrite && existing)
+    record.lastBlockedReviewAt = existing.lastBlockedReviewAt;
 }

@@ -8201,13 +8201,19 @@ test.each([false, true])(
     mock.triggerOpen({
       features: {
         coordinatorBootstrapReview: true,
-        ...(supported ? { coordinatorBootstrapFactoryAdoption: true } : {}),
+        ...(supported
+          ? {
+              coordinatorBootstrapFactoryAdoption: true,
+              coordinatorBootstrapCompatibleRecovery: true,
+            }
+          : {}),
       },
     });
     await connecting;
     const listing = client.listCoordinatorBootstrapRequests();
     const listed = parseSentFrame(mock.sent[0]);
     expect(listed.factoryRuntimeAdoption).toBe(supported ? true : undefined);
+    expect(listed.compatibleRecovery).toBe(supported ? true : undefined);
     mock.triggerMessage(
       wrapSessionMessage({
         type: "installation.bootstrap.list_requests.response",
@@ -8228,7 +8234,7 @@ test.each([false, true])(
       requestId: expect.any(String),
       input,
       ownerPassword: "fixture-owner-proof",
-      ...(supported ? { factoryRuntimeAdoption: true } : {}),
+      ...(supported ? { factoryRuntimeAdoption: true, compatibleRecovery: true } : {}),
     });
     const rejected = expect(decision).rejects.toThrow();
     mock.triggerClose({ code: 1006 });
@@ -8237,7 +8243,12 @@ test.each([false, true])(
     mock.triggerOpen({
       features: {
         coordinatorBootstrapReview: true,
-        ...(supported ? { coordinatorBootstrapFactoryAdoption: true } : {}),
+        ...(supported
+          ? {
+              coordinatorBootstrapFactoryAdoption: true,
+              coordinatorBootstrapCompatibleRecovery: true,
+            }
+          : {}),
       },
     });
     await reconnected;

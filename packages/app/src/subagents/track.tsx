@@ -1,10 +1,14 @@
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
-import { SettingsInfoTip } from "@/components/settings/headings/settings-info-tip";
+import {
+  TaskCard,
+  TaskCardHeader,
+  TaskCardAction,
+  TaskCardActions,
+  TaskCardInfo,
+} from "@/agent-stream/task-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CountBadge } from "@/components/ui/count-badge";
-import { Button } from "@/components/ui/button";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
 import { useCallback, useMemo, useState, type ReactElement } from "react";
@@ -169,19 +173,22 @@ function SubagentsGroup({
         testID={`subagents-group-${kind}-toggle`}
         count={countBadge}
       />
-      <SettingsInfoTip
-        title={title}
-        info={kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo")}
-        testID={`subagents-group-${kind}-info`}
-      />
-      {showClear ? (
-        <ArchiveFinishedRow
-          inline
-          status={status}
-          disabled={status.kind === "archiving"}
-          onPress={clearFinished}
-        />
-      ) : null}
+      <TaskCardActions>
+        <TaskCardInfo
+          label={t("settings.groupInfo", { title })}
+          testID={`subagents-group-${kind}-info`}
+        >
+          {kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo")}
+        </TaskCardInfo>
+        {showClear ? (
+          <ArchiveFinishedRow
+            inline
+            status={status}
+            disabled={status.kind === "archiving"}
+            onPress={clearFinished}
+          />
+        ) : null}
+      </TaskCardActions>
     </>
   );
   const body = expanded ? (
@@ -231,7 +238,6 @@ export function ArchiveFinishedRow({
   onPress: () => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const touch = useVortonTouch();
 
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
@@ -267,10 +273,7 @@ export function ArchiveFinishedRow({
   if (status.kind === "failed") actionLabel = "Retry cleanup";
   if (inline) {
     return (
-      <Button
-        variant="outline"
-        size={touch ? "md" : "sm"}
-        textStyle={styles.archiveHeaderText}
+      <TaskCardAction
         onPress={onPress}
         disabled={disabled}
         loading={status.kind === "archiving"}
@@ -282,7 +285,7 @@ export function ArchiveFinishedRow({
         }
       >
         {actionLabel}
-      </Button>
+      </TaskCardAction>
     );
   }
 
@@ -530,7 +533,6 @@ const styles = StyleSheet.create((theme) => ({
   cardRows: {
     marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
   },
-  archiveHeaderText: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted },
   // `flexBasis: "auto"` rather than `flex: 1`: a zero-basis label contributes nothing to the row's
   // intrinsic width, so the panel measures itself at its floor and truncates every label at once.
   rowLabel: {

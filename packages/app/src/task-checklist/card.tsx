@@ -12,14 +12,19 @@ import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
 import { StatusRing } from "@/components/status-ring";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { BlockedTaskBadge } from "@/task-checklist/blocked-badge";
 import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
 import { ListDragHandle } from "@/components/list-drag-handle";
 import { QueueDragScrollContext } from "@/message-queue/drag-scroll";
 import { AgentTaskList } from "@/composer/task-list";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import {
+  TaskCard,
+  TaskCardHeader,
+  TaskCardAction,
+  TaskCardActions,
+} from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { ChecklistProgressFlower } from "./progress-flower";
 import { checklistProgress } from "./progress";
@@ -41,7 +46,6 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
-  const touch = useVortonTouch();
   const [expanded, setExpanded] = useState(true);
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const [editor, setEditor] = useState<EditorState>({ open: false });
@@ -129,22 +133,22 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
             count={countBadge}
             testID="checklist-toggle"
           />
-          <Button
-            size="sm"
-            variant="ghost"
-            style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
-            disabled={!canMutate}
-            onPress={add}
-            testID="checklist-add"
-            accessibilityLabel="Add task"
-            leftIcon={Plus}
-          />
-          <ClearCompletedButton
-            available={tasks.some(canClearTask)}
-            pending={clearMutation.isPending}
-            disabled={!canMutate}
-            onPress={clearCompleted}
-          />
+          <TaskCardActions>
+            <TaskCardAction
+              iconOnly
+              disabled={!canMutate}
+              onPress={add}
+              testID="checklist-add"
+              accessibilityLabel="Add task"
+              leftIcon={Plus}
+            />
+            <ClearCompletedButton
+              available={tasks.some(canClearTask)}
+              pending={clearMutation.isPending}
+              disabled={!canMutate}
+              onPress={clearCompleted}
+            />
+          </TaskCardActions>
         </TaskCardHeader>
 
         {expanded && tasks.length > 0 ? (
@@ -189,13 +193,9 @@ function ClearCompletedButton({
   disabled: boolean;
   onPress: () => void;
 }) {
-  const touch = useVortonTouch();
   if (!available && !pending) return null;
   return (
-    <Button
-      variant="outline"
-      size={touch ? "md" : "sm"}
-      textStyle={taskCardStyles.rowText}
+    <TaskCardAction
       onPress={onPress}
       disabled={disabled}
       loading={pending}
@@ -203,7 +203,7 @@ function ClearCompletedButton({
       accessibilityLabel="Clear completed tasks"
     >
       {pending ? "Clearing…" : "Clear completed"}
-    </Button>
+    </TaskCardAction>
   );
 }
 
@@ -357,7 +357,7 @@ function ChecklistRow({
       >
         {title}
       </Text>
-      {blocked ? <StatusBadge label="Blocked" variant="warning" size="xs" /> : null}
+      {blocked ? <BlockedTaskBadge task={task} /> : null}
       <Button
         variant="ghost"
         size="sm"

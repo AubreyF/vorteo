@@ -37,6 +37,15 @@ export async function recoverAbandonedBootstrap(
       throw new BootstrapRequestConflict("Bootstrap watchdog ownership changed");
     const stage = request.execution.stage;
     if (["succeeded", "resumed", "rolled_back"].includes(stage)) return request;
+    if (request.plan.automaticRecovery === "restore-compatible") {
+      // The watchdog owns execution now. Complete or reconcile promotion before
+      // any recovery effect, including failure before the executor's promotion.
+      try {
+        requests.promoteDispatch(request);
+      } catch {
+        return request;
+      }
+    }
     const advance = (
       next: "resume_pending" | "resumed" | "recovery_required" | "rollback_pending" | "rolled_back",
     ) => {
@@ -53,9 +62,12 @@ export async function recoverAbandonedBootstrap(
       );
       return request;
     };
-    if (!["freeze_pending", "frozen", "resume_pending"].includes(stage)) {
+    if (
+      request.plan.automaticRecovery === "restore-compatible" ||
+      !["freeze_pending", "frozen", "resume_pending"].includes(stage)
+    ) {
       if (stage !== "recovery_required") advance("recovery_required");
-      const authorized = request.plan.automaticRecovery === "restore-previous";
+      const authorized = request.plan.automaticRecovery !== undefined;
       if (!authorized || request.execution?.rollbackAttemptedAt || !operations.restorePrevious)
         return request;
       advance("rollback_pending");

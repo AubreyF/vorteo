@@ -5,11 +5,78 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.294 - 2026-10-10
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.293 - 2026-10-10
+
+### Maintenance
+
+- Integrate the shared Claude connection panel and retained-home synchronization fix with published coordinator recovery, preserving both complete release histories.
+
+## 0.11.0-beta.3.vorteo.292 - 2026-10-10
+
+### Fixed
+
+- Connect managed Claude accounts through one shared panel without Host or Dev tabs. Show aggregate synchronization and disconnect status while retaining Models and profiles access.
+- Restrict owned legacy Claude account directories to private permissions during delivery without replacing history. Reject symbolic links and refuse permission widening.
+
+### Maintenance
+
+- Cover shared connection routing, pending delivery, retained history and desktop and compact management controls with focused checks. Live provider acceptance remains separate.
+
+## 0.11.0-beta.3.vorteo.292 - 2026-10-10
+
+### Maintenance
+
+- Preserve both v291 histories while integrating the published browser-test readiness correction with reviewed coordinator recovery.
+
+## 0.11.0-beta.3.vorteo.291 - 2026-10-10
+
+### Maintenance
+
+- Integrate reviewed coordinator recovery with deployed interface ancestry and blocked-task reassessment, retaining both source histories and release notes.
+
+## 0.11.0-beta.3.vorteo.291 - 2026-10-10
+
+### Maintenance
+
+- Reacquire checklist badges after column layout settles before checking keyboard tooltip access. Focus, explanation visibility and task-state assertions remain unchanged.
+
+## 0.11.0-beta.3.vorteo.290 - 2026-10-10
+
+### Maintenance
+
+- Integrate blocked-task explanations and periodic reassessment with deployed card headings and workspace fixes, preserving both release histories.
+
+## 0.11.0-beta.3.vorteo.289 - 2026-10-10
+
+### Changed
+
+- Preserve the deployed workspace creation, installation and Factory updates while integrating consistent bordered card heading actions and inset heading hover backgrounds.
+- Keep heading geometry checks independent of card animations and verify desktop card limits against the available column height.
+
 ## 0.11.0-beta.3.vorteo.288 - 2026-10-10
 
 ### Maintenance
 
 - Combine 4 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.288 - 2026-10-10
+
+### Fixed
+
+- Preserve completed coordinator maintenance history while allowing the next reviewed update.
+- Bind compatible recovery to a separately reviewed executable and keep pending requests readable by the previous coordinator.
+- Protect journal promotion with independent recovery, crash-released locking and durable state preservation.
+- Leave busy-state recovery explicitly unresolved after one verified resume, with no automatic retry and visible legacy restart limitations.
+
+### Maintenance
+
+- Add recovery, journal durability, legacy-client and native lifecycle regressions; installed activation remains pending.
 
 ## 0.11.0-beta.3.vorteo.287 - 2026-10-10
 
@@ -17,6 +84,13 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Expose pause, resume and stop through the installed native Factory adapter and built-in interface. Bind actions to the selected host, project, installation and revision; show refused or uncertain outcomes without automatic retries. Startup-owned control ports and live operating acceptance remain required.
 - Cover native control provenance, changed identities, lost responses and desktop/compact control rendering through the plugin loaders and isolated daemon.
+
+## 0.11.0-beta.3.vorteo.287 - 2026-10-10
+
+### Fixed
+
+- Inset conversation card heading hover backgrounds from the card border while keeping the icon inside the target and preserving heading alignment.
+- Standardize every conversation card heading action on a shared bordered button, including journal clearing, task controls, goals, queue controls and sub-agent info/cleanup. Preserve common desktop and touch sizes and verify rendered border consistency.
 
 ## 0.11.0-beta.3.vorteo.286 - 2026-10-10
 
@@ -38,6 +112,21 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Assign logical project membership before publishing a new workspace, including Host creation, profile handoffs and agent-created child workspaces.
 - Refuse project-bound creation on daemons that cannot preserve the selected project from the first update.
+
+## 0.11.0-beta.3.vorteo.287 - 2026-10-10
+
+### Added
+
+- Explain blocked tasks on hover, keyboard focus and touch, and periodically reassess eligible idle threads using their retained sessions.
+
+### Fixed
+
+- Preserve queued messages, manual pauses, goal budgets and restart holds during automatic review preparation. Keep review cooldowns across daemon reloads.
+- Wait for an archive queued behind session restoration before returning a protected thread load.
+
+### Maintenance
+
+- Cover retained-session review, archive races, owner-action preemption and queue preservation with focused regressions. Document reassessment eligibility and limits.
 
 ## 0.11.0-beta.3.vorteo.286 - 2026-10-09
 

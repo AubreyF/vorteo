@@ -347,3 +347,66 @@ it("persists one restart continuation and respects a manually paused queue", asy
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.each(["pause", "enqueue", "close"] as const)(
+  "withdraws automatic review admission when %s arrives during preparation",
+  async (action) => {
+    const root = await mkdtemp(join(tmpdir(), "paseo-review-race-"));
+    const service = new MessageQueueService(
+      new MessageQueueStore(root),
+      new QueueAttachmentStore(root),
+    );
+    try {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const admission = service.withIdleQueue("agent", async (canStart) => {
+        expect(canStart()).toBe(true);
+        entered.resolve();
+        await release.promise;
+        return canStart();
+      });
+      await entered.promise;
+      let mutation: Promise<unknown>;
+      if (action === "pause") mutation = service.pause("agent");
+      else if (action === "enqueue")
+        mutation = service.mutate("agent", {
+          kind: "enqueue",
+          operationId: "owner-add",
+          messageId: "owner-message",
+          text: "Keep this owner message",
+          attachments: [],
+        });
+      else {
+        service.close();
+        mutation = Promise.resolve();
+      }
+      release.resolve();
+      expect(await admission).toBe(false);
+      await mutation;
+      expect(await service.withIdleQueue("agent", async () => "started")).toBe(null);
+      if (action === "enqueue") {
+        expect((await service.read("agent")).items).toMatchObject([
+          { id: "owner-message", text: "Keep this owner message" },
+        ]);
+      }
+    } finally {
+      service.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it("holds automatic review while an empty queue has an unresolved delivery error", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-review-error-"));
+  const store = new MessageQueueStore(root);
+  const service = new MessageQueueService(store, new QueueAttachmentStore(root));
+  try {
+    await service.initialize();
+    await store.setDeliveryError("agent", "Delivery confirmation unresolved");
+    expect(await service.withIdleQueue("agent", async () => "started")).toBe(null);
+    expect((await service.read("agent")).deliveryError).toBe("Delivery confirmation unresolved");
+  } finally {
+    service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

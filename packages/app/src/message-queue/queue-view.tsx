@@ -1,7 +1,7 @@
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader, TaskCardAction } from "@/agent-stream/task-card";
 import { CountBadge } from "@/components/ui/count-badge";
 import { QueueMessageIndicator } from "./queue-indicator";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
@@ -154,7 +154,6 @@ function QueueHeader({
   toggleExpanded: () => void;
 }) {
   const countBadge = useMemo(() => <QueueCountBadge control={control} />, [control]);
-  const touch = useVortonTouch();
   const snapshot = control.snapshot;
   const pending = control.pending.filter(
     (record) =>
@@ -198,13 +197,11 @@ function QueueHeader({
         testID="message-queue-toggle"
         count={countBadge}
       />
-      <Button
-        variant="ghost"
-        size="sm"
+      <TaskCardAction
+        iconOnly
         accessibilityLabel={snapshot?.paused ? "Resume queue" : "Pause queue"}
         testID="message-queue-pause-resume"
         leftIcon={snapshot?.paused ? Play : Pause}
-        style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
         disabled={!control.canMutate || !snapshot}
         onPress={toggle}
       />

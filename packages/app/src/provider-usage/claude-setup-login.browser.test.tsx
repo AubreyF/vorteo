@@ -75,8 +75,8 @@ test("shared success shows pending delivery and allows renewal or installation-w
       />,
     ),
   );
-  expect(container.textContent).toContain("Connect once for Host and Dev");
-  expect(container.textContent).toContain("Other environment: pending");
+  expect(container.textContent).toContain("Connect Claude once");
+  expect(container.textContent).toContain("Synchronization is pending");
   expect(container.textContent).not.toContain("Signed in as");
   await page.getByRole("button", { name: "Reconnect Claude subscription" }).click();
   expect(start).toHaveBeenCalledOnce();
@@ -120,8 +120,8 @@ test("disconnect does not hide an offline environment awaiting credential remova
       />,
     ),
   );
-  expect(container.textContent).toContain("Other environment: disconnecting");
+  expect(container.textContent).toContain("Disconnecting.");
   expect(container.textContent).toContain(
-    "Offline environments still need to remove their local credential",
+    "Credential removal will finish automatically when connections return",
   );
 });

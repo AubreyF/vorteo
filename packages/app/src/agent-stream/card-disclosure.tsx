@@ -89,13 +89,13 @@ export function CollapsibleCardBody({
   );
 }
 const styles = StyleSheet.create((theme) => ({
-  hoverTarget: { flex: 1, minWidth: 0, marginLeft: -theme.spacing[3] },
+  hoverTarget: { flex: 1, minWidth: 0, marginLeft: -theme.spacing[1] },
   trigger: {
     flexGrow: 0,
     flexShrink: 0,
     flexBasis: "auto",
     borderRadius: theme.borderRadius.md,
-    paddingLeft: theme.spacing[3],
+    paddingLeft: theme.spacing[1],
     paddingRight: theme.spacing[2],
   },
   hovered: { backgroundColor: theme.colors.interactionHighlight },

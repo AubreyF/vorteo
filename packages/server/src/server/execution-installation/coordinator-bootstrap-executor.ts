@@ -59,6 +59,7 @@ export async function executeCoordinatorBootstrap(
   return operations.withOwnership(request, async () => {
     try {
       await operations.armWatchdog(request);
+      requests.promoteDispatch(request);
       advance("freeze_pending");
       await operations.freeze(request);
       const frozen = await operations.inspectFrozen(request);
@@ -84,7 +85,10 @@ export async function executeCoordinatorBootstrap(
       // Errors can contain private command/configuration data. Persist only the
       // bounded state; native diagnostics belong in the private evidence store.
       const stage = request.execution?.stage;
-      if (stage === "freeze_pending" || stage === "frozen") {
+      if (
+        request.plan.automaticRecovery !== "restore-compatible" &&
+        (stage === "freeze_pending" || stage === "frozen")
+      ) {
         advance("resume_pending");
         try {
           await operations.resumePrevious(request);

@@ -1,5 +1,5 @@
 import { Circle, CircleCheck, CircleAlert } from "lucide-react-native";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { BlockedTaskBadge } from "@/task-checklist/blocked-badge";
 import { StatusRing } from "@/components/status-ring";
 import { memo } from "react";
 import { Text, View } from "react-native";
@@ -61,7 +61,7 @@ export const TaskListRow = memo(function TaskListRow({
       >
         {text}
       </Text>
-      {isBlocked ? <StatusBadge label="Blocked" variant="warning" size="xs" /> : null}
+      {isBlocked ? <BlockedTaskBadge task={task} /> : null}
     </View>
   );
 });

@@ -42,6 +42,7 @@ import type { InstallationConfig } from "../../../server/src/server/execution-in
 import { pluginRequirements } from "../support/helpers/plugin-fixture";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 
+let claudeAuthorizationStarts = 0;
 const helperInstallations: string[] = [];
 const helperFailures = new Set<string>();
 const helperVerificationFailures = new Set<string>();
@@ -235,6 +236,26 @@ test.beforeAll(async () => {
     pino({ level: "silent" }),
     profiles,
     settings,
+    undefined,
+    {
+      // Authorization is inert here. Owner HTTP, the shared catalog and both daemons
+      // remain real; these rendering checks do not claim live provider acceptance.
+      read: () => ({
+        login: { status: "idle" as const },
+        connection: { connected: false, environments: [] },
+      }),
+      start: async () => {
+        claudeAuthorizationStarts++;
+        throw new Error("UI inspection must not start authorization");
+      },
+      submit: async () => {
+        throw new Error("No provider authorization in this fixture");
+      },
+      cancel: async () => ({ status: "idle" as const }),
+      signOut: async () => {},
+      reconcile: async () => {},
+      dispose: async () => {},
+    },
   );
   listener.on("request", app);
   restartTimer = setInterval(() => {
@@ -3752,3 +3773,110 @@ test("native helper recovery remains visible through refresh and locked controls
   );
   expect(helperInstallations.filter((value) => value === id)).toHaveLength(1);
 });
+
+for (const width of [1280, 390]) {
+  test(`Claude management connects once without environment tabs at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto(origin);
+    await page.getByTestId("installation-password").fill(ownerPassword);
+    await page.getByTestId("installation-unlock").click();
+    await expect(page.getByTestId("installation-password")).not.toBeVisible();
+    const read = async () =>
+      InstallationSettingsSnapshotSchema.parse(
+        await (
+          await page.request.post(`${origin}/api/installation/owner/settings/read`, {
+            headers: { Origin: origin },
+            data: {},
+          })
+        ).json(),
+      );
+    const before = await read();
+    const definitions = before.settings?.providerDefinitions;
+    if (!definitions) throw new Error("Missing shared provider catalog");
+    const creationId = randomUUID();
+    const id = `claude-browser-${creationId}`;
+    const providerId = `claude-account-${creationId}`;
+    const response = await page.request.patch(`${origin}/api/installation/owner/settings`, {
+      headers: { Origin: origin },
+      data: {
+        expectedRevision: before.revision,
+        settings: {
+          providerDefinitions: [
+            ...definitions,
+            {
+              id,
+              providerType: "claude",
+              accountSetup: { provider: "claude", creationId },
+              bindings: Object.fromEntries(daemons.map((daemon) => [daemon.serverId, providerId])),
+              policy: { label: "Shared Claude fixture", enabled: true },
+            },
+          ],
+        },
+      },
+    });
+    expect(response.ok()).toBe(true);
+    try {
+      await page.goto(`${origin}/settings/providers`);
+      await page
+        .getByTestId("provider-family-claude")
+        .getByRole("button", { name: "Claude", exact: true })
+        .click();
+      await page
+        .getByTestId(`provider-account-${id}`)
+        .getByRole("button", { name: "Manage", exact: true })
+        .click();
+      const sheet =
+        width === 390
+          ? page.getByRole("slider", { name: "Bottom Sheet", exact: true })
+          : page.getByTestId("provider-manage-sheet");
+      await expect(sheet.getByText("Connect Claude once.", { exact: false })).toBeVisible();
+      await expect(sheet.getByRole("button", { name: "Connect Claude", exact: true })).toHaveCount(
+        1,
+      );
+      await expect(
+        sheet.getByRole("button", { name: "Connect Claude", exact: true }),
+      ).toBeEnabled();
+      await expect(sheet.getByRole("tab")).toHaveCount(0);
+      await expect(sheet.getByText("Host", { exact: true })).toHaveCount(0);
+      await expect(sheet.getByText("Dev container", { exact: true })).toHaveCount(0);
+      await expect(
+        sheet.getByRole("button", { name: "Models and profiles", exact: true }),
+      ).toBeVisible();
+      await expect(sheet.getByText("Not connected.", { exact: true })).toBeVisible();
+      await sheet
+        .getByRole("button", { name: "Connect Claude", exact: true })
+        .scrollIntoViewIfNeeded();
+      await expect(
+        sheet.getByRole("button", { name: "Connect Claude", exact: true }),
+      ).toBeInViewport();
+      await page.screenshot({ path: info.outputPath(`claude-shared-${width}.png`) });
+      // Rendering the connection must not initiate provider authorization.
+      const status = await page.request.post(
+        `${origin}/api/installation/owner/claude/setup-token/read`,
+        {
+          headers: { Origin: origin },
+          data: { definitionId: id },
+        },
+      );
+      expect(status.ok()).toBe(true);
+      expect((await status.json()).login.status).toBe("idle");
+      expect(claudeAuthorizationStarts).toBe(0);
+    } finally {
+      const current = await read();
+      const currentDefinitions = current.settings?.providerDefinitions;
+      expect(currentDefinitions).toBeDefined();
+      const restored = await page.request.patch(`${origin}/api/installation/owner/settings`, {
+        headers: { Origin: origin },
+        data: {
+          expectedRevision: current.revision,
+          settings: {
+            providerDefinitions: currentDefinitions!.filter((entry) => entry.id !== id),
+          },
+        },
+      });
+      expect(restored.ok()).toBe(true);
+    }
+  });
+}

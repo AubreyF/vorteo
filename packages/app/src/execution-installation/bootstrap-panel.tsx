@@ -77,6 +77,37 @@ function FactoryAdoptionConfiguration({ plan }: { plan: CoordinatorBootstrapRequ
   );
 }
 
+function CompatibleRecoveryConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const recovery = plan.compatibleRecovery;
+  if (!recovery) return null;
+  return (
+    <View>
+      <Text style={styles.text}>
+        Recovery uses the separately approved executable below with the previous configuration. It
+        may resume the exact previous process to let busy work settle, but maintenance then remains
+        unresolved. A new approved update is required to restore restart-safe operation. If that
+        previous process exits, it may not restart. Other unverified recovery also remains
+        unresolved.
+      </Text>
+      <Text selectable style={styles.text}>
+        Recovery source: {recovery.sourceCommit}
+      </Text>
+      <Text selectable style={styles.text}>
+        Recovery artifact SHA-256: {recovery.artifactSha256}
+      </Text>
+      <Text selectable style={styles.text}>
+        Recovery launcher: {recovery.launcher.path}
+      </Text>
+      <Text selectable style={styles.text}>
+        Recovery configuration: {recovery.configuration.path}
+      </Text>
+      <Text selectable style={styles.text}>
+        Recovery configuration SHA-256: {recovery.configuration.sha256}
+      </Text>
+    </View>
+  );
+}
+
 function BootstrapRequestCard({
   request,
   model,
@@ -137,6 +168,7 @@ function BootstrapRequestCard({
               running; the failed update is not retried.
             </Text>
           ) : null}
+          <CompatibleRecoveryConfiguration plan={request.plan} />
           {request.plan.nativeHelperConfiguration !== undefined ? (
             <Text style={styles.text}>
               {request.plan.nativeHelperConfiguration === null

@@ -1,7 +1,11 @@
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard, TaskCardHeader, TaskCardActions } from "@/agent-stream/task-card";
-import { taskCardStyles } from "@/agent-stream/task-card-styles";
+import {
+  TaskCard,
+  TaskCardHeader,
+  TaskCardActions,
+  TaskCardAction,
+} from "@/agent-stream/task-card";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { Text, View } from "react-native";
 import { useCallback, useState } from "react";
@@ -135,7 +139,6 @@ function GoalActions({
   const paused = !isGoalContinuationEnabled(control.state);
   const action = paused ? "Resume goal" : "Pause goal";
   const pauseHint = "Prevents the goal from continuing automatically.";
-  const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
   const mutate = control.mutate;
   const toggle = useCallback(() => {
     const status = isGoalContinuationEnabled(control.state) ? "paused" : "active";
@@ -144,25 +147,21 @@ function GoalActions({
   return (
     <TaskCardActions>
       {!compact ? <GoalClearAction control={control} /> : null}
-      <Button
-        variant="ghost"
-        size="sm"
-        style={iconStyle}
+      <TaskCardAction
+        iconOnly
         accessibilityLabel="Edit goal"
         testID="agent-goal-expand"
-        leftIcon={editIcon}
+        leftIcon={Pencil}
         onPress={onExpand}
       />
       <Tooltip enabledOnDesktop={!touch}>
         <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            style={iconStyle}
+          <TaskCardAction
+            iconOnly
             accessibilityLabel={action}
             accessibilityHint={paused ? "Allows the goal to continue automatically." : pauseHint}
             testID="agent-goal-pause-resume"
-            leftIcon={paused ? playIcon : pauseIcon}
+            leftIcon={paused ? Play : Pause}
             disabled={!control.canMutate || !goal}
             loading={control.pending}
             onPress={toggle}
@@ -186,28 +185,21 @@ function GoalClearAction({
   control: AgentGoalControl;
   labeled?: boolean;
 }) {
-  const touch = useVortonTouch();
   const mutate = control.mutate;
   const clear = useCallback(() => {
     void mutate({ kind: "clear" }).catch(() => {});
   }, [mutate]);
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      style={
-        labeled
-          ? [styles.recoveryAction, touch && styles.touch]
-          : [taskCardStyles.iconAction, touch && taskCardStyles.touchAction]
-      }
+    <TaskCardAction
+      iconOnly={!labeled}
       accessibilityLabel="Clear goal"
       testID="agent-goal-clear"
-      leftIcon={trashIcon}
+      leftIcon={Trash2}
       disabled={!control.canMutate || !control.state?.goal}
       onPress={clear}
     >
       {labeled ? "Clear goal" : null}
-    </Button>
+    </TaskCardAction>
   );
 }
 
@@ -215,19 +207,6 @@ function goalBarLabel(control: AgentGoalControl): string {
   if (!control.connected) return "Goal offline";
   if (control.error) return "Goal needs attention";
   return goalStatusLabel(control.state);
-}
-
-function pauseIcon(color: string) {
-  return <Pause size={16} color={color} />;
-}
-function playIcon(color: string) {
-  return <Play size={16} color={color} />;
-}
-function trashIcon(color: string) {
-  return <Trash2 size={16} color={color} />;
-}
-function editIcon(color: string) {
-  return <Pencil size={16} color={color} />;
 }
 
 const styles = StyleSheet.create((theme) => ({

@@ -2042,7 +2042,11 @@ export class VoiceAssistantWebSocketServer {
         agentDetach: true,
         agentGoals: true,
         ...(this.coordinatorBootstrap
-          ? { coordinatorBootstrapReview: true, coordinatorBootstrapFactoryAdoption: true }
+          ? {
+              coordinatorBootstrapReview: true,
+              coordinatorBootstrapFactoryAdoption: true,
+              coordinatorBootstrapCompatibleRecovery: true,
+            }
           : {}),
         durableMessageQueue: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.

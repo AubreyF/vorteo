@@ -138,6 +138,29 @@ describe("AgentStorage", () => {
   let storage: AgentStorage;
   const logger = createTestLogger();
 
+  test("blocked review claims survive stale snapshots and restart without replay", async () => {
+    const agent = createManagedAgent({
+      id: "blocked-review",
+      persistence: { provider: "claude", sessionId: "retained" },
+    });
+    agent.labels = {};
+    await storage.applySnapshot(agent);
+    await storage.mutateChecklist(agent.id, { operation: "create", id: "task", text: "Review" });
+    await storage.mutateChecklist(agent.id, { operation: "update", id: "task", status: "blocked" });
+    const now = Date.now() + 3_600_001;
+    expect(await storage.claimBlockedReview(agent.id, now)).toBe(true);
+    await storage.applySnapshot(agent);
+    const reopened = new AgentStorage(storagePath, logger);
+    expect(await reopened.claimBlockedReview(agent.id, now + 1)).toBe(false);
+    expect(await reopened.claimBlockedReview(agent.id, now + 3_600_000)).toBe(true);
+    await reopened.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "task",
+      status: "pending",
+    });
+    expect(await reopened.claimBlockedReview(agent.id, now + 7_200_000)).toBe(false);
+  });
+
   test("journal appends preserve order, survive stale snapshots and retry without duplication", async () => {
     const agent = createManagedAgent({ id: "journal" });
     await storage.applySnapshot(agent);

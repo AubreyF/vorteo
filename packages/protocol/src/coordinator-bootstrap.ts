@@ -44,7 +44,8 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
       planSha256: DigestSchema,
     })
     .optional(),
-  automaticRecovery: z.literal("restore-previous").optional(),
+  automaticRecovery: z.enum(["restore-previous", "restore-compatible"]).optional(),
+  compatibleRecovery: ReleaseIdentitySchema.optional(),
   nativeHelperConfiguration: NativeHelperConfigurationSchema.nullable().optional(),
   // COMPAT(factoryRuntimeAdoption): added in v0.11.0-beta.3.vorteo.285.
   factoryRuntimeAdoptionConfiguration:
@@ -111,17 +112,20 @@ export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.list_requests.request"),
   requestId: z.string(),
   factoryRuntimeAdoption: z.literal(true).optional(),
+  compatibleRecovery: z.literal(true).optional(),
 });
 export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.prepare.request"),
   requestId: z.string(),
   factoryRuntimeAdoption: z.literal(true).optional(),
+  compatibleRecovery: z.literal(true).optional(),
   input: CoordinatorBootstrapPreparationSchema,
 });
 export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.decide.request"),
   requestId: z.string(),
   factoryRuntimeAdoption: z.literal(true).optional(),
+  compatibleRecovery: z.literal(true).optional(),
   input: CoordinatorBootstrapDecisionSchema,
   // Transient owner proof. Never persist it with the request or decision.
   ownerPassword: z.string().min(1).max(1024),

@@ -15,7 +15,7 @@ import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useShallow } from "zustand/shallow";
 import { useSessionStore } from "@/stores/session-store";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader, TaskCardAction } from "@/agent-stream/task-card";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -192,13 +192,10 @@ function JournalViewAction({
   onShowHistory: () => void;
 }) {
   const compact = useIsCompactFormFactor();
-  const touch = useVortonTouch();
   const clearLabel = compact ? "Clear" : "Clear journal";
   const historyLabel = compact ? "History" : "Show history";
   return (
-    <Button
-      variant="ghost"
-      size={touch ? "md" : "xs"}
+    <TaskCardAction
       disabled={disabled}
       accessibilityLabel={count ? "Clear journal" : "Show history"}
       accessibilityHint="Changes this device's view. Journal history is retained."
@@ -206,7 +203,7 @@ function JournalViewAction({
       onPress={count ? onClear : onShowHistory}
     >
       {count ? clearLabel : historyLabel}
-    </Button>
+    </TaskCardAction>
   );
 }
 
