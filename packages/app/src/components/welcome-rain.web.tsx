@@ -25,8 +25,23 @@ export function WelcomeRain() {
     let elapsed = 0;
     let width = 0;
     let height = 0;
+    let ink = "#80a992";
+    const updateInk = () => {
+      ink =
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--vorteo-welcome-ink")
+          .trim() || "#80a992";
+      draw();
+    };
+    const paletteObserver = new MutationObserver(updateInk);
+    paletteObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+    updateInk();
     function draw() {
       if (!context) return;
+      context.globalAlpha = 1;
       context.clearRect(0, 0, width, height);
       context.font = "12px monospace";
       const columns = Math.ceil(width / 42);
@@ -40,7 +55,8 @@ export function WelcomeRain() {
           const trail = (head - y) / 19;
           if (trail < 0 || trail >= 12) continue;
           const glyph = GLYPHS[(column * 7 + row * 13) % GLYPHS.length];
-          context.fillStyle = `rgba(128,169,146,${0.13 * (1 - trail / 12)})`;
+          context.fillStyle = ink;
+          context.globalAlpha = 0.13 * (1 - trail / 12);
           context.fillText(glyph, column * 42 + 12, y);
         }
       }
@@ -81,6 +97,7 @@ export function WelcomeRain() {
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      paletteObserver.disconnect();
       reduced.removeEventListener("change", resume);
       document.removeEventListener("visibilitychange", resume);
     };

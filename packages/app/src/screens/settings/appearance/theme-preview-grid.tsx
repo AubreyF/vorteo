@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Text, View, useWindowDimensions } from "react-native";
+import { Text, View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { useThemePreview, useThemePreviewActive } from "@/appearance/provider";
@@ -15,6 +16,8 @@ import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { useVortonTouch } from "@/vorton-touch";
 import { Tooltip, TooltipContent, TooltipText, TooltipTrigger } from "@/components/ui/tooltip";
 import { ThemePreviewArtwork } from "./theme-preview-artwork";
+
+import { InterfaceZoomControl } from "./interface-zoom-control";
 
 const previewDataset = { ptheme: true };
 
@@ -206,7 +209,7 @@ export function ThemePreviewGrid({
     [commit, selectTheme],
   );
   return (
-    <View>
+    <View style={styles.controls}>
       <View style={styles.grid}>
         {APPEARANCE_DEFINITIONS.map((appearance) => (
           <ThemePreviewCard
@@ -219,6 +222,7 @@ export function ThemePreviewGrid({
           />
         ))}
       </View>
+      <InterfaceZoomControl />
       {error ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {error}
@@ -229,7 +233,8 @@ export function ThemePreviewGrid({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  grid: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
+  controls: { maxWidth: "100%", flexShrink: 1 },
+  grid: { flexWrap: "wrap", flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
   hoverTarget: { position: "relative" },
   card: {
     padding: 0,

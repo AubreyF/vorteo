@@ -1,3 +1,4 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import {
   getDesktopHost,
   type DesktopAttachedBrowserRegistration,
@@ -93,8 +94,8 @@ function applyResidentHostParkingStyle(host: HTMLElement): void {
   host.style.position = "fixed";
   host.style.left = "0";
   host.style.top = "0";
-  host.style.width = "100vw";
-  host.style.height = "100vh";
+  host.style.width = "calc(100vw / var(--interface-scale, 1))";
+  host.style.height = "calc(100vh / var(--interface-scale, 1))";
   host.style.overflow = "visible";
   host.style.opacity = "1";
   host.style.pointerEvents = "none";
@@ -253,8 +254,19 @@ export function presentBrowserWebview(
   if (webview.parentElement !== surface) {
     surface.appendChild(webview);
   }
-  const anchorBounds = anchor.getBoundingClientRect();
-  const clipBounds = clip.getBoundingClientRect();
+  // Portal styles use logical CSS pixels; DOM bounds include interface zoom.
+  const scale = getInterfaceScale();
+  const logicalBounds = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left / scale,
+      top: rect.top / scale,
+      width: rect.width / scale,
+      height: rect.height / scale,
+    };
+  };
+  const anchorBounds = logicalBounds(anchor);
+  const clipBounds = logicalBounds(clip);
   const left = Math.max(anchorBounds.left, clipBounds.left);
   const top = Math.max(anchorBounds.top, clipBounds.top);
   const right = Math.min(

@@ -20,12 +20,14 @@ export function AgentTaskCards({
   workspaceId,
   cwd,
   queueHostName,
+  hasWorkspaceCards = false,
 }: {
   serverId: string;
   agentId: string;
   workspaceId?: string;
   cwd: string;
   queueHostName?: string;
+  hasWorkspaceCards?: boolean;
 }) {
   const compact = useIsCompactFormFactor();
   const queue = useMessageQueue(serverId, agentId);
@@ -62,7 +64,7 @@ export function AgentTaskCards({
       ) : (
         <JournalCard serverId={serverId} agentId={agentId} />
       )}
-      {compact && workspaceId ? (
+      {compact && workspaceId && !hasWorkspaceCards ? (
         <InlineFilesCard serverId={serverId} workspaceId={workspaceId} cwd={cwd} />
       ) : null}
       {/* The portal transport captures its host on mount; remount when moving the queue. */}

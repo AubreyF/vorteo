@@ -3,6 +3,7 @@ import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import {
   seedLongMockAgentTimeline,
   openAgentTimeline,
+  expectTimelinePromptVisible,
   scrollTimelineToOldestLoadedEdge,
 } from "../support/helpers/timeline-pagination";
 import { expect, test } from "../support/fixtures";
@@ -463,5 +464,171 @@ test("keeps shared button labels themed across palette changes", async ({ page }
   } finally {
     await client.close();
     await agent.cleanup();
+  }
+});
+
+test.describe("whole-interface zoom", () => {
+  test.use({ hasTouch: true });
+  for (const width of [390, 1133, 1600]) {
+    test(`scales controls and preserves the viewport at ${width}px`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto("/settings/appearance");
+      const slider = page.getByRole("slider", { name: "Interface zoom", exact: true });
+      await expect(slider).toHaveValue("100");
+      const swatch = page.getByTestId("theme-preview-neon");
+      const initialHeight = (await swatch.boundingBox())!.height;
+      if (width === 1133) {
+        const track = (await slider.boundingBox())!;
+        await page.mouse.move(track.x + track.width * 0.2, track.y + track.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(track.x + track.width * 0.6, track.y + track.height / 2, {
+          steps: 8,
+        });
+        expect((await slider.boundingBox())!.width).toBeCloseTo(track.width, 0);
+        await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", "100");
+        await page.mouse.up();
+        await expect(slider).not.toHaveValue("100");
+      }
+      for (const zoom of [125, 75, 200, 100]) {
+        await slider.fill(String(zoom));
+        await slider.dispatchEvent("pointerup");
+        await expect(page.locator("html")).toHaveAttribute("data-interface-zoom", String(zoom));
+        await expect
+          .poll(async () => Math.round((await swatch.boundingBox())!.height))
+          .toBe(Math.round((initialHeight * zoom) / 100));
+        const bounds = await page.evaluate(() => {
+          const root = document.getElementById("root")!.getBoundingClientRect();
+          return {
+            bottom: root.bottom,
+            right: root.right,
+            height: window.innerHeight,
+            width: window.innerWidth,
+          };
+        });
+        expect(Math.abs(bounds.bottom - bounds.height)).toBeLessThanOrEqual(2);
+        expect(Math.abs(bounds.right - bounds.width)).toBeLessThanOrEqual(2);
+        await slider.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: info.outputPath(`zoom-${zoom}.png`) });
+      }
+      await slider.focus();
+      await slider.press("ArrowRight");
+      await expect(slider).toHaveValue("105");
+      await page.reload();
+      await expect(slider).toHaveValue("105");
+      await page.getByRole("button", { name: "Reset interface zoom, currently 105%" }).click();
+      await expect(slider).toHaveValue("100");
+    });
+  }
+  test("keeps the sidebar zoom menu anchored and keyboard-operable", async ({ page }, info) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await gotoAppShell(page);
+    const trigger = page.getByTestId("sidebar-footer-overflow");
+    await trigger.click();
+    const slider = page.getByRole("slider", { name: "Interface zoom", exact: true });
+    await expect(slider).toBeVisible();
+    for (const zoom of [125, 75, 150, 100]) {
+      await slider.fill(String(zoom));
+      await slider.dispatchEvent("pointerup");
+      await expect(slider).toHaveValue(String(zoom));
+      await expect(slider).toBeInViewport();
+      const box = await slider.boundingBox();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(1600);
+      await page.screenshot({ path: info.outputPath(`menu-${zoom}.png`) });
+    }
+    await slider.focus();
+    await slider.press("End");
+    // Zoom can switch navigation to its compact rail. The same control remains available there.
+    if (!(await slider.isVisible()))
+      await page.getByRole("button", { name: "More sidebar actions", exact: true }).click();
+    await expect(slider).toHaveValue("200");
+    await slider.press("Home");
+    if (!(await slider.isVisible()))
+      await page.getByRole("button", { name: "More sidebar actions", exact: true }).click();
+    await expect(slider).toHaveValue("75");
+    await page.getByRole("button", { name: "Reset interface zoom, currently 75%" }).click();
+    await slider.press("Escape");
+    await expect(slider).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  });
+});
+
+test.describe("zoomed workspace geometry", () => {
+  test.use({ hasTouch: true });
+  test("preserves composer clearance and pointer resize distances", async ({ page }, info) => {
+    const chat = await seedLongMockAgentTimeline({ turns: 2 });
+    try {
+      await page.addInitScript(() => localStorage.setItem("vorteo-interface-zoom", "125"));
+      for (const width of [390, 1133, 1600]) {
+        await page.setViewportSize({ width, height: 844 });
+        await openAgentTimeline(page, chat);
+        await expectTimelinePromptVisible(page, chat.newestPrompt);
+        const composer = page
+          .getByTestId("message-input-surface")
+          .filter({ visible: true })
+          .first();
+        await expect(composer).toBeVisible();
+        const attach = composer.getByTestId("message-input-attach-button");
+        await expect(attach).toBeVisible();
+        const frame = (await composer.boundingBox())!;
+        expect(frame.y + frame.height).toBeLessThanOrEqual(845);
+        expect(frame.x).toBeGreaterThanOrEqual(-1);
+        expect(frame.x + frame.width).toBeLessThanOrEqual(width + 1);
+        expect((await attach.boundingBox())!.height).toBeCloseTo(55, 0);
+        await page.screenshot({ path: info.outputPath(`workspace-${width}.png`) });
+        if (width !== 1600) continue;
+        for (const [handleId, frameId, delta] of [
+          ["left-sidebar-resize-handle", "floating-sidebar", 40],
+          ["workspace-explorer-sidebar-resize-handle", "workspace-supporting-cards", -40],
+        ] as const) {
+          const handle = page.getByTestId(handleId);
+          if (!(await handle.isVisible())) continue;
+          const target = page.getByTestId(frameId);
+          const before = (await target.boundingBox())!;
+          const hit = (await handle.boundingBox())!;
+          await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height / 2);
+          await page.mouse.down();
+          await page.mouse.move(hit.x + hit.width / 2 + delta, hit.y + hit.height / 2, {
+            steps: 10,
+          });
+          await page.mouse.up();
+          await expect
+            .poll(async () => Math.round((await target.boundingBox())!.width - before.width))
+            .toBe(40);
+        }
+      }
+    } finally {
+      await chat.cleanup();
+    }
+  });
+});
+
+test("zoomed conversation can scroll through history and return to Latest", async ({ page }) => {
+  const chat = await seedLongMockAgentTimeline({ turns: 30 });
+  try {
+    await page.addInitScript(() => localStorage.setItem("vorteo-interface-zoom", "125"));
+    for (const width of [390, 1133]) {
+      await page.setViewportSize({ width, height: 844 });
+      await openAgentTimeline(page, chat);
+      await expectTimelinePromptVisible(page, chat.newestPrompt);
+      const setupNotice = page
+        .getByTestId("installation-update-toasts")
+        .filter({ hasText: "Set up worktree scripts" });
+      if (await setupNotice.isVisible())
+        await setupNotice.getByRole("button", { name: "Dismiss", exact: true }).click();
+      const scroll = page.locator('[data-testid="agent-chat-scroll"]:visible').first();
+      await expect(scroll).toBeVisible();
+      await scrollTimelineToOldestLoadedEdge(page);
+      const latest = page.getByTestId("scroll-to-bottom-button").filter({ visible: true }).first();
+      await expect(latest).toBeVisible();
+      await latest.click();
+      await expect
+        .poll(() =>
+          scroll.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop),
+        )
+        .toBeLessThan(72);
+    }
+  } finally {
+    await chat.cleanup();
   }
 });

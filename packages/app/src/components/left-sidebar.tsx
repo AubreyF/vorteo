@@ -60,9 +60,9 @@ import {
   type LayoutChangeEvent,
   StyleSheet as RNStyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { Gesture } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";

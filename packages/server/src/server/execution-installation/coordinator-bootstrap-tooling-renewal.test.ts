@@ -31,6 +31,7 @@ import {
   persistRenewalSetup,
   retainRenewalGeneration,
   verifyRetainedRenewal,
+  terminalBootstrapRelease,
   type BootstrapRenewalPorts,
 } from "./coordinator-bootstrap-renewal.js";
 import {
@@ -346,8 +347,36 @@ async function fixture() {
   };
 }
 
-async function combinedFixture() {
+async function combinedFixture(unpromoted = false) {
   const f = await fixture();
+  let failed: CoordinatorBootstrapRequest | undefined;
+  if (unpromoted) {
+    const observed = await f.ports.reader.inspectProcess(404);
+    failed = structuredClone(f.record);
+    failed.id = randomUUID();
+    failed.revision = randomUUID();
+    failed.plan = {
+      ...f.plan,
+      previous: f.coordinator,
+      candidate: f.host,
+      compatibleRecovery: f.host,
+      automaticRecovery: "restore-compatible",
+      expectedProcess: {
+        pid: observed.pid,
+        bootId: observed.bootId,
+        startIdentity: observed.startIdentity,
+        argumentsSha256: observed.argumentsSha256,
+      },
+    };
+    failed.planSha256 = coordinatorPlanDigest(failed.plan);
+    failed.execution = {
+      generation: randomUUID(),
+      stage: "recovery_required",
+      updatedAt: new Date().toISOString(),
+    };
+    const journal = new FileBootstrapRequestJournal(f.state);
+    journal.replace(journal.read(), [f.record, failed]);
+  }
   const setup = (await f.derive())!;
   const admission = BootstrapAdmissionSetupSchema.parse(
     JSON.parse(readFileSync(setup.admissionSetupFile, "utf8")),
@@ -385,6 +414,7 @@ async function combinedFixture() {
     compatibleRecovery: f.host,
     sourceUpdateTooling: true,
     factoryRuntimeAdoptionConfiguration: adoption,
+    recoveredFrom: setup.renewal!.unpromotedFailure,
   });
   const requests = await createBootstrapReviewService(setup.admissionSetupFile, "host-id", {
     setup: host,
@@ -393,7 +423,7 @@ async function combinedFixture() {
       await verifyRenewalPlan(setup, candidate);
     },
   });
-  return { ...f, setup, admissionHost: host, candidateConfiguration, plan, requests };
+  return { ...f, setup, admissionHost: host, candidateConfiguration, plan, requests, failed };
 }
 const identity = (request: CoordinatorBootstrapRequest) => ({
   id: request.id,
@@ -481,10 +511,15 @@ test.runIf(process.platform === "darwin")(
   },
 );
 
-test.runIf(process.platform === "darwin").each([false, true])(
-  "combined executor and compatible recovery retain old tooling after failure=%s",
-  async (fail) => {
-    const f = await combinedFixture();
+test.runIf(process.platform === "darwin").each([
+  { fail: false, unpromoted: false },
+  { fail: true, unpromoted: false },
+  { fail: false, unpromoted: true },
+  { fail: true, unpromoted: true },
+])(
+  "combined executor retains state after failure=$fail with unpromoted predecessor=$unpromoted",
+  async ({ fail, unpromoted }) => {
+    const f = await combinedFixture(unpromoted);
     const beforeConfiguration = readFileSync(f.configuration.path);
     f.save(f.plan.state.restartJournal, []);
     f.save(f.plan.state.ownerSessions, []);
@@ -586,6 +621,14 @@ test.runIf(process.platform === "darwin").each([false, true])(
         new FileBootstrapRequestJournal(f.state).read().find((item) => item.id === result.id)
           ?.execution!.stage,
       ).toBe("rolled_back");
+    }
+    const journal = new FileBootstrapRequestJournal(f.state);
+    const terminal = terminalBootstrapRelease(journal.read(), f.identity)!;
+    expect(terminal.request.id).toBe(result.id);
+    expect(terminal.request.execution!.stage).toBe(fail ? "rolled_back" : "succeeded");
+    if (f.failed) {
+      expect(journal.read().find((record) => record.id === f.failed!.id)).toEqual(f.failed);
+      expect(journal.readPromoted().some((record) => record.id === f.failed!.id)).toBe(false);
     }
     expect(readFileSync(f.configuration.path)).toEqual(beforeConfiguration);
     expect(readFileSync(f.plan.state.restartJournal)).toEqual(stateBytes[0]);

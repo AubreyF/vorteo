@@ -1,3 +1,4 @@
+import { useApplyInterfaceZoom } from "./interface-zoom";
 import { vortonAppearance } from "./vorton-appearance";
 import { useVortonTouch } from "@/vorton-touch";
 
@@ -89,12 +90,27 @@ function applyTheme({ preference, contributedTheme }: ApplyThemeInput): void {
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const { settings, updateSettings, isLoading } = useAppSettings();
   const touch = useVortonTouch();
+  useApplyInterfaceZoom();
   const [preview, setPreview] = useState<AppearanceId | null>(null);
   const [previewApplied, setPreviewApplied] = useState(false);
   const systemScheme = useColorScheme();
 
   useEffect(() => applyVortonWeb(touch), [touch]);
   const [hasAppliedAppearance, setHasAppliedAppearance] = useState(false);
+  // Start the handoff only after the themed children have committed and painted.
+  useEffect(() => {
+    if (!isWeb || !hasAppliedAppearance) return;
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        (window as Window & { __vorteoFinishBoot?: () => void }).__vorteoFinishBoot?.();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [hasAppliedAppearance]);
   const lastTransitionTheme = useRef<string | null>(null);
   useEffect(() => {
     if (isLoading || !isWeb) return;
@@ -148,6 +164,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       preview
         ? REGISTERED_THEMES[UnistylesRuntime.themeName ?? "dark"]
         : (selected?.theme ?? REGISTERED_THEMES[UnistylesRuntime.themeName ?? "dark"]),
+      preview === null,
     );
     setPreviewApplied(preview !== null);
     setHasAppliedAppearance(true);

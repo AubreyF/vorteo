@@ -10,35 +10,45 @@ import {
   type ReactNode,
 } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
-import { CARD_GAP, allocateCardHeights } from "./geometry";
+import { CARD_GAP, allocateGridCardHeights, type CardGridDemand } from "./geometry";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 
 interface CardColumnLayout {
   heights: ReadonlyMap<string, number>;
-  measure: (id: string, height: number | null) => void;
+  allCollapsed: boolean;
+  measure: (id: string, height: number | null, row?: number, expanded?: boolean) => void;
 }
 export const CardColumnContext = createContext<CardColumnLayout | null>(null);
 
 export function CardColumn({ children }: { children: ReactNode }) {
   const active = useRetainedPanelActive();
   const [height, setHeight] = useState(0);
-  const [demands, setDemands] = useState<ReadonlyMap<string, number>>(new Map());
+  const [demands, setDemands] = useState<ReadonlyMap<string, CardGridDemand>>(new Map());
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     if (event.nativeEvent.layout.height > 0) setHeight(event.nativeEvent.layout.height);
   }, []);
-  const measure = useCallback((id: string, demand: number | null) => {
-    setDemands((previous) => {
-      if (previous.get(id) === demand || (demand === null && !previous.has(id))) return previous;
-      const next = new Map(previous);
-      if (demand === null) next.delete(id);
-      else next.set(id, demand);
-      return next;
-    });
-  }, []);
+  const measure = useCallback(
+    (id: string, demand: number | null, row?: number, expanded?: boolean) => {
+      setDemands((previous) => {
+        const before = previous.get(id);
+        if (
+          (before?.height === demand && before?.row === row && before?.expanded === expanded) ||
+          (demand === null && !before)
+        )
+          return previous;
+        const next = new Map(previous);
+        if (demand === null) next.delete(id);
+        else next.set(id, { height: demand, row, expanded });
+        return next;
+      });
+    },
+    [],
+  );
   const value = useMemo(() => {
-    const allocations = allocateCardHeights(height, [...demands.values()]);
-    const heights = new Map([...demands.keys()].map((id, index) => [id, allocations[index]]));
-    return { heights, measure };
+    const heights = allocateGridCardHeights(height, demands);
+    const cards = [...demands.values()].filter((demand) => demand.expanded !== undefined);
+    const allCollapsed = cards.length > 0 && cards.every((card) => !card.expanded);
+    return { heights, measure, allCollapsed };
   }, [height, demands, measure]);
   return (
     <View

@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
-import { Image, View, type ActivityIndicatorProps } from "react-native";
-import Svg, { Circle } from "react-native-svg";
+import { View, type ActivityIndicatorProps } from "react-native";
+import { VorteoLogo } from "@/components/icons/paseo-logo";
+import { RadarRing } from "./radar-ring";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -24,13 +25,12 @@ const brandMarkStyle = {
 };
 
 export function LoadingSpinner({ color, size = "small", style }: LoadingSpinnerProps) {
-  const diameter = typeof size === "number" ? size : LOADING_INDICATOR[size];
+  const baseDiameter = typeof size === "number" ? size : LOADING_INDICATOR[size];
+  const diameter = size === "large" ? baseDiameter * 1.25 : baseDiameter;
   const stroke =
     diameter >= 32
       ? LOADING_INDICATOR.largeStroke
       : Math.min(LOADING_INDICATOR.smallStroke, diameter / 10);
-  const radius = (diameter - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
   const rotation = useSharedValue(0);
   useEffect(() => {
     rotation.value = withRepeat(withTiming(360, { duration: 900, easing: Easing.linear }), -1);
@@ -46,37 +46,13 @@ export function LoadingSpinner({ color, size = "small", style }: LoadingSpinnerP
       style={[{ alignItems: "center", justifyContent: "center" }, style]}
     >
       {size === "large" ? (
-        <Image
-          source={require("../../../assets/brand/vorteo-white.png")}
-          resizeMode="contain"
-          accessible={false}
-          testID="loading-brand-mark"
-          style={brandMarkStyle}
-        />
+        <View testID="loading-brand-mark" style={brandMarkStyle}>
+          <VorteoLogo size={LOADING_INDICATOR.large * 0.9} />
+        </View>
       ) : null}
       {/* Keep theme props off the animated carrier so native theme changes remain safe. */}
       <Animated.View style={[{ width: diameter, height: diameter }, animatedStyle]}>
-        <Svg width={diameter} height={diameter} viewBox={`0 0 ${diameter} ${diameter}`}>
-          <Circle
-            cx={diameter / 2}
-            cy={diameter / 2}
-            r={radius}
-            fill="none"
-            stroke={color}
-            strokeWidth={stroke}
-            opacity={0.2}
-          />
-          <Circle
-            cx={diameter / 2}
-            cy={diameter / 2}
-            r={radius}
-            fill="none"
-            stroke={color}
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={`${circumference / 4} ${(circumference * 3) / 4}`}
-          />
-        </Svg>
+        <RadarRing size={diameter} strokeWidth={stroke} color={color} />
       </Animated.View>
     </View>
   );

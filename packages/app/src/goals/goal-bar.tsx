@@ -50,6 +50,7 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
       hasGoal ? (
         <CountBadge
           label={formatGoalElapsed(elapsed)}
+          narrowLabel={formatGoalElapsed(elapsed, true)}
           accessibilityLabel={`Goal elapsed time: ${formatGoalElapsed(elapsed)}`}
           testID="agent-goal-elapsed"
         />

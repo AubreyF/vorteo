@@ -1,3 +1,4 @@
+import { interfaceRect } from "@/appearance/interface-geometry";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   Children,
@@ -17,7 +18,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  useWindowDimensions,
   Platform,
   Modal,
   Pressable,
@@ -28,6 +28,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -88,6 +89,18 @@ function shouldOpenOnFocus(): boolean {
   return !isWeb || lastInputWasKeyboard;
 }
 
+// A touch-capable device can also have a mouse or trackpad. Use the event,
+// not viewport density, to distinguish hover from a finger entering the target.
+function isHoverPointer(event: unknown): boolean {
+  if (!event || typeof event !== "object") return false;
+  const native = Reflect.get(event, "nativeEvent");
+  const source = native && typeof native === "object" ? native : event;
+  const pointerType = Reflect.get(source, "pointerType");
+  if (pointerType) return pointerType === "mouse" || pointerType === "pen";
+  const type = Reflect.get(source, "type");
+  return typeof type === "string" && type.startsWith("mouse");
+}
+
 function isCallable(fn: unknown): fn is (...args: unknown[]) => void {
   return typeof fn === "function";
 }
@@ -129,7 +142,7 @@ function useControllableOpenState({
 function measureElement(element: View): Promise<Rect> {
   return new Promise((resolve) => {
     element.measureInWindow((x, y, width, height) => {
-      resolve({ x, y, width, height });
+      resolve(interfaceRect({ x, y, width, height }));
     });
   });
 }
@@ -351,7 +364,7 @@ export function TooltipTrigger({
   const handleHoverIn = useCallback(
     (e?: unknown) => {
       if (isCallable(onHoverIn)) onHoverIn(e);
-      if (!ctx.touch) scheduleOpen();
+      if (!ctx.touch || isHoverPointer(e)) scheduleOpen();
     },
     [onHoverIn, scheduleOpen, ctx.touch],
   );
@@ -359,7 +372,7 @@ export function TooltipTrigger({
   const handleHoverOut = useCallback(
     (e?: unknown) => {
       if (isCallable(onHoverOut)) onHoverOut(e);
-      if (!ctx.touch) close();
+      if (!ctx.touch || isHoverPointer(e)) close();
     },
     [onHoverOut, close, ctx.touch],
   );

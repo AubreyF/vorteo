@@ -60,12 +60,14 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.md,
     paddingVertical: 0,
   },
-  denseOutline: { top: 0, height: 20 },
+  denseOutline: { height: 20, transform: [{ translateY: -10 }] },
   outline: {
     position: "absolute",
     left: 0,
     right: 0,
-    top: (CONTROL_HEIGHTS.field - CONTROL_HEIGHTS.tight) / 2,
+    // Touch accessibility may enlarge the target; center within its actual height.
+    top: "50%",
+    transform: [{ translateY: -CONTROL_HEIGHTS.tight / 2 }],
     height: CONTROL_HEIGHTS.tight,
     borderWidth: 1,
     borderRadius: theme.borderRadius.md,

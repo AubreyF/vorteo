@@ -1,4 +1,4 @@
-import { Dimensions } from "react-native";
+import { getInterfaceWindow } from "@/appearance/interface-geometry";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import AsyncStorage from "@/storage/app-storage";
@@ -194,7 +194,7 @@ export const usePanelStore = create<PanelState>()(
           desktop: { ...state.desktop, agentListOpen: true },
           sidebarCompact: false,
           sidebarNarrow: false,
-          sidebarViewportOverride: Dimensions.get("window").width,
+          sidebarViewportOverride: getInterfaceWindow().width,
         })),
 
       closeDesktopAgentList: () =>
@@ -206,8 +206,8 @@ export const usePanelStore = create<PanelState>()(
       toggleDesktopAgentList: () =>
         set((state) => ({
           desktop: { ...state.desktop, agentListOpen: true },
-          ...cycleDesktopSidebar(resolveResponsiveSidebar(state, Dimensions.get("window").width)),
-          sidebarViewportOverride: Dimensions.get("window").width,
+          ...cycleDesktopSidebar(resolveResponsiveSidebar(state, getInterfaceWindow().width)),
+          sidebarViewportOverride: getInterfaceWindow().width,
         })),
 
       openAgentListForLayout: ({ isCompact }) =>
@@ -219,7 +219,7 @@ export const usePanelStore = create<PanelState>()(
             desktop: { ...state.desktop, agentListOpen: true },
             sidebarCompact: false,
             sidebarNarrow: false,
-            sidebarViewportOverride: Dimensions.get("window").width,
+            sidebarViewportOverride: getInterfaceWindow().width,
           };
         }),
 
@@ -241,8 +241,8 @@ export const usePanelStore = create<PanelState>()(
           }
           return {
             desktop: { ...state.desktop, agentListOpen: true },
-            ...cycleDesktopSidebar(resolveResponsiveSidebar(state, Dimensions.get("window").width)),
-            sidebarViewportOverride: Dimensions.get("window").width,
+            ...cycleDesktopSidebar(resolveResponsiveSidebar(state, getInterfaceWindow().width)),
+            sidebarViewportOverride: getInterfaceWindow().width,
           };
         }),
 
@@ -309,13 +309,13 @@ export const usePanelStore = create<PanelState>()(
             width <= SIDEBAR_COMPACT_SNAP_WIDTH ? state.sidebarWidth : clampSidebarWidth(width),
           sidebarCompact: width <= SIDEBAR_COMPACT_SNAP_WIDTH,
           sidebarNarrow: false,
-          sidebarViewportOverride: Dimensions.get("window").width,
+          sidebarViewportOverride: getInterfaceWindow().width,
         })),
       setSidebarCompact: (sidebarCompact) =>
         set({
           sidebarCompact,
           sidebarNarrow: false,
-          sidebarViewportOverride: Dimensions.get("window").width,
+          sidebarViewportOverride: getInterfaceWindow().width,
         }),
       setExplorerSortOption: (option) => set({ explorerSortOption: option }),
       toggleExplorerShowHiddenFiles: () =>

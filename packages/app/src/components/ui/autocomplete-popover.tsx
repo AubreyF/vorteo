@@ -1,3 +1,4 @@
+import { interfaceRect } from "@/appearance/interface-geometry";
 import {
   useCallback,
   useEffect,
@@ -7,7 +8,8 @@ import {
   type ReactElement,
   type RefObject,
 } from "react";
-import { View, useWindowDimensions } from "react-native";
+import { View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { Portal } from "@gorhom/portal";
 import Animated, {
   useAnimatedReaction,
@@ -45,7 +47,7 @@ interface RelativeAnchorRect {
 function measureElement(element: View): Promise<Rect> {
   return new Promise((resolve) => {
     element.measureInWindow((x, y, width, height) => {
-      resolve({ x, y, width, height });
+      resolve(interfaceRect({ x, y, width, height }));
     });
   });
 }

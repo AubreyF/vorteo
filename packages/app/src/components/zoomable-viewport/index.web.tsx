@@ -1,3 +1,4 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -134,8 +135,8 @@ export function ZoomableViewport({
       const bounds = activeCanvas.getBoundingClientRect();
       const factor = Math.min(1.25, Math.max(0.8, Math.exp(-event.deltaY * 0.01)));
       zoomAt(transformRef.current.scale * factor, {
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
+        x: (event.clientX - bounds.left) / getInterfaceScale(),
+        y: (event.clientY - bounds.top) / getInterfaceScale(),
       });
     }
     activeCanvas.addEventListener("wheel", zoomWithWheel, { passive: false });
@@ -180,8 +181,8 @@ export function ZoomableViewport({
         const panned = panContent({
           transform: transformRef.current,
           delta: {
-            x: nextMidpoint.x - gesture.midpoint.x,
-            y: nextMidpoint.y - gesture.midpoint.y,
+            x: (nextMidpoint.x - gesture.midpoint.x) / getInterfaceScale(),
+            y: (nextMidpoint.y - gesture.midpoint.y) / getInterfaceScale(),
           },
           fittedContent,
           viewport,
@@ -190,7 +191,14 @@ export function ZoomableViewport({
         const next = zoomContentAtPoint({
           transform: panned,
           scale: panned.scale * (nextDistance / gesture.distance),
-          focalPoint: nextMidpoint,
+          focalPoint: {
+            x:
+              (nextMidpoint.x - event.currentTarget.getBoundingClientRect().left) /
+              getInterfaceScale(),
+            y:
+              (nextMidpoint.y - event.currentTarget.getBoundingClientRect().top) /
+              getInterfaceScale(),
+          },
           fittedContent,
           viewport,
           limits,
@@ -209,8 +217,8 @@ export function ZoomableViewport({
         panContent({
           transform: gesture.startTransform,
           delta: {
-            x: event.clientX - gesture.startPoint.x,
-            y: event.clientY - gesture.startPoint.y,
+            x: (event.clientX - gesture.startPoint.x) / getInterfaceScale(),
+            y: (event.clientY - gesture.startPoint.y) / getInterfaceScale(),
           },
           fittedContent,
           viewport,
@@ -251,7 +259,10 @@ export function ZoomableViewport({
       if (!fittedContent || !viewport || !onPressOutsideContent) return;
       const bounds = event.currentTarget.getBoundingClientRect();
       const isInside = isPointInsideTransformedContent({
-        point: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+        point: {
+          x: (event.clientX - bounds.left) / getInterfaceScale(),
+          y: (event.clientY - bounds.top) / getInterfaceScale(),
+        },
         transform: transformRef.current,
         fittedContent,
         viewport,

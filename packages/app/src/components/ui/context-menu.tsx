@@ -1,3 +1,4 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import {
   useCallback,
   type ComponentProps,
@@ -135,8 +136,8 @@ export function ContextMenuTrigger({
 
       const statusBarHeight = Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
       ctx.setAnchorRect({
-        x: point.pageX,
-        y: point.pageY + statusBarHeight,
+        x: point.pageX / getInterfaceScale(),
+        y: point.pageY / getInterfaceScale() + statusBarHeight,
         width: 0,
         height: 0,
       });

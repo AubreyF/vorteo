@@ -1,8 +1,9 @@
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
 import { CardTileContext } from "./card-grid";
 import { CompactCountBadgeContext } from "@/components/ui/count-badge";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
-import { useCallback, useMemo, useState, useContext, type ReactNode } from "react";
+import { useCallback, useMemo, useState, useContext, useEffect, type ReactNode } from "react";
 import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -18,6 +19,51 @@ const Right = withUnistyles(ChevronRight, (theme) => ({ color: theme.colors.fore
 
 function renderTrailing(trailing: ReactNode, compact: boolean) {
   return compact ? null : trailing;
+}
+
+function CardDisclosureHint({
+  enabled,
+  label,
+  children,
+}: {
+  enabled: boolean;
+  label: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const reveal = useCallback(() => setOpen(true), []);
+  useEffect(() => {
+    if (!enabled) setOpen(false);
+  }, [enabled]);
+  return (
+    <Tooltip
+      open={enabled && open}
+      onOpenChange={setOpen}
+      enabledOnDesktop={enabled}
+      enabledOnMobile={enabled}
+    >
+      <TooltipTrigger asChild passive onLongPress={reveal}>
+        {children}
+      </TooltipTrigger>
+      <TooltipContent side="top" offset={8}>
+        <TooltipText label={label} />
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function disclosureLayout(
+  tile: React.ContextType<typeof CardTileContext>,
+  width: number,
+  metadataWidth: number,
+) {
+  const compact = tile.compact ? tile.width < 190 : width < 132 + metadataWidth;
+  return {
+    compact,
+    stacked: tile.compact && tile.width < 100,
+    hideMetadata: !tile.compact && width < 48 + metadataWidth,
+    compactTile: tile.compact && compact,
+  };
 }
 
 /** Counts stay at the trailing edge inside the complete heading hover target. */
@@ -42,7 +88,6 @@ export function CardDisclosure({
 }) {
   const touch = useVortonTouch();
   const tile = useContext(CardTileContext);
-  const stacked = tile.compact && tile.width < 100;
   const [width, setWidth] = useState(Infinity);
   const [metadataWidth, setMetadataWidth] = useState(0);
   const measure = useCallback((event: LayoutChangeEvent) => {
@@ -52,9 +97,15 @@ export function CardDisclosure({
     if (event.nativeEvent.layout.width > 0) setMetadataWidth(event.nativeEvent.layout.width);
   }, []);
   // Reserve the icon, insets and gaps before admitting text or trailing chips.
-  const compact = tile.compact ? tile.width < 190 : width < 132 + metadataWidth;
-  const hideMetadata = !tile.compact && width < 48 + metadataWidth;
-  const compactTile = tile.compact && compact;
+  const { compact, stacked, hideMetadata, compactTile } = disclosureLayout(
+    tile,
+    width,
+    metadataWidth,
+  );
+  const countLayout = useMemo(
+    () => ({ compact: tile.compact, narrow: stacked }),
+    [tile.compact, stacked],
+  );
   const label = status ? `${title} (${status})` : title;
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   const [hovered, setHovered] = useState(false);
@@ -67,57 +118,59 @@ export function CardDisclosure({
       onPointerEnter={enter}
       onPointerLeave={leave}
     >
-      <Pressable
-        style={[
-          taskCardStyles.accordionTrigger,
-          styles.trigger,
-          hovered && styles.hovered,
-          touch && taskCardStyles.touchAccordionTrigger,
-          touch && styles.touchTrigger,
-          compactTile && styles.compactTrigger,
-          stacked && styles.stackedTrigger,
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        aria-expanded={expanded}
-        accessibilityState={accessibilityState}
-        onPress={onPress}
-        testID={testID}
-      >
-        {icon}
-        <TruncatedText
-          tooltipLabel={label}
-          style={[taskCardStyles.heading, styles.title, compact && styles.collapsed]}
-          numberOfLines={1}
-          testID={`${testID}-title`}
+      <CardDisclosureHint enabled={!expanded} label={label}>
+        <Pressable
+          style={[
+            taskCardStyles.accordionTrigger,
+            styles.trigger,
+            hovered && styles.hovered,
+            touch && taskCardStyles.touchAccordionTrigger,
+            touch && styles.touchTrigger,
+            compactTile && styles.compactTrigger,
+            stacked && styles.stackedTrigger,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          aria-expanded={expanded}
+          accessibilityState={accessibilityState}
+          onPress={onPress}
+          testID={testID}
         >
-          {title}
-          {status ? (
-            <Text style={styles.status} testID={`${testID}-status`}>
-              {" "}
-              ({status})
-            </Text>
-          ) : null}
-        </TruncatedText>
-        <View testID={`${testID}-arrow`} style={[styles.arrow, compact && styles.collapsed]}>
-          {expanded ? <Down size={16} /> : <Right size={16} />}
-        </View>
-        {count || trailing ? (
-          <View
-            onLayout={measureMetadata}
-            style={[
-              styles.metadata,
-              compactTile && styles.compactMetadata,
-              stacked && styles.stackedMetadata,
-              hideMetadata && styles.collapsed,
-            ]}
-            testID={`${testID}-metadata`}
+          {icon}
+          <TruncatedText
+            tooltipLabel={expanded ? label : ""}
+            style={[taskCardStyles.heading, styles.title, compact && styles.collapsed]}
+            numberOfLines={1}
+            testID={`${testID}-title`}
           >
-            {renderTrailing(trailing, compactTile)}
-            <CompactCountBadgeContext value={stacked}>{count}</CompactCountBadgeContext>
+            {title}
+            {status ? (
+              <Text style={styles.status} testID={`${testID}-status`}>
+                {" "}
+                ({status})
+              </Text>
+            ) : null}
+          </TruncatedText>
+          <View testID={`${testID}-arrow`} style={[styles.arrow, compact && styles.collapsed]}>
+            {expanded ? <Down size={16} /> : <Right size={16} />}
           </View>
-        ) : null}
-      </Pressable>
+          {count || trailing ? (
+            <View
+              onLayout={measureMetadata}
+              style={[
+                styles.metadata,
+                compactTile && styles.compactMetadata,
+                stacked && styles.stackedMetadata,
+                hideMetadata && styles.collapsed,
+              ]}
+              testID={`${testID}-metadata`}
+            >
+              {renderTrailing(trailing, compactTile)}
+              <CompactCountBadgeContext value={countLayout}>{count}</CompactCountBadgeContext>
+            </View>
+          ) : null}
+        </Pressable>
+      </CardDisclosureHint>
     </View>
   );
 }
@@ -156,8 +209,8 @@ const styles = StyleSheet.create((theme) => ({
   stackedTrigger: {
     flexDirection: "column",
     height: "auto",
-    minHeight: 56,
-    paddingVertical: 4,
+    minHeight: 44,
+    paddingVertical: 2,
     gap: 2,
   },
   compactMetadata: { marginLeft: 0, minWidth: 0, flexShrink: 1 },

@@ -71,3 +71,37 @@ export function allocateCardHeights(available: number, demands: readonly number[
   }
   return demands.map((demand) => Math.min(demand, ceiling));
 }
+
+export interface CardGridDemand {
+  height: number;
+  /** Undefined for accessory rows, which do not participate in disclosure layout. */
+  expanded?: boolean;
+  /** Collapsed tiles on the same measured flex line consume one row. */
+  row?: number;
+}
+
+export function allocateGridCardHeights(
+  available: number,
+  demands: ReadonlyMap<string, CardGridDemand>,
+): ReadonlyMap<string, number> {
+  const fixedRows = new Map<number, number>();
+  const flexible: [string, number][] = [];
+  const heights = new Map<string, number>();
+  for (const [id, demand] of demands) {
+    if (demand.row === undefined) flexible.push([id, demand.height]);
+    else {
+      fixedRows.set(demand.row, Math.max(fixedRows.get(demand.row) ?? 0, demand.height));
+      heights.set(id, demand.height);
+    }
+  }
+  const fixedHeight = [...fixedRows.values()].reduce((sum, height) => sum + height, 0);
+  const gaps = Math.max(0, fixedRows.size + flexible.length - 1) * CARD_GAP;
+  const remaining = Math.max(0, available - fixedHeight - gaps);
+  // The existing allocator accounts for gaps between the flexible cards itself.
+  const allocations = allocateCardHeights(
+    remaining + Math.max(0, flexible.length - 1) * CARD_GAP,
+    flexible.map(([, height]) => height),
+  );
+  flexible.forEach(([id], index) => heights.set(id, allocations[index]));
+  return heights;
+}

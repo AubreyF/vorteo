@@ -11,6 +11,7 @@ import {
   validateClaimedRecoveryPlan,
 } from "./coordinator-bootstrap-claimed-recovery.js";
 import { terminalBootstrapRelease } from "./coordinator-bootstrap-renewal.js";
+import { verifyRetainedProcessExited } from "./coordinator-bootstrap-service.js";
 
 /** Structural history check only. Callers must independently verify protected
  * receipt provenance, native absence and selection under exclusion before
@@ -168,7 +169,7 @@ export async function readClaimedSuccessorEvidence(input: {
       setup,
       plan: recovery.plan,
       writableMountRoots: input.roots,
-      phase: "retained",
+      phase: "historical",
     });
   }
   if (
@@ -206,19 +207,22 @@ export async function readClaimedSuccessorEvidence(input: {
   return { ...history, witness, request: recovery, executor: birthValue.executor.identity, setup };
 }
 
-/** Absence uses the native reader's independent proof. Failed inspection and
- * PID identity mismatches never count as exit. No signal method is available. */
+/** Require independent absence or stable native proof of a later PID lifetime.
+ * Arbitrary identity mismatches never count as exit. No signals are available. */
 export async function verifyClaimedSuccessorExit(
   evidence: Pick<
     NonNullable<Awaited<ReturnType<typeof readClaimedSuccessorEvidence>>>,
     "request" | "executor"
   >,
-  reader: { verifyProcessExited?(pid: number): Promise<void> },
+  reader: {
+    verifyProcessExited?(pid: number): Promise<void>;
+    inspectProcess?(pid: number): Promise<unknown>;
+  },
 ) {
   if (!reader.verifyProcessExited)
     throw new BootstrapRequestConflict("Claimed successor native exit proof is unavailable");
-  await reader.verifyProcessExited(evidence.request.plan.executor.identity.pid);
-  await reader.verifyProcessExited(evidence.executor.pid);
+  await verifyRetainedProcessExited(reader, evidence.request.plan.executor.identity);
+  await verifyRetainedProcessExited(reader, evidence.executor);
 }
 
 function sameRetainedRelease(

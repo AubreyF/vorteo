@@ -26,13 +26,8 @@ import {
   type ComponentProps,
   type Ref,
 } from "react";
-import {
-  ScrollView,
-  View,
-  useWindowDimensions,
-  type StyleProp,
-  type ViewStyle,
-} from "react-native";
+import { ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
 import Animated, {
   Easing,
@@ -48,7 +43,7 @@ import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Button } from "@/components/ui/button";
 import { Info } from "lucide-react-native";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
-import { TASK_CARD_BODY_INSET, taskCardStyles } from "./task-card-styles";
+import { TASK_CARD_BODY_INSET, TASK_CARD_BOTTOM_INSET, taskCardStyles } from "./task-card-styles";
 
 function CardSurfaceContext({
   report,
@@ -77,10 +72,15 @@ function CardBodyBoundary({ children }: { children: ReactNode }) {
 function useCardTile(bodyVisible: boolean) {
   const grid = useContext(CardGridContext);
   const [width, setWidth] = useState(Infinity);
-  const compact = grid && !bodyVisible;
+  const [row, setRow] = useState(0);
+  const onGridLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
+    if (event.nativeEvent.layout.width > 0) setRow(Math.round(event.nativeEvent.layout.y));
+  }, []);
+  const column = useContext(CardColumnContext);
+  const compact = grid && !bodyVisible && !column?.allCollapsed;
   const tile = useMemo(() => ({ compact, width }), [compact, width]);
   const rootStyle = [grid && cardGridExpandedStyle, compact && cardGridCollapsedStyle];
-  return { tile, setWidth, rootStyle };
+  return { tile, setWidth, rootStyle, row, onGridLayout };
 }
 
 function cardHeight({
@@ -101,7 +101,7 @@ function cardHeight({
   return Math.min(naturalHeight, viewportHeight / 2);
 }
 
-/** Bound the entire card, including its header, as the viewport resizes. */
+/** Fit sidebar cards to their shared height budget; embedded cards cap at half the viewport. */
 function TaskCardView({
   insets = 0,
   flushBody = false,
@@ -125,7 +125,7 @@ function TaskCardView({
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }) {
-  const { tile, setWidth, rootStyle } = useCardTile(bodyVisible);
+  const { tile, setWidth, rootStyle, row, onGridLayout } = useCardTile(bodyVisible);
   const compact = tile.compact;
   const divider = useScrollDivider();
   const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
@@ -149,8 +149,8 @@ function TaskCardView({
   const bodySpace = bodyVisible ? (panelHeight ?? bodyHeight) : 0;
   const naturalHeight = headerHeight + insets + bodySpace;
   useLayoutEffect(() => {
-    measure?.(id, retainedActive ? naturalHeight : null);
-  }, [measure, id, naturalHeight, retainedActive]);
+    measure?.(id, retainedActive ? naturalHeight : null, compact ? row : undefined, bodyVisible);
+  }, [measure, id, naturalHeight, retainedActive, compact, row, bodyVisible]);
   useLayoutEffect(() => () => measure?.(id, null), [measure, id]);
   const onHeaderLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
@@ -165,8 +165,8 @@ function TaskCardView({
   const isHeader = (part: ReactNode) => isValidElement(part) && part.type === TaskCardHeader;
   const header = parts.find(isHeader);
   const body = parts.filter((part) => !isHeader(part));
-  const { height } = useWindowDimensions();
-  const maxHeight = cardHeight({ column, compact, id, naturalHeight, viewportHeight: height });
+  const { height: viewportHeight } = useWindowDimensions();
+  const maxHeight = cardHeight({ column, compact, id, naturalHeight, viewportHeight });
   // Animate only height. Positional layout transitions treat a retained hidden
   // card's zero DOM rect as its origin and fly it across the page on reactivation.
   const animationStyle = useAnimatedStyle(
@@ -192,7 +192,12 @@ function TaskCardView({
   );
   return (
     <CardSurfaceContext report={divider.report} tile={tile}>
-      <Animated.View entering={cardEnter} exiting={cardExit} style={[animationStyle, rootStyle]}>
+      <Animated.View
+        entering={cardEnter}
+        exiting={cardExit}
+        style={[animationStyle, rootStyle]}
+        onLayout={onGridLayout}
+      >
         <View
           ref={divider.ref}
           testID={testID}
@@ -231,7 +236,7 @@ function TaskCardView({
                     height: Math.max(0, maxHeight - headerHeight - insets),
                     minHeight: 0,
                     paddingHorizontal: spacingInset,
-                    paddingBottom: spacingInset,
+                    paddingBottom: TASK_CARD_BOTTOM_INSET,
                   }),
                   !bodyVisible && taskCardStyles.hiddenBody,
                 ]}
@@ -253,7 +258,8 @@ function TaskCardView({
                   flushBody && taskCardStyles.flushBody,
                   inlineUnistylesStyle({
                     paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + spacingInset,
-                    paddingVertical: 2,
+                    paddingTop: 2,
+                    paddingBottom: TASK_CARD_BOTTOM_INSET,
                   }),
                 ]}
                 nestedScrollEnabled
@@ -316,7 +322,8 @@ function ContentTaskCard({
             taskCardStyles.bodyContent,
             inlineUnistylesStyle({
               paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + inset,
-              paddingVertical: 2,
+              paddingTop: 2,
+              paddingBottom: TASK_CARD_BOTTOM_INSET,
             }),
             !bodyVisible && taskCardStyles.hiddenBody,
           ]}
@@ -347,7 +354,7 @@ export function TaskCardHeader({ children, testID }: { children: ReactNode; test
         taskCardStyles.header,
         staticHeading && [taskCardStyles.staticHeader, touch && taskCardStyles.touchStaticHeader],
         touch && taskCardStyles.touchHeader,
-        stacked && { height: "auto", minHeight: 56 },
+        stacked && { height: "auto", minHeight: 44 },
       ]}
     >
       {children}

@@ -56,7 +56,7 @@
       /* Prevent white flash before React mounts */
       html,
       body {
-        background-color: #222222;
+        background-color: var(--boot-background, #222222);
       }
       /* These styles make the root element full-height */
       #root {
@@ -69,6 +69,28 @@
         overflow: hidden;
       }
     </style>
+    <script>
+      // A local display-only cache restores the first paint without waiting for app code.
+      try {
+        var brand = JSON.parse(localStorage.getItem("vorteo-boot-brand-v1"));
+        if (
+          brand &&
+          ["white", "rainbow", "gradient"].includes(brand.mode) &&
+          [brand.start, brand.end, brand.background, brand.foreground].every(function (value) {
+            return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+          })
+        ) {
+          window.__vorteoBootBrand = brand;
+          document.documentElement.style.setProperty("--boot-background", brand.background);
+          document.documentElement.style.setProperty("--boot-ring-color", brand.foreground);
+          document.documentElement.style.colorScheme =
+            brand.colorScheme === "light" ? "light" : "dark";
+          document.querySelector('meta[name="theme-color"]').content = brand.background;
+        }
+      } catch (_) {
+        /* Keep the existing dark fallback when storage is unavailable. */
+      }
+    </script>
     <style>
       #vorton-ios-status-strip {
         display: none;
@@ -128,8 +150,9 @@
   <body>
     <div id="vorton-ios-status-strip" aria-hidden="true"></div>
     <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root">
-      <!-- React replaces this shell when it mounts, including its timeout UI. -->
+    <div id="root"></div>
+    <!-- Kept outside React until the themed interface has painted underneath. -->
+    <div id="boot-overlay">
       <div id="boot-status" hidden>
         <div class="boot-emblem" role="progressbar" aria-label="Loading Vorteo">
           <div class="boot-spinner" aria-hidden="true"></div>
@@ -150,6 +173,15 @@
       </div>
     </div>
     <style>
+      #boot-overlay {
+        position: fixed;
+        inset: 0;
+        width: calc(100vw / var(--interface-scale, 1));
+        height: calc(100dvh / var(--interface-scale, 1));
+        display: flex;
+        z-index: 2147483646;
+        background: var(--boot-background, #222222);
+      }
       #boot-status {
         margin: auto;
         padding: 24px;
@@ -158,7 +190,7 @@
         font:
           14px system-ui,
           sans-serif;
-        color: #a9b5ad;
+        color: var(--boot-ring-color, #a9b5ad);
       }
       #boot-help {
         margin-top: 24px;
@@ -191,14 +223,18 @@
         content: "";
         position: absolute;
         inset: 0;
-        border: 1px solid #ffffff1a;
+        border: 1px solid color-mix(in srgb, var(--boot-ring-color, #ffffff) 10%, transparent);
         border-radius: 50%;
       }
       .boot-spinner {
         position: absolute;
         inset: 0;
         border-radius: 50%;
-        background: conic-gradient(transparent 0deg 240deg, #ffffff12 250deg, #ffffff 360deg);
+        background: conic-gradient(
+          transparent 0deg 240deg,
+          color-mix(in srgb, var(--boot-ring-color, #ffffff) 7%, transparent) 250deg,
+          var(--boot-ring-color, #ffffff) 360deg
+        );
         -webkit-mask-image: radial-gradient(
           farthest-side,
           transparent calc(100% - 1px),
@@ -223,6 +259,65 @@
       }
     </style>
     <script>
+      // Cache only validated display colors so the first frame matches the last active theme.
+      window.__vorteoApplyBootBrand = function (brand) {
+        if (!brand || !["white", "rainbow", "gradient"].includes(brand.mode)) return;
+        if (
+          ![brand.start, brand.end, brand.background, brand.foreground].every(function (value) {
+            return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+          })
+        )
+          return;
+        var mark = document.querySelector(".boot-mark");
+        if (!mark) return;
+        var white = mark.dataset.whiteSrc || mark.src;
+        mark.dataset.whiteSrc = white;
+        mark.src = brand.mode === "rainbow" ? "/vorteo-logo-color-a9e1bd827ba3.png" : white;
+        var tint = document.getElementById("boot-tinted-mark");
+        if (!tint) {
+          tint = document.createElement("div");
+          tint.id = "boot-tinted-mark";
+          tint.className = "boot-mark";
+          tint.setAttribute("aria-hidden", "true");
+          mark.parentElement.appendChild(tint);
+        }
+        tint.style.background = "linear-gradient(135deg, " + brand.start + ", " + brand.end + ")";
+        tint.style.webkitMask = 'url("' + white + '") center / contain no-repeat';
+        tint.style.mask = 'url("' + white + '") center / contain no-repeat';
+        tint.hidden = brand.mode !== "gradient";
+        mark.hidden = brand.mode === "gradient";
+        document.documentElement.style.setProperty("--boot-ring-color", brand.foreground);
+      };
+      try {
+        window.__vorteoApplyBootBrand(window.__vorteoBootBrand);
+      } catch (_) {
+        /* Storage may be unavailable; the neutral dark loader remains usable. */
+      }
+      window.__vorteoFinishBoot = function () {
+        var overlay = document.getElementById("boot-overlay");
+        if (!overlay || overlay.dataset.leaving) return;
+        overlay.dataset.leaving = "true";
+        overlay.setAttribute("aria-hidden", "true");
+        overlay.inert = true;
+        overlay.style.pointerEvents = "none";
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !overlay.animate) {
+          overlay.remove();
+          return;
+        }
+        var fade = overlay.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: 350,
+          easing: "ease-out",
+          fill: "forwards",
+        });
+        fade.finished.then(
+          function () {
+            overlay.remove();
+          },
+          function () {
+            overlay.remove();
+          },
+        );
+      };
       document.getElementById("boot-status").hidden = false;
       setTimeout(function () {
         var help = document.getElementById("boot-help");

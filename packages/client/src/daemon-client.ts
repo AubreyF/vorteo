@@ -3842,6 +3842,7 @@ export class DaemonClient {
 
   async prepareCoordinatorBootstrap(
     input: CoordinatorBootstrapPreparation,
+    options: { timeout?: number } = {},
   ): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
     if (
@@ -3866,7 +3867,9 @@ export class DaemonClient {
           input,
           ...this.bootstrapReviewCapabilities(),
         },
-        timeout: 15 * 60_000,
+        // Large protected releases can outlast the interactive default. This
+        // changes only response waiting, never preparation or approval rules.
+        timeout: options.timeout ?? 15 * 60_000,
       });
     if (result.error || !result.requests)
       throw new Error(result.error ?? "Bootstrap preparation unconfirmed");
@@ -3886,7 +3889,9 @@ export class DaemonClient {
           ownerPassword,
           ...this.bootstrapReviewCapabilities(),
         },
-        timeout: 15 * 60_000,
+        // Approval verifies protected releases before and after recording the decision.
+        // Status refresh can expose that durable decision before this response arrives.
+        timeout: input.decision === "approve" ? 60 * 60_000 : 15 * 60_000,
       });
     if (result.error || !result.requests)
       throw new Error(

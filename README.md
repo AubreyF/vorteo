@@ -19,7 +19,7 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 ## Power Tools to Manage Your Fleet
 
-- **Try a workspace before connecting.** Choose Demo on the browser welcome page to explore simulated projects, tasks, conversations, files and changes. Try Vorton's six themes from the sidebar menu, with Dark Star as the default. Demo edits stay in the current browser tab and Reset restores the samples. See [appearance and demo behavior](docs/vorteo-customizations.md#projects-devices-and-interface).
+- **Try a workspace before connecting.** Choose Demo on the browser welcome page to explore simulated projects, tasks, conversations, files and changes. Try Vorton's six themes from the sidebar menu, with Dark Star as the default. The adjacent zoom slider scales the whole browser interface and remembers your preferred size. Demo edits stay in the current browser tab and Reset restores the samples. See [appearance and demo behavior](docs/vorteo-customizations.md#projects-devices-and-interface).
 
 - **Keep your sidebar across devices.** Project and workspace order, expanded sections, grouping and filters follow you between connected devices. Offline edits sync after reconnection. Requires the updated Host daemon.
 

@@ -118,6 +118,7 @@ import { PinnedSectionHeader } from "@/components/sidebar/pinned-section-header"
 import { SidebarGroupToggleRow } from "@/components/sidebar/sidebar-group-toggle-row";
 import { useLimitedSidebarGroup } from "@/components/sidebar/use-limited-sidebar-group";
 import {
+  sidebarWorkspaceRowStyles,
   SidebarWorkspaceRowFrame,
   SidebarWorkspaceRowContent,
   SidebarWorkspaceShortcutBadge,
@@ -912,6 +913,7 @@ function NewWorkspaceGhostRow({
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.newWorkspaceGhostRow,
       density,
+      sidebarWorkspaceRowStyles.projectIndented,
       hovered && !pressed && styles.newWorkspaceGhostRowHovered,
       pressed && styles.newWorkspaceGhostRowPressed,
     ],
@@ -1062,13 +1064,12 @@ function ProjectHeaderRow({
     ({ pressed }: PressableStateCallbackType) => [
       styles.projectRow,
       density,
-      touch && styles.projectTouchRow,
       isDragging && styles.projectRowDragging,
       selected && styles.sidebarRowSelected,
       isHovered && styles.projectRowHovered,
       pressed && styles.projectRowPressed,
     ],
-    [isDragging, selected, isHovered, density, touch],
+    [isDragging, selected, isHovered, density],
   );
 
   const rowChildren = (
@@ -1307,7 +1308,7 @@ function WorkspaceRowInner({
               style={[
                 workspaceRowStyle,
                 density,
-                density && !leadingProjectName && styles.workspaceRowIndented,
+                !leadingProjectName && sidebarWorkspaceRowStyles.projectIndented,
               ]}
               highlightStyle={styles.workspaceRowPressed}
               onPressIn={handleWorkspacePressIn}
@@ -2794,7 +2795,6 @@ const styles = StyleSheet.create((theme) => ({
   // Padding on the block rather than margin, and only while it has children: the gap belongs to
   // the rows underneath the header, so a collapsed project gives it back and a column of collapsed
   // headers closes up to the pitch of a list instead of staying spaced for content that is gone.
-  workspaceRowIndented: { paddingLeft: theme.spacing[4] },
   workspaceListContainer: {},
   // Kept in step with `workspaceRow` above. It stands in a project's list where a workspace row
   // would be, so it takes that row's geometry and both of its fills.
@@ -2846,7 +2846,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 36,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[2],
-    paddingLeft: 14,
+    paddingLeft: 6,
     borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing[1],
     flexDirection: "row",
@@ -2855,7 +2855,6 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     userSelect: "none",
   },
-  projectTouchRow: { paddingLeft: 14 },
   projectRowMain: {
     flex: 1,
     minWidth: 0,

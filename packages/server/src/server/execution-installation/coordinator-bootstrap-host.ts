@@ -299,6 +299,18 @@ async function verifyRecoveredBootstrapExit(
     successorExecutions.some((record) => !isDeepStrictEqual(record.plan, plan))
   )
     throw new BootstrapRequestConflict("Recovered coordinator has another successor execution");
+  const { FileClaimedRecoveryReviewJournal } =
+    await import("./coordinator-bootstrap-claimed-journal.js");
+  const reviews = new FileClaimedRecoveryReviewJournal(plan.state.directory).readReviews();
+  if (!reviews.some((review) => review.plan.original.id === recovered.id)) {
+    // No executor receipt exists because admission failed before watchdog setup.
+    // The promoter's exact failed sidecar record cannot authorize native effects.
+    // Preserve it and require this separately approved successor to own the lock.
+    new FileBootstrapRequestJournal(plan.state.directory).verifyUnpromotedFailure(recovered);
+    if (!isDeepStrictEqual(plan.expectedProcess, recovered.plan.expectedProcess))
+      throw new BootstrapRequestConflict("Unpromoted recovery coordinator identity changed");
+    return;
+  }
   // Dispatch may already have appended this successor's claim. Verify the exact
   // retained predecessor prefix, while the request journal owns dispatch exclusion.
   const evidence = await readClaimedSuccessorEvidence({

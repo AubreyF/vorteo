@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { ScrollView, View, useWindowDimensions } from "react-native";
+import { ScrollView, View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet } from "react-native-unistyles";
 import { InstallationRestartBanner } from "@/execution-installation/panel";

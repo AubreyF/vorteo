@@ -302,6 +302,31 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
     });
   }
 
+  /** A failed pre-promotion claim cannot acquire startup or lifecycle authority.
+   * Observe all three durable locations under the promoter's own journal lock. */
+  verifyUnpromotedFailure(expected: CoordinatorBootstrapRequest): void {
+    const original = CoordinatorBootstrapRequestSchema.parse(expected);
+    this.withLock(() => {
+      const { main, pending } = this.snapshots();
+      if (
+        original.status !== "approved" ||
+        !original.decisionAt ||
+        original.execution?.stage !== "recovery_required" ||
+        original.execution.rollbackAttemptedAt !== undefined ||
+        original.plan.automaticRecovery !== "restore-compatible" ||
+        !original.plan.compatibleRecovery ||
+        original.planSha256 !== coordinatorPlanDigest(original.plan) ||
+        main.requests.some((record) => record.id === original.id) ||
+        pending.promotions.some((record) => record.id === original.id) ||
+        !isDeepStrictEqual(
+          pending.requests.find((record) => record.id === original.id),
+          original,
+        )
+      )
+        throw new BootstrapRequestConflict("Exact unpromoted bootstrap failure required");
+    });
+  }
+
   /** Only a separately authenticated recovery executor may call this boundary.
    * It invalidates an unpromoted claim under the same lock as promotion, retaining
    * the full approval and claim first. It grants no process or service authority. */
