@@ -4,6 +4,105 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.795 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.794 - 2026-10-22
+
+### Maintenance
+
+- Merge the coordinator cleanup that cancels coordinator updates a newer Host install made stale
+
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Maintenance
+
+- The reconciliation ledger test now lists the stale coordinator update cancellation among the coordinator loop's allowed operations. Like automatic-approval revocation, it can only cancel undispatched requests; preparation, owner decisions and dispatch claims stay off the loop's surface.
+
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Fixed
+
+- A coordinator update prepared for a Host release that a later Host install replaced no longer waits in front of the owner. The coordinator cancels such pending or approved-but-not-started updates by itself, keeps updates prepared on the newly selected release, and never touches recovery successors, supervision plans or restart jobs. On 2026-10-22 one such update went stale at 07:28 UTC and needed a manual cancel.
+- When installation work is refused because a coordinator update is running, the message now names that update. The documented prefix is unchanged.
+
+## 0.11.0-beta.3.vorteo.793 - 2026-10-22
+
+### Maintenance
+
+- Merge the Projects folder: projects live in one folder every environment can use at the same path, with per-project exclusions and kept paths
+
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Added
+
+- Projects folder settings accept `keepPaths`, exact recorded paths that the Dev registry move and the daemon's path mapping leave untouched. `configure-projects-folder --keep-path <path>` records them. This keeps a project root that an older Factory binding compares by string, such as Dev's freed project, dispatchable after the move. Paths below a kept path, and siblings that only share its prefix, still move to the Projects folder.
+
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Maintenance
+
+- Merge current main into the Projects folder branch. Settings > Projects keeps one row per project and uses the readable error wording from main, and switching a thread to another account now also applies the project's exclusions. Every release-note entry from both sides is kept.
+
+## 0.11.0-beta.3.vorteo.768 - 2026-10-22
+
+### Added
+
+- Projects folder aliases. `projects-folder.json` accepts `aliases`, other absolute paths of the same folder; `migrateFrom` entries and the root's real path count as aliases too. An existing Dev container can now use the shared Projects folder through a symlink at the folder's own path to its older mount, without being recreated.
+- Daemons record every project, workspace, worktree and main checkout path, and local project keys, by the folder's logical path, mapping alias paths from clients, git and new worktrees. The startup registry move covers alias paths and stays idempotent. Browsing and `server_info.projectsRoot` always use the logical root.
+- New worktrees in the Projects folder have their git link files rewritten from an alias path to the logical path, so a worktree created by Dev opens on the Host. Worktree folders are named from the logical repository path, and worktrees named from an alias path stay listed.
+- `configure-projects-folder` accepts a container that reaches the folder's own path through a symlink to its mount, found by read-only inspection, and records the mount path as an alias. Without the symlink it writes nothing to Dev and prints the root command to create it and a command to verify it. `--alias` adds further aliases.
+
+### Changed
+
+- The Projects folder guide describes the no-recreate setup for existing Dev containers: create the symlink, verify, configure, update both daemons, verify and roll back.
+
+### Known limitations
+
+- Processes inside Dev, such as agents, terminals and `pwd`, may still print the physical alias path. Agent records outside the project and workspace registries are not rewritten. Git before 2.46 needs one `safe.directory` entry per repository, named by its alias path. Nothing is installed yet.
+
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Added
+
+- Project exclusions. A project's settings page has an Exclusions section, available once Installation controls are unlocked, that turns off the Host or Dev container, accounts, profiles or skills for that project. The installation stores them by project root path, never in `paseo.json`, and refuses a change that leaves the project without an environment.
+- Daemons refuse an agent launch in an excluded environment or with an excluded account or profile, naming the project's Exclusions setting, and leave excluded skills out. Creating a workspace in an excluded environment is refused too.
+- Environment and profile menus hide what the project excludes, using a copy of the policies the coordinator keeps in each daemon's config.
+
+### Known limitations
+
+- Plugins cannot be excluded per project. Daemons and coordinators need updating before exclusions apply; older ones keep working without them. Nothing is installed yet.
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Added
+
+- Projects in a shared Projects folder work in every environment without setup. When the Host and the Dev container advertise the same Projects folder, starting a workspace or moving a draft to an environment that has no copy of the project uses the identical path there and adds the project on demand, with no folder prompt.
+- The sidebar and new-workspace picker show one project for placements at the same path inside the shared Projects folder, even without a git remote. Stored project keys are unchanged.
+- Settings > Projects lists each project once and opens one settings page, the Host's placement when there is one, because both environments edit the same `paseo.json`.
+- Moving a draft to another environment shows a one-line reminder that dependencies installed in the other environment, such as `node_modules`, may need reinstalling.
+
+### Known limitations
+
+- Daemons without a matching Projects folder keep the earlier folder mapping and folder chooser. Nothing is installed yet.
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Added
+
+- Projects folder for installations. A daemon given `$PASEO_HOME/projects-folder.json` or `PASEO_PROJECTS_ROOT` accepts new projects from Add project, Open project, new folders and GitHub clones only strictly inside that folder; symlinks and `..` cannot leave it and the folder itself is refused. Projects registered earlier keep working wherever they are.
+- Folder browsing and directory search start in the Projects folder, and listings mark git checkouts and registered projects. A folder can now be created without adding it as a project, on hosts that advertise `projectsRoot`.
+- New Paseo-owned worktrees go in the Projects folder's hidden `.vorteo/worktrees` unless `worktrees.root` is set. Worktrees in the previous location stay recognized for listing, archiving and cleanup.
+- The Dev daemon moves registry paths from an earlier container path of the folder to its identical path once at startup, after backing up `projects.json` and `workspaces.json`.
+- `PASEO_PROJECTS_FOLDER` makes the container installer mount the folder at its own path, and `install-execution-host.mjs configure-projects-folder` writes both daemons' settings and the Dev git trust for existing installations.
+
+### Known limitations
+
+- The Add project interface does not use the Projects folder yet, and nothing is installed. Recreating the Dev container for the identical-path mount discards releases installed in its writable layer.
+
 ## 0.11.0-beta.3.vorteo.792 - 2026-10-22
 
 ### Maintenance

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -25,6 +25,33 @@ describe("server config", () => {
 
     expect(desktopConfig.desktopManaged).toBe(true);
     expect(standaloneConfig.desktopManaged).toBe(false);
+  });
+
+  test("puts new worktrees in the Projects folder unless worktrees.root is set", async () => {
+    const paseoHome = await realpath(
+      await mkdtemp(path.join(os.tmpdir(), "paseo-config-projects-")),
+    );
+    roots.push(paseoHome);
+    const projects = path.join(paseoHome, "dev");
+    await mkdir(projects);
+    await writeFile(
+      path.join(paseoHome, "projects-folder.json"),
+      JSON.stringify({ root: projects, migrateFrom: ["/Users/guest/dev"] }),
+    );
+
+    const config = loadConfig(paseoHome, { env: {} });
+    expect(config.projectsFolder).toEqual({
+      root: projects,
+      aliases: ["/Users/guest/dev"],
+      allowOutside: [],
+    });
+    expect(config.worktreesRoot).toBe(path.join(projects, ".vorteo", "worktrees"));
+
+    await writeFile(
+      path.join(paseoHome, "config.json"),
+      JSON.stringify({ worktrees: { root: "/srv/worktrees" } }),
+    );
+    expect(loadConfig(paseoHome, { env: {} }).worktreesRoot).toBe("/srv/worktrees");
   });
 
   test("loads the provider catalog refresh timeout", async () => {

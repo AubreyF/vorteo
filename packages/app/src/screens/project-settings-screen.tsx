@@ -32,6 +32,7 @@ import { EditingTextInput as TextInput } from "@/components/ui/text-input";
 import { SettingsTextAreaCard } from "@/components/settings-textarea";
 import { SettingsGroup } from "@/components/settings/headings/settings-group";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
+import { ProjectExclusionsSection } from "@/execution-installation/project-exclusions";
 import { settingsStyles } from "@/styles/settings";
 import { useProjects } from "@/hooks/use-projects";
 import type { ProjectEditFormSnapshot } from "@/projects/edit-form";
@@ -336,6 +337,8 @@ function ProjectSettingsBody({
         onBackToProjects,
         showBackToProjects,
       })}
+
+      <ProjectExclusionsSection rootPath={selectedHost.repoRoot} serverId={selectedHost.serverId} />
     </View>
   );
 }

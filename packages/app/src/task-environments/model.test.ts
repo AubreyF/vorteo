@@ -1,10 +1,13 @@
 import type { DestinationWorkspaceClient } from "@/agent-profiles/internal/destination-workspaces";
 import { expect, test } from "vitest";
-import { WorkspaceDescriptorPayloadSchema } from "@getpaseo/protocol/messages";
+import {
+  ServerInfoStatusPayloadSchema,
+  WorkspaceDescriptorPayloadSchema,
+} from "@getpaseo/protocol/messages";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { openTaskEnvironment } from "./model";
 
-function fixture() {
+function fixture(options: { directory?: string; projectsRoot?: string } = {}) {
   const owner = { serverId: "host", workspaceId: "source" };
   const workspace = WorkspaceDescriptorPayloadSchema.parse({
     id: "destination",
@@ -25,8 +28,22 @@ function fixture() {
   let supported = true;
   let failMembership = false;
   let membership: typeof workspace.projectMembership;
+  let createdPath: string | null = null;
+  let browsed = 0;
   const client: DestinationWorkspaceClient &
-    Pick<DaemonClient, "browseProjectDirectories" | "createWorkspace"> = {
+    Pick<
+      DaemonClient,
+      "browseProjectDirectories" | "createWorkspace" | "getLastServerInfoMessage"
+    > = {
+    getLastServerInfoMessage() {
+      if (!options.projectsRoot) return null;
+      return ServerInfoStatusPayloadSchema.parse({
+        status: "server_info",
+        serverId: "any",
+        projectsRoot: options.projectsRoot,
+        features: { projectsRoot: true },
+      });
+    },
     async fetchWorkspaces() {
       return {
         requestId: "fetch",
@@ -36,19 +53,21 @@ function fixture() {
       };
     },
     async browseProjectDirectories() {
+      browsed++;
       return { requestId: "browse", roots: [], directory: null, error: null, errorCode: null };
     },
     async createWorkspace(input) {
       creationCount++;
       if (failMembership) throw new Error("Connection lost while associating workspace");
       membership = input.projectMembership;
+      createdPath = input.source.kind === "directory" ? input.source.path : null;
       entries = [{ ...workspace, projectMembership: membership }];
       return { requestId: "create", workspace: entries[0], error: null, setupTerminalId: null };
     },
   };
   const model = openTaskEnvironment({
     owner,
-    directory: "/host/tree",
+    directory: options.directory ?? "/host/tree",
     name: "Work",
     project: { key: "repo", name: "Repo" },
     getClient() {
@@ -64,6 +83,8 @@ function fixture() {
     workspace,
     client,
     creations: () => creationCount,
+    createdPath: () => createdPath,
+    browsed: () => browsed,
     membership: () => membership,
     setEntries(value: typeof entries) {
       entries = value;
@@ -175,4 +196,24 @@ test("declining another environment does not strand a folder lookup already in p
   await selecting;
   expect(f.model.getState()).toMatchObject({ serverId: "container", status: "folder" });
   expect(f.creations()).toBe(0);
+});
+
+test("a shared Projects folder places the workspace at the same path without asking for a folder", async () => {
+  const f = fixture({ directory: "/Users/me/dev/repo", projectsRoot: "/Users/me/dev" });
+  await f.model.select("container");
+  expect(f.model.getState()).toMatchObject({
+    status: "ready",
+    directory: "/Users/me/dev/repo",
+    workspaceId: null,
+  });
+  expect(f.browsed()).toBe(0);
+  expect(f.creations()).toBe(0);
+  expect(await f.model.prepare()).toEqual({ serverId: "container", workspaceId: "destination" });
+  expect(f.createdPath()).toBe("/Users/me/dev/repo");
+});
+
+test("a folder outside the shared Projects folder still needs the legacy folder choice", async () => {
+  const f = fixture({ directory: "/Users/me/elsewhere/repo", projectsRoot: "/Users/me/dev" });
+  await f.model.select("container");
+  expect(f.model.getState()).toMatchObject({ status: "folder", directory: "" });
 });

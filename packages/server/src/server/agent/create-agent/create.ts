@@ -1,11 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { assertInstallationProviderLaunch } from "../../execution-installation/settings/provider-admission.js";
 import {
+  assertProjectLaunch,
+  readProjectPolicy,
+} from "../../execution-installation/settings/project-policies.js";
+import {
   readInstallationSettingsForLaunch,
   type InstallationSettingsReader,
 } from "../../execution-installation/settings/admission.js";
 import { captureSkillPolicy } from "../../orchestration-skills/internal/policy.js";
-import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
+import {
+  profilePolicyIdentity,
+  resolveProviderType,
+} from "@getpaseo/protocol/provider-preferences";
 import { setAgentGoalWithContext } from "../agent-goal.js";
 import type { Logger } from "pino";
 
@@ -223,7 +230,7 @@ export async function resolveProfileSwitchConfig(
     featureValues: created.featureValues,
   };
   await validateSharedLaunch(dependencies, sessionConfig);
-  await captureLaunchPolicy(dependencies, sessionConfig);
+  await captureLaunchPolicy(dependencies, sessionConfig, { requestedProfileId: config.profileId });
   bindings.assertCurrent();
   return sessionConfig;
 }
@@ -296,7 +303,9 @@ export async function createAgentCommand(
       : await resolveMcpCreateAgent(dependencies, input);
 
   await validateSharedLaunch(dependencies, resolved.config);
-  await captureLaunchPolicy(dependencies, resolved.config);
+  await captureLaunchPolicy(dependencies, resolved.config, {
+    requestedProfileId: input.kind === "session" ? input.config.profileId : input.profileId,
+  });
 
   if (resolved.config.quotaReserve) {
     await dependencies.agentManager.checkQuotaReserveLaunch(resolved.config);
@@ -851,6 +860,7 @@ async function createMcpWorktree(
 async function captureLaunchPolicy(
   dependencies: CreateAgentCommandDependencies,
   config: AgentSessionConfig,
+  request: { requestedProfileId: string | undefined },
 ): Promise<void> {
   const settings = dependencies.getSharedProviderConfig?.();
   const provider = resolveProviderType(config.provider, settings?.providers ?? {});
@@ -858,11 +868,28 @@ async function captureLaunchPolicy(
     ? await readInstallationSettingsForLaunch(settings, dependencies.installationSettingsReader)
     : null;
   if (authority && settings) assertInstallationProviderLaunch(settings, config.provider, authority);
+  const projectPolicy = authority ? await readProjectPolicy(authority, config.cwd) : null;
+  if (authority && projectPolicy) {
+    const profile = config.profileLaunch;
+    const profileIds = [request.requestedProfileId, profile?.profile.id]
+      .filter((id): id is string => Boolean(id))
+      .map(profilePolicyIdentity);
+    if (profile?.workflowId) profileIds.push(`workflow/${profile.workflowId}`);
+    assertProjectLaunch({
+      policy: projectPolicy,
+      admission: authority,
+      providerId: config.provider,
+      profileIds,
+    });
+  }
   const installation = authority
     ? {
         definitions: authority.settings.skillLibrary ?? [],
-        excludedIdentities:
-          authority.settings.resourceExclusions[authority.serverId]?.skillIdentities ?? [],
+        // Project exclusions add to the environment's.
+        excludedIdentities: [
+          ...(authority.settings.resourceExclusions[authority.serverId]?.skillIdentities ?? []),
+          ...(projectPolicy?.skillIdentities ?? []),
+        ],
       }
     : undefined;
   await captureSkillPolicy(config, provider, {

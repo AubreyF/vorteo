@@ -302,6 +302,8 @@ export interface DaemonServerInfo {
   hostname: string | null;
   version: string | null;
   desktopManaged?: boolean;
+  // COMPAT(projectsRoot): absent on daemons without a Projects folder.
+  projectsRoot?: string;
   capabilities?: ServerCapabilities;
   features?: ServerInfoStatusPayload["features"];
   permissions?: ServerInfoStatusPayload["permissions"];
@@ -315,6 +317,7 @@ export function toDaemonServerInfo(serverInfo: ServerInfoStatusPayload): DaemonS
     ...(serverInfo.desktopManaged !== undefined
       ? { desktopManaged: serverInfo.desktopManaged }
       : {}),
+    ...(serverInfo.projectsRoot ? { projectsRoot: serverInfo.projectsRoot } : {}),
     ...(serverInfo.capabilities ? { capabilities: serverInfo.capabilities } : {}),
     ...(serverInfo.features ? { features: serverInfo.features } : {}),
   };

@@ -1626,6 +1626,9 @@ export class VoiceAssistantWebSocketServer {
       pushNotifications: this.pushNotifications,
       paseoHome: this.paseoHome,
       worktreesRoot: this.worktreesRoot,
+      ...(this.daemonRuntimeConfig?.projectsFolder
+        ? { projectsFolder: this.daemonRuntimeConfig.projectsFolder }
+        : {}),
       agentManager: this.agentManager,
       messageQueue: this.messageQueue,
       agentStorage: this.agentStorage,
@@ -1940,6 +1943,10 @@ export class VoiceAssistantWebSocketServer {
       permissions: session.getPermissions(),
       // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
       desktopManaged: this.daemonRuntimeConfig?.desktopManaged === true,
+      // COMPAT(projectsRoot): added 2026-10-22, remove gate after 2027-04-22.
+      ...(this.daemonRuntimeConfig?.projectsFolder
+        ? { projectsRoot: this.daemonRuntimeConfig.projectsFolder.root }
+        : {}),
       ...(this.serverCapabilities ? { capabilities: this.serverCapabilities } : {}),
       features: {
         // COMPAT(workspaceTitleSuggestions): added in v0.7.2, remove gate after 2027-03-10.
@@ -2052,6 +2059,8 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectAdd: true,
         projectDirectoryBrowsing: true,
+        // COMPAT(projectsRoot): added 2026-10-22, remove gate after 2027-04-22.
+        projectsRoot: this.daemonRuntimeConfig?.projectsFolder !== undefined,
         // COMPAT(projectList): added in v0.2.4, drop the gate when floor >= v0.2.4.
         projectList: true,
         // COMPAT(worktreeRestore): keep through 2027-01-11 for clients older than v0.1.105.
@@ -2163,6 +2172,8 @@ export class VoiceAssistantWebSocketServer {
           this.daemonConfigStore.get().sharedProviderPreferences,
         ),
         installationResourceBindings: true,
+        // COMPAT(projectPolicies): added 2026-10-22, remove gate after 2027-04-22.
+        installationProjectPolicies: true,
         installationSettingsAuthority: true,
         installationProviderRemoval: true,
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.

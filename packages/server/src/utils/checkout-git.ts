@@ -31,7 +31,8 @@ import {
 import { parseGitRevParsePath, resolveGitRevParsePath } from "./git-rev-parse-path.js";
 import { runGitCommand, type RunGitCommand } from "./run-git-command.js";
 import { readGitFileContents } from "./git-file-contents.js";
-import { isPaseoOwnedWorktreeCwd, resolvePaseoWorktreesBaseRoot } from "./worktree.js";
+import { logicalProjectsPath, logicalProjectsPathOrNull } from "../server/projects-folder.js";
+import { isPaseoOwnedWorktreeCwd, resolvePaseoWorktreesBaseRoots } from "./worktree.js";
 import {
   branchNameFromRef,
   getPaseoWorktreeChangeRequestHintForBranch,
@@ -954,7 +955,7 @@ async function requireGitWorktreeRoot(cwd: string): Promise<string> {
     if (!worktreeRoot) {
       throw new Error("Git returned no worktree root");
     }
-    return worktreeRoot;
+    return logicalProjectsPath(worktreeRoot);
   } catch {
     throw new NotGitRepoError(cwd);
   }
@@ -1040,7 +1041,8 @@ async function getWorktreeRoot(cwd: string, context?: CheckoutContext): Promise<
       envOverlay: READ_ONLY_GIT_ENV,
       logger: context?.logger,
     });
-    return parseGitRevParsePath(stdout);
+    // Git reports real paths; under a Projects folder alias the logical path is recorded.
+    return logicalProjectsPathOrNull(parseGitRevParsePath(stdout));
   } catch (error) {
     if (!isNotGitRepositoryError(error)) {
       context?.logger?.warn(
@@ -1064,6 +1066,14 @@ export async function getMainRepoRoot(cwd: string, context?: CheckoutContext): P
 }
 
 async function getMainRepoRootFromCommonDir(
+  cwd: string,
+  commonDir: string | null,
+  context?: CheckoutContext,
+): Promise<string> {
+  return logicalProjectsPath(await findMainRepoRootFromCommonDir(cwd, commonDir, context));
+}
+
+async function findMainRepoRootFromCommonDir(
   cwd: string,
   commonDir: string | null,
   context?: CheckoutContext,
@@ -1110,7 +1120,7 @@ export function isPaseoWorktreePath(
   options?: { paseoHome?: string; worktreesRoot?: string },
 ): boolean {
   if (options?.worktreesRoot || options?.paseoHome) {
-    return isDescendantPath(p, resolvePaseoWorktreesBaseRoot(options));
+    return resolvePaseoWorktreesBaseRoots(options).some((root) => isDescendantPath(p, root));
   }
   return /[/\\]\.paseo[/\\]worktrees[/\\]/.test(p);
 }

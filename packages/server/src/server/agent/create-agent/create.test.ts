@@ -930,6 +930,79 @@ test("profileless installation tasks require fresh settings authority before reg
   }
 });
 
+test("a project's exclusions refuse launches in an excluded environment or with an excluded account", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "project-policy-launch-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+  const binding = {
+    installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+    serverId: "host",
+    environment: "host" as const,
+    revision: 1,
+  };
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    providers: { codex: { enabled: true } },
+    sharedProviderPreferences: {
+      version: 1,
+      revision: 1,
+      providers: {},
+      legacyProfiles: {},
+      installation: binding,
+    },
+  });
+  const definitions = readInstallationProviders("host", settings.providers);
+  const project = join(workdir, "project");
+  mkdirSync(join(project, "src"), { recursive: true });
+  async function launch(policy: Record<string, unknown>) {
+    return createAgentCommand(
+      {
+        agentManager,
+        agentStorage: storage,
+        logger,
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+        getSharedProviderConfig: () => settings,
+        installationSettingsReader: {
+          async read() {
+            return {
+              ...binding,
+              revision: 2,
+              installationInstructions: "",
+              settings: {
+                ...readInstallationSettings(settings),
+                skillLibrary: [],
+                providerDefinitions: definitions,
+                projectPolicies: { [project]: policy },
+              },
+            };
+          },
+        },
+      },
+      {
+        kind: "session",
+        config: { provider: "codex", cwd: join(project, "src") },
+        workspaceId: "project-policy",
+        initialPrompt: "Do not start",
+        labels: {},
+        provisionalTitle: null,
+        firstAgentContext: { attachments: [] },
+        buildSessionConfig: async (config) => ({ sessionConfig: config }),
+      },
+    );
+  }
+  try {
+    await expect(launch({ excludedEnvironments: ["host"] })).rejects.toThrow(
+      "This project is excluded from the Host environment",
+    );
+    await expect(launch({ providerIds: [definitions[0].id] })).rejects.toThrow(
+      "This project excludes the selected account",
+    );
+    expect(agentManager.listAgents()).toEqual([]);
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
 test("direct task creation cannot bypass an excluded provider using stale enabled local settings", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "shared-provider-launch-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

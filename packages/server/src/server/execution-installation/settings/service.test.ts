@@ -1265,3 +1265,42 @@ test("a slow previous patch cannot acknowledge a newer owner revision", async ()
   expect(container.config.appendSystemPrompt).toBe("latest");
   expect(service.snapshot().sources.host.appliedRevision).toBe(3);
 });
+
+test("project policies must leave the project available in at least one environment", async () => {
+  const { service, host, container } = fixture();
+  host.config.installationProjectPolicies = {};
+  const initial = await service.reconcile();
+  const everywhere = {
+    "/Users/me/dev/app": { excludedEnvironments: ["host" as const, "container" as const] },
+  };
+  await expect(
+    service.update({
+      expectedRevision: initial.revision,
+      settings: { projectPolicies: everywhere },
+    }),
+  ).rejects.toThrow("at least one environment");
+  for (const key of ["relative/app", "/Users/me/dev/app/"])
+    await expect(
+      service.update({
+        expectedRevision: initial.revision,
+        settings: { projectPolicies: { [key]: { excludedEnvironments: ["container"] } } },
+      }),
+    ).rejects.toBeInstanceOf(InstallationSettingsInvalidUpdate);
+  await expect(
+    service.update({
+      expectedRevision: initial.revision,
+      settings: { projectPolicies: { "/Users/me/dev/app": { providerIds: ["unknown"] } } },
+    }),
+  ).rejects.toBeInstanceOf(InstallationSettingsInvalidUpdate);
+
+  const policies = { "/Users/me/dev/app": { excludedEnvironments: ["container" as const] } };
+  const saved = await service.update({
+    expectedRevision: initial.revision,
+    settings: { projectPolicies: policies },
+  });
+  expect(saved.settings?.projectPolicies).toEqual(policies);
+  await service.reconcile();
+  // Only a daemon that keeps a copy receives one; older daemons are left alone.
+  expect(host.config.installationProjectPolicies).toEqual(policies);
+  expect(container.config.installationProjectPolicies).toBeUndefined();
+});
