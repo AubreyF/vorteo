@@ -1,4 +1,5 @@
 import { helperReviewFixture } from "./helper-review.fixture";
+import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
 import { expect, test } from "vitest";
 import { OwnerAccessExpired } from "./client";
 import {
@@ -11,6 +12,102 @@ import {
   restartActionDisabledReason,
 } from "./panel-model";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
+
+function enrollmentStatusModel(
+  read: () => Promise<InstallationEnrollmentStatus | null>,
+  restartSummary: () => Promise<null> = async () => null,
+) {
+  return new InstallationPanelModel({
+    restartSummary,
+    restoreSession: async () => true,
+    lock: async () => {},
+    unlock: async () => {},
+    passwordFile: null,
+    sessionsSupported: true,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    listRestarts: async () => [],
+    listHelpers: async () => [],
+    decide: async () => {
+      throw new Error("Unexpected maintenance decision");
+    },
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
+    enrollmentStatus: read,
+  });
+}
+
+const enrollmentStatusFixture: InstallationEnrollmentStatus = {
+  version: 1,
+  installationId: "00000000-0000-4000-8000-000000000001",
+  checkedAt: "2026-10-15T12:00:00.000Z",
+  authority: "not-enrolled",
+  grantRevision: null,
+  activation: "not-enrolled",
+  completedSteps: 0,
+  totalSteps: 0,
+  services: [],
+  steps: [],
+};
+
+test("enrollment status retains its last observation on refresh failure and clears the error on recovery", async () => {
+  let unavailable = false;
+  const model = enrollmentStatusModel(async () => {
+    if (unavailable) throw new Error("Connection failed");
+    return enrollmentStatusFixture;
+  });
+  await model.initialize();
+  expect(model.getState().enrollmentStatus).toEqual(enrollmentStatusFixture);
+  unavailable = true;
+  await model.refreshEnrollmentStatus();
+  expect(model.getState().enrollmentStatus).toEqual(enrollmentStatusFixture);
+  expect(model.getState().enrollmentError).toContain("Last known");
+  expect(model.getState().enrollmentRefreshing).toBe(false);
+  unavailable = false;
+  await model.refreshEnrollmentStatus();
+  expect(model.getState().enrollmentError).toBeNull();
+});
+
+test("enrollment status refresh cannot restore private state after locking owner controls", async () => {
+  let wait = false;
+  const pending = Promise.withResolvers<InstallationEnrollmentStatus | null>();
+  let reads = 0;
+  const model = enrollmentStatusModel(async () => {
+    reads++;
+    return wait ? pending.promise : enrollmentStatusFixture;
+  });
+  await model.initialize();
+  wait = true;
+  const first = model.refreshEnrollmentStatus();
+  await model.refreshEnrollmentStatus();
+  expect(reads).toBe(2);
+  expect(model.getState().enrollmentRefreshing).toBe(true);
+  await model.lock();
+  pending.resolve(enrollmentStatusFixture);
+  await first;
+  expect(model.getState()).toMatchObject({
+    unlocked: false,
+    enrollmentStatus: null,
+    enrollmentRefreshing: false,
+  });
+});
+
+test("enrollment status authentication expiry clears observations instead of retaining private readiness", async () => {
+  let expired = false;
+  const model = enrollmentStatusModel(async () => {
+    if (expired) throw new OwnerAccessExpired("Owner session expired");
+    return enrollmentStatusFixture;
+  });
+  await model.initialize();
+  expired = true;
+  await model.refreshEnrollmentStatus();
+  expect(model.getState()).toMatchObject({
+    unlocked: false,
+    enrollmentStatus: null,
+    enrollmentRefreshing: false,
+  });
+});
 
 test("saved connections skip setup on reload without unlocking owner controls", async () => {
   let queries = 0;
@@ -666,4 +763,27 @@ test("Dev repair prepares the current revision without approving and prevents du
   await model.prepareDevRepair(job);
   expect(prepared).toBe(1);
   expect(model.getState().notice).toContain("no restart is approved");
+});
+
+test("enrollment status refresh still runs when restart summary fails", async () => {
+  let reads = 0;
+  let summaryFails = false;
+  const model = enrollmentStatusModel(
+    async () => {
+      reads++;
+      if (summaryFails) throw new Error("Status unavailable");
+      return enrollmentStatusFixture;
+    },
+    async () => {
+      if (summaryFails) throw new Error("Restart summary unavailable");
+      return null;
+    },
+  );
+  await model.initialize();
+  expect(model.getState().enrollmentStatus).toEqual(enrollmentStatusFixture);
+  const previousReads = reads;
+  summaryFails = true;
+  await model.refresh();
+  expect(reads).toBe(previousReads + 1);
+  expect(model.getState().enrollmentError).toContain("Last known");
 });

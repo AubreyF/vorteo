@@ -13,6 +13,26 @@ import {
 
 const execute = promisify(execFile);
 
+/** Apple's Python launcher can exec the selected developer interpreter and
+ * replace argv[0]. Observe that system-selected executable before comparing
+ * the recovery job; never derive the expected identity from the job itself. */
+export async function inspectBootstrapPythonExecutable(): Promise<string> {
+  const source = [
+    "import ctypes,json,os",
+    "lib=ctypes.CDLL('/usr/lib/libSystem.B.dylib')",
+    "buffer=ctypes.create_string_buffer(4096)",
+    "size=lib.proc_pidpath(os.getpid(),buffer,len(buffer))",
+    "if size <= 0: raise RuntimeError('Native Python identity unavailable')",
+    "print(json.dumps(buffer.value.decode('utf-8')))",
+  ].join("\n");
+  const result = await execute("/usr/bin/python3", ["-I", "-B", "-c", source], {
+    env: { PATH: "/usr/bin:/bin" },
+    timeout: 10_000,
+    maxBuffer: 8192,
+  });
+  return z.string().startsWith("/").parse(JSON.parse(result.stdout));
+}
+
 import {
   ProcessObservationSchema,
   AuditedProcessObservationSchema,
@@ -206,7 +226,9 @@ export async function createNativeBootstrapServiceReader(input: {
     async readService(service) {
       const label = z
         .string()
-        .regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation$/)
+        .regex(
+          /^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation(?:-recovery-[a-f0-9-]{36})?$/,
+        )
         .parse(service);
       if (!label.startsWith(`gui/${uid}/`))
         throw new BootstrapRequestConflict("Coordinator service belongs to another Host account");
@@ -216,7 +238,9 @@ export async function createNativeBootstrapServiceReader(input: {
     async verifyServiceAbsent(service) {
       const label = z
         .string()
-        .regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation$/)
+        .regex(
+          /^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation(?:-recovery-[a-f0-9-]{36})?$/,
+        )
         .parse(service);
       if (!label.startsWith(`gui/${uid}/`))
         throw new BootstrapRequestConflict("Coordinator service belongs to another Host account");
@@ -391,7 +415,19 @@ export async function verifyBootstrapReplacement(input: {
   hostUid: number;
   reader: BootstrapServiceReader;
   readHealth(): Promise<unknown>;
+  /** Supplied only by the native startup recovery runner after boot proof. */
+  recoveryBootId?: string;
 }): Promise<void> {
+  if (
+    input.recoveryBootId !== undefined &&
+    (!input.plan.bootRecovery ||
+      !input.recoveryBootId ||
+      input.recoveryBootId === input.plan.expectedProcess.bootId)
+  )
+    throw new BootstrapRequestConflict(
+      "Replacement boot recovery requires a distinct verified boot",
+    );
+  const expectedBoot = input.recoveryBootId ?? input.plan.expectedProcess.bootId;
   const healthSchema = z.strictObject({
     installationId: z.literal(input.plan.installationId),
     bootstrap: z.strictObject({
@@ -413,14 +449,14 @@ export async function verifyBootstrapReplacement(input: {
   for (let attempt = 0; attempt < 2; attempt++) {
     const service = await input.reader.readService(input.plan.service);
     const pid = loadedCoordinatorPid(input.plan.service, service);
-    if (pid === input.plan.expectedProcess.pid)
+    if (input.recoveryBootId === undefined && pid === input.plan.expectedProcess.pid)
       throw new BootstrapRequestConflict("Coordinator replacement still has the previous PID");
     const observation = ProcessObservationSchema.parse(await input.reader.inspectProcess(pid));
     const matchesCandidate =
       observation.pid === pid &&
       observation.parentPid === 1 &&
       observation.uid === input.hostUid &&
-      observation.bootId === input.plan.expectedProcess.bootId &&
+      observation.bootId === expectedBoot &&
       observation.executable === input.plan.candidate.node.path &&
       observation.argumentsSha256 === argumentsSha256;
     if (!matchesCandidate)

@@ -1,8 +1,9 @@
 import type { SidebarStateChange } from "@getpaseo/protocol/sidebar-state";
 import type {
   CoordinatorBootstrapPreparation,
+  CoordinatorSubmissionProof,
   CoordinatorBootstrapDecision,
-  CoordinatorBootstrapRequest,
+  CoordinatorBootstrapRequestView as CoordinatorBootstrapRequest,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
   BootstrapPreclaimRecoveryPreparation,
   BootstrapClaimedRecoveryPreparation,
@@ -3806,9 +3807,14 @@ export class DaemonClient {
     compatibleRecovery?: true;
     previewMonitor?: true;
     sourceUpdateTooling?: true;
+    bootRecovery?: true;
+    automaticStatus?: true;
   } {
     const features = this.lastServerInfoMessage?.features;
     return {
+      ...(features?.coordinatorBootstrapAutomaticStatus === true
+        ? { automaticStatus: true as const }
+        : {}),
       ...(features?.coordinatorBootstrapFactoryAdoption === true
         ? { factoryRuntimeAdoption: true as const }
         : {}),
@@ -3818,10 +3824,35 @@ export class DaemonClient {
       ...(features?.coordinatorBootstrapPreviewMonitor === true
         ? { previewMonitor: true as const }
         : {}),
+      ...(features?.coordinatorBootstrapBootRecovery === true
+        ? { bootRecovery: true as const }
+        : {}),
       ...(features?.coordinatorBootstrapSourceUpdateTooling === true
         ? { sourceUpdateTooling: true as const }
         : {}),
     };
+  }
+
+  async reconcileAutomaticCoordinatorBootstrap(
+    id: string,
+    options: { timeout?: number } = {},
+  ): Promise<CoordinatorBootstrapRequest[]> {
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapAutomaticReconciliation !== true)
+      throw new Error("Update the Host before reconciling automatic coordinator maintenance.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.reconcile_automatic.response">(
+        {
+          message: {
+            type: "installation.bootstrap.reconcile_automatic.request",
+            id,
+            ...this.bootstrapReviewCapabilities(),
+          },
+          timeout: options.timeout ?? 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Automatic coordinator reconciliation unconfirmed");
+    return result.requests;
   }
 
   async listCoordinatorBootstrapRequests(): Promise<CoordinatorBootstrapRequest[]> {
@@ -3840,11 +3871,31 @@ export class DaemonClient {
     return result.requests;
   }
 
+  private assertBootRecoveryPreparation(input: CoordinatorBootstrapPreparation): void {
+    if (
+      input.plan.bootRecovery &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapBootRecovery !== true
+    )
+      throw new Error("Update the Host before preparing startup recovery.");
+  }
+
+  private assertAuthenticatedCoordinatorSubmission(
+    proof: CoordinatorSubmissionProof | undefined,
+  ): void {
+    if (
+      proof &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapAuthenticatedSubmission !== true
+    )
+      throw new Error("Update the Host before submitting authenticated coordinator maintenance.");
+  }
+
   async prepareCoordinatorBootstrap(
     input: CoordinatorBootstrapPreparation,
-    options: { timeout?: number } = {},
+    options: { timeout?: number; submissionProof?: CoordinatorSubmissionProof } = {},
   ): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
+    this.assertBootRecoveryPreparation(input);
+    this.assertAuthenticatedCoordinatorSubmission(options.submissionProof);
     if (
       input.plan.sourceUpdateTooling === true &&
       this.lastServerInfoMessage?.features?.coordinatorBootstrapSourceUpdateTooling !== true
@@ -3865,6 +3916,7 @@ export class DaemonClient {
         message: {
           type: "installation.bootstrap.prepare.request",
           input,
+          submissionProof: options.submissionProof,
           ...this.bootstrapReviewCapabilities(),
         },
         // Large protected releases can outlast the interactive default. This
@@ -3907,6 +3959,20 @@ export class DaemonClient {
       );
   }
 
+  private recoveryBootPlanCapability(): { recoveryBootPlan?: true } {
+    return this.lastServerInfoMessage?.features?.coordinatorBootstrapRecoveryBootPlan === true
+      ? { recoveryBootPlan: true }
+      : {};
+  }
+
+  private assertRecoveryBootPlan(originals: CoordinatorBootstrapRequest[]): void {
+    if (
+      originals.some((request) => request.plan.bootRecovery) &&
+      !this.recoveryBootPlanCapability().recoveryBootPlan
+    )
+      throw new Error("Update the Host before preparing recovery with a retained startup plan.");
+  }
+
   private preclaimOwnerCancellationCapability(): { ownerCanceledOriginal?: true } {
     return this.lastServerInfoMessage?.features?.coordinatorBootstrapPreclaimOwnerCancellation ===
       true
@@ -3928,6 +3994,7 @@ export class DaemonClient {
         {
           message: {
             type: "installation.bootstrap_recovery.list_requests.request",
+            ...this.recoveryBootPlanCapability(),
             ...this.preclaimOwnerCancellationCapability(),
             reconcile: input,
           },
@@ -3945,6 +4012,7 @@ export class DaemonClient {
         {
           message: {
             type: "installation.bootstrap_recovery.list_requests.request",
+            ...this.recoveryBootPlanCapability(),
             ...this.preclaimOwnerCancellationCapability(),
           },
         },
@@ -3958,6 +4026,11 @@ export class DaemonClient {
     input: BootstrapPreclaimRecoveryPreparation,
   ): Promise<BootstrapPreclaimRecoveryRequest[]> {
     this.assertPreclaimRecoveryReview();
+    this.assertRecoveryBootPlan([
+      input.plan.original,
+      input.plan.canceled,
+      ...(input.plan.ownerCancellation ? [input.plan.ownerCancellation] : []),
+    ]);
     if (
       input.plan.ownerCancellation &&
       !this.preclaimOwnerCancellationCapability().ownerCanceledOriginal
@@ -3968,6 +4041,7 @@ export class DaemonClient {
         {
           message: {
             type: "installation.bootstrap_recovery.prepare.request",
+            ...this.recoveryBootPlanCapability(),
             ...this.preclaimOwnerCancellationCapability(),
             input,
           },
@@ -3991,6 +4065,7 @@ export class DaemonClient {
         {
           message: {
             type: "installation.bootstrap_recovery.decide.request",
+            ...this.recoveryBootPlanCapability(),
             input,
             ownerPassword,
             preclaimRecovery: true,
@@ -4027,6 +4102,7 @@ export class DaemonClient {
         {
           message: {
             type: "installation.claimed_recovery.list_requests.request",
+            ...this.recoveryBootPlanCapability(),
             reconcile: input,
           },
         },
@@ -4043,6 +4119,7 @@ export class DaemonClient {
         {
           message: {
             type: "installation.claimed_recovery.list_requests.request",
+            ...this.recoveryBootPlanCapability(),
           },
         },
       );
@@ -4055,11 +4132,13 @@ export class DaemonClient {
     input: BootstrapClaimedRecoveryPreparation,
   ): Promise<BootstrapClaimedRecoveryRequest[]> {
     this.assertClaimedRecoveryReview();
+    this.assertRecoveryBootPlan([input.plan.original]);
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.claimed_recovery.prepare.response">(
         {
           message: {
             type: "installation.claimed_recovery.prepare.request",
+            ...this.recoveryBootPlanCapability(),
             input,
           },
           timeout: 15 * 60_000,
@@ -4082,6 +4161,7 @@ export class DaemonClient {
         {
           message: {
             type: "installation.claimed_recovery.decide.request",
+            ...this.recoveryBootPlanCapability(),
             input,
             ownerPassword,
             claimedRecovery: true,

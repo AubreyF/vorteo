@@ -29,14 +29,20 @@ import type {
 } from "@getpaseo/protocol/execution-installation";
 
 export interface RestartApprovalPolicy {
+  /** Binds grants to the installed policy revision and authenticated credential set. */
+  authority?: () => string;
+  cancellationDelayMs?: number;
   hostRequestsAfter?: string;
   // Undefined retains legacy Host-only policy; null explicitly disables automation.
-  daemonRequestsAfter?: () => string | null | undefined;
+  daemonRequestsAfter?: (target: RestartJob["target"]) => string | null | undefined;
+  /** Controller authority never inherits a daemon or legacy Host grant. */
+  supervisorRequestsAfter?: () => string | null;
 }
 
 export interface RestartJournal {
   read(): LifecycleJob[];
   write(jobs: LifecycleJob[]): void;
+  admissionAvailable?(): boolean;
 }
 
 export interface RestartExecutor {
@@ -72,12 +78,22 @@ export interface RestartExecutor {
     capture: DevRepairCapture,
     contributions: SourceContribution[],
   ): Promise<SourceUpdate>;
+  prepareInstallation?(job: RestartJob): Promise<void>;
   installUpdate?(job: RestartJob): Promise<string>;
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
   restartWhenIdle?(target: RestartJob["target"]): Promise<string | null>;
   holdCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
   releaseCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
+}
+
+export function supportsAutomaticMaintenance(executor: RestartExecutor): boolean {
+  return Boolean(
+    executor.inspect &&
+    executor.holdCurrentTurns &&
+    executor.releaseCurrentTurns &&
+    executor.restartWhenIdle,
+  );
 }
 
 export class RestartRequestError extends Error {}
@@ -158,6 +174,13 @@ export class InstallationRestarts {
           detail: "Rechecking source contributions",
         };
       }
+      if (job.status === "approved" && job.updatePreparation === "preparing")
+        return {
+          ...job,
+          status: "failed",
+          detail:
+            "Source preparation interrupted before activation. Prepare a new update; the running release was not changed.",
+        };
       if (job.status === "approved" && job.whenIdle) return job;
       if (job.status !== "running" && job.status !== "approved") return job;
       return {
@@ -719,14 +742,8 @@ export class InstallationRestarts {
     if (!input.requireOwnerApproval) return;
     if (requestedBy !== "host-agent")
       throw new RestartRequestError("Explicit owner approval requires trusted Host provenance");
-    if (
-      input.supervisorPlanSha256 ||
-      input.factoryRuntimePlanSha256 ||
-      input.factoryRuntimeRecoveryOf
-    )
-      throw new RestartRequestError(
-        "Explicit owner approval is limited to plain restarts and source updates; maintenance already requires exact owner review",
-      );
+    if (input.factoryRuntimePlanSha256 || input.factoryRuntimeRecoveryOf)
+      throw new RestartRequestError("Factory adoption already requires exact owner review");
   }
 
   private sharePlainRequest(active: RestartJob, requireOwnerApproval: boolean): RestartJob {
@@ -1111,6 +1128,7 @@ export class InstallationRestarts {
   async prepareBatches(): Promise<void> {
     if (!this.active) return;
     if (this.running || this.preparing || !this.executor.prepareUpdate) return;
+    if (!this.lifecycleAdmitted()) return;
     this.preparing = true;
     try {
       // Each target owns its pending batch. A Host conflict must not starve Dev.
@@ -1410,6 +1428,10 @@ export class InstallationRestarts {
             ...(job.update ? { sourceSha256: job.update.sha256 } : {}),
           }
         : undefined,
+      automaticAuthority: policyActivatedAt ? this.approvalPolicy.authority?.() : undefined,
+      automaticDispatchAfter: policyActivatedAt
+        ? new Date(this.now() + (this.approvalPolicy.cancellationDelayMs ?? 0)).toISOString()
+        : undefined,
       status: "approved",
       approvedAt: new Date(this.now()).toISOString(),
       whenIdle: true,
@@ -1432,12 +1454,6 @@ export class InstallationRestarts {
   }
 
   private approveTrustedHostRequests(): void {
-    const activation = this.approvalPolicy.daemonRequestsAfter?.();
-    const configured = activation !== undefined;
-    const enabledAfter = configured ? activation : this.approvalPolicy.hostRequestsAfter;
-    if (!enabledAfter) return;
-    const threshold = Date.parse(enabledAfter);
-    if (!Number.isFinite(threshold)) throw new RestartRequestError("Invalid Host approval policy");
     if (
       !this.executor.inspect ||
       !this.executor.holdCurrentTurns ||
@@ -1446,7 +1462,12 @@ export class InstallationRestarts {
     )
       return;
     for (const job of this.jobs) {
-      if (!this.automaticApprovalCandidate(job, configured)) continue;
+      if (!this.automaticApprovalCandidate(job)) continue;
+      const enabledAfter = this.automaticActivation(job);
+      if (!enabledAfter) continue;
+      const threshold = Date.parse(enabledAfter);
+      if (!Number.isFinite(threshold))
+        throw new RestartRequestError("Invalid Host approval policy");
       if (Date.parse(job.createdAt) < threshold) continue;
       const batch = job.sourceBatch;
       if (batch) {
@@ -1458,7 +1479,7 @@ export class InstallationRestarts {
             (item) =>
               item.requireOwnerApproval ||
               item.requestedBy === "owner" ||
-              (!configured && item.requestedBy !== "host-agent") ||
+              item.requestedBy !== "host-agent" ||
               item.status !== "included",
           )
         )
@@ -1466,6 +1487,7 @@ export class InstallationRestarts {
       }
       try {
         this.validateDecision(job, "approve", job.update?.sha256);
+        this.validateSupervisorDecision(job, "approve", job.supervisorPlanSha256);
       } catch (error) {
         if (error instanceof RestartRequestError) continue;
         throw error;
@@ -1475,25 +1497,71 @@ export class InstallationRestarts {
     }
   }
 
-  private automaticApprovalCandidate(job: RestartJob, includeContainer: boolean): boolean {
+  maintenanceBlocker(target: RestartJob["target"]): string | null {
+    if (!this.active) return "Coordinator startup must be verified before maintenance can proceed.";
+    if (this.helperRecoveryRequired())
+      return "Native helper recovery must finish before maintenance can proceed.";
+    if (this.monitorRecoveryRequired())
+      return "Preview monitor recovery must finish before maintenance can proceed.";
+    if (this.factoryRecoveryRequired(target))
+      return "Factory recovery must verify this environment before maintenance can proceed.";
+    if (this.supervisorRecoveryRequired(target))
+      return "Supervisor maintenance did not verify completion. Review a tracked recovery before automatic maintenance can continue.";
+    return null;
+  }
+
+  private automaticActivation(job: RestartJob): string | null | undefined {
+    if (job.supervisorPlanSha256) return this.approvalPolicy.supervisorRequestsAfter?.() ?? null;
+    const activation = this.approvalPolicy.daemonRequestsAfter?.(job.target);
+    return activation === undefined ? this.approvalPolicy.hostRequestsAfter : activation;
+  }
+
+  private supervisorRecoveryRequired(target: RestartJob["target"]): boolean {
+    // An explicitly reviewed successful successor closes uncertainty. Pending
+    // requests and failed observations never clear the earlier failure.
+    return this.jobs.some(
+      (job) =>
+        job.target === target &&
+        job.supervisorPlanSha256 &&
+        job.status === "failed" &&
+        !job.supervisorRecoveredBy,
+    );
+  }
+
+  private automaticHostOrigin(job: RestartJob): boolean {
+    return (
+      job.requestedBy === "host-agent" &&
+      (!job.sourceBatch ||
+        job.sourceBatch.contributions
+          .filter((item) => item.status !== "superseded")
+          .every((item) => item.requestedBy === "host-agent"))
+    );
+  }
+
+  private automaticApprovalCandidate(job: RestartJob): boolean {
     return (
       job.status === "pending" &&
-      (job.requestedBy === "host-agent" ||
-        (includeContainer && job.requestedBy === "container-agent")) &&
+      this.automaticHostOrigin(job) &&
       !job.requireOwnerApproval &&
       !this.factoryRecoveryRequired(job.target) &&
-      !requiresExactMaintenanceApproval(job)
+      !this.supervisorRecoveryRequired(job.target) &&
+      !job.factoryRuntimePlanSha256
     );
   }
 
   /** Revoke only undispatched automatic grants; explicit owner approvals remain exact. */
   refreshApprovalPolicy(): void {
-    if (!this.active || !this.approvalPolicy.daemonRequestsAfter) return;
-    const enabledAfter = this.approvalPolicy.daemonRequestsAfter();
-    if (enabledAfter === undefined) return;
+    if (!this.active) return;
+    const authority = this.approvalPolicy.authority?.();
     for (const job of this.jobs) {
       if (job.status !== "approved" || !job.automaticApproval) continue;
-      if (job.automaticApproval.policyActivatedAt === enabledAfter) continue;
+      const enabledAfter = this.automaticActivation(job);
+      const policyChanged = job.automaticApproval.policyActivatedAt !== enabledAfter;
+      const credentialsChanged = authority !== undefined && job.automaticAuthority !== authority;
+      const planChanged =
+        job.supervisorPlanSha256 && job.supervisorPlanSha256 !== this.executor.supervisorPlan?.();
+      if (!policyChanged && !credentialsChanged && !planChanged && this.automaticHostOrigin(job))
+        continue;
       this.decide(job.id, job.revision, "cancel");
     }
   }
@@ -1512,6 +1580,10 @@ export class InstallationRestarts {
         await this.dispatchMonitor(job);
       }
     }
+  }
+
+  private lifecycleAdmitted(): boolean {
+    return this.journal.admissionAvailable?.() !== false;
   }
 
   async drain(): Promise<void> {
@@ -1541,6 +1613,7 @@ export class InstallationRestarts {
           });
         }
       }
+      if (!this.lifecycleAdmitted()) return;
       // Release completed holds above, but never start another lifecycle operation
       // while the installed helper selection remains ambiguous.
       if (this.monitorRecoveryRequired()) return;
@@ -1574,7 +1647,91 @@ export class InstallationRestarts {
     }
   }
 
+  private automaticDispatchReady(job: RestartJob): boolean {
+    this.refreshApprovalPolicy();
+    const admitted = this.jobs.find((item) => item.id === job.id);
+    if (admitted?.status !== "approved" || admitted.revision !== job.revision) return false;
+    if (job.automaticApproval && this.supervisorRecoveryRequired(job.target)) return false;
+    if (job.automaticDispatchAfter && this.now() < Date.parse(job.automaticDispatchAfter)) {
+      const detail = `Automatically approved. Cancellation is available before ${job.automaticDispatchAfter}; no restart hold has begun.`;
+      if (job.detail !== detail) this.replace({ ...job, detail });
+      return false;
+    }
+    return true;
+  }
+
+  private async prepareApprovedUpdate(job: RestartJob): Promise<RestartJob | null> {
+    if (
+      !job.update ||
+      !job.finishCurrentTurns ||
+      !this.executor.prepareInstallation ||
+      job.updatePreparation === "prepared"
+    )
+      return job;
+    this.replace({
+      ...job,
+      updatePreparation: "preparing",
+      detail:
+        "Building and validating approved source. Current work remains admissible; cancellation is available.",
+    });
+    try {
+      await this.executor.prepareInstallation(job);
+    } catch (error) {
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status === "approved")
+        this.replace({
+          ...current,
+          status: "failed",
+          detail: restartFailureDetail(current, error),
+        });
+      return null;
+    }
+    this.refreshApprovalPolicy();
+    const current = this.jobs.find((item) => item.id === job.id);
+    if (current?.status !== "approved" || current.revision !== job.revision) return null;
+    const prepared: RestartJob = { ...current, updatePreparation: "prepared" };
+    this.replace(prepared);
+    return prepared;
+  }
+
+  private async readyAfterInspection(job: RestartJob): Promise<boolean> {
+    if (!job.whenIdle) return true;
+    let impact: RestartImpact;
+    try {
+      impact = await this.inspectBeforeRestart(job);
+    } catch {
+      impact = {
+        target: job.target,
+        agents: [],
+        pendingStarts: 0,
+        checkedAt: new Date(this.now()).toISOString(),
+        idleRestartSupported: false,
+        error: "Cannot verify agent activity. Waiting for the target.",
+      };
+    }
+    // Policy and credentials may change while the target is being inspected.
+    this.refreshApprovalPolicy();
+    const current = this.jobs.find((candidate) => candidate.id === job.id);
+    if (current?.status !== "approved" || current.revision !== job.revision) return false;
+    const waiting =
+      impact.error ||
+      !impact.idleRestartSupported ||
+      impact.agents.length > 0 ||
+      impact.pendingStarts > 0;
+    if (waiting) {
+      const detail =
+        impact.error ||
+        (!impact.idleRestartSupported
+          ? "Waiting for a daemon update that supports safe idle restarts"
+          : `Waiting for ${impact.agents.length} active agents and ${impact.pendingStarts} starting operations`);
+      if (job.detail !== detail) this.replace({ ...job, detail });
+      return false;
+    }
+    return true;
+  }
+
   private async dispatch(job: RestartJob): Promise<void> {
+    if (!this.automaticDispatchReady(job)) return;
     if (this.factoryDispatchBlocked(job)) {
       this.replace({
         ...job,
@@ -1591,38 +1748,13 @@ export class InstallationRestarts {
       });
       return;
     }
-    if (job.whenIdle) {
-      let impact: RestartImpact;
-      try {
-        impact = await this.inspectBeforeRestart(job);
-      } catch {
-        impact = {
-          target: job.target,
-          agents: [],
-          pendingStarts: 0,
-          checkedAt: new Date(this.now()).toISOString(),
-          idleRestartSupported: false,
-          error: "Cannot verify agent activity. Waiting for the target.",
-        };
-      }
-      // Owner cancellation may arrive while the target is being inspected.
-      const current = this.jobs.find((candidate) => candidate.id === job.id);
-      if (current?.status !== "approved" || current.revision !== job.revision) return;
-      const waiting =
-        impact.error ||
-        !impact.idleRestartSupported ||
-        impact.agents.length > 0 ||
-        impact.pendingStarts > 0;
-      if (waiting) {
-        const detail =
-          impact.error ||
-          (!impact.idleRestartSupported
-            ? "Waiting for a daemon update that supports safe idle restarts"
-            : `Waiting for ${impact.agents.length} active agents and ${impact.pendingStarts} starting operations`);
-        if (job.detail !== detail) this.replace({ ...job, detail });
-        return;
-      }
+    if (job.update && job.finishCurrentTurns && this.executor.prepareInstallation) {
+      const prepared = await this.prepareApprovedUpdate(job);
+      if (!prepared) return;
+      job = prepared;
+      if (!this.automaticDispatchReady(job)) return;
     }
+    if (job.whenIdle && !(await this.readyAfterInspection(job))) return;
     job = runningRestart(job);
     // Persist uncertainty before executing any plan code. Coordinator recovery
     // keeps this fence even when the process never returned a phase receipt.
@@ -1637,12 +1769,30 @@ export class InstallationRestarts {
         });
       } else {
         if (job.factoryRuntimePlanSha256) this.finishFactoryAdoption(job, detail);
+        else if (job.supervisorPlanSha256) this.finishSupervisorMaintenance(job, detail);
         else this.replace({ ...job, status: "succeeded", detail });
       }
     } catch (error) {
       const detail = restartFailureDetail(job, error);
       this.replace({ ...job, status: "failed", detail });
     }
+  }
+
+  private finishSupervisorMaintenance(job: RestartJob, detail: string): void {
+    this.writeState(
+      this.jobs.map((current) => {
+        if (current.id === job.id) return { ...job, status: "succeeded" as const, detail };
+        if (
+          current.target === job.target &&
+          current.supervisorPlanSha256 &&
+          current.status === "failed" &&
+          !current.supervisorRecoveredBy
+        )
+          return { ...current, supervisorRecoveredBy: job.id };
+        return current;
+      }),
+      this.helpers,
+    );
   }
 
   private executeApproved(job: RestartJob): Promise<string | null> {
@@ -1778,10 +1928,6 @@ export class InstallationRestarts {
     this.helpers = helpers;
     this.monitors = monitors;
   }
-}
-
-function requiresExactMaintenanceApproval(job: RestartJob): boolean {
-  return Boolean(job.supervisorPlanSha256 || job.factoryRuntimePlanSha256);
 }
 
 function runningRestart(job: RestartJob): RestartJob {

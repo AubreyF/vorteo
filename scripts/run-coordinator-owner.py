@@ -782,7 +782,7 @@ def main():
     if sys.platform != "darwin" or len(sys.argv) not in (7, 8):
         raise ValueError("Native bootstrap ownership required")
     lock_path, node, entrypoint, setup, role, generation = sys.argv[1:7]
-    if role not in ("executor", "watchdog") or str(uuid.UUID(generation)) != generation:
+    if role not in ("executor", "watchdog", "boot-watchdog") or str(uuid.UUID(generation)) != generation:
         raise ValueError("Invalid bootstrap ownership")
     automatic = len(sys.argv) == 8 and sys.argv[7] == "automatic-recovery"
     if len(sys.argv) == 8 and (not automatic or role != "watchdog"):

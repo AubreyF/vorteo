@@ -40,13 +40,12 @@ if (base.protocol !== "https:" && !(base.protocol === "http:" && local))
 if (values["require-owner-approval"]) {
   if (
     config.kind !== "host-agent" ||
-    positionals[0] !== "request-restart" ||
-    values["supervisor-plan"] ||
+    !["request-restart", "request-coordinator"].includes(positionals[0]) ||
     values["factory-runtime-plan"] ||
-    !["host", "container-daemon"].includes(values.target)
+    (positionals[0] === "request-restart" && !["host", "container-daemon"].includes(values.target))
   )
     throw new Error(
-      "--require-owner-approval requires a trusted Host plain restart or source update",
+      "--require-owner-approval requires a trusted Host restart, source update, supervisor or coordinator request",
     );
   const response = await fetch(new URL("/api/installation/capabilities", base), {
     headers: { Authorization: `Bearer ${config.token}` },
@@ -149,6 +148,53 @@ switch (positionals[0]) {
     if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
     resource = `/api/installation/helper-requests/${positionals[1]}`;
     break;
+  case "request-coordinator": {
+    if (!values["request-file"])
+      throw new Error(
+        "Use --request-file with the exact coordinator preparation and retained request ID",
+      );
+    if (
+      values.target ||
+      values.update ||
+      values["supervisor-plan"] ||
+      values["factory-runtime-plan"]
+    )
+      throw new Error("Coordinator maintenance requires a separate preparation request");
+    const preparation = JSON.parse(readFileSync(values["request-file"], "utf8"));
+    if (!/^[a-f0-9-]{36}$/.test(preparation.id ?? ""))
+      throw new Error("The coordinator preparation must contain a retained request ID");
+    const capabilityResponse = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!capabilityResponse.ok)
+      throw new Error("Coordinator capability is unavailable. No preparation submitted.");
+    const capability = (await capabilityResponse.json()).coordinatorMaintenance;
+    if (!capability?.available)
+      throw new Error(
+        "Coordinator preparation is unavailable. Inspect retained requests; no preparation submitted.",
+      );
+    if (
+      capability.ownerApprovalRequired === false &&
+      !capability.automaticAvailable &&
+      !values["require-owner-approval"]
+    )
+      throw new Error(
+        "Automatic coordinator preparation is unavailable. Update the Host or request explicit owner review; no preparation submitted.",
+      );
+    resource = "/api/installation/coordinator-requests";
+    body = {
+      preparation,
+      ...(values["require-owner-approval"] ? { requireOwnerApproval: true } : {}),
+    };
+    process.stderr.write(`Coordinator request: ${preparation.id}\n`);
+    break;
+  }
+  case "coordinator-status":
+    if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
+    resource = `/api/installation/coordinator-requests/${positionals[1]}`;
+    break;
   case "request-restart":
     if (!values["reason-file"])
       throw new Error("Use --reason-file with the disruption and restart reason");
@@ -186,7 +232,7 @@ switch (positionals[0]) {
     break;
   default:
     throw new Error(
-      "Commands: capabilities, request-restart, restart-status, contribution-status, request-helper, helper-status, container-agents (Host only)",
+      "Commands: capabilities, request-restart, restart-status, contribution-status, request-coordinator, coordinator-status, request-helper, helper-status, container-agents (Host only)",
     );
 }
 let upload;
@@ -295,7 +341,7 @@ const response = await fetch(requestUrl, {
   },
   body: requestBody,
   redirect: "error",
-  signal: AbortSignal.timeout(60_000),
+  signal: AbortSignal.timeout(positionals[0] === "request-coordinator" ? 16 * 60_000 : 60_000),
 });
 if (!response.ok) {
   const failure = await response.json().catch(() => null);
@@ -316,6 +362,15 @@ if (
   const approval = new URL("/settings/general", new URL(publicOrigin).origin);
   approval.searchParams.set("installation", "1");
   approval.searchParams.set("restart", result.batch?.id ?? result.id);
+  result.approvalUrl = approval.href;
+}
+if (["request-coordinator", "coordinator-status"].includes(positionals[0])) {
+  const approval = new URL(
+    "/settings/general",
+    new URL(config.publicOrigin ?? config.origin).origin,
+  );
+  approval.searchParams.set("installation", "1");
+  approval.searchParams.set("bootstrap", result.id);
   result.approvalUrl = approval.href;
 }
 process.stdout.write(JSON.stringify(result, null, 2) + "\n");

@@ -1,3 +1,4 @@
+import { verifyCoordinatorSubmission } from "./daemon-automation.js";
 import { createHash } from "node:crypto";
 import { lstatSync, constants, realpathSync, readdirSync } from "node:fs";
 import { open } from "node:fs/promises";
@@ -1173,6 +1174,11 @@ export function deferBootstrapReview(
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    get automatic() {
+      return pending || failure || service?.available === false || service?.unavailableReason
+        ? undefined
+        : service?.automatic;
+    },
     get preclaimRecovery() {
       return pending || failure ? undefined : service?.preclaimRecovery;
     },
@@ -1297,6 +1303,11 @@ export function refreshBootstrapReviewAfterClaimedRecovery(
         ? "Checking coordinator maintenance after recovery."
         : current.unavailableReason;
     },
+    get automatic() {
+      return pending || current.available === false || current.unavailableReason
+        ? undefined
+        : current.automatic;
+    },
     get preclaimRecovery() {
       return initial.preclaimRecovery;
     },
@@ -1415,6 +1426,54 @@ export async function createManagedBootstrapReview(
     await verifyBootstrapReleaseArtifacts(candidate, await verifySetup());
     await verifyRenewalPlan(setup, request.plan);
   };
+  const dispatch = async (request: CoordinatorBootstrapRequest, automatic: boolean) => {
+    await verifyCandidate(request);
+    const source = await readBootstrapPreparedFile(setup.ownerLauncher, await verifySetup());
+    if (automatic)
+      request = requests.reserveAutomaticDispatch({
+        id: request.id,
+        revision: request.revision,
+        planSha256: request.planSha256,
+      });
+    const current = requests.list().find((item) => item.id === request.id);
+    if (!current || current.revision !== request.revision || current.execution)
+      throw new BootstrapRequestConflict("Bootstrap decision changed before launch");
+    const executionSetup = setup.renewal
+      ? persistRenewalSetup(request.plan.state.directory, setup, request)
+      : setupFile;
+    const child = spawn(
+      "/usr/bin/python3",
+      [
+        "-I",
+        "-B",
+        "-c",
+        source.toString("utf8"),
+        path.join(request.plan.state.directory, "coordinator-bootstrap-execution.lock"),
+        setup.node.path,
+        setup.entrypoint.path,
+        executionSetup,
+        "executor",
+        request.id,
+      ],
+      { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { PATH: "/usr/bin:/bin" } },
+    );
+    child.on("error", () => {});
+    try {
+      await waitForBootstrapWatchdog(child, "executor");
+    } catch {
+      // An observation failure is not permission to signal or relaunch a child.
+      throw new BootstrapRequestConflict(
+        "Bootstrap dispatch is unconfirmed. Refresh its recorded status before recovery.",
+      );
+    } finally {
+      child.stdout?.destroy();
+      child.unref();
+    }
+    const dispatched = requests.list().find((item) => item.id === request.id);
+    if (!dispatched?.execution)
+      throw new BootstrapRequestConflict("Bootstrap dispatch receipt is unavailable");
+    return dispatched;
+  };
   return {
     list: () => requests.list(),
     prepare: async (input) => {
@@ -1431,46 +1490,42 @@ export async function createManagedBootstrapReview(
       }
       const request = await requests.decide(input, password);
       if (request.status !== "approved") return request;
-      await verifyCandidate(request);
-      const source = await readBootstrapPreparedFile(setup.ownerLauncher, await verifySetup());
-      const current = requests.list().find((item) => item.id === request.id);
-      if (!current || current.revision !== request.revision || current.execution)
-        throw new BootstrapRequestConflict("Bootstrap decision changed before launch");
-      const executionSetup = setup.renewal
-        ? persistRenewalSetup(request.plan.state.directory, setup, request)
-        : setupFile;
-      const child = spawn(
-        "/usr/bin/python3",
-        [
-          "-I",
-          "-B",
-          "-c",
-          source.toString("utf8"),
-          path.join(request.plan.state.directory, "coordinator-bootstrap-execution.lock"),
-          setup.node.path,
-          setup.entrypoint.path,
-          executionSetup,
-          "executor",
-          request.id,
-        ],
-        { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { PATH: "/usr/bin:/bin" } },
-      );
-      child.on("error", () => {});
-      try {
-        await waitForBootstrapWatchdog(child, "executor");
-      } catch {
-        // An observation failure is not permission to signal or relaunch a child.
-        throw new BootstrapRequestConflict(
-          "Bootstrap dispatch is unconfirmed. Refresh its recorded status before recovery.",
+      return dispatch(request, false);
+    },
+    automatic: {
+      prepare: async (input, proof) => {
+        const prepared = CoordinatorBootstrapPreparationSchema.parse(input);
+        const config = InstallationConfigSchema.parse(
+          readPrivateBootstrapConfiguration(
+            setup.renewal?.configuration.path ?? admission.configurationFile,
+            uid,
+          ),
         );
-      } finally {
-        child.stdout?.destroy();
-        child.unref();
-      }
-      const dispatched = requests.list().find((item) => item.id === request.id);
-      if (!dispatched?.execution)
-        throw new BootstrapRequestConflict("Bootstrap dispatch receipt is unavailable");
-      return dispatched;
+        const authority = verifyCoordinatorSubmission(config, prepared, proof);
+        await verifyCandidate(prepared);
+        return requests.prepareAutomatic(prepared, authority);
+      },
+      reconcile: async (id) => {
+        requests.revokeAutomatic();
+        const request = requests.list().find((item) => item.id === id);
+        if (!request?.automaticSubmission)
+          throw new BootstrapRequestConflict("Authenticated coordinator submission required");
+        if (request.status === "canceled" || request.execution || request.automaticDispatch)
+          return request;
+        requests.requireAutomaticReconciliation(request);
+        if (request.status === "pending") {
+          await verifyCandidate(request);
+          return requests.approveAutomatic({
+            id: request.id,
+            revision: request.revision,
+            planSha256: request.planSha256,
+          });
+        }
+        if (!request.automaticApproval)
+          throw new BootstrapRequestConflict("Manual approval cannot authorize automatic dispatch");
+        if (Date.now() < Date.parse(request.automaticApproval.dispatchAfter)) return request;
+        return dispatch(request, true);
+      },
     },
   };
 }

@@ -1,3 +1,7 @@
+import {
+  CoordinatorBootstrapRequestSchema,
+  CoordinatorBootstrapPlanSchema,
+} from "@getpaseo/protocol/coordinator-bootstrap";
 import { validateWSOutboundMessage } from "@getpaseo/protocol/validation/ws-outbound";
 import {
   handlePreclaimRecoveryReview,
@@ -1844,6 +1848,110 @@ test("managed recovery transport preserves explicit review, authentication and c
   expect(canceled.payload.requests![0]!.status).toBe("canceled");
   expect(f.legacy.read()).toEqual([f.request.plan.original]);
   expect(JSON.stringify([prepared, hidden, refused, approved, canceled])).not.toContain(password);
+});
+
+test("preclaim recovery hides retained startup plans from older readers and refuses hidden approval", async () => {
+  const f = reviewFixture();
+  const original = f.request.plan.original;
+  const file = original.plan.candidate.configuration;
+  const bootRecovery = {
+    requestId: original.id,
+    service: `gui/501/local.vorteo.fixture.installation-recovery-${original.id}`,
+    launcher: file,
+    installedLauncher: "/protected/retained-startup.plist",
+    setup: file,
+    ownerLauncher: file,
+    node: file,
+    entrypoint: file,
+  };
+  const stored = {
+    ...f.request,
+    status: "pending" as const,
+    plan: {
+      ...f.request.plan,
+      original: { ...original, plan: { ...original.plan, bootRecovery } },
+      canceled: { ...f.request.plan.canceled, plan: { ...original.plan, bootRecovery } },
+    },
+  };
+  const service = {
+    available: true,
+    list: () => [stored],
+    prepare: (value: Parameters<typeof f.service.prepare>[0]) => f.service.prepare(value),
+    decide: (...args: Parameters<typeof f.service.decide>) => f.service.decide(...args),
+  };
+  const message = {
+    type: "installation.bootstrap_recovery.list_requests.request" as const,
+    requestId: "list",
+  };
+  const legacy = await handlePreclaimRecoveryReview(message, service);
+  expect(legacy.payload.error).toBeNull();
+  expect(legacy.payload.requests?.[0]?.plan.original.plan).not.toHaveProperty("bootRecovery");
+  expect(legacy.payload.requests?.[0]?.plan.canceled.plan).not.toHaveProperty("bootRecovery");
+  const oldRequestSchema = CoordinatorBootstrapRequestSchema.extend({
+    plan: CoordinatorBootstrapPlanSchema.omit({ bootRecovery: true }),
+  });
+  expect(oldRequestSchema.safeParse(stored.plan.original).success).toBe(false);
+  expect(oldRequestSchema.safeParse(legacy.payload.requests?.[0]?.plan.original).success).toBe(
+    true,
+  );
+  expect(oldRequestSchema.safeParse(legacy.payload.requests?.[0]?.plan.canceled).success).toBe(
+    true,
+  );
+  const modern = await handlePreclaimRecoveryReview(
+    { ...message, recoveryBootPlan: true },
+    service,
+  );
+  expect(modern.payload.requests?.[0]?.plan.original.plan.bootRecovery).toEqual(bootRecovery);
+  const decision = await handlePreclaimRecoveryReview(
+    {
+      type: "installation.bootstrap_recovery.decide.request",
+      requestId: "approve",
+      preclaimRecovery: true,
+      ownerPassword: "fixture-password",
+      input: {
+        id: stored.id,
+        revision: stored.revision,
+        planSha256: stored.planSha256,
+        decision: "approve",
+      },
+    },
+    service,
+  );
+  expect(decision.payload.error).toContain("retained startup recovery");
+  expect(stored.status).toBe("pending");
+  expect(stored.plan.original.plan.bootRecovery).toEqual(bootRecovery);
+});
+
+test("preclaim recovery responses omit private reconciliation state in nested requests", async () => {
+  const f = reviewFixture();
+  const check = {
+    phase: "approval" as const,
+    attempt: 1,
+    startedAt: "2026-10-15T00:00:00Z",
+    retryAfter: "2026-10-15T00:16:00Z",
+    outcome: "running" as const,
+  };
+  const stored = {
+    ...f.request,
+    plan: {
+      ...f.request.plan,
+      original: { ...f.request.plan.original, automaticCheck: check },
+      canceled: { ...f.request.plan.canceled, automaticCheck: check },
+    },
+  };
+  const response = await handlePreclaimRecoveryReview(
+    { type: "installation.bootstrap_recovery.list_requests.request", requestId: "list" },
+    {
+      available: true,
+      list: () => [stored],
+      prepare: (value) => f.service.prepare(value),
+      decide: (value, proof, ack) => f.service.decide(value, proof, ack),
+    },
+  );
+  expect(response.payload.error).toBeNull();
+  expect(response.payload.requests?.[0]?.plan.original).not.toHaveProperty("automaticCheck");
+  expect(response.payload.requests?.[0]?.plan.canceled).not.toHaveProperty("automaticCheck");
+  expect(stored.plan.original.automaticCheck).toEqual(check);
 });
 
 test.each(["missing", "unavailable", "private-error"])(

@@ -1,6 +1,5 @@
 import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
 import { SettingsExpansion } from "@/components/settings/settings-expansion";
-import { Switch } from "@/components/ui/switch";
 import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
 import {
   monitorActionDisabledReason,
@@ -16,9 +15,16 @@ import {
   type HelperReviewAction,
 } from "./helper-review";
 import { ActionFooter } from "@/components/ui/action-footer";
-import { useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps } from "react";
-import { Text, View } from "react-native";
-import { ChevronDown, ChevronUp } from "lucide-react-native";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+} from "react";
+import { Pressable, Text, View } from "react-native";
+import { CheckSquare, Square, Info, ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
 import { Field, FormTextInput } from "@/components/ui/form-field";
@@ -56,7 +62,11 @@ import {
   restartRepairGuidance,
   restartActionDisabledReason,
 } from "./panel-model";
-import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
+import type {
+  MaintenanceService,
+  ProfileSharingStatus,
+  RestartJob,
+} from "@getpaseo/protocol/execution-installation";
 
 const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
 const collapsedDisclosure = { leftIcon: ChevronDown, accessibilityState: { expanded: false } };
@@ -377,6 +387,84 @@ function InstallationPanel({
   );
 }
 
+const permissionRowStyle = {
+  flexDirection: "row",
+  alignItems: "center",
+  flex: 1,
+  gap: 8,
+  minHeight: 44,
+} as const;
+const permissionInfoStyle = {
+  minHeight: 44,
+  minWidth: 44,
+  alignItems: "center",
+  justifyContent: "center",
+} as const;
+function MaintenancePermission({
+  service,
+  label,
+  explanation,
+  model,
+  checked,
+  disabled,
+  readiness,
+}: {
+  service: MaintenanceService;
+  label: string;
+  explanation: string;
+  model: InstallationPanelModel;
+  checked: boolean;
+  disabled: boolean;
+  readiness: string;
+}) {
+  const change = useCallback(
+    () => void model.changeDaemonAutomation(!checked, service),
+    [model, checked, service],
+  );
+  const accessibilityState = useMemo(() => ({ checked, disabled }), [checked, disabled]);
+  const Icon = checked ? CheckSquare : Square;
+  return (
+    <View>
+      <View style={styles.requestHeader}>
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityLabel={`Automatically authorize ${label} maintenance`}
+          accessibilityState={accessibilityState}
+          aria-checked={checked}
+          disabled={disabled}
+          testID={`maintenance-permission-${service}`}
+          style={permissionRowStyle}
+          onPress={change}
+        >
+          <Icon size={20} color={styles.text.color} />
+          <Text style={styles.text}>{label} maintenance</Text>
+        </Pressable>
+        <Tooltip enabledOnMobile>
+          <TooltipTrigger
+            accessibilityRole="button"
+            accessibilityLabel={`About ${label} maintenance`}
+            style={permissionInfoStyle}
+            testID={`maintenance-info-${service}`}
+          >
+            <Info size={18} color={styles.text.color} />
+          </TooltipTrigger>
+          <TooltipContent maxWidth={360} testID={`maintenance-info-${service}-tooltip`}>
+            <Text style={styles.text}>
+              {explanation} Only authenticated Host threads qualify. Requests remain visible and
+              cancellable before dispatch. Turning this off revokes undispatched automatic grants;
+              it does not stop an operation already running. Uncertain identity or exhausted
+              recovery stops automation for the affected operation.
+            </Text>
+          </TooltipContent>
+        </Tooltip>
+      </View>
+      <Text style={styles.text} testID={`maintenance-readiness-${service}`}>
+        {readiness}
+      </Text>
+    </View>
+  );
+}
+
 function DaemonAutomationControl({
   model,
   state,
@@ -384,34 +472,94 @@ function DaemonAutomationControl({
   model: InstallationPanelModel;
   state: ReturnType<InstallationPanelModel["getState"]>;
 }) {
-  const change = useCallback(
-    (enabled: boolean) => {
-      void model.changeDaemonAutomation(enabled);
-    },
-    [model],
-  );
-  if (!state.daemonAutomation) return null;
+  if (!state.daemonAutomation)
+    return (
+      <View
+        style={[styles.cardBody, settingsStyles.rowBorder]}
+        testID="daemon-automation-unavailable"
+      >
+        <Text style={settingsStyles.rowTitle}>Automatic daemon updates and restarts</Text>
+        <Text style={styles.text}>
+          The selected coordinator does not support this preference. Update the coordinator through
+          Installation controls. Existing approval rules remain in effect.
+        </Text>
+      </View>
+    );
   return (
     <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="daemon-automation-preference">
-      <View style={styles.requestHeader}>
-        <Text style={settingsStyles.rowTitle}>Automatic daemon updates and restarts</Text>
-        <Switch
-          value={state.daemonAutomation.enabled}
-          disabled={state.busy}
-          onValueChange={change}
-          accessibilityLabel="Automatic daemon updates and restarts"
-          testID="daemon-automation-switch"
-        />
-      </View>
+      <Text style={settingsStyles.rowTitle}>Automatic maintenance authorization</Text>
       <Text style={styles.text}>
-        Applies to Host and Dev. Current turns finish before restart. Turning off cancels automatic
-        requests that have not dispatched.
+        Only authenticated Host threads can receive automatic authorization. Dev requests and
+        mixed-origin source batches require your approval.
       </Text>
-      {state.daemonAutomation.legacyHostOnly ? (
+      {(
+        [
+          [
+            "host",
+            "Host",
+            "Allows routine Host updates, build scripts and daemon restarts without another approval. Current turns finish before replacement; Host connections may briefly disconnect.",
+          ],
+          [
+            "container-daemon",
+            "Dev",
+            "Allows routine Dev updates, build scripts and daemon restarts without another approval. Current turns finish before replacement; Dev connections may briefly disconnect.",
+          ],
+          [
+            "coordinator",
+            "Coordinator",
+            "Allows maintenance of the service that manages installation requests. Maintenance controls may briefly be unavailable. Execution requires verified independent recovery and an exact compatible rollback plan.",
+          ],
+          [
+            "supervisor",
+            "Supervisor",
+            "Allows maintenance of the process manager that keeps daemons running. Its managed daemon may also be interrupted. Execution requires supported admission, process preservation and verified recovery.",
+          ],
+        ] as const
+      ).map(([service, label, explanation]) => {
+        return (
+          <MaintenancePermission
+            key={service}
+            service={service}
+            label={label}
+            explanation={explanation}
+            model={model}
+            checked={Boolean(state.daemonAutomation?.services?.[service])}
+            disabled={state.busy || !state.daemonAutomation?.services}
+            readiness={
+              state.maintenanceStatus?.services?.find((item) => item.service === service)?.reason ??
+              "Checking maintenance readiness..."
+            }
+          />
+        );
+      })}
+      {!state.daemonAutomation.services ? (
         <Text style={styles.text}>
-          The existing trusted Host policy remains active until you save this preference.
+          Update the coordinator to configure separate service permissions. Existing permissions
+          remain in effect.
         </Text>
       ) : null}
+      {state.daemonAutomation.legacyHostOnly ? (
+        <Text style={styles.text}>
+          Existing Host-only daemon permissions are retained. Coordinator and supervisor permissions
+          require their own opt-in.
+        </Text>
+      ) : null}
+      {state.maintenanceStatus ? (
+        <View testID="maintenance-readiness">
+          {state.maintenanceStatus.paths.map((item) => (
+            <Text key={`${item.requester}-${item.target}-${item.operation}`} style={styles.text}>
+              {item.requester === "host-agent" ? "Host" : "Dev"} request for{" "}
+              {item.target === "host" ? "Host" : "Dev"}{" "}
+              {item.operation === "restart" ? "restart" : "update"}:{" "}
+              {item.readiness === "blocked" ? "blocked" : item.authorization}. {item.reason}
+            </Text>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.text}>
+          Detailed maintenance readiness requires a coordinator update.
+        </Text>
+      )}
       {state.daemonAutomationError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {state.daemonAutomationError}

@@ -223,11 +223,11 @@ test("idempotent preparation binds exact plan and reason", async () => {
 });
 
 test("real HTTP routes isolate Host request access from owner-only exact buttons", async () => {
-  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const { mkdtemp, rm, writeFile, realpath } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const path = await import("node:path");
   const { createHash } = await import("node:crypto");
-  const dir = await mkdtemp(path.join(tmpdir(), "monitor-http-"));
+  const dir = await realpath(await mkdtemp(path.join(tmpdir(), "monitor-http-")));
   await writeFile(path.join(dir, "index.html"), "<html><head></head></html>");
   const digest = (s: string) => createHash("sha256").update(s).digest("hex");
   const installationId = randomUUID();

@@ -45,6 +45,21 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
       planSha256: DigestSchema,
     })
     .optional(),
+  // Exact reviewed startup configuration for the independent recovery service.
+  bootRecovery: z
+    .strictObject({
+      requestId: z.string().uuid(),
+      service: z
+        .string()
+        .regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation-recovery-[a-f0-9-]{36}$/),
+      launcher: FileIdentitySchema,
+      installedLauncher: AbsolutePathSchema,
+      setup: FileIdentitySchema,
+      ownerLauncher: FileIdentitySchema,
+      node: FileIdentitySchema,
+      entrypoint: FileIdentitySchema,
+    })
+    .optional(),
   automaticRecovery: z.enum(["restore-previous", "restore-compatible"]).optional(),
   compatibleRecovery: ReleaseIdentitySchema.optional(),
   // COMPAT(sourceUpdateTooling): optional exact candidate/scripts selection; retain until 2027-04-11.
@@ -77,6 +92,20 @@ export const CoordinatorBootstrapStageSchema = z.enum([
 ]);
 export type CoordinatorBootstrapStage = z.infer<typeof CoordinatorBootstrapStageSchema>;
 
+export const CoordinatorAutomaticAuthoritySchema = z.strictObject({
+  credentialBinding: DigestSchema,
+  policyActivatedAt: z.string().datetime(),
+});
+export type CoordinatorAutomaticAuthority = z.infer<typeof CoordinatorAutomaticAuthoritySchema>;
+
+export const CoordinatorAutomaticCheckSchema = z.strictObject({
+  phase: z.enum(["approval", "dispatch"]),
+  attempt: z.number().int().min(1).max(3),
+  startedAt: z.string().datetime(),
+  retryAfter: z.string().datetime(),
+  outcome: z.enum(["running", "unconfirmed"]),
+});
+
 export const CoordinatorBootstrapRequestSchema = z.strictObject({
   id: z.string().uuid(),
   revision: z.string().uuid(),
@@ -87,6 +116,21 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
   planSha256: DigestSchema,
   status: z.enum(["pending", "approved", "canceled"]),
   decisionAt: z.string().datetime().optional(),
+  automaticCheck: CoordinatorAutomaticCheckSchema.optional(),
+  // Protected provenance is minted by scoped Host admission, never by plan input.
+  automaticSubmission: CoordinatorAutomaticAuthoritySchema.extend({
+    submittedAt: z.string().datetime(),
+  }).optional(),
+  automaticApproval: CoordinatorAutomaticAuthoritySchema.extend({
+    requestRevision: z.string().uuid(),
+    dispatchAfter: z.string().datetime(),
+  }).optional(),
+  automaticDispatch: z
+    .strictObject({
+      approvedRevision: z.string().uuid(),
+      requestedAt: z.string().datetime(),
+    })
+    .optional(),
   execution: z
     .strictObject({
       generation: z.string().uuid(),
@@ -97,6 +141,31 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
     .optional(),
 });
 export type CoordinatorBootstrapRequest = z.infer<typeof CoordinatorBootstrapRequestSchema>;
+
+export const CoordinatorAutomaticStatusSchema = z.strictObject({
+  authorization: z.enum(["host-policy", "owner"]),
+  state: z.enum([
+    "waiting",
+    "checking",
+    "retry-wait",
+    "review-required",
+    "cancellation-window",
+    "dispatch-ready",
+    "launch-unconfirmed",
+    "owner-approved",
+    "execution",
+    "canceled",
+  ]),
+  observedAt: z.string().datetime(),
+  attempt: z.number().int().min(1).max(3).optional(),
+  nextCheckAt: z.string().datetime().optional(),
+  dispatchAfter: z.string().datetime().optional(),
+});
+export type CoordinatorAutomaticStatus = z.infer<typeof CoordinatorAutomaticStatusSchema>;
+export const CoordinatorBootstrapRequestViewSchema = CoordinatorBootstrapRequestSchema.extend({
+  automaticStatus: CoordinatorAutomaticStatusSchema.optional(),
+});
+export type CoordinatorBootstrapRequestView = z.infer<typeof CoordinatorBootstrapRequestViewSchema>;
 
 export const CoordinatorBootstrapPreparationSchema = z.strictObject({
   id: z.string().uuid(),
@@ -119,7 +188,14 @@ export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   compatibleRecovery: z.literal(true).optional(),
   previewMonitor: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
+  bootRecovery: z.literal(true).optional(),
+  automaticStatus: z.literal(true).optional(),
 });
+export const CoordinatorSubmissionProofSchema = z.strictObject({
+  policyActivatedAt: z.string().datetime(),
+  signature: DigestSchema,
+});
+export type CoordinatorSubmissionProof = z.infer<typeof CoordinatorSubmissionProofSchema>;
 export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.prepare.request"),
   requestId: z.string(),
@@ -127,7 +203,10 @@ export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   compatibleRecovery: z.literal(true).optional(),
   previewMonitor: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
+  bootRecovery: z.literal(true).optional(),
+  automaticStatus: z.literal(true).optional(),
   input: CoordinatorBootstrapPreparationSchema,
+  submissionProof: CoordinatorSubmissionProofSchema.optional(),
 });
 export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.decide.request"),
@@ -136,13 +215,22 @@ export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   compatibleRecovery: z.literal(true).optional(),
   previewMonitor: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
+  bootRecovery: z.literal(true).optional(),
+  automaticStatus: z.literal(true).optional(),
   input: CoordinatorBootstrapDecisionSchema,
   // Transient owner proof. Never persist it with the request or decision.
   ownerPassword: z.string().min(1).max(1024),
 });
+// Only observes or advances an already authenticated protected submission.
+// No caller-supplied authority or owner proof is accepted here.
+export const CoordinatorBootstrapReconcileAutomaticRequestSchema =
+  CoordinatorBootstrapListRequestSchema.extend({
+    type: z.literal("installation.bootstrap.reconcile_automatic.request"),
+    id: z.string().uuid(),
+  });
 const BootstrapResultSchema = z.strictObject({
   requestId: z.string(),
-  requests: z.array(CoordinatorBootstrapRequestSchema).nullable(),
+  requests: z.array(CoordinatorBootstrapRequestViewSchema).nullable(),
   error: z.string().nullable(),
 });
 export const CoordinatorBootstrapListResponseSchema = z.strictObject({
@@ -158,15 +246,22 @@ export const CoordinatorBootstrapDecideResponseSchema = z.strictObject({
   payload: BootstrapResultSchema,
 });
 
+export const CoordinatorBootstrapReconcileAutomaticResponseSchema = z.strictObject({
+  type: z.literal("installation.bootstrap.reconcile_automatic.response"),
+  payload: BootstrapResultSchema,
+});
+
 export type CoordinatorBootstrapInbound = z.infer<
   | typeof CoordinatorBootstrapListRequestSchema
   | typeof CoordinatorBootstrapPrepareRequestSchema
   | typeof CoordinatorBootstrapDecideRequestSchema
+  | typeof CoordinatorBootstrapReconcileAutomaticRequestSchema
 >;
 export type CoordinatorBootstrapOutbound = z.infer<
   | typeof CoordinatorBootstrapListResponseSchema
   | typeof CoordinatorBootstrapPrepareResponseSchema
   | typeof CoordinatorBootstrapDecideResponseSchema
+  | typeof CoordinatorBootstrapReconcileAutomaticResponseSchema
 >;
 
 // Separate recovery records leave historical bootstrap requests readable by old hosts.
@@ -319,18 +414,21 @@ export type BootstrapPreclaimObservation = z.infer<typeof BootstrapPreclaimObser
 export const BootstrapPreclaimRecoveryListRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap_recovery.list_requests.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   ownerCanceledOriginal: z.literal(true).optional(),
   reconcile: BootstrapPreclaimObservationSchema.optional(),
 });
 export const BootstrapPreclaimRecoveryPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap_recovery.prepare.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   ownerCanceledOriginal: z.literal(true).optional(),
   input: BootstrapPreclaimRecoveryPreparationSchema,
 });
 export const BootstrapPreclaimRecoveryDecideRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap_recovery.decide.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   ownerCanceledOriginal: z.literal(true).optional(),
   input: CoordinatorBootstrapDecisionSchema,
   preclaimRecovery: z.literal(true).optional(),
@@ -407,16 +505,19 @@ export const BootstrapClaimedRepairProvisionRequestSchema = z.strictObject({
 export const BootstrapClaimedRecoveryListRequestSchema = z.strictObject({
   type: z.literal("installation.claimed_recovery.list_requests.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   reconcile: BootstrapClaimedObservationSchema.optional(),
 });
 export const BootstrapClaimedRecoveryPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.claimed_recovery.prepare.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   input: BootstrapClaimedRecoveryPreparationSchema,
 });
 export const BootstrapClaimedRecoveryDecideRequestSchema = z.strictObject({
   type: z.literal("installation.claimed_recovery.decide.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   input: CoordinatorBootstrapDecisionSchema,
   claimedRecovery: z.literal(true).optional(),
   ownerPassword: z.string().min(1).max(1024),

@@ -7,11 +7,23 @@ interface VitestProject {
 }
 
 export default async function setup(project: VitestProject): Promise<() => Promise<void>> {
-  const server = createServer();
+  const server = createServer((request, response) => {
+    if (request.url !== "/cors-restricted-health")
+      response.setHeader("Access-Control-Allow-Origin", "*");
+    response.setHeader("Content-Type", "application/json");
+    if (request.url === "/api/installation/health")
+      response.end(JSON.stringify({ installationId: "00000000-0000-4000-8000-000000000001" }));
+    else if (request.url === "/api/health" || request.url === "/cors-restricted-health")
+      response.end(JSON.stringify({ status: "ok" }));
+    else {
+      response.statusCode = 404;
+      response.end(JSON.stringify({ error: "Unknown fixture route" }));
+    }
+  });
   const clients = new Set<Duplex>();
 
   server.on("upgrade", (request, socket, head) => {
-    if (request.url !== "/relay") {
+    if (request.url !== "/relay" && request.url !== "/ws") {
       socket.destroy();
       return;
     }

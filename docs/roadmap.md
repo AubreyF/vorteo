@@ -12,6 +12,8 @@ Priorities below describe unfinished work. The [customizations inventory](vorteo
 
 ## Next capabilities
 
+- **Recover installation services before login.** Future work, explicitly outside the current unattended-maintenance delivery. Evaluate system-level service registration, credential access and container startup before a user session exists. Current recovery acceptance begins after login with the container runtime available.
+
 - **Broker service credentials.** Define environment identities and bounded grants, then implement a credential broker and first GitHub connector. Resolve operation scope, identity, key custody, revocation and recovery before implementation. See [environment grants](plans/execution-environments/environment-grants.md) and the [broker plan](plans/execution-environments/credential-broker.md).
 - **Extend goals across providers.** Build on the existing Codex-native controls with durable objectives, checkpoints, completion evidence and reviewed handoffs across models. Coordinate budgets, queue delivery, quota admission and restart recovery through one continuation owner. Qualify Codex Secondary and Pi first, then other providers; do not run competing native and daemon continuation loops.
 - **Expand execution isolation.** Evaluate task containers, Apple Container, folder grants and environment authorization as separately scoped projects. Keep credential, browser-trust and installation-recovery research in the [execution environment plans](plans/execution-environments/README.md#independent-future-projects).

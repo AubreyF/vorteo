@@ -10,8 +10,33 @@ import {
   claimedRecoveryPlanDigest,
   validateClaimedRecoveryPlan,
 } from "./coordinator-bootstrap-claimed-recovery.js";
-import { terminalBootstrapRelease } from "./coordinator-bootstrap-renewal.js";
+import {
+  orderBootstrapHistory,
+  type BootstrapRenewal,
+  terminalBootstrapRelease,
+} from "./coordinator-bootstrap-renewal.js";
+import type { ClaimedRunnerSetupSchema } from "./coordinator-bootstrap-claimed-launch.js";
+import type { ProcessObservationSchema } from "./coordinator-bootstrap-process.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { verifyRetainedProcessExited } from "./coordinator-bootstrap-service.js";
+
+type BootstrapRecord = z.infer<typeof CoordinatorBootstrapRequestSchema>;
+type TerminalAuthority = NonNullable<ReturnType<typeof terminalBootstrapRelease>>;
+interface ExitEvidence {
+  request: z.infer<typeof BootstrapClaimedRecoveryRequestSchema>;
+  executor: z.infer<typeof ProcessObservationSchema>;
+}
+interface VerifiedPrefix {
+  terminal: TerminalAuthority;
+  predecessor: BootstrapRecord;
+  exits: ExitEvidence[];
+}
+type ClaimedSuccessorEvidence = ReturnType<typeof inspectClaimedSuccessorHistory> &
+  ExitEvidence & {
+    witness: NonNullable<BootstrapRenewal["claimedRecovery"]>;
+    setup: z.infer<typeof ClaimedRunnerSetupSchema>;
+    priorExits: ExitEvidence[];
+  };
 
 /** Structural history check only. Callers must independently verify protected
  * receipt provenance, native absence and selection under exclusion before
@@ -20,9 +45,13 @@ export function inspectClaimedSuccessorHistory(input: {
   records: unknown;
   recovery: unknown;
   fence: unknown;
+  // Structural input only; production obtains this from protected recursive verification.
+  prior?: VerifiedPrefix;
   identity: { installationId: string; stateDirectory: string; service: string };
 }) {
-  const records = z.array(CoordinatorBootstrapRequestSchema).parse(input.records);
+  const records = orderBootstrapHistory(
+    z.array(CoordinatorBootstrapRequestSchema).parse(input.records),
+  );
   const { recovery, fence } = readSuccessfulHistory(input.recovery, input.fence);
 
   const index = records.findIndex((record) => record.id === fence.fenced.id);
@@ -37,15 +66,12 @@ export function inspectClaimedSuccessorHistory(input: {
   // Keep the real terminal release authority. Do not synthesize an executor or
   // transfer receipt for the fenced request, or change its durable status.
   const remaining = records.filter((_, position) => position !== index);
-  const terminal = terminalBootstrapRelease(remaining, input.identity);
+  const terminal = input.prior?.terminal ?? terminalBootstrapRelease(remaining, input.identity);
   if (!terminal || !sameRetainedRelease(terminal.release, fence.original.plan.previous))
     throw new BootstrapRequestConflict("Claimed recovery does not preserve the terminal release");
   const plan = fence.original.plan;
-  if (
-    plan.recoveredFrom &&
-    !isDeepStrictEqual(assertRecoveredBootstrapBase(plan, remaining), terminal.request)
-  )
-    throw new BootstrapRequestConflict("Claimed recovery does not extend the terminal chain");
+  const prior = input.prior ?? { terminal, predecessor: terminal.request, exits: [] };
+  assertRecoveryPredecessor(plan, remaining, prior);
   if (
     plan.installationId !== input.identity.installationId ||
     plan.service !== input.identity.service ||
@@ -68,6 +94,28 @@ export function inspectClaimedSuccessorHistory(input: {
       planSha256: recovery.planSha256,
     },
   };
+}
+
+function assertRecoveryPredecessor(
+  plan: BootstrapRecord["plan"],
+  records: BootstrapRecord[],
+  prior: VerifiedPrefix,
+) {
+  if (
+    !isDeepStrictEqual(
+      prior.predecessor,
+      records.findLast((record) => record.execution),
+    ) ||
+    !records.some((record) => isDeepStrictEqual(record, prior.terminal.request))
+  )
+    throw new BootstrapRequestConflict("Claimed recovery predecessor authority changed");
+  if (!plan.recoveredFrom) {
+    if (prior.predecessor.id !== prior.terminal.request.id)
+      throw new BootstrapRequestConflict("Claimed recovery immediate predecessor is missing");
+    return;
+  }
+  if (!isDeepStrictEqual(assertRecoveredBootstrapBase(plan, records), prior.predecessor))
+    throw new BootstrapRequestConflict("Claimed recovery does not extend the terminal chain");
 }
 
 function readSuccessfulHistory(recoveryValue: unknown, fenceValue: unknown) {
@@ -95,7 +143,7 @@ export async function readClaimedSuccessorEvidence(input: {
   records: unknown;
   identity: { installationId: string; stateDirectory: string; service: string };
   roots: readonly string[];
-}) {
+}): Promise<ClaimedSuccessorEvidence | undefined> {
   const { FileClaimedRecoveryReviewJournal } =
     await import("./coordinator-bootstrap-claimed-journal.js");
   const { readClaimedDispatchObservation, ClaimedRunnerSetupSchema } =
@@ -105,7 +153,9 @@ export async function readClaimedSuccessorEvidence(input: {
   const { AuditedProcessObservationSchema } = await import("./coordinator-bootstrap-process.js");
   const { createHash } = await import("node:crypto");
   const { default: path } = await import("node:path");
-  const records = z.array(CoordinatorBootstrapRequestSchema).parse(input.records);
+  const records = orderBootstrapHistory(
+    z.array(CoordinatorBootstrapRequestSchema).parse(input.records),
+  );
   const original = records.findLast((record) => record.execution);
   if (original?.execution?.stage !== "recovery_required") return undefined;
   const state = input.identity.stateDirectory;
@@ -123,14 +173,27 @@ export async function readClaimedSuccessorEvidence(input: {
   const pinDocument = async (file: string) => {
     await assertBootstrapPathsProtected([file], input.roots);
     const bytes = await readProtectedDocument(file);
-    const pin = { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+    const pin = {
+      path: file,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
     await readBootstrapPreparedFile(pin, input.roots);
     return { pin, value: JSON.parse(bytes.toString("utf8")) };
   };
   const fence = await pinDocument(
     path.join(state, `coordinator-claim-fence-${recovery.execution!.generation}.json`),
   );
-  const history = inspectClaimedSuccessorHistory({ ...input, recovery, fence: fence.value });
+  const prior = await readVerifiedRecoveryPrefix({
+    ...input,
+    records: records.filter((record) => record.id !== original.id),
+  });
+  const history = inspectClaimedSuccessorHistory({
+    ...input,
+    records,
+    recovery,
+    fence: fence.value,
+    prior,
+  });
   await readBootstrapPreparedFile(recovery.plan.original.plan.previous.configuration, input.roots);
   await readBootstrapPreparedFile(recovery.plan.original.plan.previous.launcher, input.roots);
   journal.inspectEffects(recovery);
@@ -204,7 +267,59 @@ export async function readClaimedSuccessorEvidence(input: {
     setup: birthValue.setup,
   };
   journal.inspectEffects(recovery);
-  return { ...history, witness, request: recovery, executor: birthValue.executor.identity, setup };
+  return {
+    ...history,
+    witness,
+    request: recovery,
+    executor: birthValue.executor.identity,
+    setup,
+    priorExits: prior.exits,
+  };
+}
+
+/** Resolve every failed predecessor without manufacturing a successful release.
+ * Claimed failures require their complete protected recovery proof. Other failures
+ * must still be absent from both promotion locations under the journal lock. */
+async function readVerifiedRecoveryPrefix(input: {
+  records: BootstrapRecord[];
+  identity: { installationId: string; stateDirectory: string; service: string };
+  roots: readonly string[];
+}): Promise<VerifiedPrefix> {
+  const records = orderBootstrapHistory(input.records);
+  const predecessor = records.findLast((record) => record.execution);
+  if (!predecessor) throw new BootstrapRequestConflict("Recovery chain has no terminal authority");
+  if (predecessor.execution?.stage !== "recovery_required") {
+    const terminal = terminalBootstrapRelease(records, input.identity);
+    if (!terminal) throw new BootstrapRequestConflict("Recovery chain has no terminal authority");
+    return { terminal, predecessor, exits: [] };
+  }
+  const { FileClaimedRecoveryReviewJournal } =
+    await import("./coordinator-bootstrap-claimed-journal.js");
+  const reviews = new FileClaimedRecoveryReviewJournal(input.identity.stateDirectory).readReviews();
+  if (reviews.some((review) => review.plan.original.id === predecessor.id)) {
+    const claimed = await readClaimedSuccessorEvidence({ ...input, records });
+    if (!claimed) throw new BootstrapRequestConflict("Recovery chain proof is unavailable");
+    return {
+      terminal: claimed.terminal,
+      predecessor,
+      exits: [...claimed.priorExits, claimed],
+    };
+  }
+  const journal = new FileBootstrapRequestJournal(input.identity.stateDirectory);
+  journal.verifyUnpromotedFailure(predecessor);
+  const prior = await readVerifiedRecoveryPrefix({
+    ...input,
+    records: records.filter((record) => record.id !== predecessor.id),
+  });
+  assertRecoveryPredecessor(
+    predecessor.plan,
+    records.filter((record) => record.id !== predecessor.id),
+    prior,
+  );
+  if (!sameRetainedRelease(prior.terminal.release, predecessor.plan.previous))
+    throw new BootstrapRequestConflict("Unpromoted recovery chain ancestry changed");
+  journal.verifyUnpromotedFailure(predecessor);
+  return { ...prior, predecessor };
 }
 
 /** Require independent absence or stable native proof of a later PID lifetime.
@@ -213,7 +328,7 @@ export async function verifyClaimedSuccessorExit(
   evidence: Pick<
     NonNullable<Awaited<ReturnType<typeof readClaimedSuccessorEvidence>>>,
     "request" | "executor"
-  >,
+  > & { priorExits?: ExitEvidence[] },
   reader: {
     verifyProcessExited?(pid: number): Promise<void>;
     inspectProcess?(pid: number): Promise<unknown>;
@@ -221,6 +336,10 @@ export async function verifyClaimedSuccessorExit(
 ) {
   if (!reader.verifyProcessExited)
     throw new BootstrapRequestConflict("Claimed successor native exit proof is unavailable");
+  for (const prior of evidence.priorExits ?? []) {
+    await verifyRetainedProcessExited(reader, prior.request.plan.executor.identity);
+    await verifyRetainedProcessExited(reader, prior.executor);
+  }
   await verifyRetainedProcessExited(reader, evidence.request.plan.executor.identity);
   await verifyRetainedProcessExited(reader, evidence.executor);
 }

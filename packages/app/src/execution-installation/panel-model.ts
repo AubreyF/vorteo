@@ -1,9 +1,12 @@
 import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
+import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
 import { monitorActionDisabledReason, type MonitorAction } from "./preview-monitor-review";
 import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
 import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
 import type {
   DaemonAutomationPreference,
+  MaintenanceService,
+  InstallationMaintenanceStatus,
   ProfileSharingStatus,
   RestartJob,
   RestartDecision,
@@ -12,8 +15,12 @@ import type {
 import { OwnerAccessExpired, type InstallationClient } from "./client";
 
 interface InstallationPanelState {
+  enrollmentStatus: InstallationEnrollmentStatus | null;
+  enrollmentError: string | null;
+  enrollmentRefreshing: boolean;
   devRepair: { available: boolean; preparingIds: string[] };
   daemonAutomation: DaemonAutomationPreference | null;
+  maintenanceStatus: InstallationMaintenanceStatus | null;
   daemonAutomationError: string | null;
   restartSummary: RestartSummary | null;
   initialized: boolean;
@@ -36,8 +43,12 @@ interface InstallationPanelState {
 
 export class InstallationPanelModel {
   private state: InstallationPanelState = {
+    enrollmentStatus: null,
+    enrollmentError: null,
+    enrollmentRefreshing: false,
     devRepair: { available: false, preparingIds: [] },
     daemonAutomation: null,
+    maintenanceStatus: null,
     daemonAutomationError: null,
     restartSummary: null,
     initialized: false,
@@ -85,6 +96,8 @@ export class InstallationPanelModel {
           | "listMonitors"
           | "decideMonitor"
           | "daemonAutomation"
+          | "maintenanceStatus"
+          | "enrollmentStatus"
           | "changeDaemonAutomation"
           | "devRepairStatus"
           | "prepareDevRepair"
@@ -137,6 +150,10 @@ export class InstallationPanelModel {
         pendingJobs: [],
         profileSharing: null,
         daemonAutomation: null,
+        maintenanceStatus: null,
+        enrollmentStatus: null,
+        enrollmentError: null,
+        enrollmentRefreshing: false,
         daemonAutomationError: null,
       });
     } catch (error) {
@@ -186,19 +203,29 @@ export class InstallationPanelModel {
     const generation = this.accessGeneration;
     const automationGeneration = this.automationGeneration;
     try {
-      const restartSummary = await this.client.restartSummary();
+      const [restartSummary] = await Promise.all([
+        this.client.restartSummary(),
+        this.refreshEnrollmentStatus(),
+      ]);
       this.publish({ restartSummary });
       if (!this.state.unlocked) return;
-      const [jobs, profileSharing, helperJobs, monitorJobs, daemonAutomation, devRepair] =
-        await Promise.all([
-          this.client.listRestarts(),
-          this.client.profileSharingStatus(),
-          this.client.listHelpers(),
-          this.client.listMonitors?.() ?? Promise.resolve([]),
-          this.client.daemonAutomation?.() ?? Promise.resolve(null),
-          this.client.devRepairStatus?.() ??
-            Promise.resolve({ available: false, preparingIds: [] }),
-        ]);
+      const [
+        jobs,
+        profileSharing,
+        helperJobs,
+        monitorJobs,
+        daemonAutomation,
+        devRepair,
+        maintenanceStatus,
+      ] = await Promise.all([
+        this.client.listRestarts(),
+        this.client.profileSharingStatus(),
+        this.client.listHelpers(),
+        this.client.listMonitors?.() ?? Promise.resolve([]),
+        this.client.daemonAutomation?.() ?? Promise.resolve(null),
+        this.client.devRepairStatus?.() ?? Promise.resolve({ available: false, preparingIds: [] }),
+        this.client.maintenanceStatus?.() ?? Promise.resolve(null),
+      ]);
       if (generation !== this.accessGeneration) return;
       const targets = new Set(
         jobs
@@ -225,7 +252,9 @@ export class InstallationPanelModel {
         monitorJobs,
         pendingJobs: pending,
         profileSharing,
-        ...(automationGeneration === this.automationGeneration ? { daemonAutomation } : {}),
+        ...(automationGeneration === this.automationGeneration
+          ? { daemonAutomation, maintenanceStatus }
+          : {}),
         lastUpdatedAt: new Date().toISOString(),
         error: null,
       });
@@ -236,7 +265,29 @@ export class InstallationPanelModel {
     }
   }
 
-  async changeDaemonAutomation(enabled: boolean): Promise<void> {
+  refreshEnrollmentStatus = async (): Promise<void> => {
+    if (!this.state.unlocked || !this.client.enrollmentStatus || this.state.enrollmentRefreshing)
+      return;
+    const generation = this.accessGeneration;
+    this.publish({ enrollmentRefreshing: true });
+    try {
+      const status = await this.client.enrollmentStatus();
+      if (generation !== this.accessGeneration) return;
+      this.publish({ enrollmentStatus: status, enrollmentError: null });
+    } catch (error) {
+      if (generation !== this.accessGeneration) return;
+      if (error instanceof OwnerAccessExpired) this.fail(error);
+      else
+        this.publish({
+          enrollmentError:
+            "Unable to refresh installation status. Last known observations are retained.",
+        });
+    } finally {
+      if (generation === this.accessGeneration) this.publish({ enrollmentRefreshing: false });
+    }
+  };
+
+  async changeDaemonAutomation(enabled: boolean, service?: MaintenanceService): Promise<void> {
     const preference = this.state.daemonAutomation;
     if (
       this.state.busy ||
@@ -254,10 +305,14 @@ export class InstallationPanelModel {
       notice: "Saving automatic maintenance preference...",
     });
     try {
-      const saved = await this.client.changeDaemonAutomation(preference, enabled);
+      const saved = await this.client.changeDaemonAutomation(preference, enabled, service);
       if (generation !== this.accessGeneration) return;
       this.automationGeneration++;
-      this.publish({ daemonAutomation: saved, notice: "Automatic maintenance preference saved." });
+      this.publish({
+        daemonAutomation: saved,
+        maintenanceStatus: null,
+        notice: "Automatic maintenance preference saved.",
+      });
     } catch (error) {
       if (generation !== this.accessGeneration) return;
       this.publish({
@@ -420,7 +475,8 @@ export class InstallationPanelModel {
   }
 
   private fail(error: unknown): void {
-    if (error instanceof OwnerAccessExpired)
+    if (error instanceof OwnerAccessExpired) {
+      this.accessGeneration++;
       this.publish({
         unlocked: false,
         visible: false,
@@ -433,8 +489,13 @@ export class InstallationPanelModel {
         pendingJobs: [],
         profileSharing: null,
         daemonAutomation: null,
+        maintenanceStatus: null,
         daemonAutomationError: null,
+        enrollmentStatus: null,
+        enrollmentError: null,
+        enrollmentRefreshing: false,
       });
+    }
     this.publish({ error: error instanceof Error ? error.message : "Installation request failed" });
   }
   private publish(update: Partial<InstallationPanelState>): void {

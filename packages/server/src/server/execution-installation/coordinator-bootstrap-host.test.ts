@@ -1,4 +1,6 @@
 import { bootstrapReviewFeatures } from "./coordinator-bootstrap-session.js";
+import { coordinatorAutomaticAuthority, DaemonAutomation } from "./daemon-automation.js";
+import { InstallationConfigSchema } from "./config.js";
 import {
   createManagedBootstrapReview,
   createConfiguredBootstrapReview,
@@ -37,6 +39,7 @@ import { promisify } from "node:util";
 import { hashSync } from "bcryptjs";
 import {
   readBootstrapHostBinding,
+  createBootstrapReconciliationLedger,
   bootstrapWritableMountRoots,
   verifyBootstrapConfiguration,
   verifyBootstrapPlan,
@@ -45,6 +48,7 @@ import {
 import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
   createNativeBootstrapServiceReader,
+  inspectBootstrapPythonExecutable,
   readBootstrapLauncher,
   verifyRetainedProcessExited,
 } from "./coordinator-bootstrap-service.js";
@@ -117,7 +121,10 @@ test.runIf(process.platform === "darwin")(
     const closed = once(child, "close");
     await once(child, "spawn");
     const execute = promisify(execFile);
-    const script = path.resolve("../../scripts/inspect-coordinator-process.py");
+    const script = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/inspect-coordinator-process.py",
+    );
     const inspect = () =>
       execute("/usr/bin/python3", [script, String(child.pid)], {
         timeout: 5000,
@@ -220,10 +227,60 @@ test.runIf(process.platform === "darwin")(
 );
 
 test.runIf(process.platform === "darwin")(
+  "startup inspection accepts scoped recovery labels and the native Python executable",
+  async () => {
+    const { root } = fixture();
+    const helperPath = path.join(root, "inspector.py");
+    const bytes = readFileSync(
+      new URL("../../../../../scripts/inspect-coordinator-process.py", import.meta.url),
+    );
+    writeFileSync(helperPath, bytes, { mode: 0o600 });
+    const reader = await createNativeBootstrapServiceReader({
+      helperPath,
+      helperSha256: createHash("sha256").update(bytes).digest("hex"),
+      writableMountRoots: [],
+    });
+    const service = `gui/${process.getuid!()}/local.vorteo.fixture.installation-recovery-${randomUUID()}`;
+    await reader.verifyServiceAbsent(service);
+    await expect(reader.readService(service)).rejects.toMatchObject({ code: 113 });
+    await expect(reader.verifyServiceAbsent(`${service}-other`)).rejects.toThrow();
+    await expect(
+      reader.verifyServiceAbsent(service.replace(`gui/${process.getuid!()}/`, "gui/999999/")),
+    ).rejects.toThrow("another Host account");
+    const executable = await inspectBootstrapPythonExecutable();
+    const probe = path.join(root, "probe.py");
+    writeFileSync(probe, "import time; print('ready',flush=True); time.sleep(30)", { mode: 0o600 });
+    const args = ["-I", "-B", probe];
+    const child = spawn("/usr/bin/python3", args, {
+      stdio: ["ignore", "pipe", "ignore"],
+      env: { PATH: "/usr/bin:/bin" },
+    });
+    const closed = once(child, "close");
+    try {
+      await once(child.stdout!, "data");
+      const observed = await reader.inspectProcess(child.pid!);
+      expect(observed).toMatchObject({
+        pid: child.pid,
+        executable,
+        argumentsSha256: createHash("sha256")
+          .update(JSON.stringify([executable, ...args]))
+          .digest("hex"),
+      });
+    } finally {
+      child.kill();
+      await closed;
+    }
+  },
+);
+
+test.runIf(process.platform === "darwin")(
   "stopped inspection refuses running parents and captures their exact child inventory",
   async () => {
     const execute = promisify(execFile);
-    const script = path.resolve("../../scripts/inspect-coordinator-process.py");
+    const script = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/inspect-coordinator-process.py",
+    );
     // This fixture owns both processes. No installed service receives signals.
     const parent = spawn(
       process.execPath,
@@ -522,6 +579,75 @@ test("bootstrap configuration preserves credentials, service targets and state w
   f.config.host.password = "new-host-password";
   f.save();
   expect(verify).toThrow("no longer matches");
+});
+
+test("coordinator reconciliation revokes protected submissions after credential rotation", async () => {
+  const f = fixture();
+  const binding = () => readBootstrapHostBinding(f.file, "host-id").binding;
+  const preferences = new DaemonAutomation(f.config.stateDir, false);
+  preferences.change({ expectedRevision: null, service: "coordinator", enabled: true });
+  const config = () => InstallationConfigSchema.parse(JSON.parse(readFileSync(f.file, "utf8")));
+  const authority = coordinatorAutomaticAuthority(config());
+  if (!authority) throw new Error("Missing fixture authority");
+  const identity = { path: f.file, sha256: "a".repeat(64) };
+  const release = {
+    directory: f.root,
+    sourceCommit: "a".repeat(40),
+    artifactSha256: "a".repeat(64),
+    node: identity,
+    entrypoint: identity,
+    configuration: identity,
+    launcher: identity,
+  };
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: f.config.public.installationId,
+    service: binding().service,
+    expectedProcess: {
+      pid: 123,
+      bootId: "fixture",
+      startIdentity: "fixture",
+      argumentsSha256: "a".repeat(64),
+    },
+    previous: release,
+    candidate: release,
+    state: {
+      directory: f.config.stateDir,
+      restartJournal: path.join(f.config.stateDir, "restarts.json"),
+      ownerSessions: path.join(f.config.stateDir, "owners.json"),
+    },
+    hostRequestsAfter: null,
+  });
+  const requests = new CoordinatorBootstrapRequests(
+    new FileBootstrapRequestJournal(f.config.stateDir),
+    binding,
+    async () => {},
+    () => Date.parse(authority.policyActivatedAt) + 1,
+    () => coordinatorAutomaticAuthority(config()),
+  );
+  const pending = await requests.prepareAutomatic(
+    { id: randomUUID(), reason: "Reviewed fixture", plan },
+    authority,
+  );
+  const observer = createBootstrapReconciliationLedger(f.file, "host-id");
+  expect(Object.keys(observer).sort()).toEqual([
+    "finishAutomaticReconciliation",
+    "list",
+    "reserveAutomaticReconciliation",
+    "revokeAutomatic",
+  ]);
+  observer.revokeAutomatic();
+  expect(observer.list()).toEqual([pending]);
+  f.config.hostAgentTokenHash = "c".repeat(64);
+  f.save();
+  observer.revokeAutomatic();
+  expect(observer.list()).toMatchObject([{ id: pending.id, status: "canceled" }]);
+  const replacementState = path.join(f.root, "replacement-state");
+  mkdirSync(replacementState, { mode: 0o700 });
+  f.config.stateDir = replacementState;
+  f.save();
+  expect(() => observer.revokeAutomatic()).toThrow("binding changed");
 });
 
 test("bootstrap binding pins Host daemon and service, and observes owner credential changes", () => {
@@ -935,7 +1061,9 @@ test.runIf(process.platform === "darwin")(
     const entry = path.join(root, "owner.mjs");
     const setup = path.join(root, "setup.json");
     const lock = path.join(root, "coordinator-bootstrap-execution.lock");
-    const verifierPath = realpathSync(path.resolve("../../scripts/verify-coordinator-owner.py"));
+    const verifierPath = realpathSync(
+      path.resolve(import.meta.dirname, "../../../../../scripts/verify-coordinator-owner.py"),
+    );
     const verifier = {
       path: verifierPath,
       sha256: createHash("sha256").update(readFileSync(verifierPath)).digest("hex"),
@@ -956,7 +1084,10 @@ test.runIf(process.platform === "darwin")(
     process.stdin.on('end',()=>process.exit(0));`,
       { mode: 0o600 },
     );
-    const helper = path.resolve("../../scripts/run-coordinator-owner.py");
+    const helper = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/run-coordinator-owner.py",
+    );
     const launch = (role = "executor") =>
       spawn(
         "/usr/bin/python3",
@@ -1169,6 +1300,11 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapCompatibleRecovery: false,
       coordinatorBootstrapPreviewMonitor: false,
       coordinatorBootstrapSourceUpdateTooling: false,
+      coordinatorBootstrapBootRecovery: false,
+      coordinatorBootstrapRecoveryBootPlan: false,
+      coordinatorBootstrapAutomaticReconciliation: false,
+      coordinatorBootstrapAutomaticStatus: false,
+      coordinatorBootstrapAuthenticatedSubmission: false,
       coordinatorBootstrapUnavailableReason: unavailable!.unavailableReason,
     });
     expect(unavailable!.unavailableReason).toContain("maintenance is unavailable");
@@ -1220,8 +1356,14 @@ test.runIf(process.platform === "darwin").each(["term", "kill", "stale"])(
   async (mode) => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), "bootstrap-deadline-")));
     roots.push(root);
-    const helper = path.resolve("../../scripts/run-coordinator-owner.py");
-    const inspector = path.resolve("../../scripts/inspect-coordinator-process.py");
+    const helper = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/run-coordinator-owner.py",
+    );
+    const inspector = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/inspect-coordinator-process.py",
+    );
     const probe = `
 import ctypes,importlib.util,os,signal,subprocess,sys
 
@@ -1285,7 +1427,10 @@ test.runIf(process.platform === "darwin")(
       JSON.stringify({ version: 1, requests: [request], promotions: [] }),
       { mode: 0o600 },
     );
-    const script = path.resolve("../../scripts/run-coordinator-owner.py");
+    const script = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/run-coordinator-owner.py",
+    );
     const record = JSON.stringify({ id, generation, planSha256 });
     const read = () =>
       promisify(execFile)("/usr/bin/python3", [
@@ -1462,6 +1607,19 @@ test
     "after-freeze",
     "during-preservation",
     "after-preservation",
+    "reboot-before-preservation",
+    "reboot-running-previous",
+    "reboot-running-busy",
+    "reboot-running-unrelated",
+    "reboot-running-wrong-boot",
+    "reboot-stopped-previous",
+    "reboot-stopped-previous-busy",
+    "reboot-stopped-unrelated",
+    "reboot-stopped-starts",
+    "reboot-after-preservation",
+    "reboot-busy-journal",
+    "reboot-invalid-journal",
+    "reboot-changed-journal",
     "busy-children",
     "busy-journal",
     "busy-during-freeze",
@@ -1531,6 +1689,20 @@ test
       ownerSessions: path.join(f.config.stateDir, "owner-sessions.json"),
     },
   });
+  const rebooted = interruption.startsWith("reboot-");
+  const currentBoot = rebooted ? randomUUID() : expectedProcess.bootId;
+  const requestId = randomUUID();
+  if (rebooted)
+    plan.bootRecovery = {
+      requestId,
+      service: `${serviceName}-recovery-${requestId}`,
+      launcher: recovery.launcher,
+      installedLauncher: path.join(f.root, "startup.plist"),
+      setup: recovery.configuration,
+      ownerLauncher: recovery.entrypoint,
+      node: recovery.node,
+      entrypoint: recovery.entrypoint,
+    };
   const journal = new FileBootstrapRequestJournal(f.config.stateDir);
   const requests = new CoordinatorBootstrapRequests(
     journal,
@@ -1543,7 +1715,7 @@ test
     async () => {},
   );
   const pending = await requests.prepare({
-    id: randomUUID(),
+    id: requestId,
     reason: "fixture recovery",
     plan,
   });
@@ -1571,7 +1743,15 @@ test
     },
     "freeze_pending",
   );
-  if (interruption.endsWith("preservation"))
+  if (
+    [
+      "during-preservation",
+      "after-preservation",
+      "reboot-before-preservation",
+      "reboot-after-preservation",
+      "reboot-changed-journal",
+    ].includes(interruption)
+  )
     record = requests.advanceDispatch(
       {
         id: record.id,
@@ -1581,7 +1761,11 @@ test
       },
       "frozen",
     );
-  if (interruption === "after-preservation")
+  if (
+    ["after-preservation", "reboot-after-preservation", "reboot-changed-journal"].includes(
+      interruption,
+    )
+  )
     await preserveBootstrapState({
       request: record,
       writableMountRoots: [],
@@ -1608,7 +1792,14 @@ test
       syncBuiltinESMExports();
     }
   }
-  if (interruption === "busy-journal")
+  if (
+    [
+      "busy-journal",
+      "reboot-busy-journal",
+      "reboot-stopped-previous-busy",
+      "reboot-running-busy",
+    ].includes(interruption)
+  )
     save(plan.state.restartJournal, [
       {
         id: randomUUID(),
@@ -1622,22 +1813,32 @@ test
         detail: "fixture",
       },
     ]);
-  if (interruption === "invalid-journal") save(plan.state.restartJournal, { invalid: true });
-  const busy = interruption.startsWith("busy-");
+  if (interruption.endsWith("invalid-journal")) save(plan.state.restartJournal, { invalid: true });
+  if (interruption === "reboot-changed-journal") save(plan.state.restartJournal, []);
+  const busy = interruption.includes("busy-");
   let observedBusy = false;
-  let stopped = interruption !== "before-freeze" && interruption !== "busy-during-freeze";
-  let loaded = true;
+  let stopped =
+    !["before-freeze", "busy-during-freeze"].includes(interruption) &&
+    !interruption.startsWith("reboot-running-");
+  const stoppedJob = interruption.startsWith("reboot-stopped-");
+  const runningJob = interruption.startsWith("reboot-running-");
+  let loaded = !rebooted || stoppedJob || runningJob;
+  let noProcess = stoppedJob;
+  let serviceReads = 0;
   let oldExited = false;
   let identity = {
     ...expectedProcess,
+    bootId: currentBoot,
     parentPid: 1,
     uid: process.getuid!(),
     executable: node,
   };
+  identity = { ...identity, ...runningBootIdentity(interruption, expectedProcess.bootId) };
   const effects: string[][] = [];
   const native = createBootstrapNativeLifecycle(
     {
       requests,
+      recoveryBootId: rebooted ? currentBoot : undefined,
       configurationFile: f.file,
       launcherFile,
       writableMountRoots: async () => [],
@@ -1649,9 +1850,19 @@ test
       reader: {
         readService: async () => {
           if (!loaded) throw new Error("absent");
+          serviceReads++;
+          if (interruption === "reboot-stopped-starts" && serviceReads > 1) noProcess = false;
+          if (noProcess) {
+            const entrypoint =
+              interruption === "reboot-stopped-unrelated"
+                ? "/unrelated/entry.js"
+                : previous.entrypoint.path;
+            return `${serviceName} = {\n\tprogram = ${node}\n\targuments = {\n\t\t${node}\n\t\t${entrypoint}\n\t\t${f.file}\n\t}\n}`;
+          }
           return `${serviceName} = {\n\tpid = ${identity.pid}\n}`;
         },
-        inspectProcess: async () => identity,
+        inspectProcess: async (pid) =>
+          pid === process.pid ? { ...identity, pid, bootId: currentBoot } : identity,
         inspectAuditedProcess: async () => {
           throw new Error("Unexpected audit");
         },
@@ -1671,7 +1882,8 @@ test
           if (stopped) throw new Error("stopped");
           return { ...identity, stopped: false as const };
         },
-        verifyProcessExited: async () => {
+        verifyProcessExited: async (pid) => {
+          if (runningJob) expect(pid).toBe(333);
           if (!oldExited) throw new Error("old still running");
         },
         verifyServiceAbsent: async () => {
@@ -1705,6 +1917,7 @@ test
           oldExited = true;
         } else if (args[0] === "bootstrap") {
           loaded = true;
+          noProcess = false;
           stopped = false;
           identity = {
             ...identity,
@@ -1724,24 +1937,46 @@ test
     {
       withOwnership: async (operation) => operation(),
       verifyExecutorExited: async () => {},
+      verifyBootChanged: rebooted ? async () => {} : undefined,
       resumePrevious: async () => {
         throw new Error("Must not resume previous");
       },
       restorePrevious: native.restorePrevious,
     },
   );
-  if (busy || interruption === "invalid-journal") {
+  if (
+    [
+      "busy-children",
+      "busy-journal",
+      "busy-during-freeze",
+      "busy-ownership-lost",
+      "invalid-journal",
+      "reboot-busy-journal",
+      "reboot-invalid-journal",
+      "reboot-changed-journal",
+      "reboot-stopped-previous-busy",
+      "reboot-stopped-unrelated",
+      "reboot-stopped-starts",
+      "reboot-running-busy",
+      "reboot-running-unrelated",
+      "reboot-running-wrong-boot",
+    ].includes(interruption)
+  ) {
     expect(result.execution!.stage).toBe("recovery_required");
     expect(result.execution!.rollbackAttemptedAt).toBeTruthy();
-    const resumed =
-      interruption === "busy-children" ||
-      interruption === "busy-journal" ||
-      interruption === "busy-during-freeze";
+    const resumed = [
+      "busy-children",
+      "busy-journal",
+      "busy-during-freeze",
+      "reboot-running-busy",
+    ].includes(interruption);
     expect(effects).toEqual([
-      ...(interruption === "busy-during-freeze" ? [["kill", "SIGSTOP", serviceName]] : []),
+      ...(["busy-during-freeze", "reboot-running-busy"].includes(interruption)
+        ? [["kill", "SIGSTOP", serviceName]]
+        : []),
       ...(resumed ? [["kill", "SIGCONT", serviceName]] : []),
     ]);
-    expect(stopped).toBe(!resumed);
+    expect(stopped).toBe(!resumed && !runningJob);
     expect(readFileSync(launcherFile)).toEqual(readFileSync(previous.launcher.path));
     const retry = vi.fn();
     await recoverAbandonedBootstrap(
@@ -1761,13 +1996,36 @@ test
     return;
   }
   expect(result.execution!.stage).toBe("rolled_back");
-  expect(effects).toEqual([
-    ...(interruption === "before-freeze" ? [["kill", "SIGSTOP", serviceName]] : []),
-    ["bootout", serviceName],
-    ["bootstrap", `gui/${process.getuid!()}`, launcherFile],
-  ]);
+  expect(effects).toEqual(expectedEarlyRecoveryCommands(interruption, serviceName, launcherFile));
   expect(readFileSync(launcherFile)).toEqual(readFileSync(recovery.launcher.path));
   await verifyBootstrapState({ request: result, writableMountRoots: [] });
+  if (interruption === "after-preservation") {
+    const effectCount = effects.length;
+    const interruptedReceipt = {
+      ...result,
+      revision: randomUUID(),
+      execution: { ...result.execution!, stage: "recovery_required" as const },
+    };
+    journal.replace([result], [interruptedReceipt]);
+    const reconciled = await recoverAbandonedBootstrap(
+      requests,
+      { id: result.id, generation: result.execution!.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyRollback: native.verifyRollback,
+        restorePrevious: async () => {
+          throw new Error("Cannot repeat completed native rollback");
+        },
+        resumePrevious: async () => {
+          throw new Error("Cannot signal completed recovery");
+        },
+      },
+    );
+    expect(reconciled.execution!.stage).toBe("rolled_back");
+    expect(effects).toHaveLength(effectCount);
+    expect(reconciled.execution!.rollbackAttemptedAt).toBe(result.execution!.rollbackAttemptedAt);
+  }
 });
 
 test("Host readiness does not await maintenance validation and all operations remain fenced", async () => {
@@ -1791,7 +2049,9 @@ test("Host readiness does not await maintenance validation and all operations re
   await expect(service.decide({} as never, "fixture")).rejects.toThrow("Checking");
   expect(initialize).toHaveBeenCalledTimes(1);
   const list = vi.fn(() => []);
-  validation.resolve({ list, prepare: vi.fn(), decide: vi.fn() });
+  const automatic = { reconcile: vi.fn() };
+  expect(service.automatic).toBeUndefined();
+  validation.resolve({ list, prepare: vi.fn(), decide: vi.fn(), automatic });
   await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
   expect(removed).not.toHaveBeenCalled();
   expect(bootstrapReviewFeatures(service)).toMatchObject({
@@ -1800,6 +2060,8 @@ test("Host readiness does not await maintenance validation and all operations re
   });
   expect(bootstrapReviewFeatures(service).coordinatorBootstrapUnavailableReason).toBeUndefined();
   expect(service.list()).toEqual([]);
+  expect(service.automatic).toBe(automatic);
+  expect(automatic.reconcile).not.toHaveBeenCalled();
   expect(list).toHaveBeenCalledTimes(1);
 });
 
@@ -2308,3 +2570,64 @@ test("retained process exit accepts only independent absence or stable later nat
   ).rejects.toThrow("inspection denied");
   await expect(verifyRetainedProcessExited({}, original)).rejects.toThrow("native exit proof");
 });
+
+function expectedEarlyRecoveryCommands(interruption: string, service: string, launcher: string) {
+  const commands: string[][] = [];
+  if (interruption === "before-freeze" || interruption === "reboot-running-previous")
+    commands.push(["kill", "SIGSTOP", service]);
+  if (
+    !interruption.startsWith("reboot-") ||
+    interruption.startsWith("reboot-stopped-") ||
+    interruption === "reboot-running-previous"
+  )
+    commands.push(["bootout", service]);
+  commands.push(["bootstrap", `gui/${process.getuid!()}`, launcher]);
+  return commands;
+}
+
+test("coordinator authority reads only its own permission and current installation credentials", () => {
+  const f = fixture();
+  const config = InstallationConfigSchema.parse(f.config);
+  const preference = new DaemonAutomation(config.stateDir, true, "2026-10-15T00:00:00Z");
+  expect(coordinatorAutomaticAuthority(config)).toBeNull();
+  const daemon = preference.change({ expectedRevision: null, service: "host", enabled: true });
+  expect(coordinatorAutomaticAuthority(config)).toBeNull();
+  const enabled = preference.change({
+    expectedRevision: daemon.revision,
+    service: "coordinator",
+    enabled: true,
+  });
+  const authority = coordinatorAutomaticAuthority(config)!;
+  expect(authority.policyActivatedAt).toBe(enabled.services!.coordinator);
+  expect(authority.credentialBinding).toMatch(/^[a-f0-9]{64}$/);
+  for (const key of [
+    "hostAgentTokenHash",
+    "containerAgentTokenHash",
+    "ownerPasswordHash",
+  ] as const) {
+    const changed = coordinatorAutomaticAuthority({ ...config, [key]: "changed-credential" });
+    expect(changed?.credentialBinding).not.toBe(authority.credentialBinding);
+  }
+  const unrelated = preference.change({
+    expectedRevision: enabled.revision,
+    service: "host",
+    enabled: false,
+  });
+  expect(coordinatorAutomaticAuthority(config)).toEqual(authority);
+  preference.change({
+    expectedRevision: unrelated.revision,
+    service: "coordinator",
+    enabled: false,
+  });
+  expect(coordinatorAutomaticAuthority(config)).toBeNull();
+});
+
+function runningBootIdentity(interruption: string, oldBoot: string) {
+  if (!interruption.startsWith("reboot-running-")) return {};
+  return {
+    pid: 333,
+    startIdentity: "1234:8888",
+    ...(interruption === "reboot-running-unrelated" ? { argumentsSha256: "f".repeat(64) } : {}),
+    ...(interruption === "reboot-running-wrong-boot" ? { bootId: oldBoot } : {}),
+  };
+}

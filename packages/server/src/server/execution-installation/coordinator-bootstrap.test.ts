@@ -1,3 +1,14 @@
+import {
+  DaemonAutomation,
+  coordinatorAutomaticAuthority,
+  signCoordinatorSubmission,
+  verifyCoordinatorSubmission,
+} from "./daemon-automation.js";
+import {
+  submitInstallationCoordinator,
+  reconcileInstallationCoordinator,
+  inspectInstallationCoordinator,
+} from "./daemon.js";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -16,6 +27,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { hashSync } from "bcryptjs";
 import {
   CoordinatorBootstrapRequestSchema,
+  CoordinatorBootstrapReconcileAutomaticRequestSchema,
   CoordinatorBootstrapListResponseSchema,
   CoordinatorBootstrapPlanSchema,
   type CoordinatorBootstrapPlan,
@@ -25,9 +37,12 @@ import { handleBootstrapReview } from "./coordinator-bootstrap-session.js";
 import {
   CoordinatorBootstrapRequests,
   coordinatorPlanDigest,
+  coordinatorAutomaticStatus,
+  openBootstrapRequests,
   assertFrozenCoordinatorIdle,
 } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import { InstallationRestarts } from "./restarts.js";
 import {
   loadedCoordinatorPid,
   isStoppedBootstrapCandidate,
@@ -52,6 +67,13 @@ import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 
 import { preserveBootstrapState, verifyBootstrapState } from "./coordinator-bootstrap-state.js";
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
+
+import {
+  bootstrapRecoveryLauncher,
+  registerBootstrapRecovery,
+  removeCompletedBootstrapRecovery,
+  verifyBootstrapRecoveryLauncher,
+} from "./coordinator-bootstrap-boot-recovery.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -419,6 +441,7 @@ test("successful recovery closes only its exact failed ancestry for later mainte
     },
   };
   f.journal.replace([failed, pending], [failed, completed]);
+  expect(openBootstrapRequests([failed, completed])).toEqual([]);
   const next = await f.prepare();
   expect(f.service().list()).toEqual([failed, completed, next]);
   const active = {
@@ -446,6 +469,7 @@ test("successful recovery closes only its exact failed ancestry for later mainte
   expect(coordinatorStartupReleased([failed, completed, finished], identity, active)).toBe(true);
   // A separate unresolved failure must still fence the next review.
   const unrelated = { ...failed, id: randomUUID() };
+  expect(openBootstrapRequests([failed, completed, unrelated])).toEqual([unrelated]);
   f.journal.replace([failed, completed, next], [failed, completed, unrelated]);
   await expect(f.prepare()).rejects.toThrow("already open");
   expect(() =>
@@ -457,6 +481,7 @@ test("successful recovery closes only its exact failed ancestry for later mainte
     plan: { ...completed.plan, recoveredFrom: { ...plan.recoveredFrom, generation: randomUUID() } },
   };
   stale.planSha256 = coordinatorPlanDigest(stale.plan);
+  expect(() => openBootstrapRequests([failed, stale])).toThrow("history changed");
   f.journal.replace([failed, completed, unrelated], [failed, stale]);
   await expect(f.prepare()).rejects.toThrow("history changed");
 });
@@ -915,11 +940,15 @@ test.each([
       ownerPassword,
     );
     const calls: string[] = [];
+    const failures: string[] = [];
     const call = async (name: string) => {
       calls.push(name);
       if (name === failure) throw new Error("private diagnostic must not escape");
     };
     const operations: BootstrapExecutorOperations = {
+      recordFailure: async (_request, diagnostic) => {
+        failures.push(JSON.stringify(diagnostic));
+      },
       withOwnership: async (_request, operation) => operation(),
       armWatchdog: () => call("armWatchdog"),
       freeze: () => call("freeze"),
@@ -958,6 +987,9 @@ test.each([
       ...(canResume ? ["resumePrevious"] : []),
     ]);
     expect(JSON.stringify(f.service().list())).not.toContain("private diagnostic");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).not.toContain("private diagnostic");
+    expect(failures[0]).toContain("operation");
   },
 );
 
@@ -1862,6 +1894,160 @@ async function claimFenceFixture() {
   };
 }
 
+test("bootstrap promotion refuses an installation already executing in the shared state", async () => {
+  const f = await claimFenceFixture();
+  const lifecycleFile = path.join(f.root, "restart-jobs.json");
+  let attempts = 0;
+  const queue = new InstallationRestarts(
+    {
+      read: () => [],
+      write: (jobs) => writeFileSync(lifecycleFile, JSON.stringify(jobs), { mode: 0o600 }),
+    },
+    {
+      restart: async () => {
+        attempts++;
+        expect(() => f.journal.promote(f.claimed)).toThrow("unresolved installation work");
+        expect(f.journal.readPromoted()).toEqual([]);
+        return "Disposable replacement verified";
+      },
+    },
+  );
+  const pending = queue.request({ target: "host", reason: "Disposable restart" }, "owner");
+  queue.decide(pending.id, pending.revision, "approve");
+  await queue.drain();
+  expect(attempts).toBe(1);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  expect(f.journal.read()).toEqual([f.claimed]);
+});
+
+test("shared admission refuses new daemon work during a coordinator claim", async () => {
+  const f = await claimFenceFixture();
+  const effects: string[] = [];
+  const queue = new InstallationRestarts(
+    {
+      read: () => f.journal.readLifecycle(),
+      write: (jobs) => f.journal.writeLifecycle(jobs),
+      admissionAvailable: () => f.journal.lifecycleAdmissionAvailable(),
+    },
+    {
+      restart: async () => {
+        effects.push("restart");
+        return "ready";
+      },
+    },
+  );
+  const pending = queue.request({ target: "host", reason: "Disposable restart" }, "owner");
+  expect(() => queue.decide(pending.id, pending.revision, "approve")).toThrow(
+    "Coordinator recovery must finish",
+  );
+  await queue.drain();
+  expect(effects).toEqual([]);
+  expect(queue.list()[0]?.status).toBe("pending");
+  queue.decide(pending.id, pending.revision, "reject");
+  expect(queue.list()[0]?.status).toBe("rejected");
+  expect(f.journal.read()).toEqual([f.claimed]);
+});
+
+test("shared admission refuses a coordinator claim until queued daemon work is canceled", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const queue = new InstallationRestarts(
+    {
+      read: () => f.journal.readLifecycle(),
+      write: (jobs) => f.journal.writeLifecycle(jobs),
+      admissionAvailable: () => f.journal.lifecycleAdmissionAvailable(),
+    },
+    { restart: async () => "ready", restartWhenIdle: async () => "ready" },
+  );
+  const pending = queue.request({ target: "host", reason: "Disposable restart" }, "owner");
+  const queued = queue.decide(pending.id, pending.revision, "approve-when-idle");
+  const bootstrap = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(bootstrap), decision: "approve" }, ownerPassword);
+  await expect(f.service().claimDispatch(pickDecision(approved))).rejects.toThrow(
+    "unresolved installation work",
+  );
+  expect(f.journal.read()).toEqual([approved]);
+  queue.decide(queued.id, queued.revision, "cancel");
+  await expect(f.service().claimDispatch(pickDecision(approved))).resolves.toMatchObject({
+    execution: { stage: "claimed" },
+  });
+});
+
+test("shared admission preserves cancellation and hold release for legacy overlapping work", async () => {
+  const f = await claimFenceFixture();
+  const effects: string[] = [];
+  const executor = {
+    restart: async () => {
+      effects.push("restart");
+      return "ready";
+    },
+    restartWhenIdle: async () => {
+      effects.push("restart");
+      return "ready";
+    },
+    holdCurrentTurns: async () => {
+      effects.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      effects.push("release");
+    },
+    inspect: async () => ({
+      target: "host" as const,
+      agents: [],
+      pendingStarts: 0,
+      checkedAt: new Date().toISOString(),
+      idleRestartSupported: true,
+      gracefulRestartSupported: true,
+    }),
+  };
+  const legacy = new InstallationRestarts(
+    {
+      read: () => [],
+      write: (jobs) =>
+        writeFileSync(path.join(f.root, "restart-jobs.json"), JSON.stringify(jobs), {
+          mode: 0o600,
+        }),
+    },
+    executor,
+  );
+  const pending = legacy.request({ target: "host", reason: "Retained queued restart" }, "owner");
+  const approved = legacy.decide(pending.id, pending.revision, "finish-current-turns");
+  const queue = new InstallationRestarts(
+    {
+      read: () => f.journal.readLifecycle(),
+      write: (jobs) => f.journal.writeLifecycle(jobs),
+      admissionAvailable: () => f.journal.lifecycleAdmissionAvailable(),
+    },
+    executor,
+  );
+  await queue.drain();
+  expect(effects).toEqual([]);
+  queue.decide(approved.id, approved.revision, "cancel");
+  await queue.drain();
+  await queue.drain();
+  expect(effects).toEqual(["release"]);
+  expect(queue.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.journal.read()).toEqual([f.claimed]);
+});
+
+test("lifecycle admission uses the bootstrap writer lock and reopens without losing requests", async () => {
+  const f = fixture();
+  f.journal.writeLifecycle([]);
+  const file = path.join(f.root, "restart-jobs.json");
+  const before = readFileSync(file);
+  f.journal.withRecoveryTransaction(() => {
+    expect(() => f.journal.writeLifecycle([])).toThrow("storage is busy");
+  });
+  expect(readFileSync(file)).toEqual(before);
+  const reopened = new FileBootstrapRequestJournal(f.root);
+  expect(reopened.lifecycleAdmissionAvailable()).toBe(true);
+  reopened.writeLifecycle([]);
+  expect(reopened.readLifecycle()).toEqual([]);
+});
+
 test.each(["complete", "intent"])(
   "reviewed claim fencing refuses %s promotion without altering history",
   async (stage) => {
@@ -2556,5 +2742,1303 @@ test.each(["missing", "revision", "generation", "plan"])(
     expect(() => loadCoordinatorStartupFence(f.identity)).toThrow(
       "Recovered coordinator history changed",
     );
+  },
+);
+
+test.each([true, false])(
+  "watchdog reconciles completed replacement without replaying effects: %s",
+  async (healthy) => {
+    const f = fixture();
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const record = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "verifying" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [record]);
+    const calls: string[] = [];
+    const result = await recoverAbandonedBootstrap(
+      f.service(),
+      {
+        id: record.id,
+        generation: record.execution.generation,
+      },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {
+          calls.push("exit");
+        },
+        verifyReplacement: async (request) => {
+          expect(request.execution?.stage).toBe("verifying");
+          calls.push("verify");
+          if (!healthy) throw new Error("candidate unavailable");
+        },
+        resumePrevious: async () => {
+          throw new Error("must not resume");
+        },
+        restorePrevious: async () => {
+          throw new Error("rollback not authorized");
+        },
+      },
+    );
+    expect(result.execution?.stage).toBe(healthy ? "succeeded" : "recovery_required");
+    expect(calls).toEqual(["exit", "verify"]);
+  },
+);
+
+test("watchdog cannot release a replacement after dispatch ownership changes during observation", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "verifying" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [record]);
+  await expect(
+    recoverAbandonedBootstrap(
+      f.service(),
+      {
+        id: record.id,
+        generation: record.execution.generation,
+      },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyReplacement: async () => {
+          f.journal.replace([record], [{ ...record, revision: randomUUID() }]);
+        },
+        resumePrevious: async () => {
+          throw new Error("must not resume");
+        },
+        restorePrevious: async () => {
+          throw new Error("must not restore");
+        },
+      },
+    ),
+  ).rejects.toThrow("ownership changed");
+  expect(f.service().list()[0].execution?.stage).toBe("verifying");
+});
+
+function bootRecoveryFixture() {
+  const f = fixture();
+  const id = randomUUID();
+  const service = `${f.plan.service}-recovery-${id}`;
+  const identity = (file: string) => ({ path: file, sha256: "a".repeat(64) });
+  f.plan.bootRecovery = {
+    requestId: id,
+    service,
+    launcher: identity("/protected/prepared-recovery.plist"),
+    installedLauncher: `/Users/fixture/Library/LaunchAgents/${service.split("/")[2]}.plist`,
+    setup: identity("/protected/recovery-setup.json"),
+    ownerLauncher: identity(`${f.plan.candidate.directory}/scripts/run-coordinator-owner.py`),
+    node: f.plan.candidate.node,
+    entrypoint: identity(
+      `${f.plan.candidate.directory}/packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js`,
+    ),
+  };
+  return { ...f, id };
+}
+
+test("startup recovery binds its request and all startup settings to the reviewed candidate", async () => {
+  const f = bootRecoveryFixture();
+  const launcher = bootstrapRecoveryLauncher(f.plan);
+  const input = { plan: f.plan, hostUid: 501, hostHome: "/Users/fixture", launcher };
+  expect(() => verifyBootstrapRecoveryLauncher(input)).not.toThrow();
+  for (const altered of [
+    { ...launcher, KeepAlive: true },
+    { ...launcher, RunAtLoad: false },
+    { ...launcher, EnvironmentVariables: { NODE_OPTIONS: "--require /other/code" } },
+    { ...launcher, ProgramArguments: [...launcher.ProgramArguments, "automatic-recovery"] },
+    { ...launcher, Label: "unrelated" },
+  ])
+    expect(() => verifyBootstrapRecoveryLauncher({ ...input, launcher: altered })).toThrow(
+      "startup settings",
+    );
+  expect(() => verifyBootstrapRecoveryLauncher({ ...input, hostUid: 502 })).toThrow("Host account");
+  expect(() => verifyBootstrapRecoveryLauncher({ ...input, hostHome: "/Users/other" })).toThrow(
+    "Host account",
+  );
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  expect(pending.plan.bootRecovery?.requestId).toBe(f.id);
+  await expect(f.prepare()).rejects.toThrow("exact maintenance request");
+});
+
+test("startup recovery refuses unrelated executables and startup destinations", () => {
+  const f = bootRecoveryFixture();
+  const original = f.plan.bootRecovery!;
+  for (const change of [
+    { node: { ...original.node, path: "/other/node" } },
+    { entrypoint: { ...original.entrypoint, path: "/other/runner.js" } },
+    { ownerLauncher: { ...original.ownerLauncher, path: "/other/owner.py" } },
+    { installedLauncher: "/Library/LaunchDaemons/unrelated.plist" },
+    { service: `${f.plan.service}-recovery-${randomUUID()}` },
+    { launcher: { ...original.launcher, path: original.installedLauncher } },
+  ]) {
+    const plan = { ...f.plan, bootRecovery: { ...original, ...change } };
+    expect(() =>
+      verifyBootstrapRecoveryLauncher({
+        plan,
+        hostUid: 501,
+        hostHome: "/Users/fixture",
+        launcher: bootstrapRecoveryLauncher(plan),
+      }),
+    ).toThrow();
+  }
+});
+
+test("strict legacy readers can cancel but cannot approve hidden startup recovery", async () => {
+  const f = bootRecoveryFixture();
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const service = f.service();
+  const reply = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "legacy" },
+    service,
+  );
+  const legacyRequest = CoordinatorBootstrapRequestSchema.extend({
+    plan: CoordinatorBootstrapPlanSchema.omit({ bootRecovery: true }),
+  });
+  expect(() => legacyRequest.parse(pending)).toThrow();
+  const projected = legacyRequest.parse(reply.payload.requests![0]);
+  expect(projected.planSha256).toBe(pending.planSha256);
+  expect(projected.revision).toBe(pending.revision);
+  const hidden = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "hidden",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    service,
+  );
+  expect(hidden.payload.error).toContain("startup recovery");
+  expect(service.list()[0]?.status).toBe("pending");
+  const canceled = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "cancel",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "cancel" },
+    },
+    service,
+  );
+  expect(canceled.payload.error).toBeNull();
+  expect(service.list()[0]?.status).toBe("canceled");
+});
+
+test("startup recovery must be armed before a coordinator can be frozen", async () => {
+  const f = bootRecoveryFixture();
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const calls: string[] = [];
+  const unexpected = async () => {
+    throw new Error("Unexpected lifecycle effect");
+  };
+  const operations: BootstrapExecutorOperations = {
+    withOwnership: async (_request, operation) => operation(),
+    armWatchdog: async () => {
+      calls.push("watchdog");
+    },
+    freeze: unexpected,
+    inspectFrozen: async () => {
+      throw new Error("Unexpected inspection");
+    },
+    preserveTransfer: unexpected,
+    unload: unexpected,
+    select: unexpected,
+    start: unexpected,
+    verifyReplacement: unexpected,
+    releaseReplacement: unexpected,
+    resumePrevious: unexpected,
+  };
+  await expect(
+    executeCoordinatorBootstrap(f.service(), pickDecision(approved), operations),
+  ).rejects.toThrow("cannot arm");
+  expect(f.service().list()[0]?.execution).toBeUndefined();
+  expect(calls).toEqual([]);
+  const result = await executeCoordinatorBootstrap(f.service(), pickDecision(approved), {
+    ...operations,
+    armBootRecovery: async (claimed) => {
+      expect(claimed.execution?.stage).toBe("claimed");
+      calls.push("startup recovery");
+      throw new Error("Startup service registration failed");
+    },
+  });
+  expect(calls).toEqual(["watchdog", "startup recovery"]);
+  expect(result.execution?.stage).toBe("recovery_required");
+});
+
+test("replacement after reboot accepts a recycled PID only with approved boot recovery and exact fenced health", async () => {
+  const { plan } = bootRecoveryFixture();
+  const generation = randomUUID();
+  const recoveryBootId = randomUUID();
+  const candidate = {
+    pid: plan.expectedProcess.pid,
+    parentPid: 1,
+    uid: 501,
+    bootId: recoveryBootId,
+    startIdentity: "9999:123",
+    executable: plan.candidate.node.path,
+    argumentsSha256: createHash("sha256")
+      .update(
+        JSON.stringify([
+          plan.candidate.node.path,
+          plan.candidate.entrypoint.path,
+          plan.candidate.configuration.path,
+        ]),
+      )
+      .digest("hex"),
+  };
+  const health = {
+    installationId: plan.installationId,
+    bootstrap: { generation, pid: candidate.pid, fenced: true },
+  };
+  const reader = {
+    readService: async () => `${plan.service} = {\n\tpid = ${candidate.pid}\n}`,
+    inspectProcess: async () => candidate,
+  };
+  const input = {
+    plan,
+    generation,
+    recoveryBootId,
+    hostUid: 501,
+    reader,
+    readHealth: async () => health,
+  };
+  await expect(verifyBootstrapReplacement(input)).resolves.toBeUndefined();
+  await expect(verifyBootstrapReplacement({ ...input, recoveryBootId: undefined })).rejects.toThrow(
+    "previous PID",
+  );
+  await expect(
+    verifyBootstrapReplacement({ ...input, recoveryBootId: plan.expectedProcess.bootId }),
+  ).rejects.toThrow("distinct verified boot");
+  await expect(
+    verifyBootstrapReplacement({ ...input, plan: { ...plan, bootRecovery: undefined } }),
+  ).rejects.toThrow("distinct verified boot");
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      reader: {
+        ...reader,
+        inspectProcess: async () => ({ ...candidate, bootId: randomUUID() }),
+      },
+    }),
+  ).rejects.toThrow("approved candidate");
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      readHealth: async () => ({ ...health, bootstrap: { ...health.bootstrap, fenced: false } }),
+    }),
+  ).rejects.toThrow();
+});
+
+test.each([true, false])(
+  "startup watchdog never resumes a pre-reboot PID and preserves one rollback budget: %s",
+  async (authorized) => {
+    const f = bootRecoveryFixture();
+    if (authorized) f.plan.automaticRecovery = "restore-previous";
+    const pending = await f
+      .service()
+      .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "frozen" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [request]);
+    let restores = 0;
+    const operations = {
+      withOwnership: async <T>(operation: () => Promise<T>) => operation(),
+      verifyExecutorExited: async () => {},
+      verifyBootChanged: async () => {},
+      resumePrevious: async () => {
+        throw new Error("Must never signal a recycled PID");
+      },
+      restorePrevious: async () => {
+        restores++;
+        throw new Error("Uncertain rollback outcome");
+      },
+    };
+    const ownership = { id: request.id, generation: request.execution.generation };
+    const first = await recoverAbandonedBootstrap(f.service(), ownership, operations);
+    expect(first.execution?.stage).toBe("recovery_required");
+    expect(restores).toBe(authorized ? 1 : 0);
+    await recoverAbandonedBootstrap(f.service(), ownership, operations);
+    expect(restores).toBe(authorized ? 1 : 0);
+  },
+);
+
+test.each([true, false])(
+  "startup registration persists exact bytes and never repeats an uncertain native effect: %s",
+  async (succeeds) => {
+    const f = bootRecoveryFixture();
+    const bytes = Buffer.from("prepared fixture launcher");
+    const source = path.join(f.root, "prepared.plist");
+    writeFileSync(source, bytes, { mode: 0o600 });
+    f.plan.state.directory = f.root;
+    f.plan.bootRecovery!.launcher = {
+      path: source,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+    f.plan.bootRecovery!.installedLauncher = path.join(f.root, "selected.plist");
+    const pending = await f
+      .service()
+      .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = await f.service().claimDispatch(pickDecision(approved));
+    let registrations = 0;
+    let verified = 0;
+    const input = {
+      request,
+      writableMountRoots: [],
+      requireClaim: async () => {
+        expect(f.service().list()[0]).toEqual(request);
+      },
+      verifyServiceAbsent: async () => {},
+      register: async (domain: string, launcher: string) => {
+        registrations++;
+        expect(domain).toBe("gui/501");
+        expect(readFileSync(launcher)).toEqual(bytes);
+        expect(
+          JSON.parse(
+            readFileSync(
+              path.join(
+                f.root,
+                `coordinator-boot-registration-${request.execution!.generation}.json`,
+              ),
+              "utf8",
+            ),
+          ),
+        ).toMatchObject({
+          requestId: request.id,
+          planSha256: request.planSha256,
+          generation: request.execution!.generation,
+        });
+        if (!succeeds) throw new Error("Native registration result lost");
+      },
+      verifyRegistered: async () => {
+        verified++;
+      },
+    };
+    const verifyArtifacts = async () => {};
+    if (succeeds) await registerBootstrapRecovery(input, verifyArtifacts);
+    else
+      await expect(registerBootstrapRecovery(input, verifyArtifacts)).rejects.toThrow(
+        "result lost",
+      );
+    expect(registrations).toBe(1);
+    expect(verified).toBe(succeeds ? 1 : 0);
+    await expect(registerBootstrapRecovery(input, verifyArtifacts)).rejects.toThrow();
+    expect(registrations).toBe(1);
+    expect(statSync(f.plan.bootRecovery!.installedLauncher).nlink).toBe(1);
+  },
+);
+
+test("startup cleanup keeps unresolved and altered launchers and removes only exact completed work", async () => {
+  const f = bootRecoveryFixture();
+  const bytes = Buffer.from("approved startup launcher");
+  const selected = path.join(f.root, "selected.plist");
+  writeFileSync(selected, bytes, { mode: 0o600 });
+  f.plan.bootRecovery!.installedLauncher = selected;
+  f.plan.bootRecovery!.launcher.sha256 = createHash("sha256").update(bytes).digest("hex");
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const input = { request: pending, writableMountRoots: [], requireTerminal: async () => {} };
+  await expect(removeCompletedBootstrapRecovery(input)).rejects.toThrow("remains necessary");
+  const completed = {
+    ...pending,
+    status: "approved" as const,
+    execution: {
+      generation: randomUUID(),
+      stage: "succeeded" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  writeFileSync(selected, "unrelated replacement", { mode: 0o600 });
+  await expect(removeCompletedBootstrapRecovery({ ...input, request: completed })).rejects.toThrow(
+    "digest changed",
+  );
+  expect(readFileSync(selected, "utf8")).toBe("unrelated replacement");
+  writeFileSync(selected, bytes, { mode: 0o600 });
+  await removeCompletedBootstrapRecovery({ ...input, request: completed });
+  expect(() => readFileSync(selected)).toThrow();
+  await expect(
+    removeCompletedBootstrapRecovery({ ...input, request: completed }),
+  ).resolves.toBeUndefined();
+});
+
+test.each(["rollback_pending", "recovery_required"] as const)(
+  "watchdog recognizes a completed rollback from %s without another effect",
+  async (stage) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-previous";
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage,
+        updatedAt: new Date().toISOString(),
+        rollbackAttemptedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [request]);
+    let observations = 0;
+    const result = await recoverAbandonedBootstrap(
+      f.service(),
+      { id: request.id, generation: request.execution.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyRollback: async (current) => {
+          expect(current).toEqual(request);
+          observations++;
+        },
+        resumePrevious: async () => {
+          throw new Error("Unexpected resume");
+        },
+        restorePrevious: async () => {
+          throw new Error("Rollback must not run again");
+        },
+      },
+    );
+    expect(observations).toBe(1);
+    expect(result.execution?.stage).toBe("rolled_back");
+    expect(result.execution?.rollbackAttemptedAt).toBe(request.execution.rollbackAttemptedAt);
+  },
+);
+
+test.each(["unhealthy", "changed ownership", "no attempt"])(
+  "rollback reconciliation does not invent success: %s",
+  async (failure) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-previous";
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "recovery_required" as const,
+        updatedAt: new Date().toISOString(),
+        ...(failure !== "no attempt" ? { rollbackAttemptedAt: new Date().toISOString() } : {}),
+      },
+    };
+    f.journal.replace([approved], [request]);
+    let observations = 0;
+    const recovery = recoverAbandonedBootstrap(
+      f.service(),
+      { id: request.id, generation: request.execution.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyRollback: async () => {
+          observations++;
+          if (failure === "unhealthy") throw new Error("Recovery identity does not match");
+          f.journal.replace([request], [{ ...request, revision: randomUUID() }]);
+        },
+        resumePrevious: async () => {
+          throw new Error("Unexpected resume");
+        },
+      },
+    );
+    if (failure === "changed ownership")
+      await expect(recovery).rejects.toThrow("ownership changed");
+    else expect((await recovery).execution?.stage).toBe("recovery_required");
+    expect(observations).toBe(failure === "no attempt" ? 0 : 1);
+  },
+);
+
+function automaticCoordinatorFixture() {
+  const f = bootRecoveryFixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.previous;
+  let now = Date.parse("2026-10-15T00:00:01Z");
+  let authority: { credentialBinding: string; policyActivatedAt: string } | null = {
+    credentialBinding: "b".repeat(64),
+    policyActivatedAt: "2026-10-15T00:00:00Z",
+  };
+  let verify = async () => {};
+  const service = () =>
+    new CoordinatorBootstrapRequests(
+      f.journal,
+      () => f.binding,
+      () => verify(),
+      () => now,
+      () => authority,
+    );
+  const prepare = () =>
+    service().prepare({ id: f.id, reason: "Automatic coordinator fixture", plan: f.plan });
+  return {
+    ...f,
+    service,
+    prepare,
+    submit: () =>
+      service().prepareAutomatic(
+        { id: f.id, reason: "Automatic coordinator fixture", plan: f.plan },
+        {
+          credentialBinding: "b".repeat(64),
+          policyActivatedAt: "2026-10-15T00:00:00Z",
+        },
+      ),
+    advance: (milliseconds = 30_000) => {
+      now += milliseconds;
+    },
+    disable: () => {
+      authority = null;
+    },
+    rotate: () => {
+      authority = { ...authority!, credentialBinding: "c".repeat(64) };
+    },
+    setVerify: (value: typeof verify) => {
+      verify = value;
+    },
+  };
+}
+
+test("automatic coordinator status distinguishes checks, cancellation and uncertain launch without private authority", async () => {
+  const f = automaticCoordinatorFixture();
+  const now = Date.parse("2026-10-15T00:00:01Z");
+  const pending = await f.submit();
+  expect(coordinatorAutomaticStatus(pending, now)).toEqual({
+    authorization: "host-policy",
+    state: "waiting",
+    observedAt: new Date(now).toISOString(),
+  });
+  const checking = f
+    .service()
+    .reserveAutomaticReconciliation(automaticCoordinatorIdentity(pending))!;
+  expect(coordinatorAutomaticStatus(checking, now)).toMatchObject({
+    state: "checking",
+    attempt: 1,
+  });
+  f.service().finishAutomaticReconciliation(checking.id, checking.automaticCheck);
+  const retrying = f.service().list()[0]!;
+  expect(coordinatorAutomaticStatus(retrying, now)).toMatchObject({
+    state: "retry-wait",
+    attempt: 1,
+  });
+  expect(
+    coordinatorAutomaticStatus(
+      { ...retrying, automaticCheck: { ...retrying.automaticCheck!, attempt: 3 } },
+      now,
+    ),
+  ).toMatchObject({ state: "review-required", attempt: 3 });
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(retrying));
+  expect(coordinatorAutomaticStatus(approved, now)).toMatchObject({
+    state: "cancellation-window",
+    dispatchAfter: approved.automaticApproval!.dispatchAfter,
+  });
+  f.advance();
+  expect(coordinatorAutomaticStatus(approved, now + 30_000)).toMatchObject({
+    state: "dispatch-ready",
+  });
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  expect(coordinatorAutomaticStatus(reserved, now + 30_000)).toMatchObject({
+    state: "launch-unconfirmed",
+  });
+  const message = {
+    type: "installation.bootstrap.list_requests.request" as const,
+    requestId: "status",
+  };
+  const legacy = await handleBootstrapReview(message, f.service());
+  expect(legacy.payload.requests?.[0]).not.toHaveProperty("automaticStatus");
+  const modern = await handleBootstrapReview({ ...message, automaticStatus: true }, f.service());
+  expect(modern.payload.requests?.[0]?.automaticStatus).toMatchObject({
+    state: "launch-unconfirmed",
+  });
+  expect(JSON.stringify(modern)).not.toContain("credentialBinding");
+  expect(modern.payload.requests?.[0]).not.toHaveProperty("automaticCheck");
+  expect(CoordinatorBootstrapRequestSchema.parse(legacy.payload.requests?.[0]).id).toBe(pending.id);
+});
+
+test("coordinator reconciliation budgets survive reopening and delayed responses", async () => {
+  const f = automaticCoordinatorFixture();
+  let request = await f.submit();
+  expect(() => f.service().requireAutomaticReconciliation(request)).toThrow("bounded");
+  for (const attempt of [1, 2, 3]) {
+    const reserved = f
+      .service()
+      .reserveAutomaticReconciliation(automaticCoordinatorIdentity(request));
+    if (!reserved) throw new Error("Missing reconciliation reservation");
+    expect(reserved.automaticCheck).toMatchObject({
+      phase: "approval",
+      attempt,
+      outcome: "running",
+    });
+    expect(() => f.service().requireAutomaticReconciliation(reserved)).not.toThrow();
+    expect(
+      f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(reserved)),
+    ).toBeNull();
+    f.service().finishAutomaticReconciliation(reserved.id, reserved.automaticCheck);
+    request = f.service().list()[0]!;
+    expect(request.automaticCheck).toMatchObject({
+      phase: "approval",
+      attempt,
+      outcome: "unconfirmed",
+    });
+    expect(() => f.service().requireAutomaticReconciliation(request)).toThrow("bounded");
+    expect(
+      f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(request)),
+    ).toBeNull();
+    f.advance(60_000);
+  }
+  expect(
+    f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(request)),
+  ).toBeNull();
+});
+
+test("a crashed reconciliation retains its budget and cannot overwrite approval or launch", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.submit();
+  const first = f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(pending))!;
+  f.advance(16 * 60_000);
+  expect(() => f.service().requireAutomaticReconciliation(first)).toThrow("bounded");
+  const second = f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(first))!;
+  expect(second.automaticCheck?.attempt).toBe(2);
+  f.service().finishAutomaticReconciliation(first.id, first.automaticCheck);
+  expect(f.service().list()).toEqual([second]);
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(second));
+  f.service().finishAutomaticReconciliation(second.id, second.automaticCheck);
+  expect(f.service().list()).toEqual([approved]);
+  expect(
+    f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(approved)),
+  ).toBeNull();
+  f.advance();
+  const dispatch = f
+    .service()
+    .reserveAutomaticReconciliation(automaticCoordinatorIdentity(approved))!;
+  expect(dispatch.automaticCheck).toMatchObject({ phase: "dispatch", attempt: 1 });
+  expect(dispatch.automaticApproval?.requestRevision).toBe(dispatch.revision);
+  const launched = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(dispatch));
+  f.service().finishAutomaticReconciliation(dispatch.id, dispatch.automaticCheck);
+  expect(f.service().list()).toEqual([launched]);
+  expect(
+    f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(launched)),
+  ).toBeNull();
+});
+
+test("concurrent coordinator ticks share durable admission and retain failed connection attempts", async () => {
+  const f = automaticCoordinatorFixture();
+  await f.submit();
+  const { config } = coordinatorSubmissionFixture();
+  const connected = Promise.withResolvers<never>();
+  const connect = vi.fn(() => connected.promise);
+  const first = reconcileInstallationCoordinator(config, f.service(), connect);
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  expect(connect).toHaveBeenCalledOnce();
+  connected.reject(new Error("Fixture disconnected"));
+  await expect(first).rejects.toThrow("Fixture disconnected");
+  expect(f.service().list()[0]?.automaticCheck).toMatchObject({
+    attempt: 1,
+    outcome: "unconfirmed",
+  });
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  expect(connect).toHaveBeenCalledOnce();
+});
+
+test("coordinator ticks advance approval and dispatch once without consuming the cancellation interval", async () => {
+  const f = automaticCoordinatorFixture();
+  await f.submit();
+  const { config } = coordinatorSubmissionFixture();
+  const approve = vi.fn(async () => {
+    const request = f.service().list()[0]!;
+    f.service().requireAutomaticReconciliation(request);
+    return [await f.service().approveAutomatic(automaticCoordinatorIdentity(request))];
+  });
+  const close = vi.fn(async () => {});
+  const connect = vi.fn(async () => ({ reconcileAutomaticCoordinatorBootstrap: approve, close }));
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  const approved = f.service().list()[0]!;
+  expect(approved.status).toBe("approved");
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  expect(connect).toHaveBeenCalledOnce();
+  f.advance();
+  const dispatch = vi.fn(async () => {
+    const request = f.service().list()[0]!;
+    f.service().requireAutomaticReconciliation(request);
+    return [f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(request))];
+  });
+  const dispatchConnection = vi.fn(async () => ({
+    reconcileAutomaticCoordinatorBootstrap: dispatch,
+    close,
+  }));
+  await reconcileInstallationCoordinator(config, f.service(), dispatchConnection);
+  await reconcileInstallationCoordinator(config, f.service(), dispatchConnection);
+  expect(dispatchConnection).toHaveBeenCalledOnce();
+  expect(dispatch).toHaveBeenCalledExactlyOnceWith(approved.id);
+  expect(close).toHaveBeenCalledTimes(2);
+  expect(f.service().list()[0]?.automaticDispatch?.approvedRevision).not.toBeUndefined();
+});
+
+test("coordinator automation requires protected Host provenance and waits before exact dispatch", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  expect(await f.submit()).toEqual(submitted);
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  expect(approved.automaticApproval?.requestRevision).toBe(approved.revision);
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow(
+    "not yet eligible",
+  );
+  const visible = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: "review",
+      bootRecovery: true,
+      compatibleRecovery: true,
+    },
+    f.service(),
+  );
+  expect(visible.payload.requests?.[0]).not.toHaveProperty("automaticApproval");
+  expect(visible.payload.requests?.[0]).not.toHaveProperty("automaticSubmission");
+  f.advance();
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  const claimed = await f.service().claimDispatch(automaticCoordinatorIdentity(reserved));
+  expect(claimed.execution?.stage).toBe("claimed");
+  f.disable();
+  f.service().revokeAutomatic();
+  expect(f.service().list()[0]).toEqual(claimed);
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow();
+});
+
+test.each(["pending", "approved", "validation", "claim"])(
+  "coordinator permission revocation fences the %s boundary",
+  async (boundary) => {
+    const f = automaticCoordinatorFixture();
+    const submitted = await f.submit();
+    if (boundary === "validation") {
+      f.setVerify(async () => {
+        f.disable();
+        f.service().revokeAutomatic();
+      });
+      await expect(
+        f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+      ).rejects.toThrow("revoked");
+    } else if (boundary === "pending") {
+      f.disable();
+      f.service().revokeAutomatic();
+      await expect(
+        f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+      ).rejects.toThrow("pending");
+    } else {
+      const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+      f.advance();
+      if (boundary === "claim")
+        f.setVerify(async () => {
+          f.disable();
+          f.service().revokeAutomatic();
+        });
+      else {
+        f.rotate();
+        f.service().revokeAutomatic();
+      }
+      await expect(
+        f.service().claimDispatch(automaticCoordinatorIdentity(approved)),
+      ).rejects.toThrow();
+    }
+    expect(f.service().list()[0]).toMatchObject({ status: "canceled" });
+    expect(f.service().list()[0]).not.toHaveProperty("execution");
+  },
+);
+
+test("manual coordinator approval remains exact when automatic permission is revoked", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  const approved = await f.service().decide(
+    {
+      id: submitted.id,
+      revision: submitted.revision,
+      planSha256: submitted.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  f.disable();
+  f.service().revokeAutomatic();
+  expect(f.service().list()[0]).toEqual(approved);
+  expect(approved).not.toHaveProperty("automaticApproval");
+  expect(
+    (await f.service().claimDispatch(automaticCoordinatorIdentity(approved))).execution?.stage,
+  ).toBe("claimed");
+});
+
+function automaticCoordinatorIdentity(request: CoordinatorBootstrapRequest) {
+  return { id: request.id, revision: request.revision, planSha256: request.planSha256 };
+}
+
+test.each(["no-startup", "configuration", "other-service", "tooling"])(
+  "automatic coordinator authority refuses %s changes",
+  async (change) => {
+    const f = automaticCoordinatorFixture();
+    if (change === "no-startup") delete f.plan.bootRecovery;
+    if (change === "configuration")
+      f.plan.candidate = {
+        ...f.plan.candidate,
+        configuration: { ...f.plan.candidate.configuration, sha256: "f".repeat(64) },
+      };
+    if (change === "other-service") f.plan.nativeHelperConfiguration = null;
+    if (change === "tooling") f.plan.sourceUpdateTooling = true;
+    const submitted = await f.submit();
+    await expect(
+      f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+    ).rejects.toThrow();
+    expect(f.service().list()[0].status).toBe("pending");
+    expect(f.service().list()[0]).not.toHaveProperty("automaticApproval");
+  },
+);
+
+test("generic coordinator preparation cannot inject provenance or grant old requests automatically", async () => {
+  const f = automaticCoordinatorFixture();
+  await expect(
+    f.service().prepare({
+      id: f.id,
+      reason: "Forged provenance",
+      plan: f.plan,
+      automaticSubmission: {
+        credentialBinding: "b".repeat(64),
+        policyActivatedAt: "2026-10-15T00:00:00Z",
+        submittedAt: "2026-10-15T00:00:01Z",
+      },
+    }),
+  ).rejects.toThrow();
+  const pending = await f.prepare();
+  const later = new CoordinatorBootstrapRequests(
+    f.journal,
+    () => f.binding,
+    async () => {},
+    () => Date.parse("2026-10-15T00:00:30Z"),
+    () => ({ credentialBinding: "b".repeat(64), policyActivatedAt: "2026-10-15T00:00:20Z" }),
+  );
+  await expect(
+    later.prepareAutomatic(
+      { id: f.id, reason: pending.reason, plan: f.plan },
+      {
+        credentialBinding: "b".repeat(64),
+        policyActivatedAt: "2026-10-15T00:00:20Z",
+      },
+    ),
+  ).rejects.toThrow("cannot acquire automatic authority");
+  expect(later.list()[0]).toEqual(pending);
+});
+
+test("owner cancellation wins over in-flight automatic coordinator validation", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  f.setVerify(async () => {
+    await f
+      .service()
+      .decide({ ...automaticCoordinatorIdentity(submitted), decision: "cancel" }, ownerPassword);
+  });
+  await expect(
+    f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+  ).rejects.toThrow();
+  expect(f.service().list()[0].status).toBe("canceled");
+  expect(f.service().list()[0]).not.toHaveProperty("automaticApproval");
+});
+
+test("automatic coordinator launch reservation survives lost replies and permits cancellation", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  expect(() =>
+    f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved)),
+  ).toThrow("not yet eligible");
+  f.advance();
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow(
+    "reserve its native launch",
+  );
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  expect(reserved.automaticDispatch?.approvedRevision).toBe(approved.revision);
+  expect(reserved).not.toHaveProperty("execution");
+  const legacy = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: "legacy-reservation",
+      bootRecovery: true,
+      compatibleRecovery: true,
+    },
+    f.service(),
+  );
+  expect(legacy.payload.error).toBeNull();
+  expect(legacy.payload.requests?.[0]).not.toHaveProperty("automaticDispatch");
+
+  expect(() =>
+    f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved)),
+  ).toThrow("already changed or reserved");
+  expect(() =>
+    f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(reserved)),
+  ).toThrow("already changed or reserved");
+  const canceled = await f
+    .service()
+    .decide({ ...automaticCoordinatorIdentity(reserved), decision: "cancel" }, ownerPassword);
+  expect(canceled.status).toBe("canceled");
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(reserved))).rejects.toThrow();
+});
+
+test("coordinator revocation after launch reservation prevents the native claim", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  f.advance();
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  f.disable();
+  f.service().revokeAutomatic();
+  expect(f.service().list()[0]).toMatchObject({
+    status: "canceled",
+    automaticDispatch: reserved.automaticDispatch,
+  });
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(reserved))).rejects.toThrow();
+});
+
+test("automatic coordinator RPC cannot mint provenance and refuses unavailable services", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.prepare();
+  const message = CoordinatorBootstrapReconcileAutomaticRequestSchema.parse({
+    type: "installation.bootstrap.reconcile_automatic.request",
+    requestId: "reconcile",
+    id: pending.id,
+    bootRecovery: true,
+    compatibleRecovery: true,
+  });
+  expect(
+    CoordinatorBootstrapReconcileAutomaticRequestSchema.safeParse({
+      ...message,
+      credentialBinding: "b".repeat(64),
+    }).success,
+  ).toBe(false);
+  const unavailable = await handleBootstrapReview(message, f.service());
+  expect(unavailable.payload.error).toContain("unavailable");
+  const requests = f.service();
+  const service = Object.assign(requests, {
+    automatic: {
+      reconcile: async (id: string) => {
+        const current = requests.list().find((item) => item.id === id)!;
+        return requests.approveAutomatic(automaticCoordinatorIdentity(current));
+      },
+    },
+  });
+  const forged = await handleBootstrapReview(message, service);
+  expect(forged.payload.error).toContain("missing or revoked");
+  expect(requests.list()[0].status).toBe("pending");
+  await expect(f.submit()).rejects.toThrow("cannot acquire automatic authority");
+  expect(requests.list()[0]).toEqual(pending);
+});
+
+test.each(["disable", "rotate"] as const)(
+  "automatic preparation rejects %s during native validation without a partial request",
+  async (change) => {
+    const f = automaticCoordinatorFixture();
+    f.setVerify(async () => {
+      f[change]();
+    });
+    await expect(f.submit()).rejects.toThrow("permission required");
+    expect(f.service().list()).toEqual([]);
+  },
+);
+
+function coordinatorSubmissionFixture() {
+  const f = fixture();
+  const config: Parameters<typeof submitInstallationCoordinator>[0]["config"] = {
+    stateDir: f.root,
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://fixture.example.test",
+      environments: [],
+    },
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    ownerPasswordHash: ownerHash,
+    listenPort: 6766,
+    webDistDir: f.root,
+    host: {
+      endpoint: "127.0.0.1:6768",
+      password: "fixture-host",
+      launchdService: "gui/501/local.vorteo.fixture.host",
+    },
+    container: { endpoint: "127.0.0.1:6769", password: "fixture-dev" },
+  };
+  const input = { id: randomUUID(), reason: "Scoped coordinator preparation", plan: f.plan };
+  const preference = new DaemonAutomation(f.root, false);
+  return { f, config, input, preference };
+}
+
+test("scoped Host submission sends an exact proof and returns only its review receipt", async () => {
+  const { f, config, input, preference } = coordinatorSubmissionFixture();
+  preference.change({ expectedRevision: null, service: "coordinator", enabled: true });
+  const pending = await f.service().prepare(input);
+  const prepare = vi.fn(async () => [pending]);
+  const close = vi.fn(async () => {});
+  const receipt = await submitInstallationCoordinator(
+    { config, input, requester: "host-agent", requireOwnerApproval: false },
+    async () => ({ prepareCoordinatorBootstrap: prepare, close }),
+  );
+  expect(prepare).toHaveBeenCalledExactlyOnceWith(input, {
+    submissionProof: signCoordinatorSubmission(config, input),
+  });
+  expect(close).toHaveBeenCalledOnce();
+  expect(receipt).toEqual({
+    id: pending.id,
+    revision: pending.revision,
+    status: "pending",
+    approvalUrl: `https://fixture.example.test/settings/general?installation=1&bootstrap=${pending.id}`,
+  });
+});
+
+test.each([
+  { requester: "container-agent", requireOwnerApproval: false, enabled: true },
+  { requester: "host-agent", requireOwnerApproval: true, enabled: true },
+  { requester: "host-agent", requireOwnerApproval: false, enabled: false },
+] as const)(
+  "coordinator submission preserves manual review: %j",
+  async ({ requester, requireOwnerApproval, enabled }) => {
+    const { f, config, input, preference } = coordinatorSubmissionFixture();
+    preference.change({ expectedRevision: null, service: "coordinator", enabled });
+    const pending = await f.service().prepare(input);
+    const prepare = vi.fn(async () => [pending]);
+    const close = vi.fn(async () => {});
+    await submitInstallationCoordinator(
+      { config, input, requester, requireOwnerApproval },
+      async () => ({ prepareCoordinatorBootstrap: prepare, close }),
+    );
+    expect(prepare).toHaveBeenCalledExactlyOnceWith(input, { submissionProof: undefined });
+    expect(close).toHaveBeenCalledOnce();
+  },
+);
+
+test("unsupported authenticated coordinator submission closes without retrying as manual", async () => {
+  const { config, input, preference } = coordinatorSubmissionFixture();
+  preference.change({ expectedRevision: null, service: "coordinator", enabled: true });
+  const prepare = vi.fn(async () => {
+    throw new Error("Host capability unavailable");
+  });
+  const close = vi.fn(async () => {});
+  await expect(
+    submitInstallationCoordinator(
+      { config, input, requester: "host-agent", requireOwnerApproval: false },
+      async () => ({ prepareCoordinatorBootstrap: prepare, close }),
+    ),
+  ).rejects.toThrow("Host capability unavailable");
+  expect(prepare).toHaveBeenCalledExactlyOnceWith(input, {
+    submissionProof: signCoordinatorSubmission(config, input),
+  });
+  expect(close).toHaveBeenCalledOnce();
+});
+
+test("scoped coordinator proof binds the exact preparation, policy and credentials", () => {
+  const f = fixture();
+  const config: Parameters<typeof signCoordinatorSubmission>[0] = {
+    stateDir: f.root,
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://fixture.example.test",
+      environments: [],
+    },
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    ownerPasswordHash: ownerHash,
+  };
+  const input = { id: randomUUID(), reason: "Exact authenticated preparation", plan: f.plan };
+  expect(() => signCoordinatorSubmission(config, input)).toThrow("disabled");
+  const preference = new DaemonAutomation(f.root, false);
+  const enabled = preference.change({
+    expectedRevision: null,
+    service: "coordinator",
+    enabled: true,
+  });
+  const proof = signCoordinatorSubmission(config, input);
+  expect(verifyCoordinatorSubmission(config, input, proof)).toEqual(
+    coordinatorAutomaticAuthority(config),
+  );
+  expect(signCoordinatorSubmission(config, input)).toEqual(proof);
+  for (const changed of [
+    { ...input, id: randomUUID() },
+    { ...input, reason: "Different reason" },
+    {
+      ...input,
+      plan: { ...input.plan, candidate: { ...input.plan.candidate, sourceCommit: "f".repeat(40) } },
+    },
+  ])
+    expect(() => verifyCoordinatorSubmission(config, changed, proof)).toThrow();
+  for (const key of ["hostAgentTokenHash", "containerAgentTokenHash", "ownerPasswordHash"] as const)
+    expect(() =>
+      verifyCoordinatorSubmission({ ...config, [key]: "c".repeat(64) }, input, proof),
+    ).toThrow("Exact scoped Host");
+  expect(() =>
+    verifyCoordinatorSubmission(config, input, { ...proof, signature: "0".repeat(64) }),
+  ).toThrow("Exact scoped Host");
+  preference.change({ expectedRevision: enabled.revision, service: "coordinator", enabled: false });
+  expect(() => verifyCoordinatorSubmission(config, input, proof)).toThrow("disabled");
+});
+
+test("same-millisecond permission reactivation retains a distinct epoch across reopening", () => {
+  const f = fixture();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-15T00:00:00Z"));
+  try {
+    const preference = new DaemonAutomation(f.root, false);
+    const first = preference.change({
+      expectedRevision: null,
+      service: "coordinator",
+      enabled: true,
+    });
+    const disabled = preference.change({
+      expectedRevision: first.revision,
+      service: "coordinator",
+      enabled: false,
+    });
+    const enabled = new DaemonAutomation(f.root, false).change({
+      expectedRevision: disabled.revision,
+      service: "coordinator",
+      enabled: true,
+    });
+    expect(Date.parse(enabled.services!.coordinator!)).toBeGreaterThan(
+      Date.parse(first.services!.coordinator!),
+    );
+    expect(enabled.services!.host).toBe(first.services!.host);
+    expect(preference.read()).not.toHaveProperty("changedAt");
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("authenticated preparation RPC validates proof before atomically recording provenance", async () => {
+  const f = fixture();
+  const config: Parameters<typeof signCoordinatorSubmission>[0] = {
+    stateDir: f.root,
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://fixture.example.test",
+      environments: [],
+    },
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    ownerPasswordHash: ownerHash,
+  };
+  new DaemonAutomation(f.root, false).change({
+    expectedRevision: null,
+    service: "coordinator",
+    enabled: true,
+  });
+  const input = { id: randomUUID(), reason: "Scoped preparation", plan: f.plan };
+  const proof = signCoordinatorSubmission(config, input);
+  const requests = new CoordinatorBootstrapRequests(
+    f.journal,
+    () => f.binding,
+    async () => {},
+    Date.now,
+    () => coordinatorAutomaticAuthority(config),
+  );
+  const message = {
+    type: "installation.bootstrap.prepare.request" as const,
+    requestId: "authenticated-preparation",
+    input,
+    submissionProof: proof,
+  };
+  expect((await handleBootstrapReview(message, requests)).payload.error).toContain("unavailable");
+  expect(requests.list()).toEqual([]);
+  const service = Object.assign(requests, {
+    automatic: {
+      prepare: async (value: typeof input, supplied: typeof proof) =>
+        requests.prepareAutomatic(value, verifyCoordinatorSubmission(config, value, supplied)),
+      reconcile: async () => {
+        throw new Error("No dispatch from preparation");
+      },
+    },
+  });
+  const forged = await handleBootstrapReview(
+    { ...message, submissionProof: { ...proof, signature: "0".repeat(64) } },
+    service,
+  );
+  expect(forged.payload.error).toContain("Exact scoped Host");
+  expect(requests.list()).toEqual([]);
+  const prepared = await handleBootstrapReview(message, service);
+  expect(prepared.payload.error).toBeNull();
+  expect(prepared.payload.requests?.[0].status).toBe("pending");
+  expect(prepared.payload.requests?.[0]).not.toHaveProperty("automaticSubmission");
+  const retained = requests.list()[0];
+  expect(retained.automaticSubmission).toMatchObject(coordinatorAutomaticAuthority(config)!);
+  expect(retained).not.toHaveProperty("execution");
+  expect((await handleBootstrapReview(message, service)).payload.error).toBeNull();
+  expect(requests.list()).toEqual([retained]);
+});
+
+test.each(["ready", "legacy", "missing-review", "offline"] as const)(
+  "coordinator readiness uses connected Host features and closes its probe (%s)",
+  async (mode) => {
+    const { config } = coordinatorSubmissionFixture();
+    const close = vi.fn(async () => {});
+    const result = await inspectInstallationCoordinator(config, async () => {
+      if (mode === "offline") throw new Error("PRIVATE CONNECTION DETAIL");
+      return {
+        close,
+        getLastServerInfoMessage: () => ({
+          status: "server_info",
+          serverId: "host-id",
+          hostname: null,
+          version: null,
+          features: {
+            coordinatorBootstrapReview: mode !== "missing-review",
+            coordinatorBootstrapAuthenticatedSubmission: mode === "ready",
+            coordinatorBootstrapAutomaticReconciliation: mode === "ready",
+            coordinatorBootstrapAutomaticStatus: mode === "ready",
+            coordinatorBootstrapBootRecovery: mode === "ready",
+            coordinatorBootstrapCompatibleRecovery: mode === "ready",
+            coordinatorBootstrapRecoveryBootPlan: mode === "ready",
+          },
+        }),
+      };
+    });
+    expect(result.available).toBe(mode === "ready" || mode === "legacy");
+    expect(result.automaticAvailable).toBe(mode === "ready");
+    expect(close).toHaveBeenCalledTimes(mode === "offline" ? 0 : 1);
+    expect(JSON.stringify(result)).not.toContain("PRIVATE CONNECTION DETAIL");
   },
 );

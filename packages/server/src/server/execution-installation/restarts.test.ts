@@ -1,3 +1,4 @@
+import * as lifecycleJournal from "./lifecycle-journal.js";
 import { z } from "zod";
 import {
   mkdtemp,
@@ -9,7 +10,7 @@ import {
   readFile,
   chmod,
 } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { InstallationSourceUpdates } from "./source-updates.js";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -670,6 +671,10 @@ test("an unreachable target waits without blocking another target; cancellation 
   const calls: string[] = [];
   let release!: (impact: RestartImpact) => void;
   let held = false;
+  let inspected!: () => void;
+  const inspectionStarted = new Promise<void>((resolve) => {
+    inspected = resolve;
+  });
   const queue = new InstallationRestarts(new MemoryJournal(), {
     restart: async (target) => {
       calls.push(target);
@@ -679,6 +684,7 @@ test("an unreachable target waits without blocking another target; cancellation 
       if (!held) throw new Error("offline");
       return new Promise<RestartImpact>((resolve) => {
         release = resolve;
+        inspected();
       });
     },
     restartWhenIdle: async (target) => {
@@ -695,6 +701,7 @@ test("an unreachable target waits without blocking another target; cancellation 
   expect(queue.list()[0]?.status).toBe("approved");
   held = true;
   const draining = queue.drain();
+  await inspectionStarted;
   queue.decide(host.id, host.revision, "cancel");
   release(idleImpact("host"));
   await draining;
@@ -859,13 +866,13 @@ test("source builds fail before activation, failed readiness restores selection,
       restart,
       installUpdate: (job) => updates.install(job, restart),
     });
-    const dispatch = async () => {
+    const dispatch = async (source = update) => {
       const job = queue.request(
         { target: "host", reason: "Install fixture" },
         "container-agent",
-        update,
+        source,
       );
-      queue.decide(job.id, job.revision, "approve", update.sha256);
+      queue.decide(job.id, job.revision, "approve", source.sha256);
       await queue.drain();
       return queue.list().find((item) => item.id === job.id);
     };
@@ -900,9 +907,30 @@ test("source builds fail before activation, failed readiness restores selection,
     expect(restart).not.toHaveBeenCalled();
     await writeFile(prepareScript, validPrepareScript);
     await writeFile(path.join(root, "index.html"), "old interface");
-    expect((await dispatch())?.detail).toContain("Previous launcher restored");
+    const failedActivation = (await dispatch())!;
+    expect(failedActivation.detail).toContain("Previous launcher restored");
     expect(await realpath(link)).toBe(previous);
     await expect(readFile(path.join(root, "published"))).rejects.toThrow();
+    await expect(
+      updates.install({ ...failedActivation, updatePreparation: "prepared" }, restart),
+    ).rejects.toThrow("Activation was already attempted");
+    expect(restart).toHaveBeenCalledTimes(1);
+
+    const prepared = {
+      ...failedActivation,
+      id: randomUUID(),
+      status: "approved" as const,
+      updatePreparation: "prepared" as const,
+    };
+    await updates.prepareInstallation(prepared);
+    await writeFile(path.join(root, "index.html"), "publication after preparation");
+    await expect(updates.install(prepared, restart)).rejects.toThrow(
+      "Installed source changed after preparation",
+    );
+    expect(await realpath(link)).toBe(previous);
+    expect(restart).toHaveBeenCalledTimes(1);
+    await expect(readFile(path.join(root, prepared.id, "activation.json"))).rejects.toThrow();
+    await writeFile(path.join(root, "index.html"), "old interface");
     restart.mockImplementation(async () => {
       expect(await realpath(link)).not.toBe(previous);
       await expect(readFile(path.join(root, "published"))).rejects.toThrow();
@@ -912,6 +940,68 @@ test("source builds fail before activation, failed readiness restores selection,
     expect(await readFile(path.join(root, "published"), "utf8")).toBe("yes");
     expect(updates.source().baseCommit).toBe(update.sourceCommit);
     expect(restart).toHaveBeenCalledTimes(2);
+
+    const nextUpdate = { ...update, baseCommit: update.sourceCommit, sourceCommit: "d".repeat(40) };
+    updates.stage(nextUpdate, bundle);
+    await rm(path.join(root, "published"));
+    await writeFile(
+      path.join(root, "publish-instance-web.mjs"),
+      `
+      import fs from 'node:fs/promises'; import path from 'node:path';
+      const work = path.dirname(path.dirname(process.argv[2]));
+      const receipt = JSON.parse(await fs.readFile(path.join(work, 'activation.json'), 'utf8'));
+      if (receipt.status !== 'daemon-ready') throw new Error('readiness not retained');
+      await fs.writeFile(path.join(work, 'observed-readiness'), receipt.status);
+      throw new Error('fixture publication failed');
+    `,
+    );
+    const partial = (await dispatch(nextUpdate))!;
+    expect(partial.status).toBe("failed");
+    expect(partial.detail).toContain("Host daemon updated");
+    expect(partial.detail).toContain("interface publication failed");
+    const work = path.join(root, partial.id);
+    expect(await readFile(path.join(work, "observed-readiness"), "utf8")).toBe("daemon-ready");
+    expect(JSON.parse(await readFile(path.join(work, "activation.json"), "utf8"))).toMatchObject({
+      status: "interface-failed",
+      update: nextUpdate,
+      candidate: await realpath(link),
+      exported: path.join(work, "release", "web-export"),
+    });
+    expect(updates.source().baseCommit).toBe(nextUpdate.sourceCommit);
+    await queue.drain();
+    expect(restart).toHaveBeenCalledTimes(3);
+
+    const writeReceipt = lifecycleJournal.writeLifecycleReceipt;
+    let installedCommit = nextUpdate.sourceCommit;
+    for (const [phase, commit] of [
+      ["daemon-ready", "e"],
+      ["interface-failed", "f"],
+    ] as const) {
+      const source = { ...update, baseCommit: installedCommit, sourceCommit: commit.repeat(40) };
+      updates.stage(source, bundle);
+      const storage = vi
+        .spyOn(lifecycleJournal, "writeLifecycleReceipt")
+        .mockImplementation((file, value) => {
+          if ((value as { status?: string }).status === phase) throw new Error("fixture disk full");
+          writeReceipt(file, value);
+        });
+      try {
+        const failed = (await dispatch(source))!;
+        expect(failed.status).toBe("failed");
+        expect(failed.detail).toContain("Host daemon updated");
+        expect(failed.detail).toContain("receipt could not be saved");
+        const receipt = JSON.parse(
+          await readFile(path.join(root, failed.id, "activation.json"), "utf8"),
+        );
+        expect(receipt.status).toBe(phase === "daemon-ready" ? "activating" : "daemon-ready");
+        expect(updates.source().baseCommit).toBe(source.sourceCommit);
+        installedCommit = source.sourceCommit;
+      } finally {
+        storage.mockRestore();
+      }
+    }
+    await queue.drain();
+    expect(restart).toHaveBeenCalledTimes(5);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -2245,40 +2335,43 @@ function automaticFixture(daemonRequestsAfter?: () => string | null) {
   };
 }
 
-test("automatic Host policy cannot approve a Dev request or a mixed source batch", async () => {
-  const f = automaticFixture();
-  const plain = f.queue.request(
-    { target: "host", reason: "Dev request", requester: "host-agent" },
-    "container-agent",
-  );
-  await f.queue.drain();
-  expect(f.queue.list()[0]?.status).toBe("pending");
-  f.queue.decide(plain.id, plain.revision, "reject");
-  const update = {
-    sourceCommit: "a".repeat(40),
-    baseCommit: "b".repeat(40),
-    sha256: "c".repeat(64),
-    bytes: 12,
-  };
-  f.queue.contribute(
-    { target: "host", reason: "Host changes" },
-    "host-agent",
-    update,
-    "10000000-0000-4000-8000-000000000001",
-  );
-  f.queue.contribute(
-    { target: "host", reason: "Dev changes" },
-    "container-agent",
-    update,
-    "10000000-0000-4000-8000-000000000002",
-  );
-  await f.queue.drain();
-  expect(f.queue.list().at(-1)).toMatchObject({
-    status: "pending",
-    sourceBatch: { status: "ready" },
-  });
-  expect(f.events).toEqual([]);
-});
+test.each([false, true])(
+  "automatic Host policy cannot approve a Dev request or a mixed source batch: saved preference %s",
+  async (saved) => {
+    const f = automaticFixture(saved ? () => new Date(1000).toISOString() : undefined);
+    const plain = f.queue.request(
+      { target: "host", reason: "Dev request", requester: "host-agent" },
+      "container-agent",
+    );
+    await f.queue.drain();
+    expect(f.queue.list()[0]?.status).toBe("pending");
+    f.queue.decide(plain.id, plain.revision, "reject");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 12,
+    };
+    f.queue.contribute(
+      { target: "host", reason: "Host changes" },
+      "host-agent",
+      update,
+      "10000000-0000-4000-8000-000000000001",
+    );
+    f.queue.contribute(
+      { target: "host", reason: "Dev changes" },
+      "container-agent",
+      update,
+      "10000000-0000-4000-8000-000000000002",
+    );
+    await f.queue.drain();
+    expect(f.queue.list().at(-1)).toMatchObject({
+      status: "pending",
+      sourceBatch: { status: "ready" },
+    });
+    expect(f.events).toEqual([]);
+  },
+);
 
 test("automatic source approval binds its prepared digest and remains cancellable before dispatch", async () => {
   const f = automaticFixture();
@@ -2511,13 +2604,10 @@ test("pending plain sharing ORs durable owner review without changing Host prove
   expect(() =>
     f.queue.request({ ...input, requireOwnerApproval: true }, "container-agent"),
   ).toThrow("Host provenance");
-  for (const plan of [
-    { supervisorPlanSha256: "d".repeat(64) },
-    { factoryRuntimePlanSha256: "d".repeat(64) },
-  ]) {
+  for (const plan of [{ factoryRuntimePlanSha256: "d".repeat(64) }]) {
     expect(() =>
       f.queue.request({ ...input, ...plan, requireOwnerApproval: true }, "host-agent"),
-    ).toThrow("limited to plain restarts and source updates");
+    ).toThrow("Factory adoption already requires exact owner review");
   }
 });
 
@@ -2784,12 +2874,12 @@ test("manual source contributions never reuse an automatically approved batch", 
   expect(f.queue.contribution(first.contribution.id)!.batch).toEqual(approved);
 });
 
-test("owner daemon automation includes container requests and disabling cancels queued approval", async () => {
+test("owner daemon automation allows Host requests for Dev and disabling cancels queued approval", async () => {
   let enabledAfter: string | null = new Date(1000).toISOString();
   const f = automaticFixture(() => enabledAfter);
   const request = f.queue.request(
     { target: "container-daemon", reason: "Owner enabled automation" },
-    "container-agent",
+    "host-agent",
   );
   await f.queue.drain();
   expect(f.queue.list()[0]).toMatchObject({
@@ -2828,7 +2918,7 @@ test("disabling daemon automation during idle inspection prevents dispatch", asy
     entered.resolve();
     return inspected.promise;
   };
-  f.queue.request({ target: "host", reason: "Race with owner disable" }, "container-agent");
+  f.queue.request({ target: "host", reason: "Race with owner disable" }, "host-agent");
   const draining = f.queue.drain();
   await entered.promise;
   activation = null;
@@ -2856,7 +2946,7 @@ test("daemon automation only admits fresh ready source and preserves explicit ow
     bytes: 12,
   };
   const id = "10000000-0000-4000-8000-000000000001";
-  f.queue.contribute({ target: "host", reason: "Dev source" }, "container-agent", update, id);
+  f.queue.contribute({ target: "host", reason: "Host source" }, "host-agent", update, id);
   await f.queue.drain();
   expect(f.queue.contribution(id)?.batch).toMatchObject({
     status: "approved",
@@ -2872,4 +2962,406 @@ test("daemon automation only admits fresh ready source and preserves explicit ow
   );
   await f.queue.drain();
   expect(f.queue.list().find((job) => job.id === reviewed.id)?.status).toBe("pending");
+});
+
+test.each(["host", "container-daemon"] as const)(
+  "only Host requesters complete automatic source updates for %s",
+  async (target) => {
+    for (const requester of ["host-agent", "container-agent"] as const) {
+      const f = automaticFixture(() => new Date(1000).toISOString());
+      f.idle();
+      const update = {
+        sourceCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: "c".repeat(64),
+        bytes: 12,
+      };
+      const receipt = f.queue.contribute(
+        { target, reason: "Validated update" },
+        requester,
+        update,
+        randomUUID(),
+      );
+      await f.queue.drain();
+      expect(f.queue.contribution(receipt.contribution.id)?.batch.status).toBe(
+        requester === "host-agent" ? "succeeded" : "pending",
+      );
+      expect(f.events).toEqual(requester === "host-agent" ? ["hold", "install"] : []);
+    }
+  },
+);
+
+test("automatic cancellation window survives recovery and places no early hold", async () => {
+  const f = automaticFixture();
+  let now = 2000;
+  const policy = { ...f.policy, cancellationDelayMs: 30_000, authority: () => "a".repeat(64) };
+  let queue = new InstallationRestarts(f.journal, f.executor, () => now, policy);
+  const request = queue.request(
+    { target: "host", reason: "Visible cancellation interval" },
+    "host-agent",
+  );
+  await queue.drain();
+  expect(f.events).toEqual([]);
+  expect(queue.list()[0]).toMatchObject({
+    status: "approved",
+    automaticDispatchAfter: new Date(32000).toISOString(),
+  });
+  now = 31999;
+  queue = new InstallationRestarts(f.journal, f.executor, () => now, policy);
+  await queue.drain();
+  expect(f.events).toEqual([]);
+  const waiting = queue.list().find((job) => job.id === request.id)!;
+  queue.decide(waiting.id, waiting.revision, "cancel");
+  now = 32000;
+  f.idle();
+  await queue.drain();
+  expect(f.events).not.toContain("restart");
+  expect(f.events).not.toContain("hold");
+});
+
+test("credential rotation during idle observation revokes an automatic grant", async () => {
+  const f = automaticFixture();
+  let authority = "a".repeat(64);
+  const policy = { ...f.policy, authority: () => authority };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, policy);
+  const originalInspect = f.executor.inspect!;
+  f.executor.inspect = async (target) => {
+    authority = "b".repeat(64);
+    return originalInspect(target);
+  };
+  f.idle();
+  queue.request({ target: "host", reason: "Rotate queued credential" }, "host-agent");
+  await queue.drain();
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.events).toEqual(["hold", "release"]);
+});
+
+test("automatic source preparation completes before holds and cancellation prevents activation", async () => {
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  const entered = Promise.withResolvers<void>();
+  const built = Promise.withResolvers<void>();
+  f.executor.prepareInstallation = async () => {
+    f.events.push("prepare");
+    entered.resolve();
+    await built.promise;
+  };
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  f.queue.contribute(
+    { target: "host", reason: "Build without interrupting work" },
+    "host-agent",
+    update,
+    randomUUID(),
+  );
+  const draining = f.queue.drain();
+  await entered.promise;
+  expect(f.events).toEqual(["prepare"]);
+  const preparing = f.queue.list()[0];
+  expect(preparing.updatePreparation).toBe("preparing");
+  f.queue.decide(preparing.id, preparing.revision, "cancel");
+  built.resolve();
+  await draining;
+  await f.queue.drain();
+  expect(f.events).toEqual(["prepare", "release"]);
+  expect(f.queue.list()[0].status).toBe("rejected");
+});
+
+test("prepared automatic source survives coordinator recovery without rebuilding", async () => {
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  f.executor.prepareInstallation = async () => {
+    f.events.push("prepare");
+  };
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  f.queue.contribute(
+    { target: "host", reason: "Retain prepared source" },
+    "host-agent",
+    update,
+    randomUUID(),
+  );
+  await f.queue.drain();
+  expect(f.events).toEqual(["prepare", "hold"]);
+  expect(f.queue.list()[0].updatePreparation).toBe("prepared");
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 3000, f.policy);
+  f.idle();
+  await recovered.drain();
+  expect(f.events).toEqual(["prepare", "hold", "hold", "install"]);
+});
+
+test("interrupted source preparation cannot activate or inherit approval after recovery", async () => {
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  const entered = Promise.withResolvers<void>();
+  const finished = Promise.withResolvers<void>();
+  f.executor.prepareInstallation = async () => {
+    entered.resolve();
+    await finished.promise;
+  };
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  f.queue.contribute(
+    { target: "host", reason: "Interrupt preparation" },
+    "host-agent",
+    update,
+    randomUUID(),
+  );
+  const draining = f.queue.drain();
+  await entered.promise;
+  const retained = structuredClone(f.journal.read());
+  const captured = new MemoryJournal();
+  captured.write(retained);
+  const recovered = new InstallationRestarts(captured, f.executor, () => 3000, f.policy);
+  expect(recovered.list()[0]).toMatchObject({ status: "failed", updatePreparation: "preparing" });
+  f.idle();
+  await recovered.drain();
+  expect(f.events).not.toContain("install");
+  const original = f.queue.list()[0];
+  f.queue.decide(original.id, original.revision, "cancel");
+  finished.resolve();
+  await draining;
+});
+
+test("Host-only policy revokes a retained Dev automatic grant without dispatch", async () => {
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  f.queue.request({ target: "host", reason: "Retained automatic request" }, "host-agent");
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold"]);
+  // A journal written by the former policy can contain a Dev-origin automatic grant.
+  f.journal.jobs[0].requestedBy = "container-agent";
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 3000, f.policy);
+  f.idle();
+  await recovered.drain();
+  expect(recovered.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.events).toEqual(["hold", "release"]);
+});
+
+test("service permissions authorize and revoke only their selected daemon target", async () => {
+  const f = automaticFixture();
+  const activations: Record<"host" | "container-daemon", string | null> = {
+    host: new Date(1000).toISOString(),
+    "container-daemon": null,
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, {
+    daemonRequestsAfter: (target) => activations[target],
+  });
+  const host = queue.request({ target: "host", reason: "Host maintenance" }, "host-agent");
+  const dev = queue.request(
+    { target: "container-daemon", reason: "Dev maintenance" },
+    "host-agent",
+  );
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === host.id)?.status).toBe("approved");
+  expect(queue.list().find((job) => job.id === dev.id)?.status).toBe("pending");
+  activations["container-daemon"] = new Date(1000).toISOString();
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === dev.id)?.status).toBe("approved");
+  activations.host = null;
+  queue.refreshApprovalPolicy();
+  expect(queue.list().find((job) => job.id === host.id)?.status).toBe("rejected");
+  expect(queue.list().find((job) => job.id === dev.id)?.status).toBe("approved");
+  await queue.drain();
+  expect(f.events.filter((event) => event === "release")).toHaveLength(1);
+  expect(f.events).not.toContain("restart");
+});
+
+test("supervisor automation uses its own permission, exact plan and cancellation interval", async () => {
+  const f = automaticFixture();
+  const sha = "d".repeat(64);
+  let now = 2000;
+  let enabled: string | null = new Date(1000).toISOString();
+  f.executor.supervisorPlan = () => sha;
+  f.executor.restartSupervisor = async () => {
+    f.events.push("supervisor");
+    return "verified";
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => now, {
+    daemonRequestsAfter: () => null,
+    supervisorRequestsAfter: () => enabled,
+    cancellationDelayMs: 30_000,
+  });
+  const request = queue.request(
+    {
+      target: "container-daemon",
+      reason: "Prepared supervisor maintenance",
+      supervisorPlanSha256: sha,
+    },
+    "host-agent",
+  );
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({
+    id: request.id,
+    status: "approved",
+    supervisorPlanSha256: sha,
+    automaticApproval: { policyActivatedAt: enabled },
+  });
+  expect(f.events).toEqual([]);
+  now += 30_000;
+  await queue.drain();
+  expect(f.events).toEqual(["hold"]);
+  enabled = null;
+  queue.refreshApprovalPolicy();
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.events).toEqual(["hold", "release"]);
+});
+
+test.each(["legacy", "explicit", "changed"])(
+  "supervisor automation retains the %s review boundary",
+  async (boundary) => {
+    const f = automaticFixture();
+    let sha = "d".repeat(64);
+    f.executor.supervisorPlan = () => sha;
+    f.executor.restartSupervisor = async () => {
+      f.events.push("supervisor");
+      return "verified";
+    };
+    const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, {
+      ...f.policy,
+      supervisorRequestsAfter: () => (boundary === "legacy" ? null : new Date(1000).toISOString()),
+    });
+    const input = {
+      target: "container-daemon" as const,
+      reason: "Supervisor",
+      supervisorPlanSha256: sha,
+      requireOwnerApproval: boundary === "explicit",
+    };
+    expect(() => queue.request(input, "container-agent")).toThrow();
+    queue.request(input, "host-agent");
+    if (boundary === "changed") sha = "e".repeat(64);
+    await queue.drain();
+    expect(queue.list()[0]?.status).toBe("pending");
+    expect(f.events).toEqual([]);
+  },
+);
+
+test("supervisor plan revocation during idle observation releases the hold without dispatch", async () => {
+  const f = automaticFixture();
+  let sha = "d".repeat(64);
+  f.executor.supervisorPlan = () => sha;
+  f.executor.restartSupervisor = async () => {
+    f.events.push("supervisor");
+    return "verified";
+  };
+  const inspect = f.executor.inspect!;
+  f.executor.inspect = async (target) => {
+    const result = await inspect(target);
+    sha = "e".repeat(64);
+    return result;
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, {
+    supervisorRequestsAfter: () => new Date(1000).toISOString(),
+  });
+  queue.request(
+    { target: "container-daemon", reason: "Supervisor", supervisorPlanSha256: sha },
+    "host-agent",
+  );
+  f.idle();
+  await queue.drain();
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.events).toEqual(["hold", "release"]);
+});
+
+test("an uncertain supervisor failure requires successful manual recovery before more automation", async () => {
+  const f = automaticFixture();
+  const sha = "d".repeat(64);
+  let fail = true;
+  let now = 2000;
+  f.executor.supervisorPlan = () => sha;
+  f.executor.restartSupervisor = async () => {
+    f.events.push("supervisor");
+    if (fail) throw new Error("Uncertain result");
+    return "verified";
+  };
+  const policy = { supervisorRequestsAfter: () => new Date(1000).toISOString() };
+  let queue = new InstallationRestarts(f.journal, f.executor, () => now, policy);
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Supervisor",
+    supervisorPlanSha256: sha,
+  };
+  const failed = queue.request(input, "host-agent");
+  f.idle();
+  await queue.drain();
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "failed", holdReleased: true });
+  expect(queue.maintenanceBlocker("container-daemon")).toContain(
+    "Supervisor maintenance did not verify completion",
+  );
+  now = 3000;
+  queue = new InstallationRestarts(f.journal, f.executor, () => now, policy);
+  const recovery = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === recovery.id)?.status).toBe("pending");
+  expect(f.events.filter((event) => event === "supervisor")).toHaveLength(1);
+  fail = false;
+  queue.decide(recovery.id, recovery.revision, "finish-current-turns", undefined, sha);
+  await queue.drain();
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === recovery.id)?.status).toBe("succeeded");
+  expect(queue.list().find((job) => job.id === failed.id)).toMatchObject({
+    status: "failed",
+    supervisorRecoveredBy: recovery.id,
+  });
+  expect(queue.maintenanceBlocker("container-daemon")).toBeNull();
+  now = 4000;
+  queue = new InstallationRestarts(f.journal, f.executor, () => now, policy);
+  const next = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === next.id)).toMatchObject({
+    status: "succeeded",
+    automaticApproval: { policyActivatedAt: new Date(1000).toISOString() },
+  });
+  expect(f.events.filter((event) => event === "supervisor")).toHaveLength(3);
+});
+
+test("a supervisor dispatch interrupted by coordinator restart remains fenced and is not replayed", async () => {
+  const f = automaticFixture();
+  const sha = "d".repeat(64);
+  f.executor.supervisorPlan = () => sha;
+  f.executor.restartSupervisor = async () => {
+    f.events.push("supervisor");
+    return "verified";
+  };
+  const policy = { supervisorRequestsAfter: () => new Date(1000).toISOString() };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, policy);
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Supervisor",
+    supervisorPlanSha256: sha,
+  };
+  const original = queue.request(input, "host-agent");
+  f.journal.jobs[0] = {
+    ...original,
+    status: "running",
+    finishCurrentTurns: true,
+    whenIdle: true,
+    approvedAt: new Date(2000).toISOString(),
+  };
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 3000, policy);
+  const next = recovered.request(input, "host-agent");
+  f.idle();
+  await recovered.drain();
+  await recovered.drain();
+  expect(recovered.list().find((job) => job.id === original.id)).toMatchObject({
+    status: "failed",
+    holdReleased: true,
+  });
+  expect(recovered.list().find((job) => job.id === next.id)?.status).toBe("pending");
+  expect(recovered.maintenanceBlocker("container-daemon")).toContain(
+    "Supervisor maintenance did not verify completion",
+  );
+  expect(f.events).toEqual(["release"]);
 });

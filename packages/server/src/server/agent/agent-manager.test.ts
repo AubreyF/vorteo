@@ -3812,7 +3812,7 @@ test.each(["hang", "reject"])(
   },
 );
 
-test("manual stop interrupts the provider even when queue pause persistence fails", async () => {
+test("manual stop interrupts the provider without changing the queue", async () => {
   const fixture = await createControlledInterruptFixture({
     name: "queue-pause-write-failure",
     agentId: "00000000-0000-4000-8000-000000000399",
@@ -3840,7 +3840,7 @@ test("manual stop interrupts the provider even when queue pause persistence fail
     await fixture.startForegroundRun();
     await expect(
       fixture.manager.cancelAgentRun(fixture.agentId, { reason: "manual" }),
-    ).rejects.toThrow("disk full");
+    ).resolves.toMatchObject({ status: "settled" });
     expect(fixture.session.interruptCalled).toBe(true);
     expect(fixture.manager.getAgent(fixture.agentId)?.lifecycle).toBe("idle");
   } finally {
@@ -12958,57 +12958,86 @@ test("Vorton launch settings and account environment override plugin transformat
     rmSync(workdir, { recursive: true, force: true });
   }
 });
-test.each(["idle", "running", "pause failure"] as const)(
-  "manual stop handles an active goal when %s",
-  async (mode) => {
-    const fixture = await createControlledInterruptFixture({
-      name: "manual-goal-stop",
-      agentId: "00000000-0000-4000-8000-000000000498",
-      turnId: "goal-stop-turn",
-      interrupt: async (session) => {
-        session.pushEvent({
-          type: "turn_completed",
-          provider: session.provider,
-          turnId: "goal-stop-turn",
-        });
-      },
-    });
-    let goal: AgentGoal = {
-      threadId: "thread",
-      objective: "Finish",
-      status: "active",
-      tokenBudget: null,
-      tokensUsed: 0,
-      timeUsedSeconds: 0,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-    const goals = new CodexGoals({
-      request: async (method) => {
-        if (method === "thread/goal/set") {
-          if (mode === "pause failure") throw new Error("Goal pause unavailable");
-          goal = { ...goal, status: "paused", updatedAt: 2 };
-        }
-        return { goal };
-      },
-      onChange: () => {},
-    });
-    goals.bind("thread");
-    Object.defineProperty(fixture.session, "goals", { value: goals });
-    try {
-      if (mode !== "idle") await fixture.startForegroundRun();
-      const stop = fixture.manager.cancelAgentRun(fixture.agentId, { reason: "manual" });
-      if (mode === "pause failure") await expect(stop).rejects.toThrow("Goal pause unavailable");
-      else {
-        await stop;
-        expect(goal.status).toBe("paused");
+test.each([
+  ["idle", false],
+  ["running", false],
+  ["pause failure", false],
+  ["idle", true],
+  ["running", true],
+  ["pause failure", true],
+] as const)("manual stop handles a goal when %s (queue-held=%s)", async (mode, held) => {
+  const fixture = await createControlledInterruptFixture({
+    name: "manual-goal-stop",
+    agentId: "00000000-0000-4000-8000-000000000498",
+    turnId: "goal-stop-turn",
+    interrupt: async (session) => {
+      session.pushEvent({
+        type: "turn_completed",
+        provider: session.provider,
+        turnId: "goal-stop-turn",
+      });
+    },
+  });
+  let goal: AgentGoal = {
+    threadId: "thread",
+    objective: "Finish",
+    status: "active",
+    tokenBudget: null,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const goals = new CodexGoals({
+    request: async (method, input) => {
+      if (method === "thread/goal/set") {
+        const status = Reflect.get(input, "status");
+        if (status !== "paused" && status !== "blocked" && status !== "active")
+          throw new Error("Unexpected goal status");
+        if (mode === "pause failure" && status === "paused")
+          throw new Error("Goal pause unavailable");
+        goal = { ...goal, status, updatedAt: goal.updatedAt + 1 };
       }
-      if (mode !== "idle") expect(fixture.session.interruptCalled).toBe(true);
-    } finally {
-      await fixture.cleanup();
+      return { goal };
+    },
+    onChange: () => {},
+  });
+  goals.bind("thread");
+  Object.defineProperty(fixture.session, "goals", { value: goals });
+  let queuePaused = false;
+  fixture.manager.setMessageQueueControl({
+    queueRestartContinuation: async () => {},
+    wake() {},
+    pause: async () => {
+      queuePaused = true;
+    },
+    acceptedHistory: async () => [],
+    reconcileHistory: async () => {},
+    suppressHistoryRestoration: async () => {},
+    recordProviderMessageId: async () => {},
+  });
+  try {
+    if (held) {
+      await fixture.manager.pauseGoalForQueuedMessages(fixture.agentId, () => true);
+      expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.phase).toBe("held");
     }
-  },
-);
+    if (mode !== "idle") await fixture.startForegroundRun();
+    const stop = fixture.manager.cancelAgentRun(fixture.agentId, { reason: "manual" });
+    if (mode === "pause failure") await expect(stop).rejects.toThrow("Goal pause unavailable");
+    else {
+      await stop;
+      expect(goal.status).toBe("paused");
+    }
+    if (mode !== "idle") expect(fixture.session.interruptCalled).toBe(true);
+    expect(queuePaused).toBe(false);
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold).toBeUndefined();
+    const stoppedStatus = goal.status;
+    await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
+    expect(goal.status).toBe(stoppedStatus);
+  } finally {
+    await fixture.cleanup();
+  }
+});
 test("commits startup notices once on create and after restored history", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-startup-notice-"));
   const notice: AgentTimelineItem = { type: "notification", level: "info", message: "Runtime v2" };

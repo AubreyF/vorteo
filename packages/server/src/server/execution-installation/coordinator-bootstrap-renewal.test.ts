@@ -2,7 +2,7 @@ import {
   derivePreclaimHostRuntime,
   createManagedPreclaimRecoveryReview,
 } from "./coordinator-bootstrap-launch.js";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 import {
   mkdtempSync,
@@ -28,7 +28,11 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
-import { BootstrapRunnerSetupSchema } from "./coordinator-bootstrap-runner.js";
+import {
+  BootstrapRunnerSetupSchema,
+  resolveBootstrapBootSetup,
+  verifyBootRunnerBinding,
+} from "./coordinator-bootstrap-runner.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
   deriveBootstrapRenewal,
@@ -44,6 +48,7 @@ import {
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
@@ -1297,6 +1302,8 @@ test
     "spawn-only",
     "initialize",
     "initialize-fenced",
+    "initialize-completed-verified",
+    "initialize-completed-forged",
     "initialize-ambiguous",
     "initialize-changed",
     "initialize-anchor-changed",
@@ -1454,6 +1461,69 @@ test
           promotions: [],
         });
       }
+      let verifiedRenewal;
+      if (mode.startsWith("initialize-completed")) {
+        const terminalRuntime = await deriveBootstrapRenewal({
+          setupFile: input.setupFile,
+          setup: f.original,
+          moduleFile: input.ports.moduleFile,
+          hostPid: input.ports.hostProcessId,
+          ports: input.ports,
+          dispatchedRequest: { id: original.id, planSha256: original.planSha256 },
+        });
+        const historical = {
+          ...original,
+          id: randomUUID(),
+          revision: randomUUID(),
+          execution: { ...original.execution!, generation: randomUUID() },
+        };
+        const historicalPlan = {
+          ...request.plan,
+          original: historical,
+          executor: {
+            ...request.plan.executor,
+            identity: {
+              ...request.plan.executor.identity,
+              argumentsSha256: sha(
+                JSON.stringify([f.node.path, entry.path, setup.path, "executor", historical.id]),
+              ),
+            },
+          },
+        };
+        const completed = {
+          ...request,
+          id: randomUUID(),
+          revision: randomUUID(),
+          plan: historicalPlan,
+          planSha256: claimedRecoveryPlanDigest(historicalPlan),
+          execution: {
+            generation: randomUUID(),
+            stage: "succeeded" as const,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+        journal.replaceReviews([request], [completed, request]);
+        f.save(path.join(f.state, "coordinator-bootstrap-pending.json"), {
+          version: 1,
+          requests: [
+            {
+              ...historical,
+              revision: randomUUID(),
+              execution: { ...historical.execution, stage: "recovery_required" },
+            },
+            original,
+          ],
+          promotions: [],
+        });
+        if (mode === "initialize-completed-verified") {
+          // Isolate target classification from the existing terminal-evidence verifier.
+          // The forged case below uses the real verifier and must fail closed.
+          const renewalModule = await import("./coordinator-bootstrap-renewal.js");
+          verifiedRenewal = vi
+            .spyOn(renewalModule, "deriveBootstrapRenewal")
+            .mockResolvedValue(terminalRuntime);
+        }
+      }
       const beforeRecords = new FileBootstrapRequestJournal(f.state).read();
       const beforeReviews = journal.readReviews();
       const beforeSetup = readFileSync(f.setupFile);
@@ -1476,7 +1546,9 @@ test
           return [];
         },
       });
-      if (
+      if (mode === "initialize-completed-forged")
+        await expect(service).rejects.toThrow(/ENOENT|fence/);
+      else if (
         ["initialize-ambiguous", "initialize-changed", "initialize-anchor-changed"].includes(mode)
       )
         await expect(service).rejects.toThrow();
@@ -1488,6 +1560,13 @@ test
           beforeReviews,
         );
         expect(journal.readReviews()).toEqual(beforeReviews);
+      }
+      if (verifiedRenewal) {
+        expect(verifiedRenewal).toHaveBeenCalledOnce();
+        expect(verifiedRenewal.mock.calls[0][0].dispatchedRequest).toEqual({
+          id: original.id,
+          planSha256: original.planSha256,
+        });
       }
       expect(new FileBootstrapRequestJournal(f.state).read()).toEqual(beforeRecords);
       expect(readFileSync(f.setupFile)).toEqual(beforeSetup);
@@ -1764,5 +1843,98 @@ test.runIf(process.platform === "darwin")(
     };
     journal.replace(journal.read(), [f.record, failedAfterPromotion]);
     await expect(f.derive()).rejects.toThrow("Exact unpromoted bootstrap failure required");
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "startup renewal resolves the exact retained approval from a preapproval setup",
+  async () => {
+    const f = await fixture();
+    const setup = (await f.derive())!;
+    const prepared = f.save(path.join(f.state, "prepared-boot-setup.json"), setup);
+    const approved = structuredClone(f.record);
+    approved.id = randomUUID();
+    approved.revision = randomUUID();
+    delete approved.execution;
+    const service = `${f.plan.service}-recovery-${approved.id}`;
+    approved.plan = {
+      ...f.plan,
+      previous: f.coordinator,
+      candidate: f.host,
+      automaticRecovery: "restore-compatible",
+      compatibleRecovery: f.host,
+      bootRecovery: {
+        requestId: approved.id,
+        service,
+        launcher: f.save(path.join(f.state, "boot.plist"), "inert fixture", true),
+        installedLauncher: path.join(f.state, "installed-boot.plist"),
+        setup: prepared,
+        ownerLauncher: setup.ownerLauncher,
+        node: setup.node,
+        entrypoint: setup.entrypoint,
+      },
+    };
+    approved.planSha256 = coordinatorPlanDigest(approved.plan);
+    const file = persistRenewalSetup(f.state, setup, approved);
+    const snapshot = BootstrapRunnerSetupSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    const claimed = {
+      ...approved,
+      revision: randomUUID(),
+      execution: {
+        generation: randomUUID(),
+        stage: "claimed" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.writeRecords([f.record, claimed]);
+    await retainRenewalGeneration({
+      setup: snapshot,
+      setupFile: file,
+      request: claimed,
+      watchdog: false,
+    });
+    await expect(verifyBootRunnerBinding(claimed, file, snapshot)).resolves.toBeUndefined();
+    await expect(resolveBootstrapBootSetup(prepared.path, claimed.id)).resolves.toBe(file);
+    expect(sha(readFileSync(prepared.path))).toBe(prepared.sha256);
+    await expect(verifyBootRunnerBinding(claimed, prepared.path, snapshot)).rejects.toThrow(
+      "differs from approved preparation",
+    );
+    const otherApproval = {
+      ...snapshot,
+      renewal: {
+        ...snapshot.renewal!,
+        request: {
+          ...snapshot.renewal!.request!,
+          planSha256: "c".repeat(64),
+        },
+      },
+    };
+    await expect(verifyBootRunnerBinding(claimed, file, otherApproval)).rejects.toThrow(
+      "differs from approved preparation",
+    );
+
+    await expect(
+      verifyBootRunnerBinding(claimed, file, { ...snapshot, daemonId: "different-host" }),
+    ).rejects.toThrow("differs from approved preparation");
+    const bytes = readFileSync(file);
+    writeFileSync(file, JSON.stringify({ ...snapshot, runtimeSha256: "f".repeat(64) }));
+    await expect(resolveBootstrapBootSetup(prepared.path, claimed.id)).rejects.toThrow(
+      "digest changed",
+    );
+    writeFileSync(file, bytes);
+    const generationFile = path.join(
+      f.state,
+      `coordinator-renewal-generation-${claimed.execution.generation}.json`,
+    );
+    const generation = JSON.parse(readFileSync(generationFile, "utf8"));
+    writeFileSync(generationFile, JSON.stringify({ ...generation, generation: randomUUID() }));
+    await expect(resolveBootstrapBootSetup(prepared.path, claimed.id)).rejects.toThrow(
+      "generation changed",
+    );
+    writeFileSync(generationFile, JSON.stringify(generation));
+    writeFileSync(prepared.path, JSON.stringify({ ...setup, daemonId: "substituted-host" }));
+    await expect(verifyBootRunnerBinding(claimed, file, snapshot)).rejects.toThrow(
+      "digest changed",
+    );
   },
 );

@@ -4,8 +4,11 @@ import type {
   BootstrapClaimedRecoveryRequestView,
   BootstrapClaimedObservation,
   CoordinatorBootstrapInbound,
+  CoordinatorBootstrapPreparation,
+  CoordinatorSubmissionProof,
   CoordinatorBootstrapOutbound,
   CoordinatorBootstrapRequest,
+  CoordinatorBootstrapRequestView,
   BootstrapPreclaimRecoveryInbound,
   BootstrapPreclaimObservation,
   BootstrapPreclaimRecoveryOutbound,
@@ -16,6 +19,7 @@ import type { PreclaimRecoveryReviews } from "./coordinator-bootstrap-preclaim-r
 import {
   BootstrapAuthenticationRequired,
   BootstrapRequestConflict,
+  coordinatorAutomaticStatus,
   type CoordinatorBootstrapRequests,
 } from "./coordinator-bootstrap.js";
 
@@ -35,6 +39,13 @@ export type BootstrapReviewService = Pick<
   CoordinatorBootstrapRequests,
   "list" | "prepare" | "decide"
 > & {
+  automatic?: {
+    prepare?(
+      input: CoordinatorBootstrapPreparation,
+      proof: CoordinatorSubmissionProof,
+    ): Promise<CoordinatorBootstrapRequest>;
+    reconcile(id: string): Promise<CoordinatorBootstrapRequest>;
+  };
   available?: boolean;
   unavailableReason?: string;
   subscribeAvailability?(listener: () => void): () => void;
@@ -42,24 +53,36 @@ export type BootstrapReviewService = Pick<
   claimedRecovery?: ClaimedRecoveryReviewService;
 };
 
+function automaticReviewFeatures(service: BootstrapReviewService | undefined, available: boolean) {
+  return {
+    coordinatorBootstrapAutomaticReconciliation: available && service?.automatic !== undefined,
+    coordinatorBootstrapAuthenticatedSubmission:
+      available && service?.automatic?.prepare !== undefined,
+  };
+}
+
 export function bootstrapReviewFeatures(service: BootstrapReviewService | undefined) {
+  const preclaimAvailable = service?.preclaimRecovery?.available === true;
+  const claimedAvailable = service?.claimedRecovery?.available === true;
   const available =
     service !== undefined && service.available !== false && service.unavailableReason === undefined;
   return {
     coordinatorBootstrapReview: available,
-    coordinatorBootstrapClaimedRecovery: service?.claimedRecovery?.available === true,
+    coordinatorBootstrapClaimedRecovery: claimedAvailable,
     coordinatorBootstrapClaimedObservation:
-      service?.claimedRecovery?.available === true &&
-      typeof service.claimedRecovery.reconcile === "function",
-    coordinatorBootstrapPreclaimRecovery: service?.preclaimRecovery?.available === true,
-    coordinatorBootstrapPreclaimOwnerCancellation: service?.preclaimRecovery?.available === true,
+      claimedAvailable && typeof service?.claimedRecovery?.reconcile === "function",
+    coordinatorBootstrapPreclaimRecovery: preclaimAvailable,
+    coordinatorBootstrapPreclaimOwnerCancellation: preclaimAvailable,
     coordinatorBootstrapPreclaimObservation:
-      service?.preclaimRecovery?.available === true &&
-      typeof service.preclaimRecovery.reconcile === "function",
+      preclaimAvailable && typeof service?.preclaimRecovery?.reconcile === "function",
     coordinatorBootstrapFactoryAdoption: available,
     coordinatorBootstrapCompatibleRecovery: available,
     coordinatorBootstrapPreviewMonitor: available,
     coordinatorBootstrapSourceUpdateTooling: available,
+    coordinatorBootstrapBootRecovery: available,
+    coordinatorBootstrapRecoveryBootPlan: preclaimAvailable || claimedAvailable,
+    coordinatorBootstrapAutomaticStatus: available,
+    ...automaticReviewFeatures(service, available),
     ...(service?.unavailableReason
       ? { coordinatorBootstrapUnavailableReason: service.unavailableReason }
       : {}),
@@ -103,6 +126,10 @@ export async function handlePreclaimRecoveryReview(
     if (message.type === "installation.bootstrap_recovery.prepare.request")
       await service.prepare(message.input);
     if (message.type === "installation.bootstrap_recovery.decide.request") {
+      assertRetainedBootReview(
+        message,
+        service.list().find((request) => request.id === message.input.id),
+      );
       if (message.input.decision === "approve" && message.preclaimRecovery !== true)
         throw new BootstrapRequestConflict(
           "Reload to review exact preclaim recovery before approval",
@@ -119,7 +146,23 @@ export async function handlePreclaimRecoveryReview(
     }
     // COMPAT(preclaimOwnerCancellation): added 2026-10-12; retain until 2027-04-12.
     // Strict older readers can still cancel, but cannot approve hidden provenance.
-    const requests = service.list().map((request) => {
+    const requests = service.list().map((stored) => {
+      const request = Object.assign({}, stored, {
+        reason: retainedBootReviewReason(stored, message.recoveryBootPlan === true),
+        plan: {
+          ...stored.plan,
+          original: retainedBootReply(stored.plan.original, message.recoveryBootPlan === true),
+          canceled: retainedBootReply(stored.plan.canceled, message.recoveryBootPlan === true),
+          ...(stored.plan.ownerCancellation
+            ? {
+                ownerCancellation: retainedBootReply(
+                  stored.plan.ownerCancellation,
+                  message.recoveryBootPlan === true,
+                ),
+              }
+            : {}),
+        },
+      });
       if (message.ownerCanceledOriginal || !request.plan.ownerCancellation) return request;
       const {
         ownerCancellation: _cancellation,
@@ -142,6 +185,38 @@ export async function handlePreclaimRecoveryReview(
   }
 }
 
+async function prepareCoordinatorReview(
+  service: BootstrapReviewService,
+  message: Extract<CoordinatorBootstrapInbound, { type: "installation.bootstrap.prepare.request" }>,
+): Promise<void> {
+  if (!message.submissionProof) {
+    await service.prepare(message.input);
+    return;
+  }
+  if (
+    !bootstrapReviewFeatures(service).coordinatorBootstrapAuthenticatedSubmission ||
+    !service.automatic?.prepare
+  )
+    throw new BootstrapRequestConflict(
+      "Authenticated coordinator submission is unavailable on this Host",
+    );
+  await service.automatic.prepare(message.input, message.submissionProof);
+}
+
+async function reconcileAutomaticReview(
+  service: BootstrapReviewService,
+  id: string,
+): Promise<void> {
+  if (
+    !bootstrapReviewFeatures(service).coordinatorBootstrapAutomaticReconciliation ||
+    !service.automatic
+  )
+    throw new BootstrapRequestConflict(
+      "Automatic coordinator reconciliation is unavailable on this Host",
+    );
+  await service.automatic.reconcile(id);
+}
+
 /** Called only after the session's daemon.manage permission check. An absent
  * Host service refuses all operations, including forged direct RPCs on Dev. */
 export async function handleBootstrapReview(
@@ -152,6 +227,8 @@ export async function handleBootstrapReview(
     "installation.bootstrap.list_requests.request": "installation.bootstrap.list_requests.response",
     "installation.bootstrap.prepare.request": "installation.bootstrap.prepare.response",
     "installation.bootstrap.decide.request": "installation.bootstrap.decide.response",
+    "installation.bootstrap.reconcile_automatic.request":
+      "installation.bootstrap.reconcile_automatic.response",
   } as const;
   const type = responses[message.type];
   const requestId = message.requestId;
@@ -165,11 +242,14 @@ export async function handleBootstrapReview(
       },
     };
   try {
+    if (message.type === "installation.bootstrap.reconcile_automatic.request")
+      await reconcileAutomaticReview(service, message.id);
     if (message.type === "installation.bootstrap.prepare.request")
-      await service.prepare(message.input);
+      await prepareCoordinatorReview(service, message);
     if (message.type === "installation.bootstrap.decide.request") {
       const request = service.list().find((item) => item.id === message.input.id);
       assertSourceUpdateToolingReview(message, request);
+      assertBootRecoveryReview(message, request);
       if (
         message.input.decision === "approve" &&
         request?.plan.factoryRuntimeAdoptionConfiguration !== undefined &&
@@ -196,12 +276,7 @@ export async function handleBootstrapReview(
         );
       await service.decide(message.input, message.ownerPassword);
     }
-    const requests = service
-      .list()
-      .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true))
-      .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true))
-      .map((request) => previewMonitorReply(request, message.previewMonitor === true))
-      .map((request) => sourceUpdateToolingReply(request, message.sourceUpdateTooling === true));
+    const requests = service.list().map((request) => publicBootstrapReply(request, message));
     return { type, payload: { requestId, requests, error: null } };
   } catch (error) {
     // Filesystem, schema and verifier failures can carry private configuration.
@@ -213,6 +288,21 @@ export async function handleBootstrapReview(
       : "Bootstrap validation failed. Inspect the prepared Host configuration before retrying.";
     return { type, payload: { requestId, requests: null, error: description } };
   }
+}
+
+function publicBootstrapReply(
+  request: CoordinatorBootstrapRequest,
+  message: CoordinatorBootstrapInbound,
+): CoordinatorBootstrapRequestView {
+  let visible = privateAuthorityReply(request);
+  visible = bootstrapReviewReply(visible, message.factoryRuntimeAdoption === true);
+  visible = compatibleRecoveryReply(visible, message.compatibleRecovery === true);
+  visible = previewMonitorReply(visible, message.previewMonitor === true);
+  visible = sourceUpdateToolingReply(visible, message.sourceUpdateTooling === true);
+  visible = bootRecoveryReply(visible, message.bootRecovery === true);
+  if (!message.automaticStatus) return visible;
+  const automaticStatus = coordinatorAutomaticStatus(request, Date.now());
+  return automaticStatus ? { ...visible, automaticStatus } : visible;
 }
 
 // COMPAT(factoryRuntimeAdoption): older clients use a strict plan schema. Keep
@@ -329,13 +419,26 @@ export async function handleClaimedRecoveryReview(
     if (message.type === "installation.claimed_recovery.prepare.request")
       await service.prepare(message.input);
     if (message.type === "installation.claimed_recovery.decide.request") {
+      assertRetainedBootReview(
+        message,
+        service.list().find((request) => request.id === message.input.id),
+      );
       if (message.input.decision === "approve" && message.claimedRecovery !== true)
         throw new BootstrapRequestConflict(
           "Reload to review exact claimed recovery before approval",
         );
       await service.decide(message.input, message.ownerPassword, message.claimedRecovery === true);
     }
-    return { type, payload: { requestId, requests: service.list(), error: null } };
+    const requests = service.list().map((request) =>
+      Object.assign({}, request, {
+        reason: retainedBootReviewReason(request, message.recoveryBootPlan === true),
+        plan: {
+          ...request.plan,
+          original: retainedBootReply(request.plan.original, message.recoveryBootPlan === true),
+        },
+      }),
+    );
+    return { type, payload: { requestId, requests, error: null } };
   } catch (error) {
     const safe =
       error instanceof BootstrapRequestConflict || error instanceof BootstrapAuthenticationRequired;
@@ -350,4 +453,88 @@ export async function handleClaimedRecoveryReview(
       },
     };
   }
+}
+
+// COMPAT(coordinatorAutomaticAuthority): added v534; retain until 2027-04-15.
+// Nested recovery views must omit private bookkeeping just like the main list.
+function privateAuthorityReply(request: CoordinatorBootstrapRequest): CoordinatorBootstrapRequest {
+  const {
+    automaticSubmission: _submission,
+    automaticApproval: _approval,
+    automaticDispatch: _dispatch,
+    automaticCheck: _check,
+    ...publicRequest
+  } = request;
+  return publicRequest;
+}
+
+// COMPAT(bootRecovery): added 2026-10-15; retain until 2027-04-15.
+// Cancellation remains available to strict older clients; hidden startup
+// configuration cannot be approved by readers that do not understand it.
+function bootRecoveryReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || !request.plan.bootRecovery) return request;
+  const { bootRecovery: _recovery, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason: "Reload the client to review startup recovery. Cancellation remains available.",
+  };
+}
+
+function assertBootRecoveryReview(
+  message: Extract<CoordinatorBootstrapInbound, { type: "installation.bootstrap.decide.request" }>,
+  request: CoordinatorBootstrapRequest | undefined,
+): void {
+  if (message.input.decision === "approve" && request?.plan.bootRecovery && !message.bootRecovery)
+    throw new BootstrapRequestConflict(
+      "Reload the client to review startup recovery before approval.",
+    );
+}
+
+// COMPAT(recoveryBootPlan): added v544; retain until 2027-04-15.
+// Recovery preserves the original approval; strict older readers cannot parse
+// its retained startup plan and must not approve a review with hidden evidence.
+function retainedBootReply(request: CoordinatorBootstrapRequest, supported: boolean) {
+  return bootRecoveryReply(privateAuthorityReply(request), supported);
+}
+
+function assertRetainedBootReview(
+  message: Extract<
+    BootstrapPreclaimRecoveryInbound | BootstrapClaimedRecoveryInbound,
+    {
+      type:
+        | "installation.bootstrap_recovery.decide.request"
+        | "installation.claimed_recovery.decide.request";
+    }
+  >,
+  request: BootstrapPreclaimRecoveryRequestView | BootstrapClaimedRecoveryRequestView | undefined,
+): void {
+  if (message.input.decision !== "approve" || message.recoveryBootPlan || !request) return;
+  if (hasRetainedBootPlan(request))
+    throw new BootstrapRequestConflict(
+      "Reload the client to review retained startup recovery before approval.",
+    );
+}
+
+function hasRetainedBootPlan(
+  request: BootstrapPreclaimRecoveryRequestView | BootstrapClaimedRecoveryRequestView,
+): boolean {
+  const originals = [request.plan.original];
+  if (request.plan.operation === "bootstrap-preclaim-recovery") {
+    originals.push(request.plan.canceled);
+    if (request.plan.ownerCancellation) originals.push(request.plan.ownerCancellation);
+  }
+  return originals.some((original) => original.plan.bootRecovery !== undefined);
+}
+
+function retainedBootReviewReason(
+  request: BootstrapPreclaimRecoveryRequestView | BootstrapClaimedRecoveryRequestView,
+  supported: boolean,
+): string {
+  if (!supported && hasRetainedBootPlan(request))
+    return "Reload the client to review retained startup recovery. Cancellation remains available.";
+  return request.reason;
 }

@@ -5,6 +5,393 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.562 - 2026-10-16
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.561 - 2026-10-15
+
+### Changed
+
+- Keep the message queue at the bottom of the primary conversation whether the details sidebar is open or closed. Preserve inline editing across sidebar toggles and keep queue review, saving and sending controls in that location.
+
+## 0.11.0-beta.3.vorteo.560 - 2026-10-15
+
+### Changed
+
+- Expand General connection diagnostics with independent health HTTP, WebSocket handshake, cross-origin response and enforced browser content-policy evidence. Keep hidden DNS, TLS, VPN and device-permission failures explicitly unknown.
+- Compare saved app addresses and authentication with the installation endpoints; include device network hints, exposed local-network permission and interface source in a copyable report without credentials or storage contents.
+- Provide one-click browser error pages and a selectable report when clipboard access fails. Validate real HTTP, WebSocket, cross-origin failure and responsive rendering without daemon changes.
+
+## 0.11.0-beta.3.vorteo.558 - 2026-10-15
+
+### Added
+
+- Put a connection check at the top of General settings. Test the current device's routes to the installation, Host and Dev without typing addresses or sending daemon credentials.
+- Show network health separately from app authentication and initialization, with endpoint addresses, check times and bounded failures.
+- Verify real HTTP behavior and compact and desktop rendering. Keep daemon restart and maintenance approval separate from this interface change.
+
+## 0.11.0-beta.3.vorteo.557 - 2026-10-15
+
+### Added
+
+- Define exact installation enrollment, standing maintenance scope and durable activation steps, with revocation and retained recovery observations.
+- Synchronize enrollment storage before selection and reconcile uncertain writes without repeating effects. Bound retained state and preserve failed generations.
+- Add owner-only enrollment status, guarded client refresh and a responsive installation health component. Cached health expires, and readiness requires fresh observations of the enrolled native target.
+- Bind native identity to protected Host registration or an immutable container and numeric user/group identity, independently of process and release observations.
+
+### Maintenance
+
+- Cover storage failures, recovery, revocation, lock contention, owner access and dashboard rendering with focused tests.
+- Keep native execution, dashboard mounting and managed installation acceptance open. Document pre-login recovery as future work; this source checkpoint does not activate maintenance authority.
+
+## 0.11.0-beta.3.vorteo.556 - 2026-10-15
+
+### Fixed
+
+- Resolve coordinator recovery chains containing multiple recovered claims and unpromoted failures while preserving the actual selected release and exact immediate predecessor.
+- Verify historical recovery receipts and every required executor exit. Reject missing or changed proof, stale references and conflicting history without rewriting earlier approvals or failures.
+- Keep managed installation and operating acceptance separate from source validation.
+
+## 0.11.0-beta.3.vorteo.555 - 2026-10-15
+
+### Fixed
+
+- Center account reset labels within the button border and reserve the full touch target in account rows.
+- Show whole hours rounded down in compact Goal badges instead of accumulating minutes.
+- Shorten the compact composer to balance spacing between microphone, Queue and Send controls.
+
+## 0.11.0-beta.3.vorteo.554 - 2026-10-15
+
+### Maintenance
+
+- Combine shared lifecycle admission with independently pinned repeated repair admissions and reviewed historical runner support. Preserve both source histories and exact approval boundaries.
+- Keep Factory recovery artifacts unchanged. This source composition does not admit a repair runtime, dispatch recovery or release publication holds.
+
+## 0.11.0-beta.3.vorteo.553 - 2026-10-15
+
+### Fixed
+
+- Admit the separately reviewed newer claimed runner by exact source, module and ownership-helper digests, preserving the previous runner pins.
+- Keep unknown sources and altered runner bytes rejected. Recovery still requires full artifact, native identity, selected-service and retained-history verification plus its own visible approval.
+- Verify both fencing orderings against the installed journal in disposable storage. Installed recovery acceptance remains open.
+
+## 0.11.0-beta.3.vorteo.552 - 2026-10-15
+
+### Maintenance
+
+- Combine repeated repair admission with completed-history target selection and partial Host publication receipts, preserving both source histories.
+- Keep independent repair delivery and installed acceptance open. This source integration does not dispatch recovery or restart services.
+
+## 0.11.0-beta.3.vorteo.552 - 2026-10-15
+
+### Fixed
+
+- Serialize daemon lifecycle admission and coordinator claims through the existing protected journal lock. Active installation work blocks a new claim or promotion; an unresolved coordinator execution blocks new installation work.
+- Preserve cancellation, interrupted-operation receipts and completed hold release. Owner review reports the recovery blocker without dispatching a restart. Tests cover both admission orders, legacy overlap, shared locking and the real HTTP response.
+- Use canonical private fixture state for the stricter shared journal reader. Deployment requires compatible queue and bootstrap readers together; existing live recovery remains separately owned.
+
+## 0.11.0-beta.3.vorteo.551 - 2026-10-15
+
+### Fixed
+
+- Exclude completed claimed recoveries from active target selection while retaining full terminal-history verification. A completed historical recovery no longer competes with the current claim during Host recovery initialization.
+- Test target selection, forged completion evidence and competing claims. This correction is prepared source; managed delivery and installed recovery acceptance remain open.
+
+## 0.11.0-beta.3.vorteo.550 - 2026-10-15
+
+### Fixed
+
+- Persist Host daemon readiness before publishing the interface, and retain a separate interface-failure receipt with the prepared export path. A partial update no longer leaves its only phase receipt at activation intent.
+- Keep errors explicit when readiness or publication-result storage fails after a verified restart. Test publication failure, unavailable receipt storage and refusal to replay; installed acceptance remains open.
+
+## 0.11.0-beta.3.vorteo.550 - 2026-10-15
+
+### Fixed
+
+- Allow separately pinned repair admissions for later coordinator incidents while preserving earlier immutable receipts and plans.
+- Resolve the proposal, controller and admitted runtime through the same digest-addressed directory. Invalid new records cannot fall back to historical authority.
+- Verify owner authentication, legacy receipt preservation and refusal of altered or unsafe admission paths. Controller startup, installed routing and live recovery acceptance remain open.
+
+## 0.11.0-beta.3.vorteo.549 - 2026-10-15
+
+### Maintenance
+
+- Combine installation reliability with the prepared sidebar, queue, replica cache, managed Claude CLI and toolbar source histories.
+- Preserve the pinned provider dependency and both documentation inventories while advancing shared package versions. Source integration does not publish assets, install services or release the maintenance hold.
+
+## 0.11.0-beta.3.vorteo.548 - 2026-10-15
+
+### Fixed
+
+- Recover an exact previous coordinator that starts after reboot, using fresh native identity and the approved compatible rollback. Freeze that writer before preserving journals and verify its exit before replacement.
+- Refuse unrelated processes or stale boot identities. Resume the same verified writer when a busy journal prevents preservation, retaining the exhausted rollback budget and recovery requirement.
+- Extend native adapter tests for successful recovery and refusal paths. Installed reboot acceptance and delivery remain open.
+
+## 0.11.0-beta.3.vorteo.547 - 2026-10-15
+
+### Maintenance
+
+- Exercise Host activation after the published interface changes during the preparation window. Verify refusal before selection, restart or activation intent.
+- Verify that a failed activation receipt prevents another restart through the same prepared update. Runtime behavior is unchanged; managed delivery and installed acceptance remain open.
+
+## 0.11.0-beta.3.vorteo.546 - 2026-10-15
+
+### Added
+
+- Retain private coordinator runner phase evidence for renewal validation, ownership checks and watchdog readiness, with separate files for each attempt and bounded event history.
+- Preserve the first failure category without exception text or stacks. Keep diagnostics outside lifecycle authority and allow recovery to continue when diagnostic storage fails.
+- Test interrupted runners, pending validation, bounded records and unavailable storage. Document diagnostic limits; installed acceptance and delivery remain open.
+
+## 0.11.0-beta.3.vorteo.545 - 2026-10-15
+
+### Added
+
+- Add scoped coordinator preparation and status commands with exact retained IDs, explicit owner-review support and coordinator review links. Lost replies can be inspected without contacting the Host daemon or exposing protected plans and credentials.
+- Report connected Host maintenance capabilities and block new routine preparation while a retained operation is unfinished. Preserve exact manually reviewed recovery and recognize completed recovery ancestry. Keep authorization separate from runtime readiness and refuse unsupported automatic submission without a manual retry.
+- Document the scoped workflow and validate HTTP status, CLI submission and capability negotiation. Installed acceptance and delivery remain open.
+
+## 0.11.0-beta.3.vorteo.544 - 2026-10-15
+
+### Fixed
+
+- Negotiate retained startup plans in preclaim and claimed coordinator recovery reviews. Older clients can read projected requests and cancel, but cannot approve hidden startup evidence.
+- Refuse preparation against Hosts that cannot review a retained startup plan. Show the original recovery service and pinned launcher details without implying permission to repeat the original update.
+- Validate recovery transport, client negotiation and desktop and phone review controls. Installed acceptance and delivery remain open.
+
+## 0.11.0-beta.3.vorteo.543 - 2026-10-15
+
+### Fixed
+
+- Report automatic Host requester authority separately for each daemon target. The legacy aggregate no longer implies that both daemons allow automation when only one permission is enabled.
+- Verify separate permissions against tracked request decisions and preserve manual approval for Dev requesters. This source checkpoint does not deploy the changes.
+
+## 0.11.0-beta.3.vorteo.542 - 2026-10-15
+
+### Maintenance
+
+- Add a negotiated public coordinator authorization view without private credential bindings or retry records. Older clients retain their existing response shape.
+- Show automatic checks, retry exhaustion, cancellation timing and unconfirmed launches in Installation controls. Waiting automatic requests no longer imply owner approval is needed; execution receipts take precedence over inferred status.
+- Keep cancellation accessible on desktop and phone layouts, and replace contradictory elapsed-time labels for automatic requests. Verify protocol negotiation, status transitions and rendered layouts.
+- Scoped client commands, remaining recovery compatibility checks and installed acceptance remain unfinished. No runtime delivery is included in this source checkpoint.
+
+## 0.11.0-beta.3.vorteo.541 - 2026-10-15
+
+### Maintenance
+
+- Connect automatic coordinator reconciliation to the existing maintenance tick, with one native call in flight and durable limits of three attempts per approval or dispatch phase.
+- Preserve retry counts across coordinator restarts, the cancellation interval before dispatch, and the one-launch reservation. Late replies cannot overwrite newer approval or execution receipts.
+- Omit private authorization and retry state from nested recovery responses as well as the main request list, preserving older review clients.
+- Verify retry exhaustion, lost connections, phase changes and response compatibility. Public authorization status, scoped client commands and installed acceptance remain unfinished; automatic coordinator readiness is not advertised.
+
+## 0.11.0-beta.3.vorteo.540 - 2026-10-15
+
+### Maintenance
+
+- Add scoped coordinator submission through the existing authenticated Host connection. Host requests can carry an exact protected proof when the separate coordinator permission is enabled; Dev requests and explicit owner-review requests remain manual.
+- Return only the submitted request's review receipt. Unsupported authenticated submission fails without retrying as manual, and the Host connection closes after either success or failure.
+- Add requester, proof, receipt and HTTP authentication tests. Automatic dispatch scheduling, public authorization status, scoped client commands and installed acceptance remain unfinished; coordinator automation is not advertised as ready.
+
+## 0.11.0-beta.3.vorteo.539 - 2026-10-15
+
+### Maintenance
+
+- Reconcile coordinator automatic grants against the protected request ledger before acknowledging permission changes and during the existing maintenance tick. Credential rotation cancels stale queued grants without launching a replacement.
+- Keep coordinator observation and revocation separate from native Host preparation, approval and dispatch. Refuse a changed installation, service or state directory.
+- Verify credential revocation and HTTP failure handling. Automatic submission, dispatch scheduling, public status and installed acceptance remain unfinished.
+
+## 0.11.0-beta.3.vorteo.538 - 2026-10-15
+
+### Maintenance
+
+- Record authenticated coordinator provenance atomically with preparation. Remove the later stamping operation so retries cannot convert an existing manual request to automatic authority.
+- Bind scoped submission proofs to the exact request, reason, plan, policy activation and installation credentials. The native Host verifies the proof and current permission before committing preparation; generic daemon sessions cannot mint that authority.
+- Retain a private monotonic preference timestamp so rapid disable and re-enable cannot revive an earlier activation. Public preference responses remain unchanged.
+- Add proof, revocation, idempotency and client capability tests. The scoped HTTP route, timer integration, public authorization status and installed acceptance remain unfinished.
+
+## 0.11.0-beta.3.vorteo.537 - 2026-10-15
+
+### Maintenance
+
+- Connect the internal coordinator reconciliation operation through a capability-gated Host RPC and client method. It accepts only an existing request identity, requires daemon-management access and cannot mint Host provenance or accept caller-supplied authority.
+- Preserve old review responses by withholding internal authorization metadata. Focused tests cover unsupported Hosts, message correlation, permission refusal and attempts to reconcile an unauthenticated request.
+- This transport step does not enable automatic coordinator submission. The scoped HTTP route, public authorization status, timer integration and installed acceptance remain unfinished.
+
+## 0.11.0-beta.3.vorteo.536 - 2026-10-15
+
+### Maintenance
+
+- Reserve automatic coordinator dispatch in the protected request ledger before launching its executor. Lost replies cannot reserve another launch, and cancellation or permission revocation still prevents an undispatched native claim.
+- Add internal automatic reconciliation to the existing Host maintenance service, preserving candidate validation and the manual approval path. Keep it unavailable during maintenance initialization or recovery refresh.
+- Extend reservation and compatibility tests, and resolve Host test scripts relative to the test module so focused runs work from isolated worktrees. Scoped submission, public authorization status, timer integration and installed acceptance remain unfinished; automatic coordinator maintenance is not advertised.
+
+## 0.11.0-beta.3.vorteo.535 - 2026-10-15
+
+### Fixed
+
+- Bind renewal startup recovery to the prepared setup before approval, then resolve the exact retained execution snapshot from its generation. The previous path comparison required the plan to pin a snapshot containing its own future approval revision and digest.
+- Verify the prepared bytes, snapshot digest, approval identity and generation before recovery. Changed setup, substituted snapshots and mismatched generations are refused. Installed reboot acceptance remains open.
+
+## 0.11.0-beta.3.vorteo.534 - 2026-10-15
+
+### Maintenance
+
+- Add protected coordinator authorization records bound to the current permission and installation credentials. Automatic approval requires compatible independent recovery, retains a thirty-second cancellation interval, and rechecks authority before claim.
+- Preserve manual review and hide internal authorization metadata from older review clients. Tests cover cancellation during validation, revocation, credential changes and refusal of configuration or other service changes.
+- This is an internal authorization foundation. Authenticated submission, managed automatic dispatch and installed acceptance remain unfinished; no new capability is advertised. Renewal startup recovery also needs its prepared setup and execution snapshot reconciled before delivery.
+
+## 0.11.0-beta.3.vorteo.533 - 2026-10-15
+
+### Changed
+
+- Connect the separate supervisor permission to tracked Host maintenance requests. Bind automatic decisions to the configured plan, retain the cancellation interval, recheck plan and credential revocation before dispatch, and preserve explicit manual review.
+- Fence automatic Dev maintenance after an uncertain supervisor result until a manually reviewed recovery succeeds. Retain the failed receipt and its recovery link across queue restarts.
+- Report supervisor readiness and authority separately from daemon permissions, and support explicit manual supervisor requests in the scoped client.
+
+### Maintenance
+
+- Extend queue and HTTP tests for supervisor opt-in, revocation, plan changes, failed-operation recovery and legacy boundaries. Coordinator automatic authorization and installed acceptance remain open.
+
+## 0.11.0-beta.3.vorteo.532 - 2026-10-15
+
+### Fixed
+
+- Allow read-only inspection of request-specific recovery services while retaining the Host account boundary. Startup registration previously used a label the inspector rejected.
+- Resolve Apple's system-selected Python executable before verifying recovery startup. The launcher rewrites the executable and first process argument, so comparing against the wrapper path rejected valid startup.
+
+### Maintenance
+
+- Verify recovery-label refusal boundaries and actual interpreter identity in focused native tests. A disposable launchd job also passed identity checks and was removed; installed reboot recovery and automatic controller authorization remain open.
+
+## 0.11.0-beta.3.vorteo.531 - 2026-10-15
+
+### Fixed
+
+- Recover an approved coordinator replacement after reboot when launchd retains the exact previous job without a process. Verify its loaded arguments and selected launcher before preserving idle state and unloading it; busy state, unrelated jobs and a job starting during observation refuse recovery.
+
+### Maintenance
+
+- Extend focused recovery coverage for retained stopped jobs. Native startup acceptance, automatic controller authorization and managed delivery remain open.
+
+## 0.11.0-beta.3.vorteo.530 - 2026-10-14
+
+### Changed
+
+- Give startup recovery three persisted read-only dependency observations with five, fifteen and forty-five second delays. Require an approved, unchanged recovery generation before observing; exhausting the budget never retries a lifecycle operation.
+- Retain startup diagnostics in a private request-specific log selected by the approved launcher.
+
+### Maintenance
+
+- Verify dependency readiness, exhaustion across observer restarts, and unchanged executor-exit observation behavior. Native startup-service acceptance and automatic controller authorization remain open.
+
+## 0.11.0-beta.3.vorteo.529 - 2026-10-14
+
+### Fixed
+
+- Recognize an already completed coordinator rollback after its terminal receipt was lost. Verify the exact recovery runtime and launcher without repeating a lifecycle action or resetting its attempt budget.
+- Preserve coordinator state after reboot when native boot identity proves the former writer ended and service absence excludes a replacement writer. Refuse busy, malformed or changed state.
+
+### Maintenance
+
+- Cover lost rollback receipts, changed observation ownership, reboot before and after preservation, and state refusal with focused watchdog and native adapter tests.
+- Real startup-service acceptance, remaining boot interruptions, automatic controller authorization and managed delivery remain open.
+
+## 0.11.0-beta.3.vorteo.528 - 2026-10-14
+
+### Changed
+
+- Bind optional coordinator startup recovery to the exact reviewed request, protected runner and startup configuration. Register it within the tracked execution fence before freezing the coordinator.
+- Retain registration intent, reject repeated registration after an uncertain result, and remove only exact completed startup hooks.
+- Distinguish native boot identity during recovery, refuse signals to pre-reboot PIDs, and preserve the one-rollback limit.
+- Negotiate startup recovery review with compatible clients. Preserve older clients' cancellation without allowing approval of hidden startup settings.
+
+### Maintenance
+
+- Verify recovery identity, request binding, legacy review, registration failure, cleanup and client negotiation with focused tests.
+- Native startup acceptance, early interruption recovery, completed rollback reconciliation and automatic controller execution remain open. Recovery begins after account login; this checkpoint does not claim pre-login recovery or deployed behavior.
+
+## 0.11.0-beta.3.vorteo.527 - 2026-10-14
+
+### Changed
+
+- Separate Host, Dev, coordinator and supervisor maintenance permissions, with accessible explanations and independent readiness messages.
+- Restrict automatic authorization to authenticated Host requests. Keep Dev and mixed-origin batches manual, revoke retained Dev grants, and preserve unaffected daemon permissions when one is disabled.
+- Preserve existing daemon permissions during migration and leave new controller permissions off. Keep legacy preference responses readable by older clients.
+- Verify an already completed coordinator replacement after executor failure before considering recovery; reject changed dispatch ownership during observation.
+
+### Maintenance
+
+- Verify permission isolation, owner authentication, stale edits, revocation, desktop and phone tooltip access, and persistence across browser reload.
+- Automatic coordinator and supervisor execution, independent reboot recovery and installed acceptance remain unfinished. This checkpoint is prepared source, not a deployment.
+
+## 0.11.0-beta.3.vorteo.526 - 2026-10-14
+
+### Changed
+
+- Show maintenance authority and readiness for every Host and Dev requester/target path, including unsupported coordinator behavior and distinct executor cleanup status.
+- Bind automatic grants to policy and credential revisions, preserve a cancellation interval across queue recovery, and prepare approved source before holding turns.
+- Retain durable preparation and activation receipts, refuse changed installed sources and repeated activation, and use atomic idle admission for automatic updates.
+- Retain bounded coordinator failure diagnostics and a persisted three-attempt exit-observation budget; allow up to two minutes for replacement readiness.
+
+### Maintenance
+
+- Add queue cancellation, credential rotation, interrupted preparation and recovery tests; verify preference persistence and revocation in desktop and phone browser fixtures.
+- Document readiness, operator actions and rollout limits. Reboot-persistent recovery and live installation acceptance remain unfinished; these changes are source preparation only.
+
+## 0.11.0-beta.3.vorteo.530 - 2026-10-15
+
+### Fixed
+
+- Match GitHub and Commit toolbar controls to the adjacent 40px controls, with aligned centers, rounded hover backgrounds and no solid borders or split divider.
+
+## 0.11.0-beta.3.vorteo.529 - 2026-10-14
+
+### Maintenance
+
+- Integrate the accepted managed Claude CLI contribution with the current interface, independent queue controls and replica cache changes, preserving all source histories and release notes.
+- Keep source integration separate from installed package, account and profile acceptance; no runtime or credential change is included.
+
+## 0.11.0-beta.3.vorteo.528 - 2026-10-14
+
+### Maintenance
+
+- Integrate the reviewed replica cache write deduplication and reconnect test maintenance while preserving canonical sidebar sizing, independent queue controls and all source histories.
+- Retain unchanged-refresh eviction priority and recovery tails; ordinary streaming cache budgets and responsive resize costs remain unresolved.
+
+## 0.11.0-beta.3.vorteo.527 - 2026-10-14
+
+### Maintenance
+
+- Reconcile the published sidebar card sizing and queue independence source histories while preserving both implementations and all release notes. Runtime activation remains a separate delivery step.
+
+## 0.11.0-beta.3.vorteo.526 - 2026-10-15
+
+### Fixed
+
+- Keep message-queue delivery independent from manual Stop: stopping a goal leaves an active queue running and preserves an explicitly paused queue.
+- Revoke automatic goal resumption on Stop without changing queued messages, including when the provider cannot confirm the goal pause.
+
+## 0.11.0-beta.3.vorteo.526 - 2026-10-14
+
+### Fixed
+
+- Let Files and other embedded sidebar panels use the available card height instead of a fixed 360px body.
+- Keep single-line grid buttons exactly as tall as full-width accordion headers by sharing the parent grid inset. Wrapped icon and count buttons can still grow taller.
+- Check header heights and full-height Files allocation in the browser at three sidebar widths.
+
+## 0.11.0-beta.3.vorteo.526 - 2026-10-14
+
+### Fixed
+
+- Select the release-pinned Claude Code 2.1.284 package for managed default and appended commands, including daemon queries and coordinator login construction.
+- Refuse missing, mismatched or substituted package payloads without falling back to PATH. Preserve standalone launches and explicit replacement commands.
+
+### Maintenance
+
+- Reconcile the accepted Claude contribution with current installed source and interface ancestry, retaining package exports and current workspace versions. Installed account and profile acceptance remains open.
+
 ## 0.11.0-beta.3.vorteo.525 - 2026-10-15
 
 ### Maintenance
@@ -17,6 +404,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Integrate coordinator recovery corrections with the current published interface, preserving both histories and existing theme behavior.
 - Keep Host installation and coordinator replacement separately reviewed through tracked controls.
+
+## 0.11.0-beta.3.vorteo.524 - 2026-10-14
+
+### Fixed
+
+- Skip identical replica cache storage writes while preserving refresh recency, cross-host eviction priority, baseline replacement and timeline recovery tails.
+
+### Maintenance
+
+- Cover separate and shared persistence batches, unchanged baseline survivors after reload and mixed deletions in cache regressions.
+- Match browser reconnect assertions to the existing Reconnecting host label. Ordinary streaming write budgets and responsive resize costs remain unresolved.
 
 ## 0.11.0-beta.3.vorteo.523 - 2026-10-14
 

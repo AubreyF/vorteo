@@ -218,7 +218,32 @@ const supportedFiles: Record<string, string> = {
     "4df4afc14d13c95c639f4f68cfcf52a7ce06b27fb65b32cfe83a62c68e243df3",
   "coordinator-bootstrap.js": "3a5bca2374f52c9152ef4a8af8d54b006177c72bb08896191d1772950e711847",
 };
-const supportedOwnerSha256 = "14ea30b57eac8802979b9e4d194e6efb2e943dc46ba40fec50ff0894efb29439";
+interface SupportedClaimedRunner {
+  files: Readonly<Record<string, string>>;
+  ownerSha256: string;
+}
+
+// The later runner retains promotion under the same journal lock. Its added
+// recovery fence rejects promotion in both orderings; ordinary executor and
+// watchdog ownership still use the same inherited execution-lock descriptor.
+const supportedRunners: Readonly<Record<string, SupportedClaimedRunner>> = {
+  [supportedSource]: {
+    files: supportedFiles,
+    ownerSha256: "14ea30b57eac8802979b9e4d194e6efb2e943dc46ba40fec50ff0894efb29439",
+  },
+  "1bc87b11e3e6f42970d314b0319d4393d09d0d09": {
+    files: {
+      ...supportedFiles,
+      "coordinator-bootstrap-runner.js":
+        "5272355d819d71b2181cb77e90c1039ad57f4da60052a8aa06debac28dff0065",
+      "coordinator-bootstrap-executor.js":
+        "09547d55e884e3216d2eba7c7ebb91443f0d39c05391e6868d29f785b2a015a4",
+      "coordinator-bootstrap-journal.js":
+        "f5d7730501cb5d63655e21e3d05f61552a1561c51be363ba825cf63bfbda4744",
+    },
+    ownerSha256: "e82bf14c5cdad3d7f7bfaff2413923280c82cc3e173d291616695113224ef309",
+  },
+};
 
 export async function verifySupportedClaimedRunner(input: {
   plan: BootstrapClaimedRecoveryPlan;
@@ -232,13 +257,14 @@ export async function verifySupportedClaimedRunner(input: {
   writableMountRoots: readonly string[];
 }): Promise<void> {
   const plan = validateClaimedRecoveryPlan(input.plan);
-  if (plan.runner.sourceCommit !== supportedSource)
+  const supported = supportedRunners[plan.runner.sourceCommit];
+  if (!supported)
     throw new BootstrapRequestConflict("Target runner is not supported for claimed recovery");
   const directory = path.join(
     plan.runner.directory,
     "packages/server/dist/server/server/execution-installation",
   );
-  for (const [name, sha256] of Object.entries(supportedFiles))
+  for (const [name, sha256] of Object.entries(supported.files))
     await readBootstrapPreparedFile(
       { path: path.join(directory, name), sha256 },
       input.writableMountRoots,
@@ -246,7 +272,7 @@ export async function verifySupportedClaimedRunner(input: {
   if (
     !isDeepStrictEqual(plan.ownerLauncher, {
       path: path.join(plan.runner.directory, "scripts/run-coordinator-owner.py"),
-      sha256: supportedOwnerSha256,
+      sha256: supported.ownerSha256,
     })
   )
     throw new BootstrapRequestConflict("Target runner ownership launcher is not supported");

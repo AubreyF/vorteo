@@ -22,9 +22,13 @@ import {
   type CoordinatorBootstrapRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { writePrivateFileAtomicSync } from "../private-files.js";
+import { parseLifecycleJournal, type LifecycleJob } from "./lifecycle-journal.js";
 import {
   BootstrapRequestConflict,
   assertRecoveredBootstrapBase,
+  assertCoordinatorLifecycleIdle,
+  coordinatorLifecycleWork,
+  openBootstrapRequests,
   coordinatorPlanDigest,
   type BootstrapRequestJournal,
 } from "./coordinator-bootstrap.js";
@@ -88,7 +92,7 @@ export function validateClaimFence(value: unknown): z.infer<typeof ClaimFenceSch
   return record;
 }
 
-/** Owns only bootstrap requests, never the coordinator's restart journal. */
+/** Serializes bootstrap claims and lifecycle admission through one protected lock. */
 export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
   private readonly file: string;
   private readonly lock: string;
@@ -248,8 +252,51 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
     }
   }
 
+  readLifecycle(): LifecycleJob[] {
+    return parseLifecycleJournal(
+      this.readFile(path.join(this.directory, "restart-jobs.json")) ?? [],
+    );
+  }
+
+  private hasCoordinatorExecution(): boolean {
+    return openBootstrapRequests(this.read()).some((request) => request.execution !== undefined);
+  }
+
+  lifecycleAdmissionAvailable(): boolean {
+    return this.withLock(() => !this.hasCoordinatorExecution());
+  }
+
+  writeLifecycle(value: LifecycleJob[]): void {
+    this.withLock(() => {
+      const next = parseLifecycleJournal(value);
+      if (this.hasCoordinatorExecution()) {
+        const retained = coordinatorLifecycleWork(this.readLifecycle());
+        // Cancellation and completion may remove existing obligations. They must
+        // not start or advance another effect while coordinator recovery owns admission.
+        const added = coordinatorLifecycleWork(next).some(
+          (job) =>
+            !retained.some((previous) => {
+              if (isDeepStrictEqual(previous, job)) return true;
+              if (!["rejected", "failed", "succeeded"].includes(job.status)) return false;
+              // The queue must retain cancellation and interrupted-operation
+              // receipts, including helper recovery fences. These cannot dispatch.
+              return previous.id === job.id && previous.target === job.target;
+            }),
+        );
+        if (added)
+          throw new BootstrapRequestConflict(
+            "Coordinator recovery must finish before installation work",
+          );
+      }
+      this.write(path.join(this.directory, "restart-jobs.json"), next);
+    });
+  }
+
   promote(request: CoordinatorBootstrapRequest): void {
     this.withLock(() => {
+      assertCoordinatorLifecycleIdle(
+        this.readFile(path.join(this.directory, "restart-jobs.json")) ?? [],
+      );
       const { main, pending } = this.snapshots();
       const retained = main.requests.find((record) => record.id === request.id);
       const intent = pending.promotions.find((record) => record.id === request.id);
@@ -431,6 +478,12 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
       throw new BootstrapRequestConflict("Bootstrap request changed. Refresh its review.");
     const { main, pending } = this.snapshots();
     const parsed = RecordsSchema.parse({ version: 1, requests: next });
+    const startsClaim = parsed.requests.some(
+      (record) =>
+        record.execution?.stage === "claimed" &&
+        !expected.find((previous) => previous.id === record.id)?.execution,
+    );
+    if (startsClaim) assertCoordinatorLifecycleIdle(this.readLifecycle());
     const mainIds = new Set(main.requests.map((record) => record.id));
     for (const intent of pending.promotions) {
       if (!mainIds.has(intent.id))

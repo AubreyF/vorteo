@@ -1,4 +1,4 @@
-import { FLOATING_PANEL_RADIUS, FLOATING_PANEL_CONTROL_HEIGHT } from "@/styles/floating-panel";
+import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -299,17 +299,16 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   splitButton: {
-    height: FLOATING_PANEL_CONTROL_HEIGHT,
+    height: 40,
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "stretch",
     borderRadius: FLOATING_PANEL_RADIUS,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
     overflow: "hidden",
   },
   splitButtonPrimary: {
-    minHeight: FLOATING_PANEL_CONTROL_HEIGHT - 2,
+    minHeight: 40,
+    borderRadius: FLOATING_PANEL_RADIUS,
     flexShrink: 0,
     paddingHorizontal: theme.spacing[3],
     justifyContent: "center",
@@ -328,9 +327,7 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
     gap: theme.spacing[1],
-    borderRadius: theme.borderRadius.md,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
+    borderRadius: FLOATING_PANEL_RADIUS,
   },
   splitButtonPrimaryDisabled: {
     opacity: 0.6,
@@ -354,11 +351,10 @@ const styles = StyleSheet.create((theme) => ({
     transform: [{ scale: 0.8 }],
   },
   splitButtonCaret: {
-    width: FLOATING_PANEL_CONTROL_HEIGHT,
+    width: 40,
     alignItems: "center",
     justifyContent: "center",
-    borderLeftWidth: theme.borderWidth[1],
-    borderLeftColor: theme.colors.borderAccent,
+    borderRadius: FLOATING_PANEL_RADIUS,
   },
   iconButton: {
     width: {
@@ -371,7 +367,7 @@ const styles = StyleSheet.create((theme) => ({
     },
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: theme.borderRadius.md,
+    borderRadius: FLOATING_PANEL_RADIUS,
   },
   overflowMenuButton: {
     marginRight: -theme.spacing[2],

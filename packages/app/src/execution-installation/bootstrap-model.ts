@@ -1,5 +1,5 @@
 import type {
-  CoordinatorBootstrapRequest,
+  CoordinatorBootstrapRequestView as CoordinatorBootstrapRequest,
   CoordinatorBootstrapDecision,
   CoordinatorBootstrapStage,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
@@ -268,8 +268,56 @@ const stageLabels: Record<CoordinatorBootstrapStage, string> = {
 export function bootstrapStatus(request: CoordinatorBootstrapRequest): string {
   if (request.execution) return stageLabels[request.execution.stage];
   if (request.status === "canceled") return "Canceled";
+  if (request.automaticStatus) return automaticLabels[request.automaticStatus.state];
   if (request.status === "approved") return "Approved; awaiting dispatch";
   return "Approval needed";
+}
+
+const automaticLabels = {
+  waiting: "Automatic validation queued",
+  checking: "Automatic check awaiting confirmation",
+  "retry-wait": "Automatic check will retry",
+  "review-required": "Automatic checks stopped; review required",
+  "cancellation-window": "Automatically approved; cancellation available",
+  "dispatch-ready": "Automatically approved; awaiting dispatch",
+  "launch-unconfirmed": "Launch unconfirmed; recovery review required",
+  "owner-approved": "Owner approved; awaiting dispatch",
+  execution: "Executing coordinator maintenance",
+  canceled: "Canceled",
+};
+
+export function bootstrapAutomaticDetail(request: CoordinatorBootstrapRequest): string | null {
+  const status = request.automaticStatus;
+  if (!status) return null;
+  if (status.state === "canceled")
+    return "This automatic request was canceled. It will not dispatch.";
+  if (status.state === "execution")
+    return status.authorization === "owner"
+      ? "The owner approved this operation. Follow its execution status above."
+      : "Your Host permission authorized this operation. Follow its execution status above.";
+  if (status.state === "launch-unconfirmed")
+    return "A launch was reserved, but execution is not confirmed. It will not launch again automatically. Inspect the retained request before recovery.";
+  if (status.state === "review-required")
+    return "Three checks ended without confirmation. Automatic retries have stopped. Review this request or cancel it before preparing a correction.";
+  if (status.state === "cancellation-window" && status.dispatchAfter)
+    return `Your Host permission authorized this request. Dispatch cannot begin before ${new Date(status.dispatchAfter).toLocaleTimeString()}. You can cancel before dispatch.`;
+  if (status.state === "checking" && status.attempt)
+    return `Automatic check ${status.attempt} of 3 has no confirmed result yet. A connection loss does not authorize another launch.`;
+  if (status.state === "retry-wait" && status.nextCheckAt && status.attempt)
+    return `Check ${status.attempt} of 3 was not confirmed. Another check is eligible after ${new Date(status.nextCheckAt).toLocaleTimeString()}. You can cancel before dispatch.`;
+  if (status.authorization === "owner") return "The owner explicitly approved this request.";
+  return "This request uses your separate Host-only coordinator permission. Cancellation remains available until dispatch is claimed.";
+}
+
+export function bootstrapRequiresOwnerAction(request: CoordinatorBootstrapRequest): boolean {
+  if (request.execution) return request.execution.stage === "recovery_required";
+  if (request.status === "canceled") return false;
+  if (request.automaticStatus)
+    return (
+      request.automaticStatus.state === "review-required" ||
+      request.automaticStatus.state === "launch-unconfirmed"
+    );
+  return request.status === "pending";
 }
 export function bootstrapNeedsAttention(request: CoordinatorBootstrapRequest): boolean {
   if (request.status === "canceled") return false;
@@ -306,7 +354,7 @@ export function preclaimRecoveryStatus(request: BootstrapRecoveryRequest): strin
     claim_fenced: "Original operation cannot dispatch",
     effect_pending: "Stopping the reviewed executor",
     verifying: "Verifying exit and preserved selection",
-    succeeded: "Recovery verified",
+    succeeded: "Executor cleanup verified",
     recovery_required: "Outcome requires inspection",
     aborted_before_effects: "Stopped before effects",
   };

@@ -1,5 +1,13 @@
 import { DaemonAutomation } from "./daemon-automation.js";
-import { parseLifecycleJournal } from "./lifecycle-journal.js";
+import { FileEnrollmentJournal } from "./maintenance/authorization.js";
+import { projectEnrollmentStatus } from "./maintenance/status.js";
+import {
+  coordinatorAutomaticStatus,
+  BootstrapRequestConflict,
+  openBootstrapRequests,
+  type BootstrapReconciliationLedger,
+} from "./coordinator-bootstrap.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import {
@@ -18,26 +26,38 @@ import { ProfileSharingConflict } from "./profiles/merge.js";
 import { ProviderPreferencesValidationError } from "../agent/provider-preferences/validation.js";
 import type { InstallationProfiles } from "./profiles/service.js";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, mkdirSync, openSync, fsyncSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { Logger } from "pino";
 import { z } from "zod";
 import {
   DaemonAutomationChangeSchema,
+  type InstallationMaintenanceStatus,
   SourceUpdateSchema,
   type RestartJob,
+  type RestartImpact,
   type SourceContribution,
   RestartRequestSchema,
   RestartDecisionSchema,
   InstallationProfilesPatchSchema,
 } from "@getpaseo/protocol/execution-installation";
 import { extractHttpBearerToken, isBearerTokenValidAsync } from "../auth.js";
-import { writePrivateFileAtomicSync } from "../private-files.js";
 import { createWebUiMiddleware } from "../web-ui.js";
-import { InstallationRestarts, RestartRequestError, type RestartExecutor } from "./restarts.js";
+import {
+  InstallationRestarts,
+  RestartRequestError,
+  supportsAutomaticMaintenance,
+  type RestartExecutor,
+} from "./restarts.js";
 import type { InstallationConfig } from "./config.js";
-import { connectInstallationDaemon } from "./daemon.js";
+import {
+  connectInstallationDaemon,
+  submitInstallationCoordinator,
+  reconcileInstallationCoordinator,
+  inspectInstallationCoordinator,
+} from "./daemon.js";
+import { CoordinatorBootstrapPreparationSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import { delegateToContainer, DelegationRequestSchema } from "./delegation.js";
 import {
   InstallationSettingsUpdateSchema,
@@ -131,7 +151,14 @@ function restartReply(
   requireOwnerApproval?: boolean,
 ) {
   // Captures are retained in the protected journal, not sent to legacy strict clients.
-  const { devRepairs: _devRepairs, ...publicJob } = job;
+  const {
+    updatePreparation: _preparation,
+    devRepairs: _devRepairs,
+    automaticAuthority: _authority,
+    supervisorRecoveredBy: _supervisorRecovery,
+    automaticDispatchAfter: _dispatchAfter,
+    ...publicJob
+  } = job;
   job = ownerApprovalReply(publicJob, requireOwnerApproval);
   job = factoryAdoptionReply(job, factoryRuntimeAdoption);
   if (!hostAutomaticRestarts) {
@@ -232,9 +259,10 @@ export function createInstallationServer(
     resolveInstallationPluginSource(config, input),
   claudeSetup?: ClaudeSetupRuntime,
   startupFence?: InstallationStartupFence,
+  coordinatorRequests?: BootstrapReconciliationLedger,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-  const journal = path.join(config.stateDir, "restart-jobs.json");
+  const journal = new FileBootstrapRequestJournal(config.stateDir);
   const updates = {
     host: config.sourceUpdates ? new InstallationSourceUpdates(config) : null,
     "container-daemon": config.containerSourceUpdates
@@ -256,32 +284,50 @@ export function createInstallationServer(
     captureDevRepair: (items) => forTarget("container-daemon").captureDevRepair(items),
     prepareDevRepair: (capture, items) =>
       forTarget("container-daemon").prepareDevRepair(capture, items),
-    installUpdate: (job) => forTarget(job.target).install(job, executor.restart),
+    prepareInstallation: (job) => forTarget(job.target).prepareInstallation(job),
+    installUpdate: (job) =>
+      forTarget(job.target).install(job, async (target) => {
+        if (!job.finishCurrentTurns) return executor.restart(target);
+        if (!executor.restartWhenIdle)
+          throw new RestartRequestError("Safe update admission is unavailable");
+        const detail = await executor.restartWhenIdle(target);
+        if (detail === null)
+          throw new RestartRequestError(
+            "Target admitted new work before replacement. No restart dispatched.",
+          );
+        return detail;
+      }),
   };
   const daemonAutomation = new DaemonAutomation(
     config.stateDir,
     Boolean(config.restartApprovalPolicy),
+    config.restartApprovalPolicy?.hostRequestsAfter,
   );
   const restarts = new InstallationRestarts(
     {
-      read: () =>
-        existsSync(journal) ? parseLifecycleJournal(JSON.parse(readFileSync(journal, "utf8"))) : [],
-      write: (jobs) => {
-        writePrivateFileAtomicSync(journal, JSON.stringify(jobs));
-        // Finish the receipt and directory rename before dispatching a disruption.
-        for (const target of [journal, config.stateDir]) {
-          const fd = openSync(target, "r");
-          try {
-            fsyncSync(fd);
-          } finally {
-            closeSync(fd);
-          }
-        }
-      },
+      read: () => journal.readLifecycle(),
+      write: (jobs) => journal.writeLifecycle(jobs),
+      admissionAvailable: () => journal.lifecycleAdmissionAvailable(),
     },
     restartExecutor,
     Date.now,
-    { ...config.restartApprovalPolicy, daemonRequestsAfter: () => daemonAutomation.activation() },
+    {
+      ...config.restartApprovalPolicy,
+      daemonRequestsAfter: (target) => daemonAutomation.activation(target),
+      supervisorRequestsAfter: () => daemonAutomation.activation("supervisor") ?? null,
+      cancellationDelayMs: 30_000,
+      authority: () =>
+        createHash("sha256")
+          .update(
+            JSON.stringify({
+              installation: config.public.installationId,
+              host: config.hostAgentTokenHash,
+              container: config.containerAgentTokenHash,
+              policy: "host-only-service-permissions-v2",
+            }),
+          )
+          .digest("hex"),
+    },
     { fenced: startupFence !== undefined },
   );
   const startupReleased = () => {
@@ -289,9 +335,20 @@ export function createInstallationServer(
     restarts.activate();
     return true;
   };
+  let coordinatorReconciliation: Promise<void> | null = null;
   const drainRestarts = async () => {
     try {
-      if (startupReleased()) await restarts.drain();
+      if (startupReleased()) {
+        coordinatorRequests?.revokeAutomatic();
+        await restarts.drain();
+        if (coordinatorRequests && !coordinatorReconciliation) {
+          coordinatorReconciliation = reconcileInstallationCoordinator(config, coordinatorRequests)
+            .catch(() => logger.warn("Automatic coordinator reconciliation remains unconfirmed"))
+            .finally(() => {
+              coordinatorReconciliation = null;
+            });
+        }
+      }
     } catch {
       logger.error("Installation restart journal or startup fence failed");
     }
@@ -390,6 +447,143 @@ export function createInstallationServer(
       };
     }
   }
+  function supervisorMaintenanceStatus(
+    impacts: RestartImpact[],
+  ): NonNullable<InstallationMaintenanceStatus["services"]>[number] {
+    const devImpact = impacts.find((item) => item.target === "container-daemon");
+    let supervisorBlocker = restarts.maintenanceBlocker("container-daemon");
+    if (!supervisorBlocker && (!executor.supervisorPlan?.() || !executor.restartSupervisor))
+      supervisorBlocker = "Prepare and validate the protected supervisor maintenance plan on Host.";
+    if (
+      !supervisorBlocker &&
+      (!supportsAutomaticMaintenance(executor) ||
+        !devImpact?.idleRestartSupported ||
+        devImpact.error)
+    )
+      supervisorBlocker = "Cannot verify safe Dev admission for supervisor maintenance.";
+    return {
+      service: "supervisor",
+      readiness: supervisorBlocker ? "blocked" : "ready",
+      reason:
+        supervisorBlocker ??
+        "The protected supervisor plan is available through the tracked queue. Only a separate supervisor permission can authorize it automatically.",
+    };
+  }
+  async function coordinatorCapability() {
+    const unavailable = { available: false, automaticAvailable: false };
+    if (!coordinatorRequests)
+      return {
+        ...unavailable,
+        reason: "Update the coordinator to expose its durable maintenance ledger.",
+      };
+    try {
+      const open = openBootstrapRequests(coordinatorRequests.list());
+      const awaitingRecovery =
+        open.length > 0 &&
+        open.every((request) => request.execution?.stage === "recovery_required");
+      if (open.length > 0 && !awaitingRecovery)
+        return {
+          ...unavailable,
+          reason: "Inspect the retained coordinator request before preparing another operation.",
+        };
+      const capability = await inspectInstallationCoordinator(config);
+      if (awaitingRecovery)
+        return {
+          ...capability,
+          automaticAvailable: false,
+          reason:
+            "Coordinator recovery requires an exact manually reviewed successor. Inspect the retained failure before preparing it.",
+        };
+      const reason = capability.automaticAvailable
+        ? "Tracked coordinator maintenance and independent recovery are available."
+        : "Update the Host to support authenticated coordinator submission and independent recovery.";
+      return { ...capability, reason };
+    } catch {
+      return {
+        ...unavailable,
+        reason:
+          "Coordinator ledger inspection failed. Inspect Installation controls before preparing maintenance.",
+      };
+    }
+  }
+  async function coordinatorMaintenanceStatus(): Promise<
+    NonNullable<InstallationMaintenanceStatus["services"]>[number]
+  > {
+    const capability = await coordinatorCapability();
+    return {
+      service: "coordinator",
+      readiness: capability.automaticAvailable ? "ready" : "blocked",
+      reason: capability.reason,
+    };
+  }
+  async function maintenanceStatus(): Promise<InstallationMaintenanceStatus> {
+    const preference = daemonAutomation.read();
+    const impacts = await restarts.impacts();
+    const paths: InstallationMaintenanceStatus["paths"] = [];
+    const executorReady = supportsAutomaticMaintenance(executor);
+    for (const target of ["host", "container-daemon"] as const) {
+      const sourceUpdate = await updateCapability(target);
+      const selectedSource = sourceUpdate.available ? forTarget(target).source().baseCommit : null;
+      const impact = impacts.find((item) => item.target === target);
+      const recoveryBlocker = restarts.maintenanceBlocker(target);
+      for (const requester of ["host-agent", "container-agent"] as const) {
+        const automatic =
+          requester === "host-agent" &&
+          Boolean(
+            daemonAutomation.activation(target) ??
+            (preference.legacyHostOnly ? config.restartApprovalPolicy?.hostRequestsAfter : null),
+          );
+        for (const operation of ["restart", "source-update"] as const) {
+          let blocker: string | null = null;
+          if (recoveryBlocker) blocker = recoveryBlocker;
+          else if (!executorReady)
+            blocker = "Update the coordinator to support safe maintenance admission.";
+          else if (!impact || impact.error || !impact.idleRestartSupported)
+            blocker =
+              "Cannot verify safe admission. Check the target daemon's connection and compatibility.";
+          else if (operation === "source-update" && !sourceUpdate.available)
+            blocker = "Repair the target source updater before submitting an update.";
+          const authorization = automatic ? "automatic" : "manual";
+          const readiness = blocker ? "blocked" : "ready";
+          const reason =
+            blocker ??
+            (automatic
+              ? "Fresh routine requests may be approved automatically. Current turns finish before dispatch."
+              : "An exact owner approval is required. Maintenance policy does not authorize this requester.");
+          paths.push({
+            requester,
+            target,
+            operation,
+            authorization,
+            readiness,
+            reason,
+            selectedSource,
+          });
+        }
+      }
+    }
+    const services: NonNullable<InstallationMaintenanceStatus["services"]> = [
+      "host",
+      "container-daemon",
+    ].map((target) => {
+      const entries = paths.filter(
+        (item) => item.target === target && item.requester === "host-agent",
+      );
+      const blocked = entries.find((item) => item.readiness === "blocked");
+      return {
+        service: target as "host" | "container-daemon",
+        readiness: blocked ? "blocked" : "ready",
+        reason:
+          blocked?.reason ??
+          "Routine updates and restarts are available through the tracked queue.",
+      };
+    });
+    services.push(await coordinatorMaintenanceStatus(), supervisorMaintenanceStatus(impacts));
+    return { version: 1, checkedAt: new Date().toISOString(), preference, paths, services };
+  }
+  app.get("/api/installation/maintenance-status", authenticateUpdate, (_req, res, next) => {
+    void maintenanceStatus().then((status) => res.json(status), next);
+  });
   app.get("/api/installation/capabilities", authenticateUpdate, (req, res, next) => {
     const host = matchesToken(
       extractHttpBearerToken(req.header("authorization")),
@@ -397,22 +591,22 @@ export function createInstallationServer(
     );
     const supervisorPlan = host ? executor.supervisorPlan?.() : undefined;
     const factoryRuntimePlan = host ? executor.factoryRuntimePlan?.() : undefined;
-    const activation = daemonAutomation.activation();
-    const policyEnabled =
-      activation === undefined ? config.restartApprovalPolicy?.hostRequestsAfter : activation;
+    const permissions = daemonAutomation.servicePermissions();
+    const automaticSupported = supportsAutomaticMaintenance(executor);
+    // COMPAT(hostAutomaticRestarts): per-target permissions added v543; retain
+    // the conservative aggregate until legacy capability clients retire after 2027-04-15.
     const automaticHost = Boolean(
-      policyEnabled &&
-      executor.inspect &&
-      executor.holdCurrentTurns &&
-      executor.releaseCurrentTurns &&
-      executor.restartWhenIdle,
+      permissions.host && permissions["container-daemon"] && automaticSupported,
     );
     void (async () => {
       const monitorCompatible = host ? ((await executor.monitorCompatible?.()) ?? false) : false;
+      const coordinator = await coordinatorCapability();
       return Promise.all(
         (["host", "container-daemon"] as const).map(async (target) => ({
           target,
           restart: true,
+          ownerApprovalRequired: !(host && permissions[target] && automaticSupported),
+          hostAutomaticRestarts: Boolean(permissions[target] && automaticSupported),
           sourceUpdate: await updateCapability(target),
         })),
       ).then(
@@ -420,9 +614,13 @@ export function createInstallationServer(
           res.json({
             version: 1,
             targets,
-            ownerApprovalRequired: !automaticHost || (!host && activation === undefined),
+            ownerApprovalRequired: !automaticHost || !host,
             hostAutomaticRestarts: automaticHost,
             requireOwnerApproval: host,
+            coordinatorMaintenance: {
+              ...coordinator,
+              ownerApprovalRequired: !(host && daemonAutomation.activation("coordinator")),
+            },
             previewMonitor: {
               available: Boolean(
                 host &&
@@ -443,6 +641,11 @@ export function createInstallationServer(
             },
             supervisorMaintenance: {
               available: Boolean(supervisorPlan && executor.restartSupervisor),
+              ownerApprovalRequired: !(
+                host &&
+                daemonAutomation.activation("supervisor") &&
+                supportsAutomaticMaintenance(executor)
+              ),
               ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
             },
             factoryRuntimeAdoption: {
@@ -786,6 +989,59 @@ export function createInstallationServer(
       .then((job) => res.status(201).json(job), next);
   });
 
+  app.get("/api/installation/coordinator-requests/:id", authenticateUpdate, (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    try {
+      if (!coordinatorRequests) throw new Error("Coordinator ledger unavailable");
+      const request = coordinatorRequests.list().find((item) => item.id === id);
+      if (!request) {
+        res.status(404).json({
+          error: "Coordinator request not found. Inspect Installation controls before retrying.",
+        });
+        return;
+      }
+      const approvalUrl = new URL("/settings/general", config.public.origin);
+      approvalUrl.searchParams.set("installation", "1");
+      approvalUrl.searchParams.set("bootstrap", id);
+      res.json({
+        id: request.id,
+        revision: request.revision,
+        status: request.status,
+        createdAt: request.createdAt,
+        decisionAt: request.decisionAt,
+        execution: request.execution,
+        automaticStatus: coordinatorAutomaticStatus(request, Date.now()),
+        approvalUrl: approvalUrl.toString(),
+      });
+    } catch {
+      res.status(503).json({
+        error: "Coordinator status is unavailable. Inspect Installation controls before retrying.",
+      });
+    }
+  });
+  app.post("/api/installation/coordinator-requests", authenticateUpdate, (req, res) => {
+    const input = z
+      .strictObject({
+        preparation: CoordinatorBootstrapPreparationSchema,
+        requireOwnerApproval: z.boolean().optional(),
+      })
+      .parse(req.body);
+    const requester = z.enum(["host-agent", "container-agent"]).parse(res.locals.updateRequester);
+    void submitInstallationCoordinator({
+      config,
+      input: input.preparation,
+      requester,
+      requireOwnerApproval: input.requireOwnerApproval === true,
+    }).then(
+      (receipt) => res.status(201).json(receipt),
+      () =>
+        res.status(503).json({
+          error:
+            "Coordinator preparation is unconfirmed. Check Installation controls and Host compatibility before retrying the same request.",
+        }),
+    );
+  });
+
   app.post("/api/installation/restart-requests", (req, res) => {
     const token = extractHttpBearerToken(req.header("authorization"));
     let requestedBy: "host-agent" | "container-agent";
@@ -1040,25 +1296,54 @@ export function createInstallationServer(
       .parse(req.body);
     void profiles.resolve(input).then(() => res.json(profiles.status()), next);
   });
+  app.post("/api/installation/owner/maintenance-status/query", (_req, res, next) => {
+    void maintenanceStatus().then((status) => res.json(status), next);
+  });
+  app.post("/api/installation/owner/enrollment/query", (_req, res) => {
+    const enrollment = new FileEnrollmentJournal(config.stateDir).read();
+    // Native controller inspection is a separate readiness source. Missing
+    // observations remain unknown; saved activation receipts never imply health.
+    res.json(
+      projectEnrollmentStatus({
+        installationId: config.public.installationId,
+        state: enrollment,
+        checkedAt: new Date().toISOString(),
+        observations: [],
+        freshnessMs: 30_000,
+      }),
+    );
+  });
+  const legacyAutomation = () => {
+    const { services: _services, ...legacy } = daemonAutomation.read();
+    return legacy;
+  };
+  app.post("/api/installation/owner/maintenance-permissions/query", (_req, res) => {
+    res.json({ ...daemonAutomation.read(), services: daemonAutomation.servicePermissions() });
+  });
+  app.post("/api/installation/owner/maintenance-permissions/change", (req, res) => {
+    const change = DaemonAutomationChangeSchema.parse(req.body);
+    if (!change.service) throw new RestartRequestError("Choose the service permission to change");
+    const preference = daemonAutomation.change(change);
+    coordinatorRequests?.revokeAutomatic();
+    restarts.refreshApprovalPolicy();
+    res.json({ ...preference, services: daemonAutomation.servicePermissions() });
+    void drainRestarts();
+  });
   app.post("/api/installation/owner/daemon-automation/query", (_req, res) => {
-    res.json(daemonAutomation.read());
+    res.json(legacyAutomation());
   });
   app.post("/api/installation/owner/daemon-automation/change", (req, res) => {
     const change = DaemonAutomationChangeSchema.parse(req.body);
-    const executorReady = Boolean(
-      executor.inspect &&
-      executor.holdCurrentTurns &&
-      executor.releaseCurrentTurns &&
-      executor.restartWhenIdle,
-    );
+    const executorReady = supportsAutomaticMaintenance(executor);
     if (change.enabled && !executorReady) {
       throw new RestartRequestError(
         "Update the coordinator before enabling automatic daemon maintenance",
       );
     }
-    const preference = daemonAutomation.change(change);
+    daemonAutomation.change(change);
+    coordinatorRequests?.revokeAutomatic();
     restarts.refreshApprovalPolicy();
-    res.json(preference);
+    res.json(legacyAutomation());
     void drainRestarts();
   });
   app.post("/api/installation/owner/dev-repair/query", (_req, res) => {
@@ -1200,7 +1485,11 @@ export function createInstallationServer(
       res.status(409).json({ error: error.message });
       return;
     }
-    if (error instanceof ProfileSharingConflict || error instanceof RestartRequestError) {
+    if (
+      error instanceof ProfileSharingConflict ||
+      error instanceof RestartRequestError ||
+      error instanceof BootstrapRequestConflict
+    ) {
       res.status(409).json({ error: error.message });
       return;
     }

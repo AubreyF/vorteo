@@ -62,6 +62,50 @@ export interface ClaimedRepairProvisioningInput {
   writableMountRoots: readonly string[];
 }
 
+/** A new admission has its own immutable directory. Existing controllers retain
+ * their exact legacy files; an invalid new directory never falls back to them. */
+export async function resolveClaimedRepairFiles(input: {
+  installationRoot: string;
+  admissionSha256: string;
+  writableMountRoots: readonly string[];
+}) {
+  const digest = z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .parse(input.admissionSha256);
+  const parent = path.join(input.installationRoot, "claimed-repair-admissions");
+  const directory = path.join(parent, digest);
+  let selected = directory;
+  try {
+    await lstat(directory);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    selected = input.installationRoot;
+  }
+  const directories = selected === directory ? [parent, directory] : [];
+  for (const candidate of directories) {
+    const stat = await lstat(candidate);
+    if (
+      !stat.isDirectory() ||
+      stat.uid !== process.getuid?.() ||
+      (stat.mode & 0o077) !== 0 ||
+      (await realpath(candidate)) !== candidate
+    )
+      throw new BootstrapRequestConflict(
+        "Repair admission directory must be private and canonical",
+      );
+  }
+  await assertBootstrapPathsProtected(
+    [input.installationRoot, ...directories],
+    input.writableMountRoots,
+  );
+  return {
+    plan: path.join(selected, "claimed-repair-plan.json"),
+    proposal: path.join(selected, "claimed-repair-proposal.json"),
+    admission: path.join(selected, "claimed-repair-admission.json"),
+  };
+}
+
 /** Read-only verification for the first-repair provisioner. A valid artifact is
  * not approval: the caller must separately authenticate admission and retain a
  * visible exact recovery decision before invoking any executor. */
@@ -69,7 +113,7 @@ export async function verifyClaimedRepairProvisioning(input: ClaimedRepairProvis
   const root = input.installationRoot;
   if ((await realpath(root)) !== root)
     throw new BootstrapRequestConflict("Repair installation root must be canonical");
-  const receiptFile = path.join(root, "claimed-repair-admission.json");
+  const receiptFile = (await resolveClaimedRepairFiles(input)).admission;
   await assertBootstrapPathsProtected([root, receiptFile], input.writableMountRoots);
   const receiptStat = await lstat(receiptFile);
   if (!receiptStat.isFile() || (receiptStat.mode & 0o077) !== 0)
@@ -94,7 +138,7 @@ export async function verifyClaimedRepairProvisioning(input: ClaimedRepairProvis
 
 /** Inspect a fixed proposal without admitting its runtime or granting effects. */
 export async function verifyClaimedRepairProposal(input: ClaimedRepairProvisioningInput) {
-  const file = path.join(input.installationRoot, "claimed-repair-proposal.json");
+  const file = (await resolveClaimedRepairFiles(input)).proposal;
   const bytes = await readBootstrapPreparedFile(
     { path: file, sha256: input.admissionSha256 },
     input.writableMountRoots,
@@ -206,10 +250,12 @@ export async function provisionClaimedRepair(input: ProvisionClaimedRepairInput)
   await verifyProvisioningReceipt(input, receipt);
   await readBootstrapPreparedFile(plan.selectedConfiguration, input.writableMountRoots);
   journal.verifyUnpromotedClaim(plan.original);
-  await writeRecoverySnapshot(path.join(input.installationRoot, "claimed-repair-plan.json"), plan);
-  const file = path.join(input.installationRoot, "claimed-repair-admission.json");
+  const admissionSha256 = createHash("sha256").update(JSON.stringify(receipt)).digest("hex");
+  const files = await resolveClaimedRepairFiles({ ...input, admissionSha256 });
+  await writeRecoverySnapshot(files.plan, plan);
+  const file = files.admission;
   await writeRecoverySnapshot(file, receipt);
-  const directory = await open(input.installationRoot, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const directory = await open(path.dirname(file), constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     await directory.sync();
   } finally {

@@ -21,11 +21,13 @@ import {
   BootstrapRequestConflict,
   CoordinatorBootstrapRequests,
   type BootstrapHostBinding,
+  type BootstrapReconciliationLedger,
 } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { InstallationConfigSchema } from "./config.js";
+import { coordinatorAutomaticAuthority } from "./daemon-automation.js";
 import {
   readProtectedDocument,
   verifyBootstrapReleaseArtifacts,
@@ -37,6 +39,8 @@ import {
   verifyBootstrapLaunchers,
   verifyLoadedBootstrapService,
 } from "./coordinator-bootstrap-service.js";
+
+import { verifyBootstrapRecoveryArtifacts } from "./coordinator-bootstrap-boot-recovery.js";
 
 const execute = promisify(execFile);
 
@@ -72,6 +76,46 @@ export const BootstrapAdmissionSetupSchema = z.strictObject({
   helperPath: z.string().startsWith("/"),
   helperSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
+
+/** Coordinator observation and revocation share the Host ledger. Preparation,
+ * approval and dispatch remain exclusively in the validating native Host service. */
+export function createBootstrapReconciliationLedger(
+  configurationFile: string,
+  daemonId: string,
+): BootstrapReconciliationLedger {
+  const initial = readBootstrapHostBinding(configurationFile, daemonId);
+  const readBinding = () => {
+    const current = readBootstrapHostBinding(configurationFile, daemonId);
+    if (
+      current.stateDirectory !== initial.stateDirectory ||
+      current.binding.installationId !== initial.binding.installationId ||
+      current.binding.service !== initial.binding.service
+    )
+      throw new BootstrapRequestConflict("Coordinator binding changed. Reload its service.");
+    return current.binding;
+  };
+  const requests = new CoordinatorBootstrapRequests(
+    new FileBootstrapRequestJournal(initial.stateDirectory),
+    readBinding,
+    async () => {
+      throw new BootstrapRequestConflict("Coordinator preparation requires native Host validation");
+    },
+    Date.now,
+    () => {
+      readBinding();
+      const config = InstallationConfigSchema.parse(
+        readPrivateBootstrapConfiguration(configurationFile, process.getuid!()),
+      );
+      return coordinatorAutomaticAuthority(config);
+    },
+  );
+  return {
+    list: () => requests.list(),
+    revokeAutomatic: () => requests.revokeAutomatic(),
+    reserveAutomaticReconciliation: (value) => requests.reserveAutomaticReconciliation(value),
+    finishAutomaticReconciliation: (id, value) => requests.finishAutomaticReconciliation(id, value),
+  };
+}
 
 /** Construct only from a private launcher-selected Host setup file. The caller
  * must not advertise the capability until review and execution are available. */
@@ -124,6 +168,14 @@ export async function createBootstrapReviewService(
         currentRoots,
       );
       await verifyBootstrapPlan(plan, host);
+    },
+    Date.now,
+    () => {
+      readBinding();
+      const config = InstallationConfigSchema.parse(
+        readPrivateBootstrapConfiguration(setup.configurationFile, uid),
+      );
+      return coordinatorAutomaticAuthority(config);
     },
   );
 }
@@ -200,6 +252,7 @@ export async function verifyBootstrapPlan(
     roots,
   );
   await verifySourceUpdateTooling(plan, roots);
+  await verifyBootstrapRecoveryArtifacts(plan, roots);
   for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)]))
     await verifyBootstrapReleaseArtifacts(release, roots);
   const current = await readBootstrapLauncher(
@@ -239,6 +292,7 @@ export async function verifyBootstrapPlan(
     throw new BootstrapRequestConflict("Writable container mounts changed during verification");
   verifyBootstrapConfiguration({ plan, ...host });
   await verifySourceUpdateTooling(plan, finalRoots);
+  await verifyBootstrapRecoveryArtifacts(plan, finalRoots);
   for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)]))
     await verifyBootstrapReleaseArtifacts(release, finalRoots);
   await readBootstrapLauncher(

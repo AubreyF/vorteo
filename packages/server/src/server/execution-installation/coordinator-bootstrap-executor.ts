@@ -16,8 +16,31 @@ interface FrozenCoordinatorState {
 /** Native implementations must bind every operation to the approved process,
  * artifacts and generation. No arbitrary command or process identifier enters
  * this boundary from a browser. These ports are not production wiring. */
+export interface BootstrapExecutorFailure {
+  operation:
+    | "ownership"
+    | "watchdog"
+    | "promotion"
+    | "freeze"
+    | "inventory"
+    | "preservation"
+    | "unload"
+    | "selection"
+    | "start"
+    | "verification"
+    | "release";
+  stage: CoordinatorBootstrapStage;
+}
+
 export interface BootstrapExecutorOperations {
+  /** Retain only bounded categories, never exception text or command arguments. */
+  recordFailure?(
+    request: CoordinatorBootstrapRequest,
+    failure: BootstrapExecutorFailure,
+  ): Promise<void>;
   armWatchdog(request: CoordinatorBootstrapRequest): Promise<void>;
+  /** Install only the exact reviewed independent startup service before any freeze. */
+  armBootRecovery?(request: CoordinatorBootstrapRequest): Promise<void>;
   freeze(request: CoordinatorBootstrapRequest): Promise<void>;
   inspectFrozen(request: CoordinatorBootstrapRequest): Promise<FrozenCoordinatorState>;
   /** Fsync the accepted journal and revalidate stopped identity and inventory. */
@@ -43,6 +66,9 @@ export async function executeCoordinatorBootstrap(
   approval: Pick<CoordinatorBootstrapRequest, "id" | "revision" | "planSha256">,
   operations: BootstrapExecutorOperations,
 ): Promise<CoordinatorBootstrapRequest> {
+  const prepared = requests.list().find((item) => item.id === approval.id);
+  if (prepared?.plan.bootRecovery && !operations.armBootRecovery)
+    throw new BootstrapRequestConflict("This executor cannot arm approved startup recovery");
   let request = await requests.claimDispatch(approval);
   const advance = (stage: CoordinatorBootstrapStage) => {
     if (!request.execution) throw new BootstrapRequestConflict("Bootstrap execution is missing");
@@ -56,30 +82,42 @@ export async function executeCoordinatorBootstrap(
       stage,
     );
   };
+  let operation: BootstrapExecutorFailure["operation"] = "ownership";
   return operations
     .withOwnership(request, async () => {
       try {
+        operation = "watchdog";
         await operations.armWatchdog(request);
+        if (request.plan.bootRecovery) await operations.armBootRecovery!(request);
+        operation = "promotion";
         requests.promoteDispatch(request);
         advance("freeze_pending");
+        operation = "freeze";
         await operations.freeze(request);
+        operation = "inventory";
         const frozen = await operations.inspectFrozen(request);
         advance("frozen");
         assertFrozenCoordinatorIdle(frozen.restartJournal, frozen.childPids);
+        operation = "preservation";
         await operations.preserveTransfer(request);
         // Durable intent precedes the first operation that prevents resuming the
         // legacy writer. A failure from unload onward requires observed recovery.
         advance("unload_pending");
+        operation = "unload";
         await operations.unload(request);
         advance("unloaded");
         advance("selection_pending");
+        operation = "selection";
         await operations.select(request);
         advance("selected");
         advance("start_pending");
+        operation = "start";
         await operations.start(request);
         advance("started");
         advance("verifying");
+        operation = "verification";
         await operations.verifyReplacement(request);
+        operation = "release";
         await operations.releaseReplacement(request);
         advance("succeeded");
       } catch {
@@ -100,14 +138,16 @@ export async function executeCoordinatorBootstrap(
         } else {
           advance("recovery_required");
         }
+        if (stage) await operations.recordFailure?.(request, { operation, stage });
       }
       return request;
     })
-    .catch((error: unknown) => {
+    .catch(async (error: unknown) => {
       // Ownership admission runs after the durable claim but before the callback.
       // Record that failure without promotion, native effects or a replayable approval.
       if (request.execution?.stage !== "claimed") throw error;
       advance("recovery_required");
+      await operations.recordFailure?.(request, { operation: "ownership", stage: "claimed" });
       return request;
     });
 }

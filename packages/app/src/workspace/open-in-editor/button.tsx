@@ -27,7 +27,7 @@ import { planWorkspaceOpenTargets } from "@/workspace/open-in-editor/planner";
 import type { Theme } from "@/styles/theme";
 import { ForgeBrandIcon } from "@/git/forge-icon";
 import { getForgePresentation } from "@/git/forge";
-import { buttonControlHeight, HEADER_CONTROL_HEIGHT } from "@/components/ui/control-geometry";
+import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
 import { extraMutedIconColorMapping } from "@/components/ui/icon-button-chrome";
 
 interface WorkspaceOpenInEditorButtonProps {
@@ -292,18 +292,14 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   splitButton: {
-    height: {
-      xs: buttonControlHeight.xs,
-      md: HEADER_CONTROL_HEIGHT,
-    },
+    height: 40,
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: theme.borderRadius.md,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
+    borderRadius: FLOATING_PANEL_RADIUS,
     overflow: "hidden",
   },
   splitButtonPrimary: {
+    borderRadius: FLOATING_PANEL_RADIUS,
     paddingHorizontal: {
       xs: theme.spacing[3],
       md: theme.spacing[2],
@@ -312,10 +308,8 @@ const styles = StyleSheet.create((theme) => ({
     position: "relative",
   },
   splitButtonPrimaryIconOnly: {
-    width: {
-      xs: buttonControlHeight.xs,
-      md: HEADER_CONTROL_HEIGHT,
-    },
+    borderRadius: FLOATING_PANEL_RADIUS,
+    width: 40,
     paddingHorizontal: 0,
     justifyContent: "center",
     position: "relative",
@@ -343,14 +337,10 @@ const styles = StyleSheet.create((theme) => ({
     transform: [{ scale: 0.8 }],
   },
   splitButtonCaret: {
-    width: {
-      xs: buttonControlHeight.xs,
-      md: HEADER_CONTROL_HEIGHT,
-    },
+    width: 40,
     alignItems: "center",
     justifyContent: "center",
-    borderLeftWidth: theme.borderWidth[1],
-    borderLeftColor: theme.colors.borderAccent,
+    borderRadius: FLOATING_PANEL_RADIUS,
   },
   splitButtonCaretHovered: {
     backgroundColor: theme.colors.surface2,

@@ -14,11 +14,129 @@ import type {
 } from "@getpaseo/protocol/execution-installation";
 import type { InstallationConfig } from "./config.js";
 import type { RestartExecutor } from "./restarts.js";
+import type { CoordinatorBootstrapPreparation } from "@getpaseo/protocol/coordinator-bootstrap";
+import { coordinatorAutomaticAuthority, signCoordinatorSubmission } from "./daemon-automation.js";
+import {
+  BootstrapRequestConflict,
+  type BootstrapReconciliationLedger,
+} from "./coordinator-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
 
 // Status includes provider availability probes, which can exceed three seconds.
 const DAEMON_RESPONSE_TIMEOUT_MS = 30_000;
+
+interface CoordinatorSubmission {
+  config: InstallationConfig;
+  input: CoordinatorBootstrapPreparation;
+  requester: "host-agent" | "container-agent";
+  requireOwnerApproval: boolean;
+}
+
+type CoordinatorSubmissionClient = Pick<DaemonClient, "prepareCoordinatorBootstrap" | "close">;
+type CoordinatorCapabilityClient = Pick<DaemonClient, "getLastServerInfoMessage" | "close">;
+
+export async function inspectInstallationCoordinator(
+  config: InstallationConfig,
+  connect: () => Promise<CoordinatorCapabilityClient> = () =>
+    connectInstallationDaemon(config, "host"),
+) {
+  try {
+    const client = await connect();
+    try {
+      const features = client.getLastServerInfoMessage()?.features;
+      const available = features?.coordinatorBootstrapReview === true;
+      const automaticAvailable =
+        available &&
+        features.coordinatorBootstrapAuthenticatedSubmission === true &&
+        features.coordinatorBootstrapAutomaticReconciliation === true &&
+        features.coordinatorBootstrapAutomaticStatus === true &&
+        features.coordinatorBootstrapBootRecovery === true &&
+        features.coordinatorBootstrapCompatibleRecovery === true &&
+        features.coordinatorBootstrapRecoveryBootPlan === true;
+      return { available, automaticAvailable };
+    } finally {
+      await client.close();
+    }
+  } catch {
+    return { available: false, automaticAvailable: false };
+  }
+}
+
+type CoordinatorReconciliationClient = Pick<
+  DaemonClient,
+  "reconcileAutomaticCoordinatorBootstrap" | "close"
+>;
+
+export async function reconcileInstallationCoordinator(
+  config: InstallationConfig,
+  ledger: BootstrapReconciliationLedger,
+  connect: () => Promise<CoordinatorReconciliationClient> = () =>
+    connectInstallationDaemon(config, "host"),
+): Promise<void> {
+  for (const request of ledger.list()) {
+    const automatic =
+      request.status === "pending" ? request.automaticSubmission : request.automaticApproval;
+    if (
+      !automatic ||
+      request.status === "canceled" ||
+      request.execution ||
+      request.automaticDispatch
+    )
+      continue;
+    const reserved = ledger.reserveAutomaticReconciliation({
+      id: request.id,
+      revision: request.revision,
+      planSha256: request.planSha256,
+    });
+    if (!reserved) continue;
+    try {
+      const client = await connect();
+      try {
+        await client.reconcileAutomaticCoordinatorBootstrap(reserved.id);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      // A changed phase or native launch receipt makes this a no-op. Otherwise
+      // persist bounded backoff even when the transport outcome was lost.
+      ledger.finishAutomaticReconciliation(reserved.id, reserved.automaticCheck);
+    }
+    return;
+  }
+}
+
+/** The requester comes from scoped HTTP authentication, never the submitted body. */
+export async function submitInstallationCoordinator(
+  submission: CoordinatorSubmission,
+  connect: () => Promise<CoordinatorSubmissionClient> = () =>
+    connectInstallationDaemon(submission.config, "host"),
+) {
+  const { config, input, requester, requireOwnerApproval } = submission;
+  const automatic =
+    requester === "host-agent" &&
+    !requireOwnerApproval &&
+    coordinatorAutomaticAuthority(config) !== null;
+  const submissionProof = automatic ? signCoordinatorSubmission(config, input) : undefined;
+  const client = await connect();
+  try {
+    const requests = await client.prepareCoordinatorBootstrap(input, { submissionProof });
+    const request = requests.find((item) => item.id === input.id);
+    if (!request) throw new BootstrapRequestConflict("Coordinator preparation is unconfirmed");
+    const approvalUrl = new URL("/settings/general", config.public.origin);
+    approvalUrl.searchParams.set("installation", "1");
+    approvalUrl.searchParams.set("bootstrap", request.id);
+    // Scoped clients receive a receipt, never private authority or another request.
+    return {
+      id: request.id,
+      revision: request.revision,
+      status: request.status,
+      approvalUrl: approvalUrl.toString(),
+    };
+  } finally {
+    await client.close();
+  }
+}
 
 export async function connectInstallationDaemon(
   config: InstallationConfig,

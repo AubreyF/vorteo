@@ -26,7 +26,8 @@ import {
 import type { InstallationConfig } from "./config.js";
 import { RestartRequestError, type RestartExecutor } from "./restarts.js";
 
-import { installContainerSource } from "./container-updates.js";
+import { writeLifecycleReceipt } from "./lifecycle-journal.js";
+import { installContainerSource, prepareContainerSource } from "./container-updates.js";
 import { prepareSourceBatch } from "./source-batches.js";
 import { prepareDevRepairBundle } from "./dev-source-repair.js";
 import { isDeepStrictEqual } from "node:util";
@@ -176,15 +177,14 @@ export class InstallationSourceUpdates {
     return prepared.update;
   }
 
-  async install(job: RestartJob, restart: RestartExecutor["restart"]): Promise<string> {
+  async prepareInstallation(job: RestartJob): Promise<void> {
     const update = SourceUpdateSchema.parse(job.update);
     if (job.target !== this.target) throw new Error("Source update target changed");
     if (this.target === "container-daemon")
-      return installContainerSource({
+      return prepareContainerSource({
         config: this.config,
         job,
         bundleFile: this.bundlePath(update),
-        restart,
       });
     const settings = this.hostSettings();
     if (job.target !== "host" || this.source().baseCommit !== update.baseCommit)
@@ -244,11 +244,65 @@ export class InstallationSourceUpdates {
       throw new Error(
         "Installed release changed during the build. No candidate was activated; request a new update.",
       );
-    writeFileSync(
-      path.join(work, "activation.json"),
-      JSON.stringify({ previous, candidate: prepared.release, update, status: "activating" }),
-      { mode: 0o600, flag: "wx" },
+    writeLifecycleReceipt(path.join(work, "admission.json"), {
+      previous,
+      sourceSha256: update.sha256,
+      webReceipt: createHash("sha256").update(webReceipt).digest("hex"),
+      webIndex: createHash("sha256").update(webIndex).digest("hex"),
+    });
+  }
+
+  async install(job: RestartJob, restart: RestartExecutor["restart"]): Promise<string> {
+    if (job.updatePreparation !== "prepared") await this.prepareInstallation(job);
+    const update = SourceUpdateSchema.parse(job.update);
+    if (job.target !== this.target) throw new Error("Source update target changed");
+    if (this.target === "container-daemon")
+      return installContainerSource({
+        config: this.config,
+        job,
+        bundleFile: this.bundlePath(update),
+        restart,
+      });
+    const settings = this.hostSettings();
+    const work = path.join(settings.releaseRoot, job.id);
+    const prepared = PreparedSchema.parse(
+      JSON.parse(readFileSync(path.join(work, "prepared.json"), "utf8")),
     );
+    const admission = z
+      .object({
+        previous: z.string(),
+        sourceSha256: z.string(),
+        webReceipt: z.string(),
+        webIndex: z.string(),
+      })
+      .parse(JSON.parse(readFileSync(path.join(work, "admission.json"), "utf8")));
+    const previous = admission.previous;
+    const validation = this.config.host.startupValidation;
+    if (!validation) throw new Error("Host startup validation is required for source updates");
+    const digest = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
+    if (
+      admission.sourceSha256 !== update.sha256 ||
+      realpathSync(settings.currentReleaseLink) !== previous ||
+      this.source().baseCommit !== update.baseCommit ||
+      digest(path.join(settings.webDirectory, "release.json")) !== admission.webReceipt ||
+      digest(path.join(settings.webDirectory, "index.html")) !== admission.webIndex
+    )
+      throw new Error("Installed source changed after preparation. No candidate was activated.");
+    for (const directory of [prepared.release, prepared.exported]) {
+      if (!realpathSync(directory).startsWith(realpathSync(work) + path.sep))
+        throw new Error("Prepared artifact escaped its release directory");
+    }
+    const activationFile = path.join(work, "activation.json");
+    if (existsSync(activationFile))
+      throw new Error(
+        "Activation was already attempted. Inspect its retained receipt before recovery.",
+      );
+    writeLifecycleReceipt(activationFile, {
+      previous,
+      candidate: prepared.release,
+      update,
+      status: "activating",
+    });
     this.selectRelease(prepared.release);
     try {
       await restart("host");
@@ -257,6 +311,21 @@ export class InstallationSourceUpdates {
       this.selectRelease(previous);
       throw new Error(
         `Update readiness failed. Previous launcher restored at ${previous}; inspect the running daemon before another restart.`,
+        { cause: error },
+      );
+    }
+    const ready = {
+      previous,
+      candidate: prepared.release,
+      exported: prepared.exported,
+      update,
+      status: "daemon-ready",
+    };
+    try {
+      writeLifecycleReceipt(activationFile, ready);
+    } catch (error) {
+      throw new Error(
+        `Host daemon updated to ${update.sourceCommit}, but its readiness receipt could not be saved. Inspect ${work}; do not replay the update.`,
         { cause: error },
       );
     }
@@ -271,16 +340,25 @@ export class InstallationSourceUpdates {
         { timeout: 5 * 60_000, maxBuffer: 8192 },
       );
     } catch (error) {
+      try {
+        writeLifecycleReceipt(activationFile, { ...ready, status: "interface-failed" });
+      } catch (storageError) {
+        throw new Error(
+          `Host daemon updated to ${update.sourceCommit}, but interface publication failed and its result receipt could not be saved. Inspect ${work}; do not replay the update.`,
+          { cause: storageError },
+        );
+      }
       throw new Error(
         `Host daemon updated to ${update.sourceCommit}, but interface publication failed. Inspect ${work}; do not replay the update.`,
         { cause: error },
       );
     }
-    writeFileSync(
-      path.join(work, "activation.json"),
-      JSON.stringify({ previous, candidate: prepared.release, update, status: "succeeded" }),
-      { mode: 0o600 },
-    );
+    writeLifecycleReceipt(activationFile, {
+      previous,
+      candidate: prepared.release,
+      update,
+      status: "succeeded",
+    });
     return `Installed source ${update.sourceCommit}. Host replacement identity and readiness verified; interface published. Previous release retained at ${previous}.`;
   }
 

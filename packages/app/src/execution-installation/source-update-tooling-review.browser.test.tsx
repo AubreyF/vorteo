@@ -4,6 +4,7 @@ import { expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import type {
   CoordinatorBootstrapRequest,
+  CoordinatorBootstrapRequestView,
   CoordinatorBootstrapDecision,
   BootstrapClaimedRecoveryRequestView,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
@@ -36,6 +37,96 @@ vi.mock("react-native-unistyles", async (original) => {
   };
 });
 
+test.each([1100, 390])(
+  "automatic coordinator states remain readable with cancellation at %spx",
+  async (width) => {
+    vi.stubGlobal("React", React);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    await page.viewport(width, 1000);
+    const original = requestFixture();
+    let current: CoordinatorBootstrapRequestView = {
+      ...original,
+      plan: {
+        ...original.plan,
+        sourceUpdateTooling: undefined,
+        automaticRecovery: "restore-compatible",
+        compatibleRecovery: original.plan.previous,
+      },
+      status: "approved",
+      decisionAt: "2026-10-15T00:00:00Z",
+      automaticStatus: {
+        authorization: "host-policy",
+        state: "cancellation-window",
+        observedAt: "2026-10-15T00:00:00Z",
+        dispatchAfter: "2026-10-15T00:00:30Z",
+      },
+    };
+    const decisions: CoordinatorBootstrapDecision[] = [];
+    const model = new BootstrapPanelModel(() => ({
+      listCoordinatorBootstrapRequests: async () => [current],
+      decideCoordinatorBootstrap: async (input) => {
+        decisions.push(input);
+        return [current];
+      },
+    }));
+    const container = document.createElement("div");
+    container.style.cssText = "max-width:720px;margin:0 auto;padding:16px;box-sizing:border-box";
+    document.body.style.margin = "0";
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(() => model.refresh());
+      act(() => root.render(<BootstrapReview model={model} />));
+      expect(container.textContent).toContain("Automatically approved; cancellation available");
+      expect(container.textContent).toContain("Dispatch cannot begin before");
+      expect(page.getByTestId("coordinator-cancellation-window").element().textContent).toBe(
+        "Minimum wait before dispatch: 0s",
+      );
+      expect(page.getByTestId("bootstrap-cancel").element().getAttribute("aria-disabled")).toBe(
+        "true",
+      );
+      await act(async () => {
+        await page
+          .getByLabelText("Coordinator maintenance owner password")
+          .fill("fixture-owner-proof");
+      });
+      expect(page.getByTestId("bootstrap-cancel").element().getAttribute("aria-disabled")).not.toBe(
+        "true",
+      );
+      current = {
+        ...current,
+        automaticStatus: { ...current.automaticStatus!, state: "review-required", attempt: 3 },
+      };
+      await act(() => model.refresh());
+      expect(container.textContent).toContain("Automatic checks stopped; review required");
+      expect(container.textContent).toContain("Automatic retries have stopped");
+      current = {
+        ...current,
+        automaticStatus: { ...current.automaticStatus!, state: "launch-unconfirmed" },
+      };
+      await act(() => model.refresh());
+      expect(container.textContent).toContain("Launch unconfirmed; recovery review required");
+      expect(container.textContent).toContain("will not launch again automatically");
+      expect(container.textContent).toContain("Since authorization");
+      expect(container.textContent).not.toContain("Awaiting dispatch");
+      const card = container.querySelector<HTMLElement>(
+        `[data-testid="coordinator-bootstrap-${current.id}"]`,
+      )!;
+      expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+      expect(card.getBoundingClientRect().right).toBeLessThanOrEqual(width);
+      await page.screenshot({
+        path: `../../../../output/playwright/coordinator-automatic-status-${width}.png`,
+        fullPage: true,
+      });
+      expect(decisions).toEqual([]);
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
 function requestFixture(): CoordinatorBootstrapRequest {
   const file = { path: "/protected/file", sha256: "a".repeat(64) };
   const release = {
@@ -61,6 +152,17 @@ function requestFixture(): CoordinatorBootstrapRequest {
       installationId: "00000000-0000-4000-8000-000000000003",
       service: "gui/501/local.vorteo.fixture.installation",
       sourceUpdateTooling: true,
+      bootRecovery: {
+        requestId: "00000000-0000-4000-8000-000000000001",
+        service:
+          "gui/501/local.vorteo.fixture.installation-recovery-00000000-0000-4000-8000-000000000001",
+        launcher: file,
+        installedLauncher: "/protected/startup.plist",
+        setup: file,
+        ownerLauncher: file,
+        node: file,
+        entrypoint: file,
+      },
       hostRequestsAfter: null,
       previous: release,
       candidate: release,
@@ -80,7 +182,7 @@ function requestFixture(): CoordinatorBootstrapRequest {
 }
 
 test.each([1280, 390])(
-  "source tooling owner review shows exact immutable selection and manual decisions at %ipx",
+  "source tooling and startup recovery review shows exact selection and manual decisions at %ipx",
   async (width) => {
     vi.stubGlobal("React", React);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -114,6 +216,8 @@ test.each([1280, 390])(
       });
       expect(container.textContent).toContain("/protected/immutable-candidate/scripts");
       expect(container.textContent).toContain("Binding setup remains separate");
+      expect(container.textContent).toContain("Install independent recovery for this update");
+      expect(container.textContent).toContain("It cannot recover before login or retry the update");
       expect(container.textContent).toContain(initial.plan.candidate.sourceCommit);
       expect(container.textContent).toContain(initial.plan.candidate.artifactSha256);
       expect(container.textContent).toContain(initial.planSha256);
@@ -246,6 +350,9 @@ test.each([1280, 390])(
       });
       expect(container.textContent).toContain("This approval includes that escalation");
       expect(container.textContent).toContain(initial.planSha256);
+      expect(container.textContent).toContain("Retained recovery service:");
+      expect(container.textContent).toContain(initial.plan.original.plan.bootRecovery!.service);
+      expect(container.textContent).toContain("does not authorize another original update launch");
       expect(container.textContent).toContain(initial.plan.executor.identity.startIdentity);
       const card = container.querySelector<HTMLElement>(
         `[data-testid="bootstrap-recovery-${initial.id}"]`,

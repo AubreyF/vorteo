@@ -2210,7 +2210,8 @@ const styles = StyleSheet.create((theme: Theme) => ({
     borderColor: "transparent",
     borderRadius: 0,
   },
-  mobileQueueSurface: { minHeight: 172, justifyContent: "space-between" },
+  // Three 44px actions, two 8px gaps, and matching 8px top/bottom insets.
+  mobileQueueSurface: { minHeight: 164, justifyContent: "space-between" },
   mobileQueueButton: {
     position: "absolute",
     zIndex: 1,

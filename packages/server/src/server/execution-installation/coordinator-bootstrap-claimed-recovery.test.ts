@@ -25,6 +25,7 @@ import {
   verifyClaimedLiveProcesses,
   observeClaimedExecutor,
   verifyClaimedExecutionLock,
+  verifySupportedClaimedRunner,
 } from "./coordinator-bootstrap-claimed-verification.js";
 import {
   chmodSync,
@@ -55,6 +56,7 @@ import { coordinatorPlanDigest } from "./coordinator-bootstrap.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 import {
   ClaimedRepairProvisioningSchema,
+  resolveClaimedRepairFiles,
   provisionClaimedRepair,
   assertProvisionedClaimedRuntimeBinding,
   verifyClaimedRepairProvisioning,
@@ -395,6 +397,52 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+test.each([
+  "dc66750776e2534cd65f051e6aefa11dbfbe5513",
+  "1bc87b11e3e6f42970d314b0319d4393d09d0d09",
+  "f".repeat(40),
+])("claimed runner admission refuses unverified bytes for source %s", async (sourceCommit) => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "claimed-runner-pin-")));
+  roots.push(root);
+  const { plan } = fixture(path.join(root, "state"));
+  plan.runner.sourceCommit = sourceCommit;
+  plan.runner.directory = root;
+  plan.original.plan.candidate = plan.runner;
+  plan.executorEntrypoint.path = path.join(
+    root,
+    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+  );
+  plan.runner.entrypoint = plan.executorEntrypoint;
+  plan.original.planSha256 = coordinatorPlanDigest(plan.original.plan);
+  plan.executor.identity.argumentsSha256 = createHash("sha256")
+    .update(
+      JSON.stringify([
+        plan.runner.node.path,
+        plan.executorEntrypoint.path,
+        plan.setup.path,
+        "executor",
+        plan.original.id,
+      ]),
+    )
+    .digest("hex");
+  mkdirSync(path.dirname(plan.executorEntrypoint.path), { recursive: true, mode: 0o700 });
+  writeFileSync(plan.executorEntrypoint.path, "unreviewed runner", { mode: 0o600 });
+  const expected = sourceCommit === "f".repeat(40) ? "not supported" : "digest changed";
+  await expect(
+    verifySupportedClaimedRunner({
+      plan,
+      daemonId: "fixture",
+      admissionSetupFile: plan.setup.path,
+      anchor: {
+        originalSetup: plan.setup,
+        originalAdmission: plan.setup,
+        terminal: { ...identity(plan.original), generation: plan.original.execution!.generation },
+      },
+      writableMountRoots: [],
+    }),
+  ).rejects.toThrow(expected);
+});
+
 async function provisioningFixture() {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "claimed-provisioning-")));
   roots.push(root);
@@ -651,6 +699,97 @@ test("first repair provisioning authenticates owner and preserves the exact pend
   expect(readFileSync(f.pendingFile)).toEqual(pending);
   expect(await provisionClaimedRepair(input)).toEqual(result);
   expect(readFileSync(f.pendingFile)).toEqual(pending);
+});
+
+test("a separately pinned repair admission preserves the earlier incident", async () => {
+  const f = await provisioningOwnerFixture();
+  const legacy = path.join(f.root, "claimed-repair-admission.json");
+  const historicalPlan = structuredClone(f.input.plan);
+  historicalPlan.original.id = randomUUID();
+  historicalPlan.executor.identity.argumentsSha256 = createHash("sha256")
+    .update(
+      JSON.stringify([
+        historicalPlan.runner.node.path,
+        historicalPlan.executorEntrypoint.path,
+        historicalPlan.setup.path,
+        "executor",
+        historicalPlan.original.id,
+      ]),
+    )
+    .digest("hex");
+  const historicalReceipt = structuredClone(f.receipt);
+  historicalReceipt.original.id = historicalPlan.original.id;
+  historicalReceipt.recoveryPlanSha256 = claimedRecoveryPlanDigest(historicalPlan);
+  const legacyBytes = JSON.stringify(historicalReceipt);
+  writeFileSync(legacy, legacyBytes, { mode: 0o600 });
+  const legacyPlan = path.join(f.root, "claimed-repair-plan.json");
+  writeFileSync(legacyPlan, JSON.stringify(historicalPlan), { mode: 0o600 });
+  const historicalInput = {
+    ...f.input,
+    plan: historicalPlan,
+    admissionSha256: createHash("sha256").update(legacyBytes).digest("hex"),
+  };
+  expect((await verifyClaimedRepairProvisioning(historicalInput)).receipt).toEqual(
+    historicalReceipt,
+  );
+  const digest = createHash("sha256").update(JSON.stringify(f.receipt)).digest("hex");
+  const directory = path.join(f.root, "claimed-repair-admissions", digest);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(directory, "claimed-repair-proposal.json"), JSON.stringify(f.receipt), {
+    mode: 0o600,
+  });
+  const input = { ...f.input, admissionSha256: digest };
+  const pending = readFileSync(f.pendingFile);
+  expect((await verifyClaimedRepairProposal(input)).receipt).toEqual(f.receipt);
+  await expect(
+    provisionClaimedRepair({
+      ...input,
+      receipt: f.receipt,
+      ownerPassword: "wrong",
+    }),
+  ).rejects.toThrow("authentication required");
+  expect(() => readFileSync(path.join(directory, "claimed-repair-admission.json"))).toThrow();
+  const result = await provisionClaimedRepair({
+    ...input,
+    receipt: f.receipt,
+    ownerPassword: "fixture-owner",
+  });
+  expect(result.admission.path).toBe(path.join(directory, "claimed-repair-admission.json"));
+  expect((await verifyClaimedRepairProvisioning(input)).receipt).toEqual(f.receipt);
+  expect(readFileSync(legacy, "utf8")).toBe(legacyBytes);
+  expect(readFileSync(legacyPlan, "utf8")).toBe(JSON.stringify(historicalPlan));
+  expect((await verifyClaimedRepairProvisioning(historicalInput)).receipt).toEqual(
+    historicalReceipt,
+  );
+  expect(readFileSync(f.pendingFile)).toEqual(pending);
+});
+
+test.each(["missing-receipt", "wrong-digest", "symlink", "public", "writable-mount"])(
+  "new repair admission refuses %s instead of falling back to legacy evidence",
+  async (mode) => {
+    const f = await provisioningFixture();
+    const legacy = readFileSync(path.join(f.root, "claimed-repair-admission.json"));
+    const parent = path.join(f.root, "claimed-repair-admissions");
+    const directory = path.join(parent, f.input.admissionSha256);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    if (mode === "wrong-digest")
+      writeFileSync(path.join(directory, "claimed-repair-admission.json"), "{}", { mode: 0o600 });
+    if (mode === "symlink") {
+      rmSync(directory, { recursive: true });
+      symlinkSync(f.root, directory);
+    }
+    if (mode === "public") chmodSync(directory, 0o755);
+    const input = { ...f.input, writableMountRoots: mode === "writable-mount" ? [directory] : [] };
+    await expect(verifyClaimedRepairProvisioning(input)).rejects.toThrow();
+    expect(readFileSync(path.join(f.root, "claimed-repair-admission.json"))).toEqual(legacy);
+  },
+);
+
+test("repair admission rejects a caller-supplied path in place of its digest", async () => {
+  const f = await provisioningFixture();
+  await expect(
+    resolveClaimedRepairFiles({ ...f.input, admissionSha256: "../legacy" }),
+  ).rejects.toThrow();
 });
 
 test.each(["password", "stale-claim", "existing-receipt"])(
@@ -2136,6 +2275,76 @@ test.each(["exact", "hidden", "password", "unavailable", "cancel", "private-erro
   },
 );
 
+test("claimed recovery hides retained startup plans and refuses approval without review support", async () => {
+  const f = reviewFixture();
+  const adapter = claimedReviewAdapter(f);
+  await adapter.prepare({ id: randomUUID(), reason: "Fixture", plan: f.plan });
+  const stored = adapter.list()[0]!;
+  const original = stored.plan.original;
+  const file = original.plan.candidate.configuration;
+  const bootRecovery = {
+    requestId: original.id,
+    service: `gui/501/local.vorteo.fixture.installation-recovery-${original.id}`,
+    launcher: file,
+    installedLauncher: "/protected/retained-startup.plist",
+    setup: file,
+    ownerLauncher: file,
+    node: file,
+    entrypoint: file,
+  };
+  stored.plan.original.plan.bootRecovery = bootRecovery;
+  const service = { ...adapter, list: () => [stored] };
+  const message = {
+    type: "installation.claimed_recovery.list_requests.request" as const,
+    requestId: "list",
+  };
+  const legacy = await handleClaimedRecoveryReview(message, service);
+  expect(legacy.payload.error).toBeNull();
+  expect(legacy.payload.requests?.[0]?.plan.original.plan).not.toHaveProperty("bootRecovery");
+  const modern = await handleClaimedRecoveryReview({ ...message, recoveryBootPlan: true }, service);
+  expect(modern.payload.requests?.[0]?.plan.original.plan.bootRecovery).toEqual(bootRecovery);
+  const refused = await handleClaimedRecoveryReview(
+    {
+      type: "installation.claimed_recovery.decide.request",
+      requestId: "approve",
+      claimedRecovery: true,
+      ownerPassword: "fixture-password",
+      input: {
+        id: stored.id,
+        revision: stored.revision,
+        planSha256: stored.planSha256,
+        decision: "approve",
+      },
+    },
+    service,
+  );
+  expect(refused.payload.error).toContain("retained startup recovery");
+  expect(stored.status).toBe("pending");
+  expect(stored.plan.original.plan.bootRecovery).toEqual(bootRecovery);
+});
+
+test("claimed recovery responses omit private reconciliation state from the original request", async () => {
+  const f = reviewFixture();
+  const service = claimedReviewAdapter(f);
+  await service.prepare({ id: randomUUID(), reason: "Fixture", plan: f.plan });
+  const stored = service.list()[0]!;
+  const check = {
+    phase: "dispatch" as const,
+    attempt: 2,
+    startedAt: "2026-10-15T00:00:00Z",
+    retryAfter: "2026-10-15T00:16:00Z",
+    outcome: "unconfirmed" as const,
+  };
+  stored.plan.original.automaticCheck = check;
+  const response = await handleClaimedRecoveryReview(
+    { type: "installation.claimed_recovery.list_requests.request", requestId: "list" },
+    { ...service, list: () => [stored] },
+  );
+  expect(response.payload.error).toBeNull();
+  expect(response.payload.requests?.[0]?.plan.original).not.toHaveProperty("automaticCheck");
+  expect(stored.plan.original.automaticCheck).toEqual(check);
+});
+
 test("claimed observation capability requires its own available service and method", async () => {
   const f = reviewFixture();
   const claimed = claimedReviewAdapter(f);
@@ -2483,4 +2692,275 @@ test("status reads retain canonical private-directory checks without the writer 
     chmodSync(f.root, 0o700);
   }
   expect(f.journal.readReviews()).toEqual([pending]);
+});
+
+test("claimed successor separates verified failed predecessor from selected release authority", () => {
+  const input = successorHistoryFixture();
+  const terminal = input.records[0];
+  const failed = structuredClone(input.records[1]);
+  failed.id = randomUUID();
+  failed.revision = randomUUID();
+  failed.execution!.generation = randomUUID();
+  const original = input.recovery.plan.original;
+  original.plan.recoveredFrom = {
+    ...identity(failed),
+    generation: failed.execution!.generation,
+  };
+  original.planSha256 = coordinatorPlanDigest(original.plan);
+  input.recovery.planSha256 = claimedRecoveryPlanDigest(input.recovery.plan);
+  input.fence.original = structuredClone(original);
+  input.fence.fenced = {
+    ...structuredClone(original),
+    revision: randomUUID(),
+    execution: { ...original.execution!, stage: "recovery_required" },
+  };
+  input.fence.recovery.planSha256 = input.recovery.planSha256;
+  input.records = [terminal, failed, input.fence.fenced];
+  const prior = {
+    terminal: { request: terminal, release: terminal.plan.candidate },
+    predecessor: failed,
+    exits: [],
+  };
+  const result = inspectClaimedSuccessorHistory({ ...input, prior });
+  expect(result.terminal.request.id).toBe(terminal.id);
+  expect(result.recoveredFrom.id).toBe(input.fence.fenced.id);
+  expect(() => inspectClaimedSuccessorHistory(input)).toThrow(
+    "until its bootstrap recovery is terminal",
+  );
+  expect(() =>
+    inspectClaimedSuccessorHistory({
+      ...input,
+      prior: { ...prior, predecessor: terminal },
+    }),
+  ).toThrow("predecessor authority");
+  expect(() =>
+    inspectClaimedSuccessorHistory({
+      ...input,
+      records: [...input.records, failed],
+      prior,
+    }),
+  ).toThrow("Duplicate");
+});
+
+test("successor exit verification includes every retained recovery executor", async () => {
+  const prior = {
+    request: fixture(),
+    executor: { ...fixture().plan.executor.identity, pid: 31 },
+  };
+  const current = {
+    request: fixture(),
+    executor: { ...fixture().plan.executor.identity, pid: 41 },
+    priorExits: [prior],
+  };
+  prior.request.plan.executor.identity.pid = 30;
+  current.request.plan.executor.identity.pid = 40;
+  const seen: number[] = [];
+  await verifyClaimedSuccessorExit(current, {
+    verifyProcessExited: async (pid) => {
+      seen.push(pid);
+    },
+  });
+  expect(seen).toEqual([30, 31, 40, 41]);
+  for (const live of seen) {
+    await expect(
+      verifyClaimedSuccessorExit(current, {
+        verifyProcessExited: async (pid) => {
+          if (pid === live) throw Error("still live");
+        },
+      }),
+    ).rejects.toThrow("lifetime exit is unproven");
+  }
+});
+
+async function retainedRecoveryChainFixture() {
+  const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "claimed-chain-")));
+  const save = (file: string, value: unknown) => {
+    const bytes = JSON.stringify(value);
+    writeFileSync(file, bytes, { mode: 0o600 });
+    return { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+  };
+  const pin = save(path.join(directory, "artifact.json"), {});
+  const first = successorHistoryFixture();
+  const terminal = first.records[0];
+  const adapt = (record: typeof terminal) => {
+    record.plan.installationId = terminal.plan.installationId;
+    record.plan.service = terminal.plan.service;
+    record.plan.state = {
+      directory,
+      restartJournal: path.join(directory, "restart-jobs.json"),
+      ownerSessions: path.join(directory, "owner-sessions.json"),
+    };
+    for (const release of [
+      record.plan.previous,
+      record.plan.candidate,
+      record.plan.compatibleRecovery,
+    ]) {
+      if (release) {
+        release.configuration = pin;
+        release.launcher = pin;
+      }
+    }
+    record.planSha256 = coordinatorPlanDigest(record.plan);
+  };
+  adapt(terminal);
+  const reviews: BootstrapClaimedRecoveryRequest[] = [];
+  const pending: (typeof terminal)[] = [];
+  const retained: { fence: string; birth: string; setup: string }[] = [];
+  const reference = (record: typeof terminal) => ({
+    ...identity(record),
+    generation: record.execution!.generation,
+  });
+  const addRecovery = (previous?: typeof terminal) => {
+    const recovery = fixture(directory);
+    const original = recovery.plan.original;
+    adapt(original);
+    if (previous) original.plan.recoveredFrom = reference(previous);
+    original.planSha256 = coordinatorPlanDigest(original.plan);
+    recovery.plan.selectedConfiguration = pin;
+    recovery.plan.selectedLauncher = pin;
+    recovery.planSha256 = claimedRecoveryPlanDigest(recovery.plan);
+    const fenced = {
+      ...structuredClone(original),
+      revision: randomUUID(),
+      execution: { ...original.execution!, stage: "recovery_required" as const },
+    };
+    recovery.execution!.stage = "succeeded";
+    const fence = path.join(
+      directory,
+      `coordinator-claim-fence-${recovery.execution!.generation}.json`,
+    );
+    save(fence, {
+      version: 1,
+      original,
+      fenced,
+      recovery: { ...identity(recovery), generation: recovery.execution!.generation },
+    });
+    const approvedRevision = randomUUID();
+    const request = { ...identity(recovery), revision: approvedRevision };
+    const setup = path.join(
+      directory,
+      `coordinator-claimed-launch-${recovery.id}-${approvedRevision}.json`,
+    );
+    const snapshot = save(setup, {
+      admissionSetupFile: pin.path,
+      daemonId: "fixture",
+      node: pin,
+      entrypoint: pin,
+      ownerLauncher: pin,
+      ownershipVerifier: pin,
+      runtimeDirectory: directory,
+      runtimeSha256: pin.sha256,
+      version: 1,
+      kind: "bootstrap-claimed-recovery",
+      stateDirectory: directory,
+      request,
+      original: identity(original),
+      inspector: pin,
+      selectedLauncherFile: pin.path,
+      renewal: {
+        version: 1,
+        originalSetup: pin,
+        originalAdmission: pin,
+        terminal: reference(terminal),
+        configuration: pin,
+        sourceCommit: original.plan.candidate.sourceCommit,
+        source: pin,
+        hostProcess: recovery.plan.hostProcess,
+      },
+    });
+    const attemptId = randomUUID();
+    const executor = {
+      ...recovery.plan.executor,
+      identity: {
+        ...recovery.plan.executor.identity,
+        pid: recovery.plan.executor.identity.pid + 100,
+      },
+    };
+    save(
+      path.join(directory, `coordinator-claimed-attempt-${recovery.id}-${approvedRevision}.json`),
+      { version: 1, request, setup, launcherPid: executor.identity.pid, attemptId },
+    );
+    const birth = path.join(
+      directory,
+      `coordinator-claimed-executor-${recovery.id}-${approvedRevision}.json`,
+    );
+    save(birth, { version: 1, request, attemptId, setup: snapshot, executor });
+    reviews.push(recovery);
+    pending.push(fenced);
+    retained.push({ fence, birth, setup });
+    return fenced;
+  };
+  const recovered = addRecovery();
+  const failed = structuredClone(recovered);
+  failed.id = randomUUID();
+  failed.revision = randomUUID();
+  failed.execution!.generation = randomUUID();
+  failed.plan.recoveredFrom = reference(recovered);
+  failed.planSha256 = coordinatorPlanDigest(failed.plan);
+  pending.push(failed);
+  addRecovery(failed);
+  save(path.join(directory, "coordinator-bootstrap.json"), { version: 1, requests: [terminal] });
+  save(path.join(directory, "coordinator-bootstrap-pending.json"), {
+    version: 1,
+    requests: pending,
+    promotions: [],
+  });
+  new FileClaimedRecoveryReviewJournal(directory).replaceReviews([], reviews);
+  const records = new FileBootstrapRequestJournal(directory).read();
+  const { readClaimedSuccessorEvidence } =
+    await import("./coordinator-bootstrap-claimed-successor.js");
+  const read = () =>
+    readClaimedSuccessorEvidence({
+      records,
+      roots: [],
+      identity: { ...first.identity, stateDirectory: directory },
+    });
+  return { directory, records, retained, terminal, pending, read };
+}
+
+test.each([
+  "valid",
+  "missing-fence",
+  "forged-fence",
+  "missing-birth",
+  "changed-setup",
+  "duplicate",
+  "cycle",
+  "stale-predecessor",
+  "competing-claim",
+])("complete retained recovery chain validates every predecessor: %s", async (mode) => {
+  const f = await retainedRecoveryChainFixture();
+  try {
+    const old = f.retained[0];
+    if (mode === "missing-fence") rmSync(old.fence);
+    if (mode === "forged-fence") writeFileSync(old.fence, "{}", { mode: 0o600 });
+    if (mode === "missing-birth") rmSync(old.birth);
+    if (mode === "changed-setup") writeFileSync(old.setup, "{}", { mode: 0o600 });
+    if (mode === "duplicate") f.records.push(structuredClone(f.records[0]));
+    if (mode === "cycle") {
+      const a = f.records[1],
+        b = f.records[2];
+      a.plan.recoveredFrom = { ...identity(b), generation: b.execution!.generation };
+      b.plan.recoveredFrom = { ...identity(a), generation: a.execution!.generation };
+    }
+    if (mode === "stale-predecessor") f.records[2].revision = randomUUID();
+    if (mode === "competing-claim")
+      f.records.push({
+        ...structuredClone(f.records.at(-1)!),
+        id: randomUUID(),
+        execution: { ...f.records.at(-1)!.execution!, stage: "claimed" },
+      });
+    if (mode !== "valid") {
+      if (mode === "competing-claim") expect(await f.read()).toBeUndefined();
+      else await expect(f.read()).rejects.toThrow();
+    } else {
+      const evidence = await f.read();
+      expect(evidence?.terminal.request.id).toBe(f.terminal.id);
+      expect(evidence?.recoveredFrom.id).toBe(f.pending[2].id);
+      expect(evidence?.priorExits).toHaveLength(1);
+      expect(new FileBootstrapRequestJournal(f.directory).read()).toEqual(f.records);
+    }
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
 });

@@ -132,6 +132,7 @@ import {
   BootstrapPreclaimRecoveryPrepareRequestSchema,
   BootstrapClaimedRecoveryPrepareRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
+  CoordinatorBootstrapReconcileAutomaticRequestSchema,
   BootstrapPreclaimRecoveryDecideRequestSchema,
   BootstrapClaimedRecoveryDecideRequestSchema,
   CoordinatorBootstrapListResponseSchema,
@@ -141,6 +142,7 @@ import {
   BootstrapPreclaimRecoveryPrepareResponseSchema,
   BootstrapClaimedRecoveryPrepareResponseSchema,
   CoordinatorBootstrapDecideResponseSchema,
+  CoordinatorBootstrapReconcileAutomaticResponseSchema,
   BootstrapPreclaimRecoveryDecideResponseSchema,
   BootstrapClaimedRecoveryDecideResponseSchema,
 } from "./coordinator-bootstrap.js";
@@ -3554,6 +3556,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   BootstrapPreclaimRecoveryPrepareRequestSchema,
   BootstrapClaimedRecoveryPrepareRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
+  CoordinatorBootstrapReconcileAutomaticRequestSchema,
   BootstrapPreclaimRecoveryDecideRequestSchema,
   BootstrapClaimedRecoveryDecideRequestSchema,
   SetAgentFeatureRequestMessageSchema,
@@ -3985,6 +3988,11 @@ export const ServerInfoStatusPayloadSchema = z
         coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
         // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
         coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
+        coordinatorBootstrapBootRecovery: z.boolean().optional(),
+        coordinatorBootstrapRecoveryBootPlan: z.boolean().optional(),
+        coordinatorBootstrapAutomaticReconciliation: z.boolean().optional(),
+        coordinatorBootstrapAutomaticStatus: z.boolean().optional(),
+        coordinatorBootstrapAuthenticatedSubmission: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),
         // COMPAT(daemonDiagnostics): added in v0.1.100, remove gate after 2026-12-25 once daemon floor >= v0.1.100.
@@ -7375,6 +7383,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   BootstrapPreclaimRecoveryPrepareResponseSchema,
   BootstrapClaimedRecoveryPrepareResponseSchema,
   CoordinatorBootstrapDecideResponseSchema,
+  CoordinatorBootstrapReconcileAutomaticResponseSchema,
   BootstrapPreclaimRecoveryDecideResponseSchema,
   BootstrapClaimedRecoveryDecideResponseSchema,
   SetAgentFeatureResponseMessageSchema,

@@ -1,4 +1,7 @@
+import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
+import { InstallationEnrollmentStatusSchema } from "@getpaseo/protocol/installation-enrollment";
 import { DaemonAutomation } from "./daemon-automation.js";
+import type { BootstrapReconciliationLedger } from "./coordinator-bootstrap.js";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import type { RestartExecutor } from "./restarts.js";
@@ -13,6 +16,7 @@ import {
   existsSync,
   chmodSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   writeFileSync,
   readFileSync,
@@ -47,6 +51,24 @@ import {
 } from "@getpaseo/protocol/execution-installation";
 
 const cleanups: Array<() => Promise<void>> = [];
+
+test("enrollment status is owner-only and reading it cannot approve or dispatch maintenance", async () => {
+  const f = await fixture();
+  const route = "/api/installation/owner/enrollment/query";
+  for (const credential of [undefined, "host-agent-test-token", "guest-agent-test-token"])
+    expect((await f.request(route, credential, {})).status).toBe(401);
+  const response = await f.request(route, "owner-test-password", {});
+  expect(response.status).toBe(200);
+  const status = InstallationEnrollmentStatusSchema.parse(await response.json());
+  expect(status).toMatchObject({
+    authority: "not-enrolled",
+    activation: "not-enrolled",
+    services: [],
+    steps: [],
+  });
+  expect(f.calls).toEqual([]);
+  expect(existsSync(path.join(f.root, "maintenance-enrollment.json"))).toBe(false);
+});
 
 test("only the owner can prepare a pinned plugin source and preparation does not save settings", async () => {
   const host = new SettingsEnvironmentFake("host-id");
@@ -341,8 +363,9 @@ async function fixture(
     "validateHelperPlan" | "installHelper" | "verifyHelperRecovery"
   >,
   initialize?: (config: InstallationConfig) => void,
+  coordinatorRequests?: BootstrapReconciliationLedger,
 ) {
-  const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-")));
   writeFileSync(
     path.join(root, "index.html"),
     "<html><head></head><body>trusted application</body></html>",
@@ -464,6 +487,7 @@ async function fixture(
     resolvePluginSource,
     claudeSetup,
     startupFence,
+    coordinatorRequests,
   );
   const server: Server = await new Promise((resolve) => {
     const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
@@ -1422,10 +1446,17 @@ test("supervisor maintenance stays visible to old clients but requires exact own
 test("supervisor capability is Host scoped and exact approval dispatches the maintenance executor", async () => {
   const { request, calls } = await fixture();
   const guest = await request("/api/installation/capabilities", "guest-agent-test-token");
-  expect((await guest.json()).supervisorMaintenance).toEqual({ available: false });
+  expect((await guest.json()).supervisorMaintenance).toEqual({
+    available: false,
+    ownerApprovalRequired: true,
+  });
   const host = await request("/api/installation/capabilities", "host-agent-test-token");
   const sha = "a".repeat(64);
-  expect((await host.json()).supervisorMaintenance).toEqual({ available: true, sha256: sha });
+  expect((await host.json()).supervisorMaintenance).toEqual({
+    available: true,
+    sha256: sha,
+    ownerApprovalRequired: true,
+  });
   const created = await request("/api/installation/restart-requests", "host-agent-test-token", {
     target: "container-daemon",
     reason: "Reviewed fixture",
@@ -1445,6 +1476,57 @@ test("supervisor capability is Host scoped and exact approval dispatches the mai
   );
   expect((await status.json()).status).toBe("succeeded");
 });
+
+test.each(["host", "container-daemon"] as const)(
+  "capabilities keep separate daemon permissions when %s automation is disabled",
+  async (disabledTarget) => {
+    const f = await fixture(undefined, undefined, undefined, false, true);
+    const changed = await f.request(
+      "/api/installation/owner/maintenance-permissions/change",
+      "owner-test-password",
+      {
+        expectedRevision: null,
+        service: disabledTarget,
+        enabled: false,
+      },
+    );
+    expect(changed.status).toBe(200);
+    const capabilities = "/api/installation/capabilities";
+    const host = await (await f.request(capabilities, "host-agent-test-token")).json();
+    expect(host).toMatchObject({ ownerApprovalRequired: true, hostAutomaticRestarts: false });
+    for (const target of ["host", "container-daemon"] as const) {
+      const automatic = target !== disabledTarget;
+      expect(host.targets.find((item: { target: string }) => item.target === target)).toMatchObject(
+        {
+          ownerApprovalRequired: !automatic,
+          hostAutomaticRestarts: automatic,
+        },
+      );
+      const created = await f.request(
+        "/api/installation/restart-requests",
+        "host-agent-test-token",
+        {
+          target,
+          reason: "Verify separate daemon permissions",
+        },
+      );
+      expect(created.status).toBe(201);
+      const job = RestartJobSchema.parse(await created.json());
+      await f.drain();
+      const receipt = await f.request(
+        `/api/installation/restart-requests/${job.id}`,
+        "host-agent-test-token",
+      );
+      expect((await receipt.json()).status).toBe(automatic ? "approved" : "pending");
+    }
+    const guest = await (await f.request(capabilities, "guest-agent-test-token")).json();
+    expect(guest.ownerApprovalRequired).toBe(true);
+    expect(
+      guest.targets.map((item: { ownerApprovalRequired: boolean }) => item.ownerApprovalRequired),
+    ).toEqual([true, true]);
+    expect(f.calls).toEqual([]);
+  },
+);
 
 test("automatic Host approval uses authenticated origin and hides metadata from legacy clients", async () => {
   const { request, calls, drain } = await fixture(undefined, undefined, undefined, false, true);
@@ -1502,7 +1584,9 @@ test("automatic Host approval uses authenticated origin and hides metadata from 
   expect(modern.automaticApproval?.requestRevision).toBe(modern.revision);
   const legacy = await (await request(`${route}/${host.id}`, "host-agent-test-token")).json();
   expect(legacy).not.toHaveProperty("automaticApproval");
-  expect(calls).toEqual(["hold"]);
+  expect(calls).toEqual([]);
+  expect(modern).not.toHaveProperty("automaticAuthority");
+  expect(modern).not.toHaveProperty("automaticDispatchAfter");
   const canceled = await request(
     `/api/installation/owner/restarts/${host.id}/decision`,
     "owner-test-password",
@@ -1513,7 +1597,7 @@ test("automatic Host approval uses authenticated origin and hides metadata from 
   );
   expect(canceled.status).toBe(200);
   await drain();
-  expect(calls).toEqual(["hold", "release"]);
+  expect(calls).toEqual(["release"]);
 });
 
 test("Claude setup login accepts only owner access and sanitizes code failures", async () => {
@@ -1824,7 +1908,7 @@ test("scoped helper CLI prepares inert requests and returns their exact review r
   const preparation = helperHttpPreparation();
   writeFileSync(requestFile, JSON.stringify(preparation), { mode: 0o600 });
   const command = promisify(execFile);
-  const script = path.resolve("../../scripts/installation-agent.mjs");
+  const script = path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs");
   const run = (config: string, ...args: string[]) =>
     command(process.execPath, [script, "--config", config, ...args]);
   await expect(run(guest, "request-helper", "--request-file", requestFile)).rejects.toThrow(
@@ -2012,7 +2096,7 @@ test("Host CLI requests truthful manual review and returns the exact owner revie
   );
   writeFileSync(reason, "Review explicitly", { mode: 0o600 });
   const result = await promisify(execFile)(process.execPath, [
-    path.resolve("../../scripts/installation-agent.mjs"),
+    path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
     "--config",
     config,
     "request-restart",
@@ -2061,7 +2145,7 @@ test.each([false, true])(
       writeFileSync(reason, "Review explicitly");
       await expect(
         promisify(execFile)(process.execPath, [
-          path.resolve("../../scripts/installation-agent.mjs"),
+          path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
           "--config",
           config,
           "request-restart",
@@ -2159,7 +2243,7 @@ test("Host CLI source contributions carry the advertised owner-review requiremen
     writeFileSync(reason, "Review source explicitly");
     const id = randomUUID();
     await promisify(execFile)(process.execPath, [
-      path.resolve("../../scripts/installation-agent.mjs"),
+      path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
       "--config",
       config,
       "request-restart",
@@ -2216,7 +2300,7 @@ test("daemon automation preference requires owner access and persists exact revi
   expect(enabled.status).toBe(200);
   const saved = await enabled.json();
   expect(saved).toMatchObject({ enabled: true, legacyHostOnly: false });
-  expect(new DaemonAutomation(f.root, true).read()).toEqual(saved);
+  expect(new DaemonAutomation(f.root, true).read()).toMatchObject(saved);
   expect(typeof saved.revision).toBe("string");
   expect(typeof saved.enabledAfter).toBe("string");
   expect(await (await f.request(query, "owner-test-password", {})).json()).toEqual(saved);
@@ -2255,7 +2339,7 @@ test("owner can disable automation when the coordinator loses restart support", 
     enabled: true,
   });
   expect(refused.status).toBe(409);
-  expect(new DaemonAutomation(f.root, false).read()).toEqual(state);
+  expect(new DaemonAutomation(f.root, false).read()).toMatchObject(state);
 });
 
 test("Dev repair routes require owner authentication and refuse missing or changed requests without lifecycle effects", async () => {
@@ -2370,6 +2454,7 @@ test("owner HTTP repair captures and stages real Git source without approving or
               },
             },
           ]),
+          { mode: 0o600 },
         );
       },
     );
@@ -2399,4 +2484,531 @@ test("owner HTTP repair captures and stages real Git source without approving or
   } finally {
     prepareBatch.mockRestore();
   }
+});
+
+test("maintenance readiness separates legacy authority, broad opt-in and source readiness", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const route = "/api/installation/maintenance-status";
+  expect((await f.request(route, "wrong")).status).toBe(401);
+  const initial = await (await f.request(route, "guest-agent-test-token")).json();
+  expect(initial.version).toBe(1);
+  expect(initial.paths).toHaveLength(8);
+  expect(initial.paths).toContainEqual(
+    expect.objectContaining({
+      requester: "host-agent",
+      target: "host",
+      operation: "restart",
+      authorization: "automatic",
+      readiness: "ready",
+    }),
+  );
+  expect(initial.paths).toContainEqual(
+    expect.objectContaining({
+      requester: "container-agent",
+      target: "host",
+      operation: "restart",
+      authorization: "manual",
+      readiness: "ready",
+    }),
+  );
+  expect(
+    initial.paths
+      .filter((item: { operation: string }) => item.operation === "source-update")
+      .every(
+        (item: { readiness: string; selectedSource: string | null }) =>
+          item.readiness === "blocked" && item.selectedSource === null,
+      ),
+  ).toBe(true);
+  const ownerRoute = "/api/installation/owner/maintenance-status/query";
+  expect((await f.request(ownerRoute, "guest-agent-test-token", {})).status).toBe(401);
+  await f.request("/api/installation/owner/daemon-automation/change", "owner-test-password", {
+    expectedRevision: null,
+    enabled: true,
+  });
+  const enabled = await (await f.request(ownerRoute, "owner-test-password", {})).json();
+  expect(enabled.preference).toMatchObject({ enabled: true, legacyHostOnly: false });
+  expect(
+    enabled.paths.every(
+      (item: { requester: string; authorization: string }) =>
+        item.authorization === (item.requester === "host-agent" ? "automatic" : "manual"),
+    ),
+  ).toBe(true);
+  expect(f.calls).toEqual([]);
+});
+
+function coordinatorStatusRequest(): CoordinatorBootstrapRequest {
+  const file = { path: "/protected/fixture", sha256: "a".repeat(64) };
+  const release = {
+    sourceCommit: "b".repeat(40),
+    artifactSha256: "c".repeat(64),
+    directory: "/protected/release",
+    node: file,
+    entrypoint: file,
+    configuration: file,
+    launcher: file,
+  };
+  const id = randomUUID();
+  const at = new Date(0).toISOString();
+  return {
+    id,
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "Protected fixture",
+    createdAt: at,
+    planSha256: "d".repeat(64),
+    status: "approved",
+    decisionAt: at,
+    automaticSubmission: {
+      credentialBinding: "e".repeat(64),
+      policyActivatedAt: at,
+      submittedAt: at,
+    },
+    execution: { generation: randomUUID(), stage: "claimed", updatedAt: at },
+    plan: {
+      version: 1,
+      operation: "coordinator-bootstrap",
+      installationId: randomUUID(),
+      service: "gui/501/local.vorteo.fixture.installation",
+      previous: release,
+      candidate: release,
+      expectedProcess: {
+        pid: 123,
+        bootId: "fixture",
+        startIdentity: "fixture",
+        argumentsSha256: "f".repeat(64),
+      },
+      state: {
+        directory: "/protected/state",
+        restartJournal: "/protected/state/restarts.json",
+        ownerSessions: "/protected/state/sessions.json",
+      },
+      hostRequestsAfter: null,
+    },
+  };
+}
+
+test("owner restart review reports coordinator recovery without dispatching or losing cancellation", async () => {
+  const f = await fixture();
+  const retained = coordinatorStatusRequest();
+  writeFileSync(
+    path.join(f.root, "coordinator-bootstrap.json"),
+    JSON.stringify({ version: 1, requests: [retained] }),
+    { mode: 0o600 },
+  );
+  const response = await f.request("/api/installation/restart-requests", "guest-agent-test-token", {
+    target: "host",
+    reason: "Review after recovery",
+  });
+  expect(response.status).toBe(201);
+  const job = RestartJobSchema.parse(await response.json());
+  const route = `/api/installation/owner/restarts/${job.id}/decision`;
+  const approval = await f.request(route, "owner-test-password", {
+    revision: job.revision,
+    decision: "approve",
+  });
+  expect(approval.status).toBe(409);
+  expect(await approval.json()).toEqual({
+    error: "Coordinator recovery must finish before installation work",
+  });
+  const rejection = await f.request(route, "owner-test-password", {
+    revision: job.revision,
+    decision: "reject",
+  });
+  expect(rejection.status).toBe(200);
+  await f.drain();
+  expect(f.calls).toEqual([]);
+});
+
+test("scoped coordinator status reads the retained request without exposing protected plans or requiring Host RPC", async () => {
+  const retained = coordinatorStatusRequest();
+  let failed = false;
+  const ledger: BootstrapReconciliationLedger = {
+    list: () => {
+      if (failed) throw new Error("PRIVATE JOURNAL DETAIL");
+      return [retained, coordinatorStatusRequest()];
+    },
+    revokeAutomatic: () => {},
+    reserveAutomaticReconciliation: () => null,
+    finishAutomaticReconciliation: () => {},
+  };
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    ledger,
+  );
+  const route = `/api/installation/coordinator-requests/${retained.id}`;
+  expect((await f.request(route, "owner-test-password")).status).toBe(401);
+  const capabilities = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(capabilities.coordinatorMaintenance).toMatchObject({
+    available: false,
+    automaticAvailable: false,
+    ownerApprovalRequired: true,
+  });
+  expect(capabilities.coordinatorMaintenance.reason).toContain("retained coordinator request");
+  for (const token of ["host-agent-test-token", "guest-agent-test-token"]) {
+    const response = await f.request(route, token);
+    expect(response.status).toBe(200);
+    const receipt = await response.json();
+    expect(receipt).toMatchObject({
+      id: retained.id,
+      revision: retained.revision,
+      status: "approved",
+      execution: retained.execution,
+      automaticStatus: { state: "execution" },
+    });
+    expect(new URL(receipt.approvalUrl).searchParams.get("bootstrap")).toBe(retained.id);
+    expect(receipt).not.toHaveProperty("plan");
+    expect(receipt).not.toHaveProperty("automaticSubmission");
+    expect(JSON.stringify(receipt)).not.toContain("/protected/");
+  }
+  expect(
+    (
+      await f.request(
+        `/api/installation/coordinator-requests/${randomUUID()}`,
+        "host-agent-test-token",
+      )
+    ).status,
+  ).toBe(404);
+  const clientFile = path.join(f.root, "coordinator-client.json");
+  writeFileSync(
+    clientFile,
+    JSON.stringify({
+      origin: f.url,
+      publicOrigin: "https://review.example.test",
+      kind: "host-agent",
+      token: "host-agent-test-token",
+    }),
+  );
+  const cli = await promisify(execFile)(process.execPath, [
+    path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
+    "--config",
+    clientFile,
+    "coordinator-status",
+    retained.id,
+  ]);
+  expect(JSON.parse(cli.stdout)).toMatchObject({ id: retained.id, execution: retained.execution });
+  expect(new URL(JSON.parse(cli.stdout).approvalUrl).searchParams.get("bootstrap")).toBe(
+    retained.id,
+  );
+  failed = true;
+  const unavailable = await f.request(route, "host-agent-test-token");
+  expect(unavailable.status).toBe(503);
+  expect(JSON.stringify(await unavailable.json())).not.toContain("PRIVATE JOURNAL DETAIL");
+  expect(f.calls).toEqual([]);
+});
+
+test.each(["manual", "automatic", "explicit", "unsupported", "blocked"] as const)(
+  "scoped coordinator CLI preserves exact preparation and capability refusal (%s)",
+  async (mode) => {
+    const root = mkdtempSync(path.join(tmpdir(), "coordinator-cli-"));
+    const retained = coordinatorStatusRequest();
+    const preparation = { id: retained.id, reason: retained.reason, plan: retained.plan };
+    const submitted: unknown[] = [];
+    // This HTTP port checks the installed CLI contract without running native maintenance.
+    const server = createServer((req, res) => {
+      res.setHeader("Content-Type", "application/json");
+      if (req.url === "/api/installation/capabilities") {
+        res.end(
+          JSON.stringify({
+            requireOwnerApproval: true,
+            coordinatorMaintenance: {
+              available: mode !== "blocked",
+              automaticAvailable: mode === "automatic",
+              ownerApprovalRequired: mode === "manual",
+            },
+          }),
+        );
+        return;
+      }
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        submitted.push({ method: req.method, path: req.url, body: JSON.parse(body) });
+        res.end(
+          JSON.stringify({ id: retained.id, revision: retained.revision, status: "pending" }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing test server address");
+      const config = path.join(root, "client.json");
+      const input = path.join(root, "preparation.json");
+      writeFileSync(
+        config,
+        JSON.stringify({
+          origin: `http://127.0.0.1:${address.port}`,
+          publicOrigin: "https://review.example.test",
+          kind: "host-agent",
+          token: "fixture-token",
+        }),
+      );
+      writeFileSync(input, JSON.stringify(preparation));
+      const run = promisify(execFile)(process.execPath, [
+        path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
+        "--config",
+        config,
+        "request-coordinator",
+        "--request-file",
+        input,
+        ...(mode === "explicit" ? ["--require-owner-approval"] : []),
+      ]);
+      if (mode === "unsupported" || mode === "blocked") {
+        await expect(run).rejects.toThrow("no preparation submitted");
+        expect(submitted).toEqual([]);
+      } else {
+        const result = await run;
+        expect(result.stderr).toContain(`Coordinator request: ${retained.id}`);
+        expect(submitted).toEqual([
+          {
+            method: "POST",
+            path: "/api/installation/coordinator-requests",
+            body: {
+              preparation,
+              ...(mode === "explicit" ? { requireOwnerApproval: true } : {}),
+            },
+          },
+        ]);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          id: retained.id,
+          status: "pending",
+          approvalUrl: `https://review.example.test/settings/general?installation=1&bootstrap=${retained.id}`,
+        });
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        }),
+      );
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test("coordinator submission requires scoped authentication before parsing its preparation", async () => {
+  const f = await fixture();
+  const route = "/api/installation/coordinator-requests";
+  expect((await f.request(route, "owner-test-password", {})).status).toBe(401);
+  expect((await f.request(route, undefined, {})).status).toBe(401);
+  expect((await f.request(route, "host-agent-test-token", {})).status).toBe(400);
+  expect((await f.request(route, "guest-agent-test-token", {})).status).toBe(400);
+  expect(f.calls).toEqual([]);
+});
+
+test("permission changes persist revocation before success and report ledger failures", async () => {
+  let stateDirectory = "";
+  let failRevocation = false;
+  const observed: Array<string | null> = [];
+  const coordinatorRequests = {
+    list: () => [],
+    reserveAutomaticReconciliation: () => null,
+    finishAutomaticReconciliation: () => {},
+    revokeAutomatic() {
+      observed.push(new DaemonAutomation(stateDirectory, false).activation("coordinator") ?? null);
+      if (failRevocation) throw new Error("Fixture journal unavailable");
+    },
+  };
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      stateDirectory = config.stateDir;
+    },
+    coordinatorRequests,
+  );
+  const route = "/api/installation/owner/maintenance-permissions/change";
+  const enabled = await f.request(route, "owner-test-password", {
+    expectedRevision: null,
+    service: "coordinator",
+    enabled: true,
+  });
+  expect(enabled.status).toBe(200);
+  const preference = await enabled.json();
+  expect(observed[0]).toBe(preference.services.coordinator);
+  observed.length = 0;
+  failRevocation = true;
+  const disabled = await f.request(route, "owner-test-password", {
+    expectedRevision: preference.revision,
+    service: "coordinator",
+    enabled: false,
+  });
+  expect(disabled.status).toBe(500);
+  expect(await disabled.json()).toEqual({ error: "Installation request failed" });
+  expect(observed).toEqual([null]);
+  expect(new DaemonAutomation(f.root, false).activation("coordinator")).toBeNull();
+  // The existing reconciliation tick retries only revocation, never a launch.
+  failRevocation = false;
+  await f.drain();
+  expect(observed).toEqual([null, null]);
+  expect(f.calls).toEqual([]);
+});
+
+test("service permissions preserve daemon grants and keep controller permissions separate", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const query = "/api/installation/owner/maintenance-permissions/query";
+  const change = "/api/installation/owner/maintenance-permissions/change";
+  for (const token of ["guest-agent-test-token", "host-agent-test-token"])
+    expect(
+      (
+        await f.request(change, token, {
+          expectedRevision: null,
+          service: "coordinator",
+          enabled: true,
+        })
+      ).status,
+    ).toBe(401);
+  const initial = await (await f.request(query, "owner-test-password", {})).json();
+  expect(initial.services).toMatchObject({ coordinator: null, supervisor: null });
+  expect(initial.services.host).toBeTruthy();
+  expect(initial.services["container-daemon"]).toBe(initial.services.host);
+  const response = await f.request(change, "owner-test-password", {
+    expectedRevision: initial.revision,
+    service: "coordinator",
+    enabled: true,
+  });
+  expect(response.status).toBe(200);
+  const saved = await response.json();
+  expect(saved.services.coordinator).toBeTruthy();
+  expect(saved.services.supervisor).toBeNull();
+  expect(saved.services.host).toBe(initial.services.host);
+  expect(saved.services["container-daemon"]).toBe(initial.services["container-daemon"]);
+  expect(new DaemonAutomation(f.root, true).read()).toEqual(saved);
+  expect(
+    (
+      await f.request(change, "owner-test-password", {
+        expectedRevision: initial.revision,
+        service: "supervisor",
+        enabled: true,
+      })
+    ).status,
+  ).toBe(409);
+  const disabled = await (
+    await f.request(change, "owner-test-password", {
+      expectedRevision: saved.revision,
+      service: "host",
+      enabled: false,
+    })
+  ).json();
+  expect(disabled.services.host).toBeNull();
+  expect(disabled.services.coordinator).toBe(saved.services.coordinator);
+  expect(disabled.services["container-daemon"]).toBe(saved.services["container-daemon"]);
+  const legacy = await (
+    await f.request("/api/installation/owner/daemon-automation/query", "owner-test-password", {})
+  ).json();
+  expect(legacy).not.toHaveProperty("services");
+});
+
+test("supervisor permission authorizes only its tracked Host operation and revokes before holds", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const query = "/api/installation/owner/maintenance-permissions/query";
+  const change = "/api/installation/owner/maintenance-permissions/change";
+  const initial = await (await f.request(query, "owner-test-password", {})).json();
+  const saved = await (
+    await f.request(change, "owner-test-password", {
+      expectedRevision: initial.revision,
+      service: "supervisor",
+      enabled: true,
+    })
+  ).json();
+  expect(saved.services.host).toBe(initial.services.host);
+  expect(saved.services.coordinator).toBeNull();
+  const capability = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(capability.supervisorMaintenance).toEqual({
+    available: true,
+    sha256: "a".repeat(64),
+    ownerApprovalRequired: false,
+  });
+  const readiness = await (
+    await f.request("/api/installation/maintenance-status", "host-agent-test-token")
+  ).json();
+  expect(
+    readiness.services.find((item: { service: string }) => item.service === "supervisor"),
+  ).toMatchObject({ readiness: "ready" });
+  const route = "/api/installation/restart-requests";
+  const input = {
+    target: "container-daemon",
+    reason: "Verified supervisor plan",
+    supervisorPlanSha256: "a".repeat(64),
+  };
+  expect((await f.request(route, "guest-agent-test-token", input)).status).toBe(409);
+  const job = await (await f.request(route, "host-agent-test-token", input)).json();
+  await f.drain();
+  const status = async () =>
+    (
+      await f.request(
+        `${route}/${job.id}?hostAutomaticRestarts=1&supervisorMaintenance=1`,
+        "host-agent-test-token",
+      )
+    ).json();
+  await expect.poll(async () => (await status()).status).toBe("approved");
+  expect(await status()).toMatchObject({
+    automaticApproval: { policyActivatedAt: saved.services.supervisor },
+  });
+  expect(f.calls).toEqual([]);
+  expect(
+    (
+      await f.request(change, "owner-test-password", {
+        expectedRevision: saved.revision,
+        service: "supervisor",
+        enabled: false,
+      })
+    ).status,
+  ).toBe(200);
+  await expect.poll(async () => (await status()).status).toBe("rejected");
+  expect(f.calls).not.toContain("hold");
+  expect(f.calls).not.toContain("supervisor");
+});
+
+test("the scoped Host client can require manual supervisor review", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const clientFile = path.join(f.root, "host-client.json");
+  const reasonFile = path.join(f.root, "reason.txt");
+  writeFileSync(
+    clientFile,
+    JSON.stringify({ origin: f.url, token: "host-agent-test-token", kind: "host-agent" }),
+    { mode: 0o600 },
+  );
+  writeFileSync(reasonFile, "Review supervisor maintenance explicitly");
+  const result = await promisify(execFile)(process.execPath, [
+    path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
+    "--config",
+    clientFile,
+    "request-restart",
+    "--target",
+    "container-daemon",
+    "--supervisor-plan",
+    "a".repeat(64),
+    "--require-owner-approval",
+    "--reason-file",
+    reasonFile,
+  ]);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    status: "pending",
+    requireOwnerApproval: true,
+    supervisorPlanSha256: "a".repeat(64),
+  });
+  await f.drain();
+  expect(f.calls).toEqual([]);
 });

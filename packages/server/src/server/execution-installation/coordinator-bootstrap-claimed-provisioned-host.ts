@@ -19,7 +19,10 @@ import {
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { deriveBootstrapRenewal } from "./coordinator-bootstrap-renewal.js";
 import { createNativeBootstrapServiceReader } from "./coordinator-bootstrap-service.js";
-import { verifyClaimedRepairProvisioning } from "./coordinator-bootstrap-claimed-provisioning.js";
+import {
+  resolveClaimedRepairFiles,
+  verifyClaimedRepairProvisioning,
+} from "./coordinator-bootstrap-claimed-provisioning.js";
 import {
   readBootstrapPreparedFile,
   readProtectedDocument,
@@ -166,12 +169,9 @@ export async function createProvisionedClaimedRecoveryReview(input: {
     readPrivateBootstrapConfiguration(setup.admissionSetupFile, uid),
   );
   const roots = await inspectBootstrapWritableMountRoots(admission);
+  const files = await resolveClaimedRepairFiles({ ...input, writableMountRoots: roots });
   const plan = validateClaimedRecoveryPlan(
-    JSON.parse(
-      (
-        await readProtectedDocument(path.join(input.installationRoot, "claimed-repair-plan.json"))
-      ).toString("utf8"),
-    ),
+    JSON.parse((await readProtectedDocument(files.plan)).toString("utf8")),
   );
   const verified = await verifyClaimedRepairProvisioning({
     ...input,

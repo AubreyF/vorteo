@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/server",
-  "version": "0.11.0-beta.3.vorteo.525",
+  "version": "0.11.0-beta.3.vorteo.562",
   "description": "Vorteo backend server",
   "files": [
     "dist/server",
@@ -137,12 +137,13 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.17.1",
     "@anthropic-ai/claude-agent-sdk": "0.3.246",
+    "@anthropic-ai/claude-code": "2.1.284",
     "@anthropic-ai/sdk": "^0.104.2",
-    "@getpaseo/client": "0.11.0-beta.3.vorteo.525",
-    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.525",
-    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.525",
-    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.525",
-    "@getpaseo/relay": "0.11.0-beta.3.vorteo.525",
+    "@getpaseo/client": "0.11.0-beta.3.vorteo.562",
+    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.562",
+    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.562",
+    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.562",
+    "@getpaseo/relay": "0.11.0-beta.3.vorteo.562",
     "@isaacs/ttlcache": "^2.1.4",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@opencode-ai/sdk": "1.14.46",

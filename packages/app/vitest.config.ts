@@ -13,6 +13,7 @@ const resolvePackageEntry = (packageName: string) => {
 };
 
 export default defineConfig({
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     exclude: [...configDefaults.exclude, "e2e/**"],

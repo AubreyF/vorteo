@@ -33,6 +33,7 @@ import { createNativeBootstrapServiceReader } from "./coordinator-bootstrap-serv
 import { ProcessObservationSchema } from "./coordinator-bootstrap-process.js";
 import {
   provisionClaimedRepair,
+  resolveClaimedRepairFiles,
   verifyClaimedRepairProposal,
 } from "./coordinator-bootstrap-claimed-provisioning.js";
 import { writeRecoverySnapshot } from "./coordinator-bootstrap-launch.js";
@@ -154,13 +155,6 @@ export async function runProvisionedClaimedRepairControl(input: {
   installationRoot: string;
   admissionSha256: string;
 }) {
-  const plan = validateClaimedRecoveryPlan(
-    JSON.parse(
-      (
-        await readProtectedDocument(path.join(input.installationRoot, "claimed-repair-plan.json"))
-      ).toString("utf8"),
-    ),
-  );
   const anchor = BootstrapRunnerSetupSchema.parse(
     JSON.parse(
       (
@@ -174,6 +168,10 @@ export async function runProvisionedClaimedRepairControl(input: {
     JSON.parse((await readProtectedDocument(anchor.admissionSetupFile)).toString("utf8")),
   );
   const roots = await inspectBootstrapWritableMountRoots(anchorAdmission);
+  const files = await resolveClaimedRepairFiles({ ...input, writableMountRoots: roots });
+  const plan = validateClaimedRecoveryPlan(
+    JSON.parse((await readProtectedDocument(files.plan)).toString("utf8")),
+  );
   const reader = await createNativeBootstrapServiceReader({
     ...anchorAdmission,
     writableMountRoots: roots,
@@ -181,9 +179,7 @@ export async function runProvisionedClaimedRepairControl(input: {
   const controlProcess = ProcessObservationSchema.parse(await reader.inspectProcess(process.pid));
   let service: ClaimedRecoveryReviewService | undefined;
   let proposal: Awaited<ReturnType<typeof verifyClaimedRepairProposal>> | undefined;
-  const admitted = await access(
-    path.join(input.installationRoot, "claimed-repair-admission.json"),
-  ).then(
+  const admitted = await access(files.admission).then(
     () => true,
     (error: NodeJS.ErrnoException) => {
       if (error.code !== "ENOENT") throw error;

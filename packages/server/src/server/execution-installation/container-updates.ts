@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { SourceUpdateSchema, type RestartJob } from "@getpaseo/protocol/execution-installation";
-import { writePrivateFileAtomicSync } from "../private-files.js";
+import { writeLifecycleReceipt } from "./lifecycle-journal.js";
 import { connectInstallationDaemon } from "./daemon.js";
 import type { InstallationConfig, ContainerSourceUpdates } from "./config.js";
 import type { RestartExecutor } from "./restarts.js";
@@ -89,12 +89,11 @@ interface ContainerInstallation {
   restart: RestartExecutor["restart"];
 }
 
-export async function installContainerSource({
+export async function prepareContainerSource({
   config,
   job,
   bundleFile,
-  restart,
-}: ContainerInstallation): Promise<string> {
+}: Omit<ContainerInstallation, "restart">): Promise<void> {
   const settings = config.containerSourceUpdates;
   if (!settings || job.target !== "container-daemon")
     throw new Error("Dev source updates are not configured");
@@ -158,12 +157,43 @@ export async function installContainerSource({
   );
   if (prepared.sourceCommit !== update.sourceCommit)
     throw new Error("Prepared Dev source differs from approval");
-  const operation = { release: prepared.release, previous: installed.release, update };
-  const receipt = path.join(work, "activation.json");
-  writeFileSync(receipt, JSON.stringify({ ...operation, status: "activating" }), {
-    mode: 0o600,
-    flag: "wx",
+  writeLifecycleReceipt(path.join(work, "prepared.json"), {
+    release: prepared.release,
+    previous: installed.release,
+    update,
   });
+}
+
+export async function installContainerSource({
+  config,
+  job,
+  restart,
+}: ContainerInstallation): Promise<string> {
+  const settings = config.containerSourceUpdates;
+  if (!settings || job.target !== "container-daemon")
+    throw new Error("Dev source updates are not configured");
+  const update = SourceUpdateSchema.parse(job.update);
+  const work = path.join(config.stateDir, "container-source-updates", job.id);
+  const operation = z
+    .object({ release: z.string(), previous: z.string(), update: SourceUpdateSchema })
+    .parse(JSON.parse(readFileSync(path.join(work, "prepared.json"), "utf8")));
+  const installed = SelectionSchema.parse(
+    await containerCommand({ settings, operation: { action: "inspect" } }),
+  );
+  if (
+    installed.release !== operation.previous ||
+    installed.sourceCommit !== update.baseCommit ||
+    JSON.stringify(operation.update) !== JSON.stringify(update)
+  )
+    throw new Error("Dev source changed after preparation. No candidate was activated.");
+  const prepared = { release: operation.release };
+
+  const receipt = path.join(work, "activation.json");
+  if (existsSync(receipt))
+    throw new Error(
+      "Dev activation was already attempted. Inspect its retained receipt before recovery.",
+    );
+  writeLifecycleReceipt(receipt, { ...operation, status: "activating" });
   await containerCommand({ settings, operation: { ...operation, action: "activate" } });
   try {
     await restart("container-daemon");
@@ -198,15 +228,12 @@ export async function installContainerSource({
   }
   // This protected receipt supplies the next upload's base. It is not guest-authored metadata.
   try {
-    writePrivateFileAtomicSync(
-      settings.receiptFile,
-      JSON.stringify({
-        sourceCommit: update.sourceCommit,
-        release: prepared.release,
-        sha256: update.sha256,
-      }),
-    );
-    writePrivateFileAtomicSync(receipt, JSON.stringify({ ...operation, status: "succeeded" }));
+    writeLifecycleReceipt(settings.receiptFile, {
+      sourceCommit: update.sourceCommit,
+      release: prepared.release,
+      sha256: update.sha256,
+    });
+    writeLifecycleReceipt(receipt, { ...operation, status: "succeeded" });
   } catch (error) {
     throw new Error(
       `Dev is running approved source ${update.sourceCommit}, but its installation receipt could not be recorded. Reconcile ${receipt} before another update; no restart was replayed.`,

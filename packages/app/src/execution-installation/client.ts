@@ -3,6 +3,10 @@ import {
   type NativeHelperJob,
 } from "@getpaseo/protocol/native-helper-maintenance";
 import {
+  InstallationEnrollmentStatusSchema,
+  type InstallationEnrollmentStatus,
+} from "@getpaseo/protocol/installation-enrollment";
+import {
   PreviewMonitorJobSchema,
   type PreviewMonitorJob,
 } from "@getpaseo/protocol/preview-monitor-maintenance";
@@ -10,8 +14,11 @@ import type { MonitorAction } from "./preview-monitor-review";
 import type { HelperReviewAction } from "./helper-review";
 import { z } from "zod";
 import {
+  InstallationMaintenanceStatusSchema,
+  type InstallationMaintenanceStatus,
   DaemonAutomationPreferenceSchema,
   type DaemonAutomationPreference,
+  type MaintenanceService,
   InstallationUnlockSchema,
   RestartSummarySchema,
   type RestartSummary,
@@ -62,6 +69,9 @@ export class InstallationClient {
   private password: string | null = null;
   private helperRetryAt = 0;
   private daemonAutomationSupported = false;
+  private servicePermissionsSupported = false;
+  private maintenanceStatusSupported = false;
+  private enrollmentStatusSupported = false;
   private devRepairSupported = false;
   private devRepairAvailable = false;
   private monitorRetryAt = 0;
@@ -269,11 +279,48 @@ export class InstallationClient {
     );
   }
 
+  async maintenanceStatus(): Promise<InstallationMaintenanceStatus | null> {
+    try {
+      const status = InstallationMaintenanceStatusSchema.parse(
+        await this.request("maintenance-status/query", {}),
+      );
+      this.maintenanceStatusSupported = true;
+      return status;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable && !this.maintenanceStatusSupported)
+        return null;
+      throw error;
+    }
+  }
+
+  async enrollmentStatus(): Promise<InstallationEnrollmentStatus | null> {
+    try {
+      const status = InstallationEnrollmentStatusSchema.parse(
+        await this.request("enrollment/query", {}),
+      );
+      if (status.installationId !== this.installation.installationId)
+        throw new Error("Installation status belongs to another installation");
+      this.enrollmentStatusSupported = true;
+      return status;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable && !this.enrollmentStatusSupported)
+        return null;
+      throw error;
+    }
+  }
+
   async daemonAutomation(): Promise<DaemonAutomationPreference | null> {
     try {
-      const preference = DaemonAutomationPreferenceSchema.parse(
-        await this.request("daemon-automation/query", {}),
-      );
+      let response: unknown;
+      try {
+        response = await this.request("maintenance-permissions/query", {});
+        this.servicePermissionsSupported = true;
+      } catch (error) {
+        if (!(error instanceof InstallationRouteUnavailable) || this.servicePermissionsSupported)
+          throw error;
+        response = await this.request("daemon-automation/query", {});
+      }
+      const preference = DaemonAutomationPreferenceSchema.parse(response);
       this.daemonAutomationSupported = true;
       return preference;
     } catch (error) {
@@ -286,13 +333,19 @@ export class InstallationClient {
   async changeDaemonAutomation(
     preference: DaemonAutomationPreference,
     enabled: boolean,
+    service?: MaintenanceService,
   ): Promise<DaemonAutomationPreference> {
     if (!this.daemonAutomationSupported)
       throw new InstallationRouteUnavailable("Automatic daemon maintenance is unavailable");
+    if (service && !preference.services)
+      throw new InstallationRouteUnavailable(
+        "Update the coordinator for separate service permissions",
+      );
     return DaemonAutomationPreferenceSchema.parse(
-      await this.request("daemon-automation/change", {
+      await this.request(service ? "maintenance-permissions/change" : "daemon-automation/change", {
         expectedRevision: preference.revision,
         enabled,
+        ...(service ? { service } : {}),
       }),
     );
   }

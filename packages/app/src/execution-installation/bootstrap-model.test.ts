@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { randomUUID } from "node:crypto";
 import type {
-  CoordinatorBootstrapRequest,
+  CoordinatorBootstrapRequestView as CoordinatorBootstrapRequest,
   CoordinatorBootstrapDecision,
   BootstrapPreclaimRecoveryRequest,
   BootstrapClaimedRecoveryRequestView,
@@ -11,12 +11,71 @@ import {
   bootstrapDecisionDisabledReason,
   bootstrapNeedsAttention,
   bootstrapStatus,
+  bootstrapAutomaticDetail,
+  bootstrapRequiresOwnerAction,
   currentBootstrapRequests,
   preclaimRecoveryStatus,
   preclaimRecoveryNeedsAttention,
   preclaimDispatchDescription,
   recoveryTargetDescription,
 } from "./bootstrap-model";
+
+test.each([
+  ["waiting", "Automatic validation queued", false],
+  ["checking", "Automatic check awaiting confirmation", false],
+  ["retry-wait", "Automatic check will retry", false],
+  ["review-required", "Automatic checks stopped; review required", true],
+  ["cancellation-window", "Automatically approved; cancellation available", false],
+  ["launch-unconfirmed", "Launch unconfirmed; recovery review required", true],
+] as const)(
+  "automatic coordinator status is actionable only when review is needed: %s",
+  (state, label, action) => {
+    const item: CoordinatorBootstrapRequest = {
+      ...request(),
+      automaticStatus: {
+        authorization: "host-policy",
+        state,
+        observedAt: "2026-10-15T00:00:00Z",
+        attempt: 3,
+        nextCheckAt: "2026-10-15T00:00:30Z",
+        dispatchAfter: "2026-10-15T00:00:30Z",
+      },
+    };
+    expect(bootstrapStatus(item)).toBe(label);
+    expect(bootstrapRequiresOwnerAction(item)).toBe(action);
+    expect(bootstrapAutomaticDetail(item)).not.toBeNull();
+  },
+);
+
+test("automatic details explain exhaustion and retain execution truth", () => {
+  const item: CoordinatorBootstrapRequest = {
+    ...request(),
+    automaticStatus: {
+      authorization: "host-policy",
+      state: "review-required",
+      observedAt: "2026-10-15T00:00:00Z",
+      attempt: 3,
+    },
+  };
+  expect(bootstrapAutomaticDetail(item)).toContain("Automatic retries have stopped");
+  const uncertain: CoordinatorBootstrapRequest = {
+    ...item,
+    automaticStatus: { ...item.automaticStatus!, state: "launch-unconfirmed" },
+  };
+  expect(bootstrapAutomaticDetail(uncertain)).toContain("will not launch again automatically");
+  const executed: CoordinatorBootstrapRequest = {
+    ...uncertain,
+    execution: {
+      generation: randomUUID(),
+      stage: "recovery_required",
+      updatedAt: "2026-10-15T00:00:00Z",
+    },
+  };
+  expect(bootstrapStatus(executed)).toBe("Recovery required");
+  expect(bootstrapRequiresOwnerAction(executed)).toBe(true);
+  expect(bootstrapStatus({ ...item, status: "canceled" })).toBe("Canceled");
+  expect(bootstrapRequiresOwnerAction({ ...item, status: "canceled" })).toBe(false);
+});
 
 function request(): CoordinatorBootstrapRequest {
   const file = { path: "/protected/file", sha256: "a".repeat(64) };
@@ -146,7 +205,7 @@ test("recovery keeps uncertain effects visible and only a verified receipt repor
   expect(preclaimRecoveryStatus(item)).toBe("Outcome requires inspection");
   expect(preclaimRecoveryNeedsAttention(item)).toBe(true);
   item.execution.stage = "succeeded";
-  expect(preclaimRecoveryStatus(item)).toBe("Recovery verified");
+  expect(preclaimRecoveryStatus(item)).toBe("Executor cleanup verified");
   expect(preclaimRecoveryNeedsAttention(item)).toBe(false);
 });
 

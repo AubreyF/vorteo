@@ -116,7 +116,7 @@ it("retries and clears an empty queue's persisted completion error", async () =>
   }
 });
 
-it.each(["queue pause", "task stop"] as const)(
+it.each(["queue pause", "lifecycle suspension"] as const)(
   "%s during native goal suspension preserves the correct continuation owner",
   async (action) => {
     const root = await mkdtemp(join(tmpdir(), "paseo-queue-goal-race-"));
@@ -203,7 +203,7 @@ it.each(["queue pause", "task stop"] as const)(
         },
       });
       await pauseEntered;
-      if (action === "task stop") await service.pause("agent");
+      if (action === "lifecycle suspension") await service.pause("agent");
       else
         await service.mutate("agent", {
           kind: "pause",
