@@ -6,6 +6,29 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 
 
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.689 - 2026-10-20
+
+### Fixed
+
+- Bound how long one schedule tick waits for an admitted attempt. A protected attempt that has neither dispatched nor settled within 15 seconds stays running and admitted, and the tick continues with the remaining schedules. Without this, one hung quota preparation would stop all scheduled work until a daemon restart.
+- Log a warning when an attempt reaches the bound, and once when later ticks are skipped behind a long-held tick.
+- Add a regression test for a hung protected admission.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Fixed
+
+- Prevent overlapping schedule ticks. A tick that starts while another is still admitting schedules is skipped, and the guard is released after failures. Dispatched scheduled runs continue concurrently, so long runs do not delay other due schedules.
+- Skip a schedule that changed after the tick's snapshot and retry it on the next tick, instead of aborting the remaining schedules. This removes the repeated "Schedule changed before admission" failures from held protected schedules. Admission rules, protected custody and quota handling are unchanged.
+- Add focused schedule service tests for overlapping ticks, stale admission, guard release after failure and concurrent dispatched runs.
+
 ## 0.11.0-beta.3.vorteo.688 - 2026-10-19
 
 ### Maintenance
