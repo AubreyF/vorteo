@@ -680,7 +680,7 @@ test("restart banner names daemons and keeps its top divider fixed while scrolli
   }
 });
 
-test("both restart requests stay visible with simple actions and sidebar force confirmation", async ({
+test("force restart requires an approved queue and operator escalation", async ({
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
@@ -745,9 +745,22 @@ test("both restart requests stay visible with simple actions and sidebar force c
     await expect(
       page.getByRole("button", { name: "All restart requests", exact: true }),
     ).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Force restart now", exact: true })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByRole("button", { name: "Restart appears stuck", exact: true }),
+    ).toHaveCount(0);
     await card.screenshot({ path: testInfo.outputPath("restart-pending.png") });
     await card.getByRole("button", { name: "Restart when idle", exact: true }).click();
-    await expect(card.getByRole("button")).toHaveText(["Details", "Cancel", "Force restart now"]);
+    await expect(card.getByRole("button")).toHaveText([
+      "Details",
+      "Cancel",
+      "Restart appears stuck",
+    ]);
+    await expect(page.getByRole("button", { name: "Force restart now", exact: true })).toHaveCount(
+      0,
+    );
     const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
     // Compact navigation hides the sidebar until opened.
     if (await banner.count()) {
@@ -756,11 +769,13 @@ test("both restart requests stay visible with simple actions and sidebar force c
       );
       await expect(
         banner.getByRole("button", { name: "Force restart now", exact: true }),
-      ).toHaveCount(2);
-      page.once("dialog", (dialog) => dialog.dismiss());
-      await banner.getByTestId(`restart-force-${dev.id}`).click();
-      await expect(card).toContainText("Queued until idle");
+      ).toHaveCount(0);
     }
+    await card.getByRole("button", { name: "Restart appears stuck", exact: true }).click();
+    await expect(card.getByTestId(`restart-force-${dev.id}`)).toBeVisible();
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await card.getByTestId(`restart-force-${dev.id}`).click();
+    await expect(card).toContainText("Queued until idle");
     await card.screenshot({ path: testInfo.outputPath("restart-queued.png") });
     await card.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(card).toContainText("Rejected");
@@ -782,8 +797,10 @@ test("both restart requests stay visible with simple actions and sidebar force c
     await expect(retryCard.getByRole("button")).toHaveText([
       "Details",
       "Cancel",
-      "Force restart now",
+      "Restart appears stuck",
     ]);
+    await expect(retryCard.getByTestId(`restart-force-${retry.id}`)).toHaveCount(0);
+    await retryCard.getByRole("button", { name: "Restart appears stuck", exact: true }).click();
     page.once("dialog", (dialog) => dialog.accept());
     await retryCard.getByRole("button", { name: "Force restart now", exact: true }).click();
     await expect(retryCard).toContainText("Restarted", { timeout: 150_000 });
@@ -3243,92 +3260,101 @@ for (const sourceKind of ["host", "container"] as const) {
   });
 }
 
-test("source batch review shows every contribution and cannot approve a changed revision", async ({
-  page,
-}, info) => {
-  const id = randomUUID();
-  const revision = randomUUID();
-  const update = {
-    sourceCommit: "a".repeat(40),
-    baseCommit: "b".repeat(40),
-    sha256: "c".repeat(64),
-    bytes: 100,
-  };
-  const job = {
-    id,
-    revision,
-    target: "host",
-    requestedBy: "host-agent",
-    reason: "Combined update",
-    createdAt: new Date().toISOString(),
-    expiresAt: "9999-12-31T23:59:59.999Z",
-    status: "pending",
-    detail: "Review combined source",
-    update,
-    sourceBatch: {
-      status: "ready",
-      contributions: [
-        "Superseded sidebar correction",
-        "Sidebar correction",
-        "Complementary workflow",
-      ].map((reason, index) => ({
-        id: randomUUID(),
-        update,
-        reason,
-        requestedBy: "container-agent",
-        createdAt: new Date().toISOString(),
-        status: index === 0 ? "superseded" : "included",
-        detail: "Included",
-      })),
-    },
-  };
-  await page.route("**/api/installation/owner/restarts/query?*", async (route) => {
-    expect(route.request().url()).toContain("sourceBatches=1");
-    await route.fulfill({ json: [job] });
+for (const target of ["host", "container-daemon"]) {
+  test(`source batch review for ${target} shows contributions and rejects a changed revision`, async ({
+    page,
+  }, info) => {
+    const id = randomUUID();
+    const revision = randomUUID();
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 100,
+    };
+    const job = {
+      id,
+      revision,
+      target,
+      requestedBy: "host-agent",
+      reason: "Combined update",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "pending",
+      detail: "Review combined source",
+      update,
+      sourceBatch: {
+        status: "ready",
+        contributions: [
+          "Superseded sidebar correction",
+          "Sidebar correction",
+          "Complementary workflow",
+        ].map((reason, index) => ({
+          id: randomUUID(),
+          update,
+          reason,
+          requestedBy: "container-agent",
+          createdAt: new Date().toISOString(),
+          status: index === 0 ? "superseded" : "included",
+          detail: "Included",
+        })),
+      },
+    };
+    await page.route("**/api/installation/owner/restarts/query?*", async (route) => {
+      expect(route.request().url()).toContain("sourceBatches=1");
+      expect(route.request().url()).toContain("containerSourceUpdates=1");
+      await route.fulfill({ json: [job] });
+    });
+    const decisions: unknown[] = [];
+    await page.route(`**/api/installation/owner/restarts/${id}/decision?*`, async (route) => {
+      expect(route.request().url()).toContain("containerSourceUpdates=1");
+      decisions.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 409,
+        json: { error: "Restart request is missing or changed" },
+      });
+    });
+    await page.goto(`${origin}/settings/general?installation=1&restart=${id}`);
+    await page.getByTestId("installation-password").fill(ownerPassword);
+    await page.getByTestId("installation-unlock").click();
+    const card = page.getByTestId(`restart-request-${id}`);
+    await expect(card.getByRole("button")).toHaveText([
+      "Details",
+      "Install update and restart",
+      "Cancel",
+    ]);
+    await expect(card).not.toContainText(update.sha256);
+    await expect(card).not.toContainText("Complementary workflow");
+    await card.getByTestId(`restart-details-${id}`).click();
+    await expect(card.getByRole("button")).toHaveText([
+      "Details",
+      "Previous submissions (1)",
+      "Install update and restart",
+      "Cancel",
+    ]);
+    await expect(
+      card.getByText("Superseded sidebar correction (superseded)", { exact: true }),
+    ).toHaveCount(0);
+    await card.getByTestId(`source-history-${id}`).click();
+    await expect(
+      card.getByText("Superseded sidebar correction (superseded)", { exact: true }),
+    ).toBeVisible();
+    await card.getByTestId(`source-history-${id}`).click();
+    await expect(
+      card.getByText("Superseded sidebar correction (superseded)", { exact: true }),
+    ).toHaveCount(0);
+    await expect(card).toContainText("Sidebar correction");
+    await expect(card).toContainText("Complementary workflow");
+    await expect(card).toContainText(update.sourceCommit);
+    await expect(card).toContainText(update.sha256);
+    const scope = target === "host" ? "Install interface and Host daemon" : "Install Dev daemon";
+    await expect(card).toContainText(scope);
+    await expect(page.getByTestId(`restart-force-${id}`)).toHaveCount(0);
+    await card.getByRole("button", { name: "Install update and restart", exact: true }).click();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Restart request is missing or changed" }).first(),
+    ).toBeVisible();
+    expect(decisions).toEqual([{ revision, decision: "approve", updateSha256: update.sha256 }]);
+    await card.screenshot({ path: info.outputPath("source-batch-review.png") });
   });
-  const decisions: unknown[] = [];
-  await page.route(`**/api/installation/owner/restarts/${id}/decision?*`, async (route) => {
-    decisions.push(route.request().postDataJSON());
-    await route.fulfill({ status: 409, json: { error: "Restart request is missing or changed" } });
-  });
-  await page.goto(`${origin}/settings/general?installation=1&restart=${id}`);
-  await page.getByTestId("installation-password").fill(ownerPassword);
-  await page.getByTestId("installation-unlock").click();
-  const card = page.getByTestId(`restart-request-${id}`);
-  await expect(card.getByRole("button")).toHaveText([
-    "Details",
-    "Install update and restart",
-    "Cancel",
-  ]);
-  await expect(card).not.toContainText(update.sha256);
-  await expect(card).not.toContainText("Complementary workflow");
-  await card.getByTestId(`restart-details-${id}`).click();
-  await expect(card.getByRole("button")).toHaveText([
-    "Details",
-    "Previous submissions (1)",
-    "Install update and restart",
-    "Cancel",
-  ]);
-  await expect(
-    card.getByText("Superseded sidebar correction (superseded)", { exact: true }),
-  ).toHaveCount(0);
-  await card.getByTestId(`source-history-${id}`).click();
-  await expect(
-    card.getByText("Superseded sidebar correction (superseded)", { exact: true }),
-  ).toBeVisible();
-  await card.getByTestId(`source-history-${id}`).click();
-  await expect(
-    card.getByText("Superseded sidebar correction (superseded)", { exact: true }),
-  ).toHaveCount(0);
-  await expect(card).toContainText("Sidebar correction");
-  await expect(card).toContainText("Complementary workflow");
-  await expect(card).toContainText(update.sourceCommit);
-  await expect(card).toContainText(update.sha256);
-  await expect(page.getByTestId(`restart-force-${id}`)).toHaveCount(0);
-  await card.getByRole("button", { name: "Install update and restart", exact: true }).click();
-  await expect(
-    page.getByRole("alert").filter({ hasText: "Restart request is missing or changed" }).first(),
-  ).toBeVisible();
-  expect(decisions).toEqual([{ revision, decision: "approve", updateSha256: update.sha256 }]);
-  await card.screenshot({ path: info.outputPath("source-batch-review.png") });
-});
+}

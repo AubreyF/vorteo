@@ -1,5 +1,5 @@
 import { fileURLToPath } from "url";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   acquirePidLock,
@@ -10,6 +10,8 @@ import {
 } from "../src/server/pid-lock.js";
 import { resolvePaseoHome } from "../src/server/paseo-home.js";
 import { daemonLogPath } from "../src/server/daemon-instance.js";
+import { resolveManagedWorker } from "./managed-release.js";
+import { writePrivateFileAtomicSync } from "../src/server/private-files.js";
 import { PRIVATE_FILE_MODE } from "../src/server/private-files.js";
 import { loadPersistedConfig, readPersistedConfig } from "../src/server/persisted-config.js";
 import { parseControllerLifetimeFd, runSupervisor } from "./supervisor.js";
@@ -43,6 +45,8 @@ function parseConfig(argv: string[]): DaemonRunnerConfig {
 }
 
 function resolveWorkerEntry(): string {
+  const managed = resolveManagedWorker(process.env);
+  if (managed) return managed;
   const candidates = [
     fileURLToPath(new URL("../server/server/daemon-worker.js", import.meta.url)),
     fileURLToPath(new URL("../dist/server/server/daemon-worker.js", import.meta.url)),
@@ -105,9 +109,16 @@ async function main(): Promise<void> {
   }
   const controllerLifetimeFd = parseControllerLifetimeFd(process.env.PASEO_CONTROLLER_LIFETIME_FD);
   const config = parseConfig(process.argv.slice(2));
+  if (config.devMode && process.env.PASEO_MANAGED_RELEASE_LINK)
+    throw new Error("Managed releases cannot use source dev mode");
   const workerEntry = config.devMode ? resolveDevWorkerEntry() : resolveWorkerEntry();
   const workerExecArgv = resolveWorkerExecArgv(workerEntry, config.devMode);
   const workerEnv: NodeJS.ProcessEnv = { ...process.env };
+  // Release selection belongs to this supervisor, not agents or isolated daemons they launch.
+  delete workerEnv.PASEO_MANAGED_RELEASE_LINK;
+  delete workerEnv.PASEO_MANAGED_RELEASE_ROOT;
+  delete workerEnv.PASEO_MANAGED_WORKER;
+  if (process.env.PASEO_MANAGED_RELEASE_LINK) workerEnv.PASEO_MANAGED_WORKER = "1";
   const packagedNodeEntrypointRunner =
     process.env.ELECTRON_RUN_AS_NODE === "1"
       ? resolvePackagedNodeEntrypointRunnerPath(fileURLToPath(import.meta.url))
@@ -126,6 +137,18 @@ async function main(): Promise<void> {
       failStartup(error.message, error.message);
     }
     throw error;
+  }
+
+  if (process.env.PASEO_MANAGED_RELEASE_LINK && process.env.PASEO_MANAGED_RELEASE_ROOT) {
+    writePrivateFileAtomicSync(
+      path.join(paseoHome, "managed-supervisor.json"),
+      JSON.stringify({
+        version: 1,
+        pid: process.pid,
+        link: process.env.PASEO_MANAGED_RELEASE_LINK,
+        root: realpathSync(process.env.PASEO_MANAGED_RELEASE_ROOT),
+      }),
+    );
   }
 
   let lockReleased = false;
@@ -155,7 +178,7 @@ async function main(): Promise<void> {
     controllerLifetimeFd,
     name: "DaemonRunner",
     startupMessage: "Starting daemon worker (IPC restart and crash restart enabled)",
-    resolveWorkerEntry: () => workerEntry,
+    resolveWorkerEntry: () => (config.devMode ? workerEntry : resolveWorkerEntry()),
     workerArgs: config.workerArgs,
     workerEnv,
     workerExecArgv,

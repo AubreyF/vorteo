@@ -1,6 +1,6 @@
 ---
 name: installation-maintenance
-description: Request owner-approved Vorteo daemon restarts, inspect their outcomes, and let trusted host orchestrators manage agents in the configured dev container.
+description: Discover scoped installation capabilities, prepare owner-approved Host and Dev source updates, inspect restart outcomes, and let trusted host orchestrators manage container agents.
 ---
 
 # Installation maintenance
@@ -39,15 +39,17 @@ Keep remote references qualified by the returned environment and server ID. A co
 
 ## Source updates from Dev
 
-A plain restart request does not upload or install code. After the owner has installed the source-update capability on Host, use the same command with `request-restart --target host --update --repository <clean-integration-checkout> --reason-file <file>`. Include the requesting task with `--requester`.
+Start with `capabilities`. It reports each target's readiness and bootstrap blocker without exposing credentials. A container location is not a reason for a host handoff. Use the supported source updater for routine deliveries, and inspect receipts before reporting installed behavior. A missing route on an older coordinator means one-time Host setup is still required. Never substitute a plain restart for a refused source update.
+
+A plain restart request does not upload or install code. Once `capabilities` reports the target available, use the same command with `request-restart --target host --update --repository <clean-integration-checkout> --reason-file <file>`. For the Dev daemon, use `--target container-daemon` instead. Include the requesting task with `--requester`.
 
 Finish local validation first. The checkout must be clean, committed, on the installation's configured integration branch, and include its installed source revision. The command uploads an incremental Git bundle and retains a contribution receipt for its source commit, base commit, byte count and SHA-256 digest. Uploading never builds or executes the bundle. A missing capability is a Host bootstrap blocker, not permission to use another deployment path.
 
-Return the supplied approval URL as **Review and approve Host update**. The owner reviews **Install update and restart**, which authorizes building the specified code and its dependency scripts with Host account access, installing the Host daemon, restarting it, and publishing the interface. This workflow updates both together. It does not update the coordinator or the Dev container, and it does not support update when idle. Plain restart when idle remains available separately. Never split an update into a plain restart to evade the installation approval.
+Return the supplied approval URL as **Review and approve Host update** or **Review and approve Dev update**, matching the target. The owner reviews **Install update and restart**, which authorizes building the specified code and its dependency scripts with Host account access, installing the Host daemon, restarting it, and publishing the interface. Host updates install its daemon and shared interface together. Dev updates build Linux dependencies inside the existing configured container, select the candidate release and restart only its worker through the existing supervisor. They verify its executable, replacement process and pinned daemon identity. A Dev update does not publish the shared interface. Neither target updates the coordinator, recreates Docker containers or supports update when idle. Plain restart when idle remains available separately. Never split an update into a plain restart to evade the installation approval.
 
 Host builds with native dependencies after approval. Build and startup-validation failures leave the running release selected. On readiness failure, the previous launcher is reselected without another automatic restart; inspect the actual runtime before requesting recovery. An interface publication failure after daemon readiness is a partial update, explicitly reported in the receipt. Preserve the prepared export for Host recovery. Previous releases remain available; no database or credential rollback occurs. Interrupted updates are not replayed.
 
-Batching-aware clients automatically join a pending unapproved batch. Use `contribution-status <contribution-id>` to follow your immutable receipt to its batch and result. A supplied `--contribution-id <uuid>` makes identical retries idempotent. The client prints the receipt ID before upload so a lost response can be reconciled. Each added contribution changes the review revision. Approved or dispatched batches freeze; later uploads form the next batch and require their own exact approval.
+Batching-aware clients automatically join a pending unapproved batch for their selected target. Host and Dev batches have independent source bases and approvals. Use `contribution-status <contribution-id>` to follow your immutable receipt to its batch and result. A supplied `--contribution-id <uuid>` makes identical retries idempotent. The client prints the receipt ID before upload so a lost response can be reconciled. Each added contribution changes the review revision. Approved or dispatched batches freeze; later uploads form the next batch and require their own exact approval.
 
 Conflicts stay queued and block approval of that batch. Submit corrected source with `--replaces <contribution-id>` from the same scoped requester. The original receipt is retained. Do not guess conflict resolutions or omit another task's contribution. Older coordinators and clients retain the exclusive single-update workflow; do not interpret a refusal as approval to install another way.
 
@@ -62,3 +64,7 @@ Administrative update actions prepare editable host task drafts. Clicking them d
 Plain requests for the same target reuse an existing plain restart receipt and preserve owner approval, wait time and restart mode. They restart the installed runtime. They do not authorize different source, fetch branches, merge changes or stage builds. Submit complementary code through the source-update batching workflow above. Never turn a source update into a plain restart or reuse approval for a changed source revision.
 
 A request made after dispatch begins is refused. Observe the existing result, then request another restart if your staged update was too late. Finished and cancelled requests do not authorize another restart. Finish-current-turns mode deliberately holds new turns; use Restart when idle when new work should remain admissible while waiting.
+
+## Bootstrap acceptance
+
+One-time Host setup must install the target updater, managed Dev supervisor, request client and this skill, preserving Factory supervision, installation identities and the restart journal. It must verify `capabilities` from inside Dev and exercise submission, exact approval, build, replacement verification and receipt recovery. Prepared source alone does not satisfy this acceptance. Future paired containers need the same setup and an immutable container ID bound by the Host installer. Never broaden the guest token or expose the Docker socket to avoid setup.

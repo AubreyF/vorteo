@@ -8,7 +8,10 @@ import type { DaemonLifecycleIntent } from "./bootstrap.js";
 import { getProcessDiagnostics } from "./process-diagnostics.js";
 import { loadGovernedScheduleRuntimeFactory } from "./schedule/governed-runtime.js";
 
-process.title = "Paseo Daemon";
+// Managed updates verify the selected entrypoint through the OS process arguments.
+const managedWorker = process.env.PASEO_MANAGED_WORKER === "1";
+delete process.env.PASEO_MANAGED_WORKER;
+if (!managedWorker) process.title = "Paseo Daemon";
 
 type SupervisorLifecycleMessage =
   | {

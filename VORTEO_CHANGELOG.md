@@ -5,6 +5,79 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.192 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.191 - 2026-10-08
+
+### Maintenance
+
+- Integrate managed Dev source updates with the installed release and accepted checklist contribution, preserving both source histories and prior release notes.
+
+## 0.11.0-beta.3.vorteo.190 - 2026-10-08
+
+### Fixed
+
+- Build Dev updates through the existing server and CLI build chain instead of calling a nonexistent script.
+- Preserve managed worker process arguments and verify the pinned Node executable so installation can confirm the running release after startup.
+
+## 0.11.0-beta.3.vorteo.189 - 2026-10-08
+
+### Added
+
+- Expose installation capability discovery and scoped Dev source updates through the installed maintenance client, with separate Host and Dev batches and exact owner approval.
+- Build approved Dev source inside its existing container, select releases on worker restart, and verify the replacement executable while retaining the supervisor.
+- Add Host bootstrap validation, private configuration backup and guest client and skill refresh for the managed Dev updater.
+
+### Changed
+
+- Require updated approval copy for Dev source installation and bind contribution retries and replacements to their target and requester.
+- Teach planning and maintenance instructions to use supported installation operations before preparing a Host handoff.
+
+### Maintenance
+
+- Cover target isolation, authorization, release selection, failed builds, activation checks, retained rollback releases and client compatibility. Existing installations still require bootstrap and live acceptance; coordinator and supervisor replacement remain Host maintenance operations.
+
+## 0.11.0-beta.3.vorteo.188 - 2026-10-08
+
+### Added
+
+- Show workspace checklist completion across all unarchived threads, including unopened threads, with a donut beside the workspace row and progress on each thread's bottom card.
+- Persist native checklist snapshots in daemon records and the client cache so completion survives reloads.
+
+### Changed
+
+- Prepare implementation checklist items with completion criteria in plans and carry accepted plans into new threads through launch and handoff instructions.
+
+### Maintenance
+
+- Cover aggregation, native task persistence, client cache recovery and browser reload behavior. Older threads populate snapshots when their history loads or a provider updates its checklist.
+
+## 0.11.0-beta.3.vorteo.187 - 2026-10-08
+
+### Fixed
+
+- Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
+
+## 0.11.0-beta.3.vorteo.190 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.189 - 2026-10-08
+
+### Fixed
+
+- Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
+
+### Maintenance
+
+- Integrate the restart escalation interface with the installed release, preserving restart recovery and source-update behavior.
+
 ## 0.11.0-beta.3.vorteo.188 - 2026-10-08
 
 ### Maintenance
@@ -157,6 +230,21 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Require agents to check supported installation-maintenance and preview operations before preparing host continuity prompts, while preserving owner restart approval
 - Cover queued daemon labels and the stationary banner divider in the installation browser suite
+
+## 0.11.0-beta.3.vorteo.176 - 2026-10-08
+
+### Added
+
+- Show workspace checklist completion across all unarchived threads, including unopened threads, with a donut beside the workspace row and progress on each thread's bottom card.
+- Persist native checklist snapshots in daemon records and the client cache so completion survives reloads.
+
+### Changed
+
+- Prepare implementation checklist items with completion criteria in plans and carry accepted plans into new threads through launch and handoff instructions.
+
+### Maintenance
+
+- Cover aggregation, native task persistence, client cache recovery and browser reload behavior. Older threads populate snapshots when their history loads or a provider updates its checklist.
 
 ## 0.11.0-beta.3.vorteo.175 - 2026-10-07
 

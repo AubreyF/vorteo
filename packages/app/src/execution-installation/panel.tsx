@@ -494,7 +494,7 @@ function RestartRequest({
         <Text style={styles.text} testID={`restart-summary-${job.id}`}>
           {restartExplanation(job.reason).summary}
           {source && job.status === "pending"
-            ? " Approval lets the submitted code and build scripts run on Host and may interrupt Host tasks and terminals."
+            ? ` Approval lets the submitted code and build scripts run on ${job.target === "host" ? "Host" : "Dev"} and may interrupt its tasks and terminals.`
             : null}
           {source && job.status === "running"
             ? " The approved update is being built and installed."
@@ -584,7 +584,7 @@ function RestartActions({
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
-          <ForceRestartButton job={job} model={model} busy={busy} />
+          <RestartEscalation job={job} model={model} busy={busy} />
         </View>
       ) : null}
     </>
@@ -675,13 +675,40 @@ function SourceUpdateDetails({ job }: { job: RestartJob }) {
       ) : null}
       {job.update ? (
         <Text selectable style={styles.text}>
-          Install interface and Host daemon from source {job.update.sourceCommit}
+          {job.target === "host" ? "Install interface and Host daemon" : "Install Dev daemon"} from
+          source {job.update.sourceCommit}
           {"\n"}Bundle SHA-256: {job.update.sha256}
-          {"\n"}Approval allows this code and its build scripts to run on Host. The coordinator and
-          Dev container are not updated.
+          {"\n"}
+          {job.target === "host"
+            ? "Approval allows this code and its build scripts to run on Host. The coordinator and Dev container are not updated."
+            : "Approval allows this code and its build scripts to run inside Dev. The existing container and supervisor remain running. Host and the shared interface are not updated."}
         </Text>
       ) : null}
     </View>
+  );
+}
+
+function RestartEscalation({
+  job,
+  model,
+  busy,
+}: {
+  job: RestartJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+}) {
+  const [appearsStuck, setAppearsStuck] = useState(false);
+  const reportStuck = useCallback(() => setAppearsStuck(true), []);
+  if (appearsStuck) return <ForceRestartButton job={job} model={model} busy={busy} />;
+  return (
+    <Button
+      variant="outline"
+      disabled={busy}
+      onPress={reportStuck}
+      testID={`restart-stuck-${job.id}`}
+    >
+      Restart appears stuck
+    </Button>
   );
 }
 
@@ -788,29 +815,13 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
         </Text>
       ) : null}
       {jobs.map((job, index) => (
-        <RestartBannerItem
-          key={job.id}
-          job={job}
-          model={model}
-          busy={state.busy}
-          showTopBorder={index > 0}
-        />
+        <RestartBannerItem key={job.id} job={job} showTopBorder={index > 0} />
       ))}
     </ScrollView>
   );
 }
 
-function RestartBannerItem({
-  job,
-  model,
-  busy,
-  showTopBorder,
-}: {
-  job: RestartJob;
-  model: InstallationPanelModel;
-  busy: boolean;
-  showTopBorder: boolean;
-}) {
+function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBorder: boolean }) {
   const router = useRouter();
   const open = useCallback(
     () =>
@@ -828,16 +839,13 @@ function RestartBannerItem({
           <RestartActivity job={job} />
         ) : null}
         <View style={styles.actions}>
-          {job.status !== "running" && !job.update && !job.sourceBatch ? (
-            <ForceRestartButton job={job} model={model} busy={busy} />
-          ) : null}
           <Button variant="outline" onPress={open}>
             Review restart
           </Button>
         </View>
       </View>
     ),
-    [job, open, model, busy],
+    [job, open],
   );
   const target = job.target === "host" ? "Host daemon" : "Dev daemon";
   let title = `${target} restart needs approval`;

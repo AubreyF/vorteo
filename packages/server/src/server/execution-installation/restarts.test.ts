@@ -1315,3 +1315,51 @@ test("preparation cannot inherit approval or overwrite cancellation, and a newer
   expect(refreshed.status).toBe("pending");
   expect(install).not.toHaveBeenCalled();
 });
+
+test("Host and Dev contributions have separate batches and exact target approvals", async () => {
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 20,
+  };
+  const installs: string[] = [];
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async () => {
+      throw new Error("An update cannot become a plain restart");
+    },
+    supportsUpdate: () => true,
+    sourceBase: () => update.baseCommit,
+    prepareUpdate: async (contributions) => ({ batch: { status: "ready", contributions }, update }),
+    installUpdate: async (job) => {
+      installs.push(job.target);
+      return "installed";
+    },
+  });
+  const host = queue.contribute(
+    { target: "host", reason: "Host build" },
+    "container-agent",
+    update,
+    crypto.randomUUID(),
+  );
+  const devInput = { target: "container-daemon" as const, reason: "Dev build" };
+  const devId = crypto.randomUUID();
+  const dev = queue.contribute(devInput, "container-agent", update, devId);
+  expect(dev.batch.id).not.toBe(host.batch.id);
+  expect(() =>
+    queue.contribute({ ...devInput, target: "host" }, "container-agent", update, devId),
+  ).toThrow("different submission");
+  await queue.prepareBatches();
+  const ready = queue.contribution(devId)!.batch;
+  expect(ready.sourceBatch?.status).toBe("ready");
+  expect(queue.contribution(host.contribution.id)!.batch.status).toBe("pending");
+  await queue.drain();
+  expect(installs).toEqual([]);
+  expect(() => queue.decide(ready.id, ready.revision, "approve", "d".repeat(64))).toThrow(
+    "exact source",
+  );
+  queue.decide(ready.id, ready.revision, "approve", update.sha256);
+  await queue.drain();
+  expect(installs).toEqual(["container-daemon"]);
+  expect(queue.contribution(host.contribution.id)!.batch.status).toBe("pending");
+});

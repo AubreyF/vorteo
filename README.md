@@ -17,11 +17,13 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 ## Power Tools to Manage Your Fleet
 
+- **Track a build across threads.** Each thread keeps its native checklist below the conversation. The workspace donut combines completed items across its active threads, and planning instructions carry accepted checklist items into implementation. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
+
 - **Cross-device, server-managed message queuing.** Line up your task messages with files or images - then edit, reorder, pause, and send them from any connected device. The daemon in each environment will continue executing queued work even if your client is offline.
 
 <img width="400" alt="Server managed cross-device message queuing." src="https://github.com/user-attachments/assets/59dfdb03-e1ec-40d2-b66e-9683134e3811" />
 
-- **Automated daemon upgrades and restarts for zero downtime operations.** Once an upgrade is prepared, approve a queued restart for the Host or Dev container daemon. Vorteo waits for active agents and workers to finish, then restarts automatically, even with your browser closed.
+- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed; source installation requires separate approval. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
 
 <img width="400" alt="Queued daemon upgrades" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
 

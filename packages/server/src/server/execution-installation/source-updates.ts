@@ -24,6 +24,7 @@ import {
 import type { InstallationConfig } from "./config.js";
 import { RestartRequestError, type RestartExecutor } from "./restarts.js";
 
+import { installContainerSource } from "./container-updates.js";
 import { prepareSourceBatch } from "./source-batches.js";
 
 const execute = promisify(execFile);
@@ -33,20 +34,41 @@ const PreparedSchema = z.object({ release: z.string(), exported: z.string() });
 /** Only the protected coordinator turns an approved bundle into executable code. */
 export class InstallationSourceUpdates {
   private readonly directory: string;
-  constructor(private readonly config: InstallationConfig) {
-    this.directory = path.join(config.stateDir, "source-updates");
+  constructor(
+    private readonly config: InstallationConfig,
+    private readonly target: RestartJob["target"] = "host",
+  ) {
+    this.directory = path.join(
+      config.stateDir,
+      target === "host" ? "source-updates" : "container-source-updates",
+    );
     mkdirSync(this.directory, { recursive: true, mode: 0o700 });
   }
 
   source() {
     const settings = this.settings();
+    if (this.target === "container-daemon") {
+      const container = this.config.containerSourceUpdates;
+      if (!container) throw new Error("Dev source updates require installation setup");
+      const receipt = ReceiptSchema.parse(JSON.parse(readFileSync(container.receiptFile, "utf8")));
+      return {
+        baseCommit: receipt.sourceCommit,
+        webCommit: receipt.sourceCommit,
+        integrationRef: settings.integrationRef,
+        sourceBatches: true,
+        maxBytes: 128 * 1024 * 1024,
+      };
+    }
     const receipt = ReceiptSchema.parse(
       JSON.parse(
-        readFileSync(path.join(settings.currentReleaseLink, ".installation-source.json"), "utf8"),
+        readFileSync(
+          path.join(this.hostSettings().currentReleaseLink, ".installation-source.json"),
+          "utf8",
+        ),
       ),
     );
     const web = ReceiptSchema.parse(
-      JSON.parse(readFileSync(path.join(settings.webDirectory, "release.json"), "utf8")),
+      JSON.parse(readFileSync(path.join(this.hostSettings().webDirectory, "release.json"), "utf8")),
     );
     return {
       webCommit: web.sourceCommit,
@@ -103,7 +125,15 @@ export class InstallationSourceUpdates {
 
   async install(job: RestartJob, restart: RestartExecutor["restart"]): Promise<string> {
     const update = SourceUpdateSchema.parse(job.update);
-    const settings = this.settings();
+    if (job.target !== this.target) throw new Error("Source update target changed");
+    if (this.target === "container-daemon")
+      return installContainerSource({
+        config: this.config,
+        job,
+        bundleFile: this.bundlePath(update),
+        restart,
+      });
+    const settings = this.hostSettings();
     if (job.target !== "host" || this.source().baseCommit !== update.baseCommit)
       throw new Error("Installed source changed. No update was installed; request a new approval.");
     if (job.sourceBatch && job.sourceBatch.webCommit !== this.source().webCommit)
@@ -211,6 +241,14 @@ export class InstallationSourceUpdates {
     return path.join(this.directory, `${update.sha256}.bundle`);
   }
   private settings() {
+    if (this.target === "container-daemon") {
+      if (!this.config.containerSourceUpdates)
+        throw new Error("Dev source updates require installation setup");
+      return this.config.containerSourceUpdates;
+    }
+    return this.hostSettings();
+  }
+  private hostSettings() {
     if (!this.config.sourceUpdates)
       throw new Error("Source updates require Host installation setup");
     return this.config.sourceUpdates;

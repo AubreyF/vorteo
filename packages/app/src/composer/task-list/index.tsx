@@ -1,3 +1,5 @@
+import { ChecklistProgressRing } from "@/task-checklist/progress-ring";
+import { checklistProgress } from "@/task-checklist/progress";
 import { useVortonTouch } from "@/vorton-touch";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { memo, useMemo } from "react";
@@ -62,10 +64,11 @@ const styles = StyleSheet.create(() => ({
 function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   const { t } = useTranslation();
   const touch = useVortonTouch();
-  const completed = tasks.filter((task) => task.completed || task.status === "completed").length;
+  const { completed, total } = checklistProgress(tasks);
   return (
     <View style={taskCardStyles.container} testID="agent-task-progress-card">
       <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+        <ChecklistProgressRing completed={completed} total={total} />
         <Text style={taskCardStyles.heading}>
           {t("message.todo.tasksProgress", { completed, total: tasks.length })}
         </Text>

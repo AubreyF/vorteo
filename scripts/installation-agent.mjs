@@ -29,6 +29,9 @@ if (base.protocol !== "https:" && !(base.protocol === "http:" && local))
 let resource;
 let body;
 switch (positionals[0]) {
+  case "capabilities":
+    resource = "/api/installation/capabilities";
+    break;
   case "request-restart":
     if (!values["reason-file"])
       throw new Error("Use --reason-file with the disruption and restart reason");
@@ -57,30 +60,39 @@ switch (positionals[0]) {
     body = JSON.parse(readFileSync(values["request-file"], "utf8"));
     break;
   default:
-    throw new Error("Commands: request-restart, restart-status, container-agents (host only)");
+    throw new Error(
+      "Commands: capabilities, request-restart, restart-status, contribution-status, container-agents (host only)",
+    );
 }
 let upload;
 let metadata;
 const contributionId = values["contribution-id"] ?? randomUUID();
 if (values.update) {
-  if (positionals[0] !== "request-restart" || values.target !== "host")
-    throw new Error("--update supports request-restart --target host only");
-  const sourceResponse = await fetch(new URL("/api/installation/update-source", base), {
+  if (positionals[0] !== "request-restart" || !["host", "container-daemon"].includes(values.target))
+    throw new Error("--update requires request-restart --target host or container-daemon");
+  const sourceUrl = new URL("/api/installation/update-source", base);
+  // COMPAT(containerSourceUpdates): legacy Host coordinators use the unqualified route.
+  if (values.target === "container-daemon") sourceUrl.searchParams.set("target", values.target);
+  const sourceResponse = await fetch(sourceUrl, {
     headers: { Authorization: `Bearer ${config.token}` },
     redirect: "error",
     signal: AbortSignal.timeout(60_000),
   });
   if (!sourceResponse.ok)
     throw new Error(
-      `Host update capability unavailable (${sourceResponse.status}). Install the source-update coordinator capability first.`,
+      `${values.target} update capability unavailable (${sourceResponse.status}). Inspect capabilities and repair or bootstrap the scoped installation updater on Host. No plain restart was requested.`,
     );
   const source = await sourceResponse.json();
+  if (values.target === "container-daemon" && source.target !== values.target)
+    throw new Error(
+      "The coordinator does not advertise Dev source updates. Bootstrap it on Host; no upload or restart was requested.",
+    );
   if (
     !/^[a-f0-9]{40}$/.test(source.baseCommit) ||
     !/^refs\/heads\/[a-zA-Z0-9_./-]+$/.test(source.integrationRef) ||
     !Number.isSafeInteger(source.maxBytes)
   )
-    throw new Error("Invalid Host update source descriptor");
+    throw new Error("Invalid update source descriptor");
   const repository = path.resolve(values.repository ?? process.cwd());
   const git = (args) =>
     execFileSync("git", args, {
@@ -138,7 +150,7 @@ if (values.update) {
     if ((values.replaces || values["contribution-id"]) && !source.sourceBatches)
       throw new Error("Coordinator does not support source contributions");
     if (source.sourceBatches) process.stderr.write(`Contribution receipt: ${contributionId}\n`);
-    resource = `/api/installation/source-update-requests${source.sourceBatches ? "?sourceBatches=1" : ""}`;
+    resource = `/api/installation/source-update-requests?target=${values.target}${source.sourceBatches ? "&sourceBatches=1" : ""}`;
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
