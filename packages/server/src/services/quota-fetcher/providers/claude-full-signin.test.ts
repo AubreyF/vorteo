@@ -278,3 +278,29 @@ it("says usage refreshes on the next turn when an expired grant can still refres
     "Sign in with Claude again",
   );
 });
+
+it("waits for the Host instead of asking for sign-in when a projected token expires", async () => {
+  const account = await home();
+  await mkdir(join(account, ".vorteo-oauth"));
+  await writeFile(
+    join(account, ".credentials.json"),
+    JSON.stringify({
+      claudeAiOauth: { accessToken: "a", expiresAt: 1_000, subscriptionType: "max" },
+    }),
+  );
+  const fetch = vi.fn(async () => usageResponse());
+  const usage = await new ClaudeQuotaProvider({
+    logger,
+    providerId: "claude-account-full",
+    claudeHome: account,
+    strictClaudeHome: true,
+    signIn: "full",
+    platform: "linux",
+    fetch,
+    now: () => 2_000,
+  }).fetchUsage();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(usage.status).toBe("unavailable");
+  expect(usage.details?.[0]?.id).toBe("claude-host-refresh-pending");
+  expect(usage.authRecovery).toBeUndefined();
+});

@@ -3185,13 +3185,19 @@ export class DaemonClient {
       SessionInboundMessage,
       { type: "workspace.project.set.request" }
     >["membership"];
+    /** Also move the workspace's local project. Dropped for daemons without the capability. */
+    projectId?: string;
   }): Promise<void> {
+    const movesPlacement =
+      options.projectId !== undefined &&
+      this.lastServerInfoMessage?.features?.workspaceProjectPlacement === true;
     const payload =
       await this.sendNamespacedCorrelatedSessionRequest<"workspace.project.set.response">({
         message: {
           type: "workspace.project.set.request",
           workspaceId: options.workspaceId,
           membership: options.membership ?? null,
+          ...(movesPlacement ? { projectId: options.projectId } : {}),
         },
       });
     if (!payload.accepted) throw new Error(payload.error ?? "Failed to move workspace");
@@ -6136,9 +6142,14 @@ export class DaemonClient {
     });
   }
 
-  async createClaudeAccount(creationId: string, name: string) {
+  async createClaudeAccount(creationId: string, name: string, signIn?: "full") {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.claude.create_account.response">({
-      message: { type: "provider.claude.create_account.request", creationId, name },
+      message: {
+        type: "provider.claude.create_account.request",
+        creationId,
+        name,
+        ...(signIn ? { signIn } : {}),
+      },
     });
   }
 

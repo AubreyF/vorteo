@@ -7,6 +7,7 @@ import {
   buildSidebarProjectRowModel,
   resolveSidebarProjectIconTarget,
   resolveSidebarProjectIconTargets,
+  resolveSidebarNewWorkspaceRoute,
   resolveSidebarProjectLocalPath,
 } from "./sidebar-project-row-model";
 
@@ -281,6 +282,62 @@ describe("buildSidebarProjectRowModel", () => {
         kind: "new_workspace",
         target: { serverId: "srv", projectId: "project-srv", iconWorkingDir: "/repo" },
       },
+    });
+  });
+});
+
+describe("resolveSidebarNewWorkspaceRoute", () => {
+  const vorteoRow = {
+    viewKey: "remote:github.com/acme/vorteo",
+    workspaces: [workspace({ serverId: "host", workspaceId: "ws-in-dev" })],
+  };
+  const target = {
+    serverId: "other-mac",
+    projectId: "prj-remote",
+    iconWorkingDir: "/remote/vorteo",
+  };
+
+  it("names the clicked row and opens beside the active workspace in that row", () => {
+    expect(
+      resolveSidebarNewWorkspaceRoute({
+        project: vorteoRow,
+        displayName: "Vorteo",
+        target,
+        activeWorkspace: {
+          serverId: "host",
+          workspaceId: "ws-in-dev",
+          projectId: "prj-dev",
+          projectRootPath: "/Users/me/dev",
+        },
+      }),
+    ).toEqual({
+      serverId: "host",
+      sourceDirectory: "/Users/me/dev",
+      displayName: "Vorteo",
+      projectId: "prj-dev",
+      projectViewKey: "remote:github.com/acme/vorteo",
+    });
+  });
+
+  it("uses the row's own target when the active workspace belongs to another row", () => {
+    expect(
+      resolveSidebarNewWorkspaceRoute({
+        project: vorteoRow,
+        displayName: "Vorteo",
+        target,
+        activeWorkspace: {
+          serverId: "host",
+          workspaceId: "ws-elsewhere",
+          projectId: "prj-other",
+          projectRootPath: "/Users/me/other",
+        },
+      }),
+    ).toEqual({
+      serverId: "other-mac",
+      sourceDirectory: "/remote/vorteo",
+      displayName: "Vorteo",
+      projectId: "prj-remote",
+      projectViewKey: "remote:github.com/acme/vorteo",
     });
   });
 });

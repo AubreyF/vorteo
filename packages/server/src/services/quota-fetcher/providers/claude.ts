@@ -487,6 +487,25 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
           },
         ],
       };
+    // A Dev account fed by Host-owned refresh holds access-only tokens. An expired one means the
+    // Host has not delivered the next token yet, not that this account lost its sign-in.
+    if (
+      typeof expiresAt === "number" &&
+      expiresAt <= this.now() &&
+      !refreshToken &&
+      this.claudeHome &&
+      existsSync(join(this.claudeHome, ".vorteo-oauth"))
+    )
+      return {
+        ...unavailableUsage(this),
+        details: [
+          {
+            id: "claude-host-refresh-pending",
+            label: "Subscription",
+            value: "Waiting for the Host to refresh this account’s sign-in.",
+          },
+        ],
+      };
     return this.usageFromCredentials(credentials, CLAUDE_FULL_SIGN_IN_RECOVERY);
   }
 

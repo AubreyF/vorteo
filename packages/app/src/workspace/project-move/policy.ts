@@ -1,4 +1,5 @@
 import type { WorkspaceDescriptor } from "@/stores/session-store";
+import { getHostProjectId, type HostProjectListItem } from "@/projects/host-projects";
 
 export function projectMoveBlockedReason(
   workspace: Pick<WorkspaceDescriptor, "protected" | "factoryMembership"> | null | undefined,
@@ -8,4 +9,21 @@ export function projectMoveBlockedReason(
   if (workspace?.protected)
     return "This workspace is protected. Turn off protection in Workspace actions before moving it.";
   return null;
+}
+
+/**
+ * The local project to move along with the group, if any. A group should use one local project per
+ * host; otherwise New workspace cannot tell which folder the group means there. Move it only when
+ * the target group has exactly one placement on this host, and never for a worktree, which stays
+ * with its repository's project.
+ */
+export function placementForProjectMove(input: {
+  workspace: Pick<WorkspaceDescriptor, "projectId" | "workspaceKind"> | null | undefined;
+  target: HostProjectListItem;
+  serverId: string;
+}): string | undefined {
+  const { workspace } = input;
+  if (!workspace || workspace.workspaceKind === "worktree") return undefined;
+  const projectId = getHostProjectId(input.target, input.serverId);
+  return projectId && projectId !== workspace.projectId ? projectId : undefined;
 }

@@ -75,6 +75,43 @@ function validateDependencies(items: readonly AgentTaskItem[]): void {
 }
 
 /** Provider snapshots are read-only here; their provider remains their sole writer. */
+/** Unfinished work never claims more than this, so "basically done" stays visibly unfinished. */
+export const MAX_UNFINISHED_PROGRESS = 90;
+
+/**
+ * Settle an item's progress from its own evidence. Completed work is 100. Passed checks decide
+ * progress when the item has any; otherwise an estimate is rounded to 5 points and capped until
+ * the item is completed. Rounding also absorbs small updates that would only flicker the display.
+ */
+export function normalizeTaskProgress(task: AgentTaskItem): AgentTaskItem {
+  // Completed already reads as 100 everywhere; only items that track progress carry the field.
+  const checks = task.checks ?? [];
+  if (task.completed) {
+    const tracked = task.progress !== undefined || checks.length > 0;
+    return !tracked || task.progress === 100 ? task : { ...task, progress: 100 };
+  }
+  const raw =
+    checks.length > 0
+      ? (checks.filter((check) => check.done).length / checks.length) * 100
+      : task.progress;
+  if (raw === undefined) return task;
+  const progress = Math.min(MAX_UNFINISHED_PROGRESS, Math.max(0, Math.round(raw / 5) * 5));
+  return task.progress === progress ? task : { ...task, progress };
+}
+
+/**
+ * Apps from before checklist progress drop `progress` and `checks` when they parse an item, so
+ * their expectedTask never contains them. Compare those fields only when the client sent them;
+ * every other field keeps exact optimistic concurrency. Agents own these fields; editors never
+ * change them.
+ */
+function comparableTask(expected: AgentTaskItem, current: AgentTaskItem): AgentTaskItem {
+  const comparable = { ...current };
+  if (!("progress" in expected)) delete comparable.progress;
+  if (!("checks" in expected)) delete comparable.checks;
+  return comparable;
+}
+
 export function mutateChecklist(
   items: readonly AgentTaskItem[],
   mutation: ChecklistMutation,
@@ -94,13 +131,13 @@ export function mutateChecklist(
       throw new ChecklistError("limit", "A checklist can contain at most 500 tasks.");
     const next: AgentTaskItem[] = [
       ...items,
-      {
+      normalizeTaskProgress({
         ...fields,
         id,
         source: "vorteo",
         status: "pending",
         completed: false,
-      },
+      }),
     ];
     validateDependencies(next.filter((item) => item.source === "vorteo"));
     return next;
@@ -129,7 +166,10 @@ export function mutateChecklist(
       "Use the native provider task tool to edit this provider-owned task.",
     );
   }
-  if (mutation.expectedTask && !platform.equal(mutation.expectedTask, current)) {
+  if (
+    mutation.expectedTask &&
+    !platform.equal(mutation.expectedTask, comparableTask(mutation.expectedTask, current))
+  ) {
     throw new ChecklistError(
       "conflict",
       "This task changed while you were editing it. Close and reopen to review the current task.",
@@ -162,11 +202,12 @@ function updateTask(
     ...fields
   } = mutation;
   const status = fields.status ?? current.status ?? "pending";
-  const updated = { ...current, ...fields, status, completed: status === "completed" };
+  let updated: AgentTaskItem = { ...current, ...fields, status, completed: status === "completed" };
   if (fields.metadata !== undefined)
     updated.metadata = mergeTaskMetadata(current.metadata, fields.metadata);
   if (addBlockedBy !== undefined)
     updated.blockedBy = [...new Set([...(updated.blockedBy ?? []), ...addBlockedBy])];
+  updated = normalizeTaskProgress(updated);
   const replaced = items.map((item) => (item === current ? updated : item));
   const next = addDependents(replaced, id, addBlocks ?? []);
   validateDependencies(next.filter((item) => item.source === "vorteo"));

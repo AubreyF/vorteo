@@ -4,6 +4,12 @@ import type { JsonValue } from "./agent-types.js";
 // Values already crossed JSON transport; avoid recursive AOT JSON code generation.
 const JsonWireValueSchema = z.unknown() as z.ZodType<JsonValue>;
 
+/** One acceptance check. Progress is the share of passed checks when an item has any. */
+export const AgentTaskCheckSchema = z.object({
+  text: z.string(),
+  done: z.boolean(),
+});
+
 export const AgentTaskItemSchema = z.object({
   text: z.string(),
   completed: z.boolean(),
@@ -15,6 +21,9 @@ export const AgentTaskItemSchema = z.object({
   blockedBy: z.array(z.string()).optional(),
   metadata: z.record(z.string(), JsonWireValueSchema).optional(),
   source: z.enum(["vorteo", "provider"]).optional(),
+  // COMPAT(checklistProgress): added October 2026; older apps ignore both fields.
+  progress: z.number().optional(),
+  checks: z.array(AgentTaskCheckSchema).optional(),
 });
 
 const TaskFields = {
@@ -24,6 +33,12 @@ const TaskFields = {
   owner: z.string().max(200).optional(),
   blockedBy: z.array(z.string().min(1)).max(500).optional(),
   metadata: z.record(z.string(), JsonWireValueSchema).optional(),
+  /** An estimate from 0 to 100. Ignored when the item has checks. */
+  progress: z.number().min(0).max(100).optional(),
+  checks: z
+    .array(z.object({ text: z.string().min(1).max(300), done: z.boolean() }).strict())
+    .max(20)
+    .optional(),
 };
 
 export const ChecklistMutationSchema = z.discriminatedUnion("operation", [

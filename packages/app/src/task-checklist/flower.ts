@@ -4,7 +4,11 @@ export type PetalStatus = "completed" | "active" | "pending";
 export const MAX_TASK_PETALS = 12;
 
 /** Above the cap, blue signals activity rather than counting active tasks. */
-export function taskPetals({ completed, active, total }: ChecklistProgress): PetalStatus[] {
+export function taskPetals({
+  completed,
+  active,
+  total,
+}: Pick<ChecklistProgress, "completed" | "active" | "total">): PetalStatus[] {
   const count = Math.min(total, MAX_TASK_PETALS);
   const summarized = total > MAX_TASK_PETALS;
   const completeCount = summarized ? Math.floor((completed / total) * count) : completed;
@@ -14,6 +18,20 @@ export function taskPetals({ completed, active, total }: ChecklistProgress): Pet
     if (index < completeCount + activeCount) return "active";
     return "pending";
   });
+}
+
+/**
+ * The completed share of each petal, from 0 to 1. Petals fill in order up to the checklist's
+ * credit, so partial progress on unfinished items shows as a partly filled petal rather than
+ * waiting for the item to finish. Above the petal cap the credit is scaled to the petals shown.
+ */
+export function petalFills({
+  credit,
+  total,
+}: Pick<ChecklistProgress, "credit" | "total">): number[] {
+  const count = Math.min(total, MAX_TASK_PETALS);
+  const filled = total > MAX_TASK_PETALS ? (credit / total) * count : credit;
+  return Array.from({ length: count }, (_, index) => Math.min(1, Math.max(0, filled - index)));
 }
 
 export interface PetalGeometry {

@@ -37,7 +37,9 @@ export function createClaudeSetupRuntime(
   }
   async function prepare(definitionId: string) {
     const { snapshot, selected } = definition(definitionId);
-    if (selected.removed || selected.accountId) throw new ClaudeSetupDeliveryError();
+    // A full sign-in definition uses the web sign-in flow, never a setup token.
+    if (selected.removed || selected.accountId || selected.accountSetup?.signIn === "full")
+      throw new ClaudeSetupDeliveryError();
     const bindings = [...new Set(Object.values(selected.bindings))];
     if (bindings.length !== 1) throw new ClaudeSetupDeliveryError();
     const providerId = bindings[0]!;
@@ -122,7 +124,11 @@ export function createClaudeSetupRuntime(
     getClient: (definitionId) => ({
       openAccountLoginSession: async () => {
         const { selected } = definition(definitionId);
-        if (selected.removed || selected.accountSetup?.provider !== "claude")
+        if (
+          selected.removed ||
+          selected.accountSetup?.provider !== "claude" ||
+          selected.accountSetup.signIn === "full"
+        )
           throw new ClaudeSetupDeliveryError();
         const launch = await resolveProviderLaunch({ defaultBinary: "claude" });
         const available = await checkProviderLaunchAvailable(launch);

@@ -4,6 +4,7 @@ import {
   deferBootstrapReview,
 } from "./execution-installation/coordinator-bootstrap-launch.js";
 import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
+import { mountClaudeOAuthConsumer } from "./execution-installation/accounts/claude-oauth-consumer.js";
 import { ScheduleStore } from "./schedule/store.js";
 import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
 import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
@@ -152,6 +153,14 @@ import {
 } from "./agent/tools/paseo-tools.js";
 import type { PaseoToolRuntimeContext } from "./agent/tools/types.js";
 import { createAgentProviderRuntime } from "./agent/provider-runtime.js";
+import { createSessionHostConnector } from "./session-host/connector.js";
+import type { HostedSessionRouting } from "./session-host/hosted-agent-client.js";
+import { sessionHostPaths } from "./session-host/host-files.js";
+import { readDurableSessionsSettings } from "./session-host/settings.js";
+import { createAppliedSeqStore } from "./session-host/applied-store.js";
+import { loadAdoptedAgents, planHostedStartup } from "./session-host/boot-attach.js";
+import { ensureAgentLoaded } from "./agent/agent-loading.js";
+import type { SessionHostConnector } from "./session-host/connector.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import {
@@ -874,16 +883,21 @@ export async function createPaseoDaemon(
   );
 
   app.use(express.json());
+  const refreshClaudeProvider = (providerId: string) => {
+    void providerSnapshotManager.refreshSettingsSnapshot({ providers: [providerId] }).catch(() => {
+      logger.warn({ providerId }, "Claude provider catalog refresh is pending");
+    });
+  };
   mountClaudeSetupConsumer(app, {
     paseoHome: config.paseoHome,
     store: daemonConfigStore,
-    onApplied: (providerId) => {
-      void providerSnapshotManager
-        .refreshSettingsSnapshot({ providers: [providerId] })
-        .catch(() => {
-          logger.warn({ providerId }, "Claude provider catalog refresh is pending");
-        });
-    },
+    onApplied: refreshClaudeProvider,
+  });
+  // Inert unless the installation coordinator enables Host-owned Claude refresh.
+  mountClaudeOAuthConsumer(app, {
+    paseoHome: config.paseoHome,
+    store: daemonConfigStore,
+    onApplied: refreshClaudeProvider,
   });
 
   // Serve static files from public directory
@@ -1032,10 +1046,13 @@ export async function createPaseoDaemon(
     isDirectory: async (target) => (await stat(target).catch(() => null))?.isDirectory() ?? false,
     logger,
   });
+  const { connector: sessionHostConnector, routing: sessionHostRouting } =
+    createDurableSessionsRouting({ paseoHome: config.paseoHome, logger, release: daemonVersion });
   const agentProviderRuntime = await createAgentProviderRuntime({
     paseoHome: config.paseoHome,
     logger,
     snapshotManager: {
+      sessionHost: sessionHostRouting,
       refreshTimeoutMs: config.providerCatalogRefreshTimeoutMs,
       runtimeSettings: config.agentProviderSettings,
       providerOverrides: config.providerOverrides,
@@ -1605,6 +1622,23 @@ export async function createPaseoDaemon(
   });
   const blockedTaskReviews = new BlockedTaskReviewService({ agentManager, agentStorage, logger });
   quotaReservePolling.start();
+  // Hosted sessions still running a turn are attached and registered for adoption before any
+  // service can load their agents (the scheduler included), so nobody starts a second provider.
+  const hostedPlan = await planHostedStartup({
+    routing: sessionHostRouting,
+    agents: agentStorage,
+    logger,
+  }).catch((error: unknown) => {
+    logger.warn(
+      { err: error, adoptions: sessionHostRouting.adoptions.size },
+      "Hosted session startup planning failed; registered sessions load on demand",
+    );
+    return null;
+  });
+  // A hosted session that ends with its host continues the way a restart would.
+  sessionHostRouting.onSessionLost = (agentId) => {
+    void agentManager.continueAfterHostedSessionLoss(agentId);
+  };
   await scheduleService.start();
   factoryScheduleInspection.activate(scheduleService);
   agentManager.setAgentArchivedCallback(async (agentId) => {
@@ -1755,6 +1789,7 @@ export async function createPaseoDaemon(
         !(await isAgentMcpRequestAuthorized({
           password: config.auth?.password,
           capabilityToken: agentMcpAuthToken,
+          additionalCapabilityTokens: sessionHostConnector.knownMcpTokens(),
           authorizationHeader: req.header("authorization"),
         }))
       ) {
@@ -2035,6 +2070,36 @@ export async function createPaseoDaemon(
         }
       });
 
+      if (hostedPlan && hostedPlan.adopted.length > 0) {
+        void loadAdoptedAgents({
+          routing: sessionHostRouting,
+          adopted: hostedPlan.adopted,
+          loadAgent: (agentId) =>
+            ensureAgentLoaded(agentId, { agentManager, agentStorage, logger }),
+          logger,
+        }).then(({ attached, total }) =>
+          logger.info({ attached, total }, `Hosted sessions attached: ${attached}/${total}`),
+        );
+      }
+      if (hostedPlan && (hostedPlan.closed.length > 0 || hostedPlan.lost.length > 0))
+        logger.info(
+          { closed: hostedPlan.closed.length, lost: hostedPlan.lost },
+          "Hosted sessions reconciled at startup",
+        );
+      // A session that ended with its host while its turn was running continues like a restart.
+      for (const agentId of hostedPlan?.lost ?? []) {
+        void agentStorage
+          .get(agentId)
+          .then((record) =>
+            record?.lastStatus === "running" && !record.archivedAt
+              ? agentManager.continueAfterHostedSessionLoss(agentId)
+              : undefined,
+          )
+          .catch((error: unknown) =>
+            logger.warn({ err: error, agentId }, "Could not continue a lost hosted session"),
+          );
+      }
+
       // Start speech service after listening so synchronous Sherpa native
       // model loading doesn't block the server from accepting connections.
       speechService.start();
@@ -2066,6 +2131,7 @@ export async function createPaseoDaemon(
       await serviceProxy.stopStandalone().catch(() => undefined);
       await embeddedHeadlessHost.stop().catch(() => undefined);
       await agentProviderRuntime.shutdown().catch(() => undefined);
+      sessionHostConnector.close();
       if (mainStarted) {
         httpServer.closeAllConnections();
         await new Promise<void>((resolve) => httpServer.close(() => resolve()));
@@ -2121,6 +2187,13 @@ export async function createPaseoDaemon(
     scriptHealthMonitor.stop();
     step("quota reserve polling");
     await quotaReservePolling.stop();
+    step("detach hosted sessions");
+    // Durably hosted turns keep running in the session host; the next worker takes them over.
+    await withTimeout({
+      promise: agentManager.detachDurableSessions(),
+      timeoutMs: AGENT_CLOSE_TIMEOUT_MS,
+      label: "detach hosted sessions",
+    }).catch((error) => logger.warn({ err: error }, "Hosted sessions did not detach in time"));
     step("close agents");
     await closeAllAgents(logger, agentManager);
     step("plugin lifecycle events");
@@ -2136,6 +2209,8 @@ export async function createPaseoDaemon(
     await agentStorage.flush().catch(() => undefined);
     step("provider runtime");
     await agentProviderRuntime.shutdown();
+    // Closing the connection never waits on the host and leaves its sessions running.
+    sessionHostConnector.close();
     step("plugins");
     await pluginRuntime.stopAllPlugins();
     step("terminals");
@@ -2210,4 +2285,38 @@ async function closeAllAgents(logger: Logger, agentManager: AgentManager): Promi
       }
     }),
   );
+}
+
+/**
+ * Durable sessions run eligible Claude sessions in the session host when their setting file
+ * enables them. The connection is made lazily, so a disabled setting costs nothing, and a worker
+ * never waits on an absent host: such sessions simply run in the worker.
+ */
+function createDurableSessionsRouting(input: {
+  paseoHome: string;
+  logger: Logger;
+  release: string;
+}): {
+  connector: SessionHostConnector;
+  routing: HostedSessionRouting & Required<Pick<HostedSessionRouting, "applied" | "adoptions">>;
+} {
+  const setting = readDurableSessionsSettings(input.paseoHome);
+  if (setting.problem)
+    input.logger.warn({ problem: setting.problem }, "Durable sessions setting ignored");
+  const paths = sessionHostPaths(input.paseoHome);
+  const connector = createSessionHostConnector({
+    paths,
+    logger: input.logger.child({ module: "session-host" }),
+    release: input.release,
+  });
+  return {
+    connector,
+    routing: {
+      connector,
+      isEnabled: () => readDurableSessionsSettings(input.paseoHome).enabled,
+      logger: input.logger,
+      applied: createAppliedSeqStore(paths),
+      adoptions: new Map(),
+    },
+  };
 }

@@ -49,6 +49,8 @@ export function mountClaudeSetupConsumer(app: Express, options: ConsumerOptions)
       definition.providerType !== "claude" ||
       definition.bindings[delivery.serverId] !== delivery.providerId ||
       definition.accountSetup?.provider !== "claude" ||
+      // Full sign-in accounts never receive setup tokens.
+      definition.accountSetup.signIn === "full" ||
       delivery.providerId !== `claude-account-${definition.accountSetup.creationId}`
     )
       throw new ClaudeSetupDeliveryError();
@@ -120,7 +122,7 @@ export function mountClaudeSetupConsumer(app: Express, options: ConsumerOptions)
 }
 
 /** Tighten the retained account directory without following links or replacing history. */
-function secureAccountHome(home: string): void {
+export function secureAccountHome(home: string): void {
   const named = lstatSync(home);
   if (!named.isDirectory() || (process.getuid && named.uid !== process.getuid()))
     throw new ClaudeSetupDeliveryError();

@@ -109,6 +109,25 @@ describe("agent MCP request authorizer", () => {
     ).toBe(true);
   });
 
+  test("accepts the durable session host's token alongside the daemon's own", async () => {
+    expect(
+      await isAgentMcpRequestAuthorized({
+        password: CORRECT_PASSWORD_HASH,
+        capabilityToken: CAPABILITY_TOKEN,
+        additionalCapabilityTokens: ["host-token-xyz"],
+        authorizationHeader: "Bearer host-token-xyz",
+      }),
+    ).toBe(true);
+    expect(
+      await isAgentMcpRequestAuthorized({
+        password: CORRECT_PASSWORD_HASH,
+        capabilityToken: CAPABILITY_TOKEN,
+        additionalCapabilityTokens: ["host-token-xyz"],
+        authorizationHeader: "Bearer host-token-xy",
+      }),
+    ).toBe(false);
+  });
+
   test("rejects requests presenting neither the token nor a valid password", async () => {
     expect(
       await isAgentMcpRequestAuthorized({

@@ -290,3 +290,116 @@ test("Review stays incomplete, retains dependencies and cannot be edited through
   ).toBe("review");
   expect(tasks[0].status).toBe("review");
 });
+
+describe("checklist progress", () => {
+  const created = mutateChecklist([], { operation: "create", id: "a", text: "Ship it" });
+  const update = (
+    items: AgentTaskItem[],
+    fields: Omit<
+      Extract<z.infer<typeof ChecklistMutationSchema>, { operation: "update" }>,
+      "operation" | "id"
+    >,
+  ) => mutateChecklist(items, { operation: "update", id: "a", ...fields })[0];
+
+  test("accepts edits from apps that predate progress and keeps other conflicts", () => {
+    const tracked = mutateChecklist(created, {
+      operation: "update",
+      id: "a",
+      checks: [
+        { text: "One", done: true },
+        { text: "Two", done: false },
+      ],
+    });
+    // An older app parses items without progress and checks, so its expectedTask lacks them.
+    const { progress: _progress, checks: _checks, ...legacyView } = tracked[0];
+    const renamed = mutateChecklist(tracked, {
+      operation: "update",
+      id: "a",
+      text: "Renamed",
+      expectedTask: legacyView,
+    });
+    expect(renamed[0]).toMatchObject({ text: "Renamed", progress: 50, checks: tracked[0].checks });
+    expect(() =>
+      mutateChecklist(renamed, {
+        operation: "update",
+        id: "a",
+        text: "Stale rename",
+        expectedTask: legacyView,
+      }),
+    ).toThrow("changed while you were editing");
+    // A client that sends progress fields still has them compared.
+    expect(() =>
+      mutateChecklist(renamed, {
+        operation: "update",
+        id: "a",
+        text: "Stale progress",
+        expectedTask: { ...renamed[0], progress: 10 },
+      }),
+    ).toThrow("changed while you were editing");
+  });
+
+  test("rounds estimates to five points and caps unfinished work at 90", () => {
+    expect(update(created, { progress: 42 }).progress).toBe(40);
+    expect(update(created, { progress: 43 }).progress).toBe(45);
+    expect(update(created, { progress: 100 }).progress).toBe(90);
+  });
+
+  test("derives progress from passed checks and ignores a conflicting estimate", () => {
+    const task = update(created, {
+      progress: 10,
+      checks: [
+        { text: "Schema accepts progress", done: true },
+        { text: "Old clients still parse", done: true },
+        { text: "Sidebar shows partial credit", done: false },
+      ],
+    });
+    expect(task.progress).toBe(65);
+  });
+
+  test("keeps all-passed checks below done until the item is completed", () => {
+    const checks = [{ text: "Only check", done: true }];
+    expect(update(created, { checks }).progress).toBe(90);
+    expect(update(created, { checks, status: "completed" }).progress).toBe(100);
+    expect(update(created, { status: "completed" })).not.toHaveProperty("progress");
+  });
+
+  test("completion means 100 and a parked item keeps its partial progress", () => {
+    const started = mutateChecklist(created, {
+      operation: "update",
+      id: "a",
+      status: "in_progress",
+      progress: 60,
+    });
+    expect(update(started, { status: "pending" }).progress).toBe(60);
+    expect(update(started, { status: "completed" }).progress).toBe(100);
+  });
+
+  test("creates with progress settled from the same rules", () => {
+    const [task] = mutateChecklist([], {
+      operation: "create",
+      id: "b",
+      text: "Estimate",
+      progress: 97,
+    });
+    expect(task.progress).toBe(90);
+  });
+
+  test("older checklist items without progress stay unchanged", () => {
+    expect(update(created, { text: "Renamed" })).not.toHaveProperty("progress");
+  });
+
+  test("the wire schema accepts progress and checks while older items still parse", () => {
+    expect(AgentTaskItemSchema.parse({ text: "Old", completed: false })).toEqual({
+      text: "Old",
+      completed: false,
+    });
+    expect(
+      AgentTaskItemSchema.parse({
+        text: "New",
+        completed: false,
+        progress: 65,
+        checks: [{ text: "Check", done: true }],
+      }),
+    ).toMatchObject({ progress: 65, checks: [{ text: "Check", done: true }] });
+  });
+});
