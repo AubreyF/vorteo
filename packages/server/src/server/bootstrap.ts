@@ -1,5 +1,4 @@
-import { ScheduleStore } from "./schedule/store.js";
-import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
+import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
 import express from "express";
@@ -242,6 +241,19 @@ import {
 } from "./hub/relationship-remote.js";
 import { DaemonExecutions } from "./hub/daemon-executions.js";
 import { PluginService } from "./plugins/index.js";
+import {
+  NativeFactoryObservationService,
+  createNativeFactoryObservationResolver,
+} from "./factory/observation-service.js";
+import { attachFactoryControllerObservation } from "./factory/attach-controller-observation.js";
+import {
+  createNativeFactoryInstallStartup,
+  createNativeFactoryInstallerResolver,
+  type NativeFactoryInstaller,
+} from "./factory/native-install-startup.js";
+import { NativeFactorySetupService } from "./factory/setup-service.js";
+import { createFactoryCoordinatorBinder } from "./factory/create-coordinator-binder.js";
+import { createFactoryControllerObservationSource } from "./factory/create-controller-observation-source.js";
 import { BuiltinPluginLoader } from "./plugins/builtin/index.js";
 import { ManagedPluginSources } from "./plugins/managed-source.js";
 
@@ -651,7 +663,13 @@ export async function createPaseoDaemon(
   });
   const browserToolsPolicy = new DaemonConfigBrowserToolsPolicy(daemonConfigStore);
   const browserToolsBroker = new BrowserToolsBroker({});
+  let resolveFactoryObservation: () => NativeFactoryObservationService | null = () => null;
+  let factorySetupService: NativeFactorySetupService | null = null;
+  let resolveFactoryInstaller: () => NativeFactoryInstaller | null = () => null;
   const pluginRuntime: PluginService = new PluginService(logger, daemonConfigStore, daemonVersion, {
+    factoryObservation: () => resolveFactoryObservation(),
+    factorySetup: () => factorySetupService,
+    factoryInstallation: () => (resolveFactoryInstaller() ? factorySetupService : null),
     usageAgents: {
       hasAgent: (id) => agentManager.getAgent(id) !== null,
       usageSession: (id) => agentManager.usageSession(id),
@@ -917,22 +935,15 @@ export async function createPaseoDaemon(
     path.join(config.paseoHome, "projects", "projects.json"),
     logger,
   );
-  const archiveScheduleStore = new ScheduleStore(path.join(config.paseoHome, "schedules"), logger);
-  const assertArchiveAllowed = (workspaceId: string): Promise<void> =>
-    assertWorkspaceArchiveAllowed(
-      {
-        workspaces: archiveWorkspaceRegistry,
-        schedules: archiveScheduleStore,
-        agents: agentStorage,
-      },
-      workspaceId,
-    );
-  const archiveWorkspaceRegistry = new FileBackedWorkspaceRegistry(
+  factorySetupService = new NativeFactorySetupService({
+    serverId,
+    projects: projectRegistry,
+    installer: () => resolveFactoryInstaller(),
+  });
+  workspaceRegistry = new FileBackedWorkspaceRegistry(
     path.join(config.paseoHome, "projects", "workspaces.json"),
     logger,
-    { assertArchiveAllowed },
   );
-  workspaceRegistry = archiveWorkspaceRegistry;
   const workspaceLabelService = createWorkspaceLabelService({
     paseoHome: config.paseoHome,
     workspaceRegistry,
@@ -991,7 +1002,10 @@ export async function createPaseoDaemon(
   const initialAgentManagerState = providerSnapshotManager.getAgentManagerProviderState();
   const agentManager = new AgentManager({
     getSharedProviderConfig: () => daemonConfigStore.get(),
-    assertWorkspaceArchiveAllowed: assertArchiveAllowed,
+    assertWorkspaceArchiveAllowed: async (workspaceId) => {
+      const workspace = await workspaceRegistry.get(workspaceId);
+      if (workspace) assertWorkspaceUnprotected(workspace);
+    },
     pluginLifecycle: pluginRuntime,
     clients: initialAgentManagerState.clients,
     providerDefinitions: initialAgentManagerState.providerDefinitions,
@@ -1121,8 +1135,11 @@ export async function createPaseoDaemon(
         isPaseoOwnedWorktree: workspace.isPaseoOwnedWorktree,
         mainRepoRoot: workspace.mainRepoRoot,
         protected: workspace.protected,
+        factoryMembership: workspace.factoryMembership,
       }));
   };
+  const listRetainedFactoryWorkspacesExternal = async (): Promise<ActiveWorkspaceRef[]> =>
+    (await workspaceRegistry.list()).filter((workspace) => workspace.factoryMembership);
   const markWorkspaceArchivingExternal = (workspaceIds: Iterable<string>, archivingAt: string) => {
     const workspaceIdList = Array.from(workspaceIds);
     for (const session of wsServer?.listSessions() ?? []) {
@@ -1187,6 +1204,7 @@ export async function createPaseoDaemon(
     logger,
     findWorkspaceIdForCwd: findWorkspaceIdForCwdExternal,
     listActiveWorkspaces: listActiveWorkspacesExternal,
+    listRetainedFactoryWorkspaces: listRetainedFactoryWorkspacesExternal,
     getAutoArchivedChangeRequestUrl: async (workspaceId) =>
       (await workspaceRegistry.get(workspaceId))?.autoArchivedChangeRequestUrl ?? null,
     archiveWorkspaceRecord: archiveWorkspaceRecordExternal,
@@ -1275,6 +1293,7 @@ export async function createPaseoDaemon(
         agentStorage,
         findWorkspaceIdForCwd: findWorkspaceIdForCwdExternal,
         listActiveWorkspaces: listActiveWorkspacesExternal,
+        listRetainedFactoryWorkspaces: listRetainedFactoryWorkspacesExternal,
         getWorkspace: (workspaceIdToGet) => workspaceRegistry.get(workspaceIdToGet),
         archiveWorkspaceRecord: archiveWorkspaceRecordExternal,
         emitWorkspaceUpdatesForWorkspaceIds: emitWorkspaceUpdatesExternal,
@@ -1301,6 +1320,7 @@ export async function createPaseoDaemon(
       archiveAgentCommand({ agentManager, agentStorage, logger }, agentId),
     findWorkspaceIdForCwd: findWorkspaceIdForCwdExternal,
     listActiveWorkspaces: listActiveWorkspacesExternal,
+    listRetainedFactoryWorkspaces: listRetainedFactoryWorkspacesExternal,
     archiveWorkspaceRecord: archiveWorkspaceRecordExternal,
     emit: emitExternalSessionMessage,
     emitAgentRemove: async () => undefined,
@@ -1396,6 +1416,7 @@ export async function createPaseoDaemon(
         agentStorage,
         findWorkspaceIdForCwd: findWorkspaceIdForCwdExternal,
         listActiveWorkspaces: listActiveWorkspacesExternal,
+        listRetainedFactoryWorkspaces: listRetainedFactoryWorkspacesExternal,
         getWorkspace: (workspaceIdToGet) => workspaceRegistry.get(workspaceIdToGet),
         archiveWorkspaceRecord: archiveWorkspaceRecordExternal,
         emitWorkspaceUpdatesForWorkspaceIds: emitWorkspaceUpdatesExternal,
@@ -1423,10 +1444,39 @@ export async function createPaseoDaemon(
   const governorObservations = new ProviderQuotaObservationService({
     getClient: (provider) => agentManager.getQuotaObservationClient(provider),
   });
+  const governorStore = new QuotaGovernorStore(path.join(config.paseoHome, "quota-governor"));
+  const loadedBuiltin = pluginRuntime.isBuiltinPluginLoaded;
+  const canDispatchFactory = () =>
+    pluginRuntime.isBuiltinPluginLoaded === loadedBuiltin &&
+    loadedBuiltin.call(pluginRuntime, "factory");
   const governedRuntime = await dependencies.createGovernedScheduleRuntime?.({
     hostId: serverId,
     paseoHome: config.paseoHome,
-    store: new QuotaGovernorStore(path.join(config.paseoHome, "quota-governor")),
+    store: governorStore,
+    factoryInstallation: {
+      create: createNativeFactoryInstallStartup({
+        serverId,
+        projects: projectRegistry,
+        workspaces: workspaceRegistry,
+        agents: agentStorage,
+        readProfiles: () => daemonConfigStore.get().agentProfiles ?? [],
+        store: governorStore,
+        canDispatch: canDispatchFactory,
+      }),
+    },
+    factoryCoordinators: {
+      bind: createFactoryCoordinatorBinder({
+        serverId,
+        projects: projectRegistry,
+        workspaces: workspaceRegistry,
+        agents: agentStorage,
+        readProfiles: () => daemonConfigStore.get().agentProfiles ?? [],
+      }),
+    },
+    factoryObservation: {
+      createSource: createFactoryControllerObservationSource,
+      attach: attachFactoryControllerObservation,
+    },
     readObservation: (provider) => governorObservations.read(provider),
     captureClient: (provider) =>
       agentManager.captureGovernedExecutionClient(
@@ -1437,6 +1487,17 @@ export async function createPaseoDaemon(
           workspaces: workspaceRegistry,
         }),
       ),
+  });
+  resolveFactoryInstaller = createNativeFactoryInstallerResolver(
+    governedRuntime,
+    serverId,
+    canDispatchFactory,
+  );
+  resolveFactoryObservation = createNativeFactoryObservationResolver(governedRuntime, {
+    serverId,
+    projects: projectRegistry,
+    workspaces: workspaceRegistry,
+    agents: agentStorage,
   });
   const quotaPreflight = new QuotaSchedulePreflight({
     readObservation: (provider) =>
@@ -1492,6 +1553,7 @@ export async function createPaseoDaemon(
     workspaceGitService,
     findWorkspaceIdForCwd: findWorkspaceIdForCwdExternal,
     listActiveWorkspaces: listActiveWorkspacesExternal,
+    listRetainedFactoryWorkspaces: listRetainedFactoryWorkspacesExternal,
     archiveWorkspaceRecord: archiveWorkspaceRecordExternal,
     emitWorkspaceUpdatesForWorkspaceIds: emitWorkspaceUpdatesExternal,
     workspaceRegistry,

@@ -7888,3 +7888,103 @@ test("canonical profile launches require account-independent profile support", a
   ).rejects.toThrow("account-independent profiles");
   expect(mock.sent).toEqual([]);
 });
+
+test("guarded workspace recovery sends nothing without capability or matching host", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://localhost:6767/ws",
+    clientId: "guarded-recovery",
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connection = client.connect();
+  mock.triggerOpen({ features: { workspaceRecovery: true } });
+  await connection;
+  const guard = {
+    action: "unarchive" as const,
+    serverId: "srv_test_1",
+    projectId: "project",
+    cwd: "/cwd",
+    kind: "directory" as const,
+    archivedAt: "archived",
+    updatedAt: "updated",
+    recordHash: "a".repeat(64),
+  };
+  await expect(client.restoreWorkspace("workspace", "request", guard)).rejects.toThrow(
+    "Update the host",
+  );
+  expect(mock.sent).toHaveLength(0);
+  const legacy = client.restoreWorkspace("workspace", "legacy-old-host");
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "workspace.recovery.restore.request",
+    workspaceId: "workspace",
+    requestId: "legacy-old-host",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.recovery.restore.response",
+      payload: {
+        requestId: "legacy-old-host",
+        workspaceId: "workspace",
+        accepted: true,
+        error: null,
+      },
+    }),
+  );
+  await legacy;
+  mock.triggerOpen({ features: { workspaceRecoveryGuard: true } });
+  await expect(client.restoreWorkspace("workspace", "request", guard)).rejects.toThrow(
+    "host identity changed",
+  );
+  expect(mock.sent).toHaveLength(0);
+});
+
+test("guarded workspace recovery transmits exact guard while legacy requests remain unchanged", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://localhost:6767/ws",
+    clientId: "guarded-recovery-supported",
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connection = client.connect();
+  mock.triggerOpen({ features: { workspaceRecoveryGuard: true } });
+  await connection;
+  const guard = {
+    action: "unarchive" as const,
+    serverId: "srv_test_1",
+    projectId: "project",
+    cwd: "/cwd",
+    kind: "directory" as const,
+    archivedAt: "archived",
+    updatedAt: "updated",
+    recordHash: "a".repeat(64),
+  };
+  const guarded = client.restoreWorkspace("workspace", "guarded", guard);
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "workspace.recovery.restore.request",
+    workspaceId: "workspace",
+    requestId: "guarded",
+    guard,
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.recovery.restore.response",
+      payload: { requestId: "guarded", workspaceId: "workspace", accepted: true, error: null },
+    }),
+  );
+  await guarded;
+  const legacy = client.restoreWorkspace("workspace", "legacy");
+  expect(parseSentFrame(mock.sent[1])).toEqual({
+    type: "workspace.recovery.restore.request",
+    workspaceId: "workspace",
+    requestId: "legacy",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.recovery.restore.response",
+      payload: { requestId: "legacy", workspaceId: "workspace", accepted: true, error: null },
+    }),
+  );
+  await legacy;
+});

@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import { OwnerAccessExpired } from "./client";
-import { InstallationPanelModel, restartExplanation } from "./panel-model";
+import {
+  InstallationPanelModel,
+  restartExplanation,
+  restartBannerTitle,
+  restartBlockingReason,
+} from "./panel-model";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 
 test("saved connections skip setup on reload without unlocking owner controls", async () => {
@@ -254,4 +259,66 @@ test("restart summaries omit version and source metadata without dangling labels
       "Activate task environments, version 0.11.0-beta.3.vorteo.175, source 0123456789abcdef0123456789abcdef01234567.",
     ).summary,
   ).toBe("Activate task environments.");
+});
+
+test("pending supervisor repair remains visible alongside an active source update", async () => {
+  const base: RestartJob = {
+    id: "source",
+    revision: "revision",
+    target: "container-daemon",
+    requestedBy: "host-agent",
+    reason: "Source update",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    status: "running",
+    detail: "Installing",
+  };
+  const jobs: RestartJob[] = [
+    base,
+    { ...base, id: "supervisor", status: "pending", supervisorPlanSha256: "a".repeat(64) },
+  ];
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => true,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: true,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    unlock: async () => {},
+    listRestarts: async () => jobs,
+    decide: async () => {},
+  });
+  await model.initialize();
+  expect(model.getState().pendingJobs.map((job) => job.id)).toEqual(["supervisor"]);
+  expect(model.getState().jobs).toEqual(jobs);
+});
+
+test("sidebar distinguishes blocked source updates from owner approval", () => {
+  const job: RestartJob = {
+    id: "request",
+    revision: "revision",
+    target: "host",
+    requestedBy: "container-agent",
+    reason: "Install features",
+    createdAt: new Date().toISOString(),
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "pending",
+    detail: "Contributions need correction",
+    sourceBatch: { status: "conflict", contributions: [] },
+  };
+  expect(restartBannerTitle(job)).toBe("Host daemon update needs correction");
+  expect(restartBlockingReason(job)).toBe("Contributions need correction");
+  for (const [status, title] of [
+    ["preparing", "update is being checked"],
+    ["waiting", "update is waiting"],
+    ["ready", "restart needs approval"],
+  ] as const) {
+    const changed = { ...job, sourceBatch: { ...job.sourceBatch!, status } };
+    expect(restartBannerTitle(changed)).toBe(`Host daemon ${title}`);
+    expect(restartBlockingReason(changed)).toBeNull();
+  }
+  expect(restartBannerTitle({ ...job, target: "container-daemon" })).toBe(
+    "Dev daemon update needs correction",
+  );
 });

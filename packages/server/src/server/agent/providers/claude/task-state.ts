@@ -1,6 +1,8 @@
+import { z } from "zod";
+import { mergeTaskMetadata } from "../../task-checklist/model.js";
 import type { AgentTaskItem, AgentTimelineItem } from "../../agent-sdk-types.js";
 
-type TaskToolName = "TodoWrite" | "TaskCreate" | "TaskUpdate" | "TaskList";
+type TaskToolName = "TodoWrite" | "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet";
 
 interface PendingTaskTool {
   name: TaskToolName;
@@ -27,6 +29,22 @@ function retainedTaskStatus(task: AgentTaskItem): AgentTaskItem["status"] {
   return task.completed ? "completed" : "pending";
 }
 
+const TaskDetailsSchema = z.object({
+  description: z.string().optional(),
+  owner: z.string().optional(),
+  blockedBy: z.array(z.string()).optional(),
+  metadata: z.record(z.string(), z.json()).optional(),
+});
+
+function taskDetails(value: Record<string, unknown>) {
+  const parsed = TaskDetailsSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
+
+function stringIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+}
+
 function toTaskItem(value: unknown): AgentTaskItem | null {
   const task = record(value);
   if (!task) return null;
@@ -37,6 +55,7 @@ function toTaskItem(value: unknown): AgentTaskItem | null {
   const id = string(task.id) ?? string(task.taskId);
   const activeForm = string(task.activeForm) ?? string(task.active_form);
   return {
+    ...taskDetails(task),
     ...(id ? { id } : {}),
     text,
     status,
@@ -79,23 +98,29 @@ export class ClaudeTaskState {
     const message = record(value);
     if (!message) return null;
 
-    let snapshot: Extract<AgentTimelineItem, { type: "todo" }> | null = null;
     for (const block of toolUses(message)) {
       const id = string(block.id);
       const name = string(block.name);
       if (!id || !isTaskToolName(name)) continue;
       const input = record(block.input) ?? {};
       this.calls.set(id, { name, input });
-      if (name === "TodoWrite") snapshot = this.replaceLegacyTodos(input.todos);
     }
 
     const resultId = toolResultId(message);
-    if (!resultId || this.appliedResults.has(resultId)) return snapshot;
+    if (!resultId || this.appliedResults.has(resultId)) return null;
     const call = this.calls.get(resultId);
-    if (!call) return snapshot;
+    if (!call) return null;
     this.appliedResults.add(resultId);
     this.calls.delete(resultId);
-    return this.applyResult(call, structuredResult(message)) ?? snapshot;
+    const content = record(message.message)?.content;
+    const failed =
+      Array.isArray(content) &&
+      content.some((block) => {
+        const result = record(block);
+        return result?.tool_use_id === resultId && result.is_error === true;
+      });
+    if (failed) return null;
+    return this.applyResult(call, structuredResult(message));
   }
 
   reset(): void {
@@ -122,10 +147,41 @@ export class ClaudeTaskState {
     result: Record<string, unknown> | null,
   ): Extract<AgentTimelineItem, { type: "todo" }> | null {
     if (result?.success === false) return null;
+    if (call.name === "TodoWrite") return this.replaceLegacyTodos(call.input.todos);
     if (call.name === "TaskCreate") return this.applyCreate(call.input, result);
     if (call.name === "TaskUpdate") return this.applyUpdate(call.input, result);
     if (call.name === "TaskList") return this.applyList(result);
+    if (call.name === "TaskGet") return this.applyGet(call.input, result);
     return null;
+  }
+
+  private applyGet(
+    input: Record<string, unknown>,
+    result: Record<string, unknown> | null,
+  ): Extract<AgentTimelineItem, { type: "todo" }> | null {
+    if (result?.task === null) {
+      const id = string(input.taskId);
+      if (!id) return null;
+      this.deleteTask(id);
+      return this.snapshot();
+    }
+    const item = toTaskItem(result?.task);
+    if (!item?.id) return null;
+    this.tasks.set(item.id, { ...this.tasks.get(item.id), ...item });
+    const blocks = record(result?.task)?.blocks;
+    // TaskGet includes the authoritative inverse dependency list for known tasks.
+    if (Array.isArray(blocks)) {
+      const blockedIds = new Set(stringIds(blocks));
+      for (const [id, task] of this.tasks) {
+        if (id === item.id) continue;
+        const dependencies = (task.blockedBy ?? []).filter((dependency) => dependency !== item.id);
+        if (blockedIds.has(id)) dependencies.push(item.id);
+        if (blockedIds.has(id) || task.blockedBy?.includes(item.id)) {
+          this.tasks.set(id, { ...task, blockedBy: dependencies });
+        }
+      }
+    }
+    return this.snapshot();
   }
 
   private applyCreate(
@@ -138,6 +194,7 @@ export class ClaudeTaskState {
     if (!id || !text) return null;
     const activeForm = string(input.activeForm);
     this.tasks.set(id, {
+      ...taskDetails(input),
       id,
       text,
       status: "pending",
@@ -159,19 +216,46 @@ export class ClaudeTaskState {
     const status =
       statusValue === undefined ? retainedTaskStatus(current) : taskStatus(statusValue);
     if (status === "deleted") {
-      this.tasks.delete(id);
+      this.deleteTask(id);
       return this.snapshot();
     }
     const text = string(input.subject);
     const activeForm = string(input.activeForm);
+    const details = taskDetails(input);
+    if (details.metadata !== undefined)
+      details.metadata = mergeTaskMetadata(current.metadata, details.metadata);
+    const addedDependencies = stringIds(input.addBlockedBy);
+    if (addedDependencies.length)
+      details.blockedBy = [...new Set([...(current.blockedBy ?? []), ...addedDependencies])];
     this.tasks.set(id, {
       ...current,
+      ...details,
       ...(text ? { text } : {}),
       ...(activeForm ? { activeForm } : {}),
       status,
       completed: status === "completed",
     });
+    for (const blocked of stringIds(input.addBlocks)) {
+      const task = this.tasks.get(blocked);
+      if (task)
+        this.tasks.set(blocked, {
+          ...task,
+          blockedBy: [...new Set([...(task.blockedBy ?? []), id])],
+        });
+    }
     return this.snapshot();
+  }
+
+  private deleteTask(id: string): void {
+    this.tasks.delete(id);
+    for (const [taskId, task] of this.tasks) {
+      if (task.blockedBy?.includes(id)) {
+        this.tasks.set(taskId, {
+          ...task,
+          blockedBy: task.blockedBy.filter((dependency) => dependency !== id),
+        });
+      }
+    }
   }
 
   private applyList(
@@ -179,10 +263,15 @@ export class ClaudeTaskState {
   ): Extract<AgentTimelineItem, { type: "todo" }> | null {
     const tasks = result?.tasks;
     if (!Array.isArray(tasks)) return null;
+    const previous = new Map(this.tasks);
     this.tasks.clear();
     for (const taskValue of tasks) {
       const item = toTaskItem(taskValue);
-      if (item?.id) this.tasks.set(item.id, item);
+      if (item?.id) {
+        const retained = { ...previous.get(item.id), ...item };
+        if (item.owner === undefined) delete retained.owner;
+        this.tasks.set(item.id, retained);
+      }
     }
     return this.snapshot();
   }
@@ -197,6 +286,7 @@ function isTaskToolName(value: string | undefined): value is TaskToolName {
     value === "TodoWrite" ||
     value === "TaskCreate" ||
     value === "TaskUpdate" ||
-    value === "TaskList"
+    value === "TaskList" ||
+    value === "TaskGet"
   );
 }

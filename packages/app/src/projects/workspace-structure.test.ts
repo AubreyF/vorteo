@@ -81,6 +81,7 @@ describe("buildWorkspaceStructureProjects", () => {
     expect(result).toEqual([
       {
         viewKey: "offline-project",
+        membership: { key: "offline-project", name: "My project" },
         projectKey: null,
         projectName: "My project",
         projectKind: "git",
@@ -226,4 +227,45 @@ describe("buildWorkspaceStructureProjects", () => {
       placementShapedKey,
     );
   });
+});
+
+test("logical projects retain exact environment folders for new workspace drafts", () => {
+  const membership = { key: "logical-vorteo", name: "Vorteo" };
+  const result = buildWorkspaceStructureProjects({
+    sessions: ["host", "dev"].map((serverId) => ({
+      serverId,
+      projects: [project({ id: `${serverId}-files`, key: null, root: `/${serverId}/source` })],
+      workspaces: [
+        {
+          ...workspace(`${serverId}-work`, `${serverId}-files`, `/${serverId}/source`),
+          projectMembership: membership,
+        },
+      ],
+    })),
+  });
+  const logical = result.find((item) => item.viewKey === membership.key)!;
+  expect(logical.membership).toEqual(membership);
+  expect(logical.hosts).toMatchObject([
+    { serverId: "host", projectId: "host-files", iconWorkingDir: "/host/source" },
+    { serverId: "dev", projectId: "dev-files", iconWorkingDir: "/dev/source" },
+  ]);
+});
+
+test("logical project membership does not choose an arbitrary same-host checkout", () => {
+  const membership = { key: "logical-vorteo", name: "Vorteo" };
+  const result = buildWorkspaceStructureProjects({
+    sessions: [
+      {
+        serverId: "host",
+        projects: [
+          project({ id: "one", key: null, root: "/one" }),
+          project({ id: "two", key: null, root: "/two" }),
+        ],
+        workspaces: ["one", "two"].map((id) =>
+          Object.assign(workspace(id, id, `/${id}`), { projectMembership: membership }),
+        ),
+      },
+    ],
+  });
+  expect(result.find((item) => item.viewKey === membership.key)?.hosts).toEqual([]);
 });

@@ -18,7 +18,12 @@ import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runti
 import { useVortonTouch } from "@/vorton-touch";
 import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
-import { InstallationPanelModel, restartExplanation } from "./panel-model";
+import {
+  InstallationPanelModel,
+  restartExplanation,
+  restartBannerTitle,
+  restartBlockingReason,
+} from "./panel-model";
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
 
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
@@ -486,14 +491,13 @@ function RestartRequest({
     >
       <View style={styles.cardBody}>
         <View style={styles.requestHeader}>
-          <Text style={settingsStyles.rowTitle}>
-            {job.target === "host" ? "Host" : "Dev container"}
-          </Text>
+          <Text style={settingsStyles.rowTitle}>{restartTargetLabel(job)}</Text>
           <StatusBadge {...status} />
         </View>
         <Text style={styles.text} testID={`restart-summary-${job.id}`}>
           {restartExplanation(job.reason).summary}
-          {source && job.status === "pending"
+          {restartBlockingReason(job) ? ` Needs correction: ${restartBlockingReason(job)}` : null}
+          {source && job.status === "pending" && !restartBlockingReason(job)
             ? ` Approval lets the submitted code and build scripts run on ${job.target === "host" ? "Host" : "Dev"} and may interrupt its tasks and terminals.`
             : null}
           {source && job.status === "running"
@@ -505,6 +509,10 @@ function RestartRequest({
       </View>
     </View>
   );
+}
+
+function isInstallReady(job: RestartJob): boolean {
+  return Boolean(job.update) && (!job.sourceBatch || job.sourceBatch.status === "ready");
 }
 
 function RestartActions({
@@ -541,9 +549,7 @@ function RestartActions({
         <View style={styles.actions}>
           <Button
             variant="destructive"
-            disabled={
-              busy || !job.update || Boolean(job.sourceBatch && job.sourceBatch.status !== "ready")
-            }
+            disabled={busy || !isInstallReady(job)}
             onPress={install}
             testID={`restart-install-${job.id}`}
           >
@@ -556,14 +562,16 @@ function RestartActions({
       ) : null}
       {pending && !source ? (
         <View style={styles.actions}>
-          <Button
-            variant="outline"
-            disabled={busy || !installation?.idleRestarts || !job.impact?.idleRestartSupported}
-            onPress={queue}
-            testID={`restart-queue-${job.id}`}
-          >
-            Restart when idle
-          </Button>
+          {!job.supervisorPlanSha256 ? (
+            <Button
+              variant="outline"
+              disabled={busy || !installation?.idleRestarts || !job.impact?.idleRestartSupported}
+              onPress={queue}
+              testID={`restart-queue-${job.id}`}
+            >
+              Restart when idle
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             disabled={
@@ -591,6 +599,11 @@ function RestartActions({
   );
 }
 
+function restartTargetLabel(job: RestartJob): string {
+  if (job.supervisorPlanSha256) return "Dev supervisor";
+  return job.target === "host" ? "Host" : "Dev container";
+}
+
 function RestartDetails({ job }: { job: RestartJob }) {
   const [expanded, setExpanded] = useState(false);
   const toggle = useCallback(() => setExpanded((value) => !value), []);
@@ -611,6 +624,11 @@ function RestartDetails({ job }: { job: RestartJob }) {
         <View style={styles.details}>
           {source ? <SourceUpdateDetails job={job} /> : <RestartActivity job={job} />}
           {!source ? <Text style={styles.text}>{job.reason}</Text> : null}
+          {job.supervisorPlanSha256 ? (
+            <Text selectable style={styles.text}>
+              Reviewed supervisor plan: {job.supervisorPlanSha256}
+            </Text>
+          ) : null}
           {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}
         </View>
       ) : null}
@@ -723,7 +741,7 @@ function ForceRestartButton({
 }) {
   const force = useCallback(async () => {
     const confirmed = await confirmDialog({
-      title: `Force restart ${job.target === "host" ? "host" : "dev container"}?`,
+      title: `Force restart ${restartTargetLabel(job)}?`,
       message: "Running tasks will be interrupted and terminals may disconnect.",
       confirmLabel: "Force restart now",
       destructive: true,
@@ -834,7 +852,9 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
   const description = useMemo(
     () => (
       <View style={styles.details}>
-        <Text style={styles.text}>{restartExplanation(job.reason).summary}</Text>
+        <Text style={styles.text}>
+          {restartBlockingReason(job) ?? restartExplanation(job.reason).summary}
+        </Text>
         {job.status === "approved" || job.status === "running" ? (
           <RestartActivity job={job} />
         ) : null}
@@ -847,13 +867,7 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
     ),
     [job, open],
   );
-  const target = job.target === "host" ? "Host daemon" : "Dev daemon";
-  let title = `${target} restart needs approval`;
-  if (job.status === "approved") title = `${target} restart queued`;
-  if (job.finishCurrentTurns) title = `${target} finishing current turns`;
-  if (job.status === "running") {
-    title = job.update || job.sourceBatch ? `Updating ${target}` : `Restarting ${target}`;
-  }
+  const title = restartBannerTitle(job);
   const inProgress = job.status === "approved" || job.status === "running";
   const icon = useMemo(
     () =>

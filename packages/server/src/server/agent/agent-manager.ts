@@ -1,4 +1,11 @@
 import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
+import {
+  mergeProviderChecklistEvent,
+  mergeProviderChecklist,
+  managedChecklist,
+  type ChecklistMutation,
+} from "./task-checklist/model.js";
+import type { AgentTaskItem } from "@getpaseo/protocol/agent-types";
 import { installationProviderReference } from "@getpaseo/protocol/installation-settings";
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
 import {
@@ -24,6 +31,7 @@ import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
 import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
 import type { PluginSessionOpenRequest } from "@getpaseo/plugin/server";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { countRunningWorkers } from "./worker-activity.js";
 import { basename, resolve } from "node:path";
 import { stat } from "node:fs/promises";
@@ -1486,6 +1494,9 @@ export class AgentManager {
     if (this.restartDrainId && this.restartDrainId !== requestId) return false;
     this.restartDrainId = requestId;
     for (const agent of this.agents.values()) {
+      const archivedHistory = this.registry?.getLoadedRecord(agent.id)?.archivedAt;
+      if (archivedHistory && agent.lifecycle !== "initializing" && !this.hasInFlightRun(agent.id))
+        continue;
       if (
         agent.lifecycle === "initializing" ||
         this.restartDrainTasks.has(agent.id) ||
@@ -3354,6 +3365,62 @@ export class AgentManager {
     return nextRecord;
   }
 
+  /**
+   * Retained-owner recovery only. The caller fences native parent, custody and
+   * release admission; archive state alone cannot establish those permissions.
+   */
+  async unarchiveRetainedSnapshot(input: {
+    expected: StoredAgentRecord;
+    assertCurrent(): void;
+  }): Promise<StoredAgentRecord> {
+    const expected = structuredClone(input.expected);
+    const assertCurrent = input.assertCurrent;
+    return this.runLifecycleMutation(expected.id, async () => {
+      const registry = this.requireRegistry();
+      const assertRetained = () => {
+        assertCurrent();
+        if (this.agents.has(expected.id))
+          throw new Error("Retained recovery refuses a loaded agent runtime.");
+      };
+      assertRetained();
+      const current = await registry.get(expected.id);
+      assertRetained();
+      if (
+        !current?.archivedAt ||
+        !isDeepStrictEqual(current, expected) ||
+        current.lastStatus === "running" ||
+        current.lastStatus === "initializing" ||
+        current.owner?.kind === "daemon" ||
+        current.config?.controllerExecutionId ||
+        !current.persistence ||
+        !current.persistence.sessionId ||
+        current.persistence.provider !== current.provider ||
+        !this.clients.has(current.provider)
+      )
+        throw new Error("Retained agent identity or recovery action changed.");
+      const client = this.clients.get(current.provider);
+      const restoreNative = client?.unarchiveNativeSession;
+      if (!client || typeof restoreNative !== "function")
+        throw new Error("Retained agent provider does not support native archive restoration.");
+      const assertNative = () => {
+        assertRetained();
+        if (
+          this.clients.get(current.provider) !== client ||
+          client.unarchiveNativeSession !== restoreNative
+        )
+          throw new Error("Retained agent native restoration provider changed.");
+      };
+      // This changes native archive state only, without acquiring a session writer.
+      // Failure after this point can leave the native archive restored. Do not retry.
+      assertNative();
+      await restoreNative.call(client, current.persistence);
+      assertNative();
+      const restored = await registry.clearRetainedArchive(expected, assertNative);
+      assertNative();
+      return restored;
+    });
+  }
+
   async unarchiveSnapshot(
     agentId: string,
     updates?: { workspaceId?: string; labels?: AgentLabelPatch },
@@ -3570,7 +3637,22 @@ export class AgentManager {
       },
     );
     await this.persistSnapshot(agent);
+    if (item.type === "todo") this.emitState(agent, { persist: false });
     return { seq: row.seq, epoch: this.timelineStore.getEpoch(agentId) };
+  }
+
+  readChecklist(agentId: string): AgentTaskItem[] {
+    return structuredClone(this.requireAgent(agentId).tasks ?? []);
+  }
+
+  async mutateChecklist(agentId: string, mutation: ChecklistMutation): Promise<AgentTaskItem[]> {
+    const agent = this.requireAgent(agentId);
+    const committed = await this.requireRegistry().mutateChecklist(agentId, mutation);
+    const items = mergeProviderChecklist(agent.tasks ?? [], committed);
+    this.touchUpdatedAt(agent);
+    this.recordAndDispatchTimelineItem(agentId, { type: "todo", items }, agent.provider);
+    this.emitState(agent, { persist: false });
+    return this.readChecklist(agentId);
   }
 
   async emitLiveTimelineItem(agentId: string, item: AgentTimelineItem): Promise<void> {
@@ -4720,8 +4802,11 @@ export class AgentManager {
   private async restoreGoalPersistence(managed: ActiveManagedAgent): Promise<void> {
     const record = await this.registry?.get(managed.id);
     managed.tasks = record?.tasks;
+    const managedTasks = managed.tasks?.filter((task) => task.source === "vorteo") ?? [];
     for (const item of this.timelineStore.getItems(managed.id)) {
-      if (item.type === "todo") managed.tasks = item.items;
+      if (item.type === "todo") {
+        managed.tasks = [...item.items.filter((task) => task.source !== "vorteo"), ...managedTasks];
+      }
     }
     managed.goalSubmissions = record?.goalSubmissions;
     managed.queueGoalHold = record?.queueGoalHold;
@@ -5367,8 +5452,9 @@ export class AgentManager {
         this.dispatch({ type: "provider_subagent", event: update });
       }
     }
-    agent.tasks = [];
+    agent.tasks = managedChecklist(agent.tasks);
     for (const event of historyEvents) {
+      event.item = mergeProviderChecklistEvent(event.item, agent.tasks);
       const row = this.recordTimeline(
         agent.id,
         event.item,
@@ -5442,8 +5528,9 @@ export class AgentManager {
         this.dispatch(managerEvent);
       }
     }
-    agent.tasks = [];
+    agent.tasks = managedChecklist(agent.tasks);
     for (const event of historyEvents) {
+      event.item = mergeProviderChecklistEvent(event.item, agent.tasks);
       const row = this.recordTimeline(
         agent.id,
         event.item,
@@ -5759,6 +5846,8 @@ export class AgentManager {
     flags: StreamEventFlags;
   }): Promise<void> {
     const { agent, event, options, flags } = params;
+
+    event.item = mergeProviderChecklistEvent(event.item, agent.tasks);
 
     if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) {
       flags.shouldDispatchEvent = false;

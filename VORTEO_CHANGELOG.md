@@ -5,11 +5,160 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.204 - 2026-10-08
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.203 - 2026-10-08
+
+### Added
+
+- Connect the native Factory setup and initial installation RPC to the same startup-owned adapter, with fresh identity and revision checks and durable reconciliation holds after uncertain dispatch.
+- Add CLI setup observations and guarded initial installation with explicit serving identity, revision and operation correlation. Transport loss never retries the mutation.
+- Add initial installation controls that recheck the displayed native setup revision, send one correlated request and retain uncertain results across panel remounts without automatic retry. Fixtures cannot dispatch installation.
+
+### Maintenance
+
+- Preserve incoming installation policy requiring the matching control button approval before restart or update execution.
+
+- Preserve incoming project-folder/profile-environment selection fixes and their acceptance tests from current main.
+
+- Preserve current main checklist and installation controls, the real installed Dev source ancestry and every parent release-note block alongside independently reviewed Factory and interface source.
+- Keep default observer installation separate from retained-controller adoption. Controller custody, browser origin admission, installed RPC and authenticated client acceptance remain required.
+
+## 0.11.0-beta.3.vorteo.202 - 2026-10-08
+
+### Documentation
+
+- Submit prepared maintenance requests without verbal approval prompts. Require the owner's exact button approval, including coordinator maintenance, and report unsupported request types without bypassing the managed workflow.
+
+## 0.11.0-beta.3.vorteo.201 - 2026-10-08
+
+### Tests
+
+- Wait for project membership persistence when verifying new workspace creation after a profile environment switch.
+
+## 0.11.0-beta.3.vorteo.200 - 2026-10-08
+
+### Tests
+
+- Reopen the existing profile menu after an environment change in shared-project workspace acceptance, matching the composer's environment transition.
+
+## 0.11.0-beta.3.vorteo.199 - 2026-10-08
+
+### Fixed
+
+- Retain unambiguous native project folders in shared project groups so the existing profile environment selector can start new workspace drafts. Keep the chosen shared project membership when creating the workspace.
+
+## 0.11.0-beta.3.vorteo.198 - 2026-10-08
+
+### Fixed
+
+- Reconcile intact release-note entries across concurrent source deliveries without requiring historical entries to remain a contiguous suffix. Edited or deleted history still requires explicit correction.
+- Merge divergent contributions from their verified shared ancestor instead of replaying changes since an older bundle prerequisite. Ambiguous ancestry still requires explicit integration.
+- Recheck pending source conflicts after coordinator recovery without approving or replaying installation. Show blocked update status and its cause in the sidebar.
+
+## 0.11.0-beta.3.vorteo.197 - 2026-10-08
+
+### Fixed
+
+- Keep supervisor repair requests separate from pending source-update batches, preserving both contributions and owner controls. Approvals for the same environment still execute one at a time.
+
+## 0.11.0-beta.3.vorteo.196 - 2026-10-08
+
+### Added
+
+- Add persistent, caller-scoped checklist read and mutation tools across providers, with stable task IDs, status, completion criteria, ownership, dependencies, metadata, deletion and ordering.
+- Add manual task creation, editing, completion, reopening, deletion and ordering to the thread checklist card, with blocked-task errors and stale-edit protection.
+
+### Fixed
+
+- Preserve managed tasks through native provider events, history refreshes, concurrent storage writes and agent reloads. Broadcast checklist changes only after persistence succeeds.
+- Retain Claude task details, dependency changes and metadata through native task updates and list refreshes; ignore failed tool writes and reconcile missing tasks.
+
+### Changed
+
+- Carry accepted pending checklist items and their completion criteria through planning, implementation and handoff instructions. Preserve native provider task ownership.
+- Gate manual controls and client mutations on daemon capability; older installations retain their native checklist display.
+
+### Maintenance
+
+- Cover durable writes, lifecycle restoration, tool scope, live RPC updates and desktop and phone manual controls. Verify workspace completion across unopened threads and reloads. Updated daemon and interface installation remains required.
+
+## 0.11.0-beta.3.vorteo.195 - 2026-10-08
+
+### Fixed
+
+- Route Dev supervisor repairs through visible, cancellable installation requests with exact-plan approval and verified replacement readiness. Keep ordinary worker restarts separate and refuse guest maintenance requests.
+- Exclude inactive archived history from restart preparation while preserving active work, unknown failures and interruption safeguards.
+
+### Maintenance
+
+- Cover approval binding, cancellation, legacy clients, changed scripts and interrupted dispatch. Document protected Host preparation and the managed supervisor repair workflow.
+
+## 0.11.0-beta.3.vorteo.195 - 2026-10-08
+
+### Added
+
+- Bundle Factory project status, read-only setup observations and a client overview with exact host and project identity checks.
+- Add native Factory membership protection, durable installation checkpoints and a retained-owner installation adapter that preserves reconciliation holds after partial effects.
+- Add guarded workspace and retained-agent recovery boundaries and native account-contract observation without another sampler or scheduler.
+
+### Fixed
+
+- Enforce explicit prerelease plugin requirements while preserving ordinary stable-range matching.
+- Preserve reviewed server contract compilation and generated asset copying in the standard build.
+- Keep compact issue details clear of delivery rows and retain failed setup observations with explicit warnings.
+
+### Maintenance
+
+- Preserve current main preview identity, launcher binding and visible coordinator controls alongside reviewed Factory source.
+- Keep installation, controller adoption, execution admission and authenticated client acceptance separate. Loading source does not start another controller or authorize recovery.
+
+## 0.11.0-beta.3.vorteo.194 - 2026-10-08
+
+### Maintenance
+
+- Require coordinator-tracked, visible and cancellable workflows for all Host and Dev daemon holds, restarts and supervisor maintenance. Prohibit direct lifecycle RPCs and shell restart bypasses even when chat approval exists.
+- Require unsupported maintenance operations to be implemented in the managed workflow before draining or interrupting tasks.
+
+## 0.11.0-beta.3.vorteo.193 - 2026-10-08
+
+### Fixed
+
+- Refuse Dev updater bootstrap when the managed supervisor or worker lacks the installation-owned profile client binding. Explain the required launcher repair and reviewed supervisor restart.
+
+### Maintenance
+
+- Cover missing and mismatched profile client paths and document acceptance of the inherited launcher environment.
+
+## 0.11.0-beta.3.vorteo.192 - 2026-10-08
+
+### Fixed
+
+- Prepare Host updates by transferring only the approved source commit into a fresh repository. Avoid local clone object-copy races and unrelated branch references while preserving bundle and ancestry checks.
+
+### Maintenance
+
+- Verify that native build preparation retains no unrelated refs or shared object-store dependency and leaves the live interface unchanged.
+
 ## 0.11.0-beta.3.vorteo.192 - 2026-10-08
 
 ### Maintenance
 
 - Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.191 - 2026-10-08
+
+### Fixed
+
+- Recognize managed Dev workers during preview recovery without changing their process arguments. Verify the selected release, executable, supervisor, ownership and stable process identity.
+
+### Maintenance
+
+- Add regression coverage for managed and legacy worker identity, release changes, ambiguous matches and PID reuse.
 
 ## 0.11.0-beta.3.vorteo.191 - 2026-10-08
 
@@ -23,6 +172,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Build Dev updates through the existing server and CLI build chain instead of calling a nonexistent script.
 - Preserve managed worker process arguments and verify the pinned Node executable so installation can confirm the running release after startup.
+
+## 0.11.0-beta.3.vorteo.190 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.189 - 2026-10-08
 
@@ -41,6 +196,16 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Cover target isolation, authorization, release selection, failed builds, activation checks, retained rollback releases and client compatibility. Existing installations still require bootstrap and live acceptance; coordinator and supervisor replacement remain Host maintenance operations.
 
+## 0.11.0-beta.3.vorteo.189 - 2026-10-08
+
+### Fixed
+
+- Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
+
+### Maintenance
+
+- Integrate the restart escalation interface with the installed release, preserving restart recovery and source-update behavior.
+
 ## 0.11.0-beta.3.vorteo.188 - 2026-10-08
 
 ### Added
@@ -56,33 +221,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Cover aggregation, native task persistence, client cache recovery and browser reload behavior. Older threads populate snapshots when their history loads or a provider updates its checklist.
 
-## 0.11.0-beta.3.vorteo.187 - 2026-10-08
-
-### Fixed
-
-- Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
-
-## 0.11.0-beta.3.vorteo.190 - 2026-10-08
-
-### Maintenance
-
-- Combine 1 source contributions; retain their release notes below
-
-## 0.11.0-beta.3.vorteo.189 - 2026-10-08
-
-### Fixed
-
-- Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
-
-### Maintenance
-
-- Integrate the restart escalation interface with the installed release, preserving restart recovery and source-update behavior.
-
 ## 0.11.0-beta.3.vorteo.188 - 2026-10-08
 
 ### Maintenance
 
 - Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.187 - 2026-10-08
+
+### Fixed
+
+- Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
 
 ## 0.11.0-beta.3.vorteo.187 - 2026-10-07
 
@@ -420,12 +569,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Keep moved worker workspaces in their chosen project so automatic sidebar grouping does not hide the destination
 
-## 0.11.0-beta.3.vorteo.151 - 2026-10-06
-
-### Fixed
-
-- Keep empty projects visible through sidebar refreshes on daemons without a separate project list
-
 ## 0.11.0-beta.3.vorteo.152 - 2026-10-07
 
 ### Changed
@@ -438,6 +581,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Preserve drafts on connection and attachment-transfer failures when starting a task in another environment
 - Route conversation loading and task actions to the task's environment after reload
+
+## 0.11.0-beta.3.vorteo.151 - 2026-10-06
+
+### Fixed
+
+- Keep empty projects visible through sidebar refreshes on daemons without a separate project list
 
 ## 0.11.0-beta.3.vorteo.150 - 2026-10-06
 
@@ -742,61 +891,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Continued Vorteo numbering across upstream Paseo updates, accounting for 99 prior version increments
 - Interleaved Vorteo and Paseo release notes by date with source labels and one Show more control
 
-## 0.11.0-beta.3.vorteo.17 - 2026-10-05
-
-### Fixed
-
-- Added a prominent Download button when a binary file cannot be previewed in Vorteo mode
-
-## 0.11.0-beta.3.vorteo.14 - 2026-10-05
-
-### Changed
-
-- Tightened sidebar Search corners, added space before History, and aligned the settings Back outline button with Search
-- Kept History and Schedules visible, removed Usage from the sidebar, and removed Sidebar preferences in Vorteo mode
-
-## 0.11.0-beta.3.vorteo.13 - 2026-10-05
-
-### Fixed
-
-- Keep draft accounts and workflows together when reopening or restoring a task. Wait for account selection to load before applying its default workflow.
-- Unified spacing between question, approval, subagent, task, queue and goal cards above the message box
-
-## 0.11.0-beta.3.vorteo.10 - 2026-10-05
-
-### Fixed
-
-- Saved installation owner access reliably on Windows
-- Preserved Vorteo application naming in Darwin Nix desktop packages
-
-## 0.11.0-beta.3.vorteo.8 - 2026-10-05
-
-### Changed
-
-- Integrated the upstream update with the published browser tooling, workspace recreation and installation instructions
-- Documented plugin usage sources and pinned usage windows alongside Vorteo account controls
-
-### Added
-
-- Owner access that survives reloads for seven days per browser, with explicit locking and separate approval for every restart
-
-### Fixed
-
-- Revoked Hub execution authority before waiting for daemon shutdown tasks
-- Included custom release notes in Nix builds
-
-## 0.11.0-beta.3.vorteo.3 - 2026-10-04
-
-### Changed
-
-- Integrated Paseo's plugin registry, usage sources, provider updates and mobile improvements
-- Preserved Vorteo account, profile, goal, quota and installation workflows with the updated client and daemon
-
-### Fixed
-
-- Kept goal permission updates consistent with the selected workflow
-- Preserved account usage in context details for Vorteo hosts
-
 ## 0.9.0-beta.2.vorteo.45 - 2026-10-05
 
 ### Added
@@ -881,3 +975,58 @@ This baseline summarizes custom features and fixes present through this version,
 - Added compact account pickers and touch controls for phones and tablets
 - Added iOS Home Screen toolbar clearance below the system status-bar blur
 - Returned archived workspaces to the empty New workspace page
+
+## 0.11.0-beta.3.vorteo.17 - 2026-10-05
+
+### Fixed
+
+- Added a prominent Download button when a binary file cannot be previewed in Vorteo mode
+
+## 0.11.0-beta.3.vorteo.14 - 2026-10-05
+
+### Changed
+
+- Tightened sidebar Search corners, added space before History, and aligned the settings Back outline button with Search
+- Kept History and Schedules visible, removed Usage from the sidebar, and removed Sidebar preferences in Vorteo mode
+
+## 0.11.0-beta.3.vorteo.13 - 2026-10-05
+
+### Fixed
+
+- Keep draft accounts and workflows together when reopening or restoring a task. Wait for account selection to load before applying its default workflow.
+- Unified spacing between question, approval, subagent, task, queue and goal cards above the message box
+
+## 0.11.0-beta.3.vorteo.10 - 2026-10-05
+
+### Fixed
+
+- Saved installation owner access reliably on Windows
+- Preserved Vorteo application naming in Darwin Nix desktop packages
+
+## 0.11.0-beta.3.vorteo.8 - 2026-10-05
+
+### Changed
+
+- Integrated the upstream update with the published browser tooling, workspace recreation and installation instructions
+- Documented plugin usage sources and pinned usage windows alongside Vorteo account controls
+
+### Added
+
+- Owner access that survives reloads for seven days per browser, with explicit locking and separate approval for every restart
+
+### Fixed
+
+- Revoked Hub execution authority before waiting for daemon shutdown tasks
+- Included custom release notes in Nix builds
+
+## 0.11.0-beta.3.vorteo.3 - 2026-10-04
+
+### Changed
+
+- Integrated Paseo's plugin registry, usage sources, provider updates and mobile improvements
+- Preserved Vorteo account, profile, goal, quota and installation workflows with the updated client and daemon
+
+### Fixed
+
+- Kept goal permission updates consistent with the selected workflow
+- Preserved account usage in context details for Vorteo hosts

@@ -39,6 +39,16 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 
 ## Work outside the container
 
+### Required restart control path
+
+For authorized work, prepare and submit required restart or installation requests without asking permission in chat to create them. Present the exact request's review link and a short description of the target and interruption. The owner's click on the matching approval button in Installation controls is the approval; do not require a verbal reply before or after it. Observe the recorded decision and continue automatically when approved. Never click approval buttons on the owner's behalf. A changed source, plan or request revision requires its own button approval.
+
+This rule also applies to coordinator maintenance. If the installed system cannot represent an operation with a visible request and approval button, report that specific capability gap and prepare the missing managed workflow. Do not substitute chat approval, a plain daemon request or an untracked service operation. Instruction changes do not themselves add coordinator reload support.
+
+Every Host or Dev daemon restart, supervisor replacement, and preparatory finish-turns hold must use the installation coordinator's tracked lifecycle workflow. The request must be visible in the sidebar and installation controls, with live status and owner cancellation before dispatch. Chat approval does not authorize bypassing these controls.
+
+Never call daemon drain/restart RPCs directly or use launchctl, supervisorctl, Docker restart, kill, or a private polling loop to perform or manage a Host/Dev daemon restart outside that workflow. Do not create an invisible hold while waiting for agents to finish. If the coordinator cannot represent the required operation, extend and validate the managed workflow before placing a hold or interrupting anything. Supervisor maintenance is not an exception. Report the unsupported operation explicitly; do not substitute a worker restart or fabricate a coordinator receipt.
+
 - Before handing host work back to the owner, inspect the available skills, tools and installed clients for a supported operation. Use them within the task's authorization. Being in the container or lacking a host shell does not by itself require a continuity prompt.
 - For Host or Dev daemon restart requests and status queries, read the installed `installation-maintenance` skill and use its scoped client. Use `request-restart` only after preparation and validation, return the exact request's approval link, and use `restart-status` to inspect an existing request. Do not substitute a host continuity prompt for these supported operations. The owner still approves the exact restart; the client cannot approve it or grant host-shell access. See [restart routing](docs/host-handoff.md#use-supported-operations-first).
 - For source deployment, inspect the maintenance client's `capabilities` and use `request-restart --target host|container-daemon --update` for each affected target. Host installs its daemon and shared interface; Dev installs its daemon in the existing container. Complete validation before submitting, retain contribution receipts, and wait for exact owner approval. Only a missing capability or concrete policy failure justifies handing routine deployment back to Host.

@@ -5,6 +5,13 @@ import type { QuotaScheduleExecution } from "./quota-preflight.js";
 import { isAbsolute } from "node:path";
 import { lstat, realpath } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import type { NativeFactoryObservationProvider } from "../factory/observation-service.js";
+import type { attachFactoryControllerObservation } from "../factory/attach-controller-observation.js";
+import type { createFactoryControllerObservationSource } from "../factory/create-controller-observation-source.js";
+import type { createNativeFactoryInstallStartup } from "../factory/native-install-startup.js";
+import type { NativeFactoryInstallAdapter } from "../factory/native-install-adapter.js";
+
+import type { createFactoryCoordinatorBinder } from "../factory/create-coordinator-binder.js";
 
 export interface GovernedScheduleRuntimeContext {
   hostId: string;
@@ -12,10 +19,23 @@ export interface GovernedScheduleRuntimeContext {
   store: QuotaGovernorStore;
   readObservation(providerId: string): Promise<QuotaObservation>;
   captureClient(providerId: string): CapturedQuotaExecutionClient;
+  /** Explicit adoption operation, never invoked merely by loading a runtime. */
+  factoryCoordinators?: { bind: ReturnType<typeof createFactoryCoordinatorBinder> };
+  /** Optional native startup APIs. Never passed to workers or through plugin RPC. */
+  factoryObservation?: {
+    createSource: typeof createFactoryControllerObservationSource;
+    attach: typeof attachFactoryControllerObservation;
+  };
+  /** Constructor only. Caller supplies the same retained owner and explicit reconciliation permit. */
+  factoryInstallation?: { create: ReturnType<typeof createNativeFactoryInstallStartup> };
 }
 
 /** Trusted host integration only. No runtime factory or callback enters worker RPC configuration. */
 export interface GovernedScheduleRuntime extends QuotaScheduleExecution {
+  /** Optional read-only projection from this same retained controller owner. */
+  factoryObservation?: NativeFactoryObservationProvider;
+  /** Native adapter from this runtime's startup context; never created by plugin reload or RPC. */
+  factoryInstallation?: NativeFactoryInstallAdapter;
   /** Bind authentication and persist estimated accounting before preflight admission. */
   readObservation(providerId: string): Promise<QuotaObservation>;
   /** Revoke synchronously, then settle captured work or reject with retained recovery custody. */

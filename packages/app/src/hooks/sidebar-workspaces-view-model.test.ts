@@ -1,4 +1,8 @@
-import { splitStandingWorkspaces } from "@/workspace/lifecycle/grouping";
+import {
+  splitStandingWorkspaces,
+  splitFactoryWorkspaces,
+  factoryOverviewTargets,
+} from "@/workspace/lifecycle/grouping";
 import { describe, expect, it } from "vitest";
 import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceStructureProject } from "@/projects/workspace-structure";
@@ -1351,6 +1355,57 @@ it("keeps standing work separate without inferring Standing from protection or t
   });
 });
 
+it("places exact native Factory members once before Standing when the host supports membership", () => {
+  const base = workspaceWithForge(undefined, "https://github.com/acme/repo/pull/42");
+  const member = createSidebarWorkspaceEntry({
+    serverId: "one",
+    workspace: {
+      ...base,
+      standing: true,
+      factoryMembership: {
+        installationId: "installation",
+        projectId: base.projectId,
+        serverId: "one",
+        role: "factory",
+      },
+    },
+  });
+  const entries = new Map([[member.workspaceKey, member]]);
+  expect(splitFactoryWorkspaces([member], entries, new Map([["one", true]]))).toEqual({
+    factory: [member],
+    standing: [],
+    work: [],
+  });
+  expect(splitFactoryWorkspaces([member], entries, new Map())).toEqual({
+    factory: [],
+    standing: [member],
+    work: [],
+  });
+});
+
+it("rejects Factory placement for a relationship from another host or project", () => {
+  const base = workspaceWithForge(undefined, "https://github.com/acme/repo/pull/42");
+  for (const identity of [
+    { serverId: "other", projectId: base.projectId },
+    { serverId: "one", projectId: "other" },
+  ]) {
+    const member = createSidebarWorkspaceEntry({
+      serverId: "one",
+      workspace: {
+        ...base,
+        standing: true,
+        factoryMembership: { installationId: "installation", ...identity, role: "worker" },
+      },
+    });
+    const entries = new Map([[member.workspaceKey, member]]);
+    expect(splitFactoryWorkspaces([member], entries, new Map([["one", true]]))).toEqual({
+      factory: [],
+      standing: [member],
+      work: [],
+    });
+  }
+});
+
 it("updates retained PR rows when merging starts and stops without a daemon update", () => {
   const descriptor = workspaceWithForge("github", "https://github.com/acme/repo/pull/42");
   const initial = createSidebarWorkspaceEntry({ serverId: "srv", workspace: descriptor });
@@ -1377,4 +1432,53 @@ it("updates retained PR rows when merging starts and stops without a daemon upda
   expect(finished.get(initial.workspaceKey)).not.toBe(merging.get(initial.workspaceKey));
   const unchanged = buildSidebarWorkspaceEntries({ ...input, previousEntries: finished });
   expect(unchanged.get(initial.workspaceKey)).toBe(finished.get(initial.workspaceKey));
+});
+
+it("deduplicates Factory overview routes while retaining exact host/project identity", () => {
+  const base = workspaceWithForge(undefined, "https://github.com/acme/repo/pull/42");
+  const members = ["one", "one", "two"].map((serverId, index) =>
+    createSidebarWorkspaceEntry({
+      serverId,
+      workspace: {
+        ...base,
+        id: `member-${index}`,
+        factoryMembership: {
+          installationId: "installation",
+          serverId,
+          projectId: base.projectId,
+          role: index === 0 ? "factory" : "builds",
+        },
+      },
+    }),
+  );
+  const entries = new Map(members.map((member) => [member.workspaceKey, member]));
+  expect(factoryOverviewTargets(members, entries, new Set(["one", "two"]))).toEqual([
+    { installationId: "installation", serverId: "one", projectId: base.projectId },
+    { installationId: "installation", serverId: "two", projectId: base.projectId },
+  ]);
+  expect(
+    factoryOverviewTargets(members, entries, new Set(["two"])).map((target) => target.serverId),
+  ).toEqual(["two"]);
+});
+
+it("suppresses ambiguous installations and unavailable Factory overview surfaces", () => {
+  const base = workspaceWithForge(undefined, "https://github.com/acme/repo/pull/42");
+  const members = ["first", "second"].map((installationId, index) =>
+    createSidebarWorkspaceEntry({
+      serverId: "one",
+      workspace: {
+        ...base,
+        id: `member-${index}`,
+        factoryMembership: {
+          installationId,
+          serverId: "one",
+          projectId: base.projectId,
+          role: "worker",
+        },
+      },
+    }),
+  );
+  const entries = new Map(members.map((member) => [member.workspaceKey, member]));
+  expect(factoryOverviewTargets(members, entries, new Set(["one"]))).toEqual([]);
+  expect(factoryOverviewTargets([members[0]!], entries, new Set())).toEqual([]);
 });

@@ -9,7 +9,7 @@ import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { createInstallationRestartExecutor, validateHostStartup } from "./daemon.js";
 import type { InstallationConfig } from "./config.js";
 import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
-import { InstallationRestarts, type RestartJournal } from "./restarts.js";
+import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
 
 class MemoryJournal implements RestartJournal {
   jobs: RestartJob[] = [];
@@ -1362,4 +1362,368 @@ test("Host and Dev contributions have separate batches and exact target approval
   await queue.drain();
   expect(installs).toEqual(["container-daemon"]);
   expect(queue.contribution(host.contribution.id)!.batch.status).toBe("pending");
+});
+
+test("supervisor maintenance requires exact review and stays visible and cancellable", async () => {
+  const sha = "a".repeat(64);
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    supervisorPlan: () => sha,
+    restartSupervisor: async () => {
+      calls.push("supervisor");
+      return "ready";
+    },
+    restart: async () => {
+      calls.push("worker");
+      return "wrong";
+    },
+    restartWhenIdle: async () => "wrong",
+    holdCurrentTurns: async () => {
+      calls.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      calls.push("release");
+    },
+    inspect: async () => ({
+      target: "container-daemon",
+      checkedAt: new Date().toISOString(),
+      agents: [{ id: "busy", title: "Busy", status: "running" }],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      gracefulRestartSupported: true,
+      error: null,
+    }),
+  });
+  const request = queue.request(
+    { target: "container-daemon", reason: "Repair launcher", supervisorPlanSha256: sha },
+    "host-agent",
+  );
+  expect(queue.list()[0]?.status).toBe("pending");
+  await queue.drain();
+  expect(calls).toEqual([]);
+  expect(() => queue.decide(request.id, request.revision, "finish-current-turns")).toThrow(
+    "exact supervisor",
+  );
+  expect(() =>
+    queue.decide(request.id, request.revision, "approve-when-idle", undefined, sha),
+  ).toThrow("Finish turns");
+  expect(() =>
+    queue.request({ target: "container-daemon", reason: "Worker" }, "host-agent"),
+  ).toThrow("different");
+  const approved = queue.decide(
+    request.id,
+    request.revision,
+    "finish-current-turns",
+    undefined,
+    sha,
+  );
+  await queue.drain();
+  expect(calls).toEqual(["hold"]);
+  expect(queue.list()[0]?.status).toBe("approved");
+  queue.decide(approved.id, approved.revision, "cancel");
+  await queue.drain();
+  expect(calls).toEqual(["hold", "release"]);
+  expect(queue.list()[0]?.status).toBe("rejected");
+});
+
+test("supervisor requests reject guest submission and changed plans before dispatch", async () => {
+  let sha = "a".repeat(64);
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    supervisorPlan: () => sha,
+    restartSupervisor: async () => {
+      calls.push("supervisor");
+      return "ready";
+    },
+    restart: async () => "worker",
+  });
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Repair launcher",
+    supervisorPlanSha256: sha,
+  };
+  expect(() => queue.request(input, "container-agent")).toThrow("Host");
+  const job = queue.request(input, "host-agent");
+  queue.decide(job.id, job.revision, "approve", undefined, sha);
+  sha = "b".repeat(64);
+  await queue.drain();
+  expect(calls).toEqual([]);
+  expect(queue.list()[0]?.status).toBe("failed");
+});
+
+test("supervisor maintenance dispatches once after held turns finish and never replays an interrupted dispatch", async () => {
+  const sha = "a".repeat(64);
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  let busy = true;
+  const executor: RestartExecutor = {
+    supervisorPlan: () => sha,
+    restartSupervisor: async () => {
+      calls.push("supervisor");
+      return "Supervisor ready";
+    },
+    restart: async () => {
+      throw new Error("Worker restart cannot execute supervisor maintenance");
+    },
+    restartWhenIdle: async () => {
+      throw new Error("Worker restart cannot execute supervisor maintenance");
+    },
+    holdCurrentTurns: async () => {
+      calls.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      calls.push("release");
+    },
+    inspect: async () => ({
+      target: "container-daemon",
+      checkedAt: new Date().toISOString(),
+      agents: busy ? [{ id: "active", title: "Active", status: "running" }] : [],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      gracefulRestartSupported: true,
+      error: null,
+    }),
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const job = queue.request(
+    { target: "container-daemon", reason: "Repair launcher", supervisorPlanSha256: sha },
+    "host-agent",
+  );
+  queue.decide(job.id, job.revision, "finish-current-turns", undefined, sha);
+  await queue.drain();
+  expect(calls).toEqual(["hold"]);
+  busy = false;
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  expect(calls.filter((call) => call === "supervisor")).toHaveLength(1);
+  await new InstallationRestarts(journal, executor).drain();
+  expect(calls.filter((call) => call === "supervisor")).toHaveLength(1);
+  const interrupted = queue.list();
+  for (const entry of interrupted) entry.status = "running";
+  journal.write(interrupted);
+  const recovered = new InstallationRestarts(journal, executor);
+  await recovered.drain();
+  expect(recovered.list()[0]?.status).toBe("failed");
+  expect(calls.filter((call) => call === "supervisor")).toHaveLength(1);
+});
+
+test("supervisor repair preserves a pending source batch and serializes both approvals", async () => {
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 1,
+  };
+  const sha = "d".repeat(64);
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    supervisorPlan: () => sha,
+    restartSupervisor: async () => "repaired",
+    restart: async () => "plain",
+    supportsUpdate: () => true,
+    installUpdate: async () => "installed",
+    sourceBase: () => update.baseCommit,
+    prepareUpdate: async (contributions) => ({ batch: { status: "ready", contributions }, update }),
+  });
+  const receipt = queue.contribute(
+    { target: "container-daemon", reason: "Retain another task" },
+    "container-agent",
+    update,
+    crypto.randomUUID(),
+  );
+  await queue.prepareBatches();
+  const batch = queue.contribution(receipt.contribution.id)!.batch;
+  const job = queue.request(
+    { target: "container-daemon", reason: "Repair launcher", supervisorPlanSha256: sha },
+    "host-agent",
+  );
+  expect(job.id).not.toBe(batch.id);
+  expect(queue.contribution(receipt.contribution.id)!.batch).toEqual(batch);
+  queue.decide(job.id, job.revision, "approve", undefined, sha);
+  expect(() => queue.decide(batch.id, batch.revision, "approve", update.sha256)).toThrow(
+    "earlier request",
+  );
+  await queue.drain();
+  expect(queue.contribution(receipt.contribution.id)!.batch.status).toBe("pending");
+  expect(queue.list().find((entry) => entry.id === job.id)?.status).toBe("succeeded");
+});
+
+test("release notes preserve interleaved history and reject edits or missing duplicates", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const old = "## 0.11.0-beta.3.vorteo.177 - 2026-10-07\n\n- Existing note";
+  const older = "## 0.11.0-beta.3.vorteo.176 - 2026-10-07\n\n- Earlier note";
+  const added = "## 0.11.0-beta.3.vorteo.178 - 2026-10-07\n\n- New note";
+  const other = "## 0.11.0-beta.3.vorteo.178 - 2026-10-07\n\n- Concurrent note";
+  const base = `${prefix}${old}\n\n${older}\n`;
+  const accepted = `${prefix}${old}\n\n${added}\n\n${older}\n`;
+  const incoming = `${prefix}${other}\n\n${old}\n\n${older}\n`;
+  const result = reconcileReleaseNotes(base, accepted, incoming);
+  expect(result).toBe(`${prefix}${other}\n\n${accepted.slice(prefix.length)}`);
+  expect(reconcileReleaseNotes(base, result, incoming)).toBe(result);
+  expect(reconcileReleaseNotes(base.replace(prefix, prefix + "\n"), accepted, incoming)).toBe(
+    result,
+  );
+  expect(() =>
+    reconcileReleaseNotes(base, accepted, incoming.replace("Existing note", "Edited")),
+  ).toThrow("Existing release notes were edited");
+  expect(() => reconcileReleaseNotes(base, accepted, `${prefix}${old}\n`)).toThrow(
+    "Existing release notes were edited",
+  );
+  const duplicate = `${prefix}${old}\n\n${old}\n`;
+  expect(() => reconcileReleaseNotes(duplicate, duplicate, `${prefix}${old}\n`)).toThrow(
+    "Existing release notes were edited",
+  );
+  expect(() =>
+    reconcileReleaseNotes(base, accepted, incoming.replace("# Vorteo changelog", "# Changed")),
+  ).toThrow("introduction changed");
+});
+
+test("coordinator recovery revalidates pending conflicts without approving or installing", async () => {
+  const journal = new MemoryJournal();
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 1,
+  };
+  const contribution = {
+    id: crypto.randomUUID(),
+    update,
+    reason: "Feature",
+    requestedBy: "container-agent" as const,
+    createdAt: new Date().toISOString(),
+    status: "invalid" as const,
+    detail: "Existing release notes were edited; resolve explicitly",
+  };
+  journal.jobs = [
+    {
+      id: crypto.randomUUID(),
+      revision: crypto.randomUUID(),
+      target: "host",
+      requestedBy: "container-agent",
+      reason: "Feature",
+      createdAt: contribution.createdAt,
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "pending",
+      detail: "Needs correction",
+      sourceBatch: { status: "conflict", contributions: [contribution] },
+    },
+  ];
+  const previous = structuredClone(journal.jobs[0]!);
+  let preparations = 0;
+  let installations = 0;
+  const queue = new InstallationRestarts(journal, {
+    restart: async () => {
+      installations++;
+      return "unexpected";
+    },
+    sourceBase: () => update.baseCommit,
+    sourceWeb: () => update.baseCommit,
+    prepareUpdate: async (contributions) => {
+      preparations++;
+      return {
+        batch: {
+          status: "ready",
+          webCommit: update.baseCommit,
+          contributions: contributions.map((item) => ({
+            ...item,
+            status: "included",
+            detail: "Included",
+          })),
+        },
+        update,
+      };
+    },
+  });
+  expect(queue.list()[0]?.revision).not.toBe(previous.revision);
+  await queue.prepareBatches();
+  await queue.prepareBatches();
+  expect(preparations).toBe(1);
+  expect(installations).toBe(0);
+  expect(queue.list()[0]).toMatchObject({
+    id: previous.id,
+    status: "pending",
+    sourceBatch: { status: "ready", contributions: [{ id: contribution.id, update }] },
+  });
+  expect(() => queue.decide(previous.id, previous.revision, "approve")).toThrow("changed");
+});
+
+test("source batching uses shared ancestry instead of replaying the bundle prerequisite", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { prepareSourceBatch } = await import("./source-batches.js");
+  const root = await mkdtemp(path.join(tmpdir(), "batch-ancestry-"));
+  const repository = path.join(root, "repository");
+  const directory = path.join(root, "bundles");
+  await mkdir(repository);
+  await mkdir(directory);
+  const git = (...args: string[]) =>
+    execFileSync("git", args, {
+      cwd: repository,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@localhost",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@localhost",
+      },
+    }).trim();
+  try {
+    git("init", "--initial-branch=integration");
+    await writeFile(path.join(repository, "feature.txt"), "original\n");
+    git("add", ".");
+    git("commit", "-m", "installed prerequisite");
+    const baseCommit = git("rev-parse", "HEAD");
+    await writeFile(path.join(repository, "feature.txt"), "shared implementation\n");
+    git("commit", "-am", "shared feature");
+    const common = git("rev-parse", "HEAD");
+    await writeFile(path.join(repository, "feature.txt"), "accepted refinement\n");
+    git("commit", "-am", "live refinement");
+    const webCommit = git("rev-parse", "HEAD");
+    git("checkout", "-B", "integration", common);
+    await writeFile(path.join(repository, "new.txt"), "new feature\n");
+    git("add", ".");
+    git("commit", "-m", "parallel feature");
+    const sourceCommit = git("rev-parse", "HEAD");
+    const bundleFile = path.join(root, "incoming.bundle");
+    git("bundle", "create", bundleFile, `${baseCommit}..refs/heads/integration`);
+    const bundle = await readFile(bundleFile);
+    const sha256 = createHash("sha256").update(bundle).digest("hex");
+    await writeFile(path.join(directory, `${sha256}.bundle`), bundle);
+    let combined: Buffer | undefined;
+    const result = await prepareSourceBatch({
+      repository,
+      directory,
+      integrationRef: "refs/heads/integration",
+      baseCommit,
+      webCommit,
+      contributions: [
+        {
+          id: crypto.randomUUID(),
+          requestedBy: "container-agent",
+          createdAt: new Date().toISOString(),
+          reason: "Parallel feature",
+          status: "queued",
+          detail: "",
+          update: { sourceCommit, baseCommit, sha256, bytes: bundle.length },
+        },
+      ],
+      stage: (_update, bytes) => {
+        combined = bytes;
+      },
+    });
+    expect(result.batch.status, JSON.stringify(result.batch)).toBe("ready");
+    const output = path.join(root, "combined.bundle");
+    await writeFile(output, combined!);
+    git("fetch", output, "refs/heads/integration:refs/heads/combined");
+    expect(git("show", "combined:feature.txt")).toBe("accepted refinement");
+    expect(git("show", "combined:new.txt")).toBe("new feature");
+    git("merge-base", "--is-ancestor", webCommit, "combined");
+    git("merge-base", "--is-ancestor", sourceCommit, "combined");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -17,13 +17,13 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 ## Power Tools to Manage Your Fleet
 
-- **Track a build across threads.** Each thread keeps its native checklist below the conversation. The workspace donut combines completed items across its active threads, and planning instructions carry accepted checklist items into implementation. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
+- **Track a build across threads.** Each thread keeps its checklist below the conversation. The workspace donut combines completed items across its active threads, and planning instructions carry accepted checklist items into implementation. Updated daemons and clients also support agent tools and manual editing with dependencies and completion criteria. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
 
 - **Cross-device, server-managed message queuing.** Line up your task messages with files or images - then edit, reorder, pause, and send them from any connected device. The daemon in each environment will continue executing queued work even if your client is offline.
 
 <img width="400" alt="Server managed cross-device message queuing." src="https://github.com/user-attachments/assets/59dfdb03-e1ec-40d2-b66e-9683134e3811" />
 
-- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed; source installation requires separate approval. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
+- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed; source installation requires separate approval. Host-prepared Dev supervisor repairs use the same visible review and cancellation controls. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
 
 <img width="400" alt="Queued daemon upgrades" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
 
@@ -36,6 +36,8 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 - **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene.
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
+
+- **Factory project status and setup.** Inspect native project observations and setup availability in the Factory screen. Initial installation checks the selected host, project and visible revision, sends one correlated request, and holds uncertain outcomes for reconciliation. It requires a reconciled native owner; lifecycle actions remain unavailable. See [Factory](docs/factory.md).
 
 - **Enclaves for streamlined factory operations.** Workspaces with schedules or archive protection appear in Standing. Paused schedules keep their workspace there and show Paused. Protection and non-ended schedules both block archival until you remove them. Manage workspace schedules and custom labels from Tag As. Sidebar badges share compact padding with room above and below their text, and fade beneath the overlaid workspace menu using the current row background.
 

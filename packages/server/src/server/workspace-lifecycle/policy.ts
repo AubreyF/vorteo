@@ -19,9 +19,42 @@ export class WorkspaceProtectedError extends Error {
   }
 }
 
-export function assertWorkspaceUnprotected(
-  workspace: Pick<PersistedWorkspaceRecord, "workspaceId" | "protected">,
+export class WorkspaceFactoryManagedError extends Error {
+  constructor(readonly workspaceId: string) {
+    super("This workspace belongs to Factory. Use reconciled Factory cleanup or owner disable.");
+    this.name = "WorkspaceFactoryManagedError";
+  }
+}
+
+export function assertWorkspaceNotFactoryManaged(
+  workspace: Pick<PersistedWorkspaceRecord, "workspaceId" | "factoryMembership">,
 ): void {
+  if (workspace.factoryMembership) throw new WorkspaceFactoryManagedError(workspace.workspaceId);
+}
+
+export function factoryMembershipForDescriptor({
+  workspace,
+  serverId,
+}: {
+  workspace: Pick<PersistedWorkspaceRecord, "projectId" | "factoryMembership">;
+  serverId: string | undefined;
+}): Pick<PersistedWorkspaceRecord, "factoryMembership"> {
+  const membership = workspace.factoryMembership;
+  if (
+    !membership ||
+    membership.serverId !== serverId ||
+    membership.projectId !== workspace.projectId
+  ) {
+    return {};
+  }
+  return { factoryMembership: membership };
+}
+
+export function assertWorkspaceUnprotected(
+  workspace: Pick<PersistedWorkspaceRecord, "workspaceId" | "protected" | "factoryMembership">,
+): void {
+  // Even an invalid retained binding blocks destruction until native reconciliation.
+  assertWorkspaceNotFactoryManaged(workspace);
   if (workspace.protected) throw new WorkspaceProtectedError(workspace.workspaceId);
 }
 

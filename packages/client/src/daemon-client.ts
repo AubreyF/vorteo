@@ -17,7 +17,7 @@ import {
   type TimelineSubscription,
 } from "./connection/index.js";
 import { CreationClient } from "./creation/index.js";
-import type { CreationSnapshot } from "@getpaseo/protocol/messages";
+import type { CreationSnapshot, WorkspaceRecoveryGuard } from "@getpaseo/protocol/messages";
 import type {
   ProjectDirectoryBrowseRequest,
   ProjectDirectoryBrowsePayload,
@@ -3190,13 +3190,26 @@ export class DaemonClient {
     return payload.state;
   }
 
-  async restoreWorkspace(workspaceId: string, requestId?: string): Promise<void> {
+  async restoreWorkspace(
+    workspaceId: string,
+    requestId?: string,
+    guard?: WorkspaceRecoveryGuard,
+  ): Promise<void> {
+    if (guard) {
+      const info = this.getLastServerInfoMessage();
+      // Old hosts can strip unknown request fields. Never send a guard to one.
+      if (info?.features?.workspaceRecoveryGuard !== true)
+        throw new Error("Update the host before using guarded workspace recovery.");
+      if (info.serverId !== guard.serverId)
+        throw new Error("Workspace recovery host identity changed.");
+    }
     const payload =
       await this.sendNamespacedCorrelatedSessionRequest<"workspace.recovery.restore.response">({
         requestId,
         message: {
           type: "workspace.recovery.restore.request",
           workspaceId,
+          ...(guard ? { guard } : {}),
         },
         timeout: 150_000,
       });
@@ -3703,6 +3716,38 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest<"agent.queue.subscribe.response">({
       message: { type: "agent.queue.subscribe.request", ...input },
     });
+  }
+
+  async getAgentChecklist(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-types").AgentTaskItem[]> {
+    this.assertChecklistSupport();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.checklist.get.response">({
+        message: { type: "agent.checklist.get.request", agentId },
+      });
+    if (result.error || !result.tasks) throw new Error(result.error ?? "Checklist unavailable");
+    return result.tasks;
+  }
+
+  async mutateAgentChecklist(
+    agentId: string,
+    mutation: import("@getpaseo/protocol/task-checklist").ChecklistMutation,
+  ): Promise<import("@getpaseo/protocol/agent-types").AgentTaskItem[]> {
+    this.assertChecklistSupport();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.checklist.mutate.response">({
+        message: { type: "agent.checklist.mutate.request", agentId, mutation },
+      });
+    if (result.error || !result.tasks)
+      throw new Error(result.error ?? "Checklist update unconfirmed");
+    return result.tasks;
+  }
+
+  private assertChecklistSupport(): void {
+    if (this.lastServerInfoMessage?.features?.agentChecklistMutations !== true) {
+      throw new Error("Update the daemon before editing thread checklists.");
+    }
   }
 
   async getAgentGoal(
