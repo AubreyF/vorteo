@@ -231,22 +231,7 @@ export async function verifyBootstrapPlan(
     configurationFile: host.configurationFile,
     reader,
   });
-  const recovered = assertRecoveredBootstrapBase(
-    plan,
-    new FileBootstrapRequestJournal(initial.stateDirectory).read(),
-  );
-  if (recovered) {
-    const recordPath = path.join(
-      initial.stateDirectory,
-      `coordinator-executor-${plan.recoveredFrom!.generation}.json`,
-    );
-    const record = BootstrapExecutorRecordSchema.parse(
-      readPrivateBootstrapConfiguration(recordPath, process.getuid!()),
-    );
-    if (record.id !== recovered.id || record.generation !== plan.recoveredFrom!.generation)
-      throw new BootstrapRequestConflict("Previous updater record changed");
-    await reader.verifyProcessExited(record.pid);
-  }
+  await verifyRecoveredBootstrapExit(plan, roots, reader);
   // Async collection is not a lock. Reject changed evidence before admitting the
   // request, and repeat this entire check under the dispatch fence before acting.
   const finalRoots = await inspectBootstrapWritableMountRoots(host);
@@ -266,8 +251,68 @@ export async function verifyBootstrapPlan(
     configurationFile: host.configurationFile,
     reader,
   });
+  await verifyRecoveredBootstrapExit(plan, finalRoots, reader);
   if (!isDeepStrictEqual(initial, readBootstrapHostBinding(host.configurationFile, host.daemonId)))
     throw new BootstrapRequestConflict("Bootstrap Host binding changed during verification");
+}
+
+/** A claimed updater may be fenced before it writes the legacy executor record.
+ * Missing legacy evidence is accepted only through the protected terminal claimed
+ * recovery chain and independent absence proofs for both involved processes. */
+async function verifyRecoveredBootstrapExit(
+  plan: CoordinatorBootstrapPlan,
+  roots: readonly string[],
+  reader: { verifyProcessExited?(pid: number): Promise<void> },
+): Promise<void> {
+  const records = new FileBootstrapRequestJournal(plan.state.directory).read();
+  const recovered = assertRecoveredBootstrapBase(plan, records);
+  if (!recovered) return;
+  const recordPath = path.join(
+    plan.state.directory,
+    `coordinator-executor-${plan.recoveredFrom!.generation}.json`,
+  );
+  let missing = false;
+  try {
+    lstatSync(recordPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    missing = true;
+  }
+  if (!missing) {
+    const record = BootstrapExecutorRecordSchema.parse(
+      readPrivateBootstrapConfiguration(recordPath, process.getuid!()),
+    );
+    if (record.id !== recovered.id || record.generation !== plan.recoveredFrom!.generation)
+      throw new BootstrapRequestConflict("Previous updater record changed");
+    if (!reader.verifyProcessExited)
+      throw new BootstrapRequestConflict("Native updater exit proof is unavailable");
+    await reader.verifyProcessExited(record.pid);
+    return;
+  }
+  const { readClaimedSuccessorEvidence, verifyClaimedSuccessorExit } =
+    await import("./coordinator-bootstrap-claimed-successor.js");
+  const successorExecutions = records
+    .slice(records.indexOf(recovered) + 1)
+    .filter((record) => record.execution);
+  if (
+    successorExecutions.length > 1 ||
+    successorExecutions.some((record) => !isDeepStrictEqual(record.plan, plan))
+  )
+    throw new BootstrapRequestConflict("Recovered coordinator has another successor execution");
+  // Dispatch may already have appended this successor's claim. Verify the exact
+  // retained predecessor prefix, while the request journal owns dispatch exclusion.
+  const evidence = await readClaimedSuccessorEvidence({
+    records: records.slice(0, records.indexOf(recovered) + 1),
+    identity: {
+      installationId: plan.installationId,
+      stateDirectory: plan.state.directory,
+      service: plan.service,
+    },
+    roots,
+  });
+  if (!evidence || !isDeepStrictEqual(evidence.recoveredFrom, plan.recoveredFrom))
+    throw new BootstrapRequestConflict("Exact terminal claimed recovery evidence is required");
+  await verifyClaimedSuccessorExit(evidence, reader);
 }
 
 /** Compare private values without returning them to the review transport. */

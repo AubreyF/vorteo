@@ -49,6 +49,7 @@ import {
 } from "./coordinator-bootstrap-service.js";
 
 import * as serviceCollector from "./coordinator-bootstrap-service.js";
+import * as claimedSuccessor from "./coordinator-bootstrap-claimed-successor.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
@@ -638,12 +639,70 @@ test.runIf(process.platform === "darwin")(
         executable: node,
       };
     });
+    const verifyProcessExited = vi.fn(async (_pid: number) => {});
     vi.spyOn(serviceCollector, "createNativeBootstrapServiceReader").mockResolvedValue({
       readService: async () => `${service} = {\n\tpid = 123\n}`,
       inspectProcess,
+      verifyProcessExited,
     });
     await expect(verifyBootstrapPlan(plan, host)).resolves.toBeUndefined();
     expect(inspectProcess).toHaveBeenCalledTimes(4);
+    // Claimed recovery can retire an updater before its legacy executor record
+    // exists. Exercise the actual full plan validator, not only renewal derivation.
+    const recovered = CoordinatorBootstrapRequestSchema.parse({
+      id: randomUUID(),
+      revision: randomUUID(),
+      requestedBy: "host-agent",
+      reason: "Retained claimed operation",
+      createdAt: new Date().toISOString(),
+      decisionAt: new Date().toISOString(),
+      plan,
+      planSha256: "b".repeat(64),
+      status: "approved",
+      execution: {
+        generation: randomUUID(),
+        stage: "recovery_required",
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    const recoveredFrom = {
+      id: recovered.id,
+      revision: recovered.revision,
+      generation: recovered.execution!.generation,
+      planSha256: recovered.planSha256,
+    };
+    const journalRead = vi
+      .spyOn(FileBootstrapRequestJournal.prototype, "read")
+      .mockReturnValue([recovered]);
+    const evidence = {
+      recoveredFrom,
+      request: { plan: { executor: { identity: { pid: 456 } } } },
+      executor: { pid: 789 },
+    } as unknown as NonNullable<
+      Awaited<ReturnType<typeof claimedSuccessor.readClaimedSuccessorEvidence>>
+    >;
+    const claimedRead = vi
+      .spyOn(claimedSuccessor, "readClaimedSuccessorEvidence")
+      .mockResolvedValue(evidence);
+    const successorPlan = { ...plan, recoveredFrom };
+    await expect(verifyBootstrapPlan(successorPlan, host)).resolves.toBeUndefined();
+    expect(verifyProcessExited).toHaveBeenCalledWith(456);
+    expect(verifyProcessExited).toHaveBeenCalledWith(789);
+    claimedRead.mockResolvedValueOnce(undefined);
+    await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("claimed recovery");
+    claimedRead.mockResolvedValueOnce({
+      ...evidence,
+      recoveredFrom: { ...recoveredFrom, revision: randomUUID() },
+    });
+    await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("claimed recovery");
+    verifyProcessExited.mockRejectedValueOnce(new Error("Updater remains live"));
+    await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("Updater remains live");
+    claimedRead.mockResolvedValueOnce(evidence).mockResolvedValueOnce(undefined);
+    await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("claimed recovery");
+    journalRead.mockReturnValueOnce([recovered, { ...recovered, id: randomUUID() }]);
+    await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("another successor");
+    journalRead.mockRestore();
+    claimedRead.mockRestore();
     const compatibleRecovery = await makeRelease("compatible-recovery", "");
     const compatiblePlan = {
       ...plan,
