@@ -4,6 +4,40 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.817 - 2026-10-25
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.816 - 2026-10-22
+
+### Maintenance
+
+- Merge the Dev worktree link repair: a listing-first command rewrites older Dev worktree links from the container path to the Projects folder path, with backups, skipping kept paths
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Added
+
+- `install-execution-host.mjs repair-projects-folder-worktree-links` repairs git worktree links that Dev wrote through its old container path before links were rewritten. The Host sees those worktrees as prunable, so a Host `git worktree prune` would orphan them for Dev too. By default it only lists what it would change; `--apply` rewrites each link to the Projects folder's logical path atomically, after a backup beside it. It skips kept paths such as freed, links already in logical form, worktrees outside the Projects folder and links whose worktree is missing, and reports container-only worktrees that a Host prune would orphan. A second run changes nothing.
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-22
+
+### Maintenance
+
+- Merge Host release retention and dependency cloning: Host builds clone dependencies from a private integrity-checked cache, and old Host release folders are pruned after each verified install, keeping current, previous, every release a plan or unfinished job names, and the newest three
+
+## 0.11.0-beta.3.vorteo.811 - 2026-10-23
+
+### Changed
+
+- Approved Host builds clone dependencies from a private copy-on-write cache instead of running a full `npm ci`, so releases share their unchanged 2.4 GB of `node_modules`. Only Host builds fill that cache, with an integrity-checked install.
+
+### Fixed
+
+- Old Host releases no longer pile up (43 releases, about 137 GB on 2026-10-23). After each verified Host install, the coordinator removes job folders that no plan or unfinished job references, keeping the selected, previous and three newest releases.
+
 ## 0.11.0-beta.3.vorteo.814 - 2026-10-23
 
 ### Maintenance
