@@ -26,6 +26,9 @@ function samples(): Partial<Record<ReviewedConfigurationSetting, unknown>> {
   roots.push(root);
   const script = path.join(root, "adopt.mjs");
   writeFileSync(script, "// fixture adoption plan\n", { mode: 0o700 });
+  const docker = path.join(root, "docker");
+  const dockerBytes = "#!/bin/sh\nexit 99\n";
+  writeFileSync(docker, dockerBytes, { mode: 0o700 });
   return {
     factoryRuntimeAdoption: {
       node: process.execPath,
@@ -43,8 +46,8 @@ function samples(): Partial<Record<ReviewedConfigurationSetting, unknown>> {
     },
     engineRecovery: {
       deadlineSeconds: 420,
-      docker: realpathSync(process.execPath),
-      dockerSha256: createHash("sha256").update(readFileSync(process.execPath)).digest("hex"),
+      docker,
+      dockerSha256: createHash("sha256").update(dockerBytes).digest("hex"),
       socket: path.join(root, "docker.sock"),
       containers: {
         dev: "a".repeat(64),

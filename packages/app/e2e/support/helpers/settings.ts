@@ -75,6 +75,13 @@ export async function revealSettingsLocation(page: Page, slug: string): Promise<
     .filter({ visible: true })
     .first();
   await expect(anchor).toBeVisible();
+  if (target.pane) {
+    // A fresh section jump stays pinned until the reader scrolls. Release it
+    // with a real gesture before scrolling farther to the requested pane.
+    const scroll = page.getByTestId("settings-scroll-page").filter({ visible: true }).first();
+    await scroll.hover();
+    await page.mouse.wheel(0, 1);
+  }
   await anchor.scrollIntoViewIfNeeded();
 }
 

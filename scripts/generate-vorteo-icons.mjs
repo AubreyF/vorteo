@@ -72,6 +72,7 @@ const pinnedMask = execFileSync(
   .toString()
   .replace(/width="[^"]+" height="[^"]+"/, 'width="16" height="16"');
 const publicDir = "packages/app/public";
+fs.copyFileSync(white, `${publicDir}/vorteo-logo-white-${hash}.png`);
 fs.writeFileSync(`${publicDir}/vorteo-pinned-tab-${hash}.svg`, pinnedMask);
 fs.writeFileSync("packages/website/public/safari-pinned-tab.svg", pinnedMask);
 png(white, "packages/website/public/apple-touch-icon.png", 180, "#52535b");

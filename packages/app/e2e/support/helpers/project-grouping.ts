@@ -45,14 +45,19 @@ export async function openProjectDirectoryWithHosts(
 
 export async function expectProjectContainsWorkspaces(
   page: Page,
-  input: { projectName: string; workspaceNames: string[] },
+  input: {
+    projectName: string;
+    workspaces: Array<{ serverId: string; workspaceId: string; workspaceName: string }>;
+  },
 ): Promise<void> {
   const group = projectGroup(page, input.projectName);
   await expect(group).toHaveCount(1, { timeout: PROJECT_VISIBILITY_TIMEOUT });
-  for (const workspaceName of input.workspaceNames) {
-    await expect(group.getByRole("button").filter({ hasText: workspaceName })).toBeVisible({
-      timeout: PROJECT_VISIBILITY_TIMEOUT,
-    });
+  for (const workspace of input.workspaces) {
+    const row = group.getByTestId(
+      `sidebar-workspace-row-${workspace.serverId}:${workspace.workspaceId}`,
+    );
+    await expect(row).toBeVisible({ timeout: PROJECT_VISIBILITY_TIMEOUT });
+    await expect(row).toContainText(workspace.workspaceName);
   }
 }
 

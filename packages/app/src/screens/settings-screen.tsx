@@ -2,7 +2,6 @@ import { DataSaverSection } from "@/screens/settings/general/data-saver-section"
 import { InstallationConnectionCheck } from "@/execution-installation/connection-check-wrapper";
 import { InstallationRestartBanner, InstallationControls } from "@/execution-installation/panel";
 import { SystemProjectCard } from "@/execution-installation/system-project-card";
-import { ActionFooter } from "@/components/ui/action-footer";
 import { WorkspaceDefaultsSection } from "@/screens/settings/general/workspace-defaults-section";
 import { AttentionSection } from "@/screens/settings/general/attention-section";
 import { EnvironmentsPane } from "./settings/environments-page";
@@ -714,6 +713,7 @@ function getUpdateButtonLabel(
 }
 
 function DesktopAppUpdateRow() {
+  const isCompactLayout = useIsCompactFormFactor();
   const { t } = useTranslation();
   const { settings, updateSettings } = useSettings();
   const {
@@ -814,7 +814,13 @@ function DesktopAppUpdateRow() {
           options={releaseChannelOptions}
         />
       </View>
-      <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
+      <View
+        style={[
+          settingsStyles.row,
+          settingsStyles.rowBorder,
+          isCompactLayout && styles.narrowDesktopAppUpdateRow,
+        ]}
+      >
         <View style={settingsStyles.rowContent}>
           <Text style={settingsStyles.rowTitle}>{t("settings.about.updates.label")}</Text>
           <Text style={settingsStyles.rowHint}>{statusText}</Text>
@@ -827,7 +833,7 @@ function DesktopAppUpdateRow() {
           ) : null}
           {errorMessage ? <Text style={styles.aboutErrorText}>{errorMessage}</Text> : null}
         </View>
-        <ActionFooter style={styles.aboutUpdateActions}>
+        <View style={styles.aboutUpdateActions}>
           <Button
             variant="outline"
             size="sm"
@@ -844,7 +850,7 @@ function DesktopAppUpdateRow() {
           >
             {getUpdateButtonLabel(t, isInstalling, readyUpdateVersion)}
           </Button>
-        </ActionFooter>
+        </View>
       </View>
     </>
   );
@@ -1598,9 +1604,16 @@ const styles = StyleSheet.create((theme) => ({
     paddingTop: theme.spacing[3],
     paddingHorizontal: theme.spacing[4],
   },
+  narrowDesktopAppUpdateRow: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: theme.spacing[3],
+  },
   aboutUpdateActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
+    justifyContent: "flex-end",
     gap: theme.spacing[2],
   },
   placeholder: {

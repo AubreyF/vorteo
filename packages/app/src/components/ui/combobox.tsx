@@ -910,16 +910,26 @@ function maybePinDesktopOptionsToBottom(
 
 interface FloatingMiddlewareInput {
   collisionPadding: number;
+  desktopPlacement: ComboboxDesktopPlacement;
   isDesktopAboveSearch: boolean;
   setAvailableSize: FloatingSizeSetters["setAvailableSize"];
   setReferenceWidth: FloatingSizeSetters["setReferenceWidth"];
 }
 
 function buildFloatingMiddleware(input: FloatingMiddlewareInput) {
-  const { collisionPadding, isDesktopAboveSearch, setAvailableSize, setReferenceWidth } = input;
+  const {
+    collisionPadding,
+    isDesktopAboveSearch,
+    desktopPlacement,
+    setAvailableSize,
+    setReferenceWidth,
+  } = input;
+  // Composer pickers keep their measured top anchor. Other web pickers must
+  // change sides when a trigger near the viewport bottom leaves no room below.
+  const canFlip = !isWeb || (!isDesktopAboveSearch && desktopPlacement === "bottom-start");
   return [
     floatingOffset(isWeb ? 5 : 4),
-    ...(isWeb ? [] : [flip({ padding: collisionPadding })]),
+    ...(canFlip ? [flip({ padding: collisionPadding })] : []),
     ...(isDesktopAboveSearch ? [] : [shift({ padding: collisionPadding })]),
     floatingSize({
       padding: collisionPadding,
@@ -1441,11 +1451,12 @@ export function Combobox({
     () =>
       buildFloatingMiddleware({
         collisionPadding,
+        desktopPlacement,
         isDesktopAboveSearch,
         setAvailableSize,
         setReferenceWidth,
       }),
-    [collisionPadding, isDesktopAboveSearch],
+    [collisionPadding, isDesktopAboveSearch, desktopPlacement],
   );
 
   const { refs, floatingStyles, update } = useFloating({

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -182,11 +182,12 @@ test("Factory verification fails when the supervisor did not change", async () =
 
 function recoveryPlan() {
   const base = plan(true);
+  const docker = verifyScript("#!/bin/sh\nexit 99\n");
   return {
     ...base,
     deadlineSeconds: 60,
-    docker: realpathSync(base.docker),
-    dockerSha256: createHash("sha256").update(readFileSync(base.docker)).digest("hex"),
+    docker: docker.script,
+    dockerSha256: docker.sha256,
     factoryVerify: { ...base.factoryVerify!, ownerMode: "paused" as const },
     baseline: {
       observedAt: "2026-10-23T01:00:00Z",
@@ -220,11 +221,15 @@ test("degraded recovery requires its own executable and retained-evidence digest
       baseline: { ...configured.baseline, evidenceSha256: "e".repeat(64) },
     }),
   ).not.toBe(digest);
+  chmodSync(configured.docker, 0o777);
+  expect(engineRecoveryPlanDigest(configured)).toBeUndefined();
 });
 
 test("degraded preflight admits an unavailable engine without Dev calls, but rejects a responsive engine", async () => {
   const configured = recoveryPlan();
-  const digest = engineRecoveryPlanDigest(configured)!;
+  const digest = engineRecoveryPlanDigest(configured);
+  if (digest === undefined) throw new Error("Protected recovery fixture has no plan digest");
+  expect(digest).toMatch(/^[a-f0-9]{64}$/);
   const commands: string[][] = [];
   const run: EngineCommand = async (_file, args, timeout) => {
     commands.push(args);
@@ -247,7 +252,9 @@ test("degraded preflight admits an unavailable engine without Dev calls, but rej
 
 test("degraded preflight refuses changed script bytes even if the engine observation failed", async () => {
   const configured = recoveryPlan();
-  const digest = engineRecoveryPlanDigest(configured)!;
+  const digest = engineRecoveryPlanDigest(configured);
+  if (digest === undefined) throw new Error("Protected recovery fixture has no plan digest");
+  expect(digest).toMatch(/^[a-f0-9]{64}$/);
   await expect(
     engineRecoveryPreflight(configured, digest, {
       run: async () => {

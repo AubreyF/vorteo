@@ -1,5 +1,5 @@
 import { test, expect } from "../support/fixtures";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import {
   gotoWorkspace,
   assertNewChatTileVisible,
@@ -379,16 +379,133 @@ test.describe("Tab transitions (no flash)", () => {
   test("New agent tab click shows composer without flash", async ({ page }) => {
     await gotoWorkspace(page, workspace.workspaceId);
 
-    const elapsed = await measureTileTransition(
-      page,
-      () => clickNewChat(page),
-      composerLocator(page),
-      10_000,
-    );
+    const { elapsed, evidence } = await measureNewAgentDraftLatency(page);
 
-    // Draft creation is fully in-memory — should be fast
-    // We use a generous budget here because CI can be slow, but the key assertion
-    // is that no blank/flash frame appears (tested above).
-    expect(elapsed).toBeLessThan(3_000);
+    // Draft creation is fully in-memory, so this budget (from 7173342bc) covers the app's own
+    // work: the page clock runs from pressing the New agent menu item to the frame after a new
+    // composer is visible and editable, excluding page load, opening the menu and Playwright
+    // polling. No blank or flash frame is asserted by the replacement test above.
+    expect(elapsed, evidence).toBeLessThan(3_000);
   });
 });
+
+/**
+ * Page time from pressing the New agent menu item to the frame after a new composer is visible:
+ * laid out with a nonzero box inside the viewport, not hidden by display, visibility, opacity or
+ * content-visibility, and editable. Ending one frame later counts the frame that painted it. The
+ * evidence records when a new composer first existed and its state then, so a composer that is
+ * mounted but hidden fails with that state; if none qualifies, the elapsed time is infinite.
+ */
+async function measureNewAgentDraftLatency(
+  page: Page,
+): Promise<{ elapsed: number; evidence: string }> {
+  const trigger = page.getByTestId("workspace-new-tab-button").filter({ visible: true }).first();
+  await expect(trigger).toBeVisible({ timeout: 10_000 });
+  await trigger.click();
+  const item = page.getByTestId("workspace-new-tab-menu-agent").filter({ visible: true }).first();
+  await expect(item).toBeVisible({ timeout: 10_000 });
+  await page.evaluate(() => {
+    const composers = () =>
+      Array.from(document.querySelectorAll<HTMLElement>('[aria-label="Message agent..."]'));
+    const describe = (element: HTMLElement) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const visible =
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth &&
+        element.checkVisibility({
+          opacityProperty: true,
+          visibilityProperty: true,
+          contentVisibilityAuto: true,
+        });
+      const editable =
+        !(element as HTMLTextAreaElement).disabled &&
+        !(element as HTMLTextAreaElement).readOnly &&
+        element.getAttribute("aria-disabled") !== "true";
+      return {
+        rect: [rect.x, rect.y, rect.width, rect.height].map(Math.round),
+        visibility: style.visibility,
+        opacity: style.opacity,
+        visible,
+        editable,
+      };
+    };
+    const before = new Set(composers());
+    const state = {
+      start: 0,
+      end: 0,
+      frames: 0,
+      firstSeen: null as { at: number; composers: ReturnType<typeof describe>[] } | null,
+      last: [] as ReturnType<typeof describe>[],
+    };
+    Object.assign(window, { __newAgentDraftLatency: state });
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        const target = event.target as Element | null;
+        if (!target?.closest('[data-testid="workspace-new-tab-menu-agent"]')) return;
+        state.start = performance.now();
+        const check = () => {
+          state.frames += 1;
+          state.last = composers()
+            .filter((element) => !before.has(element))
+            .map(describe);
+          if (!state.firstSeen && state.last.length > 0) {
+            state.firstSeen = { at: performance.now() - state.start, composers: state.last };
+          }
+          if (state.last.some((composer) => composer.visible && composer.editable)) {
+            requestAnimationFrame(() => {
+              state.end = performance.now();
+            });
+            return;
+          }
+          requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+      },
+      { capture: true },
+    );
+  });
+  await item.click();
+  const read = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __newAgentDraftLatency: {
+              start: number;
+              end: number;
+              frames: number;
+              firstSeen: { at: number; composers: unknown } | null;
+              last: unknown;
+            };
+          }
+        ).__newAgentDraftLatency,
+    );
+  // Wait well past the budget so a slow or hidden composer reports its state instead of a timeout.
+  await page
+    .waitForFunction(
+      () =>
+        (window as unknown as { __newAgentDraftLatency: { end: number } }).__newAgentDraftLatency
+          .end > 0,
+      undefined,
+      { timeout: 10_000 },
+    )
+    .catch(() => undefined);
+  const { start, end, frames, firstSeen, last } = await read();
+  const elapsed = start > 0 && end > 0 ? end - start : Number.POSITIVE_INFINITY;
+  const evidence = [
+    `New agent composer latency: start ${start > 0 ? "recorded" : "not recorded"}, ${frames} frames checked`,
+    firstSeen
+      ? `a new composer first existed ${Math.round(firstSeen.at)}ms after the press as ${JSON.stringify(firstSeen.composers)}`
+      : "no new composer ever existed",
+    `last frame: ${JSON.stringify(last)}`,
+  ].join("; ");
+  // The page-measured composer must be the one users see.
+  if (Number.isFinite(elapsed)) await expect(composerLocator(page)).toBeVisible();
+  return { elapsed, evidence };
+}

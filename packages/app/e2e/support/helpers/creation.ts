@@ -149,6 +149,10 @@ export async function createCreationScenario(page: Page) {
       await openNewWorkspaceComposer(page, project);
       await selectWorkspaceIsolation(page, isolation);
     },
+    async openAnotherWorkspaceForm(isolation: "local" | "worktree") {
+      await openNewWorkspaceComposer(page, project);
+      await selectWorkspaceIsolation(page, isolation);
+    },
     async openAgentDraft() {
       await gotoWorkspace(page, project.workspaceId);
       await createAgentTabFromMenu(page);
@@ -186,14 +190,21 @@ export async function createCreationScenario(page: Page) {
       await expect(page.getByText(/Creation startup failed for test/).first()).toBeVisible();
     },
     async expectOneCreatedWorkspace() {
+      await this.expectCreatedWorkspaceCount(1);
+    },
+    async expectCreatedWorkspaceCount(count: number) {
       await expect(page).toHaveURL(/\/workspace\//);
       await requests.settled();
       const workspaces = (await project.client.fetchWorkspaces()).entries.filter(
         (workspace) =>
           workspace.projectId === project.projectId && workspace.id !== project.workspaceId,
       );
-      expect(workspaces).toHaveLength(1);
-      workspaceId = workspaces[0]!.id;
+      expect(workspaces).toHaveLength(count);
+      const current = workspaces.find((workspace) =>
+        new URL(page.url()).pathname.endsWith(`/workspace/${workspace.id}`),
+      );
+      if (!current) throw new Error("The created workspace is not open");
+      workspaceId = current.id;
     },
     async expectAgentCount(count: number) {
       await requests.settled();

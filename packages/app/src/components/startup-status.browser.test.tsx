@@ -54,7 +54,7 @@ test.each([390, 1133])(
     act(() => mounted?.render(<StartupStatus phase="host" />));
     expect(container.textContent).not.toContain("Check connection");
     await expect
-      .poll(() => container?.textContent, { timeout: 15000 })
+      .poll(() => container?.textContent, { timeout: 5000 })
       .toContain("Interface assets: running");
     const check = page.getByRole("button", { name: "Check connection", exact: true });
     await expect.element(check).toBeVisible();

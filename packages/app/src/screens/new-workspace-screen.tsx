@@ -1,4 +1,5 @@
 import { useNewWorkspaceProjectDirectory } from "./new-workspace/project-directory";
+import { buildWorkspaceDraftAgentConfig } from "./workspace/workspace-draft-agent-config";
 import { useAppSettings } from "@/hooks/use-settings";
 import { transferTaskAttachments } from "@/task-environments/attachments";
 import {
@@ -1033,7 +1034,7 @@ async function createWorkspaceChatAgent(input: CreateChatAgentInput): Promise<Su
   let navigated = false;
   let outcome: SubmitOutcome = "background";
   const initialAgent: NonNullable<CreateWorkspaceRequestOptions["agent"]> = {
-    config: {
+    config: buildWorkspaceDraftAgentConfig({
       provider,
       ...(composerState.selectedProfileId ? { profileId: composerState.selectedProfileId } : {}),
       cwd,
@@ -1041,7 +1042,7 @@ async function createWorkspaceChatAgent(input: CreateChatAgentInput): Promise<Su
       model: composerState.effectiveModelId || undefined,
       thinkingOptionId: composerState.effectiveThinkingOptionId || undefined,
       featureValues: composerState.featureValues,
-    },
+    }),
     initialPrompt: text,
     initialGoal: payload.goal,
     clientMessageId: `${input.draftId}:initial-message`,

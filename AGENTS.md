@@ -42,18 +42,19 @@ Otherwise ask once through `update_questions`: "What authorization level should 
 - Levels never bypass other gates. Restarts still need an approval decision in installation controls: automatic where the owner's policy allows it, otherwise the owner's, or the installation lead's when the owner has delegated approvals. The installed `installation-maintenance` skill names that lead. Force-pushing `main` stays forbidden, and publication hygiene, wire compatibility and external-post authorization still apply.
 - Archiving belongs to no level. Offer it once delivery is verified, and archive only on request.
 - Record the level in the first journal entry's `machineContext` and carry it into handoffs and subagent prompts. A subagent or handoff never receives a higher level than its coordinator holds.
-- At Level 2 and higher, work in a task worktree from `scripts/task-worktree.mjs` unless you already run in a clean dedicated one. Never edit a shared checkout that holds other work.
+- At Level 2 and higher, use a dedicated task checkout or worktree. Reuse it for sequential work; create separate filesystem worktrees when concurrent edits need isolation. Read-only reviewers need no worktree. Never edit the primary checkout or discard another task's changes. See [task delivery](docs/task-delivery.md#start-in-a-task-worktree).
 - When the work needs more than the granted level, finish what the level allows. Then ask for the specific higher level and say what it would do.
 
 ## Builds coordinator
 
-Vorteo :: Builds is the only thread that writes state other threads share: GitHub `main`, web interface publication, Host and Dev installs and restarts, coordinator maintenance, and approval decisions. One writer keeps `main` equal to the live build and stops installs from colliding.
+Vorteo :: Builds owns build and release validation, integration, publication, installation and installation recovery. It serializes writes to GitHub `main`, web publication and installation lifecycle state, including coordinator maintenance and approval decisions within its recorded grant. Published source, served interface and installed daemon can differ; record and verify each separately.
 
-- Every other thread works on its own task branch in its own worktree, started from current `main`, and stops there.
-- To ship, hand the branch to Builds. Send the Builds thread the branch, its head commit, the worktree path, the checks you ran, what the change does and its level (3 or 4). The installed `installation-maintenance` skill gives the Builds thread's agent ID. Builds integrates, installs and publishes in batches, then reports back. A container agent that cannot reach Builds puts the same details in its Host handoff.
-- Do not push `main`, publish the web interface, submit restart, source update, coordinator or instruction requests, or approve requests. `scripts/publish-main.mjs`, `scripts/build-instance-web.mjs --destination`, the installation client's `request-*` commands and the `main` pre-push hook refuse unless they run as Builds (`VORTEO_BUILDS=1`). Never set that variable outside the Builds thread. `scripts/publish-instance-web.mjs` has no guard because the coordinator runs it during installs; never run it yourself.
-- Preview in your own worktree with a dev server or the managed preview helper. Do not run web exports or release builds for previews.
-- Keep heavy commands to what your change needs: one dependency install per worktree, targeted tests while iterating, and the full suite once before handing off.
+- Read and follow [Builds delivery details](docs/task-delivery.md#builds-delivery-details) before preparing or handing off delivery. Existing feature and CI owners retain source defects. Use the [handoff contract](docs/task-delivery.md#handoff-contract); batch compatible deliveries and reuse valid evidence without weakening applicable gates.
+- Do not push `main`, publish the web interface, submit restart, source update, coordinator or instruction requests, or approve requests outside Builds. `scripts/publish-main.mjs`, `scripts/build-instance-web.mjs --destination`, the installation client's `request-*` commands and the `main` pre-push hook refuse unless they run as Builds (`VORTEO_BUILDS=1`). Never set that variable outside the Builds thread. `scripts/publish-instance-web.mjs` has no guard because the coordinator runs it during installs; never run it yourself.
+
+### Bounded delegation and workspace ownership
+
+Follow the mandatory [delegation and workspace rules](docs/task-delivery.md#bounded-delegation-and-workspace-ownership) before delegating or routing work. Keep children in the existing owner workspace, bound concurrency by enforced capacity, and schedule heavy builds separately with Builds. Delegation grants no integration or lifecycle authority.
 
 ## Task status
 
@@ -74,15 +75,7 @@ Before starting an authorized checklist item, call `update_checklist` with opera
 
 ## Keep work bounded and recommend splits early
 
-Recommend separate focused workspaces before a thread becomes a catch-all. Reassess at the first substantial scope expansion or handoff, and at least once per working day on continuing work. Recommend a split when there are multiple independently deliverable outcomes with different owners or dependencies, when two consecutive checkpoints add prerequisites instead of closing an agreed acceptance criterion, or when a working day produces no user-reviewable result. Do not wait for the owner to notice that work has run for days.
-
-Explain the current user-facing outcome, what is installed versus merely prepared, the smallest complete path to delivery, and the exact external blockers. Propose one finish line and a short acceptance checklist per workspace. First check whether an existing thread already owns the work. Preserve that ownership instead of creating a duplicate.
-
-A recommendation does not authorize creating agents or workspaces. Once the owner approves the split, transfer exact source, patches, evidence, failed attempts, decisions, checklist state, file ownership and delivery constraints into separate worktrees. Keep one coordinator for shared integration and publication. Leave blocked work inactive with a concrete resumption condition, and do not count a handoff as completion of its implementation.
-
-Record deferrable debt found along the way in one deduplicated GitHub issue, at Level 3 or higher, or list it in your report otherwise, then return to the task. Do not widen the current delivery to fix it.
-
-Accept explicit owner reports of successful everyday use as acceptance for the behavior they describe. Do not keep that behavior open solely for an additional synthetic test or optional monitoring. Do not widen the acceptance criteria or add infrastructure without showing why it is necessary for the requested outcome.
+Follow the mandatory [scope and task reconciliation rules](docs/task-delivery.md#keep-work-bounded-and-recommend-splits-early). Reassess expansion early, retain existing owners, preserve unfinished acceptance, and ask consequential questions only when existing authorization does not resolve them. Archive only on explicit authorization.
 
 ## Goal ownership
 
@@ -168,7 +161,7 @@ Provider accounts connect to the installation and synchronize to Host and Dev by
 ## Finish the task
 
 - “Ship it” grants [Level 4](#authorization-levels). Commit the requested changes on your task branch, verify them, and hand the branch to [Builds](#builds-coordinator), which integrates it into `main`, installs it and reports back. Do not push `main` or deploy yourself.
-- Builds alone publishes with `node scripts/publish-main.mjs`, prepares Host updates with `scripts/prepare-host-delivery.mjs`, and keeps `main` equal to the installed source. See [task delivery](docs/task-delivery.md).
+- Builds alone publishes with `node scripts/publish-main.mjs`, prepares Host updates with `scripts/prepare-host-delivery.mjs`, and records published source, served interface and installed daemon revisions separately. See [task delivery](docs/task-delivery.md).
 - Before reporting “shipped”, wait for Builds' report, then verify the remote branch directly and prove it contains the task commits. Report GitHub publication and deployment separately. A successful deployment, local commit, open PR or pushed feature branch alone does not complete shipping. If either required step is blocked, state what remains instead of claiming completion.
 - In this repository, a request to "push" grants [Level 3](#authorization-levels) and means hand the branch to Builds to integrate into `main`, unless the user explicitly names another destination. Never force-push `main`.
 

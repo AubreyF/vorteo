@@ -4,6 +4,258 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.922 - 2026-10-30
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.921 - 2026-10-29
+
+### Maintenance
+
+- Reuse the reviewed account-picker browser fixture on the diagnostic base: wait for viewport transitions and sample up to three chooser openings for motion. Reduced-motion and final-frame assertions remain; repeated sampling can miss an intermittent absent stagger. Application behavior is unchanged.
+
+## 0.11.0-beta.3.vorteo.920 - 2026-10-29
+
+### Maintenance
+
+- Reuse the reviewed Settings tab readiness and shared-queue viewport fixtures in the diagnostic branch. Preserve sticky-tab, queue reload and second-device synchronization assertions without changing application behavior.
+
+## 0.11.0-beta.3.vorteo.919 - 2026-10-29
+
+### Maintenance
+
+- Reuse three reviewed browser fixtures in the diagnostic branch: preserve font-readiness and Settings typography assertions, measure new-agent composer latency in-page against the unchanged 3000ms limit, and retain the measured saved-draft flow budget. Known font-change freezes and slow reloads remain unresolved; no product behavior changes.
+
+## 0.11.0-beta.3.vorteo.918 - 2026-10-29
+
+### Maintenance
+
+- Reuse the reviewed recovery browser fixture bundle options from the warmed app document in the diagnostic branch. Keep the setup timeout and recovery assertions unchanged. The latest CI worker termination has no established sender or memory-exhaustion cause.
+
+## 0.11.0-beta.3.vorteo.917 - 2026-10-29
+
+### Maintenance
+
+- Reuse reviewed layout-settle browser fixtures in the diagnostic branch. Preserve phone, desktop and disclosure assertions while waiting for paint after breakpoint changes. The known layout-switch freeze remains unresolved; product behavior is unchanged.
+
+## 0.11.0-beta.3.vorteo.916 - 2026-10-29
+
+### Maintenance
+
+- Restore the previously reviewed zoom-slider browser fixture correction in the diagnostic branch. Scroll the control into view before each real drag, preserving all assertions and timeouts. No product behavior changes.
+
+## 0.11.0-beta.3.vorteo.915 - 2026-10-29
+
+### Maintenance
+
+- Reuse reviewed protected-executable fixtures and platform-specific owner-delegation tests in the diagnostic candidate. Require valid fixture digests before preflight assertions and retain Windows fail-closed coverage without changing production guards.
+
+## 0.11.0-beta.3.vorteo.914 - 2026-10-29
+
+### Maintenance
+
+- Keep the agent guide within its existing size budget by relocating detailed delivery rules to mandatory linked documentation, with all authority and preservation rules retained.
+- Reuse the reviewed formatting-only correction for the preview broker client and its tests. No broker behavior, installed runtime behavior or interface source changes.
+
+## 0.11.0-beta.3.vorteo.913 - 2026-10-29
+
+### Maintenance
+
+- Refresh the coordinator diagnostic candidate onto the currently served interface source, retaining its startup shading, recovery controls, assets and UI generators.
+- Limit server runtime changes to the three accepted initialization diagnostic files on the installed baseline. Restore unrelated server, broker, packaging and tooling changes explicitly.
+- Preserve existing documentation histories and dependency versions. Source only; build, CI, retention, publication and lifecycle acceptance remain gated.
+
+## 0.11.0-beta.3.vorteo.912 - 2026-10-29
+
+### Maintenance
+
+- Integrate reviewed startup shading, recovery controls and builder workflow instructions while preserving both contributions
+
+## 0.11.0-beta.3.vorteo.911 - 2026-10-29
+
+### Fixed
+
+- Center expanded startup diagnostics when they fit, retain scrolling on short screens and preserve the reveal animation as status text changes. Give recovery buttons equal spacing with Data Saver first and Reload last.
+- Show an empty or checked box for Data Saver. Cover layout and toggle states in browser tests and register the shaded logo primitives in the existing SVG test stub.
+
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Fixed
+
+- Preserve the original loop-under shading in themed Vorteo icons and the startup loader without changing their palettes. Add rendered pixel checks for the shaded crossing.
+
+## 0.11.0-beta.3.vorteo.910 - 2026-10-29
+
+### Maintenance
+
+- Clarify Builds delivery ownership, dynamic bounded delegation within the builder workspace, concurrent editing isolation, exact handoffs and reuse of verified evidence. Preserve existing approval gates and distinguish published source, served interface and installed daemon state; no runtime enforcement changes.
+
+## 0.11.0-beta.3.vorteo.909 - 2026-10-29
+
+### Fixed
+
+- Let ordinary web comboboxes flip above their trigger when the dropdown would leave the viewport. Preserve intentional top/above-search anchoring and native behavior.
+- Cover Metadata model selection near the lower viewport edge, including picker geometry, sizing, Escape dismissal and keyboard focus restoration.
+- Make Settings browser helpers release a fresh section jump with a reader scroll gesture before revealing a pane.
+
+## 0.11.0-beta.3.vorteo.908 - 2026-10-29
+
+### Maintenance
+
+- Read timeline geometry sequentially so concurrent Playwright locator checks cannot strand a shared worktree-callout handler. Retain scroll and resume assertions.
+- Wait for the queue test's startup overlay and inert root to finish handing off, then verify its typed draft before clicking Queue. Retain held-request and orbit-transition assertions without changing timeouts or production behavior.
+
+## 0.11.0-beta.3.vorteo.907 - 2026-10-29
+
+### Maintenance
+
+- Check the selected profile and resolved agent mode in delayed workspace navigation tests while leaving profile-owned permissions out of the wire request. Retain navigation, resource and attachment assertions.
+- Skip fixture-server teardown when recovery-fixture compilation fails before server creation, preserving the original setup error and ordinary server-close failures. Keep compilation timeouts and warmup unchanged.
+
+## 0.11.0-beta.3.vorteo.906 - 2026-10-29
+
+### Fixed
+
+- Keep the loading screen visible until React Native Web layout, Unistyles theme styles and required stylesheet downloads are ready for two consecutive frames. Prevent keyboard focus entering the covered interface.
+- Report pending and failed interface styles in startup diagnostics while retaining Reload and Copy diagnostics. Preserve optional font fallback and Data saver behavior.
+- Cover withheld runtime styles and delayed or failed stylesheet downloads in browser startup regressions.
+
+## 0.11.0-beta.3.vorteo.905 - 2026-10-29
+
+### Changed
+
+- Integrate negotiated HTML compression and the startup diagnostics scroll-inset correction, retaining both reviewed implementations and their focused regression coverage.
+
+## 0.11.0-beta.3.vorteo.904 - 2026-10-29
+
+### Changed
+
+- Negotiate Brotli or gzip for daemon-served HTML after injecting its public connection or installation hint. Preserve no-store caching, merge Accept-Encoding into Vary, and return negotiated headers without a body for HEAD.
+- Respect encoding quality and exclusions when selecting static sidecars, including available gzip fallback and refusal when no representation is acceptable. Cover HTTP parity and fallback behavior with focused server tests.
+
+### Fixed
+
+- Keep startup diagnostic controls inside the viewport when scrolling or focusing them on compact displays with fractional layout coordinates. Match the existing safe-area content insets without changing controls or startup behavior.
+- Exercise strict compact and desktop control bounds across fractional positions, retaining all four controls and 44px targets.
+
+## 0.11.0-beta.3.vorteo.903 - 2026-10-29
+
+### Changed
+
+- Reveal startup diagnostics after three seconds. Show compact elapsed time beneath the progress bar using the shared duration formatter.
+- Remove progress and data-saver explanations and the connection-details disclosure. Keep data saver as a checkmark toggle button followed by Copy diagnostics.
+- Embed the shared formatter in the bootstrap HTML so recovery needs no additional script download; provide a synchronization check.
+
+## 0.11.0-beta.3.vorteo.902 - 2026-10-29
+
+### Fixed
+
+- Keep a fresh Settings jump pinned when a control press or late layout moves the web scroll position, so update feedback does not switch the Maintenance URL to Plugins. Preserve deliberate scrolling and keyboard navigation, with browser coverage for returning section tracking to the reader.
+
+## 0.11.0-beta.3.vorteo.901 - 2026-10-29
+
+### Maintenance
+
+- Target seeded workspace rows by their server and workspace IDs in project status and cross-host grouping browser tests. Preserve visibility, status, title and project grouping assertions without matching the draggable wrapper.
+
+## 0.11.0-beta.3.vorteo.900 - 2026-10-29
+
+### Maintenance
+
+- Give the restart-cause test a bounded ten-second wait for asynchronous drain preparation on Windows CI. Keep the pending-start, continuation, cancellation and interrupt assertions unchanged.
+
+## 0.11.0-beta.3.vorteo.899 - 2026-10-29
+
+### Fixed
+
+- Invoke the verified checkout-local Expo CLI directly for retained prepared web builds. Refuse missing or foreign CLI files instead of allowing package-manager installation fallback, and bind the CLI bytes to the prepared-input receipt.
+
+## 0.11.0-beta.3.vorteo.898 - 2026-10-29
+
+### Maintenance
+
+- Add an explicit retained primary web build mode that reuses validated app dependencies in an exclusively claimed dedicated checkout, retains source snapshots and failures, and refuses stale inputs without installing or cloning dependencies. Keep source, deployment and artifact sealing checks.
+
+## 0.11.0-beta.3.vorteo.897 - 2026-10-29
+
+### Fixed
+
+- Build the first workspace agent's profile configuration the same way as its draft retry. Retrying a failed startup no longer changes the permission-mode field and triggers `workspace_request_key_conflict`. Restore browser regressions for retry and remount, and cover consecutive workspace creation from the project button.
+- Target the creation tests' injected startup failures at workspace agents so background naming sessions cannot consume them.
+
+## 0.11.0-beta.3.vorteo.896 - 2026-10-29
+
+### Maintenance
+
+- Target the exact seeded workspace row in sidebar title-width browser checks, avoiding the draggable wrapper's duplicate accessible name while retaining the layout assertions.
+
+## 0.11.0-beta.3.vorteo.895 - 2026-10-29
+
+### Maintenance
+
+- Use owned protected executable fixtures and require valid baseline digests in recovery tests, preserving production permission and ownership guards.
+- Keep protected-grant behavior tests on POSIX platforms and explicitly verify fail-closed behavior when owner identity is unavailable and on native Windows. Match skill-path expectations through the asynchronous native realpath API.
+- Format the preview broker client and its tests with the configured formatter without changing their parsed behavior.
+- Check the Nix macOS bundle against the configured com.vorteo.desktop identifier while retaining executable, launcher-link and plist validation.
+
+## 0.11.0-beta.3.vorteo.894 - 2026-10-29
+
+### Fixed
+
+- Give Nix desktop renderer exports the established 8192 MiB heap on Linux and macOS. Append the export limit after inherited Node options while retaining fatal diagnostics, macOS worker limits and Linux concurrency behavior.
+
+### Validation
+
+- Verify the export command and its child process inherit the larger heap without changing the surrounding build environment. Full Nix desktop builds remain a separate CI check.
+
+## 0.11.0-beta.3.vorteo.893 - 2026-10-29
+
+### Maintenance
+
+- Integrate the reviewed desktop App updates layout and strict smoke workspace selector on the current source. Preserve both contribution histories, all current runtime changes and the approved desktop source and tests unchanged. Reuse the reviewed browser and selector evidence; packaged application validation and installation remain separate.
+
+## 0.11.0-beta.3.vorteo.892 - 2026-10-29
+
+### Maintenance
+
+- Integrate the reviewed account home resolution and native runtime packaging fixes without changing their source or tests. Retain both contribution histories and the accepted project home boundary. Linux Nix validation and managed delivery remain separate.
+
+## 0.11.0-beta.3.vorteo.891 - 2026-10-28
+
+### Fixed
+
+- Integrate reviewed Codex account home inheritance and explicit empty-home handling for launch skill capture. Empty overrides select the native default without inheriting a parent or daemon value; literal whitespace remains unchanged. Preserve the accepted project home-boundary fix and all other runtime source.
+
+### Maintenance
+
+- Retain both Accounts source commits and the accepted Host aggregate in merge ancestry. Combined create-agent and policy checks cover the prepared source; installation remains separate.
+
+## 0.11.0-beta.3.vorteo.891 - 2026-10-29
+
+### Fixed
+
+- Resolve node-pty native inputs from the server's dependency context when tracing the Nix runtime closure. Include platform prebuilds and the Release fallback with their companion assets for workspace-local and hoisted installations, preventing a missing native addon at daemon startup.
+
+### Validation
+
+- Add isolated runtime-closure regressions using the real tracer and node-pty loader across both dependency layouts and both native binary locations. Nix build and CI rerun remain separate.
+
+## 0.11.0-beta.3.vorteo.891 - 2026-10-29
+
+### Fixed
+
+- Keep the desktop App updates label readable beside Check and Update actions. Use local inline actions at desktop widths and stack this row at compact widths without changing shared footers or update behavior.
+
+### Maintenance
+
+- Restrict the packaged desktop smoke workspace selector to the exact named sidebar row, excluding its draggable wrapper while retaining strict visibility and uniqueness checks.
+
+### Validation
+
+- Restore the manual download and rollout-recheck browser cases at desktop and compact widths, with row-scoped controls and geometry assertions for readable labels, contained actions and no overlap.
+
 ## 0.11.0-beta.3.vorteo.890 - 2026-10-28
 
 ### Maintenance
@@ -211,11 +463,19 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Threads whose provider is unavailable offer the standard account and profile picker in the load error. Recovery reads the previous account's saved history without running a turn, keeps the original thread and workspace, and retains its checklist, journal and questions. Failed recovery leaves the original account binding intact and offers a visible retry. The existing recent-message context bound still applies.
 - Add disabled and removed account recovery tests, stale-source and failed-replacement checks, and a browser journey covering unreadable history, retry and reload.
 
+## 0.11.0-beta.3.vorteo.875 - 2026-10-28
+
+### Fixed
+
+- An explicit empty Codex home stops provider inheritance and selects the native default home for launch skill capture. It no longer inventories a populated parent or daemon home. Literal whitespace paths remain unchanged; focused regressions cover policy capture, multiple inheritance levels, cycles and malformed or missing entries.
+
 ## 0.11.0-beta.3.vorteo.874 - 2026-10-27
 
 ### Fixed
 
 - A hosted agent parked in an error, such as a usage-limit hold, no longer keeps the old session host alive through an upgrade. The release of idle hosted sessions only considered agents whose lifecycle was idle, so an errored agent that ran no turn and had no pending permission held the host for as long as its hold lasted; on the live installation one such agent, with a weekly limit resetting hours later, kept the host on the previous release for a day. Such an agent is now released like an idle one and resumes on the new host when it next runs. A running turn or an unanswered permission still holds the host.
+
+- A Codex account that inherits its `CODEX_HOME` from the provider it extends now has its launch skill snapshot taken from that inherited folder, matching the folder its session runs with. The lookup follows the same order as launch: the account's own setting, then each extended provider's, then the daemon's, then `~/.codex`.
 
 ### Validation
 

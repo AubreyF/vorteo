@@ -542,8 +542,11 @@ test.describe("whole-interface zoom", () => {
       const initialHeight = (await swatch.boundingBox())!.height;
       if (width === 1133) {
         // Settings panes above the slider can still be loading and move it after it first
-        // settles, so a drag that missed the track is measured and made again.
+        // settles, so a drag that missed the track is measured and made again. On CI the page
+        // also drifted up to Agent behavior once the deep link's pin expired (run 40277231156),
+        // leaving the slider off screen, so bring it back into view before each attempt.
         await expect(async () => {
+          await slider.scrollIntoViewIfNeeded();
           await waitForSettledPosition(slider);
           const track = (await slider.boundingBox())!;
           await page.mouse.move(track.x + track.width * 0.2, track.y + track.height / 2);

@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test";
 import { test, expect } from "../support/fixtures";
 import {
   openAgentRoute,
@@ -5,6 +6,34 @@ import {
   seedRunningMockAgentWorkspace,
 } from "../support/helpers/mock-agent";
 import { delayAgentBootstrapTailResponse } from "../support/helpers/agent-timeline-gate";
+
+// Sample the rendered pixels on either side of the ribbon crossing.
+async function expectLoopShading(mark: Locator): Promise<void> {
+  await expect(async () => {
+    const screenshot = await mark.screenshot();
+    const ratio = await mark.page().evaluate(async (base64) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${base64}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      function brightness(x: number): number {
+        const pixel = context!.getImageData(
+          Math.round((x / 640) * image.width),
+          Math.round((300 / 640) * image.height),
+          1,
+          1,
+        ).data;
+        return pixel[0] + pixel[1] + pixel[2];
+      }
+      return brightness(220) / brightness(270);
+    }, screenshot.toString("base64"));
+    expect(ratio).toBeLessThan(0.9);
+  }).toPass({ timeout: 10_000 });
+}
 
 for (const width of [390, 1133]) {
   test(`shaded loader stays centered during view loading at ${width}px`, async ({ page }, info) => {
@@ -100,16 +129,16 @@ for (const theme of ["starship-light", "starship-dark", "scriptorium", "midas", 
       const mark = page.getByTestId("loading-brand-mark").first();
       await expect(mark).toBeVisible();
       expect((await mark.boundingBox())!.width).toBeCloseTo(43.2, 1);
+      await page.screenshot({ path: info.outputPath(`logo-${theme}.png`) });
       if (theme.startsWith("starship")) {
         await expect(mark.locator("img")).toHaveAttribute(
           "src",
           new RegExp(theme === "starship-light" ? "vorteo-color" : "vorteo-white"),
         );
       } else {
-        await expect(mark.locator("svg path")).toHaveAttribute("fill", /^url\(#vorteo-/);
+        await expectLoopShading(mark);
         expect(await mark.locator("stop").count()).toBe(2);
       }
-      await page.screenshot({ path: info.outputPath(`logo-${theme}.png`) });
       const brand = await page.evaluate(() =>
         JSON.parse(localStorage.getItem("vorteo-boot-brand-v1")!),
       );
@@ -126,6 +155,7 @@ for (const theme of ["starship-light", "starship-dark", "scriptorium", "midas", 
       await expect(page.locator("#boot-status")).toBeVisible();
       if (brand.mode === "gradient") {
         await expect(page.locator("#boot-tinted-mark")).toBeVisible();
+        await expectLoopShading(page.locator("#boot-tinted-mark"));
         await expect(page.locator("img.boot-mark")).toBeHidden();
       } else {
         await expect(page.locator("img.boot-mark")).toBeVisible();

@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { getServerId } from "../support/helpers/server-id";
 import { gotoAppShell } from "../support/helpers/app";
 import { seedWorkspace, type SeededWorkspace } from "../support/helpers/seed-client";
 import { waitForSidebarHydration } from "../support/helpers/workspace-ui";
@@ -32,12 +33,12 @@ export async function openAndCollapseStatusProject(
   await waitForSidebarHydration(page);
   await projectRow(page, project).click();
   await page.mouse.move(1200, 850);
-  await expect(workspaceRow(page, "Working workspace")).toHaveCount(0);
+  await expect(workspaceRow(page, project.seed.workspaceId)).toHaveCount(0);
 }
 
 export async function expandStatusProject(page: Page, project: StatusProject): Promise<void> {
   await projectRow(page, project).click();
-  await expect(workspaceRow(page, "Working workspace")).toBeVisible();
+  await expect(workspaceRow(page, project.seed.workspaceId)).toBeVisible();
 }
 
 export async function startWorkingWorkspace(project: StatusProject): Promise<void> {
@@ -82,11 +83,11 @@ export async function expectProjectStatusHidden(page: Page, project: StatusProje
 
 export async function expectWorkspaceStatus(
   page: Page,
-  workspaceName: string,
+  workspaceId: string,
   status: "running" | "needs_input",
 ): Promise<void> {
   await expect(
-    workspaceRow(page, workspaceName).getByTestId(`workspace-status-indicator-${status}`),
+    workspaceRow(page, workspaceId).getByTestId(`workspace-status-indicator-${status}`),
   ).toBeVisible({ timeout: 60_000 });
 }
 
@@ -101,12 +102,6 @@ function projectRow(page: Page, project: StatusProject) {
     .first();
 }
 
-function workspaceRow(page: Page, workspaceName: string) {
-  return page.getByRole("button", {
-    name: new RegExp(`^${escapeRegExp(workspaceName)}(?:,|$)`),
-  });
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function workspaceRow(page: Page, workspaceId: string) {
+  return page.getByTestId(`sidebar-workspace-row-${getServerId()}:${workspaceId}`);
 }

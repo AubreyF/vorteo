@@ -368,7 +368,9 @@ export async function expectStableHistoryStartGutter(page: Page): Promise<void> 
 export async function scrollTimelinePromptIntoView(page: Page, prompt: string): Promise<void> {
   const timeline = page.locator('[data-testid="agent-chat-scroll"]:visible').first();
   const row = timeline.getByTestId("user-message").filter({ hasText: prompt });
-  const [viewport, target] = await Promise.all([timeline.boundingBox(), row.boundingBox()]);
+  // Parallel locator prechecks can race the shared dismiss handler in Playwright 1.58.
+  const viewport = await timeline.boundingBox();
+  const target = await row.boundingBox();
   if (!viewport || !target) {
     throw new Error(`Expected a rendered timeline prompt for ${prompt}`);
   }

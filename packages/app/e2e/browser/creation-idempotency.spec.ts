@@ -74,6 +74,26 @@ test("repeated new-workspace prompt submissions create one workspace and one age
   await creation.expectAgentCount(1);
 });
 
+for (const isolation of ["local", "worktree"] as const) {
+  test(`consecutive project Create clicks start separate ${isolation} workspaces`, async ({
+    creation,
+  }) => {
+    await creation.openWorkspaceForm(isolation);
+    await creation.submitPrompt("Start the first workspace.", "Create");
+    await creation.expectPromptVisible("Start the first workspace.");
+    await creation.expectCreatedWorkspaceCount(1);
+    await creation.expectAgentCount(1);
+    const firstAgents = await creation.agentIds();
+
+    await creation.openAnotherWorkspaceForm(isolation);
+    await creation.submitPrompt("Start the second workspace.", "Create");
+    await creation.expectPromptVisible("Start the second workspace.");
+    await creation.expectCreatedWorkspaceCount(2);
+    await creation.expectAgentCount(1);
+    expect(await creation.agentIds()).not.toEqual(firstAgents);
+  });
+}
+
 test("separate drafts can intentionally create two agents in the same workspace", async ({
   creation,
   delayedCreation,
@@ -113,11 +133,7 @@ for (const scenario of [
       creation.evictAndReturnToDraft(),
   },
 ]) {
-  // Product regression, reported to Builds on 2026-10-25: retrying a failed first agent from the
-  // new workspace's draft is rejected with workspace_request_key_conflict and creates no agent
-  // (commit not identified). Remove the fixme once the retry reuses the original workspace
-  // creation or revises it, and the agent starts.
-  test.fixme(`retrying failed agent initialization preserves its workspace${scenario.suffix}`, async ({
+  test(`retrying failed agent initialization preserves its workspace${scenario.suffix}`, async ({
     creation,
     startup,
   }) => {

@@ -7,6 +7,7 @@ import {
 import { awaitAssistantMessage } from "../support/helpers/agent-stream";
 import { composerLocator, expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
+import { resizeAndSettle } from "../support/helpers/viewport";
 
 async function composerHeight(page: Page): Promise<number> {
   return composerLocator(page).evaluate((element) => element.getBoundingClientRect().height);
@@ -68,16 +69,16 @@ test("blank composer lines remain present and keep their measured height", async
     const collapsedHeight = await composerHeight(page);
 
     await test.step("remeasure the current draft when the window narrows", async () => {
-      await page.setViewportSize({ width: 1280, height: 1200 });
+      await resizeAndSettle(page, { width: 1280, height: 1200 });
       const text = "A sentence that wraps when the editor becomes narrower. ".repeat(8);
       await composer.fill(text);
       await expect(composer).toHaveValue(text);
       await expect.poll(() => composerHeight(page)).toBeGreaterThan(collapsedHeight);
       const wideHeight = await composerHeight(page);
-      await page.setViewportSize({ width: 480, height: 1200 });
+      await resizeAndSettle(page, { width: 480, height: 1200 });
       await expect.poll(() => composerHeight(page)).toBeGreaterThan(wideHeight);
       await expect(composer).toHaveValue(text);
-      await page.setViewportSize({ width: 1280, height: 720 });
+      await resizeAndSettle(page, { width: 1280, height: 720 });
     });
 
     await test.step("grow the composer with blank lines followed by text", async () => {

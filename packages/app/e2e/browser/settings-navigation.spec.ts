@@ -296,16 +296,26 @@ for (const width of [1280, 390]) {
     // Environment cards also appear in other sections' panes; scope to this one.
     const pane = page.getByTestId("settings-environment-scroll");
     const tabs = page.getByTestId("settings-environment-tabs");
-    // The deep link pins Environments while the panes above it load, which takes about two
-    // seconds; wait until the tabs rest inside the viewport before measuring.
+    // The deep link pins Environments for 3s (PIN_MS in settings-scroll-page.tsx), but panes
+    // above it can finish loading later and push it about 2,800px down: CI showed Terminal. Bring
+    // the tabs back into view when that happens and wait until they rest before measuring. A cold
+    // local run kept moving for more than the default 10s, hence 30s.
     let previousTabTop: number | undefined;
     await expect
-      .poll(async () => {
-        const top = (await tabs.boundingBox())?.y;
-        const settled = top !== undefined && top >= 0 && top < 500 && top === previousTabTop;
-        previousTabTop = top;
-        return settled;
-      })
+      .poll(
+        async () => {
+          const top = (await tabs.boundingBox())?.y;
+          if (top === undefined || top < 0 || top >= 500) {
+            await tabs.evaluate((node) => node.scrollIntoView({ block: "start" }));
+            previousTabTop = undefined;
+            return false;
+          }
+          const settled = top === previousTabTop;
+          previousTabTop = top;
+          return settled;
+        },
+        { timeout: 30_000 },
+      )
       .toBe(true);
     const hostTab = page.getByRole("tab", { name: "Host", exact: true });
     const devTab = page.getByRole("tab", {
