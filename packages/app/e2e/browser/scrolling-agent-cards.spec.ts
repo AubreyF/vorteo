@@ -291,6 +291,9 @@ for (const width of [1400, 390]) {
       await card.getByTestId("agent-journal-card-body-scroll").evaluate((node) => {
         node.scrollTop = node.scrollHeight;
       });
+      // An entry counts as seen only when fully visible in every scroll container. On phones the
+      // card sits inside the conversation scroll, which can still clip the newest entry.
+      await card.getByTestId(`journal-entry-${appended}`).scrollIntoViewIfNeeded();
       await expect(
         card.getByText("Could not save or load seen entries on this device."),
       ).toBeVisible();

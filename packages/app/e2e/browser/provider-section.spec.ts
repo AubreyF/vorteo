@@ -4,6 +4,7 @@ import { expect, test, type Page } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { getServerId } from "../support/helpers/server-id";
+import { resizeAndSettle } from "../support/helpers/viewport";
 
 async function openProvidersInMode({ page, vortonMode }: { page: Page; vortonMode: boolean }) {
   await page.evaluate((enabled) => {
@@ -44,7 +45,7 @@ test("old Claude CLI explains missing models and clears the warning after upgrad
       exact: true,
     });
     for (const width of [1280, 402]) {
-      await page.setViewportSize({ width, height: 1000 });
+      await resizeAndSettle(page, { width, height: 1000 });
       await expect(row).toContainText("CLI update needed");
       await row.click();
       const warning = page.getByTestId("provider-cli-update");
@@ -61,7 +62,7 @@ test("old Claude CLI explains missing models and clears the warning after upgrad
     }
     // Retired 2026-10-25: the Standard mode check that hid this warning went with the mode in
     // 471d7f22a.
-    await page.setViewportSize({ width: 1280, height: 1000 });
+    await resizeAndSettle(page, { width: 1280, height: 1000 });
     await expect(row).toContainText("CLI update needed");
     await client.patchDaemonConfig({
       providers: {

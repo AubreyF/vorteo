@@ -35,7 +35,11 @@ import { InMemoryAgentTimelineStore } from "./agent-timeline-store.js";
 import { toAgentPayload } from "./agent-projections.js";
 import { projectTimelineRows } from "./timeline-projection.js";
 import { getOpenAgentTabLabel, PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
-import { formatSystemNotificationPrompt, startAgentRun } from "./agent-prompt.js";
+import {
+  formatSystemNotificationPrompt,
+  setupFinishNotification,
+  startAgentRun,
+} from "./agent-prompt.js";
 import { StaleProviderSessionError } from "./stale-provider-session-error.js";
 import { ensureAgentLoaded, ensureUnarchivedAgentLoaded } from "./agent-loading.js";
 import type { StoredAgentRecord } from "./agent-storage.js";
@@ -14823,7 +14827,10 @@ test.each(["finish", "stop", "stop-write-failure"] as const)(
       await fixture.manager.captureRestartContinuation(request);
       expect(fixture.manager.hasInFlightRun(fixture.agentId)).toBe(true);
       expect(fixture.manager.beginRestartDrain(request)).toBe(true);
-      await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+      // Drain preparation persists queue state; Windows CI can exceed the default poll budget.
+      await expect
+        .poll(() => fixture.manager.getRestartImpact().pendingStarts, { timeout: 10_000 })
+        .toBe(0);
       expect((await queue.read(fixture.agentId)).items).toHaveLength(1);
       expect(fixture.session.interruptCalled).toBe(false);
       if (mode === "finish") {
@@ -15178,3 +15185,185 @@ test("launch guidance requires verified Tailscale preview links", () => {
   expect(PREVIEW_LINK_GUIDANCE).toContain("never an IP, localhost or *.localhost address");
   expect(PREVIEW_LINK_GUIDANCE).toContain("~/.agents/skills/paseo-preview/SKILL.md");
 });
+
+async function idleReleaseFixture() {
+  const workdir = mkdtempSync(join(tmpdir(), "idle-release-manager-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  const queue = new MessageQueueService(
+    new MessageQueueStore(workdir),
+    new QueueAttachmentStore(workdir),
+  );
+  manager.setMessageQueueControl(queue);
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  await manager.flush();
+  const session = client.sessions[0]!;
+  const close = vi.spyOn(session, "close");
+  async function cleanup() {
+    queue.close();
+    await manager.closeAgent(agent.id);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+  return { manager, storage, queue, agent, session, close, cleanup };
+}
+
+test("releasing an idle agent closes its provider session and the agent reopens on demand", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    expect(await fixture.manager.releaseIdleSession(fixture.agent.id)).toBe(true);
+    expect(fixture.close).toHaveBeenCalledTimes(1);
+    expect(fixture.manager.getAgent(fixture.agent.id)).toBeNull();
+    const reopened = await ensureAgentLoaded(fixture.agent.id, {
+      agentManager: fixture.manager,
+      agentStorage: fixture.storage,
+      logger,
+    });
+    expect(reopened).toMatchObject({ id: fixture.agent.id, lifecycle: "idle" });
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a prompt or queued delivery during an automatic release is refused instead of racing the close", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    // Restore the real close before wrapping it, so the hold delegates to the provider.
+    fixture.close.mockRestore();
+    const original = fixture.session.close.bind(fixture.session);
+    let finishClose = () => {};
+    const closing = new Promise<void>((resolve) => (finishClose = resolve));
+    const close = vi.spyOn(fixture.session, "close").mockImplementation(async () => {
+      await closing;
+      await original();
+    });
+    const release = fixture.manager.releaseIdleSession(fixture.agent.id);
+    await expect.poll(() => close.mock.calls.length).toBe(1);
+    // The agent is reserved while its provider closes: neither admission path may start a turn.
+    expect(() => fixture.manager.streamAgent(fixture.agent.id, "hello")).toThrow(
+      "is closing its idle session",
+    );
+    const item = { id: "queued-1" } as Parameters<AgentManager["startQueuedMessage"]>[2];
+    expect(fixture.manager.startQueuedMessage(fixture.agent.id, "queued", item)).toBeNull();
+    finishClose();
+    expect(await release).toBe(true);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(fixture.manager.getAgent(fixture.agent.id)).toBeNull();
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a Stop that settles the release reservation after its deadline does not reopen admission", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    fixture.close.mockRestore();
+    const original = fixture.session.close.bind(fixture.session);
+    let finishClose = () => {};
+    const closing = new Promise<void>((resolve) => (finishClose = resolve));
+    const close = vi.spyOn(fixture.session, "close").mockImplementation(async () => {
+      await closing;
+      await original();
+    });
+    const release = fixture.manager.releaseIdleSession(fixture.agent.id);
+    await expect.poll(() => close.mock.calls.length).toBe(1);
+    // Stop cancels the reservation once its pending-run deadline passes; the close is still held.
+    await fixture.manager.cancelAgentRun(fixture.agent.id).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(Reflect.get(fixture.manager, "runs").hasRun(fixture.agent.id)).toBe(false);
+    expect(() => fixture.manager.streamAgent(fixture.agent.id, "hello")).toThrow(
+      "is closing its idle session",
+    );
+    await expect(fixture.manager.replaceAgentRun(fixture.agent.id, "replace")).rejects.toThrow(
+      "is closing its idle session",
+    );
+    const item = { id: "queued-1" } as Parameters<AgentManager["startQueuedMessage"]>[2];
+    expect(fixture.manager.startQueuedMessage(fixture.agent.id, "queued", item)).toBeNull();
+    await expect(fixture.manager.rewind(fixture.agent.id, "message-1", "files")).rejects.toThrow(
+      "is closing its idle session",
+    );
+    finishClose();
+    expect(await release).toBe(true);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(Reflect.get(fixture.manager, "automaticCloses").has(fixture.agent.id)).toBe(false);
+  } finally {
+    await fixture.cleanup();
+  }
+}, 15_000);
+
+test("an automatic release refuses an agent that changed after it was observed idle", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    const current = fixture.manager.getAgent(fixture.agent.id)!;
+    const stale = { updatedAt: current.updatedAt.getTime() - 1, session: current.session };
+    expect(await fixture.manager.releaseIdleSession(fixture.agent.id, stale)).toBe(false);
+    const reopened = { updatedAt: current.updatedAt.getTime(), session: {} };
+    expect(await fixture.manager.releaseIdleSession(fixture.agent.id, reopened)).toBe(false);
+    expect(fixture.close).not.toHaveBeenCalled();
+    const fresh = { updatedAt: current.updatedAt.getTime(), session: current.session };
+    expect(await fixture.manager.releaseIdleSession(fixture.agent.id, fresh)).toBe(true);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a failed automatic close releases its reservation so the agent can run again", async () => {
+  const fixture = await idleReleaseFixture();
+  try {
+    fixture.close.mockRejectedValueOnce(new Error("provider close failed"));
+    await expect(fixture.manager.releaseIdleSession(fixture.agent.id)).rejects.toThrow(
+      "provider close failed",
+    );
+    expect(Reflect.get(fixture.manager, "runs").hasRun(fixture.agent.id)).toBe(false);
+  } finally {
+    fixture.close.mockRestore();
+    await fixture.cleanup();
+  }
+});
+
+test.each(["paused queue", "active goal", "watched child", "pending permission"] as const)(
+  "an idle agent with a %s keeps its provider session",
+  async (condition) => {
+    const fixture = await idleReleaseFixture();
+    try {
+      if (condition === "paused queue") await fixture.queue.pause(fixture.agent.id);
+      if (condition === "active goal") {
+        const goal: AgentGoal = {
+          threadId: "retained",
+          objective: "Keep working",
+          status: "active",
+          tokenBudget: null,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: 1,
+          updatedAt: 2,
+        };
+        const goals = new CodexGoals({ request: async () => ({ goal }), onChange() {} });
+        goals.bind("retained");
+        Object.defineProperty(fixture.session, "goals", { value: goals });
+        await fixture.manager.readAgentGoal(fixture.agent.id);
+      }
+      if (condition === "watched child")
+        setupFinishNotification({
+          agentManager: fixture.manager,
+          agentStorage: fixture.storage,
+          childAgentId: fixture.agent.id,
+          callerAgentId: "caller-agent",
+          logger,
+        });
+      if (condition === "pending permission")
+        Reflect.get(fixture.manager, "agents")
+          .get(fixture.agent.id)
+          .pendingPermissions.set("permission-1", { id: "permission-1" });
+      expect(await fixture.manager.releaseIdleSession(fixture.agent.id)).toBe(false);
+      expect(fixture.close).not.toHaveBeenCalled();
+      expect(fixture.manager.getAgent(fixture.agent.id)).toMatchObject({ lifecycle: "idle" });
+    } finally {
+      Reflect.get(fixture.manager, "agents").get(fixture.agent.id)?.pendingPermissions.clear();
+      await fixture.cleanup();
+    }
+  },
+);

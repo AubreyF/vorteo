@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { openSettings } from "./app";
 import { openSettingsSection } from "./settings";
+import { waitForPaint } from "./viewport";
 
 const APP_SETTINGS_KEY = "@paseo:app-settings";
 
@@ -21,10 +22,12 @@ export async function setContentWidth(page: Page, width: number): Promise<void> 
   const input = contentWidthInput(page);
   await input.fill(String(width));
   await input.press("Tab");
+  await waitForPaint(page);
 }
 
 export async function resetContentWidth(page: Page): Promise<void> {
   await resetContentWidthButton(page).click();
+  await waitForPaint(page);
 }
 
 export async function expectDefaultContentWidthSetting(page: Page, width: number): Promise<void> {

@@ -8,6 +8,7 @@ import {
   sidebarFolderIdsWithItems,
   type SidebarTreeRow,
 } from "@/sidebar-folders/tree";
+import type { SidebarDropTop } from "@/sidebar-drop/resolve";
 
 export const SidebarFocusSectionSchema = z.enum(["standing", "factory"]);
 export type SidebarFocusSection = z.infer<typeof SidebarFocusSectionSchema>;
@@ -124,6 +125,14 @@ function isListed(target: SidebarFocusTarget, world: SidebarFocusWorld): boolean
   return folder.scope.kind === "root" || world.projects.has(folder.scope.projectKey);
 }
 
+/** What the store keeps for a newly focused target: it and its ancestors, for later fallback. */
+export function storedSidebarFocus(
+  target: SidebarFocusTarget,
+  world: SidebarFocusWorld,
+): StoredSidebarFocus {
+  return { target, ancestors: sidebarFocusAncestors(target, world) };
+}
+
 /** Ancestors of a listed target, outermost first. */
 export function sidebarFocusAncestors(
   target: SidebarFocusTarget,
@@ -216,21 +225,10 @@ export function sidebarFocusProjectKey(
   return folder?.scope.kind === "project" ? folder.scope.projectKey : null;
 }
 
-/** The root-list row that carries the focus: the root folder itself or the project. */
-export function sidebarFocusRootRowKey(
-  target: SidebarFocusTarget,
-  world: SidebarFocusWorld,
-): string {
-  if (target.kind !== "folder") return target.projectKey;
-  const folder = world.folders[target.folderId];
-  return folder?.scope.kind === "project"
-    ? folder.scope.projectKey
-    : sidebarFolderEntry(target.folderId);
-}
-
 /**
- * The focused row as the top level, with what lies beneath it in the same list. Depths are
- * rebased so the focused row sits at depth 0.
+ * What lies beneath the focused row, as the top level: its descendants with depths rebased so
+ * its direct children sit at depth 0. The focused row itself is not listed; the breadcrumb
+ * names it instead.
  */
 export function focusTreeRows<T>(
   rows: readonly SidebarTreeRow<T>[],
@@ -238,14 +236,94 @@ export function focusTreeRows<T>(
 ): SidebarTreeRow<T>[] {
   const start = rows.findIndex((row) => row.key === key);
   if (start < 0) return [];
-  const base = rows[start]!.depth;
+  const base = rows[start]!.depth + 1;
   const focused: SidebarTreeRow<T>[] = [];
-  for (let index = start; index < rows.length; index += 1) {
+  for (let index = start + 1; index < rows.length; index += 1) {
     const row = rows[index]!;
-    if (index > start && row.depth <= base) break;
+    if (row.depth < base) break;
     focused.push({ ...row, depth: row.depth - base });
   }
   return focused;
+}
+
+/**
+ * Root-list rows while focused. A root folder lists its contents. Anything inside a project
+ * keeps only that project's block at depth 0, which then renders without its header.
+ */
+export function sidebarFocusRootRows<T>(
+  rows: readonly SidebarTreeRow<T>[],
+  target: SidebarFocusTarget,
+  world: SidebarFocusWorld,
+): SidebarTreeRow<T>[] {
+  const projectKey = sidebarFocusProjectKey(target, world);
+  if (projectKey === null) {
+    return target.kind === "folder" ? focusTreeRows(rows, sidebarFolderEntry(target.folderId)) : [];
+  }
+  const row = rows.find((entry) => entry.key === projectKey);
+  return row ? [{ ...row, depth: 0 }] : [];
+}
+
+/** The container that receives top-level drops in the focused root list. */
+export function sidebarFocusRootDropTop(
+  target: SidebarFocusTarget,
+  world: SidebarFocusWorld,
+): SidebarDropTop {
+  if (target.kind !== "folder" || sidebarFocusProjectKey(target, world) !== null) return null;
+  return {
+    key: sidebarFolderEntry(target.folderId),
+    kind: "rootFolder",
+    projectKey: null,
+    section: null,
+  };
+}
+
+/**
+ * How a project block renders under focus: unfocused, as the focused project, or as the frame
+ * around a focused folder or section inside it.
+ */
+export type SidebarProjectBlockFocus =
+  | { kind: "project" }
+  | { kind: "folder"; folderId: string }
+  | { kind: "section"; section: SidebarFocusSection };
+
+export interface SidebarProjectBlockLevels {
+  /** The project's own row. Hidden whenever the project or something inside it is focused. */
+  showHeader: boolean;
+  /** Level of the ordinary list's depth-0 rows. */
+  childLevel: number;
+  /** Level of the Standing and Factory headings; null when the focused section hides it. */
+  sectionLevel: number | null;
+  /** Level of Standing and Factory workspaces. */
+  sectionItemLevel: number;
+}
+
+/** Hierarchy level of a project's direct children when the project row is shown. */
+export const PROJECT_CHILD_LEVEL = 1;
+
+/** Focused contents are the top level, so they start at level 0 under the breadcrumb. */
+export function sidebarProjectBlockLevels(
+  focus: SidebarProjectBlockFocus | null,
+): SidebarProjectBlockLevels {
+  if (focus === null) {
+    return {
+      showHeader: true,
+      childLevel: PROJECT_CHILD_LEVEL,
+      sectionLevel: PROJECT_CHILD_LEVEL,
+      sectionItemLevel: PROJECT_CHILD_LEVEL + 1,
+    };
+  }
+  if (focus.kind === "section") {
+    return { showHeader: false, childLevel: 0, sectionLevel: null, sectionItemLevel: 0 };
+  }
+  return { showHeader: false, childLevel: 0, sectionLevel: 0, sectionItemLevel: 1 };
+}
+
+export function isSidebarSectionShown(
+  focus: SidebarProjectBlockFocus | null,
+  section: SidebarFocusSection,
+): boolean {
+  if (focus === null || focus.kind === "project") return true;
+  return focus.kind === "section" && focus.section === section;
 }
 
 function folderPath(state: SidebarFolderState, folderId: string | null): string[] {
@@ -278,4 +356,28 @@ export function expandSidebarFocusPath(
   const collapsedFolders = { ...state.collapsedFolders };
   for (const id of folderIds) delete collapsedFolders[id];
   return { ...state, collapsedFolders };
+}
+
+/** Whether a row's Focus button shows, and whether it is a hover-only extra. */
+export function sidebarRowFocusVisibility(input: {
+  isHovered: boolean;
+  /** Touch, compact and native layouts, where rows cannot be hovered. */
+  hoverUnavailable: boolean;
+}): { button: boolean; hoverOnly: boolean } {
+  return {
+    button: input.isHovered || input.hoverUnavailable,
+    hoverOnly: input.isHovered && !input.hoverUnavailable,
+  };
+}
+
+/**
+ * Whether the breadcrumb's trailing actions show. Hidden actions stay mounted and focusable,
+ * so keyboard focus inside them reveals them exactly as hover does.
+ */
+export function sidebarBreadcrumbActionsVisible(input: {
+  isHovered: boolean;
+  hasFocusWithin: boolean;
+  hoverUnavailable: boolean;
+}): boolean {
+  return input.isHovered || input.hasFocusWithin || input.hoverUnavailable;
 }

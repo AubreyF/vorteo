@@ -1,6 +1,7 @@
 import { readInstallationSettings } from "../../execution-installation/settings/projection.js";
 import { readInstallationProviders } from "../../execution-installation/settings/providers.js";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
@@ -11,7 +12,11 @@ import { createProviderSnapshotManagerStub } from "../../test-utils/session-stub
 import { AgentManager } from "../agent-manager.js";
 import { AgentStorage } from "../agent-storage.js";
 import type { CreatePaseoWorktreeWorkflowResult } from "../../worktree-session.js";
-import { createAgentCommand } from "./create.js";
+import { createProviderEnv } from "../provider-launch-config.js";
+import { captureSkillPolicy } from "../../orchestration-skills/internal/policy.js";
+import { inventorySkills } from "../../orchestration-skills/internal/inventory.js";
+import type { AgentSessionConfig } from "../agent-sdk-types.js";
+import { createAgentCommand, launchCodexHome } from "./create.js";
 import { TaskOwnerEvidenceStore } from "../../authorization/task-owner-evidence.js";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { z } from "zod";
@@ -1146,3 +1151,139 @@ test("account rebinding during authority lookup rejects the task before registra
     await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
   }
 });
+
+test("Codex skill snapshots read the CODEX_HOME the session launches with", () => {
+  const providers = {
+    codex: { env: { CODEX_HOME: "/base" } },
+    "codex-account-own": { extends: "codex", env: { CODEX_HOME: "/account" } },
+    "codex-account-inherits": { extends: "codex" },
+  };
+  const daemon = { CODEX_HOME: "/daemon" };
+  // The account's own home wins, as in the registry's env merge.
+  expect(launchCodexHome("codex", { providers }, "codex-account-own", daemon)).toBe("/account");
+  // Without one, the extended provider's home is inherited before the daemon's.
+  expect(launchCodexHome("codex", { providers }, "codex-account-inherits", daemon)).toBe("/base");
+  const plain = { codex: {}, "codex-account-inherits": { extends: "codex" } };
+  expect(launchCodexHome("codex", { providers: plain }, "codex-account-inherits", daemon)).toBe(
+    "/daemon",
+  );
+  // Undefined lets the inventory use ~/.codex.
+  expect(
+    launchCodexHome("codex", { providers: plain }, "codex-account-inherits", {}),
+  ).toBeUndefined();
+  expect(launchCodexHome("claude", { providers }, "codex-account-own", daemon)).toBeUndefined();
+});
+
+test("an explicit empty account home stops inheritance and captures default-home skills", async () => {
+  const home = mkdtempSync(join(tmpdir(), "create-empty-codex-home-"));
+  try {
+    const cwd = join(home, "project");
+    mkdirSync(join(cwd, ".git"), { recursive: true });
+    const parentHome = join(home, "parent");
+    const daemonHome = join(home, "daemon");
+    const defaultSkill = join(home, ".codex/skills/.system/openai-docs");
+    for (const directory of [
+      defaultSkill,
+      join(parentHome, "skills/.system/openai-docs"),
+      join(daemonHome, "skills/.system/openai-docs"),
+    ]) {
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(
+        join(directory, "SKILL.md"),
+        `---\nname: openai-docs\ndescription: ${directory}\n---\n`,
+      );
+    }
+    const providers = {
+      codex: { env: { CODEX_HOME: parentHome } },
+      account: { extends: "codex", env: { CODEX_HOME: "" } },
+    };
+    // Launch preserves the empty child override; Codex itself then chooses its default home.
+    const launchEnv = createProviderEnv({
+      baseEnv: { CODEX_HOME: daemonHome },
+      runtimeSettings: { env: { ...providers.codex.env, ...providers.account.env } },
+    });
+    expect(launchEnv.CODEX_HOME).toBe("");
+    const codexHome = launchCodexHome("codex", { providers }, "account", {
+      CODEX_HOME: daemonHome,
+    });
+    const inventory = await inventorySkills({ home, cwd });
+    expect(inventory.skills.map((skill) => skill.path)).toEqual([defaultSkill]);
+    const config: AgentSessionConfig = {
+      provider: "account",
+      cwd,
+      profileLaunch: {
+        profile: {
+          id: "docs",
+          name: "Docs",
+          provider: "codex",
+          skillPolicy: { mode: "selected", skills: [inventory.skills[0]!.identity] },
+        },
+      },
+    };
+    await captureSkillPolicy(config, "codex", { home, codexHome });
+    expect(config.profileLaunch?.skillSnapshot?.skills.map((skill) => skill.path)).toEqual([
+      await realpath(defaultSkill),
+    ]);
+    expect(codexHome).toBeUndefined();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test.each([
+  { value: "", expected: undefined },
+  { value: " ", expected: " " },
+  { value: "/literal path ", expected: "/literal path " },
+])(
+  "Codex home preserves literal paths and treats only empty as default: $value",
+  ({ value, expected }) => {
+    const providers = {
+      codex: { env: { CODEX_HOME: "/base" } },
+      middle: { extends: "codex", env: { CODEX_HOME: value } },
+      account: { extends: "middle" },
+    };
+    expect(launchCodexHome("codex", { providers }, "account", { CODEX_HOME: "/daemon" })).toBe(
+      expected,
+    );
+    expect(launchCodexHome("codex", undefined, "codex", { CODEX_HOME: value })).toBe(expected);
+  },
+);
+
+test("Codex home follows multiple inherited providers and bounds cycles", () => {
+  const providers = {
+    codex: { env: { CODEX_HOME: "/base" } },
+    middle: { extends: "codex" },
+    account: { extends: "middle" },
+  };
+  expect(launchCodexHome("codex", { providers }, "account", { CODEX_HOME: "/daemon" })).toBe(
+    "/base",
+  );
+  const cycle = { account: { extends: "middle" }, middle: { extends: "account" } };
+  expect(launchCodexHome("codex", { providers: cycle }, "account", { CODEX_HOME: "/daemon" })).toBe(
+    "/daemon",
+  );
+  expect(launchCodexHome("codex", { providers: cycle }, "account", {})).toBeUndefined();
+  const overriddenCycle = { ...cycle, middle: { extends: "account", env: { CODEX_HOME: "" } } };
+  expect(
+    launchCodexHome("codex", { providers: overriddenCycle }, "account", { CODEX_HOME: "/daemon" }),
+  ).toBeUndefined();
+});
+
+test.each(["child", "ancestor", "missing"])(
+  "Codex home stops at a %s invalid chain entry",
+  (entry) => {
+    const providers = {
+      codex: { env: { CODEX_HOME: "/base" } },
+      middle: { extends: "codex" },
+      account: { extends: "middle" },
+    };
+    // Exercise malformed runtime input without loosening the helper's configuration type.
+    if (entry === "child") Reflect.set(providers.account, "env", { CODEX_HOME: 42 });
+    if (entry === "ancestor") Reflect.set(providers.middle, "env", { CODEX_HOME: 42 });
+    if (entry === "missing") Reflect.set(providers.middle, "extends", "missing-provider");
+    expect(launchCodexHome("codex", { providers }, "account", { CODEX_HOME: "/daemon" })).toBe(
+      "/daemon",
+    );
+    expect(launchCodexHome("codex", { providers }, "account", {})).toBeUndefined();
+  },
+);

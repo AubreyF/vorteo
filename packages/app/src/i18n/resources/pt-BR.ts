@@ -1216,7 +1216,6 @@ export const ptBR: TranslationResources = {
     },
     focus: {
       focusItem: "Focar em {{name}}",
-      menuItem: "Focar",
       allProjects: "Todos os projetos",
       breadcrumb: "Caminho de foco da barra lateral",
     },
@@ -2783,7 +2782,7 @@ export const ptBR: TranslationResources = {
       system: {
         title: "Sobre o Vorteo System",
         description:
-          "Este projeto serve para evoluir esta instalação do Vorteo. Ele usa o checkout a partir do qual a instalação foi construída e também guarda espaços de trabalho de manutenção gerenciados pelo daemon, como o Optimization Runner. O daemon o recria e depende dele, então ele não pode ser removido nem renomeado.",
+          "Este projeto serve para evoluir esta instalação do Vorteo. Ele usa o checkout a partir do qual a instalação foi construída e também guarda espaços de trabalho de manutenção gerenciados pelo daemon, como o Vorteo :: Optimizer. O daemon o recria e depende dele, então ele não pode ser removido nem renomeado.",
       },
       readFailures: {
         invalidTitle: "Não foi possível analisar paseo.json",

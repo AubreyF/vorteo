@@ -1,4 +1,4 @@
-import { AgentLoadRecovery } from "@/profile-switch/load-recovery";
+import { AgentLoadRecovery, AgentProviderRecoveryFooter } from "@/profile-switch/load-recovery";
 import { useHostFeature } from "@/runtime/host-features";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardDock } from "@/components/keyboard-dock";
@@ -102,6 +102,7 @@ interface ChatAgentStateShape {
   serverId: string | null;
   id: string | null;
   provider?: Agent["provider"];
+  providerUnavailable?: boolean;
   status: Agent["status"] | null;
   cwd: string | null;
   workspaceId?: string;
@@ -161,6 +162,7 @@ function selectChatAgentState(
     serverId: agent.serverId,
     id: agent.id,
     provider: agent.provider,
+    providerUnavailable: agent.providerUnavailable,
     status: agent.status,
     cwd: agent.cwd,
     workspaceId: agent.workspaceId,
@@ -188,6 +190,7 @@ function buildChatAgentFromState(
     serverId: state.serverId,
     id: state.id,
     provider: state.provider,
+    providerUnavailable: state.providerUnavailable,
     status: state.status,
     cwd: state.cwd,
     workspaceId: state.workspaceId,
@@ -729,6 +732,7 @@ function AgentPanelBody({
           serverId: agentState.serverId,
           id: agentState.id,
           provider: agentState.provider,
+          providerUnavailable: agentState.providerUnavailable,
           status: agentState.status,
           cwd: agentState.cwd,
           workspaceId: agentState.workspaceId,
@@ -1246,30 +1250,39 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
     ],
   );
   const composerSection = useMemo(
-    () => (
-      <RenderProfile id={`AgentComposerSection:${agentId}`}>
-        <AgentComposerSection
-          agentId={agentId}
+    () =>
+      effectiveAgent.providerUnavailable && !agentState.archivedAt ? (
+        <AgentProviderRecoveryFooter
           serverId={serverId}
-          isPaneFocused={isPaneFocused}
-          isArchivingCurrentAgent={isArchivingCurrentAgent}
-          archivedAt={agentState.archivedAt}
-          cwd={cwd}
-          isSubmitLoading={false}
-          agentInputDraft={agentInputDraft}
-          onAttentionInputFocus={onAttentionInputFocus}
-          onAttentionPromptSend={onAttentionPromptSend}
-          onComposerHeightChange={handleComposerHeightChange}
-          onMessageSent={handleMessageSent}
+          agentId={agentId}
+          onRecovered={retryTimelineSync}
         />
-      </RenderProfile>
-    ),
+      ) : (
+        <RenderProfile id={`AgentComposerSection:${agentId}`}>
+          <AgentComposerSection
+            agentId={agentId}
+            serverId={serverId}
+            isPaneFocused={isPaneFocused}
+            isArchivingCurrentAgent={isArchivingCurrentAgent}
+            archivedAt={agentState.archivedAt}
+            cwd={cwd}
+            isSubmitLoading={false}
+            agentInputDraft={agentInputDraft}
+            onAttentionInputFocus={onAttentionInputFocus}
+            onAttentionPromptSend={onAttentionPromptSend}
+            onComposerHeightChange={handleComposerHeightChange}
+            onMessageSent={handleMessageSent}
+          />
+        </RenderProfile>
+      ),
     [
       agentId,
       serverId,
       isPaneFocused,
       isArchivingCurrentAgent,
       agentState.archivedAt,
+      effectiveAgent.providerUnavailable,
+      retryTimelineSync,
       cwd,
       agentInputDraft,
       onAttentionInputFocus,
@@ -1465,6 +1478,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   return (
     <AgentStreamView
       showTaskCards
+      readOnly={agent.providerUnavailable}
       composer={composer}
       ref={streamViewRef}
       agentId={agent.id}

@@ -684,3 +684,105 @@ test("same-repository binding and competing bound publishers preserve winner and
   );
   assert.equal((await readLiveState(f.destination)).token, live.token);
 });
+
+test("prepared primary builds bind the checkout, dependencies and committed snapshot", async (t) => {
+  const { recordPreparedWebInputs, claimPreparedWebBuild } =
+    await import("./lib/prepared-web-build.mjs");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "prepared-web-test-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const root = await fs.realpath(directory);
+  git(root, ["init", "-q"]);
+  git(root, ["config", "user.email", "test@example.test"]);
+  git(root, ["config", "user.name", "Test"]);
+  await fs.writeFile(
+    path.join(root, ".gitignore"),
+    ".runtime/\nnode_modules/\n**/dist/\n**/build/\n",
+  );
+  const names = ["protocol", "relay", "client", "highlight", "plugin", "expo-two-way-audio"];
+  const lock = { packages: { "": {} } };
+  for (const name of names) {
+    await fs.mkdir(path.join(root, "packages", name, "src"), { recursive: true });
+    await fs.writeFile(path.join(root, "packages", name, "src/index.ts"), "export {};\n");
+    await fs.writeFile(path.join(root, "packages", name, "package.json"), JSON.stringify({ name }));
+    lock.packages[`packages/${name}`] = {};
+    const output = name === "expo-two-way-audio" ? "build" : "dist";
+    await fs.mkdir(path.join(root, "packages", name, output));
+    const file = name === "protocol" ? "messages.js" : "index.js";
+    await fs.writeFile(path.join(root, "packages", name, output, file), "export {};\n");
+  }
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({ workspaces: names.map((n) => `packages/${n}`) }),
+  );
+  await fs.writeFile(path.join(root, "package-lock.json"), JSON.stringify(lock));
+  await fs.mkdir(path.join(root, "node_modules"));
+  await fs.writeFile(path.join(root, "node_modules/.package-lock.json"), "{}");
+  await fs.mkdir(path.join(root, "node_modules/expo/bin"), { recursive: true });
+  await fs.writeFile(path.join(root, "node_modules/expo/bin/cli"), "// fixture CLI\n");
+  git(root, ["add", "."]);
+  git(root, ["commit", "-qm", "fixture"]);
+  const sourceCommit = git(root, ["rev-parse", "HEAD"]);
+  await recordPreparedWebInputs(root);
+  const builds = path.join(root, ".runtime/builds");
+  const { root: snapshot } = await snapshotSource({
+    source: root,
+    sourceCommit,
+    committed: true,
+    builds,
+    retainArchive: true,
+  });
+  assert.ok(await fs.stat(snapshot + ".source.tar"));
+  const options = { source: root, buildRoot: root, snapshot, sourceCommit };
+  await assert.rejects(claimPreparedWebBuild({ ...options, buildRoot: snapshot }), /dedicated/);
+  const claimed = await claimPreparedWebBuild(options);
+  assert.equal(claimed.expoCli, path.join(root, "node_modules/expo/bin/cli"));
+  await claimed.verify();
+  await assert.rejects(claimPreparedWebBuild(options), /EEXIST/);
+  await fs.writeFile(path.join(root, "packages/client/src/index.ts"), "changed\n");
+  await assert.rejects(claimed.verify(), /drifted/);
+  await fs.writeFile(path.join(root, "packages/client/src/index.ts"), "export {};\n");
+  await fs.writeFile(path.join(root, "node_modules/.package-lock.json"), '{"changed":true}');
+  await assert.rejects(claimed.verify(), /dependencies changed/);
+  await claimed.release();
+  assert.ok(await fs.stat(path.join(snapshot, "prepared-build-claim.json")));
+  assert.ok(await fs.stat(path.join(root, "node_modules/.package-lock.json")));
+});
+
+test("prepared Expo resolution refuses missing and foreign CLIs without a package fallback", async (t) => {
+  const { preparedExpoCli } = await import("./lib/prepared-web-build.mjs");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "prepared-expo-test-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const root = await fs.realpath(directory);
+  const cli = path.join(root, "node_modules/expo/bin/cli");
+  await assert.rejects(preparedExpoCli(root), { code: "ENOENT" });
+  assert.deepEqual(await fs.readdir(root), []);
+  await fs.mkdir(path.dirname(cli), { recursive: true });
+  const foreign = path.join(root, "foreign-cli");
+  await fs.writeFile(foreign, "// foreign CLI\n");
+  await fs.symlink(foreign, cli);
+  await assert.rejects(preparedExpoCli(root), /checkout-local Expo CLI/);
+  await fs.unlink(cli);
+  await fs.writeFile(cli, "// local CLI\n");
+  assert.equal(await preparedExpoCli(root), cli);
+});
+
+test("prepared root options refuse invalid combinations before creating build artifacts", async () => {
+  for (const args of [
+    ["--build-root", process.cwd()],
+    ["--retain-builds", "--build-root", process.cwd()],
+    [
+      "--retain-builds",
+      "--build-root",
+      process.cwd(),
+      "--destination",
+      "/not-used",
+      "--installation-origin",
+      "https://example.test",
+    ],
+  ]) {
+    await assert.rejects(
+      run(process.execPath, ["scripts/build-instance-web.mjs", ...args]),
+      /requires --retain-builds and a primary application build/,
+    );
+  }
+});

@@ -507,6 +507,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       (state) =>
         state.sessions[resolvedServerId]?.serverInfo?.features?.agentTimelinePromptIndex === true,
     );
+    // COMPAT(agentTimelinePromptIndexAfterSeq): added in v0.11.0, remove gate after 2027-04-29.
+    const supportsIncrementalOutline = useSessionStore(
+      (state) =>
+        state.sessions[resolvedServerId]?.serverInfo?.features?.agentTimelinePromptIndexAfterSeq ===
+        true,
+    );
     const timelineEpoch = useSessionStore(
       (state) => state.sessions[resolvedServerId]?.agentTimelineCursor.get(agentId)?.epoch ?? null,
     );
@@ -741,6 +747,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       tail: effectiveStreamItems,
       head: effectiveStreamHead,
       enabled: supportsChatOutline && chatOutlineEnabled,
+      supportsIncrementalIndex: supportsIncrementalOutline,
       viewportRef,
       onJumpError: handleTimelineHistoryLoadError,
       visibleMessageIds,

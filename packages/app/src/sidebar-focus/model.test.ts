@@ -6,9 +6,13 @@ import {
   expandSidebarFocusPath,
   focusTreeRows,
   resolveSidebarFocus,
+  sidebarBreadcrumbActionsVisible,
   sidebarFocusAncestors,
-  sidebarFocusRootRowKey,
+  sidebarFocusRootDropTop,
+  sidebarFocusRootRows,
+  sidebarProjectBlockLevels,
   sidebarFocusTrail,
+  sidebarRowFocusVisibility,
   type SidebarFocusProject,
   type SidebarFocusTarget,
   type SidebarFocusWorld,
@@ -154,32 +158,144 @@ describe("rows while focused", () => {
       hideEmptyFolders: false,
     });
 
-  test("a focused root folder shows itself at the top level with its contents", () => {
-    const focus: SidebarFocusTarget = { kind: "folder", folderId: "work" };
-    const shown = focusTreeRows(rows(focus), "folder:work");
-    expect(shown.map((row) => `${row.depth}:${row.key}`)).toEqual([
-      "0:folder:work",
-      "1:api",
-      "1:folder:client",
-      "2:app",
+  const focusWorld = world({
+    folders: Object.values(state.sidebarFolders),
+    itemFolder: state.itemFolder,
+    projects: {
+      app: { name: "App", sections: [] },
+      api: { name: "API", sections: [] },
+      site: { name: "Site", sections: [] },
+    },
+  });
+  const shownRows = (focus: SidebarFocusTarget) =>
+    sidebarFocusRootRows(rows(focus), focus, focusWorld).map((row) => `${row.depth}:${row.key}`);
+
+  test("a focused root folder lists its contents as the top level, without its own row", () => {
+    expect(shownRows({ kind: "folder", folderId: "work" })).toEqual([
+      "0:api",
+      "0:folder:client",
+      "1:app",
     ]);
   });
 
-  test("a focused project inside folded folders shows only that project", () => {
-    const focus: SidebarFocusTarget = { kind: "project", projectKey: "app" };
-    const focusWorld = world({
-      folders: Object.values(state.sidebarFolders),
-      itemFolder: state.itemFolder,
-      projects: { app: { name: "App", sections: [] } },
+  test("a focused nested root folder rebases its children to depth 0", () => {
+    expect(shownRows({ kind: "folder", folderId: "client" })).toEqual(["0:app"]);
+  });
+
+  test("a focused project inside folded folders keeps only that project's block", () => {
+    expect(shownRows({ kind: "project", projectKey: "app" })).toEqual(["0:app"]);
+  });
+
+  test("a focused project folder lists its contents without its own row", () => {
+    const projectRows = buildSidebarTreeRows({
+      state: {
+        ...EMPTY_SIDEBAR_FOLDER_STATE,
+        sidebarFolders: {
+          bugs: folder("bugs", null, { kind: "project", projectKey: "app" }),
+          urgent: folder("urgent", "bugs", { kind: "project", projectKey: "app" }),
+        },
+        itemFolder: { w1: "bugs", w2: "urgent" },
+      },
+      scope: { kind: "project", projectKey: "app" },
+      items: ["w0", "w1", "w2"],
+      getKey: (item) => item,
+      hideEmptyFolders: false,
     });
-    const key = sidebarFocusRootRowKey(focus, focusWorld);
-    expect(focusTreeRows(rows(focus), key).map((row) => `${row.depth}:${row.key}`)).toEqual([
-      "0:app",
-    ]);
+    expect(
+      focusTreeRows(projectRows, "folder:bugs").map((row) => `${row.depth}:${row.key}`),
+    ).toEqual(["0:w1", "0:folder:urgent", "1:w2"]);
+  });
+
+  test("top-level drops in a focused root folder land in that folder", () => {
+    expect(sidebarFocusRootDropTop({ kind: "folder", folderId: "work" }, focusWorld)).toEqual({
+      key: "folder:work",
+      kind: "rootFolder",
+      projectKey: null,
+      section: null,
+    });
+    expect(sidebarFocusRootDropTop({ kind: "project", projectKey: "app" }, focusWorld)).toBeNull();
   });
 
   test("unfolding for focus never touches the stored collapse state", () => {
     rows({ kind: "folder", folderId: "client" });
     expect(state.collapsedFolders).toEqual({ work: true });
+  });
+});
+
+describe("project block levels while focused", () => {
+  test("an unfocused project steps its children in under its own row", () => {
+    expect(sidebarProjectBlockLevels(null)).toEqual({
+      showHeader: true,
+      childLevel: 1,
+      sectionLevel: 1,
+      sectionItemLevel: 2,
+    });
+  });
+
+  test("a focused project hides its row and lists its children at the top level", () => {
+    expect(sidebarProjectBlockLevels({ kind: "project" })).toEqual({
+      showHeader: false,
+      childLevel: 0,
+      sectionLevel: 0,
+      sectionItemLevel: 1,
+    });
+  });
+
+  test("a focused project folder lists its contents at the top level", () => {
+    expect(sidebarProjectBlockLevels({ kind: "folder", folderId: "bugs" })).toMatchObject({
+      showHeader: false,
+      childLevel: 0,
+    });
+  });
+
+  test("a focused section hides its heading and lists its workspaces at the top level", () => {
+    expect(sidebarProjectBlockLevels({ kind: "section", section: "standing" })).toEqual({
+      showHeader: false,
+      childLevel: 0,
+      sectionLevel: null,
+      sectionItemLevel: 0,
+    });
+  });
+});
+
+describe("the row Focus button", () => {
+  test("shows only on hover with a pointer", () => {
+    expect(sidebarRowFocusVisibility({ isHovered: false, hoverUnavailable: false })).toEqual({
+      button: false,
+      hoverOnly: false,
+    });
+    expect(sidebarRowFocusVisibility({ isHovered: true, hoverUnavailable: false })).toEqual({
+      button: true,
+      hoverOnly: true,
+    });
+  });
+
+  test("shows permanently where rows cannot be hovered, such as touch and compact layouts", () => {
+    // Rows without a ⋮ menu keep their hover-only button off these layouts.
+    expect(sidebarRowFocusVisibility({ isHovered: false, hoverUnavailable: true })).toEqual({
+      button: true,
+      hoverOnly: false,
+    });
+    expect(sidebarRowFocusVisibility({ isHovered: true, hoverUnavailable: true })).toEqual({
+      button: true,
+      hoverOnly: false,
+    });
+  });
+});
+
+describe("the breadcrumb's trailing actions", () => {
+  const hidden = { isHovered: false, hasFocusWithin: false, hoverUnavailable: false };
+
+  test("stay hidden with a pointer until hovered", () => {
+    expect(sidebarBreadcrumbActionsVisible(hidden)).toBe(false);
+    expect(sidebarBreadcrumbActionsVisible({ ...hidden, isHovered: true })).toBe(true);
+  });
+
+  test("show while keyboard focus is inside them, without hover", () => {
+    expect(sidebarBreadcrumbActionsVisible({ ...hidden, hasFocusWithin: true })).toBe(true);
+  });
+
+  test("always show where rows cannot be hovered", () => {
+    expect(sidebarBreadcrumbActionsVisible({ ...hidden, hoverUnavailable: true })).toBe(true);
   });
 });

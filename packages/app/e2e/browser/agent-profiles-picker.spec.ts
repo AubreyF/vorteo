@@ -225,9 +225,33 @@ test("an unavailable account can recover in place, with a visible failure and re
         message: { role: "user", content: "Keep the approved recovery plan" },
       }) + "\n",
     );
+    await page.reload();
+    const savedMessage = page.getByText("Keep the approved recovery plan", { exact: true });
+    const recoveryFooter = page.getByTestId("agent-provider-recovery-footer");
+    for (const width of [1280, 402]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await expect(savedMessage).toBeVisible({ timeout: 30_000 });
+      await expect(recoveryFooter).toBeVisible();
+      await expect(page.getByRole("textbox", { name: "Message agent..." })).toHaveCount(0);
+      const messageBounds = await savedMessage.boundingBox();
+      const footerBounds = await recoveryFooter.boundingBox();
+      expect(messageBounds!.y + messageBounds!.height).toBeLessThan(footerBounds!.y);
+      await page.screenshot({ path: test.info().outputPath(`history-recovery-${width}.png`) });
+    }
+    expect((await client.fetchAgent(agentId))?.agent).toMatchObject({
+      provider,
+      providerUnavailable: true,
+      workspaceId,
+    });
+    await openProfilePicker(page);
+    await page.getByTestId("preset-section-account").click();
+    await page.getByTestId("preset-account-mock").click();
+    await page.getByTestId(`preset-row-shared-profile/mock/${PROFILE.id}`).click();
+    await page.getByTestId("preset-use-profile").click();
     await page.getByTestId("profile-switch-confirm").click();
     await expect(page.getByTestId("profile-switch-sheet")).toHaveCount(0, { timeout: 30_000 });
     await expectComposerVisible(page);
+    await expect(recoveryFooter).toHaveCount(0);
     await expect(page.getByText("Keep the approved recovery plan", { exact: true })).toBeVisible();
     expect((await client.fetchAgent(agentId))?.agent).toMatchObject({
       id: agentId,

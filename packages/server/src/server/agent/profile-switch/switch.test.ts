@@ -1,5 +1,13 @@
 import { expect, test } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  appendFileSync,
+  readdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -8,6 +16,9 @@ import { AgentManager } from "../agent-manager.js";
 import { ProviderSnapshotManager } from "../provider-snapshot-manager.js";
 import { claudeProjectDirSync } from "../providers/claude/project-dir.js";
 import { switchAgentProfileCommand } from "./command.js";
+import { MessageQueueService } from "../../message-queue/service.js";
+import { MessageQueueStore } from "../../message-queue/store.js";
+import { QueueAttachmentStore } from "../../message-queue/attachments.js";
 import { AgentStorage } from "../agent-storage.js";
 import type {
   AgentClient,
@@ -307,12 +318,13 @@ test.each([false, true])(
     const transcriptDir = claudeProjectDirSync(workdir, { configDir });
     mkdirSync(transcriptDir, { recursive: true });
     const sessionId = randomUUID();
+    const userMessageId = randomUUID();
     writeFileSync(
       join(transcriptDir, `${sessionId}.jsonl`),
       [
         {
           type: "user",
-          uuid: randomUUID(),
+          uuid: userMessageId,
           sessionId,
           cwd: workdir,
           message: { role: "user", content: "Preserve my approved plan" },
@@ -348,6 +360,7 @@ test.each([false, true])(
       logger: createTestLogger(),
     });
     try {
+      expect(snapshots.listRegisteredProviderIds({ enabledOnly: true })).not.toContain(provider);
       const id = randomUUID();
       const now = new Date().toISOString();
       await storage.upsert({
@@ -367,7 +380,105 @@ test.each([false, true])(
         ],
         journal: [{ id: randomUUID(), sequence: 1, timestamp: now, text: "Approved scope" }],
       });
+      const queueRoot = join(workdir, "queue");
+      const queueStore = new MessageQueueStore(queueRoot);
+      await queueStore.mutate(id, {
+        kind: "enqueue",
+        operationId: "enqueue",
+        messageId: "pending",
+        text: "Preserve my approved plan",
+        attachments: [],
+      });
+      await queueStore.claim(id);
+      await queueStore.recordProviderMessageId({
+        agentId: id,
+        messageId: "pending",
+        providerMessageId: userMessageId,
+      });
+      const queue = new MessageQueueService(queueStore, new QueueAttachmentStore(queueRoot));
+      // Cover both an uninitialized delivery and a recovered uncertain delivery.
+      if (removed) await queue.read(id);
+      let queueChanges = 0;
+      queue.subscribe(id, () => queueChanges++);
+      reader.setMessageQueueControl(queue);
+      const queueBefore = await queueStore.read(id);
+      const queueFilesBefore = readdirSync(queueRoot).map((file) =>
+        readFileSync(join(queueRoot, file), "utf8"),
+      );
       const before = await storage.get(id);
+      if (!before?.persistence) throw new Error("Missing saved thread");
+      const loadHistory = () =>
+        reader.readStoredSwitchHistory(
+          before,
+          snapshots.readSessionHistory(before.persistence!, { provider, cwd: workdir }),
+        );
+      const tail = await reader.fetchSavedTimeline(id, { limit: 1 }, loadHistory);
+      expect(tail.rows.map((row) => row.item)).toMatchObject([
+        { type: "assistant_message", text: "The next step is validation" },
+      ]);
+      const older = await reader.fetchSavedTimeline(
+        id,
+        {
+          direction: "before",
+          cursor: { epoch: tail.epoch, seq: tail.startSeq! },
+          limit: 1,
+        },
+        loadHistory,
+      );
+      expect(older.epoch).toBe(tail.epoch);
+      expect(older.staleCursor).toBe(false);
+      expect(older.rows.map((row) => row.item)).toMatchObject([
+        { type: "user_message", text: "Preserve my approved plan" },
+      ]);
+      expect(reader.getAgent(id)).toBeNull();
+      expect(await storage.get(id)).toEqual(before);
+      expect(codex.created).toHaveLength(0);
+      expect(codex.resumed).toHaveLength(0);
+      expect(queueChanges).toBe(0);
+      expect(await queueStore.read(id)).toEqual(queueBefore);
+      expect(
+        readdirSync(queueRoot).map((file) => readFileSync(join(queueRoot, file), "utf8")),
+      ).toEqual(queueFilesBefore);
+      appendFileSync(
+        join(transcriptDir, `${sessionId}.jsonl`),
+        "\n" +
+          JSON.stringify({
+            type: "assistant",
+            uuid: randomUUID(),
+            sessionId,
+            cwd: workdir,
+            message: { role: "assistant", content: "New saved result" },
+          }),
+      );
+      const changed = await reader.fetchSavedTimeline(
+        id,
+        {
+          direction: "before",
+          cursor: { epoch: tail.epoch, seq: tail.startSeq! },
+          limit: 1,
+        },
+        loadHistory,
+      );
+      expect(changed.epoch).not.toBe(tail.epoch);
+      expect(changed.staleCursor).toBe(true);
+      expect(changed.reset).toBe(true);
+      expect(changed.rows.map((row) => row.item)).toMatchObject([
+        { type: "assistant_message", text: "New saved result" },
+      ]);
+      expect(queueChanges).toBe(0);
+      expect(await queueStore.read(id)).toEqual(queueBefore);
+      // Positive control: these same rows really can reconcile the uncertain message.
+      await queue.read(id);
+      const reconciliation = await queueStore.reconcileHistory(
+        id,
+        (await loadHistory()).map((row) => ({
+          type: "timeline",
+          provider,
+          item: row.item,
+          timestamp: row.timestamp,
+        })),
+      );
+      expect(reconciliation.changed).toBe(true);
       codex.createError = new Error("Replacement failed");
       await expect(
         switchAgentProfileCommand(
@@ -449,3 +560,29 @@ test("recovery refuses a stale source and unreadable transcript without changing
     cleanup();
   }
 });
+
+test.each(["opencode", "opencode-retired"])(
+  "refuses unsafe native history for %s before creating a client",
+  async (provider) => {
+    const snapshots = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      providerOverrides: {
+        "opencode-retired": {
+          extends: "opencode",
+          label: "Retired OpenCode",
+          enabled: false,
+          removed: true,
+        },
+      },
+    });
+    try {
+      const history = snapshots.readSessionHistory(
+        { provider, sessionId: "must-not-resume" },
+        { provider, cwd: "/nonexistent-history-reader" },
+      );
+      await expect(history.next()).rejects.toThrow("Saved OpenCode history cannot be read safely");
+    } finally {
+      await snapshots.shutdown();
+    }
+  },
+);

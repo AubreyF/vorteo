@@ -87,8 +87,7 @@ buildNpmPackage {
     # to phone home during the build.
     CI = "1";
   } // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
-    # Metro's generated protocol validator exceeds Node's default 2 GiB heap
-    # on macOS. Bound export concurrency below while allowing a 4 GiB heap.
+    # Keep build diagnostics; the renderer export gets its own heap below.
     # Preserve Node's fatal-error reason when a Metro worker aborts in CI.
     # Reports omit environment variables and network interface information.
     NODE_OPTIONS = "--max-old-space-size=4096 --report-on-fatalerror --report-exclude-env --report-exclude-network --report-filename=stderr";
@@ -106,8 +105,13 @@ buildNpmPackage {
     # App workspace deps not covered by build:server
     npm run build --workspace=@getpaseo/expo-two-way-audio
 
-    # Expo web export for the Electron renderer
-    ( cd packages/app && PASEO_WEB_PLATFORM=electron npx expo export --platform web ${lib.optionalString stdenv.hostPlatform.isDarwin "--max-workers 2"} )
+    # Expo web export for the Electron renderer. Match the browser export heap;
+    # append last so inherited heap limits cannot override it.
+    (
+      cd packages/app &&
+        NODE_OPTIONS="''${NODE_OPTIONS:-} --max-old-space-size=8192" \
+          PASEO_WEB_PLATFORM=electron npx expo export --platform web ${lib.optionalString stdenv.hostPlatform.isDarwin "--max-workers 2"}
+    )
 
     # Desktop main process
     npm run build:main --workspace=@getpaseo/desktop

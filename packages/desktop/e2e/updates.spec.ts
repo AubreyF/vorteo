@@ -1,8 +1,12 @@
+import { buildOpenProjectRoute } from "../../app/src/utils/host-routes";
+import type { Locator, Page, TestInfo } from "@playwright/test";
 import { expect, test } from "../../app/e2e/support/fixtures";
 import { gotoAppShell, openSettings } from "../../app/e2e/support/helpers/app";
 import { getServerId } from "../../app/e2e/support/helpers/server-id";
 import {
   openHostSection,
+  openCompactSettings,
+  revealSettingsLocation,
   openSettingsHost,
   seedSavedSettingsHosts,
 } from "../../app/e2e/support/helpers/settings";
@@ -12,9 +16,6 @@ import {
   openDesktopAboutSettings,
   openDesktopSettings,
   expectUpdateBanner,
-  clickCheckForUpdates,
-  expectPendingUpdateCheckResult,
-  expectReadyUpdateCheckResult,
   clickInstallUpdate,
   expectInstallInProgress,
   interceptDaemonManagementConfirmDialog,
@@ -27,6 +28,47 @@ import {
   expectDaemonStatusLogPath,
   expectDaemonStatusVersion,
 } from "./support/runtime";
+
+async function expectReadableAppUpdateRow(page: Page, testInfo: TestInfo): Promise<Locator> {
+  const row = page.getByText("App updates", { exact: true }).locator("../..");
+  await row.screenshot({ path: testInfo.outputPath("app-updates-row.png") });
+  const geometry = await row.evaluate((element) => {
+    const title = [...element.querySelectorAll("*")].find(
+      (node) => node.textContent === "App updates" && node.children.length === 0,
+    );
+    if (!title) throw new Error("App updates label missing");
+    const range = document.createRange();
+    range.selectNodeContents(title);
+    const label = title.getBoundingClientRect();
+    const bounds = element.getBoundingClientRect();
+    const buttons = [...element.querySelectorAll('[role="button"], button')].map((button) =>
+      button.getBoundingClientRect(),
+    );
+    return {
+      titleLines: range.getClientRects().length,
+      buttonCount: buttons.length,
+      contained: buttons.every(
+        (button) =>
+          button.left >= bounds.left &&
+          button.right <= bounds.right + 1 &&
+          button.top >= bounds.top &&
+          button.bottom <= bounds.bottom + 1,
+      ),
+      separateFromTitle: buttons.every(
+        (button) => button.left >= label.right || button.top >= label.bottom,
+      ),
+      noOverflow: element.scrollWidth <= element.clientWidth + 1,
+    };
+  });
+  expect(geometry).toEqual({
+    titleLines: 1,
+    buttonCount: 2,
+    contained: true,
+    separateFromTitle: true,
+    noOverflow: true,
+  });
+  return row;
+}
 
 // These renderer cases use the Desktop bridge fixture. Actual Electron ownership
 // and native confirmation journeys live in daemon-lifecycle.e2e.mjs.
@@ -63,42 +105,65 @@ test.describe("Desktop updates", () => {
     await expectInstallInProgress(page);
   });
 
-  // Product regression, reported to Builds on 2026-10-23: since 72919fc59 folded About into
-  // General, the App updates row squeezes its title to one letter per line when Check and
-  // Update both show, so the title is not visible. Remove the fixme once the row lays out.
-  test.fixme("manual check reports a found update while it downloads", async ({ page }) => {
-    await installDesktopRuntime(page, {
-      serverId: getServerId(),
-      updateAvailable: true,
-      latestVersion: "1.2.3",
-      updateReadyToInstall: false,
+  for (const viewport of [
+    { name: "desktop", width: 1280, height: 900 },
+    { name: "compact", width: 390, height: 844 },
+  ]) {
+    test.describe(viewport.name, () => {
+      test.use({ viewport: { width: viewport.width, height: viewport.height } });
+      test("manual check reports a found update while it downloads", async ({ page }, testInfo) => {
+        await installDesktopRuntime(page, {
+          serverId: getServerId(),
+          updateAvailable: true,
+          latestVersion: "1.2.3",
+          updateReadyToInstall: false,
+        });
+        await gotoAppShell(page);
+        if (viewport.name === "compact") {
+          await openCompactSettings(page, buildOpenProjectRoute());
+          await revealSettingsLocation(page, "about");
+          await page.getByText("App updates", { exact: true }).scrollIntoViewIfNeeded();
+        } else {
+          await openDesktopAboutSettings(page);
+        }
+        const row = await expectReadableAppUpdateRow(page, testInfo);
+        await row.getByRole("button", { name: "Check", exact: true }).click();
+
+        await expect(row).toContainText("Update found: v1.2.3. Downloading...");
+        await expect(row.getByText("Ready to install: v1.2.3")).toHaveCount(0);
+        await expect(row.getByRole("button", { name: "Update", exact: true })).toBeDisabled();
+        await expectReadableAppUpdateRow(page, testInfo);
+      });
+
+      test("manual update remains available after the automatic rollout recheck", async ({
+        page,
+      }, testInfo) => {
+        await installDesktopRuntime(page, {
+          serverId: getServerId(),
+          latestVersion: "1.2.3",
+          manualUpdateBypassesRollout: true,
+        });
+        await gotoAppShell(page);
+        if (viewport.name === "compact") {
+          await openCompactSettings(page, buildOpenProjectRoute());
+          await revealSettingsLocation(page, "about");
+          await page.getByText("App updates", { exact: true }).scrollIntoViewIfNeeded();
+        } else {
+          await openDesktopAboutSettings(page);
+        }
+        const row = await expectReadableAppUpdateRow(page, testInfo);
+        await row.getByRole("button", { name: "Check", exact: true }).click();
+        await expect(row).toContainText("Update found: v1.2.3. Downloading...");
+        await expect(row.getByText("Ready to install: v1.2.3")).toHaveCount(0);
+        await expect(row.getByRole("button", { name: "Update", exact: true })).toBeDisabled();
+        await expect(row.getByText("Ready to install: v1.2.3")).toBeVisible({ timeout: 15_000 });
+        await expect(
+          row.getByRole("button", { name: "Update to v1.2.3", exact: true }),
+        ).toBeEnabled();
+        await expectReadableAppUpdateRow(page, testInfo);
+      });
     });
-    await gotoAppShell(page);
-    await openDesktopAboutSettings(page);
-
-    await clickCheckForUpdates(page);
-
-    await expectPendingUpdateCheckResult(page, "1.2.3");
-  });
-
-  // Product regression, reported to Builds on 2026-10-23: since 72919fc59 folded About into
-  // General, the App updates row squeezes its title to one letter per line when Check and
-  // Update both show, so the title is not visible. Remove the fixme once the row lays out.
-  test.fixme("manual update remains available after the automatic rollout recheck", async ({
-    page,
-  }) => {
-    await installDesktopRuntime(page, {
-      serverId: getServerId(),
-      latestVersion: "1.2.3",
-      manualUpdateBypassesRollout: true,
-    });
-    await gotoAppShell(page);
-    await openDesktopAboutSettings(page);
-
-    await clickCheckForUpdates(page);
-    await expectPendingUpdateCheckResult(page, "1.2.3");
-    await expectReadyUpdateCheckResult(page, "1.2.3");
-  });
+  }
 });
 
 test.describe("Desktop daemon management", () => {

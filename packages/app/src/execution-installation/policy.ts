@@ -1,3 +1,4 @@
+import { reportBootFailure } from "@/appearance/boot-failure";
 import {
   validateExecutionInstallation,
   type ExecutionInstallation,
@@ -12,8 +13,15 @@ export function readExecutionInstallation(): ExecutionInstallation | null {
   if (!isWeb || typeof window === "undefined") return null;
   const descriptor: unknown = Reflect.get(globalThis, "__VORTEO_EXECUTION_INSTALLATION__");
   if (descriptor === undefined) return null;
-  const installation = validateExecutionInstallation(descriptor);
+  let installation: ExecutionInstallation;
+  try {
+    installation = validateExecutionInstallation(descriptor);
+  } catch (error) {
+    reportBootFailure("installation-invalid");
+    throw error;
+  }
   if (installation.origin !== window.location.origin) {
+    reportBootFailure("installation-origin-mismatch");
     throw new Error("Installation descriptor does not belong to this origin");
   }
   return installation;

@@ -278,6 +278,13 @@ export function getDaemonAuthFailureReason(error: unknown): DaemonAuthFailureRea
   return error instanceof DaemonAuthenticationError ? error.reason : null;
 }
 
+function isServerShutdownClose(event: unknown): boolean {
+  if (!event || typeof event !== "object" || !("code" in event) || !("reason" in event)) {
+    return false;
+  }
+  return event.code === WS_CLOSE_SERVER_SHUTDOWN && event.reason === SERVER_SHUTDOWN_CLOSE_REASON;
+}
+
 function authFailureFromLegacyClose(event: unknown): DaemonAuthFailureReason | null {
   if (!event || typeof event !== "object" || !("reason" in event)) return null;
   if (event.reason === "Password required") return "password_required";
@@ -1137,6 +1144,12 @@ function toTimeoutError(error: unknown, label: string, timeoutMs: number): Error
 
 const DEFAULT_RECONNECT_BASE_DELAY_MS = 1500;
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 30000;
+// A daemon that announced its shutdown is usually a worker swap that returns within seconds, so
+// the client polls briefly instead of backing off past the moment the replacement listens.
+const RESTART_RECONNECT_INTERVAL_MS = 500;
+const RESTART_RECONNECT_WINDOW_MS = 60_000;
+const WS_CLOSE_SERVER_SHUTDOWN = 1001;
+const SERVER_SHUTDOWN_CLOSE_REASON = "Server shutting down";
 // Closing one native session and starting another can take longer than an ordinary RPC.
 const PROFILE_SWITCH_TIMEOUT_MS = 120_000;
 
@@ -1356,6 +1369,8 @@ export class DaemonClient {
   private connectTimeout: ReturnType<typeof setTimeout> | null = null;
   private pendingGenericTransportErrorTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
+  /** Set when the daemon announces a shutdown; cleared by the next successful connection. */
+  private restartReconnectUntil: number | null = null;
   private shouldReconnect = true;
   private connectPromise: Promise<void> | null = null;
   private connectResolve: (() => void) | null = null;
@@ -1552,6 +1567,11 @@ export class DaemonClient {
             this.pendingGenericTransportErrorTimeout = null;
           }
           this.authFailureReasonValue ??= authFailureFromLegacyClose(event);
+          // The window opens once per restart, so a daemon that keeps refusing while it starts
+          // cannot hold the client in fast polling.
+          if (this.restartReconnectUntil === null && isServerShutdownClose(event)) {
+            this.restartReconnectUntil = Date.now() + RESTART_RECONNECT_WINDOW_MS;
+          }
           const reason = this.authFailureReasonValue
             ? new DaemonAuthenticationError(this.authFailureReasonValue).message
             : describeTransportClose(event);
@@ -3517,13 +3537,15 @@ export class DaemonClient {
 
   async listAgentTimelinePrompts(
     agentId: string,
-    options: { requestId?: string; timeout?: number } = {},
+    options: { requestId?: string; timeout?: number; afterSeq?: number } = {},
   ): Promise<AgentTimelinePromptIndexPayload> {
     const requestId = this.createRequestId(options.requestId);
+    // Callers send afterSeq only to daemons advertising agentTimelinePromptIndexAfterSeq.
     const message = SessionInboundMessageSchema.parse({
       type: "agent.timeline.list_prompts.request",
       agentId,
       requestId,
+      ...(options.afterSeq === undefined ? {} : { afterSeq: options.afterSeq }),
     });
     const payload = await this.sendRequest({
       requestId,
@@ -7847,8 +7869,15 @@ export class DaemonClient {
     const attempt = this.reconnectAttempt;
     const baseDelay = this.config.reconnect?.baseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS;
     const maxDelay = this.config.reconnect?.maxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS;
-    const delay = Math.min(baseDelay * 2 ** attempt, maxDelay);
-    this.reconnectAttempt = attempt + 1;
+    const restarting =
+      this.restartReconnectUntil !== null && Date.now() < this.restartReconnectUntil;
+    let delay: number;
+    if (restarting) {
+      delay = Math.min(baseDelay, RESTART_RECONNECT_INTERVAL_MS);
+    } else {
+      delay = Math.min(baseDelay * 2 ** attempt, maxDelay);
+      this.reconnectAttempt = attempt + 1;
+    }
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
       if (!this.shouldReconnect) {
@@ -7945,6 +7974,7 @@ export class DaemonClient {
         if (this.connectionState.status === "connecting") {
           this.resetConnectTimeout();
           this.reconnectAttempt = 0;
+          this.restartReconnectUntil = null;
           this.updateConnectionState({ status: "connected" }, { event: "HELLO_SERVER_INFO" });
           this.startLivenessHeartbeat();
           this.owned.restore(serverInfo, {

@@ -339,3 +339,41 @@ describe("workspaces", () => {
     ).toMatchObject({ container: "folder:bugs", index: 0, beforeKey: "w1" });
   });
 });
+
+describe("focused lists", () => {
+  // Focused on root folder "work": its contents are the top level, rebased to depth 0.
+  const focused: SidebarDropRow[] = [
+    row("alpha", "project", 0, { expanded: false }),
+    row("folder:client", "rootFolder", 0),
+    row("beta", "project", 1, { expanded: false }),
+  ];
+  const top = { key: "folder:work", kind: "rootFolder", projectKey: null, section: null } as const;
+
+  test("a depth-0 drop lands in the focused folder", () => {
+    const placement = resolve({
+      rows: focused,
+      top,
+      dragged: project("beta"),
+      overKey: "alpha",
+      overFraction: 0.1,
+    });
+    expect(placement).toMatchObject({
+      mode: "between",
+      container: "folder:work",
+      depth: 0,
+      beforeKey: "alpha",
+    });
+  });
+
+  test("one indent unit to the right nests inside a focused child folder", () => {
+    const placement = resolve({
+      rows: focused,
+      top,
+      dragged: project("alpha"),
+      overKey: "beta",
+      overFraction: 0.9,
+      pointerX: U,
+    });
+    expect(placement).toMatchObject({ container: "folder:client", depth: 1 });
+  });
+});

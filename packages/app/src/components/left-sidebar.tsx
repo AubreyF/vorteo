@@ -78,7 +78,7 @@ import {
   FLOATING_PANEL_CONTROL_HEIGHT,
   floatingPanelStyles,
 } from "@/styles/floating-panel";
-import { SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
+import { COMPACT_RAIL_MARGIN, SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
 import {
@@ -126,6 +126,7 @@ import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 import { useCreateSidebarFolderAction } from "@/sidebar-folders/actions";
 import { ROOT_FOLDER_SCOPE } from "@/sidebar-folders/tree";
+import { focusSidebarProject } from "@/sidebar-focus/context";
 
 type SidebarTheme = Theme;
 
@@ -987,15 +988,14 @@ function DesktopSidebar({
     setCompact(false);
   }, [setCompact]);
   const showAllProjects = useSidebarViewStore((state) => state.clearProjectFilters);
+  // "Show project in sidebar" does what the project row's Focus button does, then expands
+  // the sidebar so the focused view is visible.
   const selectRailProject = useCallback(
     (key: string) => {
-      // Use the same projection as the sidebar filters so pinned rows, status groups
-      // and keyboard shortcuts all follow the chosen project.
-      useSidebarViewStore.setState({ projectFilters: [key] });
-      if (collapsedProjectKeys.has(key)) toggleProjectCollapsed(key);
+      focusSidebarProject(key);
       setCompact(false);
     },
-    [collapsedProjectKeys, setCompact, toggleProjectCollapsed],
+    [setCompact],
   );
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
   const { width: viewportWidth } = useWindowDimensions();
@@ -1179,6 +1179,7 @@ function DesktopSidebar({
                 workspaceEntries={workspaceEntriesByKey}
                 projects={projects}
                 onSelectProject={selectRailProject}
+                onFocused={expandSidebar}
               />
             </>
           ) : (
@@ -1273,7 +1274,8 @@ const staticStyles = RNStyleSheet.create({
 const styles = StyleSheet.create((theme) => ({
   narrowNavigation: { gap: 2, padding: 2 },
   narrowNavigationRow: { justifyContent: "flex-start", minHeight: 36 },
-  railToolbar: { alignItems: "center", gap: 0, paddingTop: 2 },
+  // The same margin sits above the first button as on either side of it.
+  railToolbar: { alignItems: "center", gap: 0, paddingTop: COMPACT_RAIL_MARGIN },
   sidebarContent: {
     flex: 1,
     minHeight: 0,

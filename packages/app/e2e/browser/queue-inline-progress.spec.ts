@@ -68,15 +68,27 @@ for (const width of [1133, 1600, 390]) {
       await page.evaluate(() => {
         const original = WebSocket.prototype.send;
         const held: (() => void)[] = [];
+        let holding = true;
         WebSocket.prototype.send = function (data) {
           if (
+            holding &&
             typeof data === "string" &&
             JSON.parse(data).message?.type === "agent.queue.mutate.request"
           )
             held.push(() => original.call(this, data));
           else original.call(this, data);
         };
-        Object.assign(window, { releaseQueue: () => held.splice(0).forEach((send) => send()) });
+        Object.assign(window, {
+          heldQueueRequests: () => held.length,
+          // Stop holding first: a request the outbox flushes after release must go through.
+          releaseQueue: () => {
+            holding = false;
+            held.splice(0).forEach((send) => send());
+          },
+          holdQueue: () => {
+            holding = true;
+          },
+        });
       });
       await fillComposerDraft(page, "Saving this queued message");
       await page.getByRole("textbox", { name: "Message agent..." }).first().press("Meta+Enter");
@@ -84,6 +96,15 @@ for (const width of [1133, 1600, 390]) {
         .getByTestId(/^queue-message-/)
         .filter({ hasText: "Saving this queued message" });
       await expect(saving.getByTestId("queue-local-indicator")).toBeVisible();
+      // The outbox commits locally before it sends, so the indicator can show before the request
+      // leaves. Release only once it is actually held.
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            (window as unknown as { heldQueueRequests(): number }).heldQueueRequests(),
+          ),
+        )
+        .toBeGreaterThan(0);
       await page.evaluate(() => (window as unknown as { releaseQueue(): void }).releaseQueue());
       await expect
         .poll(async () => (await client.readMessageQueue(agent.agentId)).snapshot?.items.length)
@@ -94,6 +115,8 @@ for (const width of [1133, 1600, 390]) {
       const countBefore = await first.getByRole("button").count();
       const send = first.getByRole("button", { name: "Send queued message now", exact: true });
       await expect(send).toBeEnabled();
+      // Hold Send now so the row stays in its sending state while it is measured.
+      await page.evaluate(() => (window as unknown as { holdQueue(): void }).holdQueue());
       await send.click();
       await expect(first.getByTestId("queue-send-progress")).toBeVisible();
       expect((await first.boundingBox())!.height).toBeCloseTo(before.height, 0);

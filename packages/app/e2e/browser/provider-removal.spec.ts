@@ -42,18 +42,29 @@ async function expectProviderSource(
 }
 
 async function clickRemoveProviderAndAcceptWarning(page: Page): Promise<Dialog> {
-  let warning: Dialog | undefined;
-  page.once("dialog", (dialog) => {
-    warning = dialog;
-    expect(dialog.message()).toContain(`Remove ${CUSTOM_PROVIDER.name}?`);
-    // The confirmation explains what happens to the connection's credentials.
-    expect(dialog.message()).toContain("Delete this connection?");
-    void dialog.accept();
+  // The confirmation blocks the page until accepted, so accept it in the handler. On a busy page
+  // it can arrive after the click returns, so wait for it rather than checking right away (CI run
+  // 40290226521).
+  const shown = new Promise<Dialog>((resolve) => {
+    page.once("dialog", (dialog) => {
+      void dialog.accept();
+      resolve(dialog);
+    });
   });
   await page.getByTestId(`provider-remove-${CUSTOM_PROVIDER.id}`).click();
-  if (!warning) {
-    throw new Error("Expected a provider removal confirmation dialog, but none was shown.");
-  }
+  const warning = await Promise.race([
+    shown,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(new Error("Expected a provider removal confirmation dialog, but none was shown.")),
+        10_000,
+      ),
+    ),
+  ]);
+  expect(warning.message()).toContain(`Remove ${CUSTOM_PROVIDER.name}?`);
+  // The confirmation explains what happens to the connection's credentials.
+  expect(warning.message()).toContain("Delete this connection?");
   return warning;
 }
 

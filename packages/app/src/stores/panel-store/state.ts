@@ -58,9 +58,19 @@ export interface DesktopSidebarState {
 export type SortOption = "name" | "modified" | "size";
 
 export const DEFAULT_SIDEBAR_WIDTH = 320;
-export const MIN_SIDEBAR_WIDTH = 56;
+/** The compact rail's buttons: Expand sidebar, search, project initials and the menu. */
+export const COMPACT_RAIL_BUTTON_SIZE = 44;
+/**
+ * Space between the rail's inner edge and its buttons, the same above the first button and on
+ * either side of every button.
+ */
+export const COMPACT_RAIL_MARGIN = 2;
+/** The floating panel's border, which the rail's width includes. */
+const COMPACT_RAIL_BORDER = 1;
+export const COMPACT_SIDEBAR_WIDTH =
+  COMPACT_RAIL_BUTTON_SIZE + 2 * COMPACT_RAIL_MARGIN + 2 * COMPACT_RAIL_BORDER;
+export const MIN_SIDEBAR_WIDTH = COMPACT_SIDEBAR_WIDTH;
 export const MAX_SIDEBAR_WIDTH = 600;
-export const COMPACT_SIDEBAR_WIDTH = 56;
 export const SIDEBAR_COMPACT_SNAP_WIDTH = 160;
 export const COMPACT_LABELED_SIDEBAR_WIDTH = 240;
 export const SIDEBAR_OUTER_GAP = 8;

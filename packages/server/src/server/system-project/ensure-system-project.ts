@@ -41,6 +41,8 @@ export interface EnsureSystemProjectResult {
   createdProject: boolean;
   created: string[];
   adopted: string[];
+  /** Role workspaces whose title was brought back to the manifest's. */
+  retitled: string[];
   retired: string[];
   absorbed: string[];
   archivedProjects: string[];
@@ -108,6 +110,7 @@ async function ensureUnlocked(input: EnsureSystemProjectInput): Promise<EnsureSy
     createdProject,
     created: [],
     adopted: [],
+    retitled: [],
     retired: [],
     absorbed: [],
     archivedProjects: [],
@@ -121,7 +124,11 @@ async function ensureUnlocked(input: EnsureSystemProjectInput): Promise<EnsureSy
   );
 
   for (const role of roles) {
-    if (members.some((member) => member.systemMembership?.role === role.role)) continue;
+    const member = members.find((candidate) => candidate.systemMembership?.role === role.role);
+    if (member) {
+      await retitleMember(input, member, role, result, now);
+      continue;
+    }
     const adoptId = config.adopt?.[role.role];
     const candidate = adoptId ? workspaces.find((w) => w.workspaceId === adoptId) : undefined;
     const refusal = adoptId ? adoptionRefusal(candidate) : null;
@@ -164,15 +171,7 @@ async function ensureUnlocked(input: EnsureSystemProjectInput): Promise<EnsureSy
     result.retired.push(member.workspaceId);
   }
 
-  if (
-    result.createdProject ||
-    result.created.length ||
-    result.adopted.length ||
-    result.retired.length ||
-    result.absorbed.length ||
-    result.archivedProjects.length
-  )
-    input.logger.info(result, "Vorteo System project reconciled");
+  if (changedAnything(result)) input.logger.info(result, "Vorteo System project reconciled");
   return result;
 }
 
@@ -301,6 +300,40 @@ async function ensureProject(
   };
   await input.projectRegistry.writeSystemProject(project);
   return { project, createdProject: true };
+}
+
+function changedAnything(result: EnsureSystemProjectResult): boolean {
+  return (
+    result.createdProject ||
+    [
+      result.created,
+      result.adopted,
+      result.retitled,
+      result.retired,
+      result.absorbed,
+      result.archivedProjects,
+    ].some((ids) => ids.length > 0)
+  );
+}
+
+/**
+ * System workspaces cannot be renamed, so the manifest is the only source of a title.
+ * Carries a manifest rename onto a workspace created under the old title.
+ */
+async function retitleMember(
+  input: EnsureSystemProjectInput,
+  member: PersistedWorkspaceRecord,
+  role: SystemRole,
+  result: EnsureSystemProjectResult,
+  now: () => string,
+): Promise<void> {
+  if (member.title === role.title) return;
+  await input.workspaceRegistry.writeSystemWorkspace({
+    ...member,
+    title: role.title,
+    updatedAt: now(),
+  });
+  result.retitled.push(member.workspaceId);
 }
 
 function adoptionRefusal(candidate: PersistedWorkspaceRecord | undefined): string | null {

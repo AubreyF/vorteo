@@ -79,6 +79,28 @@ elif args[0]=='compose' and '--url' in args: print('https://test.example.ts.net'
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.deployment.exists())
 
+    def test_host_loopback_port_publishes_only_on_loopback(self):
+        self.env['PASEO_HOST_LOOPBACK_PORT'] = '6768'
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        override = json.loads((self.deployment / 'host-loopback.compose.json').read_text())
+        service = override['services']['paseo']
+        self.assertEqual(service['environment'], {'PASEO_LISTEN': '0.0.0.0:6767'})
+        self.assertEqual(service['ports'], [{'host_ip': '127.0.0.1', 'published': '6768', 'target': 6767, 'protocol': 'tcp'}])
+        up = [call for call in self.calls() if call[0] == 'compose' and 'up' in call][-1]
+        self.assertIn(str(self.deployment / 'host-loopback.compose.json'), up)
+
+    def test_default_install_publishes_no_host_port(self):
+        self.assertEqual(self.install().returncode, 0)
+        self.assertFalse((self.deployment / 'host-loopback.compose.json').exists())
+
+    def test_host_loopback_port_rejects_invalid_ports_before_creating_state(self):
+        for port in ['80', '70000', '6768; touch bad', '0']:
+            self.env['PASEO_HOST_LOOPBACK_PORT'] = port
+            result = self.install()
+            self.assertNotEqual(result.returncode, 0, port)
+            self.assertFalse(self.deployment.exists())
+
     def test_default_builds_checkout_without_registry(self):
         result = subprocess.run(['bash', str(SOURCE / 'install.sh'), str(self.deployment)], env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

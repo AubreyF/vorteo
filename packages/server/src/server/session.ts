@@ -2187,7 +2187,9 @@ export class Session {
 
   private buildStoredAgentPayload(
     record: StoredAgentRecord,
-    registeredProviderIds = new Set(this.providerSnapshotManager.listRegisteredProviderIds()),
+    registeredProviderIds = new Set(
+      this.providerSnapshotManager.listRegisteredProviderIds({ enabledOnly: true }),
+    ),
   ): AgentSnapshotPayload {
     return buildStoredAgentPayload(record, registeredProviderIds);
   }
@@ -6323,7 +6325,9 @@ export class Session {
     // (excluding internal agents which are for ephemeral system tasks)
     const registryRecords = await this.agentStorage.list();
     const liveIds = new Set(agentSnapshots.map((a) => a.id));
-    const registeredProviderIds = new Set(this.providerSnapshotManager.listRegisteredProviderIds());
+    const registeredProviderIds = new Set(
+      this.providerSnapshotManager.listRegisteredProviderIds({ enabledOnly: true }),
+    );
     const persistedAgents = registryRecords
       .filter((record) => !liveIds.has(record.id) && !record.internal)
       // Keep raw-record filters ahead of projection; seeded homes can carry thousands of archived agents.
@@ -8866,7 +8870,9 @@ export class Session {
       const record = this.agentManager.getAgent(msg.agentId)
         ? null
         : await this.agentStorage.get(msg.agentId);
-      const registeredProviders = this.providerSnapshotManager.listRegisteredProviderIds();
+      const registeredProviders = this.providerSnapshotManager.listRegisteredProviderIds({
+        enabledOnly: true,
+      });
       const savedOnly = record && !isStoredAgentProviderAvailable(record, registeredProviders);
       const agentPayload = savedOnly
         ? this.buildStoredAgentPayload(record, new Set(registeredProviders))
@@ -8879,7 +8885,18 @@ export class Session {
           );
       const fetchOptions = { direction, cursor, limit: pageLimit };
       const fetchedControlTimeline = savedOnly
-        ? await this.agentManager.fetchSavedTimeline(msg.agentId, fetchOptions)
+        ? await this.agentManager.fetchSavedTimeline(msg.agentId, fetchOptions, () =>
+            this.agentManager.readStoredSwitchHistory(
+              record,
+              record.persistence
+                ? this.providerSnapshotManager.readSessionHistory(record.persistence, {
+                    ...buildConfigOverrides(record),
+                    provider: record.provider,
+                    cwd: record.cwd,
+                  })
+                : (async function* () {})(),
+            ),
+          )
         : this.agentManager.fetchTimeline(msg.agentId, fetchOptions);
       const selectedTimeline = {
         timeline: fetchedControlTimeline,
@@ -9062,7 +9079,7 @@ export class Session {
         direction: "tail",
         limit: 1,
       });
-      const index = buildTimelinePromptIndex(timeline.epoch, rows);
+      const index = buildTimelinePromptIndex(timeline.epoch, rows, msg.afterSeq);
       this.emitForSource(
         {
           type: "agent.timeline.list_prompts.response",

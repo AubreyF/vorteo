@@ -149,6 +149,15 @@ class Runtime:
         # A PID alone can be reused, including across a container restart.
         code = r"""
 const fs=require('node:fs');const path=require('node:path');const found=[];
+const crypto=require('node:crypto');const replaced=new Map();
+// A program whose file was replaced keeps running the old inode, shown as "(deleted)". Accept it
+// only when the file now at that path is byte-identical; anything else fails closed.
+const exe=pid=>{const link=fs.readlinkSync(`/proc/${pid}/exe`);if(!link.endsWith(' (deleted)'))return fs.realpathSync(`/proc/${pid}/exe`);
+  const current=fs.realpathSync(link.slice(0,-' (deleted)'.length));const key=`${link}:${fs.statSync(`/proc/${pid}/exe`).ino}`;
+  const digest=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  if(!replaced.has(key))replaced.set(key,digest(`/proc/${pid}/exe`)===digest(current));
+  if(!replaced.get(key))process.exit(1);
+  return current;};
 const home=process.env.PASEO_HOME||path.join(require('node:os').homedir(),'.paseo');
 const ownerFile=path.join(home,'paseo.pid');
 const ownerText=fs.readFileSync(ownerFile,'utf8');
@@ -170,7 +179,7 @@ if(fs.existsSync(markerFile)){
   if(!selected.startsWith(marker.root+path.sep))process.exit(1);
   entry=path.join(selected,'packages/server/dist/server/server/daemon-worker.js');
   if(fs.realpathSync(entry)!==entry)process.exit(1);
-  node=fs.realpathSync(`/proc/${owner}/exe`);
+  node=exe(owner);
 }
 for(const pid of fs.readdirSync('/proc').filter(p=>/^\d+$/.test(p))){
   try{
@@ -182,7 +191,7 @@ for(const pid of fs.readdirSync('/proc').filter(p=>/^\d+$/.test(p))){
     if(marker){
       if(parent!==owner)continue;
       const argv=fs.readFileSync(`/proc/${pid}/cmdline`,'utf8').split('\0');
-      if(argv.pop()!==''||argv.length!==2||argv[1]!==entry||fs.realpathSync(argv[0])!==node||fs.realpathSync(`/proc/${pid}/exe`)!==node)continue;
+      if(argv.pop()!==''||argv.length!==2||argv[1]!==entry||fs.realpathSync(argv[0])!==node||exe(pid)!==node)continue;
     }else if(!/^Name:\s+Paseo Daemon$/m.test(status)||(Number(pid)!==owner&&parent!==owner))continue;
     found.push({pid,ticks,value:`${boot}:${pid}:${ticks}`});
   }catch(e){if(!['ENOENT','EACCES','ESRCH'].includes(e.code))throw e;}

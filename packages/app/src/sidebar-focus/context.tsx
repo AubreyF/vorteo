@@ -1,41 +1,29 @@
-import { createContext, useCallback, useContext, useMemo, useRef } from "react";
-import { isNative, isWeb } from "@/constants/platform";
+import { createContext, useCallback, useContext, useMemo } from "react";
+import { isNative } from "@/constants/platform";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
-import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import {
   isSameSidebarFocus,
   resolveSidebarFocus,
-  sidebarFocusAncestors,
+  sidebarRowFocusVisibility,
+  storedSidebarFocus,
   type SidebarFocusTarget,
   type SidebarFocusWorld,
 } from "./model";
 import { useSidebarFocusStore } from "./store";
-
-/** Marks the element whose keyboard focus lets Escape leave sidebar focus. */
-export const SIDEBAR_FOCUS_SCOPE = { sidebarFocusScope: "" } as const;
+import { useSidebarFolderStore } from "@/sidebar-folders/store";
 
 export interface SidebarFocusController {
   /** The item shown as the top level, after falling back from removed items. */
   focus: SidebarFocusTarget | null;
   focusOn: (target: SidebarFocusTarget | null) => void;
-  /** True once after a user changes focus, so the breadcrumb can take keyboard focus. */
-  takeKeyboardFocusRequest: () => boolean;
 }
 
 const SidebarFocusContext = createContext<SidebarFocusController | null>(null);
 
 export const SidebarFocusProvider = SidebarFocusContext.Provider;
 
-function isKeyboardFocusInSidebar(): boolean {
-  if (!isWeb || typeof document === "undefined") return false;
-  return document.activeElement?.closest("[data-sidebar-focus-scope]") != null;
-}
-
-/**
- * Owns sidebar focus for one project-mode list. Escape leaves focus while keyboard focus is
- * inside the sidebar; elsewhere Escape keeps its usual meaning, such as interrupting an agent.
- */
+/** Owns sidebar focus for one project-mode list. The breadcrumb is the only way out. */
 export function useSidebarFocusController(input: {
   world: SidebarFocusWorld;
   enabled: boolean;
@@ -43,40 +31,35 @@ export function useSidebarFocusController(input: {
   const { world, enabled } = input;
   const stored = useSidebarFocusStore((state) => state.focus);
   const setFocus = useSidebarFocusStore((state) => state.setFocus);
-  const keyboardFocusRequestRef = useRef(false);
   const focus = useMemo(
     () => (enabled ? resolveSidebarFocus(stored, world) : null),
     [enabled, stored, world],
   );
   const focusOn = useCallback(
     (target: SidebarFocusTarget | null) => {
-      keyboardFocusRequestRef.current = true;
-      setFocus(target ? { target, ancestors: sidebarFocusAncestors(target, world) } : null);
+      setFocus(target ? storedSidebarFocus(target, world) : null);
     },
     [setFocus, world],
   );
-  const takeKeyboardFocusRequest = useCallback(() => {
-    const requested = keyboardFocusRequestRef.current;
-    keyboardFocusRequestRef.current = false;
-    return requested;
-  }, []);
+  return useMemo(() => ({ focus, focusOn }), [focus, focusOn]);
+}
 
-  useKeyboardActionHandler({
-    handlerId: "sidebar-focus-exit",
-    actions: ["agent.interrupt"],
-    enabled: focus !== null,
-    priority: 400,
-    isActive: isKeyboardFocusInSidebar,
-    handle: () => {
-      focusOn(null);
-      return true;
-    },
-  });
-
-  return useMemo(
-    () => ({ focus, focusOn, takeKeyboardFocusRequest }),
-    [focus, focusOn, takeKeyboardFocusRequest],
-  );
+/**
+ * Focuses a project from outside the expanded list, such as the compact rail's flyout footer.
+ * It writes the same store, in the same shape, as the project row's Focus button; ancestors
+ * come from the stored folders, which is all a project's ancestry depends on.
+ */
+export function focusSidebarProject(projectKey: string): void {
+  const folders = useSidebarFolderStore.getState();
+  const world: SidebarFocusWorld = {
+    folders: folders.sidebarFolders,
+    itemFolder: folders.itemFolder,
+    projects: new Map(),
+    hiddenFolderIds: new Set(),
+  };
+  useSidebarFocusStore
+    .getState()
+    .setFocus(storedSidebarFocus({ kind: "project", projectKey }, world));
 }
 
 export function useSidebarFocus(): SidebarFocusController | null {
@@ -98,10 +81,13 @@ export function useSidebarFocusAction(target: SidebarFocusTarget): (() => void) 
 export interface SidebarRowFocus {
   /** The focused top level: it shows no arrow and does not fold away. */
   isRoot: boolean;
-  /** The hover button's action; null while not hovered and where hover is unavailable. */
+  /**
+   * The Focus button beside the row's ⋮ menu, under the condition that shows ⋮: on hover with
+   * a pointer, and always where rows cannot be hovered. Null while hidden.
+   */
   buttonAction: (() => void) | null;
-  /** The menu item's action, offered only where rows cannot be hovered. */
-  menuAction: (() => void) | null;
+  /** Hover with a pointer only, for a row showing no ⋮ menu, such as a folded project. */
+  hoverAction: (() => void) | null;
 }
 
 /** Focus affordances for a project or folder row. */
@@ -113,10 +99,13 @@ export function useSidebarRowFocus(input: {
   const compact = useIsCompactFormFactor();
   const context = useContext(SidebarFocusContext);
   const action = useSidebarFocusAction(input.target);
-  const hoverUnavailable = touch || compact || isNative;
+  const visibility = sidebarRowFocusVisibility({
+    isHovered: input.isHovered,
+    hoverUnavailable: touch || compact || isNative,
+  });
   return {
     isRoot: context ? isSameSidebarFocus(context.focus, input.target) : false,
-    buttonAction: input.isHovered && !hoverUnavailable ? action : null,
-    menuAction: hoverUnavailable ? action : null,
+    buttonAction: visibility.button ? action : null,
+    hoverAction: visibility.hoverOnly ? action : null,
   };
 }

@@ -84,11 +84,39 @@ Set the coordinator's `public.origin` to the exact new HTTPS origin and add that
 
 Optional `redirectOrigins` lists previous protected HTTPS origins. They redirect page navigation to the canonical origin, preserving paths and queries. They refuse API calls, including owner authentication. Update maintenance clients rather than sending credentials through a redirect. The new origin has separate browser storage, so authenticate there to register the existing environment connections. Preserve old storage and do not copy guest plugins, automation state or credentials into the protected interface.
 
+### Local installation access
+
+The coordinator can serve its installed interface at `http://127.0.0.1:<listenPort>`
+and `http://localhost:<listenPort>`. Only requests from loopback peers with the exact
+configured port qualify; requests carrying forwarding headers are rejected. A local
+proxy that strips those headers is indistinguishable from a direct client. The local
+descriptor uses the configured loopback Host daemon endpoint and preserves the Dev
+endpoint and both server identities. Public and private HTTPS descriptors are unchanged.
+
+Local access still requires the owner password. Its host-only, HttpOnly,
+SameSite=Strict cookie has a port-specific name and an origin-bound token hash.
+Browsers still send host-scoped cookies across ports. The port-specific name and
+origin-bound hash prevent reuse at another coordinator; they do not protect a token
+from another local service on the same hostname that receives it. The token cannot
+authorize the public origin or the other loopback hostname. Public sessions remain
+valid, and the retained session record schema is unchanged. Do not copy cookies, passwords or browser storage between origins.
+
+Before delivering local access, verify both daemons explicitly allow the two exact
+coordinator loopback origins through the supported configuration controls. The
+coordinator does not widen daemon CORS automatically. Verify authenticated Host
+and Dev connections in addition to HTML and login; successful descriptor or cookie
+tests alone do not prove the WebSocket path. Coordinator source installation and
+configuration activation still use tracked lifecycle controls.
+
+Fatal descriptor and render failures remain visible in startup diagnostics with
+Reload and Copy diagnostics. Only fixed failure classifications cross into the
+bootstrap diagnostic report; private exception text is not copied there.
+
 ## Setup on the host
 
 Use the [host handoff workflow](host-handoff.md). The container session prepares source and validation; the host session gathers current Docker mounts, daemon identities, private networking, provider setup and service-context macOS permissions. Do not infer current deployment details from an old report.
 
-Prerequisites are an existing container installation with an authenticated loopback endpoint, an authenticated host Tailscale installation, Node and npm, and an available signed-in macOS launchd session. The container origin allowlist must be explicit. The setup does not install Docker, Tailscale or provider accounts, and does not recreate or restart the primary container.
+Prerequisites are an existing container installation with an authenticated loopback endpoint (a new container installation gets one from `PASEO_HOST_LOOPBACK_PORT=<containerPort>` at install time), an authenticated host Tailscale installation, Node and npm, and an available signed-in macOS launchd session. The container origin allowlist must be explicit. The setup does not install Docker, Tailscale or provider accounts, and does not recreate or restart the primary container.
 
 Prepare a private JSON plan outside Git:
 

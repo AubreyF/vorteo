@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { assertBuildsCoordinator, isBuildsCoordinator } from "./lib/builds-guard.mjs";
-import { pushesMain } from "./guard-main-push.mjs";
+import { pushesMain, pushesReleaseTag, refusePush } from "./guard-main-push.mjs";
 
 const run = promisify(execFile);
 const withoutBuilds = Object.fromEntries(
@@ -24,10 +24,20 @@ test("only the builds coordinator passes the guard", () => {
   );
 });
 
-test("the pre-push guard recognizes pushes to main only", () => {
+test("the pre-push guard recognizes pushes to main and release tags", () => {
   assert.equal(pushesMain("refs/heads/x abc refs/heads/main def\n"), true);
   assert.equal(pushesMain("refs/heads/x abc refs/heads/feat/x def\n"), false);
   assert.equal(pushesMain(""), false);
+  assert.equal(pushesReleaseTag("refs/tags/release-9 abc refs/tags/release-9 def\n"), true);
+  assert.equal(pushesReleaseTag("refs/tags/v1 abc refs/tags/v1 def\n"), false);
+});
+
+test("main takes pull requests only, even from Builds; release tags need Builds", () => {
+  const builds = { VORTEO_BUILDS: "1" };
+  assert.match(refusePush("refs/heads/a 1 refs/heads/main 2\n", builds), /pull request/);
+  assert.match(refusePush("refs/tags/release-9 1 refs/tags/release-9 2\n", {}), /release tags/);
+  assert.equal(refusePush("refs/tags/release-9 1 refs/tags/release-9 2\n", builds), null);
+  assert.equal(refusePush("refs/heads/a 1 refs/heads/feat/a 2\n", {}), null);
 });
 
 test("the installation client refuses request commands outside Builds before reading config", async () => {
@@ -40,7 +50,7 @@ test("the installation client refuses request commands outside Builds before rea
   );
 });
 
-test("the pre-push hook refuses main outside Builds and allows task branches", async () => {
+test("the pre-push hook refuses main for everyone and allows task branches", async () => {
   const hook = path.resolve("scripts/guard-main-push.mjs");
   const push = (line, env) => {
     const child = execFile(process.execPath, [hook], { env });
@@ -51,7 +61,7 @@ test("the pre-push hook refuses main outside Builds and allows task branches", a
   assert.equal(await push("refs/heads/a 1 refs/heads/feat/a 2\n", withoutBuilds), 0);
   assert.equal(
     await push("refs/heads/a 1 refs/heads/main 2\n", { ...withoutBuilds, VORTEO_BUILDS: "1" }),
-    0,
+    1,
   );
 });
 

@@ -108,7 +108,7 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   const expandedWidth = (await sidebar.boundingBox())!.width;
   await expect(page.getByText("Compact", { exact: true })).toHaveCount(0);
   await page.getByTestId("sidebar-collapse").click();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(50);
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   const railProject = page
     .getByTestId("compact-project-rail")
@@ -449,7 +449,7 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await expect(cards).toBeHidden();
   await resizeAndSettle(page, { width: 800, height: 1000 });
   await expect(rail).toBeVisible();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(50);
   await expect(cards).toBeHidden();
   await rail.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
@@ -484,7 +484,7 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await resizeAndSettle(page, { width: 800, height: 1000 });
   await expect(rail).toBeVisible();
   await resizeAndSettle(page, { width: 1800, height: 1000 });
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(50);
   await expect(cards).toBeHidden();
 });
 
@@ -1070,7 +1070,7 @@ test("sidebar drags into a compact rail with persistent controls and interactive
   await expect(page.getByTestId("compact-project-rail")).toHaveCount(0);
   await dragTo(155);
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
-  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(56);
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(50);
   const ids = ["sidebar-expand", "sidebar-search", "sidebar-schedules", "sidebar-sessions"];
   let previous = -1;
   for (const id of ids) {
@@ -1138,6 +1138,73 @@ test("sidebar drags into a compact rail with persistent controls and interactive
     .poll(() => page.locator("body").evaluate((el) => getComputedStyle(el).backgroundColor))
     .toBe(before);
   await page.screenshot({ path: info.outputPath("sidebar-menu.png") });
+});
+
+test("compact rail keeps even margins and focuses projects from its flyout", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  const sidebar = page.getByTestId("floating-sidebar");
+  await page.getByTestId("sidebar-collapse").click();
+  await expect(page.getByTestId("compact-project-rail")).toBeVisible();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(50);
+  const railBox = (await sidebar.boundingBox())!;
+  const expandBox = (await page.getByTestId("sidebar-expand").boundingBox())!;
+  // Inside the 1px panel border, the first button's top margin matches its side margins.
+  const top = expandBox.y - railBox.y - 1;
+  const left = expandBox.x - railBox.x - 1;
+  const right = railBox.x + railBox.width - 1 - (expandBox.x + expandBox.width);
+  expect(Math.abs(left - top)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(right - top)).toBeLessThanOrEqual(0.5);
+  await page.screenshot({ path: info.outputPath("compact-rail-margins.png") });
+
+  const railProject = page
+    .getByTestId("compact-project-rail")
+    .getByRole("button", { name: /^Atlas,/ });
+  await railProject.hover();
+  const preview = page.getByTestId("project-rail-preview");
+  await expect(preview).toBeVisible();
+  const projectRow = preview.locator('[data-testid^="sidebar-project-row-"]').first();
+  await projectRow.hover();
+  await expect(preview.locator('[data-testid^="sidebar-project-focus-"]')).toBeVisible();
+  await page.screenshot({ path: info.outputPath("compact-rail-flyout-focus.png") });
+  const showInSidebar = preview.getByTestId("project-rail-show-in-sidebar");
+  await showInSidebar.hover();
+  await showInSidebar.click();
+  await expect(page.getByTestId("compact-project-rail")).toHaveCount(0);
+  await expect(page.getByTestId("sidebar-focus-breadcrumb")).toBeVisible();
+  await expect(page.getByTestId("sidebar-focus-current")).toHaveText("Atlas");
+  // The focused project's own row gives way to the breadcrumb; its workspaces are top level.
+  await expect(
+    page.getByTestId("sidebar-project-list").locator('[data-testid^="sidebar-project-row-"]'),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0"),
+  ).toBeVisible();
+  await page.screenshot({ path: info.outputPath("focused-project.png") });
+
+  // Keyboard without hover: the breadcrumb's actions reveal while focus is inside them.
+  const actions = page.getByTestId("sidebar-focus-actions");
+  await page.mouse.move(1700, 900);
+  await expect(actions).toHaveCSS("opacity", "0");
+  await page.getByTestId("sidebar-focus-crumb-all").focus();
+  await page.keyboard.press("Tab");
+  await expect
+    .poll(() => actions.evaluate((group) => group.contains(document.activeElement)))
+    .toBe(true);
+  await expect(actions).toHaveCSS("opacity", "1");
+  await page.keyboard.press("Tab");
+  await expect
+    .poll(() => actions.evaluate((group) => group.contains(document.activeElement)))
+    .toBe(true);
+  await expect(actions).toHaveCSS("opacity", "1");
+  await page.getByTestId("sidebar-focus-crumb-all").focus();
+  await expect(actions).toHaveCSS("opacity", "0");
+  await page.screenshot({ path: info.outputPath("focused-project-keyboard.png") });
+
+  await page.getByTestId("sidebar-focus-crumb-all").click();
+  await expect(page.getByTestId("sidebar-focus-breadcrumb")).toHaveCount(0);
 });
 
 test.describe("touch project rail", () => {

@@ -430,6 +430,14 @@ interface NotifySafelyOptions {
 // next finish reaches the caller once.
 const armedFinishNotifications = new WeakMap<AgentManager, Map<string, () => void>>();
 
+/** Whether a caller still waits to hear how this child agent finishes. */
+export function hasArmedFinishNotification(agentManager: AgentManager, childAgentId: string) {
+  // Keys are JSON [child, caller] pairs, so a child's keys share this prefix.
+  const childPrefix = `${JSON.stringify([childAgentId]).slice(0, -1)},`;
+  const armed = armedFinishNotifications.get(agentManager)?.keys() ?? [];
+  return Array.from(armed).some((key) => key.startsWith(childPrefix));
+}
+
 export function setupFinishNotification(params: SetupFinishNotificationParams): void {
   const {
     agentManager,

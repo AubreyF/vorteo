@@ -524,6 +524,7 @@
       var bootController = null;
       var bootTimer = null;
       var bootFinished = false;
+      var bootFailure = null;
       var bootLoadedScripts = new WeakSet();
       var bootEndpointProbe = {
         state: "not_started",
@@ -675,6 +676,7 @@
             assets: bootAssets,
             styles: bootStyles,
             assetError: bootAssetError,
+            bootstrapFailure: bootFailure,
             scriptResources: bootResourceTimings(),
             interfaceDownloadRetries: bootScriptRetries,
             enforcedContentPolicy: bootPolicy,
@@ -760,6 +762,14 @@
             bootStyles === "failed"
               ? "Interface styles could not load. Reload to try again."
               : "Loading interface styles…";
+        }
+        if (bootFailure) {
+          document.getElementById("boot-retry-script").hidden = true;
+          document.getElementById("boot-summary").textContent = bootFailure.message;
+          var failureRow = document.createElement("p");
+          failureRow.dataset.state = "failed";
+          failureRow.textContent = "Startup: Failed. Reload after correcting the reported problem.";
+          panel.prepend(failureRow);
         }
         if (bootMaintenance.state !== "not_checked") {
           var maintenance = document.createElement("p");
@@ -1015,7 +1025,7 @@
         status.dataset.revealing = "true";
       }
       function bootCheckDelay() {
-        if (bootFinished || Date.now() - bootStarted < bootRevealDelay) return;
+        if (bootFinished || bootFailure || Date.now() - bootStarted < bootRevealDelay) return;
         if (bootEndpointProbe.attempts === 0 || bootEndpointProbe.state === "offline_deferred")
           bootCheckEndpoint("automatic");
         bootRevealDiagnostics();
@@ -1077,7 +1087,31 @@
         renderBootDiagnostics();
       }
       window.addEventListener("vorteo-boot-styles", bootStyleStatus);
+      function bootFailed(event) {
+        if (bootFinished || bootFailure) return;
+        var messages = {
+          "installation-origin-mismatch":
+            "Installation descriptor does not belong to this origin. Open the configured installation address or reload after it is repaired.",
+          "installation-invalid":
+            "The installation descriptor is invalid. Reload after the installation is repaired.",
+          "render-failed":
+            "The interface failed during startup. Reload to try again, or copy diagnostics.",
+        };
+        if (
+          typeof event.detail !== "string" ||
+          !Object.prototype.hasOwnProperty.call(messages, event.detail)
+        )
+          return;
+        bootFailure = { kind: event.detail, message: messages[event.detail] };
+        clearTimeout(bootDelayTimer);
+        document.getElementById("boot-retry-script").hidden = true;
+        bootRevealDiagnostics();
+        renderBootDiagnostics();
+      }
+      window.addEventListener("vorteo-boot-failed", bootFailed);
       window.__vorteoFinishBoot = function () {
+        if (bootFailure) return;
+        window.removeEventListener("vorteo-boot-failed", bootFailed);
         bootFinished = true;
         window.removeEventListener("vorteo-boot-styles", bootStyleStatus);
         clearInterval(bootClock);

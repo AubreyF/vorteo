@@ -41,6 +41,7 @@ function seedPaseoHome() {
   mkdirSync(target, { recursive: true });
   console.log(`  Seed:    copying metadata from ${source}`);
   copyJsonTree(join(source, "agents"), join(target, "agents"));
+  copyJsonTree(join(source, "agent-journals"), join(target, "agent-journals"));
   copyJsonTree(join(source, "projects"), join(target, "projects"));
 
   const config = join(source, "config.json");

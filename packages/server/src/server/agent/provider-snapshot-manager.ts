@@ -355,8 +355,10 @@ export class ProviderSnapshotManager {
     await this.refreshSnapshotForCwd(options);
   }
 
-  listRegisteredProviderIds(): AgentProvider[] {
-    return this.getProviderIds();
+  listRegisteredProviderIds(options?: { enabledOnly?: boolean }): AgentProvider[] {
+    return this.getProviderIds().filter(
+      (provider) => !options?.enabledOnly || this.generation.definitions[provider]?.enabled,
+    );
   }
 
   hasProvider(provider: AgentProvider): boolean {
@@ -487,10 +489,20 @@ export class ProviderSnapshotManager {
     const override = this.providerOverrides?.[handle.provider];
     const overrides = { ...this.providerOverrides };
     if (override) overrides[handle.provider] = { ...override, removed: false };
-    const definition = this.buildRegistry(this.runtimeSettings, overrides)[handle.provider];
+    const registry = this.buildRegistry(this.runtimeSettings, overrides);
+    const definition = registry[handle.provider];
     if (!definition)
       throw new Error(
         "The original account configuration is missing. Restore it to recover this thread's history.",
+      );
+    // OpenCode resume applies permissions and close aborts the native session.
+    // Refuse before creating a client until it has a passive history reader.
+    let baseProvider = handle.provider;
+    while (registry[baseProvider]?.derivedFromProviderId)
+      baseProvider = registry[baseProvider]!.derivedFromProviderId!;
+    if (baseProvider === "opencode")
+      throw new Error(
+        "Saved OpenCode history cannot be read safely while its provider is unavailable.",
       );
     const client = definition.createClient(this.logger);
     this.ownedClients.add(client);

@@ -1,3 +1,4 @@
+import { localInstallationOrigin, localInstallationEnvironments } from "./local-access.js";
 import {
   lookupWorkerLaunch,
   parseWorkerLaunchLookupQuery,
@@ -609,19 +610,23 @@ export function createInstallationServer(
   };
   const sessions = new OwnerSessions(path.join(config.stateDir, "owner-sessions.json"));
   const secureCookies = new URL(config.public.origin).protocol === "https:";
-  const cookieName = secureCookies ? "__Host-vorteo-owner" : "vorteo-owner";
-  const cookieOptions = {
+  const publicCookieName = secureCookies ? "__Host-vorteo-owner" : "vorteo-owner";
+  const localOrigin = (req: Request) => localInstallationOrigin(config, req);
+  const sessionOrigin = (req: Request) => localOrigin(req) ?? undefined;
+  const cookieName = (req: Request) =>
+    localOrigin(req) ? `vorteo-owner-local-${config.listenPort}` : publicCookieName;
+  const cookieOptions = (req: Request) => ({
     httpOnly: true,
-    secure: secureCookies,
+    secure: localOrigin(req) ? false : secureCookies,
     sameSite: "strict" as const,
     path: "/",
-  };
+  });
   const sessionToken = (req: Request): string | undefined =>
     req.headers.cookie
       ?.split(";")
       .map((part) => part.trim())
-      .find((part) => part.startsWith(`${cookieName}=`))
-      ?.slice(cookieName.length + 1);
+      .find((part) => part.startsWith(`${cookieName(req)}=`))
+      ?.slice(cookieName(req).length + 1);
   const configuredPasswordFile =
     config.ownerPasswordFile ?? path.resolve(config.stateDir, "../..", "owner-password");
   const app = express();
@@ -633,7 +638,7 @@ export function createInstallationServer(
     recoveryHost !== null && req.headers.host === recoveryHost;
   const ownerOriginMatches = (req: Request) =>
     req.header("origin") ===
-    (isRecoveryRequest(req) ? config.recoveryOrigin : config.public.origin);
+    (localOrigin(req) ?? (isRecoveryRequest(req) ? config.recoveryOrigin : config.public.origin));
   const redirectHosts = new Set(
     (config.redirectOrigins ?? []).map((origin) => new URL(origin).host),
   );
@@ -656,7 +661,9 @@ export function createInstallationServer(
       `127.0.0.1:${config.listenPort}`,
       `localhost:${config.listenPort}`,
     ]);
-    if (!allowedHosts.has(req.headers.host ?? "")) {
+    const isLocalHost =
+      host === `127.0.0.1:${config.listenPort}` || host === `localhost:${config.listenPort}`;
+    if (!allowedHosts.has(host) || (isLocalHost && !localOrigin(req))) {
       res.sendStatus(403);
       return;
     }
@@ -1679,7 +1686,7 @@ export function createInstallationServer(
       res.sendStatus(403);
       return;
     }
-    const expiresAt = sessions.expiresAt(sessionToken(req));
+    const expiresAt = sessions.expiresAt(sessionToken(req), sessionOrigin(req));
     res.json({ authenticated: expiresAt !== null, expiresAt });
   });
   app.use("/api/installation/owner", (req, res, next) => {
@@ -1693,7 +1700,7 @@ export function createInstallationServer(
         }
         const token = extractHttpBearerToken(req.header("authorization"));
         if (
-          !sessions.expiresAt(sessionToken(req)) &&
+          !sessions.expiresAt(sessionToken(req), sessionOrigin(req)) &&
           !(await isBearerTokenValidAsync({ password: config.ownerPasswordHash, token }))
         ) {
           res.sendStatus(401);
@@ -1812,22 +1819,27 @@ export function createInstallationServer(
   if (claudeOAuth) mountClaudeOAuthRoutes(app, claudeOAuth);
   if (providerSecrets) mountProviderSecretsRoutes(app, providerSecrets);
   app.post("/api/installation/owner/lock", (req, res) => {
-    sessions.revoke(sessionToken(req));
-    res.clearCookie(cookieName, cookieOptions);
+    sessions.revoke(sessionToken(req), sessionOrigin(req));
+    res.clearCookie(cookieName(req), cookieOptions(req));
     res.json({ locked: true });
   });
-  const sendConnections = (_req: Request, res: Response) => {
-    const connections = config.public.environments.map((environment) => ({
-      ...environment,
+  const environments = (req: Request) =>
+    localOrigin(req) ? localInstallationEnvironments(config) : config.public.environments;
+  const sendConnections = (req: Request, res: Response) => {
+    const connections = environments(req).map((environment) => ({
+      kind: environment.kind,
+      serverId: environment.serverId,
+      endpoint: environment.endpoint,
+      useTls: environment.useTls,
       password: config[environment.kind].password,
     }));
     res.json({ installationId: config.public.installationId, connections });
   };
   app.post("/api/installation/owner/connections", sendConnections);
   app.post("/api/installation/owner/unlock", (req, res) => {
-    sessions.revoke(sessionToken(req));
-    res.cookie(cookieName, sessions.create(), {
-      ...cookieOptions,
+    sessions.revoke(sessionToken(req), sessionOrigin(req));
+    res.cookie(cookieName(req), sessions.create(sessionOrigin(req)), {
+      ...cookieOptions(req),
       maxAge: OWNER_SESSION_MAX_AGE * 1000,
     });
     sendConnections(req, res);
@@ -2127,7 +2139,7 @@ export function createInstallationServer(
       .drain()
       .catch((error) => logger.error({ err: error }, "Installation restart journal failed"));
   });
-  const webUi = (origin: string) =>
+  const webUi = (origin: string, local = false) =>
     createWebUiMiddleware({
       enabled: true,
       distDir: config.webDistDir,
@@ -2136,6 +2148,7 @@ export function createInstallationServer(
       installation: {
         ...config.public,
         origin,
+        environments: local ? localInstallationEnvironments(config) : config.public.environments,
         profileSharing: true,
         idleRestarts: Boolean(executor.inspect && executor.restartWhenIdle),
         gracefulRestarts: Boolean(executor.holdCurrentTurns && executor.releaseCurrentTurns),
@@ -2143,9 +2156,20 @@ export function createInstallationServer(
     });
   const canonicalWebUi = webUi(config.public.origin);
   const recoveryWebUi = config.recoveryOrigin ? webUi(config.recoveryOrigin) : canonicalWebUi;
-  app.use((req, res, next) =>
-    (isRecoveryRequest(req) ? recoveryWebUi : canonicalWebUi)(req, res, next),
-  );
+  const localWebUi = new Map<string, ReturnType<typeof webUi>>();
+  app.use((req, res, next) => {
+    const origin = localOrigin(req);
+    if (origin) {
+      let middleware = localWebUi.get(origin);
+      if (!middleware) {
+        middleware = webUi(origin, true);
+        localWebUi.set(origin, middleware);
+      }
+      middleware(req, res, next);
+      return;
+    }
+    (isRecoveryRequest(req) ? recoveryWebUi : canonicalWebUi)(req, res, next);
+  });
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: "Invalid request" });

@@ -11,6 +11,8 @@ import {
   expectActiveChatOutlinePromptMovedFrom,
   expectChatOutlinePreview,
   expectChatOutlinePrompts,
+  expectGroupedChatOutline,
+  expectGroupedChatOutlinePreview,
   expectChatOutlinePromptToRemainBare,
   expectLiveTurnPromptAboveFoldAndActive,
   expectNoChatOutlinePreviewWhileCrossingToSidebar,
@@ -189,6 +191,26 @@ test.describe("desktop chat outline", () => {
       await agent.client.sendAgentMessage(agent.agentId, "live prompt while viewing old history");
       await agent.client.waitForFinish(agent.agentId, 15_000);
       await expectTimelinePromptVisible(page, agent.oldestPrompt);
+    } finally {
+      await agent.cleanup();
+    }
+  });
+
+  test("groups prompts into a bounded rail when they outnumber its height", async ({ page }) => {
+    test.setTimeout(120_000);
+    const agent = await seedLongMockAgentTimeline({ turns: 80 });
+    try {
+      await page.setViewportSize({ width: WIDE_VIEWPORT.width, height: 420 });
+      await openAgentTimeline(page, agent);
+
+      await expectGroupedChatOutline(page, 80);
+      await hoverChatOutlinePrompt(page, 1);
+      await expectGroupedChatOutlinePreview(page, agent.oldestPrompt);
+
+      await chatOutlineRail(page).getByRole("tab").first().click();
+      await expectTimelinePromptVisible(page, agent.oldestPrompt);
+      await page.getByTestId("scroll-to-bottom-button").click();
+      await expectTimelinePromptVisible(page, agent.newestPrompt);
     } finally {
       await agent.cleanup();
     }

@@ -202,7 +202,7 @@ function main() {
   } else {
     console.log(`Ready: ${result.checkout} on ${result.branch} at ${result.head.slice(0, 9)}.`);
     console.log(
-      "Push it to GitHub main with scripts/publish-main.mjs, then submit it with the installation client's request-restart --target host --update --repository command.",
+      "Install it with the installation client's request-restart --target host --update --repository command, then deliver it to main the same day through a pull request with scripts/publish-main.mjs.",
     );
   }
 }

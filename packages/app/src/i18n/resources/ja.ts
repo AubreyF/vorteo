@@ -1204,7 +1204,6 @@ export const ja: TranslationResources = {
     },
     focus: {
       focusItem: "{{name}} にフォーカス",
-      menuItem: "フォーカス",
       allProjects: "すべてのプロジェクト",
       breadcrumb: "サイドバーのフォーカス経路",
     },
@@ -2768,7 +2767,7 @@ export const ja: TranslationResources = {
       system: {
         title: "Vorteo System について",
         description:
-          "このプロジェクトは、この Vorteo インストールを改良するためのものです。インストールのビルド元となったチェックアウトを基にしており、Optimization Runner など、デーモンが管理する保守用ワークスペースも含みます。デーモンが再作成し、依存しているため、削除や名前の変更はできません。",
+          "このプロジェクトは、この Vorteo インストールを改良するためのものです。インストールのビルド元となったチェックアウトを基にしており、Vorteo :: Optimizer など、デーモンが管理する保守用ワークスペースも含みます。デーモンが再作成し、依存しているため、削除や名前の変更はできません。",
       },
       readFailures: {
         invalidTitle: "paseo.jsonを解析できませんでした",

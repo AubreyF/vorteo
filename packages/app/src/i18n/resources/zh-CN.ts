@@ -1180,7 +1180,6 @@ export const zhCN: TranslationResources = {
     },
     focus: {
       focusItem: "聚焦 {{name}}",
-      menuItem: "聚焦",
       allProjects: "所有项目",
       breadcrumb: "侧边栏聚焦路径",
     },
@@ -2706,7 +2705,7 @@ export const zhCN: TranslationResources = {
       system: {
         title: "关于 Vorteo System",
         description:
-          "此项目用于改进此 Vorteo 安装。它基于构建此安装所用的检出代码，同时包含由守护进程管理的维护工作区，例如 Optimization Runner。守护进程会重新创建并依赖它，因此无法移除或重命名。",
+          "此项目用于改进此 Vorteo 安装。它基于构建此安装所用的检出代码，同时包含由守护进程管理的维护工作区，例如 Vorteo :: Optimizer。守护进程会重新创建并依赖它，因此无法移除或重命名。",
       },
       readFailures: {
         invalidTitle: "无法解析 paseo.json",

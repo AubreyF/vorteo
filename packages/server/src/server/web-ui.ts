@@ -1,7 +1,9 @@
 import type { ExecutionInstallation } from "@getpaseo/protocol/execution-installation";
 import { createReadStream, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import type { RequestHandler, Response } from "express";
+import { promisify } from "node:util";
+import { brotliCompress, constants as zlibConstants, gzip } from "node:zlib";
+import type { Request, RequestHandler, Response } from "express";
 import type { Logger } from "pino";
 
 const EXCLUDED_PATH_PREFIXES = ["/api/", "/mcp/", "/public/"];
@@ -41,18 +43,46 @@ function getContentType(filePath: string): string {
   return CONTENT_TYPES[ext] ?? "application/octet-stream";
 }
 
-function selectEncoding(acceptEncoding: string | undefined): "br" | "gzip" | null {
-  if (!acceptEncoding) {
-    return null;
+type WebEncoding = "br" | "gzip" | "identity";
+const compressBrotli = promisify(brotliCompress);
+const compressGzip = promisify(gzip);
+
+function acceptedEncodings(header: string): Map<string, number> {
+  const weights = new Map<string, number>();
+  for (const item of header.toLowerCase().split(",")) {
+    const [name, ...parameters] = item.trim().split(";");
+    const quality = parameters
+      .map((value) => value.trim())
+      .filter((value) => value.startsWith("q="));
+    let weight = 1;
+    if (quality.length > 1) weight = 0;
+    if (quality.length === 1) {
+      const value = quality[0].slice(2);
+      weight = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/.test(value) ? Number(value) : 0;
+    }
+    weights.set(name.trim(), Math.min(weights.get(name.trim()) ?? 1, weight));
   }
-  const normalized = acceptEncoding.toLowerCase();
-  if (normalized.includes("br")) {
-    return "br";
+  return weights;
+}
+
+function selectEncoding(
+  acceptEncoding: string | undefined,
+  available: readonly WebEncoding[],
+): WebEncoding | null {
+  if (!acceptEncoding) return "identity";
+  const weights = acceptedEncodings(acceptEncoding);
+  let selected: WebEncoding | null = null;
+  let bestWeight = 0;
+  for (const encoding of available) {
+    const identityDefault = weights.get("*") === 0 ? 0 : 1;
+    const fallback = encoding === "identity" ? identityDefault : (weights.get("*") ?? 0);
+    const weight = weights.get(encoding) ?? fallback;
+    if (weight > bestWeight) {
+      selected = encoding;
+      bestWeight = weight;
+    }
   }
-  if (normalized.includes("gzip")) {
-    return "gzip";
-  }
-  return null;
+  return selected;
 }
 
 function isHashedAsset(filePath: string): boolean {
@@ -110,22 +140,23 @@ function safeStat(filePath: string): ReturnType<typeof statSync> | null {
 interface ContentEncodingResult {
   finalFile: string;
   contentEncoding: string | null;
+  acceptable: boolean;
 }
 
 function resolveContentEncoding(
   resolvedFile: string,
   acceptEncoding: string | undefined,
 ): ContentEncodingResult {
-  const encoding = selectEncoding(acceptEncoding);
-  if (!encoding) {
-    return { finalFile: resolvedFile, contentEncoding: null };
-  }
-  const compressedFile = `${resolvedFile}.${encoding === "br" ? "br" : "gz"}`;
-  const compressedStat = safeStat(compressedFile);
-  if (compressedStat?.isFile()) {
-    return { finalFile: compressedFile, contentEncoding: encoding };
-  }
-  return { finalFile: resolvedFile, contentEncoding: null };
+  const available: WebEncoding[] = [];
+  if (safeStat(`${resolvedFile}.br`)?.isFile()) available.push("br");
+  if (safeStat(`${resolvedFile}.gz`)?.isFile()) available.push("gzip");
+  available.push("identity");
+  const encoding = selectEncoding(acceptEncoding, available);
+  if (encoding === "br")
+    return { finalFile: `${resolvedFile}.br`, contentEncoding: "br", acceptable: true };
+  if (encoding === "gzip")
+    return { finalFile: `${resolvedFile}.gz`, contentEncoding: "gzip", acceptable: true };
+  return { finalFile: resolvedFile, contentEncoding: null, acceptable: encoding === "identity" };
 }
 
 function setResponseCacheHeaders(res: Response, isIndexHtml: boolean, resolvedFile: string): void {
@@ -207,23 +238,27 @@ function serveWebUiFile(options: ServeWebUiFileOptions): void {
   }
 
   const { resolvedFile, isIndexHtml } = target;
-  const acceptEncoding = isIndexHtml ? undefined : req.headers["accept-encoding"];
-  const { finalFile, contentEncoding } = resolveContentEncoding(resolvedFile, acceptEncoding);
-
   res.setHeader("Content-Type", getContentType(resolvedFile));
+  res.vary("Accept-Encoding");
+  setResponseCacheHeaders(res, isIndexHtml, resolvedFile);
+  if (isIndexHtml) {
+    void sendIndexHtml(res, resolvedFile, req, label, options.installation);
+    return;
+  }
+  const { finalFile, contentEncoding, acceptable } = resolveContentEncoding(
+    resolvedFile,
+    req.headers["accept-encoding"],
+  );
+  if (!acceptable) {
+    res.status(406).end();
+    return;
+  }
   if (contentEncoding) {
     res.setHeader("Content-Encoding", contentEncoding);
-    res.setHeader("Vary", "Accept-Encoding");
   }
-  setResponseCacheHeaders(res, isIndexHtml, resolvedFile);
 
   if (req.method === "HEAD") {
     res.status(200).end();
-    return;
-  }
-
-  if (isIndexHtml) {
-    sendIndexHtml(res, finalFile, req, label, options.installation);
     return;
   }
 
@@ -238,19 +273,65 @@ function serveWebUiFile(options: ServeWebUiFileOptions): void {
   stream.pipe(res);
 }
 
-function sendIndexHtml(
+export interface WebUiHtmlResponse {
+  status: 200 | 406;
+  body: Buffer;
+  contentEncoding: "br" | "gzip" | null;
+}
+
+interface WebUiHtmlOptions {
+  html: string;
+  req: Pick<Request, "headers" | "protocol">;
+  label: string;
+  installation?: ExecutionInstallation;
+}
+
+/** Compress after injecting the public hint; sealed HTML encodings lack that hint. */
+export async function prepareWebUiHtml(options: WebUiHtmlOptions): Promise<WebUiHtmlResponse> {
+  const encoding = selectEncoding(options.req.headers["accept-encoding"], [
+    "br",
+    "gzip",
+    "identity",
+  ]);
+  if (encoding === null) return { status: 406, body: Buffer.alloc(0), contentEncoding: null };
+  const injected = injectConnectionHint(
+    options.html,
+    options.req,
+    options.label,
+    options.installation,
+  );
+  const bytes = Buffer.from(injected, "utf8");
+  if (encoding === "br") {
+    const body = await compressBrotli(bytes, {
+      params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 },
+    });
+    return { status: 200, body, contentEncoding: "br" };
+  }
+  if (encoding === "gzip")
+    return { status: 200, body: await compressGzip(bytes), contentEncoding: "gzip" };
+  return { status: 200, body: bytes, contentEncoding: null };
+}
+
+async function sendIndexHtml(
   res: Response,
   filePath: string,
   req: Parameters<RequestHandler>[0],
   label: string,
   installation?: ExecutionInstallation,
-): void {
+): Promise<void> {
   try {
     const html = readFileSync(filePath, "utf-8");
-    const injected = injectConnectionHint(html, req, label, installation);
-    res.status(200).send(injected);
+    const result = await prepareWebUiHtml({ html, req, label, installation });
+    if (res.destroyed) return;
+    if (result.contentEncoding) res.setHeader("Content-Encoding", result.contentEncoding);
+    res.setHeader("Content-Length", result.body.length);
+    if (req.method === "HEAD") {
+      res.status(result.status).end();
+      return;
+    }
+    res.status(result.status).send(result.body);
   } catch {
-    res.status(500).end();
+    if (!res.destroyed) res.status(500).end();
   }
 }
 
@@ -263,7 +344,7 @@ function serializeInlineScriptJson(value: unknown): string {
 
 function injectConnectionHint(
   html: string,
-  req: Parameters<RequestHandler>[0],
+  req: Pick<Request, "headers" | "protocol">,
   label: string,
   installation?: ExecutionInstallation,
 ): string {

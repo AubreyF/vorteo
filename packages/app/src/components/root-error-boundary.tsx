@@ -1,3 +1,4 @@
+import { reportBootFailure } from "@/appearance/boot-failure";
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -27,6 +28,7 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
   }
 
   componentDidCatch(error: unknown, errorInfo: ErrorInfo) {
+    reportBootFailure("render-failed");
     console.error("[RootErrorBoundary] Unhandled render error", {
       error: formatCaughtValue(error),
       componentStack: errorInfo.componentStack,

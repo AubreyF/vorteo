@@ -1,3 +1,4 @@
+import { pendingCodexAsyncQuestions } from "./providers/codex/async-questions.js";
 import { projectQueueGoalState } from "../message-queue/goal-hold.js";
 import { snapshotQuestions } from "./questions/model.js";
 import type {
@@ -287,7 +288,7 @@ export function buildStoredAgentPayload(
     capabilities: defaultCapabilities,
     currentModeId: record.lastModeId ?? null,
     availableModes: [],
-    pendingPermissions: [],
+    pendingPermissions: pendingCodexAsyncQuestions(record.persistence),
     persistence,
     title: record.title ?? null,
     requiresAttention: record.requiresAttention ?? false,

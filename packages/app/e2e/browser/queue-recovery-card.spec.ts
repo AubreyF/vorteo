@@ -4,6 +4,7 @@ import { getServerId } from "../support/helpers/server-id";
 import { expectComposerVisible } from "../support/helpers/composer";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
+import { resizeAndSettle } from "../support/helpers/viewport";
 
 test("recovery stays in the Messages card and obsolete send controls retire on reconnect", async ({
   page,
@@ -84,7 +85,7 @@ test("recovery stays in the Messages card and obsolete send controls retire on r
     await expect(card).not.toContainText("Send queued message now");
     await expect(page.getByTestId("queue-recovery-status")).toHaveCount(0);
     for (const width of [1440, 390]) {
-      await page.setViewportSize({ width, height: 900 });
+      await resizeAndSettle(page, { width, height: 900 });
       await expect(card).toBeVisible();
       const bounds = await card.boundingBox();
       expect(bounds!.height).toBeLessThanOrEqual(451);

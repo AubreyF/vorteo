@@ -70,6 +70,9 @@ function fixture(managed = true) {
     marker,
     files,
     links,
+    // readlink results for executables; entries ending " (deleted)" model a replaced file.
+    exeLinks: {},
+    inodes: {},
     pids: ["100", "101"],
     status,
     stat,
@@ -86,6 +89,8 @@ function fixture(managed = true) {
       readFileSync: (k) => read(files, k),
       existsSync: (k) => k in files,
       realpathSync: (k) => read(links, k),
+      readlinkSync: (k) => (k in f.exeLinks ? f.exeLinks[k] : read(links, k)),
+      statSync: (k) => ({ ino: f.inodes[k] ?? 1 }),
       readdirSync: (k) => {
         assert.equal(k, "/proc");
         return f.pids;
@@ -95,6 +100,7 @@ function fixture(managed = true) {
       require: (name) => {
         if (name === "node:fs") return fake;
         if (name === "node:path") return path;
+        if (name === "node:crypto") return require("node:crypto");
         assert.equal(name, "node:os");
         return { homedir: () => home };
       },
@@ -115,6 +121,22 @@ test("legacy child retains boot PID and start-time identity", () =>
   assert.equal(fixture(false).run(), "boot-fixture:101:1001"));
 test("managed exact selected worker works without process title", () =>
   assert.equal(fixture().run(), "boot-fixture:101:1001"));
+function replacedExecutable(f, current) {
+  // Both processes still run the old inode; a new file now sits at the same path.
+  for (const pid of ["100", "101"]) {
+    f.exeLinks[`/proc/${pid}/exe`] = "/fixture/node (deleted)";
+    f.files[`/proc/${pid}/exe`] = "reviewed node bytes";
+  }
+  f.files["/fixture/node"] = current;
+  return f;
+}
+test("replaced executable with identical bytes keeps its identity", () =>
+  assert.equal(
+    replacedExecutable(fixture(), "reviewed node bytes").run(),
+    "boot-fixture:101:1001",
+  ));
+test("replaced executable with different bytes is rejected", () =>
+  assert.throws(replacedExecutable(fixture(), "other bytes").run));
 test("unmanaged node process is not a legacy daemon", () => {
   const f = fixture(false);
   f.files["/proc/101/status"] = f.status(101, 100);

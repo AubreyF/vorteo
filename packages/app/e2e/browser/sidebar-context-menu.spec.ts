@@ -75,7 +75,7 @@ for (const width of [1024, 1133, 1600]) {
       );
       expect(parentBox.left).toBe(parentBox.right);
       expect(parentBox.left).toBe(6);
-      expect(childBox.left).toBe(30);
+      expect(childBox.left).toBe(18);
       expect(Math.abs(childBox.x - parentBox.x)).toBeLessThan(2);
       expect(Math.abs(childBox.width - parentBox.width)).toBeLessThan(2);
       await page.screenshot({ path: test.info().outputPath(`project-margins-${width}.png`) });

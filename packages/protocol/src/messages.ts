@@ -2212,6 +2212,9 @@ export const AgentTimelineListPromptsRequestMessageSchema = z.object({
   type: z.literal("agent.timeline.list_prompts.request"),
   agentId: z.string(),
   requestId: z.string(),
+  // COMPAT(agentTimelinePromptIndexAfterSeq): added in v0.11.0, send only to daemons that
+  // advertise the capability; older daemons drop it and return the complete index.
+  afterSeq: z.number().int().nonnegative().optional(),
 });
 
 export const ProviderSubagentListRequestMessageSchema = z.object({
@@ -4059,6 +4062,8 @@ export const ServerInfoStatusPayloadSchema = z
         rewind: z.boolean().optional(),
         // COMPAT(agentTimelinePromptIndex): added in v0.2.X, drop the gate when floor >= v0.2.X.
         agentTimelinePromptIndex: z.boolean().optional(),
+        // COMPAT(agentTimelinePromptIndexAfterSeq): added in v0.11.0, remove gate after 2027-04-29.
+        agentTimelinePromptIndexAfterSeq: z.boolean().optional(),
         // COMPAT(agentHistorySearch): added in v0.3.0, remove gate after 2027-02-07.
         agentHistorySearch: z.boolean().optional(),
         // COMPAT(checkoutRefresh): added in v0.1.86, remove gate after 2026-11-29.

@@ -20,6 +20,9 @@ if [[ -n "${PASEO_PROJECTS_FOLDER:-}" ]]; then
   case "$deployment/" in "$projects_folder/"*) echo 'Keep deployment state outside the Projects folder.' >&2; exit 1 ;; esac
   paseo_projects_folder_compose "$projects_folder" >/dev/null
 fi
+if [[ -n "${PASEO_HOST_LOOPBACK_PORT:-}" ]]; then
+  paseo_host_loopback_compose "$PASEO_HOST_LOOPBACK_PORT" >/dev/null
+fi
 command -v docker >/dev/null
 docker compose version >/dev/null
 docker info >/dev/null
@@ -56,6 +59,9 @@ ENV
 printf '%s\n' 1 > "$deployment/.container-installation"
 if [[ -n "$projects_folder" ]]; then
   paseo_projects_folder_compose "$projects_folder" > "$deployment/projects-folder.compose.json"
+fi
+if [[ -n "${PASEO_HOST_LOOPBACK_PORT:-}" ]]; then
+  paseo_host_loopback_compose "$PASEO_HOST_LOOPBACK_PORT" > "$deployment/host-loopback.compose.json"
 fi
 paseo_compose config --quiet
 paseo_compose up -d --pull never paseo

@@ -813,6 +813,19 @@ describe("ReplicaCache", () => {
     expect(await createCache(storage).readTimeline(SERVER_ID, "agent-1")).toBeUndefined();
   });
 
+  it("keeps unavailable-provider conversations readable after cache hydration", async () => {
+    const storage = new MemoryStorage();
+    const writer = createCache(storage);
+    const saved = directory();
+    saved.agents.get("agent-1")!.providerUnavailable = true;
+    commitDirectory(writer, SERVER_ID, saved);
+    writer.commitTimeline(SERVER_ID, "agent-1", timeline());
+    await writer.flush();
+    const reader = createCache(storage);
+    expect((await reader.readAgent(SERVER_ID, "agent-1"))?.providerUnavailable).toBe(true);
+    expect((await reader.readTimeline(SERVER_ID, "agent-1"))?.items).toEqual([timelineItem()]);
+  });
+
   it("reads one requested agent and the focused timeline without scanning directory rows", async () => {
     const storage = new MemoryStorage();
     const writer = createCache(storage);

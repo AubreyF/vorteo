@@ -593,7 +593,7 @@ test("shared settings require owner access and persist revisioned writes before 
     settings: { appendSystemPrompt: "Shared owner instructions" },
   };
   const patch = () =>
-    fetch(`${url}/api/installation/owner/settings`, {
+    requestWithHost(`${url}/api/installation/owner/settings`, {
       method: "PATCH",
       headers: {
         Host: "owner.example.test",
@@ -633,7 +633,7 @@ test("project policies reach only owner clients and daemons that ask for them", 
   const cookie = unlock.headers.get("set-cookie")?.split(";")[0];
   if (!cookie) throw new Error("Missing owner cookie");
   async function readOwnerSettings(headers: Record<string, string>) {
-    const response = await fetch(`${url}/api/installation/owner/settings/read`, {
+    const response = await requestWithHost(`${url}/api/installation/owner/settings/read`, {
       method: "POST",
       headers: {
         Host: "owner.example.test",
@@ -786,6 +786,36 @@ test("delegated requests are labeled only for clients that ask and only for Host
     (await query("?delegatedRequests=1")).find((job) => job.id === host.id),
   ).not.toHaveProperty("delegatedTo");
 });
+
+// Node fetch does not preserve a supplied Host on every supported runtime.
+// These origin tests need the actual authority on the wire, not a URL substitution.
+function requestWithHost(
+  url: string,
+  input: { method: string; headers: Record<string, string>; body?: string; redirect?: "manual" },
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const outgoing = httpRequest(
+      url,
+      { method: input.method, headers: input.headers },
+      (incoming) => {
+        const chunks: Buffer[] = [];
+        incoming.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        incoming.on("error", reject);
+        incoming.on("end", () => {
+          const headers = new Headers();
+          for (let index = 0; index < incoming.rawHeaders.length; index += 2) {
+            headers.append(incoming.rawHeaders[index]!, incoming.rawHeaders[index + 1]!);
+          }
+          const status = incoming.statusCode ?? 500;
+          const body = [204, 304].includes(status) ? null : Buffer.concat(chunks);
+          resolve(new Response(body, { status, headers }));
+        });
+      },
+    );
+    outgoing.on("error", reject);
+    outgoing.end(input.body);
+  });
+}
 
 async function fixture(
   profiles?: InstallationProfiles,
@@ -956,7 +986,7 @@ async function fixture(
     origin = config.public.origin,
     cookie?: string,
   ) {
-    return fetch(`http://127.0.0.1:${address.port}${route}`, {
+    return requestWithHost(`http://127.0.0.1:${address.port}${route}`, {
       method: body === undefined ? "GET" : "POST",
       headers: {
         Host: "owner.example.test",
@@ -1048,7 +1078,8 @@ test("owner canonical profile GET/PATCH use independent revisions and reject sta
   const unlock = await request("/api/installation/owner/unlock", "owner-test-password", {});
   const cookie = unlock.headers.get("set-cookie")?.split(";")[0];
   if (!cookie) throw new Error("missing owner cookie");
-  const noOrigin = await fetch(`${url}${route}`, {
+  const noOrigin = await requestWithHost(`${url}${route}`, {
+    method: "GET",
     headers: { Host: "owner.example.test", Cookie: cookie },
   });
   expect(noOrigin.status).toBe(403);
@@ -1059,7 +1090,7 @@ test("owner canonical profile GET/PATCH use independent revisions and reject sta
   const providers = structuredClone(snapshot.providers);
   providers.codex.workflows[0].excludedEnvironments = ["host"];
   async function patch(expectedRevision: number) {
-    return fetch(`${url}${route}`, {
+    return requestWithHost(`${url}${route}`, {
       method: "PATCH",
       headers: {
         Host: "owner.example.test",
@@ -1392,7 +1423,7 @@ test("legacy owner clients can read removed providers but cannot resurrect them"
     "Content-Type": "application/json",
   };
   const legacy = await (
-    await fetch(`${url}/api/installation/owner/settings/read`, {
+    await requestWithHost(`${url}/api/installation/owner/settings/read`, {
       method: "POST",
       headers,
       body: "{}",
@@ -1400,7 +1431,7 @@ test("legacy owner clients can read removed providers but cannot resurrect them"
   ).json();
   expect(legacy.settings.providerDefinitions[0]).not.toHaveProperty("removed");
   expect(legacy.settings.providerDefinitions[0].policy.enabled).toBe(false);
-  const rejected = await fetch(`${url}/api/installation/owner/settings`, {
+  const rejected = await requestWithHost(`${url}/api/installation/owner/settings`, {
     method: "PATCH",
     headers,
     body: JSON.stringify({
@@ -1411,14 +1442,14 @@ test("legacy owner clients can read removed providers but cannot resurrect them"
   expect(rejected.status).toBe(409);
   expect(settings.snapshot().settings!.providerDefinitions![0].removed).toBe(true);
   const aware = await (
-    await fetch(`${url}/api/installation/owner/settings/read`, {
+    await requestWithHost(`${url}/api/installation/owner/settings/read`, {
       method: "POST",
       headers: { ...headers, "X-Vorteo-Provider-Removal": "1" },
       body: "{}",
     })
   ).json();
   expect(aware.settings.providerDefinitions[0].removed).toBe(true);
-  const restored = await fetch(`${url}/api/installation/owner/settings`, {
+  const restored = await requestWithHost(`${url}/api/installation/owner/settings`, {
     method: "PATCH",
     headers: { ...headers, "X-Vorteo-Provider-Removal": "1" },
     body: JSON.stringify({
@@ -4322,3 +4353,127 @@ test("retained broad delegation cannot bypass enrolled maintenance admission", a
   ).toBe(409);
   expect(f.calls).toEqual([]);
 });
+
+test.each(["127.0.0.1", "localhost"])(
+  "local installation at %s binds descriptor, authentication and cookies",
+  async (hostname) => {
+    const f = await fixture();
+    const port = new URL(f.url).port;
+    const host = `${hostname}:${port}`;
+    const origin = `http://${host}`;
+    const route = "/api/installation/owner/";
+    const request = (
+      suffix: string,
+      token?: string,
+      cookie?: string,
+      requestOrigin = origin,
+      requestHost = host,
+      extra: Record<string, string> = {},
+    ) =>
+      requestWithHost(f.url + suffix, {
+        method: suffix === "/" ? "GET" : "POST",
+        headers: {
+          Host: requestHost,
+          Origin: requestOrigin,
+          "Content-Type": "application/json",
+          ...extra,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(cookie ? { Cookie: cookie } : {}),
+        },
+        ...(suffix === "/" ? {} : { body: "{}" }),
+        redirect: "manual",
+      });
+    const page = await request("/");
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain(`"origin":"${origin}"`);
+    expect(html).toContain('"endpoint":"127.0.0.1:6771","useTls":false');
+    expect(html).toContain('"endpoint":"guest.example.test","useTls":true');
+    expect(html).not.toContain("host-daemon-test-password");
+    expect((await request(route + "unlock")).status).toBe(401);
+    expect((await request(route + "unlock", "host-agent-test-token")).status).toBe(401);
+    for (const hostile of [
+      "null",
+      "https://owner.example.test",
+      "http://evil.test",
+      `http://${hostname}:1`,
+    ]) {
+      expect(
+        (await request(route + "unlock", "owner-test-password", undefined, hostile)).status,
+      ).toBe(403);
+    }
+    expect((await request("/", undefined, undefined, origin, `${hostname}:1`)).status).toBe(403);
+    for (const headers of [
+      { Forwarded: `host=${host}` },
+      { "X-Forwarded-Host": host },
+      { "X-Forwarded-For": "127.0.0.1" },
+      { "X-Forwarded-Proto": "http" },
+    ]) {
+      expect((await request("/", undefined, undefined, origin, host, headers)).status).toBe(403);
+    }
+    const login = await request(route + "unlock", "owner-test-password");
+    expect(login.status).toBe(200);
+    const connection = InstallationUnlockSchema.parse(await login.json());
+    expect(connection.connections).toEqual([
+      {
+        kind: "host",
+        serverId: "host-id",
+        endpoint: "127.0.0.1:6771",
+        useTls: false,
+        password: "host-daemon-test-password",
+      },
+      {
+        kind: "container",
+        serverId: "guest-id",
+        endpoint: "guest.example.test",
+        useTls: true,
+        password: "guest-daemon-test-password",
+      },
+    ]);
+    const setCookie = login.headers.get("set-cookie");
+    expect(setCookie).toContain(`vorteo-owner-local-${port}=`);
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("SameSite=Strict");
+    expect(setCookie).not.toMatch(/; Secure|Domain=/);
+    if (!setCookie) throw new Error("Missing local cookie");
+    const cookie = setCookie.split(";")[0]!;
+    expect((await request(route + "session", undefined, cookie)).status).toBe(200);
+    expect(await (await request(route + "session", undefined, cookie)).json()).toMatchObject({
+      authenticated: true,
+    });
+    expect((await request(route + "connections", undefined, cookie)).status).toBe(200);
+    const otherHost = `${hostname === "localhost" ? "127.0.0.1" : "localhost"}:${port}`;
+    expect(
+      (await request(route + "connections", undefined, cookie, `http://${otherHost}`, otherHost))
+        .status,
+    ).toBe(401);
+    expect(
+      (
+        await f.request(
+          route + "connections",
+          undefined,
+          {},
+          undefined,
+          cookie.replace(`vorteo-owner-local-${port}`, "__Host-vorteo-owner"),
+        )
+      ).status,
+    ).toBe(401);
+    const publicLogin = await f.request(route + "unlock", "owner-test-password", {});
+    const publicCookie = publicLogin.headers.get("set-cookie")!.split(";")[0]!;
+    expect(
+      (
+        await request(
+          route + "connections",
+          undefined,
+          publicCookie.replace("__Host-vorteo-owner", `vorteo-owner-local-${port}`),
+        )
+      ).status,
+    ).toBe(401);
+    expect((await request(route + "lock", undefined, cookie)).status).toBe(200);
+    expect((await request(route + "connections", undefined, cookie)).status).toBe(401);
+    expect(
+      (await f.request(route + "connections", undefined, {}, undefined, publicCookie)).status,
+    ).toBe(200);
+    expect(f.calls).toEqual([]);
+  },
+);

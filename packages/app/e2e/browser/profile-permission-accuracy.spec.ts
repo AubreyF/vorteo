@@ -5,6 +5,7 @@ import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute } from "../support/helpers/mock-agent";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { expectWorkspaceAgentConfiguration } from "../support/helpers/command-center-agent-controls";
+import { resizeAndSettle } from "../support/helpers/viewport";
 
 test("profile edits warn legacy chats and recreation uses the updated permissions", async ({
   page,
@@ -42,10 +43,10 @@ test("profile edits warn legacy chats and recreation uses the updated permission
         model: "e2e-fast-stream",
         modeId: "load-test",
       });
-      await page.setViewportSize({ width: 390, height: 844 });
+      await resizeAndSettle(page, { width: 390, height: 844 });
       await expect(warning).toBeVisible();
       await page.screenshot({ path: test.info().outputPath("legacy-permission-warning.png") });
-      await page.setViewportSize({ width: 1280, height: 900 });
+      await resizeAndSettle(page, { width: 1280, height: 900 });
       await page.getByTestId("profile-permission-recreate").click();
       await chooseNewTaskForProfile(page);
       await page

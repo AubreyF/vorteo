@@ -14,10 +14,15 @@
 
 import { nodeFileTrace } from "@vercel/nft";
 import { glob } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
+const serverRequire = createRequire(path.join(REPO_ROOT, "packages/server/package.json"));
+const nodePtyManifest = serverRequire.resolve("node-pty/package.json");
+const nodePtyDirectory = path.dirname(nodePtyManifest);
+const nodePtyInput = path.relative(REPO_ROOT, nodePtyDirectory).split(path.sep).join("/");
 
 const { sherpaPlatformPackageName } = await import(
   pathToFileURL(
@@ -71,12 +76,11 @@ const additionalInputs = [
   "packages/server/.env.example",
   // CLI shebang script wrapping dist/index.js
   "packages/cli/bin/paseo",
-  // node-pty's compiled native addon. nft can't trace it because
-  // node-pty loads it via `require(path.join(__dirname, 'prebuilds/<plat>/pty.node'))`
-  // with a runtime-computed platform suffix. Pin to the host platform —
-  // the Nix derivation builds for one platform at a time and ships only
-  // its own binaries.
-  `node_modules/node-pty/prebuilds/${process.platform}-${process.arch}/**`,
+  // node-pty computes addon/helper paths dynamically. Resolve from the server's
+  // dependency context so both workspace-local and hoisted installs are copied.
+  // Keep the current platform prebuilds and the native source-build fallback.
+  `${nodePtyInput}/prebuilds/${process.platform}-${process.arch}/**`,
+  `${nodePtyInput}/build/Release/**`,
   // sherpa-onnx-node dynamically resolves a platform-specific native package.
   // Copy the wrapper plus the host platform package explicitly.
   "node_modules/sherpa-onnx-node/**",

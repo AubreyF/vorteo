@@ -1197,7 +1197,6 @@ export const ko: TranslationResources = {
     },
     focus: {
       focusItem: "{{name}}에 집중",
-      menuItem: "집중",
       allProjects: "모든 프로젝트",
       breadcrumb: "사이드바 집중 경로",
     },
@@ -2756,7 +2755,7 @@ export const ko: TranslationResources = {
       system: {
         title: "Vorteo System 정보",
         description:
-          "이 프로젝트는 이 Vorteo 설치를 발전시키기 위한 곳입니다. 설치를 빌드한 체크아웃을 기반으로 하며, Optimization Runner처럼 데몬이 관리하는 유지 관리 워크스페이스도 담고 있습니다. 데몬이 다시 만들고 의존하므로 제거하거나 이름을 바꿀 수 없습니다.",
+          "이 프로젝트는 이 Vorteo 설치를 발전시키기 위한 곳입니다. 설치를 빌드한 체크아웃을 기반으로 하며, Vorteo :: Optimizer처럼 데몬이 관리하는 유지 관리 워크스페이스도 담고 있습니다. 데몬이 다시 만들고 의존하므로 제거하거나 이름을 바꿀 수 없습니다.",
       },
       readFailures: {
         invalidTitle: "paseo.json을 파싱할 수 없습니다",

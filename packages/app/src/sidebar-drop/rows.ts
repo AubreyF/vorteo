@@ -51,6 +51,11 @@ export function projectDropTop(projectKey: string): SidebarDropTop {
   return { key: projectKey, kind: "project", projectKey, section: null };
 }
 
+/** A focused project folder, which holds the focused list's depth-0 rows. */
+export function projectFolderDropTop(projectKey: string, folderId: string): SidebarDropTop {
+  return { key: `${FOLDER_PREFIX}${folderId}`, kind: "projectFolder", projectKey, section: null };
+}
+
 export function sectionDropTop(projectKey: string, section: SidebarDropSection): SidebarDropTop {
   return { key: `${section}:${projectKey}`, kind: "section", projectKey, section };
 }

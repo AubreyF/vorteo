@@ -1,0 +1,4 @@
+{
+  "description": "Accounts the owner has explicitly delegated to approve pull requests on the owner's behalf, in addition to the repository owner. Write access alone never delegates approval. Add a login only at the owner's explicit request. scripts/publish-main.mjs reads this file from the base branch.",
+  "approvers": []
+}

@@ -1,17 +1,30 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Pressable, Text, View, type PointerEvent as RNPointerEvent } from "react-native";
+import {
+  Pressable,
+  Text,
+  View,
+  type LayoutChangeEvent,
+  type PointerEvent as RNPointerEvent,
+} from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useReducedMotion } from "react-native-reanimated";
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { createChatOutlineHoverIntent } from "./hover-intent";
-import { promptTickMagnification } from "./model";
+import {
+  findOutlineGroupIndex,
+  groupOutlinePrompts,
+  promptTickMagnification,
+  type ChatOutlineGroup,
+} from "./model";
 import type { ChatOutlineRailProps } from "./rail";
 
 // Hover tracking lives on the rail and the slots, never on the Pressable inside them:
 // magnifying a slot must not move the box the pointer is resting on. See docs/hover.md.
 const RAIL_WIDTH = 36;
 const SLOT_HEIGHT = 8;
+// Below this a mark is too thin to aim at, so longer conversations share marks instead.
+const MIN_SLOT_HEIGHT = 6;
 const MIN_PANEL_WIDTH = 918;
 const RESTING_PILL_HEIGHT = 2;
 const MAGNIFIED_PILL_HEIGHT = 4;
@@ -32,6 +45,23 @@ export const ChatOutlineRail = memo(function ChatOutlineRail({
   const activeSeq = useSyncExternalStore(activePrompt.subscribe, activePrompt.getActiveSeq);
   const prefersReducedMotion = useReducedMotion();
   const { onLayout, isBelow: isPanelNarrow } = useContainerWidthBelow(MIN_PANEL_WIDTH);
+  const [railHeight, setRailHeight] = useState<number | null>(null);
+  const handleRailLayout = useCallback((event: LayoutChangeEvent) => {
+    setRailHeight(event.nativeEvent.layout.height);
+  }, []);
+  // Marks wait for the rail's measured height, so a permanent thread with thousands of
+  // prompts never mounts one element per prompt, even for a frame.
+  const groups = useMemo(
+    () =>
+      railHeight === null
+        ? []
+        : groupOutlinePrompts(prompts, Math.max(1, Math.floor(railHeight / MIN_SLOT_HEIGHT))),
+    [prompts, railHeight],
+  );
+  const activeGroupIndex = useMemo(
+    () => findOutlineGroupIndex(groups, activeSeq),
+    [activeSeq, groups],
+  );
 
   const hoverIntent = useMemo(
     () =>
@@ -86,16 +116,20 @@ export const ChatOutlineRail = memo(function ChatOutlineRail({
           onPointerEnter={handlePointerEnterRail}
           onPointerMove={handlePointerMoveRail}
           onPointerLeave={handlePointerLeaveRail}
+          onLayout={handleRailLayout}
         >
-          {prompts.map((prompt, index) => (
+          {groups.map((group, index) => (
             <ChatOutlineTick
-              key={prompt.seq}
+              // Keyed by rail position: a new prompt shifts group boundaries, and remounting
+              // the marks would drop keyboard focus without a blur.
+              key={group.slot}
               index={index}
-              seq={prompt.seq}
-              preview={prompt.preview}
-              isAgentMessage={prompt.origin === "agent"}
-              label={`${index + 1} of ${prompts.length}: ${prompt.origin === "agent" ? "Agent message: " : ""}${prompt.preview}`}
-              isActive={prompt.seq === activeSeq}
+              seq={group.first.seq}
+              preview={group.first.preview}
+              range={group.count > 1 ? describeGroupRange(group) : null}
+              isAgentMessage={group.isAgentMessage}
+              label={describeGroup(group, prompts.length)}
+              isActive={index === activeGroupIndex}
               hasAttention={index === attentionIndex}
               magnification={
                 prefersReducedMotion || attentionIndex === null
@@ -117,6 +151,8 @@ interface ChatOutlineTickProps {
   index: number;
   seq: number;
   preview: string;
+  /** Set when the mark stands for several prompts: their count and time span. */
+  range: string | null;
   isAgentMessage: boolean;
   label: string;
   isActive: boolean;
@@ -131,6 +167,7 @@ const ChatOutlineTick = memo(function ChatOutlineTick({
   index,
   seq,
   preview,
+  range,
   isAgentMessage,
   label,
   isActive,
@@ -181,7 +218,12 @@ const ChatOutlineTick = memo(function ChatOutlineTick({
       </Pressable>
       {hasAttention ? (
         <View style={styles.preview} pointerEvents="none" aria-hidden testID="chat-outline-preview">
-          <Text style={styles.previewText} numberOfLines={2}>
+          {range === null ? null : (
+            <Text style={styles.previewRange} numberOfLines={1}>
+              {range}
+            </Text>
+          )}
+          <Text style={styles.previewText} numberOfLines={range === null ? 2 : 1}>
             {preview}
           </Text>
         </View>
@@ -189,6 +231,33 @@ const ChatOutlineTick = memo(function ChatOutlineTick({
     </View>
   );
 });
+
+const RANGE_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+function formatPromptTime(timestamp: string): string {
+  const time = new Date(timestamp);
+  return Number.isNaN(time.getTime()) ? "" : RANGE_TIME_FORMAT.format(time);
+}
+
+function describeGroupRange(group: ChatOutlineGroup): string {
+  const from = formatPromptTime(group.first.timestamp);
+  const to = formatPromptTime(group.last.timestamp);
+  if (!from) return `${group.count} prompts`;
+  if (!to || to === from) return `${group.count} prompts, ${from}`;
+  return `${group.count} prompts, ${from} to ${to}`;
+}
+
+function describeGroup(group: ChatOutlineGroup, total: number): string {
+  const agentPrefix = group.first.origin === "agent" ? "Agent message: " : "";
+  if (group.count === 1)
+    return `${group.start + 1} of ${total}: ${agentPrefix}${group.first.preview}`;
+  return `${group.start + 1} to ${group.start + group.count} of ${total}, from ${agentPrefix}${group.first.preview}`;
+}
 
 const styles = StyleSheet.create((theme) => ({
   panelMeasure: {
@@ -253,6 +322,10 @@ const styles = StyleSheet.create((theme) => ({
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface2,
     ...theme.shadow.md,
+  },
+  previewRange: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
   },
   previewText: {
     fontSize: theme.fontSize.sm,
