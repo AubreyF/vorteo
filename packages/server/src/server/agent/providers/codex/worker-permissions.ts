@@ -33,6 +33,25 @@ const DenyAllProxyNetwork = z
     mitm: Unset,
   })
   .strict();
+// Exactly two audited workspace shapes. Writable workers own the workspace. Read-only workers
+// (Factory issue qualification) may write only their private scratch directory .factory-tmp.
+const WritableWorkspaceRoots = z
+  .object({
+    ".": z.literal("write"),
+    ".codex": z.literal("deny"),
+    ".git": z.literal("read"),
+  })
+  .strict();
+const ReadOnlyWorkspaceRoots = z
+  .object({
+    ".": z.literal("read"),
+    ".factory-tmp": z.literal("write"),
+    ".codex": z.literal("deny"),
+    ".git": z.literal("read"),
+  })
+  .strict();
+export type WorkerWorkspaceMode = "write" | "read-only";
+
 const WorkerProfile = z
   .object({
     description: z.string().nullable().optional(),
@@ -45,13 +64,7 @@ const WorkerProfile = z
         ":minimal": z.literal("read"),
         ":tmpdir": z.literal("deny"),
         ":slash_tmp": z.literal("deny"),
-        ":workspace_roots": z
-          .object({
-            ".": z.literal("write"),
-            ".codex": z.literal("deny"),
-            ".git": z.literal("read"),
-          })
-          .strict(),
+        ":workspace_roots": z.union([WritableWorkspaceRoots, ReadOnlyWorkspaceRoots]),
       })
       .strict(),
     network: z.union([
@@ -79,11 +92,12 @@ const WorkerProfile = z
 
 // A profile name is provenance, not proof of its effective grants. Accept only
 // the audited offline worker boundary; inherited profiles can widen it silently.
+// Returns the verified workspace mode so the physical check can require its directories.
 export function verifyWorkerPermissionProfile(
   profile: unknown,
   cwd: string | undefined,
   networkProxyFeature?: unknown,
-): void {
+): WorkerWorkspaceMode {
   const result = WorkerProfile.safeParse(profile);
   if (!result.success || !cwd || !isAbsolute(cwd) || normalize(cwd) !== cwd) {
     throw new Error("Native worker filesystem confinement is unavailable.");
@@ -98,6 +112,7 @@ export function verifyWorkerPermissionProfile(
   if (result.data.network.enabled && !ProxyFeature.safeParse(networkProxyFeature).success) {
     throw new Error("Native worker deny-all managed proxy is unverified.");
   }
+  return result.data.filesystem[":workspace_roots"]["."] === "write" ? "write" : "read-only";
 }
 
 export function verifyWorkerRuntimeRoots(roots: unknown, cwd: string | undefined): void {
@@ -106,13 +121,19 @@ export function verifyWorkerRuntimeRoots(roots: unknown, cwd: string | undefined
   }
 }
 
-export async function verifyWorkerPhysicalWorkspace(cwd: string | undefined): Promise<void> {
+export async function verifyWorkerPhysicalWorkspace(
+  cwd: string | undefined,
+  mode: WorkerWorkspaceMode = "write",
+): Promise<void> {
   if (!cwd || !isAbsolute(cwd) || normalize(cwd) !== cwd) {
     throw new Error("Native worker requires a prepared physical workspace.");
   }
   // Missing deny targets can fail native mount setup. Preparation owns their
   // creation; verification never follows a link or repairs a worker's paths.
-  for (const directory of [cwd, join(cwd, ".codex")]) {
+  // A read-only worker's only writable path must also be a real directory.
+  const directories = [cwd, join(cwd, ".codex")];
+  if (mode === "read-only") directories.push(join(cwd, ".factory-tmp"));
+  for (const directory of directories) {
     const info = await lstat(directory);
     if (!info.isDirectory() || (await realpath(directory)) !== directory) {
       throw new Error("Native worker requires a prepared physical workspace.");
