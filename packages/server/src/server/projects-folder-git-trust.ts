@@ -21,14 +21,48 @@ function isAtOrBelow(base: string, candidate: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-/** The folder location (root or alias) holding `physical`, or null when it is outside. */
-function containingFolderPath(config: FolderPaths, physical: string): string | null {
+function nativeRealpath(value: string): string | null {
+  try {
+    return realpathSync.native(value);
+  } catch {
+    return null;
+  }
+}
+
+interface FolderLocation {
+  base: string;
+  isRoot: boolean;
+}
+
+/**
+ * The folder location (root or alias) holding `physical`, or null when it is outside. Each
+ * location is tried as written and then by its real path, so a root spelled with a Windows
+ * 8.3 short name still holds the long-name path that realpath returns.
+ */
+function containingFolderPath(config: FolderPaths, physical: string): FolderLocation | null {
+  const locations = [config.root, ...config.aliases].map((base, index) => ({
+    base: path.resolve(base),
+    isRoot: index === 0,
+  }));
+  const canonical = locations.flatMap((location) => {
+    const real = nativeRealpath(location.base);
+    return real && real !== location.base ? [{ ...location, base: real }] : [];
+  });
+  // Stable sort: on equal length a location as written wins over another's real path.
   return (
-    [config.root, ...config.aliases]
-      .map((base) => path.resolve(base))
-      .filter((base) => isAtOrBelow(base, physical))
-      .toSorted((left, right) => right.length - left.length)[0] ?? null
+    [...locations, ...canonical]
+      .filter((location) => isAtOrBelow(location.base, physical))
+      .toSorted((left, right) => right.base.length - left.base.length)[0] ?? null
   );
+}
+
+/**
+ * The `safe.directory` value for a real top-level directory. Git for Windows reports and
+ * compares its working tree with forward slashes (`C:/Users/...`), and versions before 2.46
+ * compare the configured value as text, so Windows paths are passed in that form.
+ */
+export function gitSafeDirectoryValue(directory: string): string {
+  return process.platform === "win32" ? directory.replaceAll("\\", "/") : directory;
 }
 
 export interface RepositoryTopLevel {
@@ -47,19 +81,17 @@ export function findProjectsFolderRepository(
   config: FolderPaths,
   cwd: string,
 ): RepositoryTopLevel | null {
-  let physical: string;
-  try {
-    physical = realpathSync(cwd);
-  } catch {
-    return null;
-  }
-  const base = containingFolderPath(config, physical);
-  if (!base) return null;
+  // The native resolver expands Windows 8.3 short names, as git does.
+  const physical = nativeRealpath(cwd);
+  if (!physical) return null;
+  const location = containingFolderPath(config, physical);
+  if (!location) return null;
   for (let directory = physical; ; directory = path.dirname(directory)) {
     if (existsSync(path.join(directory, ".git"))) {
-      return { physical: directory, throughAlias: base !== path.resolve(config.root) };
+      return { physical: directory, throughAlias: !location.isRoot };
     }
-    if (directory === base || path.dirname(directory) === directory) return null;
+    if (path.relative(location.base, directory) === "" || path.dirname(directory) === directory)
+      return null;
   }
 }
 
@@ -124,7 +156,7 @@ export function withProjectsFolderSafeDirectory(
   if (!config) return overlay;
   const topLevel = cachedRepositoryTopLevel(config, cwd);
   if (!topLevel) return overlay;
-  const additions = safeDirectoryEnv([topLevel], (name) =>
+  const additions = safeDirectoryEnv([gitSafeDirectoryValue(topLevel)], (name) =>
     overlay && name in overlay ? overlay[name] : baseEnv[name],
   );
   return Object.keys(additions).length > 0 ? { ...overlay, ...additions } : overlay;

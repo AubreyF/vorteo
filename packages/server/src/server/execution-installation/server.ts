@@ -322,6 +322,19 @@ export interface InstallationStartupFence {
   released(): boolean;
 }
 
+/** Version reported by the daemon now answering for this environment. */
+async function loadedDaemonVersion(
+  config: InstallationConfig,
+  kind: "host" | "container",
+): Promise<string | null> {
+  const client = await connectInstallationDaemon(config, kind);
+  try {
+    return (await client.getDaemonStatus({ timeout: 15_000 })).version ?? null;
+  } finally {
+    await client.close();
+  }
+}
+
 export function createInstallationServer(
   config: InstallationConfig,
   executor: RestartExecutor,
@@ -416,6 +429,10 @@ export function createInstallationServer(
           return detail;
         },
         () => standingRuntime.verifySelection(job, executor),
+        // Readiness is already proven; an unreadable version only means unknown.
+        job.target === "host"
+          ? () => loadedDaemonVersion(config, "host").catch(() => null)
+          : undefined,
       ),
   };
   const daemonAutomation = new DaemonAutomation(

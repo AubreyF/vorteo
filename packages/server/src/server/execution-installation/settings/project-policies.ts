@@ -52,18 +52,75 @@ export function assertProjectPoliciesProjection(input: {
     );
 }
 
+async function realpathOrNull(value: string): Promise<string | null> {
+  try {
+    return await realpath(value);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Paths whose project policies govern work in `cwd`: the folder itself, its real path, and the
- * main checkout of a git worktree, which may live outside the project folder.
+ * main checkout of a git worktree, which may live outside the project folder. Real paths come
+ * from the native resolver, which on Windows also expands 8.3 short names.
  */
 async function governingPaths(cwd: string): Promise<string[]> {
-  const paths = [resolve(cwd), await realpath(cwd)];
+  const paths = [resolve(cwd)];
+  const real = await realpathOrNull(cwd);
+  if (real) paths.push(real);
   try {
-    paths.push(await getMainRepoRoot(cwd));
+    const mainRoot = await getMainRepoRoot(cwd);
+    paths.push(mainRoot);
+    const realMainRoot = await realpathOrNull(mainRoot);
+    if (realMainRoot) paths.push(realMainRoot);
   } catch {
     // Not a git checkout, so only the folder's own location applies.
   }
   return paths;
+}
+
+/**
+ * The policies plus a copy of each under its project's real path, when that exists and differs,
+ * so a key written through a symlink or a Windows 8.3 short name still matches real paths.
+ */
+async function withRealPolicyKeys(
+  policies: Readonly<Record<string, InstallationProjectPolicy>>,
+): Promise<Record<string, InstallationProjectPolicy>> {
+  const expanded: Record<string, InstallationProjectPolicy> = { ...policies };
+  for (const [key, policy] of Object.entries(policies)) {
+    const real = await realpathOrNull(key);
+    if (!real || real === key) continue;
+    expanded[real] = unionPolicies(expanded[real], policy);
+  }
+  return expanded;
+}
+
+function unionPolicies(
+  left: InstallationProjectPolicy | undefined,
+  right: InstallationProjectPolicy,
+): InstallationProjectPolicy {
+  if (!left) return right;
+  const union = (a: readonly string[] = [], b: readonly string[] = []) => [
+    ...new Set([...a, ...b]),
+  ];
+  return {
+    excludedEnvironments: [
+      ...new Set([...(left.excludedEnvironments ?? []), ...(right.excludedEnvironments ?? [])]),
+    ],
+    providerIds: union(left.providerIds, right.providerIds),
+    profileIds: union(left.profileIds, right.profileIds),
+    skillIdentities: union(left.skillIdentities, right.skillIdentities),
+  };
+}
+
+/** The policy that applies to work in `cwd`, matching both recorded and real paths. */
+async function governingPolicy(
+  policies: Readonly<Record<string, InstallationProjectPolicy>>,
+  cwd: string,
+): Promise<Required<InstallationProjectPolicy>> {
+  const [expanded, paths] = await Promise.all([withRealPolicyKeys(policies), governingPaths(cwd)]);
+  return effectiveProjectPolicy(expanded, paths);
 }
 
 /** The project exclusions that apply to work in `cwd`. Empty without project policies. */
@@ -73,7 +130,7 @@ export async function readProjectPolicy(
 ): Promise<Required<InstallationProjectPolicy>> {
   const policies = admission.settings.projectPolicies;
   if (!policies || Object.keys(policies).length === 0) return effectiveProjectPolicy({}, []);
-  return effectiveProjectPolicy(policies, await governingPaths(cwd));
+  return governingPolicy(policies, cwd);
 }
 
 /** Refuse new work in a project excluded from this environment. */
@@ -99,10 +156,7 @@ export async function assertWorkspaceEnvironment(
   const environment = config.sharedProviderPreferences?.installation?.environment;
   const policies = config.installationProjectPolicies;
   if (!environment || !policies || Object.keys(policies).length === 0) return;
-  assertProjectEnvironment(
-    effectiveProjectPolicy(policies, await governingPaths(cwd)),
-    environment,
-  );
+  assertProjectEnvironment(await governingPolicy(policies, cwd), environment);
 }
 
 /** Refuse an agent whose account or profile the project excludes. */

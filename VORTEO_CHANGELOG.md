@@ -4,6 +4,57 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.810 - 2026-10-23
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.809 - 2026-10-22
+
+### Maintenance
+
+- Merge the Host restart check: a Host update whose restarted daemon still runs the previous build fails before publishing, keeps the new release selected and refuses replay
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-23
+
+### Fixed
+
+- A Host source update no longer reports success when the Host comes back on the previous build. An idle or held restart replaces only the daemon worker, and the running supervisor starts that worker from the release it was launched from, so on 2026-10-21 the update to vorteo.729 succeeded while the daemon still ran 726. After the restart the install now compares the version the Host daemon reports with the new release. On a mismatch it fails before publishing the interface, keeps the new release selected so a full Host restart loads it, and refuses to replay. When the version cannot be read, readiness alone still decides, as before.
+
+## 0.11.0-beta.3.vorteo.808 - 2026-10-22
+
+### Maintenance
+
+- Merge the pruner resilience fix: removing an abandoned web build retries briefly, and a build that still cannot be removed is reported and skipped instead of stopping the prune
+
+## 0.11.0-beta.3.vorteo.800 - 2026-10-23
+
+### Maintenance
+
+- Move the web build pruner's per-build decision into its own helper so the prune loop stays within the lint complexity limit. Behavior is unchanged.
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-23
+
+### Fixed
+
+- The web build pruner no longer stops at the first build it cannot delete. A directory that stays non-empty mid-removal, for example while another cleanup deletes the same tree, is retried with backoff, then reported and skipped while the rest of the prune continues. On 2026-10-23 one such build crashed the whole run.
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-22
+
+### Maintenance
+
+- Merge the Windows path fixes: Projects folder aliases, separators, case and 8.3 short names compare correctly on Windows, git trust sends long forward-slash paths, and project exclusions apply on Windows
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Fixed
+
+- Project exclusions now apply on Windows. Policy keys and working folders compare with either separator and without case for Windows paths, keys written through a symlink or an 8.3 short name also match the real folder, and the coordinator accepts Windows root paths as keys.
+- The Projects folder accepts folders inside it on Windows. Containment compares real paths from the native resolver on both sides, so an 8.3 short temp path such as `RUNNER~1` no longer reads as outside the folder.
+- Projects folder aliases map Windows paths with either separator and without case, and project keys with Windows paths map too. POSIX aliases and earlier locations from another daemon stay as written on Windows instead of being placed on the current drive.
+- The per-command and agent `safe.directory` entries name the repository's long real path with forward slashes on Windows, the form git there reports and compares.
+
 ## 0.11.0-beta.3.vorteo.806 - 2026-10-23
 
 ### Maintenance

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -47,4 +47,21 @@ test("workspace creation is refused only in the environment a project excludes",
   await expect(
     assertWorkspaceEnvironment(daemonConfig("container", project), join(root, "other")),
   ).resolves.toBeUndefined();
+});
+
+test("a project's policy follows it through a symlinked key and covers its real folder", async () => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "project-policy-real-")));
+  roots.push(root);
+  const project = join(root, "app");
+  mkdirSync(join(project, "src"), { recursive: true });
+  const link = join(root, "link");
+  symlinkSync(project, link, "dir");
+  // Keyed by the symlink, entered by the real path.
+  await expect(
+    assertWorkspaceEnvironment(daemonConfig("container", link), join(project, "src")),
+  ).rejects.toBeInstanceOf(ProjectPolicyRefusal);
+  // Keyed by the real path, entered through the symlink.
+  await expect(
+    assertWorkspaceEnvironment(daemonConfig("container", project), join(link, "src")),
+  ).rejects.toBeInstanceOf(ProjectPolicyRefusal);
 });
