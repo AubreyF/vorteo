@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
+import { useCallback, useMemo } from "react";
 import { TaskCard, TaskCardHeader, TaskCardAction } from "@/agent-stream/task-card";
 import { X } from "lucide-react-native";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
@@ -10,8 +11,6 @@ import { deriveWorkspacePaneState } from "./workspace-pane-state";
 import type { WorkspaceTabDescriptor } from "./workspace-tabs-types";
 import type { SplitPane } from "@/stores/workspace-layout-store";
 import type { WorkspaceTab } from "@/workspace-tabs/model";
-import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
-import { useSupportingCardRequests } from "@/workspace-tabs/supporting-card-requests";
 
 export interface SupportingViewCardsProps {
   pane: SplitPane;
@@ -54,30 +53,15 @@ function SupportingViewCard({
   tab: WorkspaceTabDescriptor;
   selected: boolean;
 }) {
-  const [expanded, setExpanded] = useState(selected);
+  const [expanded, setExpanded] = useCardDisclosure(tab.kind === "files" ? "files" : "changes");
   const icon = useMemo(
     () => <TaskCardIcon kind={tab.kind === "files" ? "files" : "changes"} />,
     [tab.kind],
   );
-  const workspaceKey = buildWorkspaceTabPersistenceKey({
-    serverId: normalizedServerId,
-    workspaceId: normalizedWorkspaceId,
-  });
-  const revealRevision = useSupportingCardRequests((state) => {
-    const request = workspaceKey ? state.requests[workspaceKey] : undefined;
-    return request?.kind === tab.kind ? request.revision : 0;
-  });
-  useEffect(() => {
-    if (revealRevision > 0) setExpanded(true);
-  }, [revealRevision]);
-  // Existing Files/Changes commands reveal their designated card.
-  useEffect(() => {
-    if (selected) setExpanded(true);
-  }, [selected]);
   const toggle = useCallback(() => {
     setExpanded((current) => !current);
     if (!expanded) onSelectTab(pane.id, tab.tabId);
-  }, [expanded, onSelectTab, pane.id, tab.tabId]);
+  }, [expanded, setExpanded, onSelectTab, pane.id, tab.tabId]);
   const content = useMemo(
     () => buildPaneContentModel({ paneId: pane.id, tab }),
     [buildPaneContentModel, pane.id, tab],

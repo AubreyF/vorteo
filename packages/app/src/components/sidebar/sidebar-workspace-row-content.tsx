@@ -408,6 +408,7 @@ export function SidebarWorkspaceTrailingDetails({
   return (
     <View style={styles.trailingDetails}>
       <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />
+      <WorkspaceLifecycleIndicators workspace={workspace} />
       {service ? <ServiceItem summary={service} iconOnly /> : null}
       <WorkspaceActivityBadges
         serverId={workspace.serverId}
@@ -421,7 +422,6 @@ export function SidebarWorkspaceTrailingDetails({
           ))}
         </View>
       ) : null}
-      <WorkspaceLifecycleIndicators workspace={workspace} />
       {sidebarRowItems.activityBadges ? (
         <WorkspaceChecklistProgress
           serverId={workspace.serverId}

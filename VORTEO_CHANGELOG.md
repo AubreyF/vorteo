@@ -5,6 +5,124 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.350 - 2026-10-12
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.349 - 2026-10-12
+
+### Fixed
+
+- Clear stale coordinator connection errors after a successful automatic refresh while preserving unconfirmed decision errors.
+- Separate completed coordinator requests into collapsed history and show a live elapsed counter for current requests. Exact owner approval and cancellation controls are unchanged.
+
+## 0.11.0-beta.3.vorteo.348 - 2026-10-12
+
+### Changed
+
+- Remember each supporting card’s expanded state on the device and apply it across workspaces and reloads. Goal, Tasks, Journal, Queue, managed and provider subagents, Files and Changes retain independent choices without server synchronization.
+- Keep Files and Changes folded during workspace selection when that is the saved preference. Explicit navigation commands and queue review actions still reveal the requested card.
+
+### Maintenance
+
+- Verify disclosure preferences across cold and retained workspace transitions, reloads and phone layout. Scope subagent navigation checks to their card rows when the same title also appears in a workspace tab.
+
+## 0.11.0-beta.3.vorteo.347 - 2026-10-12
+
+### Maintenance
+
+- Restore the responsive supporting sidebar after browser-test reloads before checking journal history. Runtime behavior is unchanged.
+
+## 0.11.0-beta.3.vorteo.346 - 2026-10-12
+
+### Changed
+
+- Reduce routine interface color: quota and completed tasks use the shared blue accent, active tasks use text color, and incomplete tasks, Host icons, merged requests and successful checks use neutral tones. Context meters remain neutral at every usage level.
+- Tighten shared card bodies, balance heading icon insets, align journal markers with timestamps and list grips, and match card gaps to viewport gutters. List rows extend to card edges with actions aligned beneath header controls.
+- Include plugin action rows in the supporting column height budget so queued messages cannot overlap Files or Changes in short windows.
+- Combine journal totals and unread counts in one chip, shorten card titles and elapsed goal time, and replace standard sidebar label badges with neutral icons and tooltips. Custom workspace labels retain their text and identity colors.
+
+## 0.11.0-beta.3.vorteo.345 - 2026-10-12
+
+### Fixed
+
+- Restore complete release-note history omitted during interface integration. Validate every retained entry from both source parents against the installed coordinator reader before delivery.
+
+## 0.11.0-beta.3.vorteo.343 - 2026-10-12
+
+### Maintenance
+
+- Integrate the current published readable task status and journal context changes with stable workspace card transitions, responsive sidebars and floating tabs. Preserve both source histories and lifecycle boundaries.
+
+## 0.11.0-beta.3.vorteo.342 - 2026-10-12
+
+### Fixed
+
+- Keep desktop conversation cards in their right-hand dock from the first workspace render. Seed shell geometry from the viewport and retain valid measurements while workspaces are hidden, eliminating the temporary inline placement during navigation.
+- Animate card height and opacity without positional transforms or text scaling. Ignore hidden zero-sized measurements so retained cards do not restart from collapsed dimensions.
+- Preserve the published Factory history admission correction and canonical c19f source ancestry alongside the responsive sidebars and floating workspace tabs.
+
+## 0.11.0-beta.3.vorteo.341 - 2026-10-12
+
+### Changed
+
+- Adapt sidebars as the viewport changes: close the right-hand cards first, reduce the left sidebar to its project rail next, and use hidden navigation on phone widths. Restore the left sidebar before the right as space returns.
+- Preserve saved widths and manual collapse preferences. Explicit opens remain available until the next width change, including Files and Changes navigation.
+
+## 0.11.0-beta.3.vorteo.340 - 2026-10-12
+
+### Changed
+
+- Remove the desktop workspace title row and tab-strip rule. Put the focused environment beside the right-toolbar toggle and let the conversation meet the tabs directly.
+- Make workspace tabs taller and wider, with adaptive shrinking and fully rounded corners. Give only the foreground tab the same floating surface, border and shadow as the Latest button.
+
+## 0.11.0-beta.3.vorteo.339 - 2026-10-12
+
+### Maintenance
+
+- Integrate the published coordinator recovery controls with the new sidebar layouts, unified workspace toolbars and compact card actions. Preserve both source histories and existing approval boundaries.
+
+## 0.11.0-beta.3.vorteo.338 - 2026-10-12
+
+### Changed
+
+- Use cleaning icons for card cleanup actions, with tooltips explaining what is deleted or hidden. All shared card-header icon actions provide labeled tooltips.
+- Reduce the vertical gap between supporting cards to 8px while preserving column gutters and scroll allocation.
+- Combine workspace actions and pane splitting in the primary-content menu. Keep run, preview and other actions at the right edge of the supporting toolbar, and move its collapsed toggle beside the content menu. Use vertical three-dot menus.
+
+## 0.11.0-beta.3.vorteo.337 - 2026-10-12
+
+### Changed
+
+- Cycle the sidebar toolbar button and keyboard shortcut through expanded, compact labeled and minimal rail layouts. Remove the separate Compact button row, remember the layout on this device and retain the expanded resize width.
+
+## 0.11.0-beta.3.vorteo.336 - 2026-10-12
+
+### Maintenance
+
+- Make maintenance browser checks select the explicit Dismiss action separately from the close icon and inspect the visible sidebar after navigation. No interface behavior changes.
+
+- Preserve published sidebar maintenance placement and queued-message ordering in coordinator recovery delivery.
+- Keep the recovery notice in the floating action area without duplicating it in passive sidebar placements.
+
+## 0.11.0-beta.3.vorteo.344 - 2026-10-12
+
+### Maintenance
+
+- Preserve the published responsive sidebar and workspace transition changes alongside owner-controlled automatic daemon maintenance. Retain both source histories and their release notes.
+
+## 0.11.0-beta.3.vorteo.341 - 2026-10-12
+
+### Added
+
+- Owner-unlocked automatic maintenance preference for tracked Host and Dev daemon updates and restarts, with persistent revision checks and visible saved or failed state.
+
+### Fixed
+
+- Disabling automatic maintenance cancels undispatched automatic requests and remains available when restart support is unavailable. Exact owner-only maintenance and recovery fences remain enforced.
+- Preference failures remain visible during background refresh, and old coordinators retain their existing controls without exposing unsupported preference writes.
 
 ## 0.11.0-beta.3.vorteo.340 - 2026-10-12
 

@@ -2,6 +2,7 @@ import { useCallback, type RefObject } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { AgentJournalEntry } from "@getpaseo/protocol/agent-journal";
+import { useVortonTouch } from "@/vorton-touch";
 import { JournalSpark } from "./spark";
 
 interface JournalRowProps {
@@ -23,6 +24,7 @@ export function JournalRow({
   animate,
   timestamps,
 }: JournalRowProps) {
+  const touch = useVortonTouch();
   const timestamp = new Date(entry.timestamp);
   const register = useCallback(
     (node: View | null) => {
@@ -32,9 +34,9 @@ export function JournalRow({
     [entry.id, timestamps],
   );
   return (
-    <View testID={`journal-entry-${entry.id}`} style={styles.row}>
-      {!first ? <View style={styles.lineAbove} /> : null}
-      {!last ? <View style={styles.lineBelow} /> : null}
+    <View testID={`journal-entry-${entry.id}`} style={[styles.row, touch && styles.touchRow]}>
+      {!first ? <View style={[styles.lineAbove, touch && styles.touchLine]} /> : null}
+      {!last ? <View style={[styles.lineBelow, touch && styles.touchLine]} /> : null}
       <View style={styles.marker}>
         {ready ? (
           <JournalSpark seen={seen} entryId={entry.id} animate={animate} />
@@ -65,21 +67,21 @@ export function JournalRow({
   );
 }
 const styles = StyleSheet.create((theme) => ({
-  marker: { flexShrink: 0 },
-  content: { flex: 1, minWidth: 0, gap: theme.spacing[1] },
+  marker: { flexShrink: 0, marginTop: -2 },
+  content: { flex: 1, minWidth: 0, gap: 2 },
   markerPlaceholder: { width: 20, height: 20 },
   lineAbove: {
     position: "absolute",
-    left: theme.spacing[2] + 9.5,
+    left: 11.5,
     top: 0,
-    height: theme.spacing[2] + 10,
+    height: theme.spacing[1] + 8,
     width: 1,
     backgroundColor: theme.colors.borderAccent,
   },
   lineBelow: {
     position: "absolute",
-    left: theme.spacing[2] + 9.5,
-    top: theme.spacing[2] + 10,
+    left: 11.5,
+    top: theme.spacing[1] + 8,
     bottom: 0,
     width: 1,
     backgroundColor: theme.colors.borderAccent,
@@ -88,20 +90,23 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: theme.spacing[2],
-    paddingVertical: theme.spacing[2],
-    paddingLeft: theme.spacing[2],
+    paddingVertical: theme.spacing[1],
+    paddingLeft: 2,
   },
+  touchRow: { paddingLeft: 12 },
+  touchLine: { left: 21.5 },
   timestamp: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
     gap: theme.spacing[2],
-    minHeight: 20,
+    minHeight: 16,
   },
-  date: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm - 2 },
+  date: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm - 2, lineHeight: 16 },
   time: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm - 2,
+    lineHeight: 16,
     fontVariant: ["tabular-nums"],
   },
   text: {

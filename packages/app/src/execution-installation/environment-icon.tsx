@@ -1,8 +1,13 @@
 import { Box, Monitor, KeyRound } from "lucide-react-native";
 import { View } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
-import { EXECUTION_ENVIRONMENT_COLORS, ICON_SIZE } from "@/styles/theme";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { findInstallationEnvironment, readExecutionInstallation } from "./policy";
+
+const ThemedBox = withUnistyles(Box);
+const ThemedMonitor = withUnistyles(Monitor);
+const ThemedKey = withUnistyles(KeyRound);
+const neutral = (theme: Theme) => ({ color: theme.colors.foreground });
 
 export function ExecutionEnvironmentIcon({
   serverId,
@@ -16,7 +21,6 @@ export function ExecutionEnvironmentIcon({
     : null;
   if (!environment || (hostOnly && environment.kind !== "host")) return null;
   const size = ICON_SIZE.sm;
-  const color = EXECUTION_ENVIRONMENT_COLORS[environment.kind];
   if (environment.kind === "container")
     return (
       <View
@@ -24,7 +28,7 @@ export function ExecutionEnvironmentIcon({
         testID="execution-environment-container-icon"
         accessibilityLabel="Runs in dev container"
       >
-        <Box size={size} color={color} />
+        <ThemedBox size={size} uniProps={neutral} />
       </View>
     );
   return (
@@ -33,9 +37,9 @@ export function ExecutionEnvironmentIcon({
       testID="execution-environment-host-icon"
       accessibilityLabel="Runs on host"
     >
-      <Monitor size={size} color={color} />
+      <ThemedMonitor size={size} uniProps={neutral} />
       <View style={styles.key}>
-        <KeyRound size={size / 2} color={color} />
+        <ThemedKey size={size / 2} uniProps={neutral} />
       </View>
     </View>
   );

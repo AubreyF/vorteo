@@ -1,3 +1,4 @@
+import { useResponsiveSupportingCards } from "@/hooks/use-responsive-sidebar";
 import { useSupportingCardRequests } from "@/workspace-tabs/supporting-card-requests";
 import { useAgentPresentationNavigation } from "@/subagents/use-agent-presentation-navigation";
 import { useWorkspaceArchiveRedirect } from "@/workspace/use-workspace-archive-redirect";
@@ -203,6 +204,7 @@ import type { TerminalProfile } from "@getpaseo/protocol/messages";
 import {
   WorkspaceHeaderMenuDesktop,
   WorkspaceOverflowProvider,
+  WorkspaceToolbarToggleContext,
   WorkspaceHeaderMenuMobile,
 } from "@/screens/workspace/workspace-header-menu";
 import { PluginHeaderButtons } from "@/plugins";
@@ -951,6 +953,16 @@ function WorkspaceHeaderProjectRow({
   );
 }
 
+/** Environment context follows the focused tab, including cross-environment workspaces. */
+function WorkspaceToolbarEnvironment({ serverId }: { serverId: string }) {
+  const badge = useHostBadges({ enabled: true }).get(serverId);
+  return badge ? (
+    <View style={styles.toolbarEnvironment} testID="workspace-toolbar-environment">
+      <HostBadge badge={badge} />
+    </View>
+  ) : null;
+}
+
 interface WorkspaceHeaderTitleBarProps {
   isLoading: boolean;
   title: string;
@@ -1359,7 +1371,7 @@ function shouldShowWorkspaceScreenHeader(input: {
   isFocusModeEnabled: boolean;
   isMobile: boolean;
 }): boolean {
-  return !input.isFocusModeEnabled || input.isMobile;
+  return input.isMobile || (!supportsDesktopPaneSplits() && !input.isFocusModeEnabled);
 }
 
 function buildWorkspaceTerminalScopeKey(serverId: string, workspaceId: string): string | null {
@@ -1785,6 +1797,11 @@ function WorkspaceScreenContent({
     workspaceKey: persistenceKey,
   });
   const [supportingCardsCollapsed, setSupportingCardsCollapsed] = useState(false);
+  const {
+    collapsed: responsiveCardsCollapsed,
+    reveal: revealSupportingCards,
+    sidebarCompact: responsiveSidebarCompact,
+  } = useResponsiveSupportingCards(supportingCardsCollapsed);
   const [supportingCardsVisible, setSupportingCardsVisible] = useState(false);
   useEffect(
     () =>
@@ -1795,9 +1812,10 @@ function WorkspaceScreenContent({
         ) {
           // Explicit Files/Changes navigation also reveals a collapsed card group.
           setSupportingCardsCollapsed(false);
+          revealSupportingCards();
         }
       }),
-    [persistenceKey],
+    [persistenceKey, revealSupportingCards],
   );
   const explorerSidebarToggleAccessibilityState = useMemo(
     () => ({
@@ -1883,6 +1901,7 @@ function WorkspaceScreenContent({
   const handleToggleExplorerSidebar = useCallback(() => {
     if (!isMobile && supportsDesktopPaneSplits()) {
       setSupportingCardsCollapsed(supportingCardsVisible);
+      revealSupportingCards();
       if (!supportingCardsVisible)
         showExplorerSidebar({
           isCompact: false,
@@ -1896,7 +1915,13 @@ function WorkspaceScreenContent({
       workspaceKey: persistenceKey,
       checkout: activeExplorerCheckout,
     });
-  }, [activeExplorerCheckout, isMobile, persistenceKey, supportingCardsVisible]);
+  }, [
+    activeExplorerCheckout,
+    isMobile,
+    persistenceKey,
+    supportingCardsVisible,
+    revealSupportingCards,
+  ]);
   const paneFocusSuppressedRef = useRef(false);
   const resizeWorkspaceSplit = useWorkspaceLayoutStore((state) => state.resizeSplit);
   const reorderWorkspaceTabsInPane = useWorkspaceLayoutStore((state) => state.reorderTabsInPane);
@@ -3270,7 +3295,7 @@ function WorkspaceScreenContent({
       toggleDesktopSidebarsWithCheckoutIntent({
         isAgentListOpen: isMobile
           ? selectIsAgentListOpen(panel, { isCompact: true })
-          : !panel.sidebarCompact,
+          : !responsiveSidebarCompact,
         isExplorerOpen:
           !isMobile && supportsDesktopPaneSplits()
             ? supportingCardsVisible
@@ -3281,7 +3306,13 @@ function WorkspaceScreenContent({
       });
       return true;
     },
-    [handleToggleExplorerSidebar, isMobile, persistenceKey, supportingCardsVisible],
+    [
+      handleToggleExplorerSidebar,
+      isMobile,
+      persistenceKey,
+      supportingCardsVisible,
+      responsiveSidebarCompact,
+    ],
   );
 
   const handleWorkspacePaneAction = useCallback(
@@ -3802,7 +3833,7 @@ function WorkspaceScreenContent({
     [normalizedServerId, normalizedWorkspaceId],
   );
 
-  const headerRight = useMemo(
+  const desktopToolbarActions = useMemo(
     () => (
       <View style={styles.headerRight}>
         {!isMobile && (
@@ -3830,37 +3861,11 @@ function WorkspaceScreenContent({
           />
         ) : null}
         {!isMobile && workspaceDirectory ? (
-          <>
-            {!supportingCardsVisible ? (
-              <WorkspaceActions serverId={normalizedServerId} cwd={workspaceDirectory} />
-            ) : null}
-            {!supportingCardsVisible && !supportsDesktopPaneSplits() ? workspaceMenu : null}
-            <WorkspaceHeaderExplorerToggle
-              owner={explorerToggleOwner}
-              onPress={handleToggleExplorerSidebar}
-              label={explorerSidebarToggleLabel}
-              tooltipLabel={t("workspace.tabs.explorerSidebar.toggle")}
-              tooltipKeys={EXPLORER_TOGGLE_KEYS}
-              style={styles.compactHeaderActionButton}
-              accessibilityState={explorerSidebarToggleAccessibilityState}
-            />
-          </>
-        ) : null}
-        {isMobile ? (
-          <WorkspaceExplorerToggle
-            onPress={handleToggleExplorerSidebar}
-            label={explorerSidebarToggleLabel}
-            tooltipLabel={t("workspace.tabs.explorerSidebar.toggle")}
-            tooltipKeys={EXPLORER_TOGGLE_KEYS}
-            accessibilityState={explorerSidebarToggleAccessibilityState}
-            mobile
-          />
+          <WorkspaceActions serverId={normalizedServerId} cwd={workspaceDirectory} />
         ) : null}
       </View>
     ),
     [
-      supportingCardsVisible,
-      workspaceMenu,
       isMobile,
       workspaceDescriptor,
       normalizedServerId,
@@ -3871,13 +3876,65 @@ function WorkspaceScreenContent({
       handleScriptTerminalStarted,
       handleViewScriptTerminal,
       handleOpenUrlInBrowserTab,
+    ],
+  );
+
+  const collapsedExplorerToggle = useMemo(
+    () => (
+      <WorkspaceHeaderExplorerToggle
+        owner={explorerToggleOwner}
+        onPress={handleToggleExplorerSidebar}
+        label={explorerSidebarToggleLabel}
+        tooltipLabel={t("workspace.tabs.explorerSidebar.toggle")}
+        tooltipKeys={EXPLORER_TOGGLE_KEYS}
+        accessibilityState={explorerSidebarToggleAccessibilityState}
+      />
+    ),
+    [
+      explorerToggleOwner,
       handleToggleExplorerSidebar,
       explorerSidebarToggleLabel,
       explorerSidebarToggleAccessibilityState,
-      explorerToggleOwner,
       t,
     ],
   );
+  const headerRight = useMemo(() => {
+    let headerContent: ReactNode = null;
+    if (isMobile) {
+      headerContent = (
+        <View style={styles.headerRight}>
+          <PluginHeaderButtons serverId={normalizedServerId} workspaceId={normalizedWorkspaceId} />
+          <WorkspaceExplorerToggle
+            onPress={handleToggleExplorerSidebar}
+            label={explorerSidebarToggleLabel}
+            tooltipLabel={t("workspace.tabs.explorerSidebar.toggle")}
+            tooltipKeys={EXPLORER_TOGGLE_KEYS}
+            accessibilityState={explorerSidebarToggleAccessibilityState}
+            mobile
+          />
+        </View>
+      );
+    } else if (!supportsDesktopPaneSplits()) {
+      headerContent = (
+        <View style={styles.headerRight}>
+          {collapsedExplorerToggle}
+          {workspaceMenu}
+        </View>
+      );
+    }
+
+    return headerContent;
+  }, [
+    isMobile,
+    normalizedServerId,
+    normalizedWorkspaceId,
+    handleToggleExplorerSidebar,
+    explorerSidebarToggleLabel,
+    explorerSidebarToggleAccessibilityState,
+    collapsedExplorerToggle,
+    workspaceMenu,
+    t,
+  ]);
 
   const showScreenHeader = useMemo(
     () => shouldShowWorkspaceScreenHeader({ isFocusModeEnabled, isMobile }),
@@ -3894,17 +3951,14 @@ function WorkspaceScreenContent({
           tooltipKeys={EXPLORER_TOGGLE_KEYS}
           accessibilityState={explorerSidebarToggleAccessibilityState}
         />
+        <WorkspaceToolbarEnvironment serverId={focusedEnvironmentId} />
         <View style={styles.toolbarSpacer} />
-        {workspaceDirectory ? (
-          <WorkspaceActions serverId={normalizedServerId} cwd={workspaceDirectory} />
-        ) : null}
-        {workspaceMenu}
+        {desktopToolbarActions}
       </>
     ),
     [
-      workspaceDirectory,
-      normalizedServerId,
-      workspaceMenu,
+      desktopToolbarActions,
+      focusedEnvironmentId,
       explorerSidebarToggleAccessibilityState,
       explorerSidebarToggleLabel,
       explorerToggleOwner,
@@ -4004,54 +4058,58 @@ function WorkspaceScreenContent({
       return null;
     }
     return (
-      <WorkspaceOverflowProvider
-        normalizedServerId={normalizedServerId}
-        normalizedWorkspaceId={normalizedWorkspaceId}
-        enabled={!supportingCardsVisible}
+      <WorkspaceToolbarToggleContext.Provider
+        value={supportingCardsVisible ? null : collapsedExplorerToggle}
       >
-        <SplitContainer
-          layout={workspaceLayout}
-          supportingCardsCollapsed={supportingCardsCollapsed}
-          onSupportingCardsVisibilityChange={setSupportingCardsVisible}
-          renderMainHeader={renderWorkspaceScreenHeader}
-          renderExplorerSidebarHeaderAction={renderExplorerSidebarHeaderAction}
-          focusModeEnabled={desktopFocusModeEnabled}
-          onExitFocusMode={toggleFocusMode}
-          workspaceKey={persistenceKey}
+        <WorkspaceOverflowProvider
           normalizedServerId={normalizedServerId}
           normalizedWorkspaceId={normalizedWorkspaceId}
-          isWorkspaceFocused={isRouteFocused}
-          uiTabs={uiTabs}
-          hoveredCloseTabKey={hoveredCloseTabKey}
-          setHoveredCloseTabKey={setHoveredCloseTabKey}
-          closingTabIds={closingTabIds}
-          onNavigateTab={navigateToTabId}
-          onCloseTab={handleCloseTabById}
-          onCopyResumeCommand={handleCopyResumeCommand}
-          onCopyAgentId={handleCopyAgentId}
-          onCopyTerminalId={handleCopyTerminalId}
-          onCopyFilePath={handleCopyFilePath}
-          onReloadAgent={handleReloadAgent}
-          onRenameTab={handleRenameTab}
-          onCloseTabsToLeft={handleCloseTabsToLeftInPane}
-          onCloseTabsToRight={handleCloseTabsToRightInPane}
-          onCloseOtherTabs={handleCloseOtherTabsInPane}
-          onCreateNewTab={handleCreateNewTab}
-          buildPaneContentModel={buildDesktopPaneContentModel}
-          onFocusPane={handleFocusPane}
-          onSplitPane={handleSplitPane}
-          onSplitPaneEmpty={handleCreateEmptySplit}
-          onMoveTabToPane={handleMoveTabToPane}
-          onSelectTabInPane={selectTabInPane}
-          onResizeSplit={handleResizePaneSplit}
-          onReorderTabsInPane={handleReorderTabsInPane}
-        />
-      </WorkspaceOverflowProvider>
+        >
+          <SplitContainer
+            layout={workspaceLayout}
+            supportingCardsCollapsed={responsiveCardsCollapsed}
+            onSupportingCardsVisibilityChange={setSupportingCardsVisible}
+            renderMainHeader={renderWorkspaceScreenHeader}
+            renderExplorerSidebarHeaderAction={renderExplorerSidebarHeaderAction}
+            focusModeEnabled={desktopFocusModeEnabled}
+            onExitFocusMode={toggleFocusMode}
+            workspaceKey={persistenceKey}
+            normalizedServerId={normalizedServerId}
+            normalizedWorkspaceId={normalizedWorkspaceId}
+            isWorkspaceFocused={isRouteFocused}
+            uiTabs={uiTabs}
+            hoveredCloseTabKey={hoveredCloseTabKey}
+            setHoveredCloseTabKey={setHoveredCloseTabKey}
+            closingTabIds={closingTabIds}
+            onNavigateTab={navigateToTabId}
+            onCloseTab={handleCloseTabById}
+            onCopyResumeCommand={handleCopyResumeCommand}
+            onCopyAgentId={handleCopyAgentId}
+            onCopyTerminalId={handleCopyTerminalId}
+            onCopyFilePath={handleCopyFilePath}
+            onReloadAgent={handleReloadAgent}
+            onRenameTab={handleRenameTab}
+            onCloseTabsToLeft={handleCloseTabsToLeftInPane}
+            onCloseTabsToRight={handleCloseTabsToRightInPane}
+            onCloseOtherTabs={handleCloseOtherTabsInPane}
+            onCreateNewTab={handleCreateNewTab}
+            buildPaneContentModel={buildDesktopPaneContentModel}
+            onFocusPane={handleFocusPane}
+            onSplitPane={handleSplitPane}
+            onSplitPaneEmpty={handleCreateEmptySplit}
+            onMoveTabToPane={handleMoveTabToPane}
+            onSelectTabInPane={selectTabInPane}
+            onResizeSplit={handleResizePaneSplit}
+            onReorderTabsInPane={handleReorderTabsInPane}
+          />
+        </WorkspaceOverflowProvider>
+      </WorkspaceToolbarToggleContext.Provider>
     );
   }, [
     supportingCardsVisible,
+    collapsedExplorerToggle,
     canRenderDesktopPaneSplits,
-    supportingCardsCollapsed,
+    responsiveCardsCollapsed,
     workspaceLayout,
     renderWorkspaceScreenHeader,
     renderExplorerSidebarHeaderAction,
@@ -4282,6 +4340,7 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface3,
     opacity: 0.25,
   },
+  toolbarEnvironment: { minWidth: 0, flexShrink: 1 },
   toolbarSpacer: { flex: 1 },
   headerRight: {
     flexDirection: "row",

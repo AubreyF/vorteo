@@ -1,8 +1,9 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { Check, Circle, CircleAlert, Eye, Pencil, Plus } from "lucide-react-native";
+import { BrushCleaning, Check, Circle, CircleAlert, Eye, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -52,8 +53,8 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
-  const [expanded, setExpanded] = useState(true);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  const [expanded, setExpanded] = useCardDisclosure("tasks");
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const [editor, setEditor] = useState<EditorState>({ open: false });
   const { supported, supportsBlocked, supportsReview, readOnly } = useSessionStore(
     useShallow((state) => {
@@ -105,7 +106,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   const countBadge = useMemo(
     () => (
       <CountBadge
-        label={`${progress.completed} / ${progress.total}`}
+        label={`${progress.completed} / ${progress.total} open`}
         accessibilityLabel={t("message.todo.tasksProgress", {
           completed: progress.completed,
           total: progress.total,
@@ -130,7 +131,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   if (!supported) return <AgentTaskList inline tasks={tasks} />;
   return (
     <>
-      <TaskCard testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
+      <TaskCard flushBody testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
         <TaskCardHeader>
           <CardDisclosure
             icon={headingIcon}
@@ -209,9 +210,10 @@ function ClearCompletedButton({
       loading={pending}
       testID="checklist-clear-completed"
       accessibilityLabel="Clear completed tasks"
-    >
-      {pending ? "Clearing…" : "Clear completed"}
-    </TaskCardAction>
+      accessibilityHint="Deletes completed Vorteo tasks from this checklist. Unfinished and provider-managed tasks remain."
+      iconOnly
+      leftIcon={BrushCleaning}
+    />
   );
 }
 

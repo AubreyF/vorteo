@@ -8,6 +8,9 @@ import { useAgentGoal } from "@/goals/use-agent-goal";
 import { goalQueueNotice } from "@/goals/goal-presentation";
 import { SharedQueueView as QueueView } from "./queue-view";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+vi.hoisted(async () => {
+  globalThis.React = await import("react");
+});
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 function SharedQueueView(props: React.ComponentProps<typeof QueueView>) {
   return (
@@ -70,7 +73,7 @@ vi.mock("./use-message-queue", () => ({
       : [],
   }),
 }));
-vi.mock("@/constants/platform", () => ({ isNative: false }));
+vi.mock("@/constants/platform", () => ({ isNative: false, isWeb: true }));
 vi.mock("@/components/draggable-list", () => ({
   DraggableList: ({
     data,
@@ -99,6 +102,12 @@ vi.mock("./shared-attachments", () => ({ SharedQueueAttachments: () => null }));
 vi.mock("./queue-indicator", () => ({
   QueueMessageIndicator: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }));
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => children,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => children,
+  TooltipContent: () => null,
+  TooltipText: () => null,
+}));
 vi.mock("@/components/ui/text-input", () => ({ EditingTextInput: () => null }));
 vi.mock("@/components/ui/button", () => ({
   Button: ({
@@ -117,6 +126,7 @@ vi.mock("@/components/ui/button", () => ({
     </button>
   ),
 }));
+vi.mock("@/constants/layout", () => ({ useIsCompactFormFactor: () => false }));
 vi.mock("@/vorton-touch", () => ({ useVortonTouch: () => false }));
 vi.mock("@/goals/use-goal-elapsed", () => ({ useGoalElapsed: () => 0 }));
 vi.mock("@/goals/use-agent-goal", () => ({
@@ -137,6 +147,13 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuItem: () => null,
 }));
 vi.mock("lucide-react-native", () => ({
+  Info: () => null,
+  Files: () => null,
+  GitCompareArrows: () => null,
+  BookOpen: () => null,
+  ChevronDown: () => null,
+  ChevronRight: () => null,
+  BrushCleaning: () => null,
   ChartPie: () => null,
   FileText: () => null,
   MessageCircleQuestion: () => null,
@@ -160,11 +177,35 @@ vi.mock("@/styles/theme", () => ({
   baseColors: { zinc: { 800: "black" } },
   ICON_SIZE: { sm: 16, xs: 12 },
 }));
+vi.mock("react-native-reanimated", () => ({
+  default: { View: "div" },
+  Easing: { bezier: () => undefined },
+  FadeIn: {
+    duration: () => ({
+      easing: () => ({ reduceMotion: () => undefined }),
+      reduceMotion: () => undefined,
+    }),
+  },
+  FadeOut: {
+    duration: () => ({
+      easing: () => ({ reduceMotion: () => undefined }),
+      reduceMotion: () => undefined,
+    }),
+  },
+  ReduceMotion: { System: "system" },
+  useAnimatedStyle: () => ({}),
+  withTiming: (value: unknown) => value,
+}));
 vi.mock("react-native-unistyles", () => ({
   StyleSheet: { create: () => ({}) },
   withUnistyles: (component: unknown) => component,
 }));
+vi.mock("@/storage/app-storage", () => ({
+  default: { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} },
+}));
 vi.mock("react-native", () => ({
+  Dimensions: { get: () => ({ width: 1400, height: 900 }) },
+  StyleSheet: { create: () => ({}) },
   View: ({
     children,
     testID,
@@ -274,7 +315,7 @@ it("labels the queue and keeps goal recovery within the goal card", async () => 
   await render();
   const queue = container.querySelector('[data-testid="shared-message-queue"]');
   const goal = container.querySelector('[data-testid="agent-goal-bar"]');
-  expect(queue?.textContent).toContain("Queued messages");
+  expect(queue?.textContent).toContain("Queue");
   expect(queue?.querySelector('[data-testid="message-queue-card-count"]')?.textContent).toBe("2");
   expect(queue?.textContent).not.toContain("goal change");
   expect(container.textContent).not.toContain("Retry delivery");

@@ -15,7 +15,12 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     surface,
     // Headers meet the card boundary; only scrollable content owns an outer inset.
     scrollContent: { minHeight: 0, flexShrink: 1 },
-    bodyContent: { padding: theme.spacing[3], gap: theme.spacing[1] },
+    bodyContent: {
+      paddingHorizontal: theme.spacing[3],
+      paddingVertical: theme.spacing[1],
+      gap: theme.spacing[1],
+    },
+    flushBody: { paddingHorizontal: 0 },
     fixedHeader: { flexShrink: 0 },
     scrollBody: { minHeight: 0, flexShrink: 1, flexGrow: 0 },
     hiddenBody: { display: "none" },
@@ -53,7 +58,8 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       gap: 0,
       flexShrink: 0,
     },
-    staticHeader: { paddingHorizontal: theme.spacing[3], gap: theme.spacing[2] },
+    staticHeader: { paddingHorizontal: 6, gap: theme.spacing[2] },
+    touchStaticHeader: { paddingHorizontal: 12 },
     touchHeader: { height: 44 },
     touchAccordionTrigger: { height: 44 },
     accordionTrigger: {

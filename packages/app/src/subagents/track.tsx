@@ -1,3 +1,5 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
+import { CARD_GAP } from "@/agent-stream/columns/geometry";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import {
@@ -11,10 +13,10 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { CountBadge } from "@/components/ui/count-badge";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useMemo, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { Archive, Unlink, X } from "lucide-react-native";
+import { BrushCleaning, Archive, Unlink, X } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useProviderIcon } from "@/components/provider-icons";
 import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
@@ -141,8 +143,10 @@ function SubagentsGroup({
   ...rowActions
 }: SubagentsGroupProps): ReactElement | null {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(true);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  const [expanded, setExpanded] = useCardDisclosure(
+    kind === "paseo" ? "subagents" : "providerSubagents",
+  );
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const status = kind === "paseo" ? archiveFinishedStatus : IDLE_ARCHIVE_FINISHED_STATUS;
   const clearFinished = useCallback(() => {
     if (kind === "paseo") {
@@ -192,7 +196,7 @@ function SubagentsGroup({
     </>
   );
   const body = expanded ? (
-    <View style={styles.cardRows}>
+    <View>
       {rows.map((row) => (
         <SubagentsTrackRow
           key={row.id}
@@ -207,7 +211,7 @@ function SubagentsGroup({
   return (
     <View testID={`subagents-group-${kind}`}>
       {inline ? (
-        <TaskCard bodyVisible={expanded} testID={cardTestID}>
+        <TaskCard flushBody bodyVisible={expanded} testID={cardTestID}>
           <TaskCardHeader>{header}</TaskCardHeader>
 
           {body}
@@ -278,14 +282,15 @@ export function ArchiveFinishedRow({
         disabled={disabled}
         loading={status.kind === "archiving"}
         testID="subagents-track-archive-finished"
+        iconOnly
+        leftIcon={BrushCleaning}
+        tooltipDescription={`${actionLabel}. Clears finished sub-agents from this track. Running sub-agents remain.`}
         accessibilityLabel={
           status.kind === "failed"
             ? "Retry clearing finished"
             : t("subagents.archiveFinishedAction")
         }
-      >
-        {actionLabel}
-      </TaskCardAction>
+      />
     );
   }
 
@@ -353,7 +358,10 @@ export function SubagentsTrackRow({
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
       <>
-        <WorkspaceTabIcon presentation={presentation} backdrop={active ? "surface2" : "surface1"} />
+        <WorkspaceTabIcon
+          presentation={presentation}
+          backdrop={active && !inline ? "surface2" : "surface1"}
+        />
         <Text
           style={[styles.rowLabel, inline && taskCardStyles.rowText]}
           numberOfLines={1}
@@ -529,10 +537,7 @@ function SubagentActionButton({
 
 const styles = StyleSheet.create((theme) => ({
   rowMetadata: { maxWidth: "50%", textAlign: "right" },
-  groups: { gap: theme.spacing[3] },
-  cardRows: {
-    marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
-  },
+  groups: { gap: CARD_GAP },
   // `flexBasis: "auto"` rather than `flex: 1`: a zero-basis label contributes nothing to the row's
   // intrinsic width, so the panel measures itself at its floor and truncates every label at once.
   rowLabel: {

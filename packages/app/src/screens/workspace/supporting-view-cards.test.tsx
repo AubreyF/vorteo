@@ -7,6 +7,15 @@ import type { SupportingViewCardsProps } from "./supporting-view-cards";
 vi.stubGlobal("React", React);
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 
+vi.mock("react-native", () => ({ Dimensions: { get: () => ({ width: 1800, height: 1000 }) } }));
+vi.mock("@/constants/platform", () => ({ isWeb: true }));
+vi.mock("@/storage/app-storage", () => ({
+  default: {
+    getItem: async () => null,
+    setItem: async () => {},
+    removeItem: async () => {},
+  },
+}));
 vi.mock("@/agent-stream/task-card", () => ({
   TaskCard: ({ children }: React.PropsWithChildren) => <section>{children}</section>,
   TaskCardHeader: ({ children }: React.PropsWithChildren) => <header>{children}</header>,
@@ -71,6 +80,7 @@ vi.mock("./workspace-pane-content", () => ({
   ),
 }));
 
+import { usePanelStore } from "@/stores/panel-store";
 import { SupportingViewCards } from "./supporting-view-cards";
 import {
   requestSupportingCard,
@@ -103,6 +113,7 @@ describe("supporting view cards", () => {
     [...container.querySelectorAll("button")].find((button) => button.textContent === title)!;
   beforeEach(() => {
     vi.clearAllMocks();
+    usePanelStore.setState({ supportingCardExpanded: { files: true } });
     useSupportingCardRequests.setState({ requests: {} });
     container = document.createElement("div");
     document.body.append(container);
@@ -135,10 +146,16 @@ describe("supporting view cards", () => {
     expect(disclosure("changes_tree").getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("reveals a card when an external navigation command selects it", () => {
+  it("preserves disclosure preferences when another workspace selects a different view", () => {
     render();
     expect(disclosure("changes_tree").getAttribute("aria-expanded")).toBe("false");
-    render({ ...props, pane: { ...props.pane, focusedTabId: "changes" } });
+    render({
+      ...props,
+      normalizedWorkspaceId: "another-workspace",
+      pane: { ...props.pane, focusedTabId: "changes" },
+    });
+    expect(disclosure("changes_tree").getAttribute("aria-expanded")).toBe("false");
+    act(() => requestSupportingCard("host:another-workspace", "changes_tree"));
     expect(disclosure("changes_tree").getAttribute("aria-expanded")).toBe("true");
   });
 

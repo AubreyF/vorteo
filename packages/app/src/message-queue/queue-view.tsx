@@ -1,3 +1,4 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
@@ -91,11 +92,11 @@ function QueueViewContent({
   goalErrorHandled?: boolean;
   reviewRequest?: number;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useCardDisclosure("queue");
   useEffect(() => {
     if (reviewRequest > 0) setExpanded(true);
-  }, [reviewRequest]);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  }, [reviewRequest, setExpanded]);
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const edits = useQueueEditDrafts();
   const snapshot = control.snapshot;
   if (
@@ -109,7 +110,7 @@ function QueueViewContent({
     return !!record.error && !!snapshot?.items.some((item) => item.id === operation.messageId);
   });
   return (
-    <TaskCard testID="shared-message-queue" bodyVisible={expanded}>
+    <TaskCard flushBody testID="shared-message-queue" bodyVisible={expanded}>
       <TaskCardHeader testID="message-queue-header">
         <QueueHeader control={control} expanded={expanded} toggleExpanded={toggleExpanded} />
       </TaskCardHeader>
@@ -191,7 +192,7 @@ function QueueHeader({
       <CardDisclosure
         icon={HEADING_ICON}
         trailing={headerStatus}
-        title="Queued messages"
+        title="Queue"
         expanded={expanded}
         onPress={toggleExpanded}
         testID="message-queue-toggle"
@@ -689,7 +690,7 @@ function QueueActions({
       .catch(() => {});
   }, [control, item]);
   return (
-    <View style={[taskCardStyles.actions, !touch && taskCardStyles.actionInset]}>
+    <View style={taskCardStyles.actions}>
       <QueuePrimaryActions
         queued={queued}
         canMutate={control.canMutate}
@@ -699,6 +700,7 @@ function QueueActions({
       />
       <DropdownMenu>
         <DropdownMenuTrigger
+          accessibilityRole="button"
           accessibilityLabel="Queued message actions"
           style={[styles.menuTrigger, touch && styles.touch]}
         >

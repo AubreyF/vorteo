@@ -41,6 +41,7 @@ export function CardDisclosure({
           styles.trigger,
           hovered && styles.hovered,
           touch && taskCardStyles.touchAccordionTrigger,
+          touch && styles.touchTrigger,
         ]}
         accessibilityRole="button"
         accessibilityLabel={status ? `${title} (${status})` : title}
@@ -95,9 +96,10 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
     flexBasis: "auto",
     borderRadius: theme.borderRadius.lg,
-    paddingLeft: theme.spacing[3],
+    paddingLeft: 6,
     paddingRight: theme.spacing[2],
   },
+  touchTrigger: { paddingLeft: 12 },
   hovered: { backgroundColor: theme.colors.interactionHighlight },
   status: {
     fontSize: Math.round(theme.fontSize.sm * 0.8),

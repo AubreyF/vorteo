@@ -5,7 +5,7 @@ import { View, type StyleProp, type ViewStyle } from "react-native";
 import { PortalHost } from "@gorhom/portal";
 import { RetainedPanel } from "@/components/retained-panel";
 import { CardColumn } from "@/agent-stream/columns/card-column";
-import { COLUMN_MARGIN } from "@/agent-stream/columns/geometry";
+import { CARD_GAP } from "@/agent-stream/columns/geometry";
 
 /** Keep workspace panels at one React location when the focused conversation changes. */
 export function SupportingCardGroup({
@@ -60,6 +60,7 @@ const styles = StyleSheet.create({
 
 const supportingStyle = {
   flexGrow: 0,
+  flexShrink: 0,
   flexBasis: "auto",
-  gap: COLUMN_MARGIN,
+  gap: CARD_GAP,
 } as const;

@@ -34,18 +34,13 @@ frame; its toolbar stands on the canvas, with the first card aligned to the
 bottom of the left toolbar. The canvas behind every floating panel uses the same flat
 `surface0` color. The desktop left collapse control and keyboard shortcut retain
 a minimal project rail, including after reload. Put the right collapse control
-in its toolbar and its reopen control in the central header. Workspace tabs sit
-above the borderless title row and use a wider 120 to 260px range. Horizontal
-tab strips share `styles/tab-shape.ts`: rounded top corners and square bottom corners.
+in its toolbar and its reopen control in the central header. Desktop workspace tabs are the only central header, directly above the conversation scroller and its boundary fades. Tabs are 44px tall, grow to 420px for long labels and shrink toward 120px as more tabs open. The foreground tab shares the Latest button’s fully rounded floating surface, border and soft shadow; other tabs use muted text without a persistent fill. Settings and question tab strips retain `styles/tab-shape.ts`.
 The sidebar overflow menu contains the compact Freed theme swatches. The overflow trigger
 sits after Settings at the right end of the left toolbar. All three desktop
 columns use the same 48px top toolbar, aligned to the floating panel inset.
 In Electron, reserve window-control clearance once above all three columns.
 The minimal project rail stays 64px wide because window controls sit above it.
-The right toolbar holds workspace actions, including Create PR, and the
-workspace menu. When that panel is collapsed, those actions remain available
-through the central controls. Workspace menu items join the existing pane
-overflow menu there, so the central column has only one overflow trigger.
+The right toolbar places its collapse toggle and focused environment at the left, with run, preview and workspace actions, including Create PR, at the right. Workspace context and split actions share one vertical overflow menu in the central tab bar. When the right panel is collapsed, its action buttons are hidden and its reopen toggle appears immediately before that menu.
 
 The isolated demo uses the real file editor against a simulated file store.
 Sample-file saves carry revisions, reject stale writes and notify subscribed
@@ -62,6 +57,10 @@ about current tasks, changed files or appearance controls. Messages stay in
 tab-local storage across reloads, retries do not duplicate them, and Reset clears
 them. Attachments and real execution remain unavailable. Replies never claim
 that a model or command ran.
+
+As the viewport narrows, hide the supporting cards before reducing left navigation to its 64px project rail. Below the compact breakpoint, hide navigation behind its menu. Restore the left sidebar before the right when space returns. Treat responsive changes as presentation constraints, preserving saved widths and manual collapse choices. Explicit opens override the constraint until the next width change.
+
+Supporting card disclosure preferences live in the device-local panel store and apply across every workspace. Keep Goal, Tasks, Journal, Queue, managed subagents, provider subagents, Files and Changes independent. Workspace selection must not reopen a folded card; explicit navigation or review commands may reveal it. Preserve height-only animation and reduced-motion behavior.
 
 Both sidebar resizers use `SidebarResizeHandle` and the same pointer lifecycle.
 Match Freed's centered 2px neutral gap indicator, transparent at rest, with
@@ -394,7 +393,7 @@ Conversation cards stop growing at half the viewport height, including their hea
 
 ### Shared heading geometry
 
-`TaskCard` owns flush headers and a 12px inset around scrollable body content. `TaskCardHeader` owns a single centered row, 32px high on desktop and 44px on touch. A 20px icon footprint precedes the title by 8px. `CardDisclosure` keeps the title, arrow and optional count on one line; `TaskCardTitle` gives noncollapsible headings the same typography. Disclosure and action buttons use ghost hover states and the same radius as the card. Edge buttons meet the inside of the card border without outside margin. Right-side buttons share the heading centerline. Do not add per-card inset, heading-height or action-margin overrides.
+`TaskCard` owns flush headers and 12px horizontal and 4px vertical insets around scrollable body content. List cards use the shared flush-body option so their row actions align with header controls; prose bodies retain their horizontal inset. `TaskCardHeader` owns a single centered row, 32px high on desktop and 44px on touch. A 20px icon footprint precedes the title by 8px. `CardDisclosure` keeps the title, arrow and optional count on one line; `TaskCardTitle` gives noncollapsible headings the same typography. Disclosure and action buttons use ghost hover states and the same radius as the card. Edge buttons meet the inside of the card border without outside margin. Right-side buttons share the heading centerline. Do not add per-card inset, heading-height or action-margin overrides.
 
 Long question prompts and navigation belong in the body beneath the fixed Questions heading. Plan disclosures follow the same title, arrow order. Sub-agent rows have no dividers. Browser geometry checks compare icon and title columns, heading and action centers, disclosure order, equal button clearance, overflow and collapsed behavior at desktop and compact widths. Keep those checks and screenshot review part of any card change.
 

@@ -15,9 +15,9 @@ interface FlowerPalette {
   pending: string;
 }
 const palette = (theme: Theme): FlowerPalette => ({
-  completed: theme.colors.statusSuccess,
-  active: theme.colors.statusDotRunning,
-  pending: theme.colors.foregroundExtraMuted,
+  completed: theme.colors.statusDotRunning,
+  active: theme.colors.foreground,
+  pending: theme.colors.border,
 });
 const decorativeSvgProps = isWeb
   ? { "aria-hidden": true as const }

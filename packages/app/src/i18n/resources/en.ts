@@ -1877,7 +1877,7 @@ export const en = {
     archiveAction: "Archive {{label}}",
     archiveTooltip: "Archive subagent",
     archiveFinishedAction: "Clear finished",
-    workersTitle: "Vorteo sub-agents",
+    workersTitle: "Subagents",
     workersInfo:
       "Separate agents managed by Vorteo. Their profile, model and reasoning settings appear below each task. Archive removes a worker from the active list; detach makes it an independent task.",
     providerTitle: "System sub-agents",

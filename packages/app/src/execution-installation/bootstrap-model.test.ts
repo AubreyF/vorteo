@@ -243,7 +243,7 @@ test("bootstrap rejects stale review, retains known status on disconnect and rep
   expect(model.getState().error).toContain("Last known");
   connected = true;
   await model.refresh(true);
-  expect(model.getState().error).toContain("Last known");
+  expect(model.getState().error).toBeNull();
   await model.refresh();
   expect(model.getState().error).toBeNull();
 });
@@ -472,4 +472,27 @@ test("outcome verification carries exact generation without an owner decision", 
   expect(model.getState().busy).toBe(false);
   await model.reconcile({ ...item, revision: randomUUID() });
   expect(inputs).toHaveLength(1);
+});
+
+test("automatic status recovery clears transport failures but retains decision failures", async () => {
+  let fail = true;
+  const item = request();
+  const model = new BootstrapPanelModel(() => ({
+    listCoordinatorBootstrapRequests: async () => {
+      if (fail) throw new Error("offline");
+      return [item];
+    },
+    decideCoordinatorBootstrap: async () => {
+      throw new Error("unconfirmed");
+    },
+  }));
+  await model.refresh(true);
+  expect(model.getState().error).toContain("Could not refresh");
+  fail = false;
+  await model.refresh(true);
+  expect(model.getState().error).toBeNull();
+  model.setPassword("disposable-proof");
+  await model.decide(item, "approve");
+  await model.refresh(true);
+  expect(model.getState().error).toContain("Decision unconfirmed");
 });

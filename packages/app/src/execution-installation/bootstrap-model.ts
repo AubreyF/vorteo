@@ -49,6 +49,7 @@ export class BootstrapPanelModel<
   private password = "";
   private refreshToken: symbol | null = null;
   private availabilityError: string | null = null;
+  private refreshError: string | null = null;
   private generation = 0;
   private pendingDecision: { id: string; revision: string } | null = null;
   constructor(
@@ -91,9 +92,10 @@ export class BootstrapPanelModel<
     if (this.refreshToken) return;
     const client = this.resolveClient();
     if (!client) {
+      this.refreshError = "Host connection unavailable. Last known coordinator status is shown.";
       if (this.state.available)
         this.publish({
-          error: "Host connection unavailable. Last known coordinator status is shown.",
+          error: this.refreshError,
         });
       return;
     }
@@ -104,8 +106,13 @@ export class BootstrapPanelModel<
       const requests = await client.listCoordinatorBootstrapRequests();
       if (this.refreshToken === refreshToken && generation === this.generation) {
         const error =
-          automatic && this.state.error !== this.availabilityError ? this.state.error : null;
+          automatic &&
+          this.state.error !== this.availabilityError &&
+          this.state.error !== this.refreshError
+            ? this.state.error
+            : null;
         this.availabilityError = null;
+        this.refreshError = null;
         const pending = this.pendingDecision;
         const recorded = pending && requests.find((item) => item.id === pending.id);
         // A durable revision supersedes the long-running decision response.
@@ -119,11 +126,13 @@ export class BootstrapPanelModel<
         }
       }
     } catch {
-      if (this.refreshToken === refreshToken && generation === this.generation)
+      if (this.refreshToken === refreshToken && generation === this.generation) {
+        this.refreshError = "Could not refresh coordinator status. Reconnect Host and retry.";
         this.publish({
           available: true,
-          error: "Could not refresh coordinator status. Reconnect Host and retry.",
+          error: this.refreshError,
         });
+      }
     } finally {
       if (this.refreshToken === refreshToken) this.refreshToken = null;
     }

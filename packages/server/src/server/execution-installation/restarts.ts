@@ -29,6 +29,8 @@ import type {
 
 export interface RestartApprovalPolicy {
   hostRequestsAfter?: string;
+  // Undefined retains legacy Host-only policy; null explicitly disables automation.
+  daemonRequestsAfter?: () => string | null | undefined;
 }
 
 export interface RestartJournal {
@@ -1270,7 +1272,7 @@ export class InstallationRestarts {
       whenIdle: true,
       finishCurrentTurns: true,
       detail: policyActivatedAt
-        ? "Automatically approved by Host policy. Finishing current turns before restart; cancellation remains available."
+        ? "Automatically approved by installation policy. Finishing current turns before restart; cancellation remains available."
         : "Holding new work while current turns finish. You can cancel before restart.",
     };
     this.replace(next);
@@ -1287,7 +1289,9 @@ export class InstallationRestarts {
   }
 
   private approveTrustedHostRequests(): void {
-    const enabledAfter = this.approvalPolicy.hostRequestsAfter;
+    const activation = this.approvalPolicy.daemonRequestsAfter?.();
+    const configured = activation !== undefined;
+    const enabledAfter = configured ? activation : this.approvalPolicy.hostRequestsAfter;
     if (!enabledAfter) return;
     const threshold = Date.parse(enabledAfter);
     if (!Number.isFinite(threshold)) throw new RestartRequestError("Invalid Host approval policy");
@@ -1299,7 +1303,7 @@ export class InstallationRestarts {
     )
       return;
     for (const job of this.jobs) {
-      if (!this.automaticApprovalCandidate(job)) continue;
+      if (!this.automaticApprovalCandidate(job, configured)) continue;
       if (Date.parse(job.createdAt) < threshold) continue;
       const batch = job.sourceBatch;
       if (batch) {
@@ -1310,7 +1314,8 @@ export class InstallationRestarts {
           included.some(
             (item) =>
               item.requireOwnerApproval ||
-              item.requestedBy !== "host-agent" ||
+              item.requestedBy === "owner" ||
+              (!configured && item.requestedBy !== "host-agent") ||
               item.status !== "included",
           )
         )
@@ -1327,14 +1332,27 @@ export class InstallationRestarts {
     }
   }
 
-  private automaticApprovalCandidate(job: RestartJob): boolean {
+  private automaticApprovalCandidate(job: RestartJob, includeContainer: boolean): boolean {
     return (
       job.status === "pending" &&
-      job.requestedBy === "host-agent" &&
+      (job.requestedBy === "host-agent" ||
+        (includeContainer && job.requestedBy === "container-agent")) &&
       !job.requireOwnerApproval &&
       !this.factoryRecoveryRequired(job.target) &&
       !requiresExactMaintenanceApproval(job)
     );
+  }
+
+  /** Revoke only undispatched automatic grants; explicit owner approvals remain exact. */
+  refreshApprovalPolicy(): void {
+    if (!this.active || !this.approvalPolicy.daemonRequestsAfter) return;
+    const enabledAfter = this.approvalPolicy.daemonRequestsAfter();
+    if (enabledAfter === undefined) return;
+    for (const job of this.jobs) {
+      if (job.status !== "approved" || !job.automaticApproval) continue;
+      if (job.automaticApproval.policyActivatedAt === enabledAfter) continue;
+      this.decide(job.id, job.revision, "cancel");
+    }
   }
 
   private async drainMonitors(): Promise<void> {
@@ -1355,6 +1373,7 @@ export class InstallationRestarts {
 
   async drain(): Promise<void> {
     if (!this.active) return;
+    this.refreshApprovalPolicy();
     if (this.running || this.preparing) return;
     if (this.executor.prepareUpdate) await this.prepareBatches();
     if (this.running || this.preparing) return;

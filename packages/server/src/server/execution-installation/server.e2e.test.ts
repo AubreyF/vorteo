@@ -1,3 +1,4 @@
+import { DaemonAutomation } from "./daemon-automation.js";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import type { RestartExecutor } from "./restarts.js";
@@ -2191,4 +2192,66 @@ test("Host CLI source contributions carry the advertised owner-review requiremen
     rmSync(root, { recursive: true, force: true });
     rmSync(configRoot, { recursive: true, force: true });
   }
+});
+
+test("daemon automation preference requires owner access and persists exact revisions", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const query = "/api/installation/owner/daemon-automation/query";
+  const change = "/api/installation/owner/daemon-automation/change";
+  expect((await f.request(query, "guest-agent-test-token", {})).status).toBe(401);
+  expect((await f.request(query, "host-agent-test-token", {})).status).toBe(401);
+  const initial = await (await f.request(query, "owner-test-password", {})).json();
+  expect(initial).toEqual({
+    revision: null,
+    enabled: false,
+    enabledAfter: null,
+    legacyHostOnly: true,
+  });
+  const enabled = await f.request(change, "owner-test-password", {
+    expectedRevision: null,
+    enabled: true,
+  });
+  expect(enabled.status).toBe(200);
+  const saved = await enabled.json();
+  expect(saved).toMatchObject({ enabled: true, legacyHostOnly: false });
+  expect(new DaemonAutomation(f.root, true).read()).toEqual(saved);
+  expect(typeof saved.revision).toBe("string");
+  expect(typeof saved.enabledAfter).toBe("string");
+  expect(await (await f.request(query, "owner-test-password", {})).json()).toEqual(saved);
+  expect(
+    (await f.request(change, "owner-test-password", { expectedRevision: null, enabled: false }))
+      .status,
+  ).toBe(409);
+  const disabled = await f.request(change, "owner-test-password", {
+    expectedRevision: saved.revision,
+    enabled: false,
+  });
+  expect(disabled.status).toBe(200);
+  expect(await disabled.json()).toMatchObject({
+    enabled: false,
+    enabledAfter: null,
+    legacyHostOnly: false,
+  });
+});
+
+test("owner can disable automation when the coordinator loses restart support", async () => {
+  const f = await fixture();
+  const saved = new DaemonAutomation(f.root, false).change({
+    expectedRevision: null,
+    enabled: true,
+  });
+  const route = "/api/installation/owner/daemon-automation/change";
+  const disabled = await f.request(route, "owner-test-password", {
+    expectedRevision: saved.revision,
+    enabled: false,
+  });
+  expect(disabled.status).toBe(200);
+  const state = await disabled.json();
+  expect(state.enabled).toBe(false);
+  const refused = await f.request(route, "owner-test-password", {
+    expectedRevision: state.revision,
+    enabled: true,
+  });
+  expect(refused.status).toBe(409);
+  expect(new DaemonAutomation(f.root, false).read()).toEqual(state);
 });

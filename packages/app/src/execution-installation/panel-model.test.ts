@@ -452,7 +452,7 @@ test("restart summaries identify Dev requests and durable Host automatic approva
         requestRevision: "revision",
       },
     }),
-  ).toBe("Automatically approved for a trusted Host thread. Install checklist recovery.");
+  ).toBe("Automatically approved by installation policy. Install checklist recovery.");
 });
 
 test("helper model observes without approving and refuses stale decisions", async () => {
@@ -536,4 +536,78 @@ test("monitor model observes without approving, rejects stale decisions and clea
   expect(model.getState().helperError).toBe("Decision unconfirmed");
   await model.lock();
   expect(model.getState().monitorJobs).toEqual([]);
+});
+
+test("daemon automation shows saved state and retains the prior value on failure", async () => {
+  const initial = { revision: null, enabled: false, enabledAfter: null, legacyHostOnly: false };
+  let failSave = false;
+  let saves = 0;
+  let suspendRead = false;
+  const readStarted = Promise.withResolvers<void>();
+  const releaseRead = Promise.withResolvers<void>();
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => false,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: false,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    unlock: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper operation");
+    },
+    listRestarts: async () => [],
+    decide: async () => {
+      throw new Error("Unexpected restart");
+    },
+    daemonAutomation: async () => {
+      if (suspendRead) {
+        readStarted.resolve();
+        await releaseRead.promise;
+      }
+      return initial;
+    },
+    changeDaemonAutomation: async (_preference, enabled) => {
+      saves++;
+      if (failSave) throw new Error("Preference could not be saved");
+      return {
+        revision: "10000000-0000-4000-8000-000000000001",
+        enabled,
+        enabledAfter: "2026-10-12T00:00:00.000Z",
+        legacyHostOnly: false,
+      };
+    },
+  });
+  await model.changeDaemonAutomation(true);
+  expect(saves).toBe(0);
+  model.setPassword("owner-password");
+  await model.unlock();
+  await model.changeDaemonAutomation(true);
+  expect(model.getState()).toMatchObject({
+    daemonAutomation: { enabled: true },
+    busy: false,
+    notice: "Automatic maintenance preference saved.",
+  });
+  failSave = true;
+  await model.changeDaemonAutomation(false);
+  expect(model.getState()).toMatchObject({
+    daemonAutomation: { enabled: true },
+    busy: false,
+    daemonAutomationError: "Preference could not be saved",
+  });
+  await model.refresh();
+  expect(model.getState().daemonAutomationError).toBe("Preference could not be saved");
+  suspendRead = true;
+  const staleRefresh = model.refresh();
+  await readStarted.promise;
+  failSave = false;
+  await model.changeDaemonAutomation(true);
+  releaseRead.resolve();
+  await staleRefresh;
+  expect(model.getState().daemonAutomation?.enabled).toBe(true);
+  await model.lock();
+  expect(model.getState().daemonAutomation).toBeNull();
+  expect(model.getState().daemonAutomationError).toBeNull();
 });

@@ -1,3 +1,4 @@
+import { DaemonAutomation } from "./daemon-automation.js";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
@@ -23,6 +24,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import type { Logger } from "pino";
 import { z } from "zod";
 import {
+  DaemonAutomationChangeSchema,
   SourceUpdateSchema,
   type RestartJob,
   type SourceContribution,
@@ -251,6 +253,10 @@ export function createInstallationServer(
     prepareUpdate: (items, target) => forTarget(target).prepare(items),
     installUpdate: (job) => forTarget(job.target).install(job, executor.restart),
   };
+  const daemonAutomation = new DaemonAutomation(
+    config.stateDir,
+    Boolean(config.restartApprovalPolicy),
+  );
   const restarts = new InstallationRestarts(
     {
       read: () =>
@@ -270,7 +276,7 @@ export function createInstallationServer(
     },
     restartExecutor,
     Date.now,
-    config.restartApprovalPolicy,
+    { ...config.restartApprovalPolicy, daemonRequestsAfter: () => daemonAutomation.activation() },
     { fenced: startupFence !== undefined },
   );
   const startupReleased = () => {
@@ -386,8 +392,11 @@ export function createInstallationServer(
     );
     const supervisorPlan = host ? executor.supervisorPlan?.() : undefined;
     const factoryRuntimePlan = host ? executor.factoryRuntimePlan?.() : undefined;
+    const activation = daemonAutomation.activation();
+    const policyEnabled =
+      activation === undefined ? config.restartApprovalPolicy?.hostRequestsAfter : activation;
     const automaticHost = Boolean(
-      config.restartApprovalPolicy &&
+      policyEnabled &&
       executor.inspect &&
       executor.holdCurrentTurns &&
       executor.releaseCurrentTurns &&
@@ -406,7 +415,7 @@ export function createInstallationServer(
           res.json({
             version: 1,
             targets,
-            ownerApprovalRequired: !host || !automaticHost,
+            ownerApprovalRequired: !automaticHost || (!host && activation === undefined),
             hostAutomaticRestarts: automaticHost,
             requireOwnerApproval: host,
             previewMonitor: {
@@ -1025,6 +1034,27 @@ export function createInstallationServer(
       })
       .parse(req.body);
     void profiles.resolve(input).then(() => res.json(profiles.status()), next);
+  });
+  app.post("/api/installation/owner/daemon-automation/query", (_req, res) => {
+    res.json(daemonAutomation.read());
+  });
+  app.post("/api/installation/owner/daemon-automation/change", (req, res) => {
+    const change = DaemonAutomationChangeSchema.parse(req.body);
+    const executorReady = Boolean(
+      executor.inspect &&
+      executor.holdCurrentTurns &&
+      executor.releaseCurrentTurns &&
+      executor.restartWhenIdle,
+    );
+    if (change.enabled && !executorReady) {
+      throw new RestartRequestError(
+        "Update the coordinator before enabling automatic daemon maintenance",
+      );
+    }
+    const preference = daemonAutomation.change(change);
+    restarts.refreshApprovalPolicy();
+    res.json(preference);
+    void drainRestarts();
   });
   app.post("/api/installation/owner/restarts/impact", (_req, res, next) => {
     void restarts.impacts().then((impacts) => res.json(impacts), next);

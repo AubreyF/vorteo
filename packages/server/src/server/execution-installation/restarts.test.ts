@@ -2180,7 +2180,7 @@ test("trusted Host policy finishes turns and persists approval before automatic 
   });
 });
 
-function automaticFixture() {
+function automaticFixture(daemonRequestsAfter?: () => string | null) {
   const journal = new MemoryJournal();
   const events: string[] = [];
   let active = true;
@@ -2231,7 +2231,7 @@ function automaticFixture() {
       },
     }),
   };
-  const policy = { hostRequestsAfter: new Date(1000).toISOString() };
+  const policy = { hostRequestsAfter: new Date(1000).toISOString(), daemonRequestsAfter };
   const queue = new InstallationRestarts(journal, executor, () => 2000, policy);
   return {
     queue,
@@ -2782,4 +2782,94 @@ test("manual source contributions never reuse an automatically approved batch", 
     sourceBatch: { status: "waiting" },
   });
   expect(f.queue.contribution(first.contribution.id)!.batch).toEqual(approved);
+});
+
+test("owner daemon automation includes container requests and disabling cancels queued approval", async () => {
+  let enabledAfter: string | null = new Date(1000).toISOString();
+  const f = automaticFixture(() => enabledAfter);
+  const request = f.queue.request(
+    { target: "container-daemon", reason: "Owner enabled automation" },
+    "container-agent",
+  );
+  await f.queue.drain();
+  expect(f.queue.list()[0]).toMatchObject({
+    id: request.id,
+    status: "approved",
+    finishCurrentTurns: true,
+    automaticApproval: { policyActivatedAt: enabledAfter },
+  });
+  expect(f.events).toEqual(["hold"]);
+  enabledAfter = null;
+  await f.queue.drain();
+  expect(f.queue.list()[0]).toMatchObject({
+    id: request.id,
+    status: "rejected",
+    holdReleased: true,
+  });
+  expect(f.events).toEqual(["hold", "release"]);
+  f.idle();
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold", "release"]);
+  const next = f.queue.request(
+    { target: "host", reason: "Disabled also overrides legacy policy" },
+    "host-agent",
+  );
+  await f.queue.drain();
+  expect(f.queue.list().find((job) => job.id === next.id)?.status).toBe("pending");
+});
+
+test("disabling daemon automation during idle inspection prevents dispatch", async () => {
+  let activation: string | null = new Date(1000).toISOString();
+  const f = automaticFixture(() => activation);
+  const inspected =
+    Promise.withResolvers<import("@getpaseo/protocol/execution-installation").RestartImpact>();
+  const entered = Promise.withResolvers<void>();
+  f.executor.inspect = async () => {
+    entered.resolve();
+    return inspected.promise;
+  };
+  f.queue.request({ target: "host", reason: "Race with owner disable" }, "container-agent");
+  const draining = f.queue.drain();
+  await entered.promise;
+  activation = null;
+  f.queue.refreshApprovalPolicy();
+  inspected.resolve({
+    target: "host",
+    agents: [],
+    pendingStarts: 0,
+    checkedAt: new Date(2000).toISOString(),
+    idleRestartSupported: true,
+    error: null,
+  });
+  await draining;
+  await f.queue.drain();
+  expect(f.queue.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.events).toEqual(["hold", "release"]);
+});
+
+test("daemon automation only admits fresh ready source and preserves explicit owner review", async () => {
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  const id = "10000000-0000-4000-8000-000000000001";
+  f.queue.contribute({ target: "host", reason: "Dev source" }, "container-agent", update, id);
+  await f.queue.drain();
+  expect(f.queue.contribution(id)?.batch).toMatchObject({
+    status: "approved",
+    automaticApproval: { sourceSha256: update.sha256 },
+  });
+  expect(f.events).toEqual(["hold"]);
+  f.idle();
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold", "hold", "install"]);
+  const reviewed = f.queue.request(
+    { target: "container-daemon", reason: "Exact owner request", requireOwnerApproval: true },
+    "host-agent",
+  );
+  await f.queue.drain();
+  expect(f.queue.list().find((job) => job.id === reviewed.id)?.status).toBe("pending");
 });

@@ -1,3 +1,4 @@
+import { Dimensions } from "react-native";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import AsyncStorage from "@/storage/app-storage";
@@ -9,8 +10,13 @@ import {
 } from "../explorer-tab-memory";
 import { type ExplorerCheckoutContext } from "../explorer-checkout-context";
 import {
+  SUPPORTING_CARD_DEFAULTS,
+  type SupportingCardKind,
+  type SupportingCardUpdate,
   buildOpenFileExplorerPatch,
   buildToggleFileExplorerPatch,
+  cycleDesktopSidebar,
+  resolveResponsiveSidebar,
   clampTreeRailWidth,
   clampSidebarWidth,
   DEFAULT_TREE_RAIL_WIDTH,
@@ -56,6 +62,10 @@ export {
 export type ExpandedPathsUpdate = string[] | ((currentPaths: string[]) => string[]);
 
 export interface PanelState {
+  // Device-local card preferences are shared by all workspaces, never server-synced.
+  supportingCardExpanded: Partial<Record<SupportingCardKind, boolean>>;
+  setSupportingCardExpanded: (kind: SupportingCardKind, update: SupportingCardUpdate) => void;
+
   // Mobile: React's durable target plus the generation that owns it.
   mobilePanel: MobilePanelSelection;
 
@@ -74,6 +84,8 @@ export interface PanelState {
   collapsedFilePathsByWorkspace: Record<string, string[]>;
   sidebarWidth: number;
   sidebarCompact: boolean;
+  sidebarNarrow: boolean;
+  sidebarViewportOverride: number | null;
   explorerSortOption: SortOption;
   explorerShowHiddenFiles: boolean;
   treeRailWidth: number;
@@ -124,6 +136,17 @@ function setMobilePanelTargetPatch(
 export const usePanelStore = create<PanelState>()(
   persist(
     (set) => ({
+      supportingCardExpanded: {},
+      setSupportingCardExpanded: (kind, update) =>
+        set((state) => {
+          const current = state.supportingCardExpanded[kind] ?? SUPPORTING_CARD_DEFAULTS[kind];
+          const expanded = typeof update === "function" ? update(current) : update;
+          return state.supportingCardExpanded[kind] === expanded
+            ? state
+            : {
+                supportingCardExpanded: { ...state.supportingCardExpanded, [kind]: expanded },
+              };
+        }),
       // Mobile always starts at agent view
       mobilePanel: { target: "agent", revision: 0 },
 
@@ -141,6 +164,8 @@ export const usePanelStore = create<PanelState>()(
       collapsedFilePathsByWorkspace: {},
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       sidebarCompact: false,
+      sidebarNarrow: false,
+      sidebarViewportOverride: null,
       explorerSortOption: "name",
       explorerShowHiddenFiles: true,
       treeRailWidth: DEFAULT_TREE_RAIL_WIDTH,
@@ -179,6 +204,8 @@ export const usePanelStore = create<PanelState>()(
         set((state) => ({
           desktop: { ...state.desktop, agentListOpen: true },
           sidebarCompact: false,
+          sidebarNarrow: false,
+          sidebarViewportOverride: Dimensions.get("window").width,
         })),
 
       closeDesktopAgentList: () =>
@@ -190,7 +217,8 @@ export const usePanelStore = create<PanelState>()(
       toggleDesktopAgentList: () =>
         set((state) => ({
           desktop: { ...state.desktop, agentListOpen: true },
-          sidebarCompact: !state.sidebarCompact,
+          ...cycleDesktopSidebar(resolveResponsiveSidebar(state, Dimensions.get("window").width)),
+          sidebarViewportOverride: Dimensions.get("window").width,
         })),
 
       openAgentListForLayout: ({ isCompact }) =>
@@ -198,7 +226,12 @@ export const usePanelStore = create<PanelState>()(
           if (isCompact) {
             return setMobilePanelTargetPatch(state, "agent-list");
           }
-          return { desktop: { ...state.desktop, agentListOpen: true }, sidebarCompact: false };
+          return {
+            desktop: { ...state.desktop, agentListOpen: true },
+            sidebarCompact: false,
+            sidebarNarrow: false,
+            sidebarViewportOverride: Dimensions.get("window").width,
+          };
         }),
 
       closeAgentListForLayout: ({ isCompact }) =>
@@ -219,7 +252,8 @@ export const usePanelStore = create<PanelState>()(
           }
           return {
             desktop: { ...state.desktop, agentListOpen: true },
-            sidebarCompact: !state.sidebarCompact,
+            ...cycleDesktopSidebar(resolveResponsiveSidebar(state, Dimensions.get("window").width)),
+            sidebarViewportOverride: Dimensions.get("window").width,
           };
         }),
 
@@ -281,7 +315,12 @@ export const usePanelStore = create<PanelState>()(
           }),
         })),
       setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
-      setSidebarCompact: (sidebarCompact) => set({ sidebarCompact }),
+      setSidebarCompact: (sidebarCompact) =>
+        set({
+          sidebarCompact,
+          sidebarNarrow: false,
+          sidebarViewportOverride: Dimensions.get("window").width,
+        }),
       setExplorerSortOption: (option) => set({ explorerSortOption: option }),
       toggleExplorerShowHiddenFiles: () =>
         set((state) => ({ explorerShowHiddenFiles: !state.explorerShowHiddenFiles })),
@@ -290,10 +329,11 @@ export const usePanelStore = create<PanelState>()(
     }),
     {
       name: "panel-state",
-      version: 17,
+      version: 18,
       storage: createValidatedPersistStorage(AsyncStorage, PanelPersistedStateSchema),
       migrate: (persistedState, version) => migratePanelState(persistedState, version),
       partialize: (state) => ({
+        supportingCardExpanded: state.supportingCardExpanded,
         desktop: state.desktop,
         explorerTab: state.explorerTab,
         explorerTabByCheckout: state.explorerTabByCheckout,
@@ -302,6 +342,7 @@ export const usePanelStore = create<PanelState>()(
         collapsedFilePathsByWorkspace: state.collapsedFilePathsByWorkspace,
         sidebarWidth: state.sidebarWidth,
         sidebarCompact: state.sidebarCompact,
+        sidebarNarrow: state.sidebarNarrow,
         explorerSortOption: state.explorerSortOption,
         explorerShowHiddenFiles: state.explorerShowHiddenFiles,
         treeRailWidth: state.treeRailWidth,

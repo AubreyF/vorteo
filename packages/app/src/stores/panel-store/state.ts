@@ -1,3 +1,4 @@
+import { MIN_TEXT_WIDTH } from "@/agent-stream/columns/geometry";
 import {
   buildExplorerCheckoutKey,
   isExplorerTab,
@@ -6,6 +7,31 @@ import {
 } from "../explorer-tab-memory";
 import { type ExplorerCheckoutContext } from "../explorer-checkout-context";
 import { z } from "zod";
+
+export const SUPPORTING_CARD_DEFAULTS = {
+  goal: true,
+  tasks: true,
+  journal: true,
+  queue: true,
+  subagents: true,
+  providerSubagents: true,
+  files: false,
+  changes: false,
+} as const;
+export type SupportingCardKind = keyof typeof SUPPORTING_CARD_DEFAULTS;
+export type SupportingCardUpdate = boolean | ((expanded: boolean) => boolean);
+const SupportingCardStateSchema = z
+  .object({
+    goal: z.boolean(),
+    tasks: z.boolean(),
+    journal: z.boolean(),
+    queue: z.boolean(),
+    subagents: z.boolean(),
+    providerSubagents: z.boolean(),
+    files: z.boolean(),
+    changes: z.boolean(),
+  })
+  .partial();
 
 export type MobilePanelView = "agent" | "agent-list" | "file-explorer";
 
@@ -25,6 +51,7 @@ export const DEFAULT_SIDEBAR_WIDTH = 320;
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 600;
 export const COMPACT_SIDEBAR_WIDTH = 64;
+export const COMPACT_LABELED_SIDEBAR_WIDTH = 240;
 export const SIDEBAR_OUTER_GAP = 8;
 
 export const DEFAULT_TREE_RAIL_WIDTH = 260;
@@ -131,6 +158,7 @@ const DesktopSidebarStorageSchema = z.strictObject({
 });
 
 export const PanelPersistedStateSchema = z.strictObject({
+  supportingCardExpanded: SupportingCardStateSchema.optional(),
   mobileView: z.enum(["agent", "agent-list", "file-explorer"]).optional(),
   mobilePanel: z
     .strictObject({
@@ -148,6 +176,7 @@ export const PanelPersistedStateSchema = z.strictObject({
   collapsedFilePathsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   sidebarWidth: z.number().optional(),
   sidebarCompact: z.boolean().optional(),
+  sidebarNarrow: z.boolean().optional(),
   // Accepted only so migration can discard the former docked explorer sidebar width.
   explorerWidth: z.number().optional(),
   explorerSortOption: z.enum(["name", "modified", "size"]).optional(),
@@ -274,3 +303,30 @@ export function migratePanelState(persistedState: unknown, version: number): Mig
 
 export { buildExplorerCheckoutKey, resolveExplorerTabForCheckout };
 export type { ExplorerTab, ExplorerCheckoutContext };
+
+// Keep the minimal rail visible and preserve the user's expanded resize width.
+export function cycleDesktopSidebar(state: { sidebarCompact: boolean; sidebarNarrow: boolean }) {
+  if (state.sidebarCompact) return { sidebarCompact: false, sidebarNarrow: false };
+  if (state.sidebarNarrow) return { sidebarCompact: true, sidebarNarrow: false };
+  return { sidebarCompact: false, sidebarNarrow: true };
+}
+
+/** Resize constraints are presentation only; never replace the saved desktop choice. */
+export function resolveResponsiveSidebar(
+  state: {
+    sidebarCompact: boolean;
+    sidebarNarrow: boolean;
+    sidebarWidth: number;
+    sidebarViewportOverride?: number | null;
+  },
+  viewportWidth: number,
+) {
+  const requestedWidth = state.sidebarNarrow ? COMPACT_LABELED_SIDEBAR_WIDTH : state.sidebarWidth;
+  const autoCompact =
+    viewportWidth < requestedWidth + MIN_TEXT_WIDTH + SIDEBAR_OUTER_GAP * 2 &&
+    state.sidebarViewportOverride !== viewportWidth;
+  return {
+    sidebarCompact: state.sidebarCompact || autoCompact,
+    sidebarNarrow: state.sidebarNarrow && !autoCompact,
+  };
+}

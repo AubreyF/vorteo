@@ -8,6 +8,7 @@ import {
   buildOpenFileExplorerPatch,
   buildToggleFileExplorerPatch,
   DEFAULT_TREE_RAIL_WIDTH,
+  resolveResponsiveSidebar,
   migratePanelState,
   selectIsAgentListOpen,
   selectIsCompactFileExplorerOpen,
@@ -255,5 +256,54 @@ describe("persistent desktop rail migration", () => {
     expect(migrated.desktop?.agentListOpen).toBe(true);
     expect(migrated.sidebarCompact).toBe(true);
     expect(migrated.sidebarWidth).toBe(412);
+  });
+});
+
+describe("responsive sidebar presentation", () => {
+  const expanded = { sidebarCompact: false, sidebarNarrow: false, sidebarWidth: 360 };
+  it("uses the rail only while the saved width would crowd the center", () => {
+    expect(resolveResponsiveSidebar(expanded, 1300).sidebarCompact).toBe(false);
+    expect(resolveResponsiveSidebar(expanded, 800).sidebarCompact).toBe(true);
+    expect(resolveResponsiveSidebar(expanded, 1300).sidebarCompact).toBe(false);
+    expect(expanded.sidebarWidth).toBe(360);
+  });
+  it("keeps manual modes and expires a manual expansion at a different viewport width", () => {
+    expect(
+      resolveResponsiveSidebar({ ...expanded, sidebarCompact: true }, 1800).sidebarCompact,
+    ).toBe(true);
+    expect(resolveResponsiveSidebar({ ...expanded, sidebarNarrow: true }, 1000).sidebarNarrow).toBe(
+      true,
+    );
+    expect(
+      resolveResponsiveSidebar({ ...expanded, sidebarViewportOverride: 800 }, 800).sidebarCompact,
+    ).toBe(false);
+    expect(
+      resolveResponsiveSidebar({ ...expanded, sidebarViewportOverride: 800 }, 790).sidebarCompact,
+    ).toBe(true);
+  });
+});
+
+describe("device-local card preferences", () => {
+  it("preserves independent disclosure choices while migrating existing panel settings", () => {
+    const state = migratePanelState(
+      {
+        sidebarWidth: 360,
+        supportingCardExpanded: { tasks: false, journal: true, files: false, changes: true },
+      },
+      17,
+    );
+    expect(state.sidebarWidth).toBe(360);
+    expect(state.supportingCardExpanded).toEqual({
+      tasks: false,
+      journal: true,
+      files: false,
+      changes: true,
+    });
+  });
+  it("keeps older panel preferences when no card choices have been saved", () => {
+    const state = migratePanelState({ sidebarWidth: 360, sidebarCompact: true }, 17);
+    expect(state.sidebarWidth).toBe(360);
+    expect(state.sidebarCompact).toBe(true);
+    expect(state.supportingCardExpanded).toBeUndefined();
   });
 });

@@ -245,7 +245,7 @@ function TrackRowContent({
 
   const renderRow = useCallback(
     (active: boolean) => (
-      <View style={[active ? styles.rowActive : styles.row, inline && styles.inlineRow]}>
+      <View style={[active && !inline ? styles.rowActive : styles.row, inline && styles.inlineRow]}>
         {typeof children === "function" ? children({ active }) : children}
       </View>
     ),
@@ -359,7 +359,7 @@ const styles = StyleSheet.create((theme) => {
       minHeight: TASK_CARD_ROW_HEIGHT,
       marginHorizontal: 0,
       paddingLeft: theme.spacing[2],
-      paddingRight: theme.spacing[1],
+      paddingRight: 0,
     },
     rowActive: {
       flexDirection: "row",
