@@ -43,8 +43,8 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
   return (
     <TaskCard testID="agent-goal-bar" bodyVisible={expanded}>
       <TaskCardHeader>
-        <TaskCardIcon kind="goal" />
         <CardDisclosure
+          icon={HEADING_ICON}
           title={label}
           expanded={expanded}
           onPress={toggleExpanded}
@@ -157,3 +157,5 @@ const styles = StyleSheet.create((theme) => ({
   recoveryAction: { alignSelf: "flex-end" },
   error: { alignSelf: "stretch", color: theme.colors.destructive, fontSize: theme.fontSize.sm },
 }));
+
+const HEADING_ICON = <TaskCardIcon kind="goal" />;

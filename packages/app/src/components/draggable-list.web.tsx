@@ -276,9 +276,12 @@ export function DraggableList<T>({
   const onDragOver = useCallback(
     (event: DragOverEvent) => {
       const id = event.over ? String(event.over.id) : null;
-      externalDrop?.onTargetChange(id && externalIds.has(id) ? id : null);
+      const item = items.find(
+        (entry, index) => keyExtractor(entry, index) === String(event.active.id),
+      );
+      externalDrop?.onTargetChange(id && externalIds.has(id) ? id : null, item);
     },
-    [externalDrop, externalIds],
+    [externalDrop, externalIds, items, keyExtractor],
   );
   const onDragCancel = useCallback(() => {
     externalDrop?.onTargetChange(null);

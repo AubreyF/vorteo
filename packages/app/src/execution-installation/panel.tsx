@@ -15,7 +15,7 @@ import {
   useSyncExternalStore,
   type ComponentProps,
 } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
@@ -990,10 +990,11 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
     if (!description) return null;
     return (
       <View testID="installation-restart-banner">
-        <SidebarCallout title="Installation maintenance" description={description} />
-        <Button variant="outline" onPress={open}>
-          Review restart
-        </Button>
+        <SidebarCallout
+          title="Installation maintenance"
+          description={description}
+          actions={[{ label: "Review restart", onPress: open }]}
+        />
       </View>
     );
   }
@@ -1003,7 +1004,7 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
   );
   if (!jobs.length && !helpers.length) return null;
   return (
-    <ScrollView style={styles.banner} testID="installation-restart-banner">
+    <View testID="installation-restart-banner">
       {state.error ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {state.error}
@@ -1014,16 +1015,14 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
           <SidebarCallout
             title="Native helper maintenance"
             description={helperReviewSummary(job)}
+            actions={[{ label: "Review helper", onPress: open }]}
           />
-          <Button variant="outline" onPress={open}>
-            Review helper
-          </Button>
         </View>
       ))}
-      {jobs.map((job, index) => (
-        <RestartBannerItem key={job.id} job={job} showTopBorder={index > 0} />
+      {jobs.map((job) => (
+        <RestartBannerItem key={job.id} job={job} showTopBorder={true} />
       ))}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -1077,7 +1076,6 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
 
 const styles = StyleSheet.create((theme) => ({
   disabledAction: { position: "relative", alignSelf: "flex-start" },
-  banner: { maxHeight: 280, flexGrow: 0, borderTopWidth: 1, borderTopColor: theme.colors.border },
   details: { gap: theme.spacing[2] },
   unlockRow: {
     flexDirection: "row",

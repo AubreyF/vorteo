@@ -2,7 +2,7 @@ import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { Check, Circle, CirclePause, Pencil, Plus } from "lucide-react-native";
+import { Check, Circle, CircleAlert, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -80,6 +80,17 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   }, [clearTasks, resetMutation, tasks]);
   const canMutate = connected && !readOnly && !mutation.isPending && !clearMutation.isPending;
   const progress = checklistProgress(tasks);
+  const headingIcon = useMemo(
+    () => (
+      <ChecklistProgressFlower
+        completed={progress.completed}
+        active={progress.active}
+        total={progress.total}
+        testID="checklist-progress"
+      />
+    ),
+    [progress.completed, progress.active, progress.total],
+  );
   const countBadge = useMemo(
     () => (
       <CountBadge
@@ -110,8 +121,8 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     <>
       <TaskCard testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
         <TaskCardHeader>
-          <ChecklistProgressFlower {...progress} testID="checklist-progress" />
           <CardDisclosure
+            icon={headingIcon}
             title="Tasks"
             expanded={expanded}
             onPress={toggleExpanded}
@@ -308,7 +319,7 @@ function ChecklistRow({
   }, [task, completed, mutate]);
   const details = useCallback(() => open(task), [open, task]);
   const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
-  const inactiveIcon = blocked ? CirclePause : Circle;
+  const inactiveIcon = blocked ? CircleAlert : Circle;
   const incompleteIcon = running ? TASK_RUNNING_ICON : inactiveIcon;
   const checkboxState = useMemo(
     () => ({ checked: completed, disabled: !managed || !canMutate }),

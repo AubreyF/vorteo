@@ -29,22 +29,6 @@ export function AgentTaskCards({
   const close = useCallback(() => setExpanded(false), []);
   return (
     <>
-      {workspaceId ? (
-        <AgentHistoryTracks
-          serverId={serverId}
-          workspaceId={workspaceId}
-          agentId={agentId}
-          cwd={cwd}
-        />
-      ) : null}
-      <JournalCard key={agentId} serverId={serverId} agentId={agentId} />
-      <SharedQueueView
-        serverId={serverId}
-        agentId={agentId}
-        control={queue}
-        goalErrorHandled={goal.supported}
-      />
-      <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
       <GoalBar
         control={goal}
         onExpand={open}
@@ -54,6 +38,23 @@ export function AgentTaskCards({
             : undefined
         }
       />
+      {workspaceId ? (
+        <AgentHistoryTracks
+          serverId={serverId}
+          workspaceId={workspaceId}
+          agentId={agentId}
+          cwd={cwd}
+        />
+      ) : (
+        <JournalCard serverId={serverId} agentId={agentId} />
+      )}
+      <SharedQueueView
+        serverId={serverId}
+        agentId={agentId}
+        control={queue}
+        goalErrorHandled={goal.supported}
+      />
+      <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
       {expanded && goal.supported ? (
         <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />
       ) : null}

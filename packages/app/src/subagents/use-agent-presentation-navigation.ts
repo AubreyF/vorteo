@@ -3,6 +3,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { resolveAgentPresentation } from "./workspace-root-policy";
+import { normalizeWorkspaceOpaqueId } from "@/utils/workspace-identity";
 
 interface PresentationTab {
   descriptor: { target: WorkspaceTabTarget };
@@ -24,8 +25,11 @@ export function useAgentPresentationNavigation(input: {
   const presentationWorkspaceId = useMemo(() => {
     const agent = agentId ? agents?.get(agentId) : undefined;
     if (!agents || !agent || agent.archivedAt) return null;
+    // An explicitly opened native workspace remains a valid place to read its worker.
+    if (normalizeWorkspaceOpaqueId(agent.workspaceId) === input.workspaceId)
+      return input.workspaceId;
     return resolveAgentPresentation({ agent, agents, workspaces }).workspaceId;
-  }, [agentId, agents, workspaces]);
+  }, [agentId, agents, input.workspaceId, workspaces]);
   const moving = presentationWorkspaceId !== null && presentationWorkspaceId !== input.workspaceId;
 
   useLayoutEffect(() => {

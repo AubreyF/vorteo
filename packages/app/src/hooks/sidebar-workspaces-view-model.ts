@@ -385,6 +385,10 @@ export interface ManagedWorkspacePlacement {
   hasIndependentAgents: boolean;
 }
 
+function retainsNativeProject(workspace: WorkspaceDescriptor): boolean {
+  return Boolean(workspace.protected || workspace.standing || workspace.factoryMembership);
+}
+
 export function collectManagedWorkspacePlacements(input: {
   projects: readonly HostProjectListItem[];
   sessions: readonly SidebarHierarchySession[];
@@ -409,6 +413,8 @@ export function collectManagedWorkspacePlacements(input: {
     for (const workspace of session.workspaces.values()) {
       const workspaceKey = `${session.serverId}:${workspace.id}`;
       if (!projectByWorkspace.has(workspaceKey)) continue;
+      // Durable workspaces keep their project even when their agent has a supervisor.
+      if (retainsNativeProject(workspace)) continue;
       const agents = agentsByWorkspace.get(workspace.id);
       if (!agents?.length) continue;
       const owners = agents.map((agent) => presentations.get(agent.id));

@@ -8,6 +8,7 @@ import {
   AgentTimelineItemPayloadSchema,
   WorkspaceGitHubRuntimePayloadSchema,
   WorkspaceProjectMembershipSchema,
+  WorkspaceFactoryMembershipSchema,
 } from "@getpaseo/protocol/messages";
 import { AgentProviderSchema } from "@getpaseo/protocol/provider-manifest";
 import type { PluginTimelineData } from "@getpaseo/plugin";
@@ -311,6 +312,10 @@ const StoredWorkspaceSchema = z.strictObject({
   id: z.string(),
   projectId: z.string(),
   projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
+  factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
+  // Require lifecycle fields so older lossy rows invalidate only the workspace cursor.
+  standing: z.boolean(),
+  protected: z.boolean(),
   projectDisplayName: z.string(),
   projectCustomName: z.string().nullable(),
   projectCustomIconRevision: z.string().nullable(),
@@ -718,6 +723,9 @@ function serializeWorkspace(workspace: WorkspaceDescriptor): StoredWorkspace {
     id: workspace.id,
     projectId: workspace.projectId,
     projectMembership: workspace.projectMembership,
+    factoryMembership: workspace.factoryMembership,
+    standing: workspace.standing ?? false,
+    protected: workspace.protected ?? false,
     projectDisplayName: workspace.projectDisplayName,
     projectCustomName: workspace.projectCustomName ?? null,
     projectCustomIconRevision: workspace.projectCustomIconRevision ?? null,

@@ -1,4 +1,4 @@
-import { Circle, CircleCheck, CirclePause } from "lucide-react-native";
+import { Circle, CircleCheck, CircleAlert } from "lucide-react-native";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatusRing } from "@/components/status-ring";
 import { memo } from "react";
@@ -9,7 +9,7 @@ import type { TodoEntry } from "@/types/stream";
 
 const ThemedCircle = withUnistyles(Circle);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
-const ThemedCirclePause = withUnistyles(CirclePause);
+const ThemedCircleAlert = withUnistyles(CircleAlert);
 
 const extraMutedIcon = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 
@@ -28,7 +28,7 @@ function TaskStatusIcon({
   if (isRunning) {
     return <StatusRing variant="task" />;
   }
-  if (isBlocked) return <ThemedCirclePause size={16} uniProps={extraMutedIcon} />;
+  if (isBlocked) return <ThemedCircleAlert size={16} uniProps={extraMutedIcon} />;
   // A pending task's ring is a status mark, not a checkbox. At the muted step it carries the
   // weight of an enabled control and invites a click that does nothing, so it sits one step back
   // from the text it marks.

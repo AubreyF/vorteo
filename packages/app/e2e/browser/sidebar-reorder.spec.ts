@@ -257,3 +257,59 @@ test("a failed move stays open with a visible error", async ({ page }) => {
     await destination.cleanup();
   }
 });
+
+for (const width of [1400, 390]) {
+  test(`protected workspace drop explains the block at ${width}px`, async ({ page }) => {
+    const source = await seedWorkspace({ repoPrefix: "protected-drop-source-" });
+    const destination = await seedWorkspace({ repoPrefix: "protected-drop-destination-" });
+    try {
+      await source.client.setWorkspaceLifecycle({
+        workspaceId: source.workspaceId,
+        protected: true,
+      });
+      await page.setViewportSize({ width, height: 900 });
+      await gotoAppShell(page);
+      const menu = page.getByRole("button", { name: "Open menu", exact: true });
+      if (await menu.isVisible()) await menu.click();
+      await waitForSidebarHydration(page);
+      const row = page.getByTestId(`sidebar-workspace-row-${getServerId()}:${source.workspaceId}`);
+      const target = page.getByTestId(
+        `sidebar-project-row-${projectEquivalenceViewKey(destination.projectKey)}`,
+      );
+      const from = await visibleBoundingBox(row);
+      const to = await visibleBoundingBox(target);
+      await page.mouse.move(from.x + 90, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(from.x + 90, from.y + from.height / 2 + 8);
+      await page.mouse.move(to.x + 90, to.y + to.height / 2, { steps: 12 });
+      await expect(page.getByTestId("project-drop-blocked")).toBeVisible();
+      await expect(
+        page.getByText(
+          "This workspace is protected. Turn off protection in Workspace actions before moving it.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath("protected-drop.png") });
+      await page.mouse.up();
+      await expect(page.getByTestId("project-move-modal")).toHaveCount(0);
+      expect(
+        (await source.client.fetchWorkspaces()).entries.find(
+          (entry) => entry.id === source.workspaceId,
+        )?.projectMembership,
+      ).toBeFalsy();
+      await source.client.setWorkspaceLifecycle({
+        workspaceId: source.workspaceId,
+        protected: false,
+      });
+      await dragWorkspaceToProject(row, target);
+      await expect(page.getByTestId("project-move-modal")).toBeVisible();
+    } finally {
+      await page.mouse.up();
+      await source.client
+        .setWorkspaceLifecycle({ workspaceId: source.workspaceId, protected: false })
+        .catch(() => undefined);
+      await source.cleanup();
+      await destination.cleanup();
+    }
+  });
+}

@@ -1895,6 +1895,7 @@ export const ptBR: TranslationResources = {
         cursor: "Linha {{line}}, coluna {{column}}",
         preview: "Prévia",
         source: "Fonte",
+        copyAll: "Copiar tudo",
         deletedTitle: "Arquivo excluído do disco",
         checkFailedTitle: "Não foi possível verificar o arquivo no disco",
         preservedDescription: "A cópia aberta foi preservada.",

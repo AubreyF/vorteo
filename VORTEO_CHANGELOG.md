@@ -5,6 +5,104 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.277 - 2026-10-09
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.276 - 2026-10-09
+
+### Maintenance
+
+- Integrate reviewed conversation columns and shared heading hover regions with the deployed interface, preserving journal controls, Copy all, neutral blocked icons and workspace recovery. Retain both source histories and all release entries.
+
+## 0.11.0-beta.3.vorteo.271 - 2026-10-09
+
+### Changed
+
+- Clarify agent delivery instructions: prefer static interface publication, but submit a supported managed Host source update for exact approval when static publication is unavailable. Explain restart disruption, preserve preview scope, and require a concrete failure before handing delivery back to Host.
+
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Fixed
+
+- Give conversation card headings one consistent hover and click region, including the icon and all available whitespace before separate actions. Messages retains its passive status inside that region. Preserve heading alignment and touch target heights.
+- Verify heading geometry, matching hover colors, and disclosure clicks at both ends across desktop and compact layouts. Update the shared card contract and customization inventory.
+
+## 0.11.0-beta.3.vorteo.269 - 2026-10-09
+
+### Added
+
+- Split wide thread content into independently scrolling, resizable text and card columns. Cards stay pinned right, text stays centered in the remaining space, and preferred widths survive reloads. Both columns fade above the unchanged composer.
+
+### Changed
+
+- Choose the two-column layout from the primary region's width, so opening a sidebar or widening the left sidebar restores the existing single-column arrangement below 1,080 CSS pixels.
+- Order thread cards as Goal, Tasks, Journal, Subagents, then Messages in both layouts. Preserve card body scrolling, fixed headers and queue drag handling.
+- Update the README and customization inventory, and cover column geometry, saved widths, both sidebar transitions, nested scrolling and card interactions with focused unit and browser tests. Native touch behavior still needs physical-device acceptance.
+
+## 0.11.0-beta.3.vorteo.274 - 2026-10-09
+
+### Fixed
+
+- Preserve protected, standing and Factory workspace metadata across reloads. Refresh older incomplete workspace caches without discarding agent conversations or message history.
+
+## 0.11.0-beta.3.vorteo.273 - 2026-10-09
+
+### Fixed
+
+- Keep protected, standing and Factory-managed workspaces in their registered project instead of grouping them under a supervising agent's project.
+- Show a blocked icon and explanation when dragging a protected workspace into another project.
+- Integrate published worker-tab recovery so existing agents remain visible in their own workspaces, while retaining Copy all and journal controls.
+
+## 0.11.0-beta.3.vorteo.272 - 2026-10-09
+
+### Fixed
+
+- Describe both clearing and restoring the journal view accurately for assistive technology.
+
+## 0.11.0-beta.3.vorteo.271 - 2026-10-09
+
+### Maintenance
+
+- Merge the accepted Dev blocked-checklist source into published Factory history, preserving both parent implementations and every historical release entry.
+- Retain current Factory safeguards and checklist compatibility without changing runtime behavior.
+
+## 0.11.0-beta.3.vorteo.271 - 2026-10-09
+
+### Improved
+
+- Add Clear journal and Show history controls that retain permanent entries, preserve newly appended entries, and remember the cleared view on this device. Align entry text with inset timestamps without changing date spacing.
+
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Fixed
+
+- Keep worker conversations visible in their own execution workspaces while retaining parent grouping. Opening a worker tab there no longer redirects to the parent workspace.
+
+### Maintenance
+
+- Retain completed Factory workers and defer opt-in age-based archival until a future update.
+
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Added
+
+- Add Copy all to text-file toolbars, including current edits and empty files, with translated labels and responsive controls at compact widths.
+
+## 0.11.0-beta.3.vorteo.269 - 2026-10-09
+
+### Fixed
+
+- Use a neutral circle-alert icon for blocked tasks in checklist cards and task rows.
+
+## 0.11.0-beta.3.vorteo.268 - 2026-10-09
+
+### Fixed
+
+- Sidebar update and maintenance cards share one scrolling stack capped at 33% of the viewport, consistent review actions, and equal top and right dismiss-button spacing. Short stacks retain their natural height.
+
 ## 0.11.0-beta.3.vorteo.267 - 2026-10-09
 
 ### Maintenance
@@ -660,6 +758,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Combine 6 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.214 - 2026-10-09
+
+### Added
+
+- Add discretionary blocked checklist status to Dev agent tools and persisted tasks, independent of prerequisite links.
+- Advertise blocked status support and deliver incomplete pending items to older clients without changing saved task state.
+
+### Changed
+
+- Update checklist instructions for blocked work and retain blocked status in client caches and task drafts. The shared interface is delivered by the separate Host update.
 
 ## 0.11.0-beta.3.vorteo.214 - 2026-10-08
 

@@ -1840,6 +1840,7 @@ export const zhCN: TranslationResources = {
         cursor: "第 {{line}} 行，第 {{column}} 列",
         preview: "预览",
         source: "源代码",
+        copyAll: "复制全部",
         deletedTitle: "文件已从磁盘删除",
         checkFailedTitle: "无法检查磁盘上的文件",
         preservedDescription: "打开的副本已保留。",
