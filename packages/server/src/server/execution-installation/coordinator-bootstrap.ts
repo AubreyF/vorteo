@@ -42,7 +42,7 @@ export function assertFrozenCoordinatorIdle(journal: unknown, childPids: unknown
   if (children.length > 0)
     throw new BootstrapCoordinatorBusy("Coordinator preparation children are still running");
   for (const job of jobs) {
-    if (job.target === "native-helper") {
+    if (job.target === "native-helper" || job.target === "preview-monitor") {
       if (
         ["approved", "running"].includes(job.status) ||
         (job.stage === "preparing" && job.status === "pending") ||

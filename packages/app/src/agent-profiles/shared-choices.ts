@@ -1,5 +1,6 @@
 import type { AgentProfile, ProviderPreferences } from "@getpaseo/protocol/messages";
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
+import { filterSelectableModels, findModelByReference } from "@/provider-selection/model-catalog";
 
 export interface LaunchChoices {
   provider?: string;
@@ -28,25 +29,28 @@ function catalogChoices(input: {
   family: readonly Pick<ProviderSnapshotEntry, "models">[];
   preferences: ProviderPreferences | undefined;
 }) {
-  const models = input.entry?.models ?? [];
-  const current = models.find(
-    (candidate) => candidate.id === input.model && candidate.isSelectable !== false,
+  const models = filterSelectableModels(input.entry?.models ?? null);
+  const current = findModelByReference(models, input.model);
+  const familyModels = input.family.flatMap(
+    (entry) => filterSelectableModels(entry.models ?? null) ?? [],
   );
-  const familyModels = input.family.flatMap((entry) => entry.models ?? []);
   const modelOptions = new Map<string, ChoiceOption>();
   const thinkingOptions = new Map<string, ChoiceOption>();
   for (const model of familyModels) {
-    if (model.isSelectable === false) continue;
     modelOptions.set(model.id, {
       id: model.id,
       value: model.id,
       label: model.label,
-      available: models.some(
-        (candidate) => candidate.id === model.id && candidate.isSelectable !== false,
-      ),
+      available: findModelByReference(models, model.id) !== null,
     });
-    if (model.id !== input.model) continue;
-    for (const option of model.thinkingOptions ?? []) {
+  }
+  // Resolve each account independently so an exact ID wins over a colliding alias.
+  for (const entry of input.family) {
+    const selected = findModelByReference(
+      filterSelectableModels(entry.models ?? null),
+      input.model,
+    );
+    for (const option of selected?.thinkingOptions ?? []) {
       thinkingOptions.set(option.id, {
         id: option.id,
         value: option.id,
@@ -81,10 +85,9 @@ function choiceErrors(input: {
 }) {
   if (profileCatalogState(input.entry) !== "ready")
     return { modelError: null, thinkingError: null };
-  const models = input.entry?.models ?? [];
-  const selectable = models.filter((model) => model.isSelectable !== false);
+  const selectable = filterSelectableModels(input.entry?.models ?? null) ?? [];
   const selected = input.model
-    ? selectable.find((model) => model.id === input.model)
+    ? findModelByReference(selectable, input.model)
     : (selectable.find((model) => model.isDefault) ?? selectable[0]);
   if (input.model && !selected)
     return {
@@ -110,9 +113,9 @@ export function sharedChoiceState(input: {
 }) {
   const model = input.choices.model ?? input.profile.model ?? "";
   const thinkingOptionId = input.choices.thinkingOptionId ?? input.profile.thinkingOptionId ?? "";
-  const models = input.entry?.models ?? [];
-  const selectedModel = models.find(
-    (candidate) => candidate.id === model && candidate.isSelectable !== false,
+  const selectedModel = findModelByReference(
+    filterSelectableModels(input.entry?.models ?? null),
+    model,
   );
   const family = input.family ?? [input.entry ?? { models: [] }];
   const { modelOptions, thinkingOptions } = catalogChoices({

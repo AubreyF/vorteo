@@ -32,10 +32,14 @@ export class BootstrapPanelModel {
   };
   private listeners = new Set<() => void>();
   private password = "";
-  private refreshing = false;
+  private refreshToken: symbol | null = null;
+  private availabilityError: string | null = null;
   private generation = 0;
   private pendingDecision: { id: string; revision: string } | null = null;
-  constructor(private readonly resolveClient: () => BootstrapReviewClient | null) {}
+  constructor(
+    private readonly resolveClient: () => BootstrapReviewClient | null,
+    private readonly unavailableReason: () => string | null = () => null,
+  ) {}
   getState = () => this.state;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -52,7 +56,24 @@ export class BootstrapPanelModel {
     this.publish({ hasPassword: value.length > 0 });
   }
   async refresh(automatic = false) {
-    if (this.refreshing) return;
+    const unavailable = this.unavailableReason();
+    if (unavailable) {
+      this.availabilityError = unavailable;
+      this.generation++;
+      this.refreshToken = null;
+      this.pendingDecision = null;
+      this.password = "";
+      this.publish({
+        available: true,
+        requests: [],
+        busy: false,
+        error: unavailable,
+        hasPassword: false,
+        passwordEpoch: this.state.passwordEpoch + 1,
+      });
+      return;
+    }
+    if (this.refreshToken) return;
     const client = this.resolveClient();
     if (!client) {
       if (this.state.available)
@@ -61,11 +82,15 @@ export class BootstrapPanelModel {
         });
       return;
     }
-    this.refreshing = true;
+    const refreshToken = Symbol();
+    this.refreshToken = refreshToken;
     const generation = this.generation;
     try {
       const requests = await client.listCoordinatorBootstrapRequests();
-      if (generation === this.generation) {
+      if (this.refreshToken === refreshToken && generation === this.generation) {
+        const error =
+          automatic && this.state.error !== this.availabilityError ? this.state.error : null;
+        this.availabilityError = null;
         const pending = this.pendingDecision;
         const recorded = pending && requests.find((item) => item.id === pending.id);
         // A durable revision supersedes the long-running decision response.
@@ -75,20 +100,24 @@ export class BootstrapPanelModel {
           this.pendingDecision = null;
           this.publish({ available: true, requests, busy: false, error: null });
         } else {
-          this.publish({ available: true, requests, error: automatic ? this.state.error : null });
+          this.publish({ available: true, requests, error });
         }
       }
     } catch {
-      if (generation === this.generation)
+      if (this.refreshToken === refreshToken && generation === this.generation)
         this.publish({
           available: true,
           error: "Could not refresh coordinator status. Reconnect Host and retry.",
         });
     } finally {
-      this.refreshing = false;
+      if (this.refreshToken === refreshToken) this.refreshToken = null;
     }
   }
   async decide(request: CoordinatorBootstrapRequest, decision: "approve" | "cancel") {
+    if (this.unavailableReason()) {
+      await this.refresh();
+      return;
+    }
     if (this.state.busy) return;
     const current = this.state.requests.find((item) => item.id === request.id);
     if (

@@ -1,3 +1,4 @@
+import { StreamColumnWidthContext } from "@/agent-stream/columns/layout";
 import { KeyboardTranslateView } from "@/keyboard/shift";
 import { ProfilePermissionWarning } from "@/agent-profiles/permission-warning";
 import { commitComposerQueue } from "@/message-queue/commit-composer";
@@ -23,6 +24,7 @@ import {
 import type { TFunction } from "i18next";
 import {
   useState,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -36,7 +38,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { NEW_WORKSPACE_CARD_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { useHasFinePointer } from "@/hooks/use-fine-pointer";
 import { useShallow } from "zustand/shallow";
@@ -2255,14 +2257,27 @@ function ComposerContentImpl({
     [githubSearchItems, selectedAttachments, handleToggleGithubItem],
   );
 
+  const draftInputWrapperStyle = useMemo(
+    () =>
+      agentControls && !isCompactLayout
+        ? {
+            minHeight: NEW_WORKSPACE_CARD_HEIGHT,
+            justifyContent: "space-between" as const,
+            ...inputWrapperStyle,
+          }
+        : inputWrapperStyle,
+    [agentControls, isCompactLayout, inputWrapperStyle],
+  );
   const mobileComposer = useMobileComposerLayout();
+  const columnWidth = useContext(StreamColumnWidthContext);
   const inputAreaContainerStyle = useMemo(
     () => [
       styles.inputAreaContainer,
+      columnWidth !== undefined && styles.columnInputArea,
       mobileComposer.enabled && styles.mobileInputArea,
       isComposerLocked && styles.inputAreaLocked,
     ],
-    [isComposerLocked, mobileComposer.enabled],
+    [columnWidth, isComposerLocked, mobileComposer.enabled],
   );
 
   const attachmentTray = useMemo(
@@ -2370,7 +2385,13 @@ function ComposerContentImpl({
         <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
         {/* Input area */}
         <View style={inputAreaContainerStyle} testID="composer-input-area">
-          <View style={[styles.inputAreaContent, styles.bottomCardStack]}>
+          <View
+            style={[
+              styles.inputAreaContent,
+              styles.bottomCardStack,
+              columnWidth !== undefined && styles.columnInputContent,
+            ]}
+          >
             {sendErrorNode}
             {!agentControls && agentId ? (
               <ProfilePermissionWarning serverId={serverId} agentId={agentId} />
@@ -2390,6 +2411,7 @@ function ComposerContentImpl({
               />
             ) : null}
 
+            {agentControls ? leftContent : null}
             <View ref={messageInputContainerRef} style={styles.messageInputContainer}>
               <ComposerAutocompleteBinding
                 text={textSource}
@@ -2435,7 +2457,7 @@ function ComposerContentImpl({
                   autoFocus={messageInputAutoFocus}
                   autoFocusKey={`${serverId}:${agentId}:${autoFocusKey ?? ""}`}
                   disabled={isSubmitLoading}
-                  leftContent={leftContent}
+                  leftContent={agentControls ? null : leftContent}
                   beforeVoiceContent={beforeVoiceContent}
                   rightContent={rightContent}
                   activeActionContent={activeActionContent}
@@ -2449,7 +2471,7 @@ function ComposerContentImpl({
                   onSelectionChange={handleSelectionChange}
                   onFocusChange={handleFocusChange}
                   onHeightChange={onComposerHeightChange}
-                  inputWrapperStyle={inputWrapperStyle}
+                  inputWrapperStyle={draftInputWrapperStyle}
                   attachmentSlot={attachmentTray}
                   inputMode={inputMode}
                   readOnly={readOnly}
@@ -2511,6 +2533,8 @@ const styles = StyleSheet.create((theme: Theme) => ({
     paddingHorizontal: theme.spacing[4],
     paddingBottom: theme.spacing[4],
   },
+  columnInputArea: { paddingHorizontal: theme.spacing[2] },
+  columnInputContent: { maxWidth: "100%" },
   mobileQueueArea: {
     paddingHorizontal: MOBILE_COMPOSER_MARGIN,
     paddingBottom: 12,

@@ -13,7 +13,7 @@ import {
   GitPullRequestDraft,
   MessageSquare,
   MessageSquarePlus,
-  MoreHorizontal,
+  MoreVertical,
   RotateCw,
 } from "lucide-react-native";
 import type { PressableStateCallbackType } from "react-native";
@@ -93,7 +93,7 @@ const ThemedGitPullRequestClosed = withUnistyles(GitPullRequestClosed);
 const ThemedGitPullRequestDraft = withUnistyles(GitPullRequestDraft);
 const ThemedMessageSquare = withUnistyles(MessageSquare);
 const ThemedMessageSquarePlus = withUnistyles(MessageSquarePlus);
-const ThemedMoreHorizontal = withUnistyles(MoreHorizontal);
+const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 
@@ -161,7 +161,7 @@ function refreshButtonStyle(
 
 function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
   return (
-    <ThemedMoreHorizontal
+    <ThemedMoreVertical
       size={14}
       uniProps={hovered ? foregroundColorMapping : foregroundMutedColorMapping}
     />

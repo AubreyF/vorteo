@@ -12,7 +12,17 @@ import {
 import { sidebarProjectForWorkspace } from "../support/helpers/workspace-ui";
 import { expectComposerVisible, fillComposerDraft } from "../support/helpers/composer";
 import { test, expect, type Page, type TestInfo } from "@playwright/test";
-import { cp, mkdir, mkdtemp, readFile, readdir, writeFile, rm, rename } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  writeFile,
+  rm,
+  rename,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -92,7 +102,7 @@ async function request(route: string, token: string, body: unknown) {
 
 test.beforeAll(async () => {
   test.setTimeout(180_000);
-  root = await mkdtemp(path.join(tmpdir(), "vorteo-installation-browser-"));
+  root = await realpath(await mkdtemp(path.join(tmpdir(), "vorteo-installation-browser-")));
   listener = await new Promise((resolve) => {
     const server = createServer();
     server.listen(0, "127.0.0.1", () => resolve(server));
@@ -136,6 +146,7 @@ test.beforeAll(async () => {
     daemons.push(
       await startIsolatedHostDaemon(`installation-${kind}-${randomUUID()}`, {
         paseoHome: home,
+        compiled: kind === "host",
         environment: {
           NODE_ENV: "development",
           HOME: home,
@@ -421,6 +432,88 @@ test("welcome signs in with the owner password and restores both environments", 
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await page.goto(`${origin}/settings/general?installation=1`);
   await expect(page.getByTestId("installation-lock")).toBeVisible();
+});
+
+test("unavailable coordinator maintenance shows its diagnosis without approval controls", async ({
+  page,
+}, info) => {
+  test.skip(process.platform !== "darwin", "Coordinator maintenance requires native macOS Host");
+  const hostId = config.public.environments.find((item) => item.kind === "host")!.serverId;
+  const host = daemons.find((daemon) => daemon.serverId === hostId)!;
+  const setupFile = path.join(root, "coordinator-bootstrap-runner.json");
+  await writeFile(setupFile, "{}", { mode: 0o600 });
+  try {
+    await host.restart();
+    const client = await connectReadyInstallationDaemon("host");
+    try {
+      const pid = (await client.getDaemonStatus()).pid;
+      const sourceRoot = await realpath(path.resolve(__dirname, "../../../.."));
+      const observed = JSON.parse(
+        execFileSync(
+          "/usr/bin/python3",
+          [path.join(sourceRoot, "scripts/inspect-coordinator-process.py"), String(pid)],
+          { encoding: "utf8" },
+        ),
+      );
+      expect(
+        JSON.parse(
+          execFileSync(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              `
+          import { readFileSync } from "node:fs";
+          import { pathToFileURL } from "node:url";
+          const input = JSON.parse(readFileSync(0, "utf8"));
+          const { verifyRenewalHostProcess } = await import(pathToFileURL(input.module).href);
+          console.log(JSON.stringify(verifyRenewalHostProcess(input.identity)));
+        `,
+            ],
+            {
+              encoding: "utf8",
+              input: JSON.stringify({
+                module: path.join(
+                  sourceRoot,
+                  "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-renewal.js",
+                ),
+                identity: {
+                  observed,
+                  pid,
+                  node: await realpath(process.execPath),
+                  root: sourceRoot,
+                  uid: process.getuid!(),
+                },
+              }),
+            },
+          ),
+        ),
+      ).toEqual(observed);
+      const features = client.getLastServerInfoMessage()!.features!;
+      expect(features.coordinatorBootstrapReview).toBe(false);
+      expect(features.coordinatorBootstrapUnavailableReason).toContain(
+        "maintenance is unavailable",
+      );
+    } finally {
+      await client.close();
+    }
+    await page.goto(origin);
+    await page.getByRole("textbox", { name: "Owner password" }).fill(ownerPassword);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page).not.toHaveURL(/welcome/);
+    await page.goto(`${origin}/settings/general?installation=1`);
+    const review = page.getByTestId("coordinator-bootstrap-review");
+    await expect(review.getByRole("alert")).toContainText("maintenance is unavailable");
+    await expect(review.getByRole("button", { name: "Refresh status" })).toBeVisible();
+    await expect(review.getByRole("textbox")).toHaveCount(0);
+    await expect(review.getByRole("button")).toHaveCount(1);
+    await review.getByRole("button", { name: "Refresh status" }).click();
+    await expect(review.getByRole("alert")).toContainText("maintenance is unavailable");
+    await page.screenshot({ path: info.outputPath("maintenance-unavailable.png"), fullPage: true });
+  } finally {
+    await rm(setupFile);
+    await host.restart();
+  }
 });
 
 test("owner connects two environments, prepares host drafts, and approves a verified container restart", async ({
@@ -1299,6 +1392,272 @@ for (const destinationMode of ["existing", "new"] as const) {
     }
   });
 }
+
+test("shared profile editor renders cross-environment model compatibility", async ({
+  page,
+}, info) => {
+  if (info.project.name === "desktop") await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost"
+      ? route.continue()
+      : route.abort();
+  });
+  let unknownDevCatalog = false;
+  let nonselectableDevModel = false;
+  const observedCatalogs = new Set<string>();
+  const savedAliasId = "compatibility-saved-alias";
+  await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    const host = new URL(socket.url()).port === String(daemons[1]!.port);
+    const provider = host ? "fixture-host-claude" : "fixture-dev-claude";
+    const server = socket.connectToServer();
+    socket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      if (typeof message !== "string") return socket.send(message);
+      const envelope = JSON.parse(message);
+      if (envelope.type !== "session") return socket.send(message);
+      const { type, payload } = envelope.message;
+      if (payload?.config?.providers) {
+        payload.config.providers[provider] = { extends: "claude", enabled: true };
+      }
+      if (type === "get_providers_snapshot_response" || type === "providers_snapshot_update") {
+        observedCatalogs.add(host ? "host" : "container");
+        delete payload.compactSnapshot;
+        delete payload.snapshotHash;
+        delete payload.notModified;
+        payload.entries = [
+          {
+            provider,
+            enabled: true,
+            label: host ? "Fixture Host Claude" : "Fixture Dev Claude",
+            status: !host && unknownDevCatalog ? "error" : "ready",
+            ...(!host && unknownDevCatalog
+              ? { error: "Synthetic catalog unavailable" }
+              : {
+                  defaultModeId: "default",
+                  modes: [{ id: "default", label: "Always Ask" }],
+                  models: host
+                    ? [
+                        {
+                          provider,
+                          id: "host-only-opus",
+                          label: "Host-only Opus",
+                          isDefault: true,
+                        },
+                        { provider, id: "host-opus", label: "Common Opus", aliases: ["opus"] },
+                      ]
+                    : [
+                        {
+                          provider,
+                          id: "dev-opus",
+                          label: "Common Opus",
+                          aliases: ["host-opus", "opus"],
+                          isSelectable: !nonselectableDevModel,
+                          isDefault: true,
+                        },
+                      ],
+                }),
+          },
+        ];
+      }
+      socket.send(JSON.stringify(envelope));
+    });
+  });
+  await page.goto(origin);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  await expect(page.getByTestId("installation-password")).not.toBeVisible();
+  const readProfiles = async () => {
+    const response = await page.request.post(`${origin}/api/installation/owner/profiles/read`, {
+      headers: { Origin: origin },
+    });
+    expect(response.ok()).toBe(true);
+    return response.json();
+  };
+  const before = await readProfiles();
+  const pickerProjects: { kind: "host" | "container"; projectId: string }[] = [];
+  try {
+    const seeded = await page.request.patch(`${origin}/api/installation/owner/profiles`, {
+      headers: { Origin: origin },
+      data: {
+        expectedRevision: before.revision,
+        providers: {
+          ...before.providers,
+          claude: {
+            defaults: {},
+            preferredModels: [],
+            preferredThinkingOptions: [],
+            defaultWorkflowId: null,
+            workflows: [
+              {
+                id: savedAliasId,
+                provider: "claude",
+                name: "Saved alias",
+                model: "opus",
+                modeId: "default",
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(seeded.ok()).toBe(true);
+    await page.goto(`${origin}/settings/profiles`);
+    const dialog = page.getByTestId("agent-profile-edit-modal");
+    const model = page.getByTestId("agent-profile-model-trigger");
+    const modelField = page.getByTestId("agent-profile-model-field");
+    const capture = async (name: string) => {
+      await modelField.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: info.outputPath(`${name}.png`) });
+    };
+    await expect(page.getByTestId(`agent-profile-edit-${savedAliasId}`)).toBeVisible();
+    await page.getByRole("button", { name: "Add profile", exact: true }).click();
+    await expect(dialog).toBeVisible();
+    await expect(model).toContainText("Common Opus");
+    await expect(dialog).not.toContainText("does not support this model");
+    await expect(dialog).not.toContainText("compatibility is unknown");
+    expect([...observedCatalogs].sort()).toEqual(["container", "host"]);
+    await capture("common-default");
+
+    await model.click();
+    await page.getByText("Host-only Opus", { exact: true }).last().click();
+    await expect(page.getByText("host-only-opus", { exact: true })).toHaveCount(0);
+    await expect(model).toContainText("Host-only Opus");
+    await expect(
+      modelField.getByText("Dev container does not support this model.", { exact: true }),
+    ).toBeVisible();
+    await capture("explicit-incompatible");
+    await page.getByTestId("agent-profile-name-input").fill("Explicit incompatible");
+    await page.getByTestId("agent-profile-save-button").click();
+    await expect(dialog).not.toBeVisible();
+    const saved = await readProfiles();
+    const incompatible = saved.providers.claude.workflows.find(
+      (profile: { name: string }) => profile.name === "Explicit incompatible",
+    );
+    expect(incompatible.model).toBe("host-only-opus");
+    expect(incompatible.excludedEnvironments ?? []).toEqual([]);
+    await page.getByTestId(`agent-profile-edit-${incompatible.id}`).click();
+    await expect(model).toContainText("Host-only Opus");
+    await expect(
+      modelField.getByText("Dev container does not support this model.", { exact: true }),
+    ).toBeVisible();
+    await capture("saved-incompatible");
+    await page.getByTestId("agent-profile-cancel-button").click();
+    await expect(dialog).not.toBeVisible();
+
+    await page.getByTestId(`agent-profile-edit-${savedAliasId}`).click();
+    await expect(model).toHaveText("opus");
+    await expect(dialog).not.toContainText("does not support this model");
+    await expect(dialog).not.toContainText("compatibility is unknown");
+    await capture("saved-alias");
+    await page.getByTestId("agent-profile-save-button").click();
+    await expect(dialog).not.toBeVisible();
+    const aliasSaved = await readProfiles();
+    expect(
+      aliasSaved.providers.claude.workflows.find(
+        (profile: { id: string }) => profile.id === savedAliasId,
+      ).model,
+    ).toBe("opus");
+
+    const aliasRow = page.getByTestId(`agent-profile-row-${savedAliasId}`);
+    await expect(aliasRow).not.toContainText("is not offered by this account");
+    await aliasRow.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath("valid-alias-list.png") });
+
+    unknownDevCatalog = true;
+    await page.reload();
+    await page.getByTestId(`agent-profile-edit-${incompatible.id}`).click();
+    // An unavailable source catalog may only supply the saved literal reference.
+    await expect(model).toHaveText(/^(Host-only Opus|host-only-opus)$/);
+    await expect(
+      modelField.getByText("Dev container model compatibility is unknown.", { exact: true }),
+    ).toBeVisible();
+    await expect(dialog).not.toContainText("does not support this model");
+    await capture("unknown-included-catalog");
+    unknownDevCatalog = false;
+    const profileRow = page.getByTestId(`preset-row-shared-profile/claude/${savedAliasId}`);
+    const pickerRoutes = new Map<string, string>();
+    for (const [index, kind] of [
+      [1, "host"],
+      [0, "container"],
+    ] as const) {
+      const client = await connectReadyInstallationDaemon(kind);
+      try {
+        const directory = path.join(daemons[index]!.paseoHome, "alias-picker-project");
+        await mkdir(directory, { recursive: true });
+        const created = await client.createWorkspace({
+          source: { kind: "directory", path: directory },
+          title: "Alias picker fixture",
+        });
+        if (!created.workspace) throw new Error("Missing isolated alias workspace");
+        pickerProjects.push({ kind, projectId: created.workspace.projectId });
+        pickerRoutes.set(
+          kind,
+          `${origin}${buildHostWorkspaceOpenRoute(daemons[index]!.serverId, created.workspace.id, "draft:alias-picker")}`,
+        );
+      } finally {
+        await client.close();
+      }
+      await page.goto(pickerRoutes.get(kind)!);
+      await expectComposerVisible(page, { timeout: 60_000 });
+      await page.getByTestId("agent-preset-selector").click();
+      if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
+      await page
+        .getByTestId(`preset-account-fixture-${kind === "host" ? "host" : "dev"}-claude`)
+        .click();
+      await expect(profileRow).toBeVisible();
+      await profileRow.click();
+      await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
+      await expect(
+        page.getByText("The selected account is unavailable. Choose another account.", {
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      await page.screenshot({ path: info.outputPath(`valid-alias-${kind}-picker.png`) });
+    }
+    nonselectableDevModel = true;
+    await page.goto(pickerRoutes.get("container")!);
+    await expectComposerVisible(page, { timeout: 60_000 });
+    await page.getByTestId("agent-preset-selector").click();
+    if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
+    await page.getByTestId("preset-account-fixture-dev-claude").click();
+    await expect(profileRow).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("nonselectable-alias-dev-picker.png") });
+
+    await info.attach("catalog-compatibility-evidence", {
+      contentType: "application/json",
+      body: JSON.stringify(
+        {
+          viewport: page.viewportSize(),
+          localProviders: ["fixture-host-claude", "fixture-dev-claude"],
+          commonReference: "host-opus",
+          devCanonicalModel: "dev-opus",
+          devAliases: ["host-opus", "opus"],
+          savedExplicitModel: incompatible.model,
+          savedAlias: "opus",
+          exclusions: incompatible.excludedEnvironments ?? [],
+        },
+        null,
+        2,
+      ),
+    });
+  } finally {
+    const current = await readProfiles();
+    const restored = await page.request.patch(`${origin}/api/installation/owner/profiles`, {
+      headers: { Origin: origin },
+      data: { expectedRevision: current.revision, providers: before.providers },
+    });
+    expect(restored.ok()).toBe(true);
+    for (const project of pickerProjects) {
+      const client = await connectReadyInstallationDaemon(project.kind);
+      try {
+        await client.removeProject(project.projectId);
+      } finally {
+        await client.close();
+      }
+    }
+  }
+});
 
 test("profile edits remain shared while environment exclusions change availability", async ({
   page,

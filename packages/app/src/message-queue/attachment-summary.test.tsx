@@ -148,7 +148,7 @@ vi.mock("lucide-react-native", () => ({
   Paperclip: () => <span data-testid="file-icon" />,
   ArrowUp: () => null,
   Pencil: () => null,
-  MoreHorizontal: () => null,
+  MoreVertical: () => null,
   RotateCw: () => null,
   Play: () => null,
   Pause: () => null,

@@ -1,3 +1,4 @@
+import { getServerId } from "../support/helpers/server-id";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
@@ -188,7 +189,9 @@ test("active profile hides the action until a different profile is selected", as
     });
     await openAgentRoute(page, { ...workspace, agentId: agent.id });
     await expectComposerVisible(page);
-    await expect(page.getByTestId("agent-preset-selector")).toContainText("Astra Medium");
+    await expect(page.getByTestId("agent-preset-selector")).toHaveAccessibleName(
+      /Profile \(Astra Medium,/,
+    );
     const account = (await workspace.client.getProvidersSnapshot()).entries.find(
       (entry) => entry.provider === "mock",
     );
@@ -321,7 +324,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       });
       await openAgentRoute(page, { ...workspace, agentId: agent.id });
       await expectComposerVisible(page);
-      await expect(page.getByTestId("agent-preset-selector")).toContainText("Astra Medium");
+      await expect(page.getByTestId("agent-preset-selector")).toHaveAccessibleName(
+        /Profile \(Astra Medium,/,
+      );
       const framesPromise = page.evaluate(
         () =>
           new Promise<Array<[number, number]>>((resolve, reject) => {
@@ -543,5 +548,91 @@ test("one saved profile stays selected across accounts and unavailable choices s
       removeProviders: ["profile-one", "profile-two", "profile-limited"],
     });
     await client.close();
+  }
+});
+
+test("new workspace shows compact inline profiles and restores the account default", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const seed = await seedAgentProfiles([medium, ultra], true);
+  const workspace = await seedWorkspace({ repoPrefix: "inline-profile-picker-" });
+  try {
+    const account = (await workspace.client.getProvidersSnapshot()).entries.find(
+      (entry) => entry.provider === "mock",
+    );
+    if (!account?.label) throw new Error("Expected the mock account label");
+    await page.goto("/settings/general");
+    await page.getByRole("button", { name: "Default environment: Automatic", exact: true }).click();
+    await page.getByRole("menuitem", { name: "localhost", exact: true }).click();
+    await page.getByRole("button", { name: "Default account: Automatic", exact: true }).click();
+    await page.getByRole("menuitem", { name: account.label, exact: true }).click();
+    await page
+      .getByRole("button", {
+        name: `${account.label} default profile: Provider default`,
+        exact: true,
+      })
+      .click();
+    await page.getByRole("menuitem", { name: "Astra Ultra", exact: true }).click();
+    await page.reload();
+    await expect(
+      page.getByRole("button", {
+        name: `${account.label} default profile: Astra Ultra`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Default environment: localhost", exact: true }),
+    ).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath("workspace-default-preferences.png") });
+    await page.goto(`/new?serverId=${getServerId()}&projectId=${workspace.projectId}`);
+    const chooser = page.getByTestId("new-workspace-profile-selector");
+    await expect(chooser).toBeVisible();
+    await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
+    await expect(page.getByTestId("agent-preset-selector")).toHaveCount(0);
+    const selected = page.getByTestId("preset-row-shared-profile/mock/account-ultra");
+    const mediumRow = page.getByTestId("preset-row-shared-profile/mock/account-medium");
+    await expect(selected).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+    const bounds = await chooser.boundingBox();
+    const input = await page.getByRole("textbox", { name: "Message agent..." }).boundingBox();
+    await expect(chooser.getByText("Choose profile", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("preset-manage-profiles")).toHaveCount(0);
+    const surface = await page.getByTestId("message-input-surface").boundingBox();
+    const environment = await page.getByTestId("preset-environment-card").boundingBox();
+    expect(bounds!.height).toBe(204);
+    expect(surface!.height).toBe(bounds!.height);
+    expect(surface!.x).toBe(bounds!.x);
+    expect(surface!.width).toBe(bounds!.width);
+    expect(environment!.x).toBe(surface!.x);
+    expect(environment!.height).toBe(surface!.height);
+    const accountCard = await page.getByTestId("preset-account-card").boundingBox();
+    const profileCard = await page.getByTestId("preset-profile-column").boundingBox();
+    expect(accountCard!.x - (environment!.x + environment!.width)).toBeCloseTo(16, 1);
+    expect(profileCard!.x - (accountCard!.x + accountCard!.width)).toBeCloseTo(16, 1);
+    expect(profileCard!.x + profileCard!.width).toBeCloseTo(surface!.x + surface!.width, 1);
+    expect(surface!.y - (bounds!.y + bounds!.height)).toBe(16);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(input!.y);
+    await mediumRow.click();
+    await expect(mediumRow).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+    await expect(selected).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+    await page.screenshot({ path: test.info().outputPath("inline-profiles-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(chooser).toBeVisible();
+    await page.getByTestId("preset-section-account").click();
+    await page.getByTestId("preset-account-mock").click();
+    await expect(selected).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+    await page.screenshot({ path: test.info().outputPath("inline-profiles-mobile.png") });
+    await mediumRow.click();
+    await page
+      .getByRole("textbox", { name: "Message agent..." })
+      .fill("Verify the selected workspace profile.");
+    await page.getByTestId("workspace-create-submit").click();
+    await expect(page).toHaveURL(/\/workspace\//, { timeout: 30_000 });
+    await expect(page.getByTestId("agent-preset-selector")).toHaveAccessibleName(
+      /Profile \(Astra Medium,/,
+    );
+  } finally {
+    await workspace.cleanup();
+    await seed.restore();
   }
 });

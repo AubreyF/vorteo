@@ -159,3 +159,13 @@ before publishing the workspace and retains it in creation receipts and retries.
 Requests without membership retain directory-based project placement. Older
 clients remain compatible; newer clients refuse project-bound creation on older
 daemons rather than creating a workspace under the wrong project.
+
+## Shared sidebar state
+
+`server_info.features.sidebarState` advertises authenticated `sidebar.state.read` and
+`sidebar.state.change` RPCs. Managed installations use the Host daemon as authority;
+the Dev daemon does not advertise its own independent copy. Existing clients receive no
+new unsolicited message types. New clients gate requests on the capability and show an
+update message for older standalone daemons. Sidebar patches merge individual project
+maps, while concurrent changes to the same field use the last accepted write. Initialization
+only fills an absent shared state; reconnecting never replaces it with an old device cache.

@@ -1,7 +1,7 @@
 import { createThreadGoalTools } from "./agent/tools/thread-goal.js";
 import path from "node:path";
 import { AgentStorage } from "./agent/agent-storage.js";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AgentGoalSetInputSchema, type AgentGoal } from "@getpaseo/protocol/agent-goals";
 import { createTestPaseoDaemon } from "./test-utils/paseo-daemon.js";
 import { createTestAgentClients } from "./test-utils/fake-agent-client.js";
@@ -9,6 +9,10 @@ import { DaemonClient } from "./test-utils/daemon-client.js";
 import { createTestLogger } from "../test-utils/test-logger.js";
 import { CodexAppServerAgentSession } from "./agent/providers/codex-app-server-agent.js";
 import { createFakeCodexAppServer } from "./agent/providers/codex/test-utils/fake-app-server.js";
+
+// These standalone test homes must not inherit the installed daemon launcher binding.
+beforeEach(() => vi.stubEnv("VORTEO_INSTALLATION_CLIENT_CONFIG", undefined));
+afterEach(() => vi.unstubAllEnvs());
 
 test("goal RPCs project native updates to subscribers, history and reconnect snapshots", async () => {
   let nativeGoal: AgentGoal | null = null;

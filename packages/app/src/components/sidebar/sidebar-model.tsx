@@ -1,6 +1,8 @@
+import { useSidebarSync } from "@/sidebar-state/use-sidebar-sync";
 import { useWorkspaceScheduleStates } from "@/workspace/lifecycle/scheduled";
+import { useHostFeatureMap } from "@/runtime/host-features";
 import { useProjectExpansion } from "./use-project-expansion";
-import React, { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import React, { createContext, useContext, useMemo, type ReactNode } from "react";
 import {
   useSidebarWorkspacesList,
   type SidebarProjectEntry,
@@ -21,10 +23,6 @@ import { buildSidebarProjection } from "./sidebar-projection";
 import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model";
 import { filterWorkspacesByLabels, type SidebarWorkspaceGroup } from "./sidebar-labels";
 import { filterWorkspacesByProjects, resolveActiveProjectFilters } from "./sidebar-project-filter";
-import {
-  hasAuthoritativeWorkspaceLabelCatalog,
-  useWorkspaceLabelProjection,
-} from "@/workspace-labels";
 
 interface SidebarModel extends SidebarWorkspacesListResult {
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
@@ -56,12 +54,11 @@ export function SidebarModelProvider({
   active?: boolean;
   children: ReactNode;
 }) {
+  useSidebarSync();
   const list = useSidebarWorkspacesList({ enabled: active });
   const groupMode = useSidebarViewStore((state) => state.groupMode);
   const labelFilter = useSidebarViewStore((state) => state.labelFilter);
   const projectFilters = useSidebarViewStore((state) => state.projectFilters);
-  const reconcileLabelFilter = useSidebarViewStore((state) => state.reconcileLabelFilter);
-  const { hosts: labelHosts } = useWorkspaceLabelProjection();
   const { collapsedProjectKeys, toggleProjectCollapsed } = useProjectExpansion();
   const collapsedWorkspaceGroupKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedWorkspaceGroupKeys,
@@ -69,15 +66,6 @@ export function SidebarModelProvider({
   const pinnedCollapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedPinned);
   const pinnedWorkspaceOrder = useSidebarOrderStore((state) => state.pinnedWorkspaceOrder);
 
-  const availableLabelNames = useMemo(
-    () => labelHosts.flatMap((host) => host.labels.map((label) => label.name)),
-    [labelHosts],
-  );
-  const hasAuthoritativeLabelCatalog = hasAuthoritativeWorkspaceLabelCatalog(labelHosts);
-  useEffect(() => {
-    if (!hasAuthoritativeLabelCatalog) return;
-    reconcileLabelFilter(availableLabelNames);
-  }, [availableLabelNames, hasAuthoritativeLabelCatalog, reconcileLabelFilter]);
   const hasActiveLabelFilter = hasActiveSidebarLabelFilter(labelFilter);
   const resolvedProjectFilters = useMemo(
     () =>
@@ -102,7 +90,10 @@ export function SidebarModelProvider({
   const workspaceEntriesByKey = useMemo(() => {
     const entries = new Map<string, SidebarWorkspaceEntry>();
     for (const [key, entry] of rawWorkspaceEntries) {
-      entries.set(key, { ...entry, standing: entry.protected === true || scheduleStates.has(key) });
+      entries.set(key, {
+        ...entry,
+        standing: entry.protected === true || scheduleStates.has(key),
+      });
     }
     return entries;
   }, [rawWorkspaceEntries, scheduleStates]);
@@ -111,7 +102,10 @@ export function SidebarModelProvider({
       workspaces: [...workspaceEntriesByKey.values()],
       projectFilters: resolvedProjectFilters,
     });
-    const filtered = filterWorkspacesByLabels({ workspaces: byProject, ...labelFilter });
+    const filtered = filterWorkspacesByLabels({
+      workspaces: byProject,
+      ...labelFilter,
+    });
     return new Map(filtered.map((workspace) => [workspace.workspaceKey, workspace]));
   }, [labelFilter, resolvedProjectFilters, workspaceEntriesByKey]);
   const visibleWorkspaceKeys = useMemo(
@@ -145,6 +139,14 @@ export function SidebarModelProvider({
     visibleWorkspaceKeys,
   ]);
   const pinnedKeys = usePinnedSidebarKeys(filteredProjects);
+  const factoryHostIds = useMemo(
+    () =>
+      Array.from(
+        new Set(Array.from(filteredWorkspaceEntriesByKey.values(), (entry) => entry.serverId)),
+      ),
+    [filteredWorkspaceEntriesByKey],
+  );
+  const factorySupportedHosts = useHostFeatureMap(factoryHostIds, "factoryWorkspaceMembership");
   const projectionInput = useMemo(
     () => ({
       projects: filteredProjects,
@@ -156,6 +158,7 @@ export function SidebarModelProvider({
       pinnedCollapsed,
       collapsedProjectKeys,
       collapsedWorkspaceGroupKeys,
+      factorySupportedHosts,
     }),
     [
       collapsedProjectKeys,
@@ -167,6 +170,7 @@ export function SidebarModelProvider({
       pinnedKeys,
       pinnedWorkspaceOrder,
       filteredWorkspaceEntriesByKey,
+      factorySupportedHosts,
     ],
   );
   const projection = useMemo(() => buildSidebarProjection(projectionInput), [projectionInput]);

@@ -496,3 +496,41 @@ test("helper model observes without approving and refuses stale decisions", asyn
   await model.lock();
   expect(model.getState().helperJobs).toEqual([]);
 });
+
+test("monitor model observes without approving, rejects stale decisions and clears private state on lock", async () => {
+  const { monitorReviewFixture: job } = await import("./preview-monitor-review.fixture");
+  let decisions = 0;
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => false,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: false,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    unlock: async () => {},
+    listRestarts: async () => [],
+    decide: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw Error("unexpected helper");
+    },
+    listMonitors: async () => [job],
+    decideMonitor: async () => {
+      decisions++;
+      throw Error("Decision unconfirmed");
+    },
+  });
+  await model.unlock();
+  expect(model.getState().monitorJobs).toEqual([job]);
+  expect(decisions).toBe(0);
+  await model.decideMonitor({ ...job, planSha256: "b".repeat(64) }, "approve");
+  expect(decisions).toBe(0);
+  await model.decideMonitor(job, "approve");
+  expect(decisions).toBe(1);
+  expect(model.getState().helperError).toBe("Decision unconfirmed");
+  await model.refresh();
+  expect(model.getState().helperError).toBe("Decision unconfirmed");
+  await model.lock();
+  expect(model.getState().monitorJobs).toEqual([]);
+});

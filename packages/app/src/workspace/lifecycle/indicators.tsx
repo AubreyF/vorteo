@@ -17,12 +17,15 @@ const muted = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const shield = <Shield size={12} uniProps={muted} />;
 const repeat = <Repeat size={12} uniProps={muted} />;
-const factory = <FactoryIcon size={12} uniProps={muted} />;
-
-function FactoryManagedIndicator() {
+function FactoryIndicator({ workspaceId }: { workspaceId: string }) {
   return (
-    <View style={styles.badgeSlot} accessible accessibilityLabel={FACTORY_MANAGED_EXPLANATION}>
-      <StatusBadge label="Managed" leading={factory} size="xs" shape="row" />
+    <View
+      style={styles.badgeSlot}
+      accessible
+      accessibilityLabel={FACTORY_MANAGED_EXPLANATION}
+      testID={`workspace-factory-${workspaceId}`}
+    >
+      <FactoryIcon size={14} uniProps={muted} />
     </View>
   );
 }
@@ -31,22 +34,26 @@ export function WorkspaceLifecycleIndicators({ workspace }: { workspace: Sidebar
   const touch = useVortonTouch();
   const scheduled = useWorkspaceScheduleState(workspace.serverId, workspace.workspaceId);
   const membership = useFactoryMembership(workspace.serverId, workspace.workspaceId);
+  const factory = Boolean(membership);
   const label = scheduled === "paused" ? "Paused" : "Scheduled";
   const openSchedules = useCallback(
     (event: GestureResponderEvent) => {
       event.stopPropagation();
       router.push({
         pathname: "/schedules",
-        params: { serverId: workspace.serverId, workspaceId: workspace.workspaceId },
+        params: {
+          serverId: workspace.serverId,
+          workspaceId: workspace.workspaceId,
+        },
       });
     },
     [workspace.serverId, workspace.workspaceId],
   );
-  if (!scheduled && !workspace.protected && !membership) return null;
+  if (!scheduled && !workspace.protected && !factory) return null;
   return (
     <>
-      {membership ? <FactoryManagedIndicator /> : null}
-      {workspace.protected && !membership ? (
+      {factory ? <FactoryIndicator workspaceId={workspace.workspaceId} /> : null}
+      {workspace.protected && !factory ? (
         <View
           style={styles.badgeSlot}
           accessible

@@ -1,3 +1,4 @@
+import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
 import { useSidebarRowDensity } from "@/components/sidebar/use-sidebar-row-density";
 import { useVortonTouch } from "@/vorton-touch";
 import { memo, useCallback, useMemo, useState, type Ref } from "react";
@@ -420,10 +421,12 @@ function WorkspaceRowTrailingActions({
     isTouchPlatform,
     showShortcut,
   });
+  const sessionMenu = useWorkspaceSessionMenu(workspace.serverId, workspace.workspaceId);
   const kebab = useOpenKebabMenuVisibility(showKebabInSlot);
 
   return (
     <>
+      {sessionMenu.sheet}
       {isCreating ? (
         <Text style={styles.workspaceCreatingText}>{t("sidebar.workspace.status.creating")}</Text>
       ) : null}
@@ -434,8 +437,9 @@ function WorkspaceRowTrailingActions({
           </SidebarWorkspaceTrailingActionBase>
           <SidebarWorkspaceTrailingDetails workspace={workspace} />
           <SidebarWorkspaceMenuReveal visible={kebab.showKebab} backdrop={backdrop}>
-            {onArchive ? (
+            {kebab.showKebab && onArchive ? (
               <SidebarWorkspaceMenu
+                {...sessionMenu}
                 {...kebab.menuProps}
                 backdrop={backdrop}
                 workspaceKey={workspace.workspaceKey}

@@ -1,3 +1,4 @@
+import { createPreviewMonitorExecutor } from "./preview-monitor-executor.js";
 import { realpathSync } from "node:fs";
 import { createNativeHelperExecutor } from "./native-helper-executor.js";
 import { inspectBootstrapWritableMountRoots } from "./coordinator-bootstrap-host.js";
@@ -35,6 +36,15 @@ if (config.nativeHelper) {
     }),
   );
 }
+if (config.previewMonitor)
+  Object.assign(
+    executor,
+    createPreviewMonitorExecutor({
+      installationId: config.public.installationId,
+      configuration: config.previewMonitor,
+      writableMountRoots: () => inspectBootstrapWritableMountRoots(config.previewMonitor!),
+    }),
+  );
 const profiles = createInstallationProfiles(config);
 const settings = createInstallationSettings(config);
 let stopProfileSynchronization: (() => void) | undefined;

@@ -1,3 +1,4 @@
+import { SidebarSyncNotice } from "@/sidebar-state/status";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useOpenNewWorkspace } from "@/hooks/use-open-new-workspace";
 import { useVortonTouch } from "@/vorton-touch";
@@ -13,7 +14,7 @@ import {
   Settings2,
   GitBranch,
   Settings,
-  MoreHorizontal,
+  MoreVertical,
   CircleHelp,
 } from "lucide-react-native";
 import { useSidebarNavItems } from "@/sidebar-nav/use-sidebar-nav-items";
@@ -480,7 +481,7 @@ function SidebarToolbar({
                 accessibilityRole="button"
                 testID="sidebar-footer-overflow"
               >
-                <MoreHorizontal size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
+                <MoreVertical size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="end" width={240}>
                 <DropdownMenuItem
@@ -869,6 +870,7 @@ function DesktopSidebar({
         )}
 
         <SidebarCalloutStack>
+          <SidebarSyncNotice />
           <InstallationRestartBanner />
           <SidebarCalloutSlot />
         </SidebarCalloutStack>

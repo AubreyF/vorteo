@@ -109,7 +109,6 @@ export function useSidebarWorkspacesList(options?: {
 
   const storeHostFilters = useSidebarViewStore((state) => state.hostFilters);
   const hostFilters = options?.hostFilters ?? storeHostFilters;
-  const reconcileHostFilters = useSidebarViewStore((state) => state.reconcileHostFilters);
   const isActive = options?.enabled !== false;
 
   const serverIds = useMemo(() => {
@@ -130,13 +129,6 @@ export function useSidebarWorkspacesList(options?: {
     const releases = serverIds.map((serverId) => runtime.acquireDirectoryDemand(serverId));
     return () => releases.forEach((release) => release());
   }, [isActive, runtime, serverIds]);
-
-  useEffect(() => {
-    if (!hostRegistryLoaded) {
-      return;
-    }
-    reconcileHostFilters(allServerIds);
-  }, [allServerIds, hostRegistryLoaded, reconcileHostFilters]);
 
   const persistedProjectOrder = useSidebarOrderStore((state) => state.projectOrder ?? EMPTY_ORDER);
 
@@ -199,10 +191,12 @@ export function useSidebarWorkspacesList(options?: {
     });
 
     if (updates.projectOrder) {
-      orderStore.setProjectOrder(updates.projectOrder);
+      useSidebarOrderStore.setState({ projectOrder: updates.projectOrder });
     }
     for (const { projectViewKey, order } of updates.workspaceOrders) {
-      orderStore.setWorkspaceOrder(projectViewKey, order);
+      useSidebarOrderStore.setState((state) => ({
+        workspaceOrderByProject: { ...state.workspaceOrderByProject, [projectViewKey]: order },
+      }));
     }
   }, [persistedProjectOrder, projects]);
 

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import type { RestartExecutor } from "./restarts.js";
 import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintenance";
@@ -21,7 +21,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { request as httpRequest, type Server, type IncomingMessage } from "node:http";
+import { createServer, request as httpRequest, type Server, type IncomingMessage } from "node:http";
 import pino from "pino";
 import { hashDaemonPassword } from "../auth.js";
 import { createInstallationServer, type InstallationStartupFence } from "./server.js";
@@ -39,6 +39,8 @@ import type { InstallationConfig } from "./config.js";
 import { delegateToContainer, type DelegationClient } from "./delegation.js";
 import {
   RestartJobSchema,
+  SourceBatchSchema,
+  SourceContributionSchema,
   InstallationUnlockSchema,
   InstallationProfilesSnapshotSchema,
 } from "@getpaseo/protocol/execution-installation";
@@ -1068,118 +1070,134 @@ test("old coordinators refuse source upload explicitly and a changed bundle neve
   ).toEqual([]);
 });
 
-test("batch uploads retain scoped receipts and require a batch-aware exact owner approval", async () => {
-  const install = vi
-    .spyOn(InstallationSourceUpdates.prototype, "install")
-    .mockResolvedValue("installed");
-  const prepare = vi
-    .spyOn(InstallationSourceUpdates.prototype, "prepare")
-    .mockImplementation(async (contributions) => ({
-      batch: {
-        webCommit: "b".repeat(40),
-        status: "ready",
-        contributions: contributions.map((item) => ({ ...item, status: "included" })),
-      },
-      update: { ...contributions[0]!.update, sha256: String(contributions.length).repeat(64) },
-    }));
-  try {
-    const { request, url } = await fixture(undefined, undefined, undefined, true);
-    const bundle = Buffer.from("inert source contribution");
-    const update = {
-      sourceCommit: "a".repeat(40),
-      baseCommit: "b".repeat(40),
-      sha256: createHash("sha256").update(bundle).digest("hex"),
-      bytes: bundle.length,
-    };
-    const firstId = crypto.randomUUID();
-    const secondId = crypto.randomUUID();
-    const upload = (id: string, token = "guest-agent-test-token") =>
-      fetch(`${url}/api/installation/source-update-requests?sourceBatches=1`, {
-        method: "POST",
-        headers: {
-          Host: "owner.example.test",
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/octet-stream",
-          "x-vorteo-update": Buffer.from(
-            JSON.stringify({
-              request: { target: "host", reason: id },
-              update,
-              contributionId: id,
-            }),
-          ).toString("base64"),
+test.each(["succeeded", "failed"] as const)(
+  "batch uploads retain scoped receipts and require exact approval: %s",
+  async (outcome) => {
+    const install = vi.spyOn(InstallationSourceUpdates.prototype, "install");
+    if (outcome === "succeeded") install.mockResolvedValue("installed");
+    else install.mockRejectedValue(new Error("Test installation failed"));
+    const prepare = vi
+      .spyOn(InstallationSourceUpdates.prototype, "prepare")
+      .mockImplementation(async (contributions) => ({
+        batch: {
+          webCommit: "b".repeat(40),
+          status: "ready",
+          contributions: contributions.map((item) => ({ ...item, status: "included" })),
         },
-        body: bundle,
-      });
-    const replies = await Promise.all([upload(firstId), upload(secondId)]);
-    expect(replies.map((reply) => reply.status)).toEqual([201, 201]);
-    const [first, second] = await Promise.all(replies.map((reply) => reply.json()));
-    expect(first.batch.id).toBe(second.batch.id);
-    const receiptPath = `/api/installation/source-contributions/${firstId}`;
-    expect((await request(receiptPath, "bad-token")).status).toBe(401);
-    const read = async () => (await request(receiptPath, "guest-agent-test-token")).json();
-    // A periodic drain retries preparation invalidated by the second upload.
-    await vi.waitFor(async () => {
-      const response = await request(
+        update: { ...contributions[0]!.update, sha256: String(contributions.length).repeat(64) },
+      }));
+    try {
+      const { request, url, drain } = await fixture(undefined, undefined, undefined, true);
+      const bundle = Buffer.from("inert source contribution");
+      const update = {
+        sourceCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: createHash("sha256").update(bundle).digest("hex"),
+        bytes: bundle.length,
+      };
+      const firstId = crypto.randomUUID();
+      const secondId = crypto.randomUUID();
+      const upload = (id: string, token = "guest-agent-test-token") =>
+        fetch(`${url}/api/installation/source-update-requests?sourceBatches=1`, {
+          method: "POST",
+          headers: {
+            Host: "owner.example.test",
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/octet-stream",
+            "x-vorteo-update": Buffer.from(
+              JSON.stringify({
+                request: { target: "host", reason: id },
+                update,
+                contributionId: id,
+              }),
+            ).toString("base64"),
+          },
+          body: bundle,
+        });
+      const replies = await Promise.all([upload(firstId), upload(secondId)]);
+      expect(replies.map((reply) => reply.status)).toEqual([201, 201]);
+      const [first, second] = await Promise.all(replies.map((reply) => reply.json()));
+      expect(first.batch.id).toBe(second.batch.id);
+      const receiptPath = `/api/installation/source-contributions/${firstId}`;
+      expect((await request(receiptPath, "bad-token")).status).toBe(401);
+      const read = async () => (await request(receiptPath, "guest-agent-test-token")).json();
+      // Run the coordinator drain that retries preparation invalidated by the second upload.
+      await drain();
+      const batchResponse = await request(
         "/api/installation/owner/restarts/query?sourceUpdates=1&sourceBatches=1",
         "owner-test-password",
         {},
       );
-      const jobs = await response.json();
-      expect(jobs[0].sourceBatch.contributions).toHaveLength(2);
-    });
-    // Trigger the same durable preparation path used by the coordinator's interval.
-    const old = await read();
-    if (old.batch.sourceBatch.status !== "ready") {
-      // Idempotent retries retain the receipt and schedule another preparation.
-      expect((await upload(firstId)).status).toBe(201);
-    }
-    await vi.waitFor(async () => expect((await read()).batch.sourceBatch.status).toBe("ready"));
-    const receipt = await read();
-    expect(receipt.contribution.update).toEqual(update);
-    const decisionPath = `/api/installation/owner/restarts/${receipt.batch.id}/decision`;
-    const exact = {
-      revision: receipt.batch.revision,
-      decision: "approve",
-      updateSha256: receipt.batch.update.sha256,
-    };
-    expect(
-      (await request(`${decisionPath}?sourceUpdates=1`, "owner-test-password", exact)).status,
-    ).toBe(409);
-    expect(
-      (
-        await request(`${decisionPath}?sourceBatches=1`, "owner-test-password", {
-          ...exact,
-          revision: first.batch.revision,
-        })
-      ).status,
-    ).toBe(409);
-    expect(install).not.toHaveBeenCalled();
-    const legacy = await (
-      await request("/api/installation/owner/restarts/query", "owner-test-password", {})
-    ).json();
-    expect(legacy[0].sourceBatch).toBeUndefined();
-    expect(legacy[0].update).toBeUndefined();
-    expect(
-      (
-        await request(
-          `${decisionPath}?sourceBatches=1&sourceUpdates=1`,
+      const batchJobs = await batchResponse.json();
+      expect(batchResponse.status).toBe(200);
+      expect(batchJobs[0]?.sourceBatch?.contributions, JSON.stringify(batchJobs)).toHaveLength(2);
+      // Trigger the same durable preparation path used by the coordinator's interval.
+      const old = await read();
+      if (old.batch.sourceBatch.status !== "ready") {
+        // Idempotent retries retain the receipt and schedule another preparation.
+        expect((await upload(firstId)).status).toBe(201);
+      }
+      await vi.waitFor(async () => expect((await read()).batch.sourceBatch.status).toBe("ready"));
+      const receipt = await read();
+      expect(receipt.contribution.update).toEqual(update);
+      const decisionPath = `/api/installation/owner/restarts/${receipt.batch.id}/decision`;
+      const exact = {
+        revision: receipt.batch.revision,
+        decision: "approve",
+        updateSha256: receipt.batch.update.sha256,
+      };
+      expect(
+        (await request(`${decisionPath}?sourceUpdates=1`, "owner-test-password", exact)).status,
+      ).toBe(409);
+      expect(
+        (
+          await request(`${decisionPath}?sourceBatches=1`, "owner-test-password", {
+            ...exact,
+            revision: first.batch.revision,
+          })
+        ).status,
+      ).toBe(409);
+      expect(install).not.toHaveBeenCalled();
+      const legacy = await (
+        await request("/api/installation/owner/restarts/query", "owner-test-password", {})
+      ).json();
+      expect(legacy[0].sourceBatch).toBeUndefined();
+      expect(legacy[0].update).toBeUndefined();
+      expect(
+        (
+          await request(
+            `${decisionPath}?sourceBatches=1&sourceUpdates=1`,
+            "owner-test-password",
+            exact,
+          )
+        ).status,
+      ).toBe(200);
+      await vi.waitFor(() => expect(install).toHaveBeenCalledOnce());
+      const terminal = (await read()).batch;
+      expect(terminal.status).toBe(outcome);
+      for (const query of ["", "?sourceUpdates=1", "?sourceUpdates=1&sourceBatches=1"]) {
+        const response = await request(
+          `/api/installation/owner/restarts/query${query}`,
           "owner-test-password",
-          exact,
-        )
-      ).status,
-    ).toBe(200);
-    await vi.waitFor(() => expect(install).toHaveBeenCalledOnce());
-    expect((await read()).batch.status).toBe("succeeded");
-    expect((await upload(firstId)).status).toBe(201);
-    expect(install).toHaveBeenCalledOnce();
-    const next = await (await upload(crypto.randomUUID())).json();
-    expect(next.batch.id).not.toBe(receipt.batch.id);
-    expect(next.batch.status).toBe("pending");
-  } finally {
-    install.mockRestore();
-    prepare.mockRestore();
-  }
-});
+          {},
+        );
+        const jobs = await response.json();
+        const completed = jobs.find((item: { id: string }) => item.id === terminal.id);
+        expect(completed.status).toBe(outcome);
+        expect(completed.detail).toBe(terminal.detail);
+        expect(completed.detail).not.toContain("pending");
+      }
+      expect((await upload(firstId)).status).toBe(201);
+      expect(install).toHaveBeenCalledOnce();
+      const next = await (await upload(crypto.randomUUID())).json();
+      expect(next.batch.id).not.toBe(receipt.batch.id);
+      expect(next.batch.status).toBe("pending");
+    } finally {
+      install.mockRestore();
+      prepare.mockRestore();
+    }
+  },
+);
 
 test("scoped Dev updates require target-aware owner review and never reuse Host approval", async () => {
   const { request, url, calls } = await fixture(undefined, undefined, undefined, "both");
@@ -1561,6 +1579,48 @@ test("bootstrap HTTP readiness stays fenced without journal writes or admitted o
     "/api/installation/owner/settings/read",
   ])
     expect((await f.request(route, "owner-test-password", {})).status).toBe(503);
+  // Capability discovery and both new-field admission routes share the startup
+  // fence. No journal or upload may outlive a failed candidate's bootstrap.
+  expect((await f.request("/api/installation/capabilities", "host-agent-test-token")).status).toBe(
+    503,
+  );
+  expect(
+    (
+      await f.request(
+        "/api/installation/restart-requests?requireOwnerApproval=1",
+        "host-agent-test-token",
+        {
+          target: "host",
+          reason: "Must remain inert",
+          requireOwnerApproval: true,
+        },
+      )
+    ).status,
+  ).toBe(503);
+  const upload = await fetch(
+    `${f.url}/api/installation/source-update-requests?sourceBatches=1&requireOwnerApproval=1`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer host-agent-test-token",
+        "Content-Type": "application/octet-stream",
+        "x-vorteo-update": Buffer.from(
+          JSON.stringify({
+            contributionId: randomUUID(),
+            request: { target: "host", reason: "Must remain inert", requireOwnerApproval: true },
+            update: {
+              sourceCommit: "a".repeat(40),
+              baseCommit: "b".repeat(40),
+              sha256: "c".repeat(64),
+              bytes: 1,
+            },
+          }),
+        ).toString("base64"),
+      },
+      body: "x",
+    },
+  );
+  expect(upload.status).toBe(503);
   await f.drain();
   expect(f.calls).toEqual([]);
   expect(existsSync(path.join(f.root, "restart-jobs.json"))).toBe(false);
@@ -1788,4 +1848,347 @@ test("scoped helper CLI prepares inert requests and returns their exact review r
   ).toBe(404);
   await f.drain();
   expect(installations).toBe(0);
+});
+
+test("Host explicit review is advertised, durable and projected for legacy restart clients", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  expect(
+    await (await f.request("/api/installation/capabilities", "host-agent-test-token")).json(),
+  ).toMatchObject({ requireOwnerApproval: true, hostAutomaticRestarts: true });
+  expect(
+    await (await f.request("/api/installation/capabilities", "guest-agent-test-token")).json(),
+  ).toMatchObject({ requireOwnerApproval: false });
+  const route = "/api/installation/restart-requests";
+  const input = { target: "host", reason: "Review Host explicitly", requireOwnerApproval: true };
+  expect((await f.request(route, "guest-agent-test-token", input)).status).toBe(409);
+  const created = await (
+    await f.request(`${route}?requireOwnerApproval=1`, "host-agent-test-token", input)
+  ).json();
+  expect(created).toMatchObject({
+    requireOwnerApproval: true,
+    requestedBy: "host-agent",
+    status: "pending",
+  });
+  await f.drain();
+  expect(f.calls).toEqual([]);
+  const modern = await (
+    await f.request(`${route}/${created.id}?requireOwnerApproval=1`, "host-agent-test-token")
+  ).json();
+  expect(modern).toMatchObject({ status: "pending", requireOwnerApproval: true });
+  const legacy = await (await f.request(`${route}/${created.id}`, "host-agent-test-token")).json();
+  expect(legacy).not.toHaveProperty("requireOwnerApproval");
+  expect(RestartJobSchema.omit({ requireOwnerApproval: true }).parse(legacy).id).toBe(created.id);
+  const ownerQuery = "/api/installation/owner/restarts/query";
+  const oldOwner = await (await f.request(ownerQuery, "owner-test-password", {})).json();
+  expect(RestartJobSchema.omit({ requireOwnerApproval: true }).array().parse(oldOwner)[0]?.id).toBe(
+    created.id,
+  );
+  const decision = `/api/installation/owner/restarts/${created.id}/decision`;
+  expect(
+    (
+      await f.request(decision, "owner-test-password", {
+        revision: randomUUID(),
+        decision: "approve",
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await f.request(decision, "owner-test-password", {
+        revision: modern.revision,
+        decision: "reject",
+      })
+    ).status,
+  ).toBe(200);
+  await f.drain();
+  expect(f.calls).toEqual([]);
+});
+
+test("source receipt projection preserves explicit Host batch review and exact manual approval", async () => {
+  const prepare = vi
+    .spyOn(InstallationSourceUpdates.prototype, "prepare")
+    .mockImplementation(async (contributions) => ({
+      batch: {
+        status: "ready",
+        webCommit: "b".repeat(40),
+        contributions: contributions.map((item) => ({ ...item, status: "included" })),
+      },
+      update: contributions[0]!.update,
+    }));
+  const install = vi
+    .spyOn(InstallationSourceUpdates.prototype, "install")
+    .mockResolvedValue("installed");
+  try {
+    const f = await fixture(undefined, undefined, undefined, true, true);
+    const bundle = Buffer.from("inert manually reviewed source");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: createHash("sha256").update(bundle).digest("hex"),
+      bytes: bundle.length,
+    };
+    const id = randomUUID();
+    const upload = await fetch(
+      `${f.url}/api/installation/source-update-requests?sourceBatches=1&requireOwnerApproval=1`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer host-agent-test-token",
+          "Content-Type": "application/octet-stream",
+          "x-vorteo-update": Buffer.from(
+            JSON.stringify({
+              contributionId: id,
+              update,
+              request: { target: "host", reason: "Review source", requireOwnerApproval: true },
+            }),
+          ).toString("base64"),
+        },
+        body: bundle,
+      },
+    );
+    expect(upload.status).toBe(201);
+    const receipt = await upload.json();
+    expect(receipt.contribution).toMatchObject({
+      id,
+      requestedBy: "host-agent",
+      requireOwnerApproval: true,
+    });
+    await f.drain();
+    expect(install).not.toHaveBeenCalled();
+    expect(f.calls).toEqual([]);
+    const route = `/api/installation/source-contributions/${id}`;
+    const modern = await (
+      await f.request(`${route}?requireOwnerApproval=1`, "host-agent-test-token")
+    ).json();
+    expect(modern.batch).toMatchObject({ status: "pending", requireOwnerApproval: true });
+    const legacy = await (await f.request(route, "host-agent-test-token")).json();
+    expect(
+      SourceContributionSchema.omit({ requireOwnerApproval: true }).parse(legacy.contribution).id,
+    ).toBe(id);
+    const legacyJob = RestartJobSchema.omit({ requireOwnerApproval: true }).extend({
+      sourceBatch: SourceBatchSchema.extend({
+        contributions: SourceContributionSchema.omit({ requireOwnerApproval: true }).array(),
+      }).optional(),
+    });
+    expect(legacyJob.parse(legacy.batch).id).toBe(receipt.batch.id);
+    const decision = `/api/installation/owner/restarts/${modern.batch.id}/decision?sourceUpdates=1&sourceBatches=1`;
+    expect(
+      (
+        await f.request(decision, "owner-test-password", {
+          revision: modern.batch.revision,
+          decision: "approve",
+          updateSha256: "d".repeat(64),
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await f.request(decision, "owner-test-password", {
+          revision: modern.batch.revision,
+          decision: "approve",
+          updateSha256: update.sha256,
+        })
+      ).status,
+    ).toBe(200);
+    await f.drain();
+    expect(install).toHaveBeenCalledTimes(1);
+  } finally {
+    prepare.mockRestore();
+    install.mockRestore();
+  }
+});
+
+test("Host CLI requests truthful manual review and returns the exact owner review link", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const config = path.join(f.root, "manual-client.json");
+  const reason = path.join(f.root, "manual-reason.txt");
+  writeFileSync(
+    config,
+    JSON.stringify({ origin: f.url, kind: "host-agent", token: "host-agent-test-token" }),
+    { mode: 0o600 },
+  );
+  writeFileSync(reason, "Review explicitly", { mode: 0o600 });
+  const result = await promisify(execFile)(process.execPath, [
+    path.resolve("../../scripts/installation-agent.mjs"),
+    "--config",
+    config,
+    "request-restart",
+    "--target",
+    "host",
+    "--reason-file",
+    reason,
+    "--require-owner-approval",
+  ]);
+  const receipt = JSON.parse(result.stdout);
+  expect(receipt).toMatchObject({
+    requestedBy: "host-agent",
+    requireOwnerApproval: true,
+    status: "pending",
+  });
+  expect(new URL(receipt.approvalUrl).searchParams.get("restart")).toBe(receipt.id);
+  await f.drain();
+  expect(f.calls).toEqual([]);
+});
+
+test.each([false, true])(
+  "Host CLI fails closed on an old coordinator before request or upload (update: %s)",
+  async (update) => {
+    const root = mkdtempSync(path.join(tmpdir(), "manual-cli-old-"));
+    const calls: string[] = [];
+    const server = createServer((req, res) => {
+      calls.push(`${req.method} ${req.url}`);
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ version: 1, hostAutomaticRestarts: true }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing test server address");
+      const config = path.join(root, "client.json");
+      const reason = path.join(root, "reason.txt");
+      writeFileSync(
+        config,
+        JSON.stringify({
+          origin: `http://127.0.0.1:${address.port}`,
+          kind: "host-agent",
+          token: "fixture-token",
+        }),
+        { mode: 0o600 },
+      );
+      writeFileSync(reason, "Review explicitly");
+      await expect(
+        promisify(execFile)(process.execPath, [
+          path.resolve("../../scripts/installation-agent.mjs"),
+          "--config",
+          config,
+          "request-restart",
+          "--target",
+          "host",
+          "--reason-file",
+          reason,
+          "--require-owner-approval",
+          ...(update ? ["--update", "--repository", root] : []),
+        ]),
+      ).rejects.toThrow("does not advertise explicit owner approval");
+      expect(calls).toEqual(["GET /api/installation/capabilities"]);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        }),
+      );
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test("Host CLI source contributions carry the advertised owner-review requirement in upload metadata", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "manual-cli-source-"));
+  const git = (...args: string[]) =>
+    execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@localhost",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@localhost",
+      },
+    }).trim();
+  git("init", "--initial-branch=main");
+  writeFileSync(path.join(root, "feature.txt"), "base");
+  git("add", ".");
+  git("commit", "-m", "base");
+  const baseCommit = git("rev-parse", "HEAD");
+  writeFileSync(path.join(root, "feature.txt"), "feature");
+  git("commit", "-am", "feature");
+  const calls: string[] = [];
+  let metadata: unknown;
+  let bytes = 0;
+  const server = createServer((req, res) => {
+    calls.push(`${req.method} ${req.url}`);
+    res.setHeader("Content-Type", "application/json");
+    if (req.url === "/api/installation/capabilities") {
+      res.end(JSON.stringify({ requireOwnerApproval: true }));
+    } else if (req.url === "/api/installation/update-source") {
+      res.end(
+        JSON.stringify({
+          target: "host",
+          baseCommit,
+          integrationRef: "refs/heads/main",
+          maxBytes: 128 * 1024 * 1024,
+          sourceBatches: true,
+          baseCandidates: [baseCommit],
+        }),
+      );
+    } else {
+      const header = req.headers["x-vorteo-update"];
+      if (typeof header === "string")
+        metadata = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+      req.on("data", (chunk: Buffer) => {
+        bytes += chunk.length;
+      });
+      req.on("end", () =>
+        res.end(
+          JSON.stringify({ batch: { id: randomUUID() }, contribution: { id: randomUUID() } }),
+        ),
+      );
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const configRoot = mkdtempSync(path.join(tmpdir(), "manual-cli-source-config-"));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing test server address");
+    const config = path.join(configRoot, "client.json");
+    const reason = path.join(configRoot, "reason.txt");
+    writeFileSync(
+      config,
+      JSON.stringify({
+        origin: `http://127.0.0.1:${address.port}`,
+        kind: "host-agent",
+        token: "fixture-token",
+      }),
+      { mode: 0o600 },
+    );
+    writeFileSync(reason, "Review source explicitly");
+    const id = randomUUID();
+    await promisify(execFile)(process.execPath, [
+      path.resolve("../../scripts/installation-agent.mjs"),
+      "--config",
+      config,
+      "request-restart",
+      "--target",
+      "host",
+      "--reason-file",
+      reason,
+      "--require-owner-approval",
+      "--update",
+      "--repository",
+      root,
+      "--contribution-id",
+      id,
+    ]);
+    expect(calls).toEqual([
+      "GET /api/installation/capabilities",
+      "GET /api/installation/update-source",
+      "POST /api/installation/source-update-requests?target=host&sourceBatches=1&requireOwnerApproval=1",
+    ]);
+    expect(metadata).toMatchObject({
+      request: { target: "host", requireOwnerApproval: true },
+      contributionId: id,
+    });
+    expect(bytes).toBeGreaterThan(0);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      }),
+    );
+    rmSync(root, { recursive: true, force: true });
+    rmSync(configRoot, { recursive: true, force: true });
+  }
 });

@@ -12,6 +12,9 @@ import { AgentManager } from "../agent-manager.js";
 import { AgentStorage } from "../agent-storage.js";
 import type { CreatePaseoWorktreeWorkflowResult } from "../../worktree-session.js";
 import { createAgentCommand } from "./create.js";
+import { TaskOwnerEvidenceStore } from "../../authorization/task-owner-evidence.js";
+import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
+import { z } from "zod";
 import { QuotaReservePolling } from "../quota-reserve/polling.js";
 import { ProviderUsageService } from "../../../services/quota-fetcher/service.js";
 import type { ManagedAgent } from "../agent-manager.js";
@@ -298,6 +301,50 @@ test("session create stamps the new worktree's workspaceId when a setup continua
 
     const stored = await storage.get(snapshot.id);
     expect(stored?.workspaceId).toBe("ws-new-worktree");
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
+test("top-level MCP creation records canonical agent origin without inventing a parent", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "mcp-create-origin-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+  try {
+    const created = await createAgentCommand(
+      {
+        agentManager,
+        agentStorage: storage,
+        logger,
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+      },
+      {
+        kind: "mcp",
+        provider: "codex",
+        title: "Machine-created task",
+        cwd: workdir,
+        workspaceId: "fixture-workspace",
+        initialPrompt: "top-level machine instruction",
+        background: false,
+        notifyOnFinish: false,
+      },
+    );
+    expect(created.initialPromptStarted).toBe(true);
+    const messages = agentManager
+      .getTimeline(created.snapshot.id)
+      .filter((item) => item.type === "user_message");
+    expect(messages).toMatchObject([
+      {
+        text: "top-level machine instruction",
+        origin: "agent",
+        clientMessageId: expect.any(String),
+      },
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(z.uuid().safeParse(messages[0].clientMessageId).success).toBe(true);
+    expect(created.snapshot.labels).not.toHaveProperty(PARENT_AGENT_ID_LABEL);
+    expect(await new TaskOwnerEvidenceStore(workdir).list(created.snapshot.id)).toEqual([]);
+    expect(agentManager.listAgents()).toHaveLength(1);
   } finally {
     await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
   }

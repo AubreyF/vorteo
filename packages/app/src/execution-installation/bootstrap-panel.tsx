@@ -29,12 +29,21 @@ export function getBootstrapPanel(): BootstrapPanelModel | null {
   const key = `${installation.installationId}:${host.serverId}`;
   let model = models.get(key);
   if (!model) {
-    model = new BootstrapPanelModel(() => {
-      const client = getHostRuntimeStore().getClient(host.serverId);
-      return client?.getLastServerInfoMessage()?.features?.coordinatorBootstrapReview === true
-        ? client
-        : null;
-    });
+    model = new BootstrapPanelModel(
+      () => {
+        const client = getHostRuntimeStore().getClient(host.serverId);
+        return client?.getLastServerInfoMessage()?.features?.coordinatorBootstrapReview === true
+          ? client
+          : null;
+      },
+      () => {
+        const client = getHostRuntimeStore().getClient(host.serverId);
+        return (
+          client?.getLastServerInfoMessage()?.features?.coordinatorBootstrapUnavailableReason ??
+          null
+        );
+      },
+    );
     models.set(key, model);
   }
   return model;
@@ -108,6 +117,18 @@ function CompatibleRecoveryConfiguration({ plan }: { plan: CoordinatorBootstrapR
   );
 }
 
+function MonitorConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const config = plan.previewMonitorConfiguration;
+  if (config === undefined) return null;
+  return (
+    <Text style={styles.text}>
+      {config === null
+        ? "Disable new preview monitor requests. Existing receipts remain in history."
+        : "Enable Dev preview monitor maintenance with compatible selected and recovery coordinators. Each replacement still requires its own approval."}
+    </Text>
+  );
+}
+
 function BootstrapRequestCard({
   request,
   model,
@@ -176,6 +197,7 @@ function BootstrapRequestCard({
                 : "Enable native helper maintenance for Host requests. Each helper installation still requires its own approval."}
             </Text>
           ) : null}
+          <MonitorConfiguration plan={request.plan} />
           <FactoryAdoptionConfiguration plan={request.plan} />
           <Text selectable style={styles.text}>
             Source: {request.plan.candidate.sourceCommit}

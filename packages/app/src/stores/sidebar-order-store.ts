@@ -1,3 +1,4 @@
+import { recordSidebarChange } from "@/sidebar-state/changes";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -158,11 +159,15 @@ export const useSidebarOrderStore = create<SidebarOrderStoreState>()(
       workspaceOrderByProject: {},
       getProjectOrder: () => get().projectOrder,
       setProjectOrder: (keys) => {
-        set({ projectOrder: dedupeKeys(keys) });
+        const projectOrder = dedupeKeys(keys);
+        set({ projectOrder });
+        recordSidebarChange({ projectOrder });
       },
       getPinnedWorkspaceOrder: () => get().pinnedWorkspaceOrder,
       setPinnedWorkspaceOrder: (keys) => {
-        set({ pinnedWorkspaceOrder: dedupeKeys(keys) });
+        const pinnedWorkspaceOrder = dedupeKeys(keys);
+        set({ pinnedWorkspaceOrder });
+        recordSidebarChange({ pinnedWorkspaceOrder });
       },
       getWorkspaceOrder: (projectViewKey) => {
         if (!projectViewKey.trim()) return [];
@@ -170,10 +175,12 @@ export const useSidebarOrderStore = create<SidebarOrderStoreState>()(
       },
       setWorkspaceOrder: (projectViewKey, keys) => {
         if (!projectViewKey.trim()) return;
+        const order = dedupeKeys(keys);
+        recordSidebarChange({ workspaceOrderByProject: { [projectViewKey]: order } });
         set((state) => ({
           workspaceOrderByProject: {
             ...state.workspaceOrderByProject,
-            [projectViewKey]: dedupeKeys(keys),
+            [projectViewKey]: order,
           },
         }));
       },
