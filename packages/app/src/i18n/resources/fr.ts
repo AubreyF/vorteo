@@ -256,6 +256,9 @@ export const fr: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "Agentintrouvable",
       failedToLoad: "Échec du chargement de l'agent",
       reconnecting: "Reconnexion à l’hôte",
@@ -1220,6 +1223,12 @@ export const fr: TranslationResources = {
       description:
         "Ajoutez des commandes de configuration pour que les nouveaux arbres de travail puissent installer des dépendances et se préparer automatiquement.",
       openProjectSettings: "Ouvrir les paramètres du projet",
+    },
+    focus: {
+      focusItem: "Se concentrer sur {{name}}",
+      menuItem: "Se concentrer",
+      allProjects: "Tous les projets",
+      breadcrumb: "Chemin de focus de la barre latérale",
     },
     folders: {
       actions: {

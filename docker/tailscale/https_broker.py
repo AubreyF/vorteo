@@ -268,10 +268,12 @@ process.stdout.write(found[0].value);
             seen.add(cwd)
             if not self.workspace_path_allowed(cwd):
                 continue
-            path = self.host_workspace(cwd)
+            # A workspace whose path is missing, symlinked or otherwise unsafe
+            # cannot be served (current() rejects it), so it holds no ports.
+            # Skip it rather than failing every other workspace's reservation.
             try:
-                cfg = project_config(path)
-            except FileNotFoundError:
+                cfg = project_config(self.host_workspace(cwd))
+            except (OSError, ValueError):
                 continue
             for definition in cfg.get('scripts', {}).values():
                 if isinstance(definition, dict) and definition.get('type') == 'service' and type(definition.get('port')) is int:

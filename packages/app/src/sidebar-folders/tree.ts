@@ -179,6 +179,20 @@ export function buildSidebarTreeRows<T>(input: {
   return rows;
 }
 
+/** Folders in one scope whose subtree holds at least one of `keys`; filters hide the rest. */
+export function sidebarFolderIdsWithItems(input: {
+  state: SidebarFolderState;
+  scope: SidebarFolderScope;
+  keys: readonly string[];
+}): Set<string> {
+  const children = buildScopeChildren(input);
+  const kept = new Set<string>();
+  for (const folder of scopeFolders(input.state, input.scope)) {
+    if (countItems(children, folder.id) > 0) kept.add(folder.id);
+  }
+  return kept;
+}
+
 /** Every item key in display order with all folders expanded: the flat order older clients read. */
 export function flattenSidebarScope(input: {
   state: SidebarFolderState;
@@ -262,7 +276,8 @@ function sameList(left: readonly string[] | undefined, right: readonly string[])
 
 /**
  * Moves an item or `folder:<id>` entry into a folder (`null` for the scope's top level), before
- * `before` or at the end. Returns null when nothing would change or the move is impossible.
+ * `before`, else after `after`, else at the end. Returns null when nothing would change or the
+ * move is impossible.
  * `keys` is the scope's full flat order, which the patch rewrites to match the new tree.
  */
 export function moveSidebarEntryPatch(input: {
@@ -271,9 +286,11 @@ export function moveSidebarEntryPatch(input: {
   entry: string;
   targetFolderId: string | null;
   before: string | null;
+  after?: string | null;
   keys: readonly string[];
 }): SidebarStatePatch | null {
   const { state, scope, entry, targetFolderId, before, keys } = input;
+  const after = input.after ?? null;
   const movingFolderId = folderIdOf(entry);
   if (movingFolderId !== null && isWithin(state, targetFolderId, movingFolderId)) return null;
   const children = buildScopeChildren({ state, scope, keys });
@@ -283,7 +300,11 @@ export function moveSidebarEntryPatch(input: {
     sourceFolderId === targetFolderId
       ? [...sourceList]
       : (children.get(targetFolderId) ?? []).filter((key) => key !== entry);
-  const position = before === null ? -1 : targetList.indexOf(before);
+  let position = before === null ? -1 : targetList.indexOf(before);
+  if (position < 0 && after !== null) {
+    const anchor = targetList.indexOf(after);
+    position = anchor < 0 ? -1 : anchor + 1;
+  }
   targetList.splice(position < 0 ? targetList.length : position, 0, entry);
   const targetKey = sidebarFolderContainerKey(scope, targetFolderId);
   if (sourceFolderId === targetFolderId && sameList(children.get(targetFolderId), targetList))

@@ -254,6 +254,9 @@ export const ja: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "エージェントが見つかりません",
       failedToLoad: "エージェントの読み込みに失敗しました",
       reconnecting: "ホストに再接続中",
@@ -1198,6 +1201,12 @@ export const ja: TranslationResources = {
       description:
         "新しいワークツリーが依存関係をインストールして自動的に準備できるようにセットアップコマンドを追加してください。",
       openProjectSettings: "プロジェクト設定を開く",
+    },
+    focus: {
+      focusItem: "{{name}} にフォーカス",
+      menuItem: "フォーカス",
+      allProjects: "すべてのプロジェクト",
+      breadcrumb: "サイドバーのフォーカス経路",
     },
     folders: {
       actions: {

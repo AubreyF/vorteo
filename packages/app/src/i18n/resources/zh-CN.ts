@@ -251,6 +251,9 @@ export const zhCN: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "未找到 Agent",
       failedToLoad: "加载 Agent 失败",
       reconnecting: "正在重新连接主机",
@@ -1174,6 +1177,12 @@ export const zhCN: TranslationResources = {
       title: "设置 worktree scripts",
       description: "添加 setup 命令，让新的 worktree 自动安装依赖并完成准备。",
       openProjectSettings: "打开 project 设置",
+    },
+    focus: {
+      focusItem: "聚焦 {{name}}",
+      menuItem: "聚焦",
+      allProjects: "所有项目",
+      breadcrumb: "侧边栏聚焦路径",
     },
     folders: {
       actions: {

@@ -1,7 +1,8 @@
 import { View, type ViewStyle } from "react-native";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { ChevronDown, ChevronRight, CircleAlert } from "lucide-react-native";
+import { CircleAlert } from "lucide-react-native";
+import { SidebarLeadingSlot, type SidebarDisclosure } from "./leading-slot";
 import { ProjectIconView } from "@/components/project-icon-view";
 import { STATUS_BUCKET_LABELS } from "@/hooks/sidebar-status-view-model";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -51,8 +52,8 @@ const needsInputColorMapping = (theme: Theme) => ({
 });
 
 /**
- * Leading slot of a sidebar project row: chevron on hover, archive spinner while removing,
- * otherwise the project icon carrying the project's aggregate workspace status.
+ * Leading slot of a sidebar project row: the project icon carrying the project's aggregate
+ * workspace status, or an archive spinner while removing, with the shared hover arrow.
  */
 export function ProjectLeadingVisual({
   displayName,
@@ -71,34 +72,26 @@ export function ProjectLeadingVisual({
   projectViewKey: string;
   /** The row's current background, so the status badge can knock out of it. */
   backdrop: SidebarSurfaceBackdrop;
-  chevron?: "expand" | "collapse" | null;
+  chevron?: SidebarDisclosure;
   showChevron?: boolean;
   isArchiving?: boolean;
 }) {
-  if (showChevron && chevron !== null) {
-    return (
-      <View style={styles.projectLeadingVisualSlot}>
-        <ProjectInlineChevron chevron={chevron} />
-      </View>
-    );
-  }
-
-  if (isArchiving) {
-    return (
-      <View style={styles.projectLeadingVisualSlot} testID="project-status-indicator-archiving">
-        <ThemedActivityIndicator size={8} uniProps={foregroundMutedColorMapping} />
-      </View>
-    );
-  }
-
   return (
-    <ProjectStatusIndicator
-      iconDataUri={iconDataUri}
-      displayName={displayName}
-      projectViewKey={projectViewKey}
-      statusBucket={statusBucket}
-      backdrop={backdrop}
-    />
+    <SidebarLeadingSlot chevron={chevron} revealChevron={showChevron}>
+      {isArchiving ? (
+        <View style={styles.projectLeadingVisualSlot} testID="project-status-indicator-archiving">
+          <ThemedActivityIndicator size={8} uniProps={foregroundMutedColorMapping} />
+        </View>
+      ) : (
+        <ProjectStatusIndicator
+          iconDataUri={iconDataUri}
+          displayName={displayName}
+          projectViewKey={projectViewKey}
+          statusBucket={statusBucket}
+          backdrop={backdrop}
+        />
+      )}
+    </SidebarLeadingSlot>
   );
 }
 
@@ -239,16 +232,6 @@ function ProjectIcon({
       />
     </View>
   );
-}
-
-function ProjectInlineChevron({ chevron }: { chevron: "expand" | "collapse" | null }) {
-  if (chevron === null) {
-    return null;
-  }
-  if (chevron === "collapse") {
-    return <ChevronDown size={14} color="#9ca3af" />;
-  }
-  return <ChevronRight size={14} color="#9ca3af" />;
 }
 
 function getStatusDotColorStyle(bucket: ProjectStatusBadgeDotBucket): ViewStyle {

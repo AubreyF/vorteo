@@ -125,6 +125,8 @@ export async function skillRoots(
   if (cwd) {
     let current = path.resolve(cwd);
     for (;;) {
+      // Home skills have explicit roots; treating them as project skills mixes account homes.
+      if (current === path.resolve(home)) break;
       for (const provider of ["agents", "codex", "claude"]) {
         roots.push({
           path: path.join(current, `.${provider}/skills`),

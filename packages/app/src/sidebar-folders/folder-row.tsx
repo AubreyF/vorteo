@@ -3,9 +3,7 @@ import { Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import {
-  ChevronDown,
-  ChevronRight,
-  Folder,
+  ChevronsRight,
   FolderInput,
   FolderPlus,
   MoreVertical,
@@ -33,7 +31,13 @@ import { useLongPressDragInteraction } from "@/components/sidebar/use-long-press
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isNative } from "@/constants/platform";
 import { useVortonTouch } from "@/vorton-touch";
-import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { sidebarIndentStyle } from "@/components/sidebar/indent";
+import { sidebarContainerRowStyles } from "@/components/sidebar/container-row";
+import {
+  SidebarFolderIcon,
+  SidebarLeadingSlot,
+  type SidebarDisclosure,
+} from "@/components/sidebar/leading-slot";
 import type { Theme } from "@/styles/theme";
 import {
   toggleSidebarFolderCollapsed,
@@ -42,33 +46,24 @@ import {
   useSidebarFolderDialog,
 } from "./actions";
 import { useRemoveSidebarFolder } from "./dialogs";
-import { SidebarFolderDropTarget } from "./drop-context";
+import { SidebarFocusButton } from "@/sidebar-focus/focus-button";
+import { useSidebarRowFocus } from "@/sidebar-focus/context";
+import type { SidebarFocusTarget } from "@/sidebar-focus/model";
 import type { SidebarFolderRow as SidebarFolderRowModel } from "./tree";
-
-/** Each nesting level steps in by one icon slot, like workspaces under their project. */
-export const SIDEBAR_FOLDER_INDENT = 16;
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
-const ThemedChevronDown = withUnistyles(ChevronDown);
-const ThemedChevronRight = withUnistyles(ChevronRight);
-const ThemedFolder = withUnistyles(Folder);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedFolderPlus = withUnistyles(FolderPlus);
 const ThemedFolderInput = withUnistyles(FolderInput);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedTrash2 = withUnistyles(Trash2);
+const ThemedChevronsRight = withUnistyles(ChevronsRight);
 const newFolderIcon = <ThemedFolderPlus size={14} uniProps={mutedColorMapping} />;
 const moveIcon = <ThemedFolderInput size={14} uniProps={mutedColorMapping} />;
 const renameIcon = <ThemedPencil size={14} uniProps={mutedColorMapping} />;
 const deleteIcon = <ThemedTrash2 size={14} uniProps={mutedColorMapping} />;
-
-/** Project folders sit among workspace rows, so their icon shares the workspace status slot. */
-const PROJECT_FOLDER_INSET = 20;
-
-export function sidebarDepthStyle(depth: number, inset = 0) {
-  return inlineUnistylesStyle({ paddingLeft: inset + depth * SIDEBAR_FOLDER_INDENT });
-}
+const focusIcon = <ThemedChevronsRight size={14} uniProps={mutedColorMapping} />;
 
 function renderKebabIcon({ hovered }: { hovered?: boolean }) {
   return (
@@ -78,14 +73,22 @@ function renderKebabIcon({ hovered }: { hovered?: boolean }) {
 
 type MenuSurface = "context" | "dropdown";
 
+function folderChevron(isFocusRoot: boolean, collapsed: boolean): SidebarDisclosure {
+  if (isFocusRoot) return null;
+  return collapsed ? "expand" : "collapse";
+}
+
 function FolderMenuItems({
   surface,
   row,
   scope,
+  onFocus,
 }: {
   surface: MenuSurface;
   row: SidebarFolderRowModel;
   scope: SidebarFolderScope;
+  /** Present only where rows cannot be hovered, so touch layouts can still focus. */
+  onFocus: (() => void) | null;
 }) {
   const { t } = useTranslation();
   const { folder } = row;
@@ -104,6 +107,15 @@ function FolderMenuItems({
   const removeFolder = useCallback(() => remove(folder.id, folder.name), [remove, folder]);
   return (
     <>
+      {onFocus ? (
+        <Item
+          leading={focusIcon}
+          onSelect={onFocus}
+          testID={`sidebar-folder-menu-focus-${folder.id}`}
+        >
+          {t("sidebar.focus.menuItem")}
+        </Item>
+      ) : null}
       {createInside ? (
         <Item
           leading={newFolderIcon}
@@ -143,12 +155,15 @@ function FolderMenuItems({
 export function SidebarFolderRow({
   row,
   scope,
+  level,
   drag,
   isDragging,
   dragHandleProps,
 }: {
   row: SidebarFolderRowModel;
   scope: SidebarFolderScope;
+  /** Hierarchy level, which sets the indent; see `sidebarIndent`. */
+  level: number;
   drag: () => void;
   isDragging: boolean;
   dragHandleProps?: DraggableListDragHandleProps;
@@ -161,7 +176,12 @@ export function SidebarFolderRow({
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const interaction = useLongPressDragInteraction({ drag, menuController: null });
-  const { folder, collapsed, depth, itemCount } = row;
+  const { folder, collapsed, itemCount } = row;
+  const focusTarget = useMemo<SidebarFocusTarget>(
+    () => ({ kind: "folder", folderId: folder.id }),
+    [folder.id],
+  );
+  const rowFocus = useSidebarRowFocus({ target: focusTarget, isHovered });
   const {
     role: _dragRole,
     tabIndex: _dragTabIndex,
@@ -173,21 +193,22 @@ export function SidebarFolderRow({
       interaction.didLongPressRef.current = false;
       return;
     }
+    if (rowFocus.isRoot) return;
     toggleSidebarFolderCollapsed(folder.id);
-  }, [folder.id, interaction.didLongPressRef]);
+  }, [folder.id, interaction.didLongPressRef, rowFocus.isRoot]);
   const handlePointerEnter = useCallback(() => {
     if (!touch) setIsHovered(true);
   }, [touch]);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const rowStyle = useMemo(
     () => [
-      styles.row,
+      sidebarContainerRowStyles.row,
       density,
-      sidebarDepthStyle(depth, scope.kind === "project" ? PROJECT_FOLDER_INSET : 0),
-      (isHovered || contextMenuOpen) && styles.rowHovered,
+      sidebarIndentStyle(level),
+      (isHovered || contextMenuOpen) && sidebarContainerRowStyles.rowHovered,
       isDragging && styles.rowDragging,
     ],
-    [scope.kind, density, depth, isHovered, contextMenuOpen, isDragging],
+    [density, level, isHovered, contextMenuOpen, isDragging],
   );
   const accessibilityState = useMemo(() => ({ expanded: !collapsed }), [collapsed]);
   const kebabStyle = useCallback(
@@ -197,125 +218,99 @@ export function SidebarFolderRow({
     ],
     [],
   );
-  const Chevron = collapsed ? ThemedChevronRight : ThemedChevronDown;
   const showActions = isHovered || menuOpen || touch || compact || isNative;
   const countLabel = String(itemCount);
 
   return (
-    <SidebarFolderDropTarget folderId={folder.id} scope={scope}>
-      <ContextMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
+    <ContextMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
+      <View
+        {...dragAttributes}
+        {...dragHandleProps?.listeners}
+        ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
+        style={rowStyle}
+        onPointerEnter={handlePointerEnter}
+        onPointerLeave={handlePointerLeave}
+      >
+        <ContextMenuTrigger
+          enabledOnMobile={false}
+          accessibilityRole="button"
+          accessibilityLabel={folder.name}
+          accessibilityState={accessibilityState}
+          style={sidebarContainerRowStyles.main}
+          onPressIn={interaction.handlePressIn}
+          onTouchMove={interaction.handleTouchMove}
+          onPressOut={interaction.handlePressOut}
+          onPress={toggle}
+          testID={`sidebar-folder-row-${folder.id}`}
+        >
+          <SidebarLeadingSlot
+            chevron={folderChevron(rowFocus.isRoot, collapsed)}
+            revealChevron={isHovered || touch}
+            testID={`sidebar-folder-leading-${folder.id}`}
+          >
+            <SidebarFolderIcon />
+          </SidebarLeadingSlot>
+          <Text style={sidebarContainerRowStyles.title} numberOfLines={1}>
+            {folder.name}
+          </Text>
+          {collapsed ? (
+            <SidebarCountBadge
+              label={countLabel}
+              accessibilityLabel={`${folder.name}: ${countLabel}`}
+              testID={`sidebar-folder-count-${folder.id}`}
+            />
+          ) : null}
+        </ContextMenuTrigger>
+        {rowFocus.buttonAction ? (
+          <SidebarFocusButton
+            name={folder.name}
+            onPress={rowFocus.buttonAction}
+            testID={`sidebar-folder-focus-${folder.id}`}
+          />
+        ) : null}
         <View
-          {...dragAttributes}
-          {...dragHandleProps?.listeners}
-          ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
-          style={rowStyle}
-          onPointerEnter={handlePointerEnter}
-          onPointerLeave={handlePointerLeave}
+          style={showActions ? undefined : styles.hidden}
+          pointerEvents={showActions ? "auto" : "none"}
         >
-          <ContextMenuTrigger
-            enabledOnMobile={false}
-            accessibilityRole="button"
-            accessibilityLabel={folder.name}
-            accessibilityState={accessibilityState}
-            style={styles.main}
-            onPressIn={interaction.handlePressIn}
-            onTouchMove={interaction.handleTouchMove}
-            onPressOut={interaction.handlePressOut}
-            onPress={toggle}
-            testID={`sidebar-folder-row-${folder.id}`}
-          >
-            <View style={styles.chevronSlot}>
-              <Chevron size={12} uniProps={mutedColorMapping} />
-            </View>
-            <ThemedFolder size={14} uniProps={mutedColorMapping} />
-            <Text style={styles.title} numberOfLines={1}>
-              {folder.name}
-            </Text>
-            {collapsed ? (
-              <SidebarCountBadge
-                label={countLabel}
-                accessibilityLabel={`${folder.name}: ${countLabel}`}
-                testID={`sidebar-folder-count-${folder.id}`}
+          <DropdownMenu compactMode="sheet" open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger
+              hitSlop={8}
+              style={kebabStyle}
+              accessibilityRole="button"
+              accessibilityLabel={t("sidebar.folders.actions.menu")}
+              testID={`sidebar-folder-kebab-${folder.id}`}
+            >
+              {renderKebabIcon}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              width={220}
+              sheetTitle={t("sidebar.folders.actions.menu")}
+            >
+              <FolderMenuItems
+                surface="dropdown"
+                row={row}
+                scope={scope}
+                onFocus={rowFocus.menuAction}
               />
-            ) : null}
-          </ContextMenuTrigger>
-          <View
-            style={showActions ? undefined : styles.hidden}
-            pointerEvents={showActions ? "auto" : "none"}
-          >
-            <DropdownMenu compactMode="sheet" open={menuOpen} onOpenChange={setMenuOpen}>
-              <DropdownMenuTrigger
-                hitSlop={8}
-                style={kebabStyle}
-                accessibilityRole="button"
-                accessibilityLabel={t("sidebar.folders.actions.menu")}
-                testID={`sidebar-folder-kebab-${folder.id}`}
-              >
-                {renderKebabIcon}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                width={220}
-                sheetTitle={t("sidebar.folders.actions.menu")}
-              >
-                <FolderMenuItems surface="dropdown" row={row} scope={scope} />
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </View>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </View>
-        <ContextMenuContent
-          align="start"
-          width={220}
-          testID={`sidebar-folder-context-${folder.id}`}
-        >
-          <FolderMenuItems surface="context" row={row} scope={scope} />
-        </ContextMenuContent>
-      </ContextMenu>
-    </SidebarFolderDropTarget>
+      </View>
+      <ContextMenuContent align="start" width={220} testID={`sidebar-folder-context-${folder.id}`}>
+        <FolderMenuItems surface="context" row={row} scope={scope} onFocus={rowFocus.menuAction} />
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  row: {
-    position: "relative",
-    minHeight: 36,
-    marginBottom: theme.spacing[0.5],
-    paddingVertical: theme.spacing[1],
-    paddingRight: theme.spacing[2],
-    borderRadius: theme.borderRadius.lg,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    userSelect: "none",
-  },
-  rowHovered: { backgroundColor: theme.colors.surfaceSidebarHover },
   rowDragging: {
     backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
     zIndex: 3,
     ...theme.shadow.md,
-  },
-  main: {
-    flex: 1,
-    minWidth: 0,
-    alignSelf: "stretch",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingLeft: theme.spacing[2],
-  },
-  chevronSlot: {
-    width: theme.iconSize.md,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  title: {
-    flexShrink: 1,
-    minWidth: 0,
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
   },
   hidden: { opacity: 0 },
   kebab: { padding: 2, borderRadius: 4 },

@@ -255,6 +255,9 @@ export const es: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "Agentno encontrado",
       failedToLoad: "No se pudo cargar el agente",
       reconnecting: "Reconectando al host",
@@ -1221,6 +1224,12 @@ export const es: TranslationResources = {
       description:
         "Agregue comandos de configuración para que los nuevos árboles de trabajo puedan instalar dependencias y prepararse automáticamente.",
       openProjectSettings: "Abrir la configuración del proyecto",
+    },
+    focus: {
+      focusItem: "Enfocar {{name}}",
+      menuItem: "Enfocar",
+      allProjects: "Todos los proyectos",
+      breadcrumb: "Ruta de enfoque de la barra lateral",
     },
     folders: {
       actions: {

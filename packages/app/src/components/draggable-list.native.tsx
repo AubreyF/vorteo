@@ -5,7 +5,11 @@ import DraggableFlatList, {
   type RenderItemParams,
 } from "react-native-draggable-flatlist";
 import { useUnistyles } from "react-native-unistyles";
-import type { DraggableListProps, DraggableRenderItemInfo } from "./draggable-list.types";
+import type {
+  DraggableListProps,
+  DraggableRenderItemInfo,
+  DraggableTreePlacement,
+} from "./draggable-list.types";
 
 import { useOptimisticReorder } from "./drag-reorder/use-optimistic-reorder";
 
@@ -13,7 +17,7 @@ export type { DraggableListProps, DraggableRenderItemInfo };
 
 const SCROLL_ENABLED_FLEX_STYLE = { flex: 1 };
 
-export function DraggableList<T>({
+export function DraggableList<T, P extends DraggableTreePlacement = DraggableTreePlacement>({
   data,
   keyExtractor,
   renderItem,
@@ -37,7 +41,7 @@ export function DraggableList<T>({
   onDragBegin: onDragBeginProp,
   onDragRelease,
   nestable = false,
-}: DraggableListProps<T>) {
+}: DraggableListProps<T, P>) {
   const { theme } = useUnistyles();
   const [isDragging, setIsDragging] = useState(false);
   const { items, drop } = useOptimisticReorder(data, keyExtractor, onDragEnd);

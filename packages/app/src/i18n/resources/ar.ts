@@ -252,6 +252,9 @@ export const ar: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "لم يتم العثور على Agent",
       failedToLoad: "فشل تحميل الوكيل",
       reconnecting: "جارٍ إعادة الاتصال بالمضيف",
@@ -1184,6 +1187,12 @@ export const ar: TranslationResources = {
       description:
         "أضف أوامر الإعداد حتى تتمكن أشجار العمل الجديدة من تثبيت التبعيات وإعداد نفسها تلقائيًا.",
       openProjectSettings: "افتح إعدادات المشروع",
+    },
+    focus: {
+      focusItem: "التركيز على {{name}}",
+      menuItem: "تركيز",
+      allProjects: "كل المشاريع",
+      breadcrumb: "مسار التركيز في الشريط الجانبي",
     },
     folders: {
       actions: {

@@ -26,10 +26,13 @@ import type {
   DraggableListProps,
   DraggableRenderItemInfo,
   DraggableListDropTarget,
+  DraggableTreePlacement,
 } from "./draggable-list.types";
+import { DraggableTreeList } from "./draggable-tree-list.web";
 import { getDragActivationConstraints, useDragReorderState } from "./drag-reorder";
 
 import { useOptimisticReorder } from "./drag-reorder/use-optimistic-reorder";
+import { useShallowStableRecord, useStableListenerRecord } from "./drag-reorder/stable-records";
 
 export type { DraggableListProps, DraggableRenderItemInfo };
 
@@ -44,61 +47,6 @@ const DRAG_ACTIVATION_CONFIG = {
   touchHoldDelayMs: 180,
   touchHoldTolerance: 8,
 };
-
-function areRecordsEqual(
-  left: Record<string, unknown> | undefined,
-  right: Record<string, unknown> | undefined,
-): boolean {
-  if (left === right) return true;
-  if (!left || !right) return false;
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  if (leftKeys.length !== rightKeys.length) return false;
-  return leftKeys.every((key) => Object.is(left[key], right[key]));
-}
-
-function useShallowStableRecord(
-  value: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  const stableRef = useRef(value);
-  if (!areRecordsEqual(stableRef.current, value)) {
-    stableRef.current = value;
-  }
-  return stableRef.current;
-}
-
-function useStableListenerRecord(
-  listeners: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  const latestListenersRef = useRef(listeners);
-  latestListenersRef.current = listeners;
-  const listenerKeys = Object.keys(listeners ?? {}).sort();
-  const listenerKeySignature = listenerKeys.join("\u0000");
-  const stableListenersRef = useRef<{
-    keySignature: string;
-    listeners: Record<string, unknown> | undefined;
-  }>(undefined);
-  if (stableListenersRef.current?.keySignature !== listenerKeySignature) {
-    stableListenersRef.current = {
-      keySignature: listenerKeySignature,
-      listeners:
-        listenerKeys.length === 0
-          ? undefined
-          : Object.fromEntries(
-              listenerKeys.map((key) => [
-                key,
-                (...args: unknown[]) => {
-                  const listener = latestListenersRef.current?.[key];
-                  if (typeof listener === "function") {
-                    return Reflect.apply(listener, undefined, args);
-                  }
-                },
-              ]),
-            ),
-    };
-  }
-  return stableListenersRef.current.listeners;
-}
 
 interface SortableItemProps<T> {
   id: string;
@@ -204,7 +152,15 @@ function ExternalDropTarget({ id, element }: DraggableListDropTarget) {
   return null;
 }
 
-export function DraggableList<T>({
+export function DraggableList<T, P extends DraggableTreePlacement = DraggableTreePlacement>(
+  props: DraggableListProps<T, P>,
+) {
+  const { treeDrop } = props;
+  if (treeDrop) return <DraggableTreeList {...props} treeDrop={treeDrop} />;
+  return <SortableDraggableList {...props} />;
+}
+
+function SortableDraggableList<T, P extends DraggableTreePlacement>({
   externalDrop,
   data,
   keyExtractor,
@@ -225,7 +181,7 @@ export function DraggableList<T>({
   // simultaneousGestureRef is native-only, ignored on web
   onDragBegin,
   nestable: _nestable = false,
-}: DraggableListProps<T>) {
+}: DraggableListProps<T, P>) {
   const optimistic = useOptimisticReorder(data, keyExtractor, onDragEnd);
   const { activeId, items, handlers } = useDragReorderState({
     data: optimistic.items,

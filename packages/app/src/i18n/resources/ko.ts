@@ -252,6 +252,9 @@ export const ko: TranslationResources = {
   },
   agentPanel: {
     states: {
+      providerUnavailable: en.agentPanel.states.providerUnavailable,
+      providerRecovery: en.agentPanel.states.providerRecovery,
+      loadingProviders: en.agentPanel.states.loadingProviders,
       notFound: "에이전트를 찾을 수 없습니다",
       failedToLoad: "에이전트를 불러오지 못했습니다",
       reconnecting: "호스트에 다시 연결하는 중",
@@ -1191,6 +1194,12 @@ export const ko: TranslationResources = {
       description:
         "새 워크트리가 의존성을 설치하고 자동으로 준비될 수 있도록 설정 명령을 추가하세요.",
       openProjectSettings: "프로젝트 설정 열기",
+    },
+    focus: {
+      focusItem: "{{name}}에 집중",
+      menuItem: "집중",
+      allProjects: "모든 프로젝트",
+      breadcrumb: "사이드바 집중 경로",
     },
     folders: {
       actions: {
