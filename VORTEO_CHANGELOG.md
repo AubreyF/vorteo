@@ -4,6 +4,52 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.873 - 2026-10-26
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.872 - 2026-10-26
+
+### Maintenance
+
+- Merge Codex skill snapshot fix: Codex account agents take their skill snapshot from the account's own Codex home, so another Codex build rewriting the shared folder no longer breaks new agents
+
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Fixed
+
+- New Codex account agents no longer fail with "Provider did not discover selected skill" after another Codex build rewrites the shared `~/.codex` skills. The launch skill snapshot now reads personal, system and plugin Codex skills from the `CODEX_HOME` the session runs with, the same folder its app-server lists. Running tasks also stop depending on `~/.codex`, so a rewrite there can no longer report their skills as changed.
+
+## 0.11.0-beta.3.vorteo.871 - 2026-10-26
+
+### Maintenance
+
+- Merge session host restart record fix: a session host restart records only the fields its job schema names, and the coordinator writes its journal before remembering a session host job, so one rejected record can no longer block every later restart
+
+## 0.11.0-beta.3.vorteo.864 - 2026-10-26
+
+### Fixed
+
+- A session host restart no longer wedges the installation coordinator. The finished restart recorded the stopped host as the host answered, and since the indicator that answer carries per-provider session counts, which the strict job record does not allow; the coordinator kept the invalid record in memory after the journal refused it, so every later journal write failed and every restart request was refused. The restart now records only the fields the job names (process, release, sessions), and the ledger writes a session host record to the journal before remembering it, so a record the journal rejects fails only its own operation and later requests go through.
+
+### Validation
+
+- A restart whose host answers with provider counts produces a record that passes the job schema and the lifecycle journal; a ledger test feeds an outcome with an extra field through dispatch and checks the operation fails on its own, the journal still parses, and the next request succeeds. The isolated end-to-end restart scenario drives launchd directly rather than the coordinator, so it could not have caught this; the coordinator path is covered by the unit tests above.
+
+## 0.11.0-beta.3.vorteo.870 - 2026-10-26
+
+### Maintenance
+
+- Merge systemd coordinator start: a coordinator configured for a systemd Host starts without the launchd-only bootstrap ledger instead of crashing
+
+## 0.11.0-beta.3.vorteo.866 - 2026-10-26
+
+### Fixed
+
+- An installation coordinator configured for a systemd Host no longer crashes at startup. It created the launchd-only coordinator bootstrap ledger unconditionally; it now skips the ledger on systemd Hosts and reports coordinator maintenance as unavailable there, as it already did when the ledger was missing.
+
 ## 0.11.0-beta.3.vorteo.869 - 2026-10-26
 
 ### Maintenance
@@ -566,6 +612,16 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Merge Claude command-name checks on resume: commands named like built-in skills turn those built-ins off, as skills already did
 
+## 0.11.0-beta.3.vorteo.855 - 2026-10-25
+
+### Fixed
+
+- A custom command named like one of Claude's bundled skills can no longer take its place in a restricted session. Claude lists commands as skills and its allowlist matches them by name, so a resumed session now reads project, home, account and plugin command folders and turns off any bundled name a command uses. This is conservative: a plugin that is present but not loaded for an account can still turn a name off, which on the Host currently drops code-review for account sessions.
+
+### Maintenance
+
+- Skill policy tests use an empty home folder and stop the project folder walk at the test folder, so the developer's own skills, plugins and commands no longer affect them. New tests cover the synced skill layout, unreadable folders inside plugin roots, command claims, and the Claude session passing its own config folder to the resume check.
+
 ## 0.11.0-beta.3.vorteo.860 - 2026-10-26
 
 ### Maintenance
@@ -667,16 +723,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Show expanded startup diagnostics and begin automatic checks after ten seconds using one shared delay.
 - Move and shrink the original V mark while the diagnostic content fades and slides into place on the same timeline. Reduced motion settles immediately, with no new downloaded assets or dependencies.
-
-## 0.11.0-beta.3.vorteo.855 - 2026-10-25
-
-### Fixed
-
-- A custom command named like one of Claude's bundled skills can no longer take its place in a restricted session. Claude lists commands as skills and its allowlist matches them by name, so a resumed session now reads project, home, account and plugin command folders and turns off any bundled name a command uses. This is conservative: a plugin that is present but not loaded for an account can still turn a name off, which on the Host currently drops code-review for account sessions.
-
-### Maintenance
-
-- Skill policy tests use an empty home folder and stop the project folder walk at the test folder, so the developer's own skills, plugins and commands no longer affect them. New tests cover the synced skill layout, unreadable folders inside plugin roots, command claims, and the Claude session passing its own config folder to the resume check.
 
 ## 0.11.0-beta.3.vorteo.854 - 2026-10-25
 

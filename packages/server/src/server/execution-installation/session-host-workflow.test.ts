@@ -227,6 +227,41 @@ test("a forced stop is recorded on the removal", async () => {
   expect(f.queue.listSessionHosts()[0]).toMatchObject({ status: "succeeded", forcedStop: true });
 });
 
+test("a record the journal rejects fails only its own operation and leaves the ledger usable", async () => {
+  // An outcome carrying a field the strict job schema does not name, as the restart did before
+  // it built its records explicitly.
+  const f = fixture({
+    applySessionHost: async () =>
+      ({
+        detail: "restarted",
+        host: { pid: 4343 },
+        previousHost: { pid: 4242, sessions: 3, providers: { claude: 3 } },
+      }) as unknown as Awaited<ReturnType<NonNullable<RestartExecutor["applySessionHost"]>>>,
+  });
+  const job = await f.request();
+  f.queue.decideSessionHost(decision(job));
+  await f.queue.drain();
+  // The operation itself fails, nothing invalid is remembered, and the journal still parses.
+  expect(f.queue.listSessionHosts()[0]).toMatchObject({
+    id: job.id,
+    status: "failed",
+    stage: "failed",
+    detail: "The session host operation failed. Inspect its status before retrying.",
+  });
+  expect(parseLifecycleJournal(f.journal.read())).toHaveLength(1);
+  expect(f.journal.read()[0]).toMatchObject({ id: job.id, status: "failed" });
+  // The next, unrelated request goes through: the ledger was never wedged.
+  f.executor.applySessionHost = async () => ({ detail: "removed", forced: true });
+  const next = await f.request("session-host-remove");
+  f.queue.decideSessionHost(decision(next));
+  await f.queue.drain();
+  expect(f.queue.listSessionHosts().find((item) => item.id === next.id)).toMatchObject({
+    status: "succeeded",
+    forcedStop: true,
+  });
+  expect(f.journal.read()).toHaveLength(2);
+});
+
 test("without a session host executor, requests are refused", async () => {
   const f = fixture({ sessionHostPlan: undefined, applySessionHost: undefined });
   expect(f.queue.sessionHostAvailable()).toBe(false);

@@ -422,7 +422,7 @@ export class InstallationRestarts {
     });
     // An interrupted operation is never replayed. Both operations recheck everything they touch,
     // so the owner inspects the status and requests whichever one the job now needs.
-    this.sessionHosts = this.sessionHosts.map((job): SessionHostJob => {
+    const sessionHosts = this.sessionHosts.map((job): SessionHostJob => {
       if (job.status !== "approved" && job.status !== "running") return job;
       return {
         ...job,
@@ -432,7 +432,7 @@ export class InstallationRestarts {
           "The coordinator restarted before this operation finished. Check the session host status before requesting it again.",
       };
     });
-    this.writeState(recovered, helpers, monitors);
+    this.writeState(recovered, helpers, monitors, this.listServices(), undefined, { sessionHosts });
     this.active = true;
     this.reconcilePending();
   }
@@ -788,12 +788,18 @@ export class InstallationRestarts {
       throw new RestartRequestError("Session host plan changed. Prepare and review a new request.");
   }
 
+  /**
+   * Writes the record before remembering it. A record the journal rejects therefore fails only
+   * the operation that produced it; memory keeps the last written state and later writes succeed.
+   */
   private replaceSessionHost(next: SessionHostJob): void {
     this.requireActive();
-    this.sessionHosts = this.sessionHosts.some((job) => job.id === next.id)
+    const sessionHosts = this.sessionHosts.some((job) => job.id === next.id)
       ? this.sessionHosts.map((job) => (job.id === next.id ? next : job))
       : [...this.sessionHosts, next];
-    this.writeState(this.jobs, this.helpers);
+    this.writeState(this.jobs, this.helpers, this.monitors, this.listServices(), undefined, {
+      sessionHosts,
+    });
   }
 
   /** Runs one approved operation after recomputing its plan; any difference changes nothing. */
@@ -2939,18 +2945,22 @@ export class InstallationRestarts {
     this.requireActive();
     this.writeState(jobs, this.helpers);
   }
+  /**
+   * Validates and writes the whole journal, then takes the written lists as the new memory. Every
+   * list is passed in or defaults to the current one, so nothing is remembered before it is on
+   * disk.
+   */
   private writeState(
     jobs: RestartJob[],
     helpers: NativeHelperJob[],
     monitors: PreviewMonitorJob[] = this.monitors,
     services: MaintenanceServiceJob[] = this.listServices(),
     evidence?: MaintenanceServiceAdmissionEvidence,
+    extra: { sessionHosts?: SessionHostJob[] } = {},
   ): void {
+    const sessionHosts = extra.sessionHosts ?? this.sessionHosts;
     const remaining = new Map<string, LifecycleJob>(
-      [...jobs, ...helpers, ...monitors, ...services, ...this.sessionHosts].map((job) => [
-        job.id,
-        job,
-      ]),
+      [...jobs, ...helpers, ...monitors, ...services, ...sessionHosts].map((job) => [job.id, job]),
     );
     const next: LifecycleJob[] = [];
     for (const previous of this.snapshot) {
@@ -2966,6 +2976,7 @@ export class InstallationRestarts {
     this.jobs = jobs;
     this.helpers = helpers;
     this.monitors = monitors;
+    this.sessionHosts = sessionHosts;
   }
 
   private replaceService(
