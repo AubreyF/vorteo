@@ -7,12 +7,27 @@ import { z } from "zod";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import {
+  assertNoOpenReleaseWriters,
+  assertReleaseUnsealed,
+  assertSealingSupported,
+  readReleaseSeal,
+  releaseSealsEnabled,
+  sealedChangeMessage,
+  setReleaseImmutable,
+  unsealBootstrapRelease,
+  writeReleaseSeal,
+  type ReleaseSeal,
+  type ReleaseSealBinding,
+} from "./coordinator-bootstrap-release-seal.js";
+import {
   ArtifactScanConflict,
   identity,
   observedEntries,
   scanArtifactTree,
   verifyArtifactTree,
+  type ArtifactChange,
   type ArtifactScan,
+  type ObservedMetadata,
   type ArtifactBudget,
 } from "./coordinator-bootstrap-artifact-scan.js";
 
@@ -396,6 +411,46 @@ export async function digestBootstrapArtifact(
   return (await inspectBootstrapArtifact(directory, limits)).sha256;
 }
 
+export interface SealedRelease {
+  /** The unchanged v1 artifact digest. */
+  artifactSha256: string;
+  /** Record in the admission receipt; approval honours the seal only then. */
+  seal: ReleaseSealBinding;
+}
+
+/** Install-time custody for a newly built release: refuse development tool
+ * output and linked dependency trees, make the tree immutable, refuse writers
+ * still holding it open, then digest it in full and record its manifest and
+ * seal. A failure restores the tree's flags and leaves no seal behind. */
+export async function sealBootstrapRelease(
+  directory: string,
+  limits: BootstrapArtifactDigestLimits = {},
+): Promise<SealedRelease> {
+  assertSealingSupported();
+  const { signal, maxFiles = Infinity, maxBytes = Infinity, timeoutMs } = limits;
+  const deadline = timeoutMs === undefined ? Infinity : Date.now() + timeoutMs;
+  if ((await realpath(directory)) !== directory)
+    throw new BootstrapRequestConflict("Prepared artifact requires a canonical directory");
+  // Refuse before touching flags, so the failure path never removes a prior seal.
+  assertReleaseUnsealed(directory);
+  try {
+    await setReleaseImmutable([directory], true);
+    await assertNoOpenReleaseWriters(directory);
+    // Bytes are read only after new writes became impossible.
+    const scan = await scanArtifactTree(
+      directory,
+      { maxFiles, maxBytes, deadline, signal },
+      { manifest: true, policy: true },
+    );
+    const seal = await writeReleaseSeal(directory, scan);
+    return { artifactSha256: scan.sha256, seal };
+  } catch (error) {
+    await unsealBootstrapRelease(directory);
+    if (error instanceof ArtifactScanConflict) throw new BootstrapRequestConflict(error.message);
+    throw error;
+  }
+}
+
 /** Retain every dependency and directory through later locked admission. The
  * collection budget ends on success; caller cancellation still invalidates proof. */
 export async function inspectBootstrapArtifact(
@@ -516,18 +571,50 @@ function awaitWithinBudget<T>(work: Promise<T>, budget: ArtifactBudget): Promise
   });
 }
 
+/** Sealed releases are verified by metadata sweep. Any mismatch falls back to
+ * the full byte scan, and a sealed tree whose bytes changed is refused with the
+ * first changed path named. Without a usable seal this is the byte scan alone. */
 async function collectArtifact(
   directory: string,
   input: ArtifactBudget,
 ): Promise<RetainedArtifact> {
+  const seal = releaseSealsEnabled() ? await readReleaseSeal(directory) : null;
+  const change = seal ? await sweepReleaseSeal(directory, seal, input) : null;
+  if (seal && !change) return retainArtifact(directory, seal.artifactSha256, seal.observed);
   let scan: ArtifactScan;
   try {
     scan = await scanArtifactTree(directory, input);
   } catch (error) {
+    if (change) throw new BootstrapRequestConflict(sealedChangeMessage(directory, change));
     if (error instanceof ArtifactScanConflict) throw new BootstrapRequestConflict(error.message);
     throw error;
   }
-  const { sha256, observed } = scan;
+  if (seal && change && scan.sha256 !== seal.artifactSha256)
+    throw new BootstrapRequestConflict(sealedChangeMessage(directory, change));
+  return retainArtifact(directory, scan.sha256, scan.observed);
+}
+
+/** Null when every sealed entry is unchanged; otherwise the first change. */
+async function sweepReleaseSeal(
+  directory: string,
+  seal: ReleaseSeal,
+  input: ArtifactBudget,
+): Promise<ArtifactChange | null> {
+  try {
+    await verifyArtifactTree(directory, seal.observed, input, { explain: true });
+    return null;
+  } catch (error) {
+    if (error instanceof ArtifactScanConflict && error.change) return error.change;
+    if (error instanceof ArtifactScanConflict) throw new BootstrapRequestConflict(error.message);
+    throw error;
+  }
+}
+
+function retainArtifact(
+  directory: string,
+  sha256: string,
+  observed: ObservedMetadata,
+): RetainedArtifact {
   return {
     sha256,
     revalidate: (budget) => verifyArtifactTree(directory, observed, budget),

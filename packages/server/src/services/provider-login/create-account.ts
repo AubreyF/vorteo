@@ -1,6 +1,11 @@
 import path from "node:path";
 import { z } from "zod";
 import type { DaemonConfigStore } from "../../server/daemon-config-store.js";
+import {
+  claudeSignInEnvironment,
+  claudeSignInMode,
+  type ClaudeSignInMode,
+} from "../../server/agent/providers/claude/sign-in-mode.js";
 
 export class AccountCreationError extends Error {}
 
@@ -13,12 +18,17 @@ interface AccountCreationInput {
   name: string;
 }
 
+interface ClaudeAccountCreationInput extends AccountCreationInput {
+  /** Fixed at creation. A retry must request the same type as the original. */
+  signIn?: ClaudeSignInMode;
+}
+
 export function createCodexAccount(input: AccountCreationInput) {
   return createAccount(input, "codex", "CODEX_HOME");
 }
 
-export function createClaudeAccount(input: AccountCreationInput) {
-  return createAccount(input, "claude", "CLAUDE_CONFIG_DIR");
+export function createClaudeAccount(input: ClaudeAccountCreationInput) {
+  return createAccount(input, "claude", "CLAUDE_CONFIG_DIR", input.signIn ?? "setup-token");
 }
 
 /** A retry uses the same provider ID and home, including after a lost response or restart. */
@@ -26,6 +36,7 @@ async function createAccount(
   input: AccountCreationInput,
   provider: "codex" | "claude",
   homeVariable: "CODEX_HOME" | "CLAUDE_CONFIG_DIR",
+  claudeSignIn: ClaudeSignInMode = "setup-token",
 ): Promise<{ providerId: string; name: string }> {
   const creationId = z.string().uuid().parse(input.creationId);
   const name = input.name.trim();
@@ -40,7 +51,12 @@ async function createAccount(
         "This local connection was removed. Restore it in Settings before signing in.",
       );
     const env = AccountEnvironmentSchema.safeParse(existing.env);
-    if (existing.extends !== provider || !env.success || env.data[homeVariable] !== home) {
+    if (
+      existing.extends !== provider ||
+      !env.success ||
+      env.data[homeVariable] !== home ||
+      (provider === "claude" && claudeSignInMode(env.data) !== claudeSignIn)
+    ) {
       throw new AccountCreationError("This account identifier is already in use.");
     }
     if (typeof existing.label !== "string")
@@ -60,6 +76,7 @@ async function createAccount(
       CLAUDE_CODE_USE_VERTEX: "0",
       CLAUDE_CODE_USE_FOUNDRY: "0",
       ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+      ...claudeSignInEnvironment(claudeSignIn),
     });
   }
   // The login session creates the directory. Never copy another account's credentials.

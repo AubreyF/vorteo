@@ -92,6 +92,7 @@ import {
 import { inspectContainerSource } from "./container-updates.js";
 import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationSourceUpdates } from "./source-updates.js";
+import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./owner-delegation.js";
 
 // COMPAT(providerRemovalOwner): added in v155, remove after legacy strict catalog clients are unsupported.
 function ownerSettingsSnapshot(snapshot: InstallationSettingsSnapshot, removalAware: boolean) {
@@ -147,6 +148,18 @@ function ownerApprovalReply(job: RestartJob, enabled: boolean | undefined): Rest
     };
   }
   return compatible;
+}
+
+// COMPAT(delegatedRequests): added in v0.11.0-beta.3.vorteo.695; only clients that ask receive delegatedTo.
+function withDelegation(reply: RestartJob, job: RestartJob, delegation: OwnerDelegation | null) {
+  const handler = delegation ? delegatedHandler(job, delegation, Date.now()) : null;
+  if (handler?.state === "handling") return { ...reply, delegatedTo: handler.requester };
+  if (handler?.state === "overdue") return { ...reply, delegationOverdue: handler.requester };
+  return reply;
+}
+
+function requestedDelegation(stateDir: string, requested: boolean): OwnerDelegation | null {
+  return requested ? readOwnerDelegation(stateDir) : null;
 }
 
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
@@ -336,7 +349,7 @@ export function createInstallationServer(
     prepareInterruption: (job) => standingRuntime.prepareInterruption(job),
     observeInterruption: (job) => standingRuntime.observeInterruption(job),
     verifyDispatch: (job) => standingRuntime.verifySelection(job, executor),
-    installUpdate: (job) =>
+    installUpdate: (job, options) =>
       forTarget(job.target).install(
         job,
         async (target) => {
@@ -346,7 +359,8 @@ export function createInstallationServer(
               throw new RestartRequestError("Acknowledged restart executor is unavailable");
             return executor.restartHeld(job);
           }
-          if (!job.whenIdle) return executor.restart(target);
+          // An owner approve, or an owner-delegated automatic update, replaces the service.
+          if (!job.whenIdle || options.serviceRestart) return executor.restart(target);
           if (!executor.restartWhenIdle)
             throw new RestartRequestError("Safe update admission is unavailable");
           const detail = await executor.restartWhenIdle(target);
@@ -375,6 +389,7 @@ export function createInstallationServer(
       daemonRequestsAfter: (target) => daemonAutomation.activation(target),
       supervisorRequestsAfter: () => daemonAutomation.activation("supervisor") ?? null,
       cancellationDelayMs: 30_000,
+      hostUpdateServiceRestart: () => readOwnerDelegation(config.stateDir).hostUpdateServiceRestart,
       authority: () =>
         createHash("sha256")
           .update(
@@ -383,6 +398,10 @@ export function createInstallationServer(
               host: config.hostAgentTokenHash,
               container: config.containerAgentTokenHash,
               policy: "host-only-service-permissions-v2",
+              // Absent when off, so existing grants keep their authority.
+              ...(readOwnerDelegation(config.stateDir).hostUpdateServiceRestart
+                ? { hostUpdateServiceRestart: true }
+                : {}),
             }),
           )
           .digest("hex"),
@@ -995,6 +1014,10 @@ export function createInstallationServer(
   // Only counts are public. Reasons and task identities require owner access.
   app.get("/api/installation/restart-summary", (_req, res) => {
     const jobs = restarts.list();
+    const delegation = readOwnerDelegation(config.stateDir);
+    const now = Date.now();
+    const delegated = (job: RestartJob) =>
+      delegatedHandler(job, delegation, now)?.state === "handling";
     const helpers = restarts.listHelpers();
     const monitors = restarts.listMonitors();
     const services = restarts.listServices();
@@ -1033,8 +1056,11 @@ export function createInstallationServer(
             },
           }
         : {}),
-      requested: jobs.filter((job) => job.status === "pending").length,
-      queued: jobs.filter((job) => job.status === "approved").length,
+      // A delegated request needs no owner prompt; it stays visible as queued work.
+      requested: jobs.filter((job) => job.status === "pending" && !delegated(job)).length,
+      queued: jobs.filter(
+        (job) => job.status === "approved" || (job.status === "pending" && delegated(job)),
+      ).length,
       running: jobs.filter((job) => job.status === "running").length,
     });
   });
@@ -1628,21 +1654,26 @@ export function createInstallationServer(
     void restarts.impacts().then((impacts) => res.json(impacts), next);
   });
   app.post("/api/installation/owner/restarts/query", (req, res) => {
+    const delegation = requestedDelegation(config.stateDir, req.query.delegatedRequests === "1");
     res.json(
       restarts
         .list()
         .map((job) =>
-          restartReply(
+          withDelegation(
+            restartReply(
+              job,
+              req.query.idleRestarts === "1",
+              req.query.gracefulRestarts === "1",
+              req.query.sourceUpdates === "1",
+              req.query.sourceBatches === "1",
+              req.query.containerSourceUpdates === "1",
+              req.query.supervisorMaintenance === "1",
+              req.query.hostAutomaticRestarts === "1",
+              req.query.factoryRuntimeAdoption === "1",
+              req.query.requireOwnerApproval === "1",
+            ),
             job,
-            req.query.idleRestarts === "1",
-            req.query.gracefulRestarts === "1",
-            req.query.sourceUpdates === "1",
-            req.query.sourceBatches === "1",
-            req.query.containerSourceUpdates === "1",
-            req.query.supervisorMaintenance === "1",
-            req.query.hostAutomaticRestarts === "1",
-            req.query.factoryRuntimeAdoption === "1",
-            req.query.requireOwnerApproval === "1",
+            delegation,
           ),
         ),
     );
@@ -1692,17 +1723,21 @@ export function createInstallationServer(
       decision.factoryRuntimePlanSha256,
     );
     res.json(
-      restartReply(
+      withDelegation(
+        restartReply(
+          job,
+          req.query.idleRestarts === "1",
+          req.query.gracefulRestarts === "1",
+          req.query.sourceUpdates === "1",
+          req.query.sourceBatches === "1",
+          req.query.containerSourceUpdates === "1",
+          req.query.supervisorMaintenance === "1",
+          req.query.hostAutomaticRestarts === "1",
+          req.query.factoryRuntimeAdoption === "1",
+          req.query.requireOwnerApproval === "1",
+        ),
         job,
-        req.query.idleRestarts === "1",
-        req.query.gracefulRestarts === "1",
-        req.query.sourceUpdates === "1",
-        req.query.sourceBatches === "1",
-        req.query.containerSourceUpdates === "1",
-        req.query.supervisorMaintenance === "1",
-        req.query.hostAutomaticRestarts === "1",
-        req.query.factoryRuntimeAdoption === "1",
-        req.query.requireOwnerApproval === "1",
+        requestedDelegation(config.stateDir, req.query.delegatedRequests === "1"),
       ),
     );
     void restarts

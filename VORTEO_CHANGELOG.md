@@ -5,6 +5,82 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+
+## 0.11.0-beta.3.vorteo.705 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.704 - 2026-10-19
+
+Combined release on top of the coordinator readiness fix: delegated request labels, Claude full sign-in accounts, a headless browser host for Host agents, and off-by-default release seals and coordinator bundle. Every included branch was independently reviewed.
+
+### Added
+
+- Give Host agents browser tools through a disposable headless Chromium, run by the Host daemon when `daemon.browserTools.headlessHost` is enabled or by `paseo browser host`. Each run uses an empty profile and blocks denied origins, including redirects, popups, fetches and WebSockets. The protected interface still refuses automation.
+- Add a full web sign-in Claude account type beside setup-token accounts. Sign-in runs the official `claude auth login --claudeai` in the account's own configuration directory, where the CLI stores and refreshes the grant. A non-secret binding marker records the type; existing bindings stay setup-token, and a retried creation cannot change it.
+- Show usage for full sign-in accounts from only that account's own credentials: the per-directory Keychain item the pinned CLI derives on macOS, then its `.credentials.json` fallback, or the file alone on Linux. Setup-token accounts stay unavailable.
+- Show Host-agent requests from owner-delegated requesters as "Being handled by <requester>" with their reason and a Cancel action in the sidebar and Installation controls, instead of an approval toast. Owner decisions remain available, and the locked summary no longer prompts for them.
+- Let an owner-delegated setting give automatically approved Host source updates the same full service restart as an owner approve, after the cancellation window and the finish-turns hold, with exact grant binding and no replay.
+- Optionally build a standalone coordinator bundle during release preparation, off unless `VORTEO_COORDINATOR_BUNDLE=enabled`. It runs right after the installation receipt is written. It traces the coordinator service and every runner module that custody reads or launches by runtime-built name, including the recovery access entrypoint. Only that closure, the receipt and the owner scripts are copied into `<release>/coordinator`, with a file manifest. A build of current source yields 847 entries and 30 MB, against 3.6 GB for the full release. Nothing consumes the bundle yet.
+- Refuse a bundle with missing inputs, unreviewed trace warnings or escaping links. Its verifier must load and digest the bundle under Node's permission model with reads confined to the bundle.
+- Add optional release seals, off unless both the coordinator and the Host run with `VORTEO_RELEASE_SEALS=enabled`, and macOS only. Preparation refuses tool caches directly under `node_modules` or at the release root, linked `node_modules` and descriptors open for writing. It then makes the release immutable, digests it in full and records its manifest and per-entry metadata beside it. The admission receipt binds the seal digests. Approval checks metadata instead of re-reading bytes; a change falls back to a full byte check and names the changed path. The v1 digest and wire format are unchanged.
+- Add `removeBootstrapRelease` for cleanup of sealed releases, and document manual cleanup with `chflags -R nouchg`.
+
+### Changed
+
+- Run the Host daemon's headless Chromium in a separate supervised process that starts on the first browser request, restarts after a crash with backoff and stops with the daemon. `paseo browser host` uses the same process, so neither the daemon nor the CLI loads Playwright and the Host startup module contract keeps its existing rules.
+- Share one browser automation engine between the desktop app and the headless host, and merge current main into the browser host work.
+
+### Fixed
+
+- Refuse NAT64 forms of private IPv4 addresses and all 6to4 and Teredo addresses in the headless browser, since they can embed private destinations
+- Refuse loopback, private, link-local, CGNAT/tailnet and local destinations in the headless browser by default, including after DNS resolution and redirects, with `allowedHosts` and `--allow-host` for explicit exceptions such as a local preview
+- Validate every message between the daemon and the browser host process, so a malformed or hostile message is dropped instead of crashing the daemon
+- Start the browser host process with a minimal environment, keeping SSH agent sockets and tokens out of it
+- Remove web tooltips directly on dismissal so interrupted animations cannot leave small floating boxes behind. Preserve hover, keyboard focus and native tooltip fades; add browser regression coverage with the real animation library.
+- Sign a full web sign-in Claude account out with its own CLI (`auth logout` in its configuration directory) before removal deletes the directory. On macOS its Keychain item otherwise outlives the directory. Sign-out failure does not block removal; the removal response carries a warning naming the item and the daemon logs it.
+- Report an expired full sign-in access token that still has a refresh grant as refreshing on the account's next turn, not as a lost sign-in. The CLI refreshes only when it runs, so usage reads no longer ask for sign-in while the grant is valid. Grants without a refresh token still defer to the usage endpoint.
+- Launch full sign-in accounts without inherited secure-storage, OAuth, gateway or cloud-provider overrides, so they cannot use another account's storage. Read the type marker only from bindings, never from the daemon's own environment.
+- Let release scan workers inherit the parent's execArgv unchanged unless main-input options had to be removed. Node rejects V8 and process-level options such as `--max-old-space-size` in an explicit worker execArgv, which broke scans in development daemons. A parent that combines such an option with `--input-type` remains unsupported.
+
+### Documentation
+
+- Note that Chromium comes from the Playwright cache, outside release custody
+
+### Validation
+
+- A source trace test confirms the daemon worker and CLI entries never reach Playwright, with a positive control on the browser host entry.
+- Synthetic tests with a fake CLI cover sign-out arguments and directory, failure without blocking deletion, setup-token accounts and stale reviews; 29 removal and account tests pass.
+- Synthetic tests cover expired, still-valid and refresh-less records; the quota suites pass.
+- With the marker set in the shell, 559 of 560 focused Claude, provider-login, quota and installation-account tests pass; the remaining packaged CLI payload check fails identically without this change.
+- The guarded file skips in a sandbox with no OpenRouter key and an empty Claude configuration; format and lint pass.
+- 17 new synthetic-credential tests pass. 537 of 538 focused Claude unit tests pass; the packaged CLI payload check fails identically on the base commit in this worktree. Workspace typecheck, lint and format pass.
+- Delegation, coordinator and Installation model tests cover handled, running, grace and overdue requests and the mid-preparation setting change.
+- Focused coordinator, delegation and Installation model tests pass, with a real-browser check of the delegated banner against the packaged coordinator and web interface.
+- Builder tests cover the exact closure with links, assets and owner scripts, agreement with the runner contract's runtime-named modules, a missing receipt, warning refusal, a verifier reading outside the bundle, output reuse and the disabled default. They need no built workspace package.
+- Seal tests cover digest equality with the sequential implementation, write refusal, sweep-only acceptance, the default-off setting, named content and cache changes, metadata-only fallback, forged and unbound seals, a mismatched manifest, open writers, policy refusals, resealing, unsealing, removal and the non-macOS refusal. A source-update test seals a prepared candidate and refuses later writes.
+- A parent started with `--max-old-space-size=64` digests successfully, and that test fails with an always-explicit execArgv. The `--input-type=module --eval` child tests still pass.
+
+### Known limitations
+
+- The app does not display the removal warning yet. Whether logout revokes the grant at Anthropic is unverified.
+- When real-provider runs are enabled, this test still uses the machine's default Claude login rather than OpenRouter.
+- Managed installations still refuse environment-local sign-in, and the app does not offer the type yet. Installation-wide use needs Host-owned refresh with short-lived Dev tokens. Live sign-in, granted scopes and usage acceptance are unverified.
+
+### Maintenance
+
+- Combine the installed coordinator readiness fix (installation-integration at e52d1bd2b) into the post-Factory integration; retain its release notes below with their original version labels. The customizations log keeps both sides' entries.
+- Combine the Host headless browser host (browser-host-on-installed) into the post-Factory integration; retain its release notes below with their original version labels. The customizations log keeps both sides' maintenance entries.
+- Combine Claude full sign-in v2 into the post-Factory integration; retain its release notes below with their original version labels.
+- Clear the managed-installation client marker in the server test setup. Agent shells on a managed Host inherit it, which made Claude setup-token, session, authentication and usage suites fail; suites that test managed behavior still stub it explicitly.
+- Skip the nested subagent ownership real-provider test unless an OpenRouter key is configured, using the same guard as the other Claude real e2e tests. Running the file directly or through `test:e2e:all` no longer spends this machine's default Claude login.
+- Combine delegated approvals v2 with release verification speedup, scan worker fixes, release seals and coordinator bundle stage 1; retain their release notes below. Delegated approval entries keep their original version labels.
+- Show delegated requests as handled only while they are automatically approved, running, or pending within a grace window (default 15 minutes, at most an hour). After that the owner gets the normal prompt and toast, noting that the delegate is taking longer than expected.
+- Use a full service restart for an automatic Host update only when its grant was issued under the current owner setting, so enabling it during preparation never upgrades an existing grant.
+- Document that delegated requester labels are display only and not authentication.
+
 ## 0.11.0-beta.3.vorteo.699 - 2026-10-19
 
 ### Maintenance

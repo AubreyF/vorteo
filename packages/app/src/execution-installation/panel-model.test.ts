@@ -8,6 +8,8 @@ import {
   restartExplanation,
   restartRequestSummary,
   restartBannerTitle,
+  restartCancellable,
+  delegationOverdueNote,
   restartNoticeVisible,
   restartBlockingReason,
   restartActionDisabledReason,
@@ -937,4 +939,48 @@ test("expired recovery owner access clears bookmark and does not leave controls 
   expect(model.getState().recoveryAccess).toBeNull();
   expect(model.getState().recoveryAccessRefreshing).toBe(false);
   expect(model.getState().busy).toBe(false);
+});
+
+test("a delegated request reads as handled by its delegate and stays cancellable until dispatch", () => {
+  const job: RestartJob = {
+    id: "10000000-0000-4000-8000-000000000001",
+    revision: "10000000-0000-4000-8000-000000000002",
+    target: "host",
+    reason: "Routine Host update",
+    requester: "Nova integration",
+    requestedBy: "host-agent",
+    createdAt: new Date(0).toISOString(),
+    expiresAt: new Date(1).toISOString(),
+    status: "pending",
+    detail: "Waiting",
+    delegatedTo: "Nova integration",
+  };
+  expect(restartBannerTitle(job)).toBe("Being handled by Nova integration");
+  expect(restartCancellable(job)).toBe(true);
+  expect(restartCancellable({ ...job, status: "approved", whenIdle: true })).toBe(true);
+  // An owner approve dispatches without a hold, so nothing is left to withdraw.
+  expect(restartCancellable({ ...job, status: "approved" })).toBe(false);
+  expect(restartCancellable({ ...job, status: "running" })).toBe(false);
+  const { delegatedTo: _handled, ...owned } = job;
+  expect(restartBannerTitle(owned)).not.toContain("Being handled");
+});
+
+test("an overdue delegated request returns to the owner with an explanation", () => {
+  const job: RestartJob = {
+    id: "10000000-0000-4000-8000-000000000001",
+    revision: "10000000-0000-4000-8000-000000000002",
+    target: "host",
+    reason: "Routine Host update",
+    requester: "Nova integration",
+    requestedBy: "host-agent",
+    createdAt: new Date(0).toISOString(),
+    expiresAt: new Date(1).toISOString(),
+    status: "pending",
+    detail: "Waiting",
+    delegationOverdue: "Nova integration",
+  };
+  expect(delegationOverdueNote(job)).toBe("Waiting longer than expected for Nova integration.");
+  expect(restartBannerTitle(job)).not.toContain("Being handled");
+  const { delegationOverdue: _late, ...owned } = job;
+  expect(delegationOverdueNote(owned)).toBeNull();
 });
