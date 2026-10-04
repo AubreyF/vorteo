@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import pino from "pino";
 import {
   startIsolatedHostDaemon,
@@ -101,19 +101,21 @@ test.beforeAll(async () => {
     },
     container: { endpoint: `127.0.0.1:${guest.port}`, password: "container-test-password" },
   };
-  const app = createInstallationServer(
-    config,
-    createInstallationRestartExecutor(config),
-    pino({ level: "silent" }),
-  );
   listener = await new Promise((resolve) => {
-    const server = app.listen(0, "127.0.0.1", () => resolve(server));
+    const server = createServer();
+    server.listen(0, "127.0.0.1", () => resolve(server));
   });
   const address = listener.address();
   if (!address || typeof address === "string") throw new Error("Missing installation test port");
   config.listenPort = address.port;
   origin = `http://127.0.0.1:${address.port}`;
   config.public.origin = origin;
+  const app = createInstallationServer(
+    config,
+    createInstallationRestartExecutor(config),
+    pino({ level: "silent" }),
+  );
+  listener.on("request", app);
   for (const kind of ["host", "container"] as const) {
     const client = await connectInstallationDaemon(config, kind);
     try {
