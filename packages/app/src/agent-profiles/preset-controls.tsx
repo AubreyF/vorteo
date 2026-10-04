@@ -462,6 +462,7 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.normal,
   },
   toolbarTrigger: {
+    gap: theme.spacing[2],
     height: 28,
     minHeight: 28,
     justifyContent: "center",

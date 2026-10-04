@@ -26,7 +26,12 @@ function getInstallationPanel(registryLoaded: boolean): InstallationPanelModel |
         request: requestInstallationOwner,
         register: runtime,
       }),
-      { connectionsRegistered: hasInstallationConnections(installation, runtime.getHosts()) },
+      {
+        connectionsRegistered: hasInstallationConnections(installation, runtime.getHosts()),
+        openRequested:
+          typeof window !== "undefined" &&
+          new URL(window.location.href).searchParams.get("installation") === "1",
+      },
     );
   return panelModel;
 }
@@ -65,27 +70,29 @@ export function InstallationPanelHost() {
 function InstallationPanel({ model }: { model: InstallationPanelModel }) {
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   useEffect(() => {
+    void model.initialize();
     const timer = setInterval(() => {
       void model.refresh();
     }, 5000);
     return () => clearInterval(timer);
   }, [model]);
 
-  const header = useMemo(
-    () => ({
+  const header = useMemo(() => {
+    let subtitle = "Owner approval for host and container operations";
+    if (state.unlocked) {
+      subtitle = "Owner access unlocked for this page";
+      if (state.sessionsSupported) subtitle = "Owner access unlocked in this browser";
+    }
+    return {
       title: "Installation controls",
-      subtitle: (
-        <Text style={styles.text}>
-          {state.unlocked
-            ? "Owner access unlocked for this page"
-            : "Owner approval for host and container operations"}
-        </Text>
-      ),
-    }),
-    [state.unlocked],
-  );
+      subtitle: <Text style={styles.text}>{subtitle}</Text>,
+    };
+  }, [state.unlocked, state.sessionsSupported]);
   const close = useCallback(() => model.close(), [model]);
   const setPassword = useCallback((value: string) => model.setPassword(value), [model]);
+  const lock = useCallback(() => {
+    void model.lock();
+  }, [model]);
   const unlock = useCallback(() => {
     void model.unlock();
   }, [model]);
@@ -132,14 +139,21 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
               <View style={[styles.cardBody, settingsStyles.rowBorder]}>
                 <Text style={settingsStyles.rowTitle}>Where did this password come from?</Text>
                 <Text style={styles.text}>
-                  The host installer generates a separate owner password during setup. You do not
-                  choose it. It saves the password in the owner-password file inside the
-                  installation folder on your host. Use that password here, not a provider account
-                  password or a daemon connection password.
+                  The host installer generates this password during setup. You did not choose it.
+                  Find it in the owner-password file on your host:
+                </Text>
+                {state.passwordFile ? (
+                  <Text selectable style={styles.text} testID="installation-password-file">
+                    {state.passwordFile}
+                  </Text>
+                ) : null}
+                <Text style={styles.text}>
+                  This separates owner approval from daemon and container credentials. An agent with
+                  full host access can read this file, so it is not a barrier against that agent.
                 </Text>
                 <Text style={styles.text}>
-                  Owner access lasts until this page reloads. Your saved connections remain
-                  available. Each restart still needs your explicit approval.
+                  Owner access is remembered in this browser for seven days. Lock controls to end it
+                  sooner. Each restart still needs your explicit approval.
                 </Text>
               </View>
             </View>
@@ -149,9 +163,17 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
             <View style={settingsStyles.card}>
               <View style={styles.cardBody}>
                 <Text style={settingsStyles.rowTitle}>Owner access is unlocked</Text>
+                <Button
+                  variant="outline"
+                  disabled={state.busy}
+                  testID="installation-lock"
+                  onPress={lock}
+                >
+                  Lock controls
+                </Button>
                 <Text style={styles.text}>
                   Review each request before approving it. Restarting can interrupt active tasks and
-                  terminals. Agents can request a restart, but cannot approve one.
+                  terminals. Scoped agent credentials can request a restart, but cannot approve one.
                 </Text>
               </View>
             </View>

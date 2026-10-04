@@ -5,16 +5,26 @@ import { useVortonMode } from "@/vorton-mode";
 import { EXECUTION_ENVIRONMENT_COLORS, ICON_SIZE } from "@/styles/theme";
 import { findInstallationEnvironment, readExecutionInstallation } from "./policy";
 
-export function ExecutionEnvironmentIcon({ serverId }: { serverId: string | null }) {
+export function ExecutionEnvironmentIcon({
+  serverId,
+  hostOnly = false,
+}: {
+  serverId: string | null;
+  hostOnly?: boolean;
+}) {
   const enabled = useVortonMode();
   const environment =
     enabled && serverId ? findInstallationEnvironment(readExecutionInstallation(), serverId) : null;
-  if (!environment) return null;
+  if (!environment || (hostOnly && environment.kind !== "host")) return null;
   const size = ICON_SIZE.sm;
   const color = EXECUTION_ENVIRONMENT_COLORS[environment.kind];
   if (environment.kind === "container") return <Box size={size} color={color} />;
   return (
-    <View style={styles.monitor}>
+    <View
+      style={styles.monitor}
+      testID="execution-environment-host-icon"
+      accessibilityLabel="Runs on host"
+    >
       <Monitor size={size} color={color} />
       <View style={styles.key}>
         <KeyRound size={size / 2} color={color} />
@@ -31,10 +41,14 @@ export function useHasExecutionEnvironment(serverId: string | null) {
 }
 
 const styles = StyleSheet.create((theme) => ({
-  monitor: { width: theme.iconSize.sm, height: theme.iconSize.sm },
+  monitor: {
+    width: theme.iconSize.sm + theme.spacing[1],
+    height: theme.iconSize.sm,
+    flexShrink: 0,
+  },
   key: {
     position: "absolute",
-    right: -theme.spacing[1],
+    right: 0,
     bottom: 0,
     backgroundColor: theme.colors.surface2,
     borderRadius: theme.borderRadius.sm,

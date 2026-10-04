@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { InstallationClient, hasInstallationConnections } from "./client";
 import type { HostProfile } from "@/types/host-connection";
 import {
@@ -98,4 +98,49 @@ test("maintenance drafts target the host even if only the container is online an
   expect(() => maintenanceTaskTarget(installation, ["guest-id"])).toThrow("host environment");
   expect(() => maintenanceTaskTarget(null, ["guest-id"])).toThrow("host environment");
   expect(installationMaintenancePrompt("Review upstream")).toContain("wait for owner approval");
+});
+
+test("session-capable clients discard the password and restore verified connections", async () => {
+  vi.stubGlobal(
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify({ sessions: true, passwordFile: "/installation/owner-password" }),
+      ),
+  );
+  try {
+    const calls: Array<[string, string]> = [];
+    const connections = {
+      installationId: installation.installationId,
+      connections: installation.environments.map((environment) => ({
+        ...environment,
+        password: `${environment.kind}-password`,
+      })),
+    };
+    let authenticated = false;
+    const client = new InstallationClient(installation, {
+      request: async (route, password) => {
+        calls.push([route, password]);
+        if (route === "session") return { authenticated, expiresAt: null };
+        if (route === "unlock") {
+          authenticated = true;
+          return connections;
+        }
+        if (route === "connections") return connections;
+        if (route === "lock") return { locked: true };
+        return [];
+      },
+      register: { installExecutionEnvironments: async () => {} },
+    });
+    expect(await client.restoreSession()).toBe(false);
+    await client.unlock("recovery-password");
+    await client.listRestarts();
+    expect(calls.at(-1)).toEqual(["restarts/query", ""]);
+    expect(await client.restoreSession()).toBe(true);
+    expect(calls.at(-1)).toEqual(["connections", ""]);
+    await client.lock();
+    await expect(client.listRestarts()).rejects.toThrow("Unlock");
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

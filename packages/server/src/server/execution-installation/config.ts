@@ -23,6 +23,7 @@ export const InstallationConfigSchema = z.strictObject({
   listenPort: z.number().int().min(1024).max(65535),
   webDistDir: z.string().min(1),
   stateDir: z.string().min(1),
+  ownerPasswordFile: z.string().min(1).optional(),
   ownerPasswordHash: z.string().startsWith("$2"),
   hostAgentTokenHash: z.string().regex(/^[a-f0-9]{64}$/),
   containerAgentTokenHash: z.string().regex(/^[a-f0-9]{64}$/),
