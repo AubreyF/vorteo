@@ -29,6 +29,30 @@ export async function createProfileSuccessor(
   profile: AgentProfile,
   reviewedContext: string,
 ) {
+  await validateTaskHandoff(client, source, reviewedContext);
+  return client.createAgent({
+    config: {
+      provider: profile.provider,
+      profileId: profile.id,
+      model: profile.model,
+      thinkingOptionId: profile.thinkingOptionId,
+      cwd: source.cwd,
+      title: source.title ?? "Continued task",
+    },
+    workspaceId: source.workspaceId,
+    labels: { "paseo:continued-from": source.id },
+    initialPrompt:
+      `Continue task ${source.id} using the selected preset. Review the working tree before changing anything. ` +
+      `The following is user-reviewed handoff context, initially drawn from at most 30 recent text messages. ` +
+      `Attachments, tool results and hidden provider state are not transferred automatically. Ask for missing context when necessary.\n\n<recorded-context>\n${reviewedContext}\n</recorded-context>`,
+  });
+}
+
+export async function validateTaskHandoff(
+  client: HandoffClient,
+  source: AgentSnapshotPayload,
+  reviewedContext: string,
+) {
   if (source.activeTurn || source.status === "running") {
     throw new Error("Stop the current task before handing it to another preset.");
   }
@@ -48,20 +72,4 @@ export async function createProfileSuccessor(
   if (!current || current.agent.activeTurn || current.agent.updatedAt !== source.updatedAt) {
     throw new Error("The source task changed. Review it and retry the handoff.");
   }
-  return client.createAgent({
-    config: {
-      provider: profile.provider,
-      profileId: profile.id,
-      model: profile.model,
-      thinkingOptionId: profile.thinkingOptionId,
-      cwd: source.cwd,
-      title: source.title ?? "Continued task",
-    },
-    workspaceId: source.workspaceId,
-    labels: { "paseo:continued-from": source.id },
-    initialPrompt:
-      `Continue task ${source.id} using the selected preset. Review the working tree before changing anything. ` +
-      `The following is user-reviewed handoff context, initially drawn from at most 30 recent text messages. ` +
-      `Attachments, tool results and hidden provider state are not transferred automatically. Ask for missing context when necessary.\n\n<recorded-context>\n${reviewedContext}\n</recorded-context>`,
-  });
 }

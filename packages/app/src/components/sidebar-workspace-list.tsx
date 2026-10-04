@@ -1,3 +1,8 @@
+import {
+  ProjectRecreationProvider,
+  ProjectDropTarget,
+  useWorkspaceProjectDrop,
+} from "@/workspace/project-recreation/drop-context";
 import { SidebarCountBadge } from "@/components/sidebar/sidebar-count-badge";
 import { useSidebarRowDensity } from "@/components/sidebar/use-sidebar-row-density";
 import { useVortonMode } from "@/vorton-mode";
@@ -1661,6 +1666,7 @@ function ProjectBlock({
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
 }) {
   const vorton = useVortonMode();
+  const externalDrop = useWorkspaceProjectDrop(project.viewKey);
   const taskSummary = useMemo(
     () => aggregateProjectTasks(project.viewKey, workspaceEntriesByKey),
     [project.viewKey, workspaceEntriesByKey],
@@ -1828,6 +1834,7 @@ function ProjectBlock({
       projectChildren = (
         <>
           <DraggableList
+            externalDrop={externalDrop}
             testID={`sidebar-workspace-list-${project.viewKey}`}
             data={visibleWorkspaces}
             keyExtractor={workspaceKeyExtractor}
@@ -1863,37 +1870,39 @@ function ProjectBlock({
   }
 
   return (
-    <View
-      role="group"
-      accessibilityLabel={displayName}
-      style={projectChildren && !vorton ? styles.projectBlockExpanded : undefined}
-    >
-      <ProjectHeaderRow
-        taskSummary={showTaskSummary ? taskSummary : undefined}
-        project={project}
-        displayName={displayName}
-        iconDataUri={iconDataUri}
-        statusBucket={aggregateStatusBucket}
-        selected={false}
-        chevron={rowModel.chevron}
-        onPress={handleToggleCollapsed}
-        worktreeTarget={
-          rowModel.trailingAction.kind === "new_workspace" ? rowModel.trailingAction.target : null
-        }
-        isProjectActive={active}
-        onWorkspacePress={onWorkspacePress}
-        onWorktreeCreated={onWorktreeCreated}
-        drag={drag}
-        isDragging={isDragging}
-        isArchiving={isRemovingProject}
-        menuController={null}
-        onRemoveProject={handleRemoveProject}
-        removeProjectStatus={isRemovingProject ? "pending" : "idle"}
-        dragHandleProps={dragHandleProps}
-      />
+    <ProjectDropTarget projectKey={project.viewKey}>
+      <View
+        role="group"
+        accessibilityLabel={displayName}
+        style={projectChildren && !vorton ? styles.projectBlockExpanded : undefined}
+      >
+        <ProjectHeaderRow
+          taskSummary={showTaskSummary ? taskSummary : undefined}
+          project={project}
+          displayName={displayName}
+          iconDataUri={iconDataUri}
+          statusBucket={aggregateStatusBucket}
+          selected={false}
+          chevron={rowModel.chevron}
+          onPress={handleToggleCollapsed}
+          worktreeTarget={
+            rowModel.trailingAction.kind === "new_workspace" ? rowModel.trailingAction.target : null
+          }
+          isProjectActive={active}
+          onWorkspacePress={onWorkspacePress}
+          onWorktreeCreated={onWorktreeCreated}
+          drag={drag}
+          isDragging={isDragging}
+          isArchiving={isRemovingProject}
+          menuController={null}
+          onRemoveProject={handleRemoveProject}
+          removeProjectStatus={isRemovingProject ? "pending" : "idle"}
+          dragHandleProps={dragHandleProps}
+        />
 
-      {projectChildren}
-    </View>
+        {projectChildren}
+      </View>
+    </ProjectDropTarget>
   );
 }
 
@@ -2159,7 +2168,15 @@ function SidebarGroupedModeList({
   );
 }
 
-function ProjectModeList({
+function ProjectModeList(props: Parameters<typeof ProjectModeListContent>[0]) {
+  return (
+    <ProjectRecreationProvider projects={props.projects}>
+      <ProjectModeListContent {...props} />
+    </ProjectRecreationProvider>
+  );
+}
+
+function ProjectModeListContent({
   projects,
   pinnedGroups,
   workspaceEntriesByKey,
@@ -2202,6 +2219,7 @@ function ProjectModeList({
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
   onPinnedWorkspaceReorder: (workspaces: SidebarWorkspacePlacement[]) => void;
 }) {
+  const pinnedExternalDrop = useWorkspaceProjectDrop();
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const [creatingWorkspaceIds, setCreatingWorkspaceIds] = useState<Set<string>>(() => new Set());
   const creatingWorkspaceTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
@@ -2507,6 +2525,7 @@ function ProjectModeList({
             <>
               <DraggableList
                 testID="sidebar-pinned-list"
+                externalDrop={pinnedExternalDrop}
                 data={visiblePinnedChats}
                 keyExtractor={workspaceKeyExtractor}
                 renderItem={renderPinnedChat}

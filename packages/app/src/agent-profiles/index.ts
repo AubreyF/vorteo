@@ -27,3 +27,5 @@ export {
 } from "./internal/use-agent-profile-picker";
 export { AgentProfileGlyph } from "./internal/agent-profile-glyph";
 export { AgentProfilesSection } from "./settings/agent-profiles-section";
+export { ProfileHandoffModal } from "./handoff-modal";
+export { readProfileHandoff, validateTaskHandoff } from "./internal/successor";
