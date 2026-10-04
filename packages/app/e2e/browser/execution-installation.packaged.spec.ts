@@ -91,6 +91,7 @@ test.beforeAll(async () => {
     listenPort: 6770,
     webDistDir: path.resolve(__dirname, "../../../server/dist/server/web-ui"),
     stateDir: root,
+    ownerPasswordFile: path.join(root, "owner-password"),
     ownerPasswordHash: hashDaemonPassword(ownerPassword),
     hostAgentTokenHash: hash(hostToken),
     containerAgentTokenHash: hash(guestToken),
@@ -101,6 +102,7 @@ test.beforeAll(async () => {
     },
     container: { endpoint: `127.0.0.1:${guest.port}`, password: "container-test-password" },
   };
+  await writeFile(config.ownerPasswordFile!, ownerPassword, { mode: 0o600 });
   listener = await new Promise((resolve) => {
     const server = createServer();
     server.listen(0, "127.0.0.1", () => resolve(server));
@@ -205,12 +207,26 @@ test("owner connects two environments, prepares host drafts, and approves a veri
     .toEqual(["host"]);
   await page.goto(`${origin}/settings/general`);
   await expect(page.getByTestId("installation-panel")).not.toBeVisible();
+  await expect
+    .poll(async () =>
+      (
+        await page.request.post(`${origin}/api/installation/owner/session`, {
+          headers: { Origin: origin },
+        })
+      ).json(),
+    )
+    .toMatchObject({ authenticated: true });
   await page.getByTestId("settings-vorton-mode").getByLabel("Vorteo mode", { exact: true }).click();
   await expect(page.getByTestId("installation-controls-open")).toHaveText("Manage");
   await page.screenshot({ path: testInfo.outputPath("installation-settings.png"), fullPage: true });
   await page.getByTestId("installation-controls-open").click();
+  await expect(page.getByText("Owner access is unlocked", { exact: true })).toBeVisible();
+  await page.getByTestId("installation-lock").click();
+  await expect(page.getByTestId("installation-password-file")).toHaveText(
+    path.join(root, "owner-password"),
+  );
   await expect(
-    page.getByText("Owner access lasts until this page reloads", { exact: false }),
+    page.getByText("Owner access is remembered in this browser", { exact: false }),
   ).toBeVisible();
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();

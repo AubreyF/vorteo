@@ -1,3 +1,7 @@
+import {
+  ExecutionEnvironmentIcon,
+  useHasExecutionEnvironment,
+} from "@/execution-installation/environment-icon";
 import { WorkspaceGoalBadge } from "@/goals/workspace-goal-badge";
 import { WorkspaceQueueCount } from "@/message-queue/workspace-queue-count";
 import { WorkspaceSubagentCount } from "@/subagents/workspace-count";
@@ -115,6 +119,10 @@ function WorkspaceActivityBadges({
   );
 }
 
+function visibleHostBadge(installedEnvironment: boolean, badge: HostBadgeModel | null | undefined) {
+  return installedEnvironment ? null : (badge ?? null);
+}
+
 export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowContent({
   workspace,
   hostBadge,
@@ -152,6 +160,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   } = useAppSettings();
   const workspaceLabel = resolveSidebarWorkspacePrimaryLabel({ workspace, workspaceTitleSource });
   const vorton = useVortonMode();
+  const installedEnvironment = useHasExecutionEnvironment(workspace.serverId);
   const actionSize = useSidebarActionSize();
   const inlineService = vorton ? selectWorkspaceServiceSummary(workspace.scripts) : null;
   // The workspace carries label names; their colors live in its host's catalog, so the row is
@@ -189,6 +198,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
         )}
         <View style={styles.workspaceContentColumn}>
           <View style={[styles.workspaceTitleRow, vorton && styles.alignedRow]}>
+            <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />
             <Text style={workspaceBranchTextStyle} numberOfLines={1}>
               {workspaceLabel}
             </Text>
@@ -211,7 +221,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
           <WorkspaceMetaRow
             currentBranch={workspace.currentBranch}
             projectName={leadingProjectName}
-            hostBadge={hostBadge ?? null}
+            hostBadge={visibleHostBadge(installedEnvironment, hostBadge)}
             prHint={workspace.prHint}
             serviceSummary={vorton ? null : serviceSummary}
             labels={labels}
@@ -562,8 +572,6 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.foregroundExtraMuted,
     opacity: 0.3,
   },
-  // The title owns the first line outright now that the host, change request and CI moved
-  // to the meta row, so it takes the full width the trailing slot leaves behind.
   workspaceBranchText: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,

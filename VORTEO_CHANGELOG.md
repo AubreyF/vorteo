@@ -22,6 +22,15 @@ Custom changes to vorteo. Paseo's release history remains in its upstream change
 - Choose the destination environment and profile before starting, with a warning when other chats would be left behind
 - Keep the original workspace and its files available after recreation
 
+### Changed
+
+- Remembered owner access for seven days per browser, with an explicit Lock controls action
+- Showed the generated owner password's recovery path and explained its origin and trust boundary
+- Kept restart approval separate from unlocking and restoring owner access
+- Added a direct link to Installation controls and matched its cards to Settings
+- Replaced sidebar environment subtitles with a golden host and key icon before host titles
+- Improved spacing between the host icon and the message profile selector label
+
 ## 0.9.0-beta.2.vorteo.43 - 2026-10-04
 
 ### Added

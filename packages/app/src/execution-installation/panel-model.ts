@@ -1,5 +1,5 @@
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
-import type { InstallationClient } from "./client";
+import { OwnerAccessExpired, type InstallationClient } from "./client";
 
 interface InstallationPanelState {
   visible: boolean;
@@ -9,6 +9,8 @@ interface InstallationPanelState {
   error: string | null;
   jobs: RestartJob[];
   profileSharing: ProfileSharingStatus | null;
+  passwordFile: string | null;
+  sessionsSupported: boolean;
 }
 
 export class InstallationPanelModel {
@@ -20,19 +22,67 @@ export class InstallationPanelModel {
     error: null,
     jobs: [],
     profileSharing: null,
+    passwordFile: null,
+    sessionsSupported: false,
   };
   private listeners = new Set<() => void>();
   private refreshing = false;
+  private initialized = false;
+  private accessGeneration = 0;
   private seenRequests = new Set<string>();
 
   constructor(
     private readonly client: Pick<
       InstallationClient,
-      "unlock" | "listRestarts" | "decide" | "profileSharingStatus" | "resolveProfileConflict"
+      | "unlock"
+      | "listRestarts"
+      | "decide"
+      | "profileSharingStatus"
+      | "resolveProfileConflict"
+      | "restoreSession"
+      | "lock"
+      | "passwordFile"
+      | "sessionsSupported"
     >,
-    options: { connectionsRegistered: boolean } = { connectionsRegistered: false },
+    private readonly options: { connectionsRegistered: boolean; openRequested?: boolean } = {
+      connectionsRegistered: false,
+    },
   ) {
-    this.state.visible = !options.connectionsRegistered;
+    this.state.visible = Boolean(options.openRequested) || !options.connectionsRegistered;
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    this.initialized = true;
+    this.publish({ busy: true });
+    try {
+      const unlocked = await this.client.restoreSession();
+      this.publish({
+        unlocked,
+        passwordFile: this.client.passwordFile,
+        sessionsSupported: this.client.sessionsSupported,
+        ...(unlocked ? { visible: Boolean(this.options.openRequested) } : {}),
+      });
+      await this.refresh();
+    } catch (error) {
+      this.fail(error);
+    } finally {
+      this.publish({ busy: false });
+    }
+  }
+
+  async lock(): Promise<void> {
+    if (this.state.busy) return;
+    this.publish({ busy: true, error: null });
+    try {
+      await this.client.lock();
+      this.accessGeneration++;
+      this.publish({ unlocked: false, password: "", jobs: [], profileSharing: null });
+    } catch (error) {
+      this.fail(error);
+    } finally {
+      this.publish({ busy: false });
+    }
   }
 
   getState = (): InstallationPanelState => this.state;
@@ -69,11 +119,13 @@ export class InstallationPanelModel {
   async refresh(): Promise<void> {
     if (!this.state.unlocked || this.refreshing) return;
     this.refreshing = true;
+    const generation = this.accessGeneration;
     try {
       const [jobs, profileSharing] = await Promise.all([
         this.client.listRestarts(),
         this.client.profileSharingStatus(),
       ]);
+      if (generation !== this.accessGeneration) return;
       const pending = jobs.filter(
         (job) => job.status === "pending" && Date.parse(job.expiresAt) > Date.now(),
       );
@@ -119,6 +171,8 @@ export class InstallationPanelModel {
   }
 
   private fail(error: unknown): void {
+    if (error instanceof OwnerAccessExpired)
+      this.publish({ unlocked: false, password: "", jobs: [], profileSharing: null });
     this.publish({ error: error instanceof Error ? error.message : "Installation request failed" });
   }
   private publish(update: Partial<InstallationPanelState>): void {

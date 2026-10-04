@@ -143,12 +143,14 @@ async function fixture() {
     token?: string,
     body?: unknown,
     origin = config.public.origin,
+    cookie?: string,
   ) {
     return fetch(`http://127.0.0.1:${address.port}${route}`, {
       method: body === undefined ? "GET" : "POST",
       headers: {
         Host: "owner.example.test",
         Origin: origin,
+        ...(cookie ? { Cookie: cookie } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         "Content-Type": "application/json",
       },
@@ -312,4 +314,34 @@ test("shared profile inspection and conflict resolution reject guest credentials
   );
   expect(response.status).toBe(200);
   expect(await response.json()).toBeNull();
+});
+
+test("owner cookie restores access without a password and lock revokes it", async () => {
+  const { request, calls } = await fixture();
+  const route = "/api/installation/owner/";
+  const origin = "https://owner.example.test";
+  expect(await (await request(`${route}session`, undefined, {})).json()).toEqual({
+    authenticated: false,
+    expiresAt: null,
+  });
+  const login = await request(`${route}unlock`, "owner-test-password", {});
+  expect(login.status).toBe(200);
+  const setCookie = login.headers.get("set-cookie")!;
+  expect(setCookie).toContain("HttpOnly");
+  expect(setCookie).toContain("Secure");
+  expect(setCookie).toContain("SameSite=Strict");
+  const cookie = setCookie.split(";")[0];
+  expect((await request(`${route}connections`, undefined, {}, origin, cookie)).status).toBe(200);
+  expect(
+    (await request(`${route}restarts/query`, undefined, {}, "https://attacker.test", cookie))
+      .status,
+  ).toBe(403);
+  expect((await request(`${route}connections`, "guest-agent-test-token", {})).status).toBe(401);
+  expect(calls).toEqual([]);
+  expect((await request(`${route}lock`, undefined, {}, origin, cookie)).status).toBe(200);
+  expect((await request(`${route}connections`, undefined, {}, origin, cookie)).status).toBe(401);
+  expect(await (await request(`${route}session`, undefined, {}, origin, cookie)).json()).toEqual({
+    authenticated: false,
+    expiresAt: null,
+  });
 });

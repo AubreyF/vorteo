@@ -281,6 +281,7 @@ async function install(planFile) {
     listenPort: plan.coordinatorPort,
     webDistDir: path.join(release, "packages/server/dist/server/web-ui"),
     stateDir: path.join(plan.root, "state/coordinator"),
+    ownerPasswordFile: path.join(plan.root, "owner-password"),
     ownerPasswordHash: hashDaemonPassword(ownerPassword),
     hostAgentTokenHash: createHash("sha256").update(hostToken).digest("hex"),
     containerAgentTokenHash: createHash("sha256").update(containerToken).digest("hex"),

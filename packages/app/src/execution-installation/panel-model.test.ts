@@ -6,6 +6,10 @@ test("saved connections skip setup on reload without unlocking owner controls", 
   let queries = 0;
   const model = new InstallationPanelModel(
     {
+      restoreSession: async () => false,
+      lock: async () => {},
+      passwordFile: null,
+      sessionsSupported: false,
       profileSharingStatus: async () => null,
       resolveProfileConflict: async () => {},
       unlock: async () => {},
@@ -40,6 +44,10 @@ test("opening or observing a request never approves it", async () => {
     detail: "Approval required",
   };
   const model = new InstallationPanelModel({
+    restoreSession: async () => false,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: false,
     profileSharingStatus: async () => null,
     resolveProfileConflict: async () => {},
     unlock: async () => {},
@@ -64,6 +72,10 @@ test("opening or observing a request never approves it", async () => {
 test("failed unlock remains visible and can be retried without granting authority", async () => {
   let attempts = 0;
   const model = new InstallationPanelModel({
+    restoreSession: async () => false,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: false,
     profileSharingStatus: async () => null,
     resolveProfileConflict: async () => {},
     unlock: async () => {
@@ -91,4 +103,36 @@ test("failed unlock remains visible and can be retried without granting authorit
     error: null,
     password: "",
   });
+});
+
+test("restoring a browser session retains owner access and locking never approves requests", async () => {
+  let approvals = 0;
+  let locks = 0;
+  const model = new InstallationPanelModel({
+    restoreSession: async () => true,
+    passwordFile: "/installation/owner-password",
+    sessionsSupported: true,
+    lock: async () => {
+      locks++;
+    },
+    unlock: async () => {},
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    listRestarts: async () => [],
+    decide: async () => {
+      approvals++;
+    },
+  });
+  await model.initialize();
+  expect(model.getState()).toMatchObject({
+    unlocked: true,
+    visible: false,
+    password: "",
+    passwordFile: "/installation/owner-password",
+    sessionsSupported: true,
+  });
+  await model.lock();
+  expect(model.getState()).toMatchObject({ unlocked: false, password: "", jobs: [] });
+  expect(locks).toBe(1);
+  expect(approvals).toBe(0);
 });

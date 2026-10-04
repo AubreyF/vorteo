@@ -1,3 +1,4 @@
+import { OwnerSessions, OWNER_SESSION_MAX_AGE } from "./owner-sessions.js";
 import { createInstallationProfiles } from "./profiles/runtime.js";
 import { ProfileSharingConflict } from "./profiles/merge.js";
 import type { InstallationProfiles } from "./profiles/service.js";
@@ -55,6 +56,23 @@ export function createInstallationServer(
     },
     executor,
   );
+  const sessions = new OwnerSessions(path.join(config.stateDir, "owner-sessions.json"));
+  const secureCookies = new URL(config.public.origin).protocol === "https:";
+  const cookieName = secureCookies ? "__Host-vorteo-owner" : "vorteo-owner";
+  const cookieOptions = {
+    httpOnly: true,
+    secure: secureCookies,
+    sameSite: "strict" as const,
+    path: "/",
+  };
+  const sessionToken = (req: Request): string | undefined =>
+    req.headers.cookie
+      ?.split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${cookieName}=`))
+      ?.slice(cookieName.length + 1);
+  const configuredPasswordFile =
+    config.ownerPasswordFile ?? path.resolve(config.stateDir, "../..", "owner-password");
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", "loopback");
@@ -157,6 +175,21 @@ export function createInstallationServer(
     })();
   });
 
+  // Public setup metadata contains a recovery path, never credentials or connection secrets.
+  app.get("/api/installation/owner-access", (_req, res) =>
+    res.json({
+      sessions: true,
+      passwordFile: existsSync(configuredPasswordFile) ? configuredPasswordFile : null,
+    }),
+  );
+  app.post("/api/installation/owner/session", (req, res) => {
+    if (req.header("origin") !== config.public.origin) {
+      res.sendStatus(403);
+      return;
+    }
+    const expiresAt = sessions.expiresAt(sessionToken(req));
+    res.json({ authenticated: expiresAt !== null, expiresAt });
+  });
   app.use("/api/installation/owner", (req, res, next) => {
     void (async () => {
       try {
@@ -167,7 +200,10 @@ export function createInstallationServer(
           return;
         }
         const token = extractHttpBearerToken(req.header("authorization"));
-        if (!(await isBearerTokenValidAsync({ password: config.ownerPasswordHash, token }))) {
+        if (
+          !sessions.expiresAt(sessionToken(req)) &&
+          !(await isBearerTokenValidAsync({ password: config.ownerPasswordHash, token }))
+        ) {
           res.sendStatus(401);
           return;
         }
@@ -177,12 +213,26 @@ export function createInstallationServer(
       }
     })();
   });
-  app.post("/api/installation/owner/unlock", (_req, res) => {
+  app.post("/api/installation/owner/lock", (req, res) => {
+    sessions.revoke(sessionToken(req));
+    res.clearCookie(cookieName, cookieOptions);
+    res.json({ locked: true });
+  });
+  const sendConnections = (_req: Request, res: Response) => {
     const connections = config.public.environments.map((environment) => ({
       ...environment,
       password: config[environment.kind].password,
     }));
     res.json({ installationId: config.public.installationId, connections });
+  };
+  app.post("/api/installation/owner/connections", sendConnections);
+  app.post("/api/installation/owner/unlock", (req, res) => {
+    sessions.revoke(sessionToken(req));
+    res.cookie(cookieName, sessions.create(), {
+      ...cookieOptions,
+      maxAge: OWNER_SESSION_MAX_AGE * 1000,
+    });
+    sendConnections(req, res);
   });
   app.post("/api/installation/owner/profiles/query", (_req, res) => res.json(profiles.status()));
   app.post("/api/installation/owner/profiles/synchronize", (_req, res, next) => {
