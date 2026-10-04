@@ -63,7 +63,7 @@ Keep `installation.json`, `coordinator.json`, `owner-password`, logs and generat
 
 ## Restart and recovery
 
-Both environments receive the installation-maintenance skill. Agents can submit a reason and target, then observe their request's status. They cannot approve it with their request credential. In Installation controls, the owner reviews the target, reason and disruption warning and approves that exact request.
+Both environments receive the installation-maintenance skill. Agents can submit a reason and target, then observe their request's status. They cannot approve it with their request credential. In General settings, the Installation card opens owner controls. The installer generates the owner password automatically and saves it in `owner-password` inside the private installation directory on the host. The owner does not choose it during setup. Saved daemon connection credentials do not unlock these controls: owner access approves restarts and resolves shared workflow conflicts. The interface retains owner access only until the page reloads. Unlocking does not approve a restart. The owner reviews the target, reason and disruption warning and approves that exact request. Expired requests require a new request.
 
 The coordinator persists approval and running state before dispatch. It runs one restart at a time and reports success only after reconnecting to the expected daemon identity and observing a replacement worker. Container-daemon restart uses the existing supervisor and retains the container. Native host restart uses only the installation-owned launchd service. The coordinator is a separate service and survives either restart.
 

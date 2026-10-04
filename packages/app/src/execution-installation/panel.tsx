@@ -2,6 +2,9 @@ import { useCallback, useMemo, useEffect, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
+import { SettingsSection } from "@/components/settings/headings/settings-section";
+import { settingsStyles } from "@/styles/settings";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runtime";
@@ -35,9 +38,21 @@ export function InstallationControlsButton() {
   const open = useCallback(() => model?.open(), [model]);
   if (!vortonMode || !model) return null;
   return (
-    <Button variant="outline" size="md" testID="installation-controls-open" onPress={open}>
-      Installation controls
-    </Button>
+    <SettingsSection title="Installation">
+      <View style={settingsStyles.card}>
+        <View style={settingsStyles.row}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>Host and container</Text>
+            <Text style={settingsStyles.rowHint}>
+              Review restart requests and shared workflows with owner access
+            </Text>
+          </View>
+          <Button variant="outline" size="md" testID="installation-controls-open" onPress={open}>
+            Manage
+          </Button>
+        </View>
+      </View>
+    </SettingsSection>
   );
 }
 
@@ -58,7 +73,10 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
 
   const header = useMemo(
     () => ({
-      title: state.unlocked ? "Installation controls" : "Connect this Vorteo installation",
+      title: "Installation controls",
+      subtitle: state.unlocked
+        ? "Owner access unlocked for this page"
+        : "Owner approval for host and container operations",
     }),
     [state.unlocked],
   );
@@ -77,47 +95,85 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
     >
       <View style={styles.body}>
         {!state.unlocked ? (
-          <>
-            <Text style={styles.text}>
-              Connect the dev container and the full-access host in this interface. Use the
-              installation password saved during setup.
-            </Text>
-            <AdaptiveTextInput
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              initialValue=""
-              onChangeText={setPassword}
-              accessibilityLabel="Installation password"
-              testID="installation-password"
-              style={styles.input}
-            />
-            <Button
-              disabled={state.busy || !state.password}
-              onPress={unlock}
-              testID="installation-unlock"
-            >
-              {state.busy ? "Connecting…" : "Connect environments"}
-            </Button>
-          </>
+          <SettingsSection title="Owner access" flush>
+            <View style={settingsStyles.card}>
+              <View style={styles.cardBody}>
+                <Text style={settingsStyles.rowTitle}>Unlock installation controls</Text>
+                <Text style={styles.text}>
+                  Your host and container connections are separate from owner access. Unlocking lets
+                  you review and approve restarts and resolve shared workflow conflicts.
+                </Text>
+                <Text style={styles.label}>Owner password</Text>
+                <AdaptiveTextInput
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  initialValue=""
+                  onChangeText={setPassword}
+                  accessibilityLabel="Owner password"
+                  placeholder="Enter the installation owner password"
+                  testID="installation-password"
+                  style={styles.input}
+                />
+                <View style={styles.actions}>
+                  <Button
+                    disabled={state.busy || !state.password.trim()}
+                    onPress={unlock}
+                    testID="installation-unlock"
+                  >
+                    {state.busy ? "Unlocking..." : "Unlock controls"}
+                  </Button>
+                </View>
+              </View>
+              <View style={[styles.cardBody, settingsStyles.rowBorder]}>
+                <Text style={settingsStyles.rowTitle}>Where did this password come from?</Text>
+                <Text style={styles.text}>
+                  The host installer generates a separate owner password during setup. You do not
+                  choose it. It saves the password in the owner-password file inside the
+                  installation folder on your host. Use that password here, not a provider account
+                  password or a daemon connection password.
+                </Text>
+                <Text style={styles.text}>
+                  Owner access lasts until this page reloads. Your saved connections remain
+                  available. Each restart still needs your explicit approval.
+                </Text>
+              </View>
+            </View>
+          </SettingsSection>
         ) : (
           <>
-            <Text style={styles.text}>
-              Dev-container agents cannot approve these requests or control the host. Approved
-              restarts are monitored by the installation.
-            </Text>
+            <View style={settingsStyles.card}>
+              <View style={styles.cardBody}>
+                <Text style={settingsStyles.rowTitle}>Owner access is unlocked</Text>
+                <Text style={styles.text}>
+                  Review each request before approving it. Restarting can interrupt active tasks and
+                  terminals. Agents can request a restart, but cannot approve one.
+                </Text>
+              </View>
+            </View>
             <ProfileSharingStatusView
               status={state.profileSharing}
               model={model}
               busy={state.busy}
             />
-            {state.jobs.length === 0 ? <Text style={styles.text}>No restart requests.</Text> : null}
-            {state.jobs
-              .slice(-20)
-              .toReversed()
-              .map((job) => (
-                <RestartRequest key={job.id} job={job} model={model} busy={state.busy} />
-              ))}
+            <SettingsSection title="Restart requests" flush>
+              {state.jobs.length === 0 ? (
+                <View style={settingsStyles.card}>
+                  <View style={styles.cardBody}>
+                    <Text style={settingsStyles.rowTitle}>No restart requests</Text>
+                    <Text style={styles.text}>
+                      Requests appear here when maintenance needs a restart
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+              {state.jobs
+                .slice(-20)
+                .toReversed()
+                .map((job) => (
+                  <RestartRequest key={job.id} job={job} model={model} busy={state.busy} />
+                ))}
+            </SettingsSection>
           </>
         )}
         {state.error ? (
@@ -141,26 +197,38 @@ function ProfileSharingStatusView({
 }) {
   if (!status)
     return (
-      <Text style={styles.text}>
-        Profile sharing is waiting for every environment to connect with an updated daemon.
-      </Text>
+      <SettingsSection title="Shared workflows" flush>
+        <View style={settingsStyles.card}>
+          <View style={styles.cardBody}>
+            <Text style={settingsStyles.rowTitle}>Waiting for compatible environments</Text>
+            <Text style={styles.text}>
+              Profile sharing starts when every environment is connected and supports shared
+              workflows
+            </Text>
+          </View>
+        </View>
+      </SettingsSection>
     );
   return (
-    <View style={styles.body}>
-      <Text style={styles.text}>
-        Agent workflows, provider defaults, and model choices synchronize across environments.
-        Credentials and provider availability stay local.
-      </Text>
-      {Object.entries(status.sources).map(([serverId, source]) => (
-        <ProfileSharingEnvironment
-          key={serverId}
-          serverId={serverId}
-          source={source}
-          model={model}
-          busy={busy}
-        />
-      ))}
-    </View>
+    <SettingsSection title="Shared workflows" flush>
+      <View style={settingsStyles.card}>
+        <View style={styles.cardBody}>
+          <Text style={styles.text}>
+            Workflows, model choices and provider defaults synchronize across environments. Account
+            credentials and available providers stay local.
+          </Text>
+        </View>
+        {Object.entries(status.sources).map(([serverId, source]) => (
+          <ProfileSharingEnvironment
+            key={serverId}
+            serverId={serverId}
+            source={source}
+            model={model}
+            busy={busy}
+          />
+        ))}
+      </View>
+    </SettingsSection>
   );
 }
 
@@ -188,10 +256,15 @@ function ProfileSharingEnvironment({
     void model.resolveProfileConflict(serverId, "environment");
   }, [model, serverId]);
   return (
-    <View style={styles.body}>
-      <Text style={styles.text}>
-        {label}: {source.error ?? "Profiles synchronized"}
-      </Text>
+    <View style={[styles.cardBody, settingsStyles.rowBorder]}>
+      <View style={styles.requestHeader}>
+        <Text style={settingsStyles.rowTitle}>{label}</Text>
+        <StatusBadge
+          label={source.error ? "Needs attention" : "Synchronized"}
+          variant={source.error ? "warning" : "success"}
+        />
+      </View>
+      {source.error ? <Text style={styles.text}>{source.error}</Text> : null}
       {source.conflicts.length ? (
         <>
           <Text style={styles.text}>
@@ -240,54 +313,69 @@ function RestartRequest({
     void model.decide(job, "reject");
   }, [job, model]);
   return (
-    <View style={styles.request} testID={`restart-request-${job.id}`}>
-      <Text style={styles.title}>
-        {job.target === "host" ? "Host: full account access" : "Dev container"} · {job.status}
-      </Text>
-      <Text style={styles.text}>{job.reason}</Text>
-      <Text style={styles.text}>
-        {job.requestedBy} · {job.detail}
-      </Text>
-      {job.status === "pending" ? (
-        <View style={styles.actions}>
-          <Button
-            variant="outline"
-            disabled={busy}
-            onPress={approve}
-            testID={`restart-approve-${job.id}`}
-          >
-            Review restart
-          </Button>
-          <Button variant="ghost" disabled={busy} onPress={reject}>
-            Reject
-          </Button>
+    <View style={settingsStyles.card} testID={`restart-request-${job.id}`}>
+      <View style={styles.cardBody}>
+        <View style={styles.requestHeader}>
+          <Text style={settingsStyles.rowTitle}>
+            {job.target === "host" ? "Host: full account access" : "Dev container"}
+          </Text>
+          <StatusBadge label={job.status} />
         </View>
-      ) : null}
+        <Text style={styles.text}>{job.reason}</Text>
+        <Text style={styles.text}>
+          {job.requestedBy} · {job.detail}
+        </Text>
+        {job.status === "pending" && Date.parse(job.expiresAt) > Date.now() ? (
+          <View style={styles.actions}>
+            <Button
+              variant="outline"
+              disabled={busy}
+              onPress={approve}
+              testID={`restart-approve-${job.id}`}
+            >
+              Review restart
+            </Button>
+            <Button variant="ghost" disabled={busy} onPress={reject}>
+              Reject
+            </Button>
+          </View>
+        ) : null}
+        {job.status === "pending" && Date.parse(job.expiresAt) <= Date.now() ? (
+          <Text style={styles.text}>
+            This request expired. A new request is needed before restarting.
+          </Text>
+        ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  body: { padding: theme.spacing[6], gap: theme.spacing[4] },
+  body: { gap: theme.spacing[6] },
+  cardBody: { padding: theme.spacing[4], gap: theme.spacing[3] },
+  requestHeader: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+  },
+  label: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+  },
   input: {
     minHeight: 44,
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.md,
     paddingHorizontal: theme.spacing[3],
-  },
-  text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
-  title: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
-    fontWeight: theme.fontWeight.medium,
+    backgroundColor: theme.colors.surface0,
   },
+  text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.base },
-  request: {
-    gap: theme.spacing[2],
-    paddingVertical: theme.spacing[3],
-    borderTopWidth: 1,
-    borderColor: theme.colors.border,
-  },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
 }));

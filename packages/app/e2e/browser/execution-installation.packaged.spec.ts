@@ -179,9 +179,15 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   });
   await page.goto(origin);
   await expect(page.getByTestId("installation-panel")).toBeVisible();
+  await expect(page.getByText("Unlock installation controls", { exact: true })).toBeVisible();
+  await expect(page.getByText("The host installer generates", { exact: false })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("installation-owner-access.png"),
+    fullPage: true,
+  });
   await page.getByTestId("installation-password").fill("incorrect");
   await page.getByTestId("installation-unlock").click();
-  await expect(page.getByRole("alert")).toContainText("Incorrect installation password");
+  await expect(page.getByRole("alert")).toContainText("Incorrect owner password");
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
   await expect(page.getByTestId("installation-panel")).not.toBeVisible();
@@ -196,9 +202,16 @@ test("owner connects two environments, prepares host drafts, and approves a veri
     .poll(() => page.evaluate(() => Reflect.get(globalThis, "__installationPluginKinds")))
     .toEqual(["host"]);
   await page.goto(`${origin}/settings/general`);
+  await expect(page.getByTestId("installation-panel")).not.toBeVisible();
+  await page.getByTestId("settings-vorton-mode").getByLabel("Vorteo mode", { exact: true }).click();
+  await expect(page.getByTestId("installation-controls-open")).toHaveText("Manage");
+  await page.screenshot({ path: testInfo.outputPath("installation-settings.png"), fullPage: true });
+  await page.getByTestId("installation-controls-open").click();
+  await expect(
+    page.getByText("Owner access lasts until this page reloads", { exact: false }),
+  ).toBeVisible();
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
-  await page.getByTestId("settings-vorton-mode").getByLabel("Vorteo mode", { exact: true }).click();
   await page.getByTestId("vorton-help-update").click();
   await expect(page).toHaveURL(new RegExp(`serverId=${daemons[1]!.serverId}`));
   const composer = page.getByRole("textbox", { name: "Message agent..." });
