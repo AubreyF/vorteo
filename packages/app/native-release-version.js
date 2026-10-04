@@ -1,4 +1,5 @@
-const versionPattern = /^(\d+)\.(\d+)\.(\d+)(?:-(beta|vorton)\.(\d+)(?:\.vorton\.(\d+))?)?$/;
+const versionPattern =
+  /^(\d+)\.(\d+)\.(\d+)(?:-(beta|vorteo|vorton)\.(\d+)(?:\.(?:vorteo|vorton)\.(\d+))?)?$/;
 const stableIosBuildSlot = 999;
 const FDROID_ABI_VERSION_CODE_SUFFIXES = {
   "armeabi-v7a": 1,
@@ -45,7 +46,7 @@ function getNativeReleaseVersion(version) {
   }
 
   // Vorteo uses a separate native distribution. Reserve five digits per upstream base.
-  if (channel === "vorton" || betaVortonCounter !== undefined) {
+  if (channel === "vorteo" || channel === "vorton" || betaVortonCounter !== undefined) {
     const build = getVortonBuildNumber(
       version,
       versionCode,

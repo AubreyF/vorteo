@@ -10,7 +10,7 @@ if (!["--bump", "--hook", "--check"].includes(mode)) throw new Error(`Unknown mo
 const root = readJson("package.json");
 const previous = JSON.parse(git("show", "HEAD:package.json")).version;
 const pattern =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-beta\.([1-9]\d*)(?:\.vorton\.([1-9]\d*))?|-vorton\.([1-9]\d*))?$/;
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-beta\.([1-9]\d*)(?:\.(?:vorteo|vorton)\.([1-9]\d*))?|-(?:vorteo|vorton)\.([1-9]\d*))?$/;
 const before = pattern.exec(previous);
 const current = pattern.exec(root.version);
 if (!before || !current)
@@ -47,7 +47,7 @@ const counter =
       .map((parent) => Number(parent[5] ?? parent[6] ?? 0)),
   ) + 1;
 if (!Number.isSafeInteger(counter)) throw new Error("Vorteo counter exceeds safe integer range.");
-const next = `${base}${current[4] ? "." : "-"}vorton.${counter}`;
+const next = `${base}${current[4] ? "." : "-"}vorteo.${counter}`;
 const files = [
   "package.json",
   ...root.workspaces.map((workspace) => `${workspace}/package.json`),

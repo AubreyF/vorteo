@@ -35,6 +35,8 @@ For an existing task, changing profiles opens a handoff you can review and edit 
 
 Archiving a workspace also archives its threads. When the selected workspace is archived, including through an agent or another client, you return to an empty New workspace page for the same project.
 
+Open **Settings → General → What's new** to see Vorteo additions alongside Paseo release notes. Vorteo mode includes bundled custom history, available even when the upstream feed cannot be reached.
+
 ## Plugins
 
 Add themes, workspace panels, commands, settings screens, and coding-agent providers with trusted
