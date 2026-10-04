@@ -7,6 +7,7 @@ const saved: AppearanceInput = {
   uiBaseFontSize: 14,
   contentFontSize: 14,
   codeFontSize: 13,
+  contentMaxWidth: 820,
   syntaxTheme: "github",
 };
 describe("Vorton appearance", () => {

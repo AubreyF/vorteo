@@ -23,6 +23,7 @@ async function fetchProviderUsage(client: ProviderUsageClient): Promise<Provider
 
 interface UseProviderUsageOptions {
   enabled?: boolean;
+  refreshOnMount?: boolean;
   pollActivity?: boolean;
   pollUsage?: boolean;
 }
@@ -64,7 +65,7 @@ export function useProviderUsage(
     enabled,
     staleTime: options.pollActivity ? 15_000 : PROVIDER_USAGE_STALE_TIME_MS,
     gcTime: Infinity,
-    refetchOnMount: true,
+    refetchOnMount: options.refreshOnMount ? "always" : true,
     refetchOnReconnect: true,
     refetchOnWindowFocus: false,
     refetchInterval,

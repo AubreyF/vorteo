@@ -39,6 +39,7 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
+import { useHasFinePointer } from "@/hooks/use-fine-pointer";
 import { useShallow } from "zustand/shallow";
 import {
   ArrowUp,
@@ -54,7 +55,7 @@ import {
   Target,
 } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
-import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH } from "@/constants/layout";
+import { FOOTER_HEIGHT } from "@/constants/layout";
 import {
   AgentControls,
   DraftAgentControls,
@@ -74,7 +75,7 @@ import {
 } from "./input/input";
 import type { ImageAttachment, MessagePayload, TextReplacement } from "./types";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
-import type { DraftCommandConfig } from "@/hooks/use-agent-commands-query";
+import type { DraftCommandTarget } from "@/hooks/use-agent-commands-query";
 import { encodeImages } from "@/utils/encode-images";
 import { focusWithRetries } from "@/utils/web-focus";
 import {
@@ -287,18 +288,17 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
       contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
       totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
       model: agent?.model ?? null,
-      provider: agent?.provider ?? null,
     };
   };
 }
 
 function renderContextWindowMeter(
+  serverId: string,
+  agentId: string,
   contextWindowMaxTokens: number | null,
   contextWindowUsedTokens: number | null,
   totalCostUsd: number | null,
   showPercentage: boolean,
-  serverId: string,
-  provider: string | null,
   pending: boolean,
   glyphSize: number,
 ): ReactElement | null {
@@ -308,12 +308,12 @@ function renderContextWindowMeter(
   }
   return (
     <ContextWindowMeter
+      serverId={serverId}
+      agentId={agentId}
       maxTokens={contextWindowMaxTokens}
       usedTokens={contextWindowUsedTokens}
       totalCostUsd={totalCostUsd}
       showPercentage={showPercentage}
-      serverId={serverId}
-      provider={provider}
       pending={pending}
       glyphSize={glyphSize}
     />
@@ -996,8 +996,8 @@ interface ComposerProps {
   autoFocusKey?: string;
   /** Callback to expose a focus function to parent components (desktop only). */
   onFocusInput?: (focus: () => void) => void;
-  /** Optional draft context for listing commands before an agent exists. */
-  commandDraftConfig?: DraftCommandConfig;
+  /** Draft context for listing commands before an agent exists. Omitted for running agents. */
+  commandDraft?: DraftCommandTarget;
   /** Called when a message is about to be sent (any path: keyboard, dictation, queued). */
   onMessageSent?: () => void;
   onComposerHeightChange?: (height: number) => void;
@@ -1291,7 +1291,7 @@ function ComposerContentImpl({
   autoFocus = false,
   autoFocusKey,
   onFocusInput,
-  commandDraftConfig,
+  commandDraft,
   onMessageSent,
   onComposerHeightChange,
   onAttentionInputFocus,
@@ -1341,6 +1341,7 @@ function ComposerContentImpl({
   const touch = useVortonTouch();
   const isCompactLayout = resolveCompactLayout(isCompactLayoutOverride, isCompactFormFactor);
   const isDesktopWebBreakpoint = resolveIsDesktopWebBreakpoint(isCompactFormFactor);
+  const hasFinePointer = useHasFinePointer();
   const isDesktopLayout = resolveIsDesktopWebBreakpoint(isCompactLayout);
   const messagePlaceholder = resolveMessagePlaceholder(inputMode, isDesktopLayout, t, placeholder);
   const hasText = useSyncExternalStore(
@@ -1795,7 +1796,7 @@ function ComposerContentImpl({
     [onSubmitGoal, attachments, buildOutgoingAttachments, cwd],
   );
   const goalControl = useAgentGoal(serverId, agentId, {
-    config: commandDraftConfig,
+    config: commandDraft?.status === "ready" ? commandDraft.config : undefined,
     create: onSubmitGoal ? createDraftGoal : undefined,
     context: prepareGoalContext,
   });
@@ -2203,27 +2204,27 @@ function ComposerContentImpl({
   const contextWindowMeter = useMemo(
     () =>
       renderContextWindowMeter(
+        serverId,
+        agentId,
         contextWindowMaxTokens,
         contextWindowUsedTokens,
         agentState.totalCostUsd,
         false,
-        serverId,
-        agentState.provider,
         contextWindowPending,
         contextWindowMeterGlyphSize,
       ),
     [
+      serverId,
+      agentId,
       contextWindowMaxTokens,
       contextWindowUsedTokens,
       agentState.totalCostUsd,
-      serverId,
-      agentState.provider,
       contextWindowPending,
       contextWindowMeterGlyphSize,
     ],
   );
   const beforeVoiceContent = useMemo(
-    () => resolveContextWindowPlacement(contextWindowMeter, hasAgent, touch),
+    () => <>{resolveContextWindowPlacement(contextWindowMeter, hasAgent, touch)}</>,
     [contextWindowMeter, hasAgent, touch],
   );
 
@@ -2489,7 +2490,7 @@ function ComposerContentImpl({
       setUserInput: replaceUserInput,
       serverId,
       agentId,
-      draftConfig: commandDraftConfig,
+      draft: commandDraft,
       canExecuteClientSlashCommand: buildOutgoingAttachments(attachments).length === 0,
       onClientSlashCommand: runClientSlashCommand,
       pluginClientSlashCommands,
@@ -2498,7 +2499,7 @@ function ComposerContentImpl({
       replaceUserInput,
       serverId,
       agentId,
-      commandDraftConfig,
+      commandDraft,
       buildOutgoingAttachments,
       attachments,
       runClientSlashCommand,
@@ -2526,7 +2527,8 @@ function ComposerContentImpl({
     { disabled: isSubmitLoadingVisible },
   );
 
-  const messageInputAutoFocus = autoFocus && isDesktopWebBreakpoint;
+  // Focusing the composer on a touch screen raises the on-screen keyboard over the conversation.
+  const messageInputAutoFocus = autoFocus && isDesktopWebBreakpoint && hasFinePointer;
   const submitLoadingPressHandler = isAgentRunning ? handleCancelAgent : undefined;
   const sendErrorNode = useMemo(
     () =>
@@ -2723,7 +2725,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
   inputAreaContent: {
     flexShrink: 1,
     width: "100%",
-    maxWidth: MAX_CONTENT_WIDTH,
+    maxWidth: theme.contentMaxWidth,
     gap: theme.spacing[3],
   },
   messageInputContainer: {

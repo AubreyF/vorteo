@@ -33,7 +33,6 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import {
   BottomSheetScrollView,
   useBottomSheetInternal,
-  BottomSheetBackdrop,
   BottomSheetBackgroundProps,
 } from "@gorhom/bottom-sheet";
 import Animated, { FadeIn, FadeOut, useAnimatedStyle } from "react-native-reanimated";
@@ -1011,18 +1010,6 @@ function MobileComboboxViewport({ children }: { children: ReactNode }) {
 }
 
 function MobileComboboxBody(props: MobileBodyProps): ReactElement {
-  const renderBackdrop = useCallback(
-    (backdropProps: React.ComponentProps<typeof BottomSheetBackdrop>) => (
-      <BottomSheetBackdrop
-        {...backdropProps}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.45}
-      />
-    ),
-    [],
-  );
-
   const comboboxTitleStyle = useMemo(
     () => [styles.comboboxTitle, { color: props.titleColor }],
     [props.titleColor],
@@ -1096,7 +1083,7 @@ function MobileComboboxBody(props: MobileBodyProps): ReactElement {
       enableDynamicSizing={false}
       onChange={props.handleSheetChange}
       onDismiss={props.handleSheetDismiss}
-      backdropComponent={renderBackdrop}
+      backdropOpacity={0.45}
       enablePanDownToClose
       backgroundComponent={ComboboxSheetBackground}
       handleIndicatorStyle={props.handleIndicatorStyle}

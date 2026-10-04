@@ -403,6 +403,7 @@ type AgentControlsSlice = {
   runtimeModelId: string | null;
   model: string | null | undefined;
   features: AgentFeature[] | undefined;
+  runtimeThinkingOptionId: string | null;
   thinkingOptionId: string | null | undefined;
   lastUsage: unknown;
 } | null;
@@ -422,6 +423,7 @@ function selectAgentControlsSlice(
     runtimeModelId: currentAgent.runtimeInfo?.model ?? null,
     model: currentAgent.model,
     features: currentAgent.features,
+    runtimeThinkingOptionId: currentAgent.runtimeInfo?.thinkingOptionId ?? null,
     thinkingOptionId: currentAgent.thinkingOptionId,
     lastUsage: currentAgent.lastUsage,
   };
@@ -1366,6 +1368,10 @@ function DesktopFeatureItem({
   if (feature.type === "select") {
     const FeatureIcon = getAgentFeatureIcon(feature.icon);
     const selectedOption = feature.options.find((o) => o.id === feature.value);
+    const iconOnly = feature.desktopTrigger === "icon";
+    const tooltip = iconOnly
+      ? `${feature.label}: ${selectedOption?.label ?? feature.label}`
+      : getFeatureTooltip(feature);
     return (
       <>
         <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
@@ -1376,15 +1382,16 @@ function DesktopFeatureItem({
               surface="toolbar"
               label={feature.label}
               value={selectedOption?.label ?? feature.label}
+              showToolbarLabel={!iconOnly}
               open={openSelector === featureSelector}
               disabled={disabled}
               onPress={handleSelectPress}
-              accessibilityLabel={getFeatureTooltip(feature)}
+              accessibilityLabel={tooltip}
               testID={`agent-feature-${feature.id}`}
             />
           </TooltipTrigger>
           <TooltipContent side="top" align="center" offset={8}>
-            <Text style={styles.tooltipText}>{getFeatureTooltip(feature)}</Text>
+            <Text style={styles.tooltipText}>{tooltip}</Text>
           </TooltipContent>
         </Tooltip>
         <Combobox
@@ -1558,6 +1565,10 @@ function AgentProfileOverlays({
   );
 }
 
+function visibleThinkingOptions<T>(options: T[]): T[] | undefined {
+  return options.length > 0 ? options : undefined;
+}
+
 export const AgentControls = memo(function AgentControls({
   agentId,
   serverId,
@@ -1623,6 +1634,7 @@ export const AgentControls = memo(function AgentControls({
     models,
     runtimeModelId: agent?.runtimeModelId,
     configuredModelId: agent?.model,
+    runtimeThinkingOptionId: agent?.runtimeThinkingOptionId,
     explicitThinkingOptionId: agent?.thinkingOptionId,
   });
 
@@ -1847,7 +1859,7 @@ export const AgentControls = memo(function AgentControls({
           onEditAgentProfiles={handleEditAgentProfiles}
           onCreateAgentProfile={profileActions.create}
           onEditAgentProfile={profileActions.edit}
-          thinkingOptions={thinkingOptions.length > 1 ? thinkingOptions : undefined}
+          thinkingOptions={visibleThinkingOptions(thinkingOptions)}
           selectedThinkingOptionId={modelSelection.selectedThinkingId ?? undefined}
           onSelectThinkingOption={handleSelectThinkingOption}
           features={agent.features}

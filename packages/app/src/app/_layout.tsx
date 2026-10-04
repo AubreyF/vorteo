@@ -2,6 +2,7 @@ import "@/styles/unistyles";
 import { InstallationPanelHost } from "@/execution-installation/panel";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { PortalProvider } from "@gorhom/portal";
+import { LucideProvider } from "lucide-react-native";
 import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
 import { Stack, useNavigationContainerRef, usePathname, useRouter } from "expo-router";
@@ -46,6 +47,7 @@ import { WorkspaceSetupDialog } from "@/components/workspace-setup-dialog";
 import { WorkspaceShortcutTargetsSubscriber } from "@/components/workspace-shortcut-targets-subscriber";
 import { FloatingPanelPortalHost } from "@/components/ui/floating-panel-portal";
 import { HostChooserModal, useHostChooser } from "@/hosts/host-chooser";
+import { HostConfirmationSheet } from "@/hosts/host-confirmation-sheet";
 import {
   getIsElectronRuntime,
   HEADER_INNER_HEIGHT,
@@ -107,7 +109,6 @@ import {
   getHostRuntimeStore,
   hasConfiguredLocalDaemonOverride,
   useHostRegistryLoaded,
-  useHostMutations,
   useHostRuntimeClient,
   useHostRuntimeIsConnected,
   useHosts,
@@ -115,7 +116,7 @@ import {
 import { getDaemonStartService } from "@/runtime/daemon-start-service";
 import { usePanelStore } from "@/stores/panel-store";
 import { flushDraftPersistStorage } from "@/stores/draft-store";
-import { getNextThemePreference } from "@/styles/theme";
+import { getNextThemePreference, ICON_STROKE_WIDTH } from "@/styles/theme";
 import { useSessionStore } from "@/stores/session-store";
 import { installWebScrollbarStyles } from "@/styles/install-web-scrollbar-styles";
 import type { HostProfile } from "@/types/host-connection";
@@ -610,6 +611,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <CommandCenter />
         <AddProjectFlowHost />
         <HostChooserModal />
+        <HostConfirmationSheet />
         <ProviderSettingsHost />
         <WorkspaceSetupDialog />
         <KeyboardShortcutsDialog />
@@ -670,13 +672,11 @@ function MobileGestureWrapper({
 }
 
 function ProvidersWrapper({ children }: { children: ReactNode }) {
-  const { upsertConnectionFromOfferUrl } = useHostMutations();
-
   return (
     <AppearanceProvider>
       <VoiceProvider>
         <DesktopWindowControlsSync />
-        <OfferLinkListener upsertDaemonFromOfferUrl={upsertConnectionFromOfferUrl} />
+        <OfferLinkListener />
         <HostSessionManager />
         <FaviconStatusSync />
         {children}
@@ -703,45 +703,36 @@ function DesktopWindowControlsSync() {
   return null;
 }
 
-function OfferLinkListener({
-  upsertDaemonFromOfferUrl,
-}: {
-  upsertDaemonFromOfferUrl: (offerUrlOrFragment: string) => Promise<unknown>;
-}) {
+function OfferLinkListener() {
   const router = useRouter();
 
   useEffect(() => {
     let cancelled = false;
-    const handleUrl = (url: string | null) => {
+    const handleUrl = async (url: string | null) => {
       if (!url) return;
-      if (!url.includes("#offer=")) return;
-      void upsertDaemonFromOfferUrl(url)
-        .then((profile) => {
-          if (cancelled) return;
-          const serverId = (profile as { serverId?: unknown } | null)?.serverId;
-          if (typeof serverId !== "string" || !serverId) return;
-          router.replace(buildOpenProjectRoute());
-          return;
-        })
-        .catch((error) => {
-          if (cancelled) return;
-          console.warn("[Linking] Failed to import pairing offer", error);
-        });
+      if (!url.includes("#offer=") && !url.includes("#connect=") && !url.startsWith("relay://"))
+        return;
+      try {
+        const result = await getHostRuntimeStore().importConnectionLink(url, "openProject");
+        if (!cancelled && result.status === "connected") router.replace(buildOpenProjectRoute());
+      } catch (error) {
+        console.warn("[OfferLinkListener] Pairing link failed", error);
+      }
     };
 
     void Linking.getInitialURL()
-      .then(handleUrl)
+      .then((url) => handleUrl(url))
       .catch(() => undefined);
 
     const subscription = Linking.addEventListener("url", (event) => {
-      handleUrl(event.url);
+      void handleUrl(event.url);
     });
 
     return () => {
       cancelled = true;
       subscription.remove();
     };
-  }, [router, upsertDaemonFromOfferUrl]);
+  }, [router]);
 
   return null;
 }
@@ -876,6 +867,7 @@ function AppWithSidebar({ children }: { children: ReactNode }) {
       pathname === "/new" ||
       pathname === "/sessions" ||
       pathname === "/schedules" ||
+      pathname === "/usage" ||
       routeHasKnownHost);
 
   return <AppContainer chromeEnabled={shouldShowAppChrome}>{children}</AppContainer>;
@@ -908,6 +900,7 @@ function RootStack() {
         <Stack.Screen name="open-project" />
         <Stack.Screen name="sessions" />
         <Stack.Screen name="schedules" />
+        <Stack.Screen name="usage" />
         <Stack.Screen name="pair-scan" />
       </Stack.Protected>
       <Stack.Screen name="h/[serverId]" />
@@ -984,11 +977,13 @@ function RootAppTree() {
   return (
     <GestureHandlerRootView style={flexStyle}>
       <View style={layoutStyles.surfaceFill}>
-        <RootProviders>
-          <RuntimeProviders>
-            <AppShell />
-          </RuntimeProviders>
-        </RootProviders>
+        <LucideProvider strokeWidth={ICON_STROKE_WIDTH}>
+          <RootProviders>
+            <RuntimeProviders>
+              <AppShell />
+            </RuntimeProviders>
+          </RootProviders>
+        </LucideProvider>
       </View>
     </GestureHandlerRootView>
   );

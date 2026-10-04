@@ -13,7 +13,7 @@ import { normalizeHostPort } from "@getpaseo/protocol/daemon-endpoints";
 
 export function hasInstallationConnections(
   installation: ExecutionInstallation,
-  profiles: readonly Pick<HostProfile, "serverId" | "connections">[],
+  profiles: readonly Pick<HostProfile, "serverId" | "connections" | "password">[],
 ): boolean {
   return installation.environments.every((environment) => {
     const scheme = environment.useTls ? "https" : "http";
@@ -27,7 +27,7 @@ export function hasInstallationConnections(
         return (
           connection.endpoint === endpoint &&
           connection.useTls === environment.useTls &&
-          Boolean(connection.password)
+          Boolean(profile.password)
         );
       }) ?? false
     );

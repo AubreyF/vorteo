@@ -18,20 +18,19 @@ const installation = validateExecutionInstallation({
 });
 
 test("reload recognizes both saved installation connections and rejects partial or changed targets", () => {
-  const profiles: Pick<HostProfile, "serverId" | "connections">[] = installation.environments.map(
-    (environment) => ({
+  const profiles: Pick<HostProfile, "serverId" | "connections" | "password">[] =
+    installation.environments.map((environment) => ({
       serverId: environment.serverId,
+      password: "saved-connection-password",
       connections: [
         {
           id: environment.kind,
           type: "directTcp",
           endpoint: `${environment.endpoint}:443`,
           useTls: true,
-          password: "saved-connection-password",
         },
       ],
-    }),
-  );
+    }));
   expect(hasInstallationConnections(installation, profiles)).toBe(true);
   expect(hasInstallationConnections(installation, profiles.slice(0, 1))).toBe(false);
   profiles[1].connections = [
@@ -40,10 +39,10 @@ test("reload recognizes both saved installation connections and rejects partial 
       type: "directTcp",
       endpoint: "other.example.test:443",
       useTls: true,
-      password: "saved",
     },
   ];
   expect(hasInstallationConnections(installation, profiles)).toBe(false);
+  profiles[1].password = undefined;
   profiles[1].connections = [
     { id: "host", type: "directTcp", endpoint: "host.example.test:443", useTls: true },
   ];

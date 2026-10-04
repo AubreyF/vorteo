@@ -32,7 +32,6 @@ interface MakeOptions {
   supportsCustomModeIcons?: boolean;
   supportsCompactProviderSnapshots?: boolean;
   snapshot?: Partial<ProviderSnapshotManager>;
-  usage?: { [K in keyof ProviderUsageService]?: unknown };
   host?: Partial<ProviderCatalogSessionHost>;
 }
 
@@ -509,10 +508,6 @@ it("announces shared content without retransmitting models or hashing discovery 
     new ProviderCatalogSession({
       providerSnapshotManager: manager,
       logger: pino({ level: "silent" }),
-      providerUsageService: new ProviderUsageService({
-        logger: pino({ level: "silent" }),
-        fetchers: [],
-      }),
       host: {
         emit(message) {
           emitted.push(message);

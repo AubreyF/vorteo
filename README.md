@@ -40,6 +40,8 @@ Archiving a workspace also archives its threads. When the selected workspace is 
 Add themes, workspace panels, commands, settings screens, and coding-agent providers with trusted
 TypeScript plugins. Install from npm, Git, or a local directory with `paseo plugin install <source>`.
 
+Plugins can also add sidebar actions and usage sources. On updated hosts, the Usage screen discovers subscription accounts across supported coding tools and lets you pin usage windows. Vorteo account controls and reserve settings remain available in Vorteo mode.
+
 Vorteo’s selected launch settings, profile instructions, reserve policy, and configured account environment take precedence over plugin launch hooks. Hooks can supply defaults and additional environment variables.
 
 Start with the [plugin quickstart](https://paseo.sh/docs/plugins). Plugins run with access to your daemon

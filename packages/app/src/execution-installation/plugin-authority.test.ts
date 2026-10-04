@@ -25,7 +25,14 @@ test("a denied daemon catalog cannot construct a client runtime or evaluate its 
         clientBundle: "(() => { throw new Error('Untrusted bundle executed'); })",
       },
     ],
-    { client },
+    {
+      client,
+      audio: {
+        play: async () => {
+          throw new Error("Untrusted audio must not play");
+        },
+      },
+    },
   );
   expect(installed).toBe(false);
   expect(constructions).toBe(0);

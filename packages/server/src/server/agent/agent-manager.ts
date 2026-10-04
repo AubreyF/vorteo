@@ -44,7 +44,7 @@ import {
   advanceQuotaReserve,
   type QuotaReserveTransitionInput,
 } from "./quota-reserve/transition.js";
-import type { ProviderOptions, ToolPolicy } from "@getpaseo/protocol/agent-types";
+import type { ToolPolicy } from "@getpaseo/protocol/agent-types";
 import type { ProviderPaseoToolsPolicy } from "@getpaseo/protocol/provider-config";
 import { z } from "zod";
 import type { TerminalManager } from "../../terminal/terminal-manager.js";
@@ -55,6 +55,7 @@ import {
   type AgentClient,
   type CapturedQuotaExecutionClient,
   type AgentCreateSessionOptions,
+  type AgentResumePurpose,
   type AgentResumeSessionOptions,
   type AgentFeature,
   type AgentLaunchContext,
@@ -168,6 +169,28 @@ export type AgentRunCancellationResult =
   | { status: "settled" }
   | { status: "refused" };
 
+/** A session that will run in a directory needs that directory to be there. */
+async function assertUsableWorkingDirectory(cwd: string): Promise<void> {
+  try {
+    const stats = await stat(cwd);
+    if (!stats.isDirectory()) {
+      throw new Error(`Working directory is not a directory: ${cwd}`);
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      throw new Error(`Working directory does not exist: ${cwd}`, { cause: error });
+    }
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Failed to access working directory: ${cwd}`, { cause: error });
+  }
+}
+
 interface PreparedSessionConfig {
   storedConfig: AgentSessionConfig;
   launchConfig: AgentSessionConfig;
@@ -177,6 +200,8 @@ interface PreparedSessionConfig {
 interface NormalizeConfigOptions {
   resolveDefaultModel?: boolean;
   env?: Record<string, string>;
+  /** Defaults to interactive. A history load reads persisted state and runs nothing. */
+  purpose?: AgentResumePurpose;
 }
 
 interface TimeoutOptions {
@@ -194,10 +219,13 @@ function buildStoredAgentConfig(record: StoredAgentRecord): AgentSessionConfig {
     provider: record.provider,
     cwd: record.cwd,
   };
+  // lastModeId is the last live mode — it also covers provider-side switches
+  // that never reach record.config.modeId.
+  const modeId = record.lastModeId ?? record.config?.modeId;
+  if (modeId != null) config.modeId = modeId;
   if (!record.config) {
     return config;
   }
-  if (record.config.modeId != null) config.modeId = record.config.modeId;
   if (record.config.model != null) config.model = record.config.model;
   if (record.config.thinkingOptionId != null) {
     config.thinkingOptionId = record.config.thinkingOptionId;
@@ -303,11 +331,6 @@ interface ProviderEnabledFlag {
   configuredEnv?: Record<string, string>;
   enabled: boolean;
   derivedFromProviderId?: string | null;
-  validateOptions?: (options: ProviderOptions | undefined) => ProviderOptions | undefined;
-  applyOptions?: (
-    config: AgentSessionConfig,
-    options: ProviderOptions | undefined,
-  ) => AgentSessionConfig;
   applyToolPolicy?: (
     config: AgentSessionConfig,
     toolPolicy: ToolPolicy | undefined,
@@ -1750,6 +1773,11 @@ export class AgentManager {
     }
   }
 
+  usageSession(id: string) {
+    const agent = this.agents.get(id);
+    return agent?.session?.usageSession?.() ?? null;
+  }
+
   getAgent(id: string): ManagedAgent | null {
     const agent = this.agents.get(id);
     return agent ? { ...agent } : null;
@@ -1940,7 +1968,7 @@ export class AgentManager {
     const { storedConfig, launchConfig, paseoToolPolicy } = await this.prepareSessionConfig(
       config,
       resolvedAgentId,
-      options?.env,
+      { env: options?.env },
     );
     this.requireEnabledProvider(storedConfig.provider);
     const client = await this.requireAvailableClient({
@@ -2083,17 +2111,21 @@ export class AgentManager {
         this.agents.get(parentId)?.config.quotaPausedAt ?? parent?.config?.quotaPausedAt;
       if (pausedAt) mergedConfig.quotaPausedAt = pausedAt;
     }
-    const { storedConfig, launchConfig, paseoToolPolicy } = await this.prepareSessionConfig(
-      mergedConfig,
-      resolvedAgentId,
-    );
-
     // Decide residency from durable state inside the lifecycle lane. A loader may
-    // have read the record before a queued archive or restore completed.
+    // have read the record before a queued archive or restore completed. Residency is
+    // settled before the config is prepared, because a history load reads an archived
+    // agent whose working directory may be gone.
     const record = this.registry ? await this.registry.get(resolvedAgentId) : null;
     const currentResumeOptions = record
       ? { purpose: record.archivedAt ? ("history" as const) : ("interactive" as const) }
       : resumeOptions;
+    const purpose = currentResumeOptions?.purpose ?? "interactive";
+
+    const { storedConfig, launchConfig, paseoToolPolicy } = await this.prepareSessionConfig(
+      mergedConfig,
+      resolvedAgentId,
+      { purpose },
+    );
     const client = this.requireClient(handle.provider);
     const available = await client.isAvailable();
     if (!available) {
@@ -2110,7 +2142,7 @@ export class AgentManager {
       undefined,
       {
         reason: "resume",
-        purpose: currentResumeOptions?.purpose ?? "interactive",
+        purpose,
         workspaceId: options?.workspaceId ?? null,
       },
     );
@@ -2831,6 +2863,7 @@ export class AgentManager {
     if (agent.runtimeInfo) {
       agent.runtimeInfo = { ...agent.runtimeInfo, model: normalizedModelId };
     }
+    this.refreshSessionPersistence(agent);
     this.touchUpdatedAt(agent);
     this.emitState(agent);
   }
@@ -2851,11 +2884,17 @@ export class AgentManager {
     }
     await this.drainSessionEvents(agentId);
 
-    agent.config.thinkingOptionId = normalizedThinkingOptionId ?? undefined;
+    let effectiveThinkingOptionId = normalizedThinkingOptionId;
+    const runtimeInfo = await agent.session.getRuntimeInfo();
+    if (runtimeInfo.thinkingOptionId !== undefined) {
+      effectiveThinkingOptionId = runtimeInfo.thinkingOptionId;
+    }
+
+    agent.config.thinkingOptionId = effectiveThinkingOptionId ?? undefined;
     if (agent.runtimeInfo) {
       agent.runtimeInfo = {
         ...agent.runtimeInfo,
-        thinkingOptionId: normalizedThinkingOptionId,
+        thinkingOptionId: effectiveThinkingOptionId,
       };
     }
     this.touchUpdatedAt(agent);
@@ -4443,6 +4482,12 @@ export class AgentManager {
     });
   }
 
+  private async restoreGoalPersistence(managed: ActiveManagedAgent): Promise<void> {
+    const record = await this.registry?.get(managed.id);
+    managed.goalSubmissions = record?.goalSubmissions;
+    managed.queueGoalHold = record?.queueGoalHold;
+  }
+
   private async registerSession(
     session: AgentSession,
     config: AgentSessionConfig,
@@ -4501,14 +4546,33 @@ export class AgentManager {
         options,
       });
 
-      managed.goalSubmissions = (await this.registry?.get(resolvedAgentId))?.goalSubmissions;
-      managed.queueGoalHold = (await this.registry?.get(resolvedAgentId))?.queueGoalHold;
+      await this.restoreGoalPersistence(managed);
+      // Read history before publishing the agent: a provider failure must leave the
+      // session unregistered so the registration catch closes it.
+      const startupHistory: AgentStreamEvent[] = [];
+      if (session.initialTimeline?.length && !managed.historyPrimed) {
+        for await (const event of session.streamHistory()) {
+          startupHistory.push(limitAgentStreamEventContent(event));
+        }
+      }
+
       this.assertAcceptingAgentRegistrations();
       this.restoreLatestQuotaReserve(resolvedAgentId, managed.config);
       this.agents.set(resolvedAgentId, managed);
       registered = true;
       // Initialize previousStatus to track transitions
       this.previousStatuses.set(resolvedAgentId, managed.lifecycle);
+      if (session.initialTimeline?.length) {
+        if (!managed.historyPrimed) {
+          // Legacy/imported chats need their existing history before startup rows.
+          await this.primeTimelineFromLegacyProviderHistory(managed, false, startupHistory);
+        } else {
+          for (const entry of session.initialTimeline) {
+            this.recordTimeline(managed.id, entry.item, { timestamp: entry.timestamp });
+          }
+        }
+        this.refreshSessionPersistence(managed);
+      }
       await this.refreshRuntimeInfo(managed, { emit: false });
       this.assertAgentRegistrationActive(managed);
       await this.persistSnapshot(managed, {
@@ -4731,6 +4795,11 @@ export class AgentManager {
 
   private emitClosedAgent(agent: ManagedAgentClosed, options?: { persist?: boolean }): void {
     this.emitState(agent, options);
+    if (!agent.internal) {
+      this.pluginLifecycle?.emit("agent.closed", {
+        agent: describeHookAgent({ ...agent, title: agent.config.title }),
+      });
+    }
   }
   private subscribeToSession(agent: ActiveManagedAgent): void {
     if (agent.unsubscribeSession) {
@@ -4910,6 +4979,19 @@ export class AgentManager {
     return this.registry;
   }
 
+  /**
+   * Provider-side mode switches (ACP current_mode_update, in-session
+   * commands, permission-driven transitions) must land in config.modeId too —
+   * reloadAgentSession and the persisted record derive the resumed session's
+   * mode from it, so leaving it stale silently downgrades the mode on resume.
+   */
+  private applyObservedMode(agent: ActiveManagedAgent, modeId: string | null): void {
+    agent.currentModeId = modeId;
+    if (modeId != null) {
+      agent.config.modeId = modeId;
+    }
+  }
+
   private async refreshSessionState(
     agent: ActiveManagedAgent,
     options?: { emit?: boolean },
@@ -4922,7 +5004,7 @@ export class AgentManager {
     }
 
     try {
-      agent.currentModeId = await agent.session.getCurrentMode();
+      this.applyObservedMode(agent, await agent.session.getCurrentMode());
     } catch {
       agent.currentModeId = null;
     }
@@ -4967,13 +5049,16 @@ export class AgentManager {
 
   private async *streamHistoryWithSubmissions(
     agent: ActiveManagedAgent,
+    history:
+      | AsyncIterable<AgentStreamEvent>
+      | Iterable<AgentStreamEvent> = agent.session.streamHistory(),
   ): AsyncGenerator<AgentStreamEvent> {
     if (!agent.goalSubmissions?.length && !this.messageQueueControl) {
-      yield* agent.session.streamHistory();
+      yield* history;
       return;
     }
     const events: AgentStreamEvent[] = [];
-    for await (const event of agent.session.streamHistory()) events.push(event);
+    for await (const event of history) events.push(event);
     await this.messageQueueControl?.reconcileHistory(agent.id, events);
     const queued = (await this.messageQueueControl?.acceptedHistory(agent.id)) ?? [];
     const withGoals = mergeGoalHistory(events, agent.goalSubmissions ?? [], agent.provider);
@@ -5064,25 +5149,22 @@ export class AgentManager {
   private async primeTimelineFromLegacyProviderHistory(
     agent: ActiveManagedAgent,
     broadcast: boolean | (() => boolean),
+    history:
+      | AsyncIterable<AgentStreamEvent>
+      | Iterable<AgentStreamEvent> = agent.session.streamHistory(),
   ): Promise<void> {
     const deferredBroadcast = typeof broadcast === "function";
-    const timelineEvents: Array<{
-      event: Extract<AgentStreamEvent, { type: "timeline" }>;
-      row: AgentTimelineRow;
-    }> = [];
-    const providerSubagentEvents: AgentManagerEvent[] = [];
+    const historyEvents: Extract<AgentStreamEvent, { type: "timeline" }>[] = [];
+    const historySubagentEvents: Extract<AgentStreamEvent, { type: "provider_subagent" }>[] = [];
     agent.historyPrimed = false;
     try {
-      for await (const rawEvent of this.streamHistoryWithSubmissions(agent)) {
+      // Collect the whole replay before touching either store. A stream that fails
+      // halfway then leaves the committed timeline as it was, instead of a partial
+      // copy the next attempt would append to.
+      for await (const rawEvent of this.streamHistoryWithSubmissions(agent, history)) {
         const event = limitAgentStreamEventContent(rawEvent);
         if (event.type === "provider_subagent") {
-          const update = this.providerSubagents.apply(agent.id, event.provider, event.event);
-          const managerEvent: AgentManagerEvent = { type: "provider_subagent", event: update };
-          if (deferredBroadcast) {
-            providerSubagentEvents.push(managerEvent);
-          } else if (broadcast) {
-            this.dispatch(managerEvent);
-          }
+          historySubagentEvents.push(event);
           continue;
         }
         if (event.type !== "timeline") {
@@ -5091,28 +5173,46 @@ export class AgentManager {
         if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) {
           continue;
         }
-        const row = this.recordTimeline(
-          agent.id,
-          event.item,
-          event.timestamp ? { timestamp: event.timestamp } : undefined,
-        );
-        if (deferredBroadcast) {
-          timelineEvents.push({ event: { ...event, item: row.item }, row });
-        } else if (broadcast) {
-          this.dispatchStream(
-            agent.id,
-            { ...event, item: row.item },
-            {
-              seq: row.seq,
-              epoch: this.timelineStore.getEpoch(agent.id),
-              timestamp: row.timestamp,
-            },
-          );
-        }
+        historyEvents.push(event);
       }
     } catch (error) {
       this.logger.warn({ err: error, agentId: agent.id }, "Failed to hydrate provider history");
       throw error;
+    }
+
+    // The replay is the timeline, so drop the rows a previous hydration committed.
+    // Keeping them would leave getTimelineRows reading one copy per hydration.
+    await this.deleteCommittedTimeline(agent.id);
+
+    const timelineEvents: Array<{
+      event: Extract<AgentStreamEvent, { type: "timeline" }>;
+      row: AgentTimelineRow;
+    }> = [];
+    const providerSubagentEvents: AgentManagerEvent[] = [];
+    for (const event of historySubagentEvents) {
+      const update = this.providerSubagents.apply(agent.id, event.provider, event.event);
+      const managerEvent: AgentManagerEvent = { type: "provider_subagent", event: update };
+      if (deferredBroadcast) {
+        providerSubagentEvents.push(managerEvent);
+      } else if (broadcast) {
+        this.dispatch(managerEvent);
+      }
+    }
+    for (const event of historyEvents) {
+      const row = this.recordTimeline(
+        agent.id,
+        event.item,
+        event.timestamp ? { timestamp: event.timestamp } : undefined,
+      );
+      if (deferredBroadcast) {
+        timelineEvents.push({ event, row });
+      } else if (broadcast) {
+        this.dispatchStream(agent.id, event, {
+          seq: row.seq,
+          epoch: this.timelineStore.getEpoch(agent.id),
+          timestamp: row.timestamp,
+        });
+      }
     }
     agent.historyPrimed = true;
 
@@ -5315,7 +5415,7 @@ export class AgentManager {
         this.emitState(agent);
         return undefined;
       case "mode_changed":
-        agent.currentModeId = event.currentModeId;
+        this.applyObservedMode(agent, event.currentModeId);
         agent.availableModes = event.availableModes;
         if (agent.runtimeInfo) {
           agent.runtimeInfo = { ...agent.runtimeInfo, modeId: event.currentModeId };
@@ -5331,7 +5431,7 @@ export class AgentManager {
             agent.cwd,
           );
         }
-        agent.currentModeId = event.runtimeInfo.modeId ?? agent.currentModeId;
+        this.applyObservedMode(agent, event.runtimeInfo.modeId ?? agent.currentModeId);
         flags.shouldDispatchEvent = false;
         this.emitState(agent);
         return undefined;
@@ -6147,23 +6247,11 @@ export class AgentManager {
     // Always resolve cwd to absolute path for consistent history file lookup
     if (normalized.cwd) {
       normalized.cwd = resolve(normalized.cwd);
-      try {
-        const cwdStats = await stat(normalized.cwd);
-        if (!cwdStats.isDirectory()) {
-          throw new Error(`Working directory is not a directory: ${normalized.cwd}`);
-        }
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          "code" in error &&
-          (error as NodeJS.ErrnoException).code === "ENOENT"
-        ) {
-          throw new Error(`Working directory does not exist: ${normalized.cwd}`, { cause: error });
-        }
-        if (error instanceof Error) {
-          throw error;
-        }
-        throw new Error(`Failed to access working directory: ${normalized.cwd}`, { cause: error });
+      // Only a session that will run in the directory needs it to still be there. Reading
+      // an archived agent's history runs nothing, and must survive the worktree it ran in
+      // being removed when its workspace was archived.
+      if (options.purpose !== "history") {
+        await assertUsableWorkingDirectory(normalized.cwd);
       }
     }
 
@@ -6185,22 +6273,15 @@ export class AgentManager {
 
   private applyProviderConfiguration(config: AgentSessionConfig): AgentSessionConfig {
     const definition = this.providerDefinitions.get(config.provider);
-    if (config.providerOptions !== undefined && !definition?.validateOptions) {
-      throw new Error(`Provider '${config.provider}' does not accept providerOptions`);
-    }
-    const validatedOptions = definition?.validateOptions?.(config.providerOptions);
-    const withOptions = definition?.applyOptions
-      ? definition.applyOptions(config, validatedOptions)
-      : config;
-    this.validateToolPolicyServers(withOptions);
-    if (withOptions.toolPolicy && !definition?.applyToolPolicy) {
+    this.validateToolPolicyServers(config);
+    if (config.toolPolicy && !definition?.applyToolPolicy) {
       throw new Error(
         `Provider '${config.provider}' cannot preapprove exact MCP tools for unattended execution`,
       );
     }
     return definition?.applyToolPolicy
-      ? definition.applyToolPolicy(withOptions, withOptions.toolPolicy)
-      : withOptions;
+      ? definition.applyToolPolicy(config, config.toolPolicy)
+      : config;
   }
 
   private validateToolPolicyServers(config: AgentSessionConfig): void {
@@ -6236,11 +6317,14 @@ export class AgentManager {
   private async prepareSessionConfig(
     config: AgentSessionConfig,
     agentId: string,
-    env?: Record<string, string>,
+    options: { env?: Record<string, string>; purpose?: AgentResumePurpose } = {},
   ): Promise<PreparedSessionConfig> {
     if (config.controllerExecutionId)
       throw new Error("Controller-managed execution requires trusted registration.");
-    const storedConfig = await this.normalizeConfig(stripInternalPaseoMcpServer(config), { env });
+    const storedConfig = await this.normalizeConfig(stripInternalPaseoMcpServer(config), {
+      env: options.env,
+      purpose: options.purpose,
+    });
     const paseoToolPolicy = this.paseoToolsEnabled
       ? this.resolvePaseoToolPolicy(storedConfig.provider)
       : { enabled: false };

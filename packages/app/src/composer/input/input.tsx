@@ -2160,9 +2160,10 @@ const styles = StyleSheet.create((theme: Theme) => ({
       xs: theme.spacing[2],
       md: theme.spacing[4],
     },
+    // The button row bleeds 6px horizontally, so match its corner inset at the bottom.
     paddingBottom: {
       xs: theme.spacing[2],
-      md: theme.spacing[4],
+      md: theme.spacing[3],
     },
     paddingHorizontal: {
       xs: theme.spacing[3],

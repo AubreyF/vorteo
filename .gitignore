@@ -117,3 +117,6 @@ app.json
 **/*.p12
 **/*.pfx
 **/*.key
+
+# Heap snapshots dumped by --heapsnapshot-near-heap-limit; keep them for debugging.
+*.heapsnapshot

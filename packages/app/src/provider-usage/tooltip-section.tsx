@@ -1,8 +1,18 @@
 import { Text, View } from "react-native";
+import { useSessionStore } from "@/stores/session-store";
+import { useProviderUsage } from "./use-provider-usage";
 import { StyleSheet } from "react-native-unistyles";
 import { ProviderUsageCard } from "./card";
 import { providerUsageCopy } from "./copy";
 import type { ProviderUsage, ProviderUsageView } from "./types";
+
+export function VortonAgentUsage({ serverId, agentId }: { serverId: string; agentId: string }) {
+  const provider = useSessionStore(
+    (state) => state.sessions[serverId]?.agents.get(agentId)?.provider,
+  );
+  const { view } = useProviderUsage(serverId, { refreshOnMount: true });
+  return <ProviderUsageTooltipSection view={view} activeProviderId={provider} />;
+}
 
 function matchProvider(
   providers: ProviderUsage[],

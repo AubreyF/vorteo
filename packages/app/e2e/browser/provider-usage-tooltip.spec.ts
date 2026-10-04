@@ -2,6 +2,7 @@ import { expect, test, type Page } from "../support/fixtures";
 import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 import { installProviderUsageFixture } from "../support/helpers/provider-usage";
+import { closeContextWindowSheet } from "../support/helpers/context-window";
 
 const MOBILE_VIEWPORT = { width: 390, height: 844 };
 
@@ -17,6 +18,14 @@ async function openMockAgent(page: Page) {
   await expect(page.getByTestId("context-window-meter")).toBeVisible({ timeout: 30_000 });
   return session;
 }
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const key = "@paseo:create-agent-preferences";
+    const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
+    localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: true }));
+  });
+});
 
 test.describe("provider usage tooltip", () => {
   test("fetches usage when the context tooltip opens and renders the active provider", async ({
@@ -47,10 +56,11 @@ test.describe("provider usage tooltip", () => {
     ]);
     const session = await openMockAgent(page);
     try {
-      expect(usageFixture.requestCount()).toBe(0);
+      // Vorteo loads account usage for the profile control before opening the meter.
+      expect(usageFixture.requestCount()).toBe(1);
 
-      await page.getByTestId("context-window-meter").hover();
-      await usageFixture.waitForRequestCount(1);
+      await page.getByTestId("context-window-meter").click();
+      await usageFixture.waitForRequestCount(2);
 
       await expect(page.getByText("Mock provider", { exact: true })).toBeVisible({
         timeout: 10_000,
@@ -66,6 +76,18 @@ test.describe("provider usage tooltip", () => {
   test("refreshes usage again each time the tooltip is shown", async ({ page }) => {
     test.setTimeout(180_000);
     const usageFixture = await installProviderUsageFixture(page, [
+      {
+        fetchedAt: "2026-06-19T00:00:00.000Z",
+        providers: [
+          {
+            providerId: "mock",
+            displayName: "Mock provider",
+            status: "available",
+            planLabel: "Test plan",
+            windows: [{ id: "session", label: "Session", usedPct: 41 }],
+          },
+        ],
+      },
       {
         fetchedAt: "2026-06-19T00:00:00.000Z",
         providers: [
@@ -95,16 +117,16 @@ test.describe("provider usage tooltip", () => {
     try {
       const meter = page.getByTestId("context-window-meter");
 
-      await meter.hover();
-      await usageFixture.waitForRequestCount(1);
+      await meter.click();
+      await usageFixture.waitForRequestCount(2);
       await expect(page.getByText("41%")).toBeVisible({ timeout: 10_000 });
 
-      await page.mouse.move(0, 0);
+      await closeContextWindowSheet(page);
       await expect(page.getByText("Mock provider", { exact: true })).toHaveCount(0);
 
-      await meter.hover();
-      await usageFixture.waitForRequestCount(2);
-      expect(usageFixture.requestCount()).toBe(2);
+      await meter.click();
+      await usageFixture.waitForRequestCount(3);
+      expect(usageFixture.requestCount()).toBe(3);
       await expect(page.getByText("64%")).toBeVisible();
     } finally {
       await session.cleanup();

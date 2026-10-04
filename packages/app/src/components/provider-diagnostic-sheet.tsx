@@ -22,10 +22,10 @@ import { useToast } from "@/contexts/toast-context";
 import { CODE_SURFACE_DATASET } from "@/styles/code-surface";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
+import { useTimeAgo } from "@/hooks/use-time-ago";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { settingsStyles } from "@/styles/settings";
 import { resolveProviderLabel } from "@/utils/provider-definitions";
-import { formatTimeAgo } from "@/utils/time";
 import { compareMatchScores, scoreTextFields } from "@getpaseo/protocol/search/text-match";
 import type { AgentModelDefinition, AgentProvider } from "@getpaseo/protocol/agent-types";
 import type { ProviderProfileModel } from "@getpaseo/protocol/provider-config";
@@ -418,7 +418,7 @@ interface ProviderModalBodyProps {
 }
 
 interface ProviderSheetFooterInput {
-  fetchedAtLabel: string | null;
+  fetchedAt: string | null;
   isCompact: boolean;
   modelsRefreshing: boolean;
   t: TFunction;
@@ -428,7 +428,7 @@ interface ProviderSheetFooterInput {
 }
 
 function renderProviderSheetFooter({
-  fetchedAtLabel,
+  fetchedAt,
   isCompact,
   modelsRefreshing,
   t,
@@ -439,16 +439,10 @@ function renderProviderSheetFooter({
   const contentStyle = isCompact ? sheetStyles.compactFooterContent : sheetStyles.footerContent;
   const actionsStyle = isCompact ? sheetStyles.compactFooterActions : sheetStyles.footerActions;
   const buttonStyle = isCompact ? sheetStyles.compactFooterButton : null;
-  const metaStyle = isCompact
-    ? [sheetStyles.footerMeta, sheetStyles.compactFooterMeta]
-    : sheetStyles.footerMeta;
-
   return (
     <View style={contentStyle}>
-      {fetchedAtLabel || !isCompact ? (
-        <Text style={metaStyle} numberOfLines={1}>
-          {fetchedAtLabel ? t("settings.providers.models.updated", { time: fetchedAtLabel }) : ""}
-        </Text>
+      {fetchedAt || !isCompact ? (
+        <ProviderUpdatedLabel fetchedAt={fetchedAt} isCompact={isCompact} />
       ) : null}
       <View style={actionsStyle}>
         <Button
@@ -483,6 +477,25 @@ function renderProviderSheetFooter({
         </Button>
       </View>
     </View>
+  );
+}
+
+function ProviderUpdatedLabel({
+  fetchedAt,
+  isCompact,
+}: {
+  fetchedAt: string | null;
+  isCompact: boolean;
+}) {
+  const { t } = useTranslation();
+  const label = useTimeAgo(fetchedAt ? new Date(fetchedAt) : null);
+  const style = isCompact
+    ? [sheetStyles.footerMeta, sheetStyles.compactFooterMeta]
+    : sheetStyles.footerMeta;
+  return (
+    <Text style={style} numberOfLines={1}>
+      {fetchedAt ? t("settings.providers.models.updated", { time: label }) : ""}
+    </Text>
   );
 }
 
@@ -623,18 +636,6 @@ export function ProviderDiagnosticSheet({
   });
   stableDiscoveredRef.current = nextDiscoveredCache;
 
-  const [clockTick, setClockTick] = useState(0);
-  useEffect(() => {
-    if (!visible) return;
-    const id = setInterval(() => setClockTick((tick) => tick + 1), 10_000);
-    return () => clearInterval(id);
-  }, [visible]);
-  const fetchedAtLabel = useMemo(() => {
-    if (!providerEntry?.fetchedAt) return null;
-    void clockTick;
-    return formatTimeAgo(new Date(providerEntry.fetchedAt));
-  }, [providerEntry?.fetchedAt, clockTick]);
-
   useEffect(() => {
     if (!visible) {
       setQuery("");
@@ -706,7 +707,7 @@ export function ProviderDiagnosticSheet({
           showingProfiles
             ? undefined
             : renderProviderSheetFooter({
-                fetchedAtLabel,
+                fetchedAt: providerEntry?.fetchedAt ?? null,
                 isCompact,
                 modelsRefreshing,
                 t,

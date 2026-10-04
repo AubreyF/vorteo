@@ -21,8 +21,6 @@ export function getHeaderTopPadding({ compact, vorton }: HeaderTopPaddingOptions
   return compact && !vorton ? HEADER_TOP_PADDING_MOBILE : 0;
 }
 
-// Max width for chat content (stream view, input area, new agent form)
-export const MAX_CONTENT_WIDTH = 820;
 export const COMPACT_FORM_FACTOR_WIDTH = 500;
 
 // Settings uses the canonical desktop list + detail layout. Its sidebar and

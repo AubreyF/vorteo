@@ -41,7 +41,7 @@ Both tools ship native iOS and Android apps.
 
 ## Providers
 
-Vorteo runs Claude Code, Codex, OpenCode, and Pi natively, plus 30+ more agents through the in-app catalog including GitHub Copilot, Cursor, Gemini CLI, and Amp. Vorteo speaks the [Agent Client Protocol](https://agentclientprotocol.com), so any ACP agent works. Custom providers run any CLI agent. See [all supported providers](/agents).
+Vorteo runs Claude Code, Codex, OpenCode, Pi, Antigravity, and Muse Code natively, plus 30+ more agents through the in-app catalog including GitHub Copilot, Cursor, Gemini CLI, and Amp. Vorteo speaks the [Agent Client Protocol](https://agentclientprotocol.com), so any ACP agent works. Custom providers run any CLI agent. See [all supported providers](/agents).
 
 Happy Coder runs Claude Code and Codex.
 
@@ -79,21 +79,21 @@ Both products support voice interaction. Vorteo can run speech-to-text and text-
 
 ## Comparison
 
-|                              | Vorteo                                                          | Happy Coder                 |
-| ---------------------------- | --------------------------------------------------------------- | --------------------------- |
-| License                      | Open source (Apache-2.0)                                        | Open source (MIT)           |
-| Desktop app                  | macOS, Linux, Windows                                           | macOS                       |
-| Native mobile                | iOS, Android                                                    | iOS, Android                |
-| Architecture                 | Daemon owns agent lifecycle                                     | Wraps the agent CLI         |
-| Providers                    | Claude Code, Codex, OpenCode, Pi + 30+ via ACP catalog + custom | Claude Code, Codex          |
-| Split workspace              | Yes                                                             | Yes                         |
-| In-app terminal              | Yes                                                             | Yes                         |
-| In-app browser / preview     | Yes                                                             | Yes                         |
-| GitHub workflow in app       | Commit, push, PR, checks, reviews, merge                        | —                           |
-| Managed Git worktrees        | Yes                                                             | Existing worktree paths     |
-| Per-worktree dev server URLs | Yes                                                             | —                           |
-| CLI                          | Run, `--host`, ls, send, schedule, loop                         | Launch and control sessions |
-| Application plugins          | Server code and native client components                        | No                          |
-| Voice                        | Local or configured cloud speech                                | Yes                         |
+|                              | Vorteo                                                                                  | Happy Coder                 |
+| ---------------------------- | --------------------------------------------------------------------------------------- | --------------------------- |
+| License                      | Open source (Apache-2.0)                                                                | Open source (MIT)           |
+| Desktop app                  | macOS, Linux, Windows                                                                   | macOS                       |
+| Native mobile                | iOS, Android                                                                            | iOS, Android                |
+| Architecture                 | Daemon owns agent lifecycle                                                             | Wraps the agent CLI         |
+| Providers                    | Claude Code, Codex, OpenCode, Pi, Antigravity, Muse Code + 30+ via ACP catalog + custom | Claude Code, Codex          |
+| Split workspace              | Yes                                                                                     | Yes                         |
+| In-app terminal              | Yes                                                                                     | Yes                         |
+| In-app browser / preview     | Yes                                                                                     | Yes                         |
+| GitHub workflow in app       | Commit, push, PR, checks, reviews, merge                                                | —                           |
+| Managed Git worktrees        | Yes                                                                                     | Existing worktree paths     |
+| Per-worktree dev server URLs | Yes                                                                                     | —                           |
+| CLI                          | Run, `--host`, ls, send, schedule, loop                                                 | Launch and control sessions |
+| Application plugins          | Server code and native client components                                                | No                          |
+| Voice                        | Local or configured cloud speech                                                        | Yes                         |
 
 See also: [Vorteo vs Conductor](/alternatives/conductor), [Vorteo vs Superset](/alternatives/superset), [Vorteo vs OpenChamber](/alternatives/openchamber).

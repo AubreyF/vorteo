@@ -6,6 +6,7 @@ import { useVortonMode } from "@/vorton-mode";
 import { router, usePathname } from "expo-router";
 import { useVortonCompatibilityCallout } from "./vorton-compatibility-callout";
 import {
+  CircleGauge,
   Search,
   FolderPlus,
   Plus,
@@ -50,9 +51,11 @@ import {
 } from "@/components/sidebar-resize-handle-layout";
 import { HostPicker } from "@/components/hosts/host-picker";
 import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/display-preferences/menu";
+import { SidebarSeparator } from "@/components/sidebar/sidebar-separator";
 import { SidebarNavRows } from "@/components/sidebar/sidebar-nav-rows";
 import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
+import { buttonControlHeight } from "@/components/ui/control-geometry";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -74,6 +77,7 @@ import type { SidebarWorkspaceGroup } from "@/components/sidebar/sidebar-labels"
 import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model";
 import { type SidebarGroupMode, useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { useHosts } from "@/runtime/host-runtime";
+import { PluginSidebarItem } from "@/plugins/sidebar-items";
 import { usePanelStore } from "@/stores/panel-store";
 import { useOwnsWindowChromeCorner, WindowChromeSafeArea } from "@/utils/desktop-window";
 import { useCloseAgentListGesture } from "@/mobile-panels/gestures";
@@ -85,6 +89,7 @@ import {
   buildSettingsRoute,
 } from "@/utils/host-routes";
 import { openHostOverview } from "@/navigation/settings-navigation";
+import { UsageSidebarItem, useHasUsageSummary, useOpenUsageScreen } from "@/usage";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
@@ -121,10 +126,11 @@ interface SidebarSharedProps {
 interface SidebarLabels {
   addProject: string;
   hosts: string;
-  importSession: string;
   settings: string;
   searchHosts: string;
+  usage: string;
   closeSidebar: string;
+  importSession: string;
 }
 
 interface MobileSidebarProps extends SidebarSharedProps {
@@ -229,9 +235,10 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
     (): SidebarLabels => ({
       addProject: t("sidebar.actions.addProject"),
       hosts: t("sidebar.actions.hosts"),
-      importSession: t("importSession.title"),
       settings: t("sidebar.actions.settings"),
       searchHosts: t("sidebar.host.searchPlaceholder"),
+      usage: t(builtinSidebarNavLabelKey("usage")),
+      importSession: t("sidebar.actions.importSession"),
       closeSidebar: t("sidebar.actions.closeSidebar"),
     }),
     [t],
@@ -310,7 +317,7 @@ function FooterIconButton({
   testID,
   label,
   icon: Icon,
-  iconSize,
+  iconSizeAdjustment = 0,
   shortcutKeys,
   theme,
 }: {
@@ -320,13 +327,17 @@ function FooterIconButton({
   testID: string;
   label: string;
   icon: typeof FolderPlus;
-  iconSize?: number;
+  /** Only for a glyph that reads larger than the others at the same size. */
+  iconSizeAdjustment?: number;
   shortcutKeys?: ReturnType<typeof useShortcutKeys>;
   theme: SidebarTheme;
   buttonRef?: RefObject<View | null>;
 }) {
   const touch = useVortonTouch();
   const accessibilityState = useMemo(() => ({ selected: active }), [active]);
+  const isCompact = useIsCompactFormFactor();
+  const iconSize = isCompact ? theme.iconSize.xl : theme.iconSize.md;
+
   return (
     <Tooltip delayDuration={300}>
       <TooltipTrigger asChild>
@@ -334,7 +345,7 @@ function FooterIconButton({
           ref={buttonRef}
           disabled={disabled}
           style={[
-            styles.footerIconButton,
+            styles.footerIconButton(isCompact),
             touch && styles.touchIconButton,
             active && styles.activeIconButton,
           ]}
@@ -349,13 +360,13 @@ function FooterIconButton({
         >
           {({ hovered }) => (
             <Icon
-              size={iconSize ?? theme.iconSize.md}
+              size={iconSize + iconSizeAdjustment}
               color={hovered || active ? theme.colors.foreground : theme.colors.foregroundMuted}
             />
           )}
         </Pressable>
       </TooltipTrigger>
-      <TooltipContent side="top" align="center" offset={8}>
+      <TooltipContent side="top" align="center" offset={8} testID={`${testID}-tooltip`}>
         <IconTooltipContent label={label} shortcutKeys={shortcutKeys} />
       </TooltipContent>
     </Tooltip>
@@ -420,7 +431,7 @@ function SidebarHostPicker({
           testID="sidebar-hosts-trigger"
           label={label}
           icon={Server}
-          iconSize={theme.iconSize.sm}
+          iconSizeAdjustment={-1}
           theme={theme}
         />
       </View>
@@ -444,29 +455,30 @@ function IconTooltipContent({
 }
 
 function SidebarToolbar({
-  onBeforeNavigate,
+  handleImportSession,
   theme,
   handleOpenProject,
-  handleImportSession,
   handleSettings,
   labels,
   handleAddHost,
   handleOpenHostSettings,
+  onBeforeNavigate,
 }: {
-  onBeforeNavigate?: () => void;
+  handleImportSession: () => void;
   theme: SidebarTheme;
   handleOpenProject: () => void;
-  handleImportSession: () => void;
   handleSettings: () => void;
   labels: {
     addProject: string;
     hosts: string;
-    importSession: string;
     settings: string;
     searchHosts: string;
+    usage: string;
+    importSession: string;
   };
   handleAddHost: () => void;
   handleOpenHostSettings: (serverId: string) => void;
+  onBeforeNavigate?: () => void;
 }) {
   const handleNewWorkspace = useOpenNewWorkspace(onBeforeNavigate);
   const setCommandCenterOpen = useKeyboardShortcutsStore((state) => state.setCommandCenterOpen);
@@ -481,7 +493,7 @@ function SidebarToolbar({
   const [helpOpen, setHelpOpen] = useState(false);
   const [displayOpen, setDisplayOpen] = useState(false);
   const vorton = useVortonMode();
-  const { items } = useSidebarNavItems();
+  const { items } = useSidebarNavItems("header");
   const pathname = usePathname();
   const touch = useVortonTouch();
   const navigationItems = items.filter(
@@ -512,7 +524,9 @@ function SidebarToolbar({
     }),
     [theme.iconSize.sm, theme.colors.foregroundMuted],
   );
+  const openUsageScreen = useOpenUsageScreen();
 
+  // One line of icons: Add project, Usage, Hosts, then Help and Settings at the end.
   return (
     <View style={[styles.sidebarFooter, vorton && styles.sidebarToolbar]} testID="sidebar-toolbar">
       {!vorton && <View style={styles.footerGap} />}
@@ -599,7 +613,7 @@ function SidebarToolbar({
             />
             <DropdownMenu>
               <DropdownMenuTrigger
-                style={[styles.footerIconButton, touch && styles.touchIconButton]}
+                style={[styles.footerIconButton(false), touch && styles.touchIconButton]}
                 accessibilityLabel="More sidebar actions"
                 accessibilityRole="button"
                 testID="sidebar-footer-overflow"
@@ -613,6 +627,9 @@ function SidebarToolbar({
                   leading={menuIcons.settings}
                 >
                   {labels.settings}
+                </DropdownMenuItem>
+                <DropdownMenuItem testID="sidebar-usage-icon" onSelect={openUsageScreen}>
+                  {labels.usage}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   testID="sidebar-add-project"
@@ -648,6 +665,108 @@ function SidebarToolbar({
         )}
       </View>
     </View>
+  );
+}
+
+/**
+ * The footer rows in the user's `sidebarFooterItems` order: the Usage item and plugin rows. The
+ * Usage item is left out while it has no summary to show.
+ */
+function SidebarFooter({
+  theme,
+  handleOpenProject,
+  handleSettings,
+  labels,
+  handleAddHost,
+  handleOpenHostSettings,
+  onBeforeNavigate,
+}: {
+  theme: SidebarTheme;
+  handleOpenProject: () => void;
+  handleSettings: () => void;
+  labels: {
+    addProject: string;
+    hosts: string;
+    settings: string;
+    searchHosts: string;
+    usage: string;
+  };
+  handleAddHost: () => void;
+  handleOpenHostSettings: (serverId: string) => void;
+  onBeforeNavigate?: () => void;
+}) {
+  const newAgentKeys = useShortcutKeys("new-agent");
+  const settingsKeys = useShortcutKeys("toggle-settings");
+  const openUsageScreen = useOpenUsageScreen();
+
+  // One line of icons: Add project, Usage, Hosts, then Help and Settings at the end.
+  return (
+    <View style={styles.footerContainer} testID="sidebar-footer">
+      <SidebarFooterRows onBeforeNavigate={onBeforeNavigate} />
+      <View style={styles.sidebarFooter} testID="sidebar-footer-bottom-line">
+        <FooterIconButton
+          onPress={handleOpenProject}
+          testID="sidebar-add-project"
+          label={labels.addProject}
+          icon={FolderPlus}
+          shortcutKeys={newAgentKeys}
+          theme={theme}
+        />
+        <FooterIconButton
+          onPress={openUsageScreen}
+          testID="sidebar-usage-icon"
+          label={labels.usage}
+          icon={CircleGauge}
+          theme={theme}
+        />
+        <SidebarHostPicker
+          theme={theme}
+          label={labels.hosts}
+          onAddHost={handleAddHost}
+          onOpenHostSettings={handleOpenHostSettings}
+        />
+        <View style={styles.footerSpacer} />
+        <SidebarHelpMenu />
+        <FooterIconButton
+          onPress={handleSettings}
+          testID="sidebar-settings"
+          label={labels.settings}
+          icon={Settings}
+          shortcutKeys={settingsKeys}
+          theme={theme}
+        />
+      </View>
+    </View>
+  );
+}
+
+function SidebarFooterRows({ onBeforeNavigate }: { onBeforeNavigate?: () => void }) {
+  const { items } = useSidebarNavItems("footer");
+  const hasUsageSummary = useHasUsageSummary();
+  const rowsRef = useRef<View | null>(null);
+  const visibleItems = items.filter(
+    (item) => item.visible && (item.kind === "plugin" || hasUsageSummary),
+  );
+  if (visibleItems.length === 0) return null;
+  return (
+    <>
+      <View ref={rowsRef} collapsable={false} style={styles.footerRows}>
+        {visibleItems.map((item) =>
+          item.kind === "plugin" ? (
+            <PluginSidebarItem
+              key={item.key}
+              group={item.group}
+              section="footer"
+              fallbackAnchorRef={rowsRef}
+              onBeforeNavigate={onBeforeNavigate}
+            />
+          ) : (
+            <UsageSidebarItem key={item.key} />
+          ),
+        )}
+      </View>
+      <SidebarSeparator testID="sidebar-footer-separator" />
+    </>
   );
 }
 
@@ -706,7 +825,11 @@ function MobileSidebar({
         onBeforeNavigate={closeSidebar}
       />
       {!vorton && (
-        <WindowChromeSafeArea placement="inline" style={styles.mobileCloseButtonRow}>
+        <WindowChromeSafeArea
+          placement="inline"
+          pointerEvents="box-none"
+          style={styles.mobileCloseButtonRow}
+        >
           <Pressable
             style={styles.mobileCloseButton}
             onPress={closeSidebar}
@@ -781,7 +904,19 @@ function MobileSidebar({
           />
         )}
 
-        {!vorton && toolbar}
+        {vorton ? (
+          <SidebarFooterRows onBeforeNavigate={closeSidebar} />
+        ) : (
+          <SidebarFooter
+            theme={theme}
+            handleOpenProject={handleOpenProject}
+            handleSettings={handleSettings}
+            labels={labels}
+            handleAddHost={handleAddHost}
+            handleOpenHostSettings={handleOpenHostSettings}
+            onBeforeNavigate={closeSidebar}
+          />
+        )}
       </View>
     </MobilePanelOverlay>
   );
@@ -968,7 +1103,18 @@ function DesktopSidebar({
 
         <SidebarCalloutSlot />
 
-        {!vorton && toolbar}
+        {vorton ? (
+          <SidebarFooterRows />
+        ) : (
+          <SidebarFooter
+            theme={theme}
+            handleOpenProject={handleOpenProject}
+            handleSettings={handleSettings}
+            labels={labels}
+            handleAddHost={handleAddHost}
+            handleOpenHostSettings={handleOpenHostSettings}
+          />
+        )}
 
         <SidebarResizeHandle
           edge="right"
@@ -1062,7 +1208,6 @@ const styles = StyleSheet.create((theme) => ({
     right: 0,
     zIndex: 2,
     alignItems: "flex-end",
-    pointerEvents: "box-none",
   },
   mobileCloseButton: {
     // The 16px X paints farther inside its 32px hit target than the 14px Settings2 glyph.
@@ -1110,12 +1255,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
   },
-  sidebarFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[2],
-    paddingVertical: theme.spacing[3],
+  footerContainer: {
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
   },
@@ -1182,30 +1322,32 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
     paddingVertical: theme.spacing[1.5],
+  },
+  // Buttons sit edge to edge; their own inset spaces the glyphs.
+  sidebarFooter: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: theme.spacing[2],
-    borderRadius: theme.borderRadius.lg,
+    paddingVertical: theme.spacing[1.5],
   },
-  footerAddProjectButtonHovered: {
-    backgroundColor: theme.colors.surfaceSidebarHover,
+  // Pushes Help and Settings to the end of the icon line.
+  footerSpacer: {
+    flex: 1,
   },
-  footerAddProjectLabel: {
-    minWidth: 0,
-    flexShrink: 1,
-    fontSize: theme.fontSize.base,
-    fontWeight: theme.fontWeight.normal,
-    color: theme.colors.foregroundMuted,
+  // Usage and plugin rows sit above the footer's icon line, spaced like the header nav rows.
+  footerRows: {
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: theme.spacing[1.5],
+    gap: 2,
   },
-  footerAddProjectLabelHovered: {
-    color: theme.colors.foreground,
-  },
-  footerIconButton: {
-    width: 28,
-    height: 28,
+  footerIconButton: (isCompact: boolean) => ({
+    width: isCompact ? buttonControlHeight.md : buttonControlHeight.xs,
+    height: isCompact ? buttonControlHeight.md : buttonControlHeight.xs,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: theme.spacing[1],
     paddingHorizontal: theme.spacing[1],
-  },
+  }),
   touchIconButton: { width: 44, height: 44 },
   activeIconButton: {
     backgroundColor: theme.colors.interactionHighlight,

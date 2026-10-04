@@ -16,7 +16,8 @@ import { openExternalUrl } from "@/utils/open-external-url";
 import { EditingTextInput as TextInput } from "@/components/ui/text-input";
 import { AddCodexAccountButton, AddClaudeAccountButton } from "@/provider-usage/add-account";
 import { useVortonMode } from "@/vorton-mode";
-import { getProviderIcon } from "@/components/provider-icons";
+import { ClaudeIcon as ClaudeMark } from "@/components/icons/claude-icon";
+import { CodexIcon as CodexMark } from "@/components/icons/codex-icon";
 
 interface ProviderCatalogListProps {
   serverId: string;
@@ -31,8 +32,8 @@ const PROVIDER_REMOTE_ICON_SIZE = 24;
 const ThemedPackagePlus = withUnistyles(PackagePlus);
 const ThemedSvgXml = withUnistyles(SvgXml);
 const ThemedSearch = withUnistyles(Search);
-const ClaudeIcon = withUnistyles(getProviderIcon("claude"));
-const CodexIcon = withUnistyles(getProviderIcon("codex"));
+const ClaudeIcon = withUnistyles(ClaudeMark);
+const CodexIcon = withUnistyles(CodexMark);
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedTextInput = withUnistyles(TextInput, (theme) => ({
   placeholderTextColor: theme.colors.foregroundMuted,

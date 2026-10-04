@@ -68,7 +68,7 @@ export function buildConfigOverrides(record: StoredAgentRecord): Partial<AgentSe
   return stripInternalPaseoMcpServer({
     provider: record.provider,
     cwd: record.cwd,
-    modeId: config.modeId ?? undefined,
+    modeId: record.lastModeId ?? config.modeId ?? undefined,
     model: config.model ?? undefined,
     thinkingOptionId: config.thinkingOptionId ?? undefined,
     featureValues: config.featureValues ?? undefined,

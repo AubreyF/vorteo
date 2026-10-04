@@ -38,6 +38,7 @@ import { gotoAppShell, openSettings, selectModel } from "../support/helpers/app"
 import { observeTimelineSubscriptions } from "../support/helpers/timeline-delivery";
 import { rememberTimelineRequestCounts } from "../support/helpers/timeline-resume";
 import {
+  recordPanelToasts,
   switchWorkspaceViaSidebar,
   waitForWorkspaceInSidebar,
   workspaceDeckEntryLocator,
@@ -1165,8 +1166,11 @@ test.describe("Agent message submission", () => {
     draftCreateScenario,
   }) => {
     test.setTimeout(120_000);
+    const toasts = await recordPanelToasts(page);
     const pending = await beginDraftCreateSubmission(page, draftCreateScenario);
     await completeDraftCreateSubmission(page, draftCreateScenario, pending);
+    // A chat this client just created is current by construction; it is never out of date.
+    await toasts.expectNeverShown("agent-updating-toast");
   });
 
   test("restores a rejected submission and accepts its retry", async ({
@@ -1238,6 +1242,7 @@ test.describe("Agent message submission", () => {
       await gate.waitForHeldServerMessage("send_agent_message_response");
       await expect(page.getByText("hello", { exact: true })).toHaveCount(1);
       await expect(page.getByText(/^Worked for/)).toHaveCount(0);
+      await expectAgentReadyToInterrupt(page);
       gate.releaseHeldServerMessage("send_agent_message_response");
       await expect(page.getByText("hello", { exact: true })).toHaveCount(1);
     } finally {

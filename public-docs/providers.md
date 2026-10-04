@@ -8,7 +8,7 @@ category: Providers
 
 # Providers
 
-Vorteo doesn't ship its own coding agent. It launches and supervises **existing CLIs you've already installed and authenticated**, Claude Code, Codex, OpenCode, Cursor, Gemini, and the rest. Your subscriptions, your config, your skills, your MCP servers all stay intact. Vorteo just gives you a UI, a CLI, a relay, and orchestration on top.
+Vorteo doesn't ship its own coding agent. It launches and supervises **existing CLIs you've already installed and authenticated**, Claude Code, Codex, OpenCode, Antigravity, Muse Code, Cursor, Gemini, and the rest. Your subscriptions, your config, your skills, your MCP servers all stay intact. Vorteo just gives you a UI, a CLI, a relay, and orchestration on top.
 
 ## Mental model
 
@@ -16,7 +16,7 @@ A provider is the contract between Vorteo and one external agent CLI: how to lau
 
 ## Two tiers
 
-- **Native support**, Vorteo ships a bundled adapter for the major agents (Claude Code, Codex, OpenCode, pi). Auto-discovered when the underlying CLI is installed, with mode metadata and voice support where applicable.
+- **Native support**, Vorteo ships a bundled adapter for the major agents (Claude Code, Codex, OpenCode, Pi, [Antigravity](/docs/supported-providers#antigravity), [Muse Code](/docs/muse-code)). Auto-discovered when the underlying CLI is installed, with mode metadata and voice support where applicable.
 - **ACP catalog**, any agent speaking the [Agent Client Protocol](https://agentclientprotocol.com) is supported through a generic adapter. Vorteo ships a curated catalog of one-click installs (Cursor, Gemini, GitHub Copilot, Hermes, Kimi, Qwen Code, and 25+ more), and you can add any other ACP agent yourself.
 
 Either way, **you install the underlying CLI**. Vorteo runs it.

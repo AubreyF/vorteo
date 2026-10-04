@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
@@ -11,9 +11,13 @@ import {
   serializeConnectionUri,
   serializeConnectionUriForStorage,
 } from "@/utils/daemon-endpoints";
-import { DaemonConnectionTestError } from "@/utils/test-daemon-connection";
+import {
+  DaemonConnectionTestError,
+  getConnectionAuthFailureReason,
+} from "@/utils/test-daemon-connection";
 import { AdaptiveModalSheet, AdaptiveTextInput, type SheetHeader } from "./adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
+import { PairingTargetTracker } from "./pair-link-credentials";
 
 import { hostedConnectionDefaults } from "@/utils/hosted-connection-defaults";
 import { isWeb } from "@/constants/platform";
@@ -255,8 +259,8 @@ function buildConnectionFailureCopy(input: {
   const rawLower = raw?.toLowerCase() ?? "";
   let detail: string | null = null;
 
-  if (raw === "Incorrect password" || raw === "Password required") {
-    detail = raw;
+  if (getConnectionAuthFailureReason(error)) {
+    detail = error instanceof Error ? error.message : raw;
   } else if (rawLower.includes("timed out")) {
     detail = labels.timedOut;
   } else if (
@@ -295,10 +299,23 @@ export interface AddHostModalProps {
 }
 
 export function AddHostModal({ visible, onClose, onCancel, onSaved }: AddHostModalProps) {
+  return (
+    <AddHostModalContent
+      key={String(visible)}
+      visible={visible}
+      onClose={onClose}
+      onCancel={onCancel}
+      onSaved={onSaved}
+    />
+  );
+}
+
+function AddHostModalContent({ visible, onClose, onCancel, onSaved }: AddHostModalProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const daemons = useHosts();
-  const { probeAndUpsertDirectConnection } = useHostMutations();
+  const { probeAndUpsertDirectConnection, beginLinkPairing } = useHostMutations();
+  const [linkPairing] = useState(() => beginLinkPairing());
   const isMobile = useIsCompactFormFactor();
 
   const isVortonMode = useVortonMode();
@@ -336,6 +353,7 @@ export function AddHostModal({ visible, onClose, onCancel, onSaved }: AddHostMod
   useEffect(() => {
     if (visible) clearInput();
   }, [visible, clearInput]);
+  const advancedTarget = useRef(new PairingTargetTracker("", true));
 
   const connectIcon = useMemo(
     () => <Link2 size={16} color={theme.colors.accentForeground} />,
@@ -370,22 +388,54 @@ export function AddHostModal({ visible, onClose, onCancel, onSaved }: AddHostMod
   );
   const header = useMemo<SheetHeader>(() => ({ title: t("pairing.direct.title") }), [t]);
 
+  // Each open mounts a fresh form (see AddHostModal), so closing needs no reset.
   const handleClose = useCallback(() => {
     if (isSaving) return;
-    clearInput();
-    setErrorMessage("");
     onClose();
-  }, [isSaving, clearInput, onClose]);
+  }, [isSaving, onClose]);
 
   const handleCancel = useCallback(() => {
     if (isSaving) return;
-    clearInput();
-    setErrorMessage("");
     (onCancel ?? onClose)();
-  }, [isSaving, clearInput, onCancel, onClose]);
+  }, [isSaving, onCancel, onClose]);
+
+  const handleSaveRelay = useCallback(
+    async (relayUri: string) => {
+      try {
+        setIsSaving(true);
+        setErrorMessage("");
+        const result = await linkPairing.submit(relayUri, password || undefined);
+        if (result.status === "cancelled") return;
+        const { profile, serverId, hostname } = result;
+        const isNewHost = !daemons.some((daemon) => daemon.serverId === serverId);
+        onSaved?.({ profile, serverId, hostname, isNewHost });
+        handleClose();
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : directConnectionLabels.invalidConnection,
+        );
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [
+      daemons,
+      directConnectionLabels.invalidConnection,
+      handleClose,
+      linkPairing,
+      onSaved,
+      password,
+    ],
+  );
 
   const handleSave = useCallback(async () => {
     if (isSaving) return;
+
+    const relayUri = isAdvancedOpen ? advancedUri.trim() : "";
+    if (relayUri.startsWith("relay://") || relayUri.includes("#connect=")) {
+      await handleSaveRelay(relayUri);
+      return;
+    }
 
     let connection: PreparedDirectConnection;
     try {
@@ -441,10 +491,12 @@ export function AddHostModal({ visible, onClose, onCancel, onSaved }: AddHostMod
       setIsSaving(false);
     }
   }, [
+    advancedUri,
     daemons,
     directConnectionLabels,
     handleClose,
     host,
+    isAdvancedOpen,
     isMobile,
     isSaving,
     onSaved,
@@ -452,6 +504,7 @@ export function AddHostModal({ visible, onClose, onCancel, onSaved }: AddHostMod
     port,
     probeAndUpsertDirectConnection,
     t,
+    handleSaveRelay,
     useTls,
   ]);
 
@@ -462,6 +515,15 @@ export function AddHostModal({ visible, onClose, onCancel, onSaved }: AddHostMod
   const handleSavePress = useCallback(() => {
     void handleSave();
   }, [handleSave]);
+
+  const handleChangeAdvancedUri = useCallback((next: string) => {
+    if (advancedTarget.current.changeUrl(next)) {
+      setPassword("");
+      bumpInputResetKey();
+      setErrorMessage("");
+    }
+    setAdvancedUri(next);
+  }, []);
 
   const handleToggleUseTls = useCallback(() => {
     if (isSaving) return;
@@ -474,6 +536,7 @@ export function AddHostModal({ visible, onClose, onCancel, onSaved }: AddHostMod
 
   const handleToggleAdvanced = useCallback(() => {
     if (!isAdvancedOpen) {
+      advancedTarget.current = new PairingTargetTracker("", true);
       try {
         setAdvancedUri(
           buildConnectionUriFromDraft({ host, port, useTls, password }, directConnectionLabels),
@@ -631,7 +694,7 @@ export function AddHostModal({ visible, onClose, onCancel, onSaved }: AddHostMod
             accessibilityLabel={t("pairing.direct.fields.connectionUri")}
             initialValue={advancedUri}
             resetKey={`direct-host-uri-${inputResetKey}`}
-            onChangeText={setAdvancedUri}
+            onChangeText={handleChangeAdvancedUri}
             placeholder="tcp://localhost:6767?ssl=true"
             placeholderTextColor={theme.colors.foregroundMuted}
             style={styles.input}
