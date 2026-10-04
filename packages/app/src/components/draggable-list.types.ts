@@ -20,7 +20,20 @@ export interface DraggableRenderItemInfo<T> {
   dragHandleProps?: DraggableListDragHandleProps;
 }
 
+export interface DraggableListDropTarget {
+  id: string;
+  element: HTMLElement;
+}
+
+export interface DraggableListExternalDrop<T> {
+  targets: readonly DraggableListDropTarget[];
+  onDrop: (item: T, targetId: string) => void;
+  onTargetChange: (targetId: string | null) => void;
+}
+
 export interface DraggableListProps<T> {
+  /** Web and Electron: registered targets outside this sortable list. */
+  externalDrop?: DraggableListExternalDrop<T>;
   data: T[];
   keyExtractor: (item: T, index: number) => string;
   renderItem: (info: DraggableRenderItemInfo<T>) => ReactElement;
