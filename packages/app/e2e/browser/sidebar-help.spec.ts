@@ -197,3 +197,63 @@ async function tapHelpNearTargetEdge(page: Page): Promise<void> {
   const button = page.getByRole("button", { name: "Help and support", exact: true });
   await button.tap({ position: { x: 40, y: 40 } });
 }
+
+test("shows bundled Vorteo notes alongside Paseo and preserves Standard mode", async ({ page }) => {
+  await serveChangelog(page, ["## 9.1.0 - 2026-03-04", "", "- Added an upstream feature"]);
+  await gotoAppShell(page);
+  await openSettings(page);
+  await page
+    .getByTestId("settings-vorton-mode")
+    .getByRole("button", { name: "Vorteo mode", exact: true })
+    .click();
+  await page.getByTestId("settings-whats-new").click();
+  const sheet = page.getByTestId("changelog-sheet");
+  await expect(sheet).toBeVisible();
+  const custom = sheet.getByTestId("changelog-vorteo");
+  await expect(
+    custom.getByText("Added Vorteo release notes alongside Paseo's upstream notes in What's new"),
+  ).toBeVisible();
+  await expect(custom.getByText("Installed", { exact: true })).toBeVisible();
+  await expect(
+    sheet.getByTestId("changelog-paseo").getByText("Added an upstream feature"),
+  ).toBeVisible();
+  await custom.getByTestId("changelog-show-more").click();
+  await expect(
+    custom.getByText(
+      "Added multiple isolated Codex and Claude accounts with account switching per task",
+    ),
+  ).toBeVisible();
+  await closeSheet(page, "changelog-sheet");
+  await page
+    .getByTestId("settings-vorton-mode")
+    .getByRole("button", { name: "Standard mode", exact: true })
+    .click();
+  await page.getByTestId("settings-whats-new").click();
+  await expect(sheet.getByTestId("changelog-vorteo")).toHaveCount(0);
+  await expect(sheet.getByText("Added an upstream feature")).toBeVisible();
+});
+
+test("keeps Vorteo notes readable when Paseo fails and retries upstream", async ({ page }) => {
+  const url = "https://raw.githubusercontent.com/getpaseo/paseo/main/CHANGELOG.md";
+  await page.route(url, (route) => route.fulfill({ status: 503, body: "Unavailable" }));
+  await gotoAppShell(page);
+  await openSettings(page);
+  await page
+    .getByTestId("settings-vorton-mode")
+    .getByRole("button", { name: "Vorteo mode", exact: true })
+    .click();
+  await page.getByTestId("settings-whats-new").click();
+  const sheet = page.getByTestId("changelog-sheet");
+  await expect(sheet).toBeVisible();
+  await expect(
+    sheet.getByTestId("changelog-vorteo").getByText("Installed", { exact: true }),
+  ).toBeVisible();
+  await expect(sheet.getByTestId("changelog-paseo").getByTestId("changelog-error")).toBeVisible();
+  await page.unroute(url);
+  await serveChangelog(page, ["## 9.1.0 - 2026-03-04", "", "- Upstream recovered"]);
+  await sheet.getByTestId("changelog-retry").click();
+  await expect(sheet.getByText("Upstream recovered")).toBeVisible();
+  await expect(
+    sheet.getByTestId("changelog-vorteo").getByText("Installed", { exact: true }),
+  ).toBeVisible();
+});

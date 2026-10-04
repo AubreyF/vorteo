@@ -1,3 +1,6 @@
+import pino from "pino";
+import { setTimeout as delay } from "node:timers/promises";
+import { startProfileSynchronization } from "./runtime.js";
 import { resolveProfileLaunch } from "../../agent/create-agent/profile.js";
 import { sharedWorkflowProfileId } from "@getpaseo/protocol/provider-preferences";
 import { materializeSharedProfiles } from "@getpaseo/protocol/provider-preferences";
@@ -306,3 +309,25 @@ test("old shared references preserve their environment's behavior while new glob
   );
   expect(selected.profileLaunch?.profile.model).toBe("model-a");
 });
+
+test("profile polling synchronizes immediately, repeats, and stops on cleanup", async () => {
+  const { service, container, host } = fixture();
+  const stop = startProfileSynchronization(service, pino({ level: "silent" }));
+  try {
+    await expect.poll(() => service.inspect()).not.toBeNull();
+    container.edit("name", "Polled review");
+    await expect
+      .poll(() => host.config.sharedProviderPreferences?.providers.codex.workflows[0].name, {
+        timeout: 7000,
+      })
+      .toBe("Polled review");
+    stop();
+    container.edit("name", "After cleanup");
+    await delay(5200);
+    expect(host.config.sharedProviderPreferences?.providers.codex.workflows[0].name).toBe(
+      "Polled review",
+    );
+  } finally {
+    stop();
+  }
+}, 15000);

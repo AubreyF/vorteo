@@ -1,3 +1,5 @@
+import Constants from "expo-constants";
+import { useVortonMode } from "@/vorton-mode";
 import { memo, useCallback, useMemo } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { ExternalLink, Gift } from "lucide-react-native";
@@ -20,10 +22,16 @@ import { openExternalUrl } from "@/utils/open-external-url";
 import { useChangelog, type ChangelogState } from "./changelog-source";
 import { useRevealedReleases } from "./use-revealed-releases";
 import {
+  parseChangelog,
   formatChangelogDate,
   type ChangelogRelease,
   type ChangelogSection,
 } from "./parse-changelog";
+
+const customMarkdown: unknown = Constants.expoConfig?.extra?.vorteoChangelog;
+const customReleases = parseChangelog(typeof customMarkdown === "string" ? customMarkdown : "");
+
+const customState: ChangelogState = { status: "ready", releases: customReleases };
 
 const WEBSITE_CHANGELOG_URL = "https://paseo.sh/changelog";
 
@@ -42,7 +50,9 @@ interface ChangelogSheetProps {
 
 export function ChangelogSheet({ visible, onClose }: ChangelogSheetProps) {
   const { t } = useTranslation();
+  const vorteoMode = useVortonMode();
   const { state, reload } = useChangelog(visible);
+  const custom = useRevealedReleases(visible, 1);
   const { count, showMore } = useRevealedReleases(visible && state.status === "ready");
 
   const handleOpenWebsite = useCallback(() => {
@@ -82,7 +92,28 @@ export function ChangelogSheet({ visible, onClose }: ChangelogSheetProps) {
       desktopHeight="85%"
       testID="changelog-sheet"
     >
-      <ChangelogBody state={state} shownReleases={count} onShowMore={showMore} onRetry={reload} />
+      <View style={styles.releaseList}>
+        {vorteoMode ? (
+          <View style={styles.releaseList} testID="changelog-vorteo">
+            <Text style={styles.sourceTitle}>Vorteo</Text>
+            <ChangelogBody
+              state={customState}
+              shownReleases={custom.count}
+              onShowMore={custom.showMore}
+              onRetry={reload}
+            />
+          </View>
+        ) : null}
+        <View style={styles.releaseList} testID="changelog-paseo">
+          {vorteoMode ? <Text style={styles.sourceTitle}>Paseo</Text> : null}
+          <ChangelogBody
+            state={state}
+            shownReleases={count}
+            onShowMore={showMore}
+            onRetry={reload}
+          />
+        </View>
+      </View>
     </AdaptiveModalSheet>
   );
 }
@@ -192,6 +223,11 @@ function keyChangelogSections(
 }
 
 const styles = StyleSheet.create((theme) => ({
+  sourceTitle: {
+    fontSize: theme.fontSize.lg,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foreground,
+  },
   centered: {
     flex: 1,
     minHeight: 160,

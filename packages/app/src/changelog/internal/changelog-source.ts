@@ -19,7 +19,7 @@ export interface Changelog {
 }
 
 /**
- * Reads the changelog from the repository the app was built from.
+ * Reads the latest upstream Paseo changelog independently of bundled Vorteo notes.
  *
  * The daemon is not involved: the changelog describes the app, a phone reaching
  * a relay already has internet, and going through a host would make the notes

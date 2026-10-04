@@ -2,10 +2,15 @@ import { useCallback, useMemo, useReducer } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { toErrorMessage } from "@/utils/error-messages";
 
 interface HandoffModalProps {
+  title?: string;
+  description?: string;
+  warning?: string;
+  confirmLabel?: string;
   name: string;
   initialContext: string;
   onClose: () => void;
@@ -26,6 +31,10 @@ function reduce(state: FormState, action: Action): FormState {
   return { ...state, pending: false, error: action.error };
 }
 export function ProfileHandoffModal({
+  title,
+  description,
+  warning,
+  confirmLabel = "Start successor",
   name,
   initialContext,
   onClose,
@@ -36,7 +45,7 @@ export function ProfileHandoffModal({
     pending: false,
     error: null,
   });
-  const header = useMemo(() => ({ title: `Continue with ${name}` }), [name]);
+  const header = useMemo(() => ({ title: title ?? `Continue with ${name}` }), [title, name]);
   const edit = useCallback((context: string) => dispatch({ type: "edit", context }), []);
   const close = useCallback(() => {
     if (!state.pending) onClose();
@@ -58,12 +67,15 @@ export function ProfileHandoffModal({
     >
       <View style={styles.body}>
         <Text style={styles.text}>
-          Review and edit the handoff before starting a new task. The original stays unchanged. Stop
-          its active workers first. The new chat uses the selected profile’s permissions.
+          {description ??
+            "Review and edit the handoff before starting a new task. The original stays unchanged. Stop its active workers first. The new chat uses the selected profile's permissions."}
         </Text>
+        {warning ? (
+          <Alert variant="warning" title="Incomplete handoff" description={warning} />
+        ) : null}
         <Text style={styles.text}>
-          This partial record excludes attachments and tool results. Add important decisions,
-          changed files and test results here.
+          This partial record includes at most 30 recent text messages and excludes attachments and
+          tool results. Add important decisions, changed files and test results here.
         </Text>
         <View style={styles.editor}>
           {/* Measure wrapped text so only the sheet body scrolls, including after deletions. */}
@@ -96,7 +108,7 @@ export function ProfileHandoffModal({
             disabled={state.pending || !state.context.trim()}
             testID="preset-handoff-confirm"
           >
-            {state.pending ? "Starting…" : "Start successor"}
+            {state.pending ? "Starting..." : confirmLabel}
           </Button>
         </View>
       </View>

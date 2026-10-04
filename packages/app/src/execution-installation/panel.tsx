@@ -74,9 +74,13 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
   const header = useMemo(
     () => ({
       title: "Installation controls",
-      subtitle: state.unlocked
-        ? "Owner access unlocked for this page"
-        : "Owner approval for host and container operations",
+      subtitle: (
+        <Text style={styles.text}>
+          {state.unlocked
+            ? "Owner access unlocked for this page"
+            : "Owner approval for host and container operations"}
+        </Text>
+      ),
     }),
     [state.unlocked],
   );

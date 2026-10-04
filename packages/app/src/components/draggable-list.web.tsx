@@ -1,8 +1,13 @@
-import { memo, useCallback, useMemo, useRef, type ReactElement } from "react";
+import { memo, useCallback, useMemo, useRef, useLayoutEffect, type ReactElement } from "react";
 import { ScrollView, View } from "react-native";
 import {
   DndContext,
   closestCenter,
+  pointerWithin,
+  useDroppable,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragOverEvent,
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
@@ -17,7 +22,11 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { DraggableListProps, DraggableRenderItemInfo } from "./draggable-list.types";
+import type {
+  DraggableListProps,
+  DraggableRenderItemInfo,
+  DraggableListDropTarget,
+} from "./draggable-list.types";
 import { getDragActivationConstraints, useDragReorderState } from "./drag-reorder";
 
 export type { DraggableListProps, DraggableRenderItemInfo };
@@ -184,7 +193,17 @@ function SortableItemInner<T>({
 
 const SortableItem = memo(SortableItemInner) as typeof SortableItemInner;
 
+function ExternalDropTarget({ id, element }: DraggableListDropTarget) {
+  const { setNodeRef } = useDroppable({ id });
+  useLayoutEffect(() => {
+    setNodeRef(element);
+    return () => setNodeRef(null);
+  }, [element, setNodeRef]);
+  return null;
+}
+
 export function DraggableList<T>({
+  externalDrop,
   data,
   keyExtractor,
   renderItem,
@@ -232,6 +251,52 @@ export function DraggableList<T>({
     () => items.map((item, index) => keyExtractor(item, index)),
     [items, keyExtractor],
   );
+  const externalIds = useMemo(
+    () => new Set(externalDrop?.targets.map((target) => target.id)),
+    [externalDrop?.targets],
+  );
+  const collisionDetection = useCallback<CollisionDetection>(
+    (args) => {
+      if (!externalDrop) return closestCenter(args);
+      const external = args.droppableContainers.filter((target) =>
+        externalIds.has(String(target.id)),
+      );
+      const hits = pointerWithin({ ...args, droppableContainers: external });
+      if (hits.length) return hits;
+      const local = args.droppableContainers.filter(
+        (target) => !externalIds.has(String(target.id)),
+      );
+      return closestCenter({ ...args, droppableContainers: local });
+    },
+    [externalDrop, externalIds],
+  );
+  const onDragOver = useCallback(
+    (event: DragOverEvent) => {
+      const id = event.over ? String(event.over.id) : null;
+      externalDrop?.onTargetChange(id && externalIds.has(id) ? id : null);
+    },
+    [externalDrop, externalIds],
+  );
+  const onDragCancel = useCallback(() => {
+    externalDrop?.onTargetChange(null);
+    handlers.onDragCancel();
+  }, [externalDrop, handlers]);
+  const finishDrag = useCallback(
+    (event: DragEndEvent) => {
+      externalDrop?.onTargetChange(null);
+      const targetId = event.over ? String(event.over.id) : null;
+      if (externalDrop && targetId && externalIds.has(targetId)) {
+        const item = items.find(
+          (entry, index) => keyExtractor(entry, index) === String(event.active.id),
+        );
+        handlers.onDragCancel();
+        if (item) externalDrop.onDrop(item, targetId);
+        return;
+      }
+      handlers.onDragEnd(event);
+    },
+    [externalDrop, externalIds, handlers, items, keyExtractor],
+  );
   const wrapperStyle = useMemo(
     () => [
       { position: "relative" as const },
@@ -254,12 +319,16 @@ export function DraggableList<T>({
           {items.length === 0 && ListEmptyComponent}
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={collisionDetection}
             modifiers={DND_MODIFIERS}
             onDragStart={handlers.onDragStart}
-            onDragCancel={handlers.onDragCancel}
-            onDragEnd={handlers.onDragEnd}
+            onDragOver={onDragOver}
+            onDragCancel={onDragCancel}
+            onDragEnd={finishDrag}
           >
+            {externalDrop?.targets.map((target) => (
+              <ExternalDropTarget key={target.id} {...target} />
+            ))}
             <SortableContext items={ids} strategy={verticalListSortingStrategy}>
               {items.map((item, index) => {
                 const id = keyExtractor(item, index);
@@ -285,12 +354,16 @@ export function DraggableList<T>({
           {items.length === 0 && ListEmptyComponent}
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={collisionDetection}
             modifiers={DND_MODIFIERS}
             onDragStart={handlers.onDragStart}
-            onDragCancel={handlers.onDragCancel}
-            onDragEnd={handlers.onDragEnd}
+            onDragOver={onDragOver}
+            onDragCancel={onDragCancel}
+            onDragEnd={finishDrag}
           >
+            {externalDrop?.targets.map((target) => (
+              <ExternalDropTarget key={target.id} {...target} />
+            ))}
             <SortableContext items={ids} strategy={verticalListSortingStrategy}>
               {items.map((item, index) => {
                 const id = keyExtractor(item, index);
