@@ -7,6 +7,17 @@ const {
 } = require("./native-release-version");
 
 describe("native release version", () => {
+  it("keeps native build numbers increasing when the custom suffix changes", () => {
+    const previous = getNativeReleaseVersion("0.9.0-beta.2.vorton.40");
+    const next = getNativeReleaseVersion("0.9.0-beta.2.vorteo.41");
+    expect(next.androidVersionCode).toBe(previous.androidVersionCode + 1);
+    expect(Number(next.iosBuildNumber)).toBe(Number(previous.iosBuildNumber) + 1);
+    expect(getNativeReleaseVersion("0.9.0-vorteo.41")).toEqual(
+      getNativeReleaseVersion("0.9.0-vorton.41"),
+    );
+    expect(() => getNativeReleaseVersion("0.9.0-beta.2.vorteo.1000")).toThrow("out of range");
+  });
+
   it("orders Vorton beta revisions, later betas, stable promotion and the next base", () => {
     const versions = [
       "0.8.999-vorton.99999",

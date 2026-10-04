@@ -23,7 +23,10 @@ export interface RevealedReleases {
   showMore: () => void;
 }
 
-export function useRevealedReleases(hasReleases: boolean): RevealedReleases {
+export function useRevealedReleases(
+  hasReleases: boolean,
+  firstPage = FIRST_PAGE,
+): RevealedReleases {
   const [count, setCount] = useState(LATEST_RELEASE_ONLY);
 
   useEffect(() => {
@@ -31,8 +34,8 @@ export function useRevealedReleases(hasReleases: boolean): RevealedReleases {
       setCount(LATEST_RELEASE_ONLY);
       return;
     }
-    startTransition(() => setCount(FIRST_PAGE));
-  }, [hasReleases]);
+    startTransition(() => setCount(firstPage));
+  }, [hasReleases, firstPage]);
 
   const showMore = useCallback(() => {
     startTransition(() => setCount((current) => current + PAGE_SIZE));

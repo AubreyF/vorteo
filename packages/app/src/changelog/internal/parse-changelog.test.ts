@@ -37,6 +37,22 @@ function isNotBlank(line: string): boolean {
 }
 
 describe("parseChangelog", () => {
+  it("reads the bundled Vorteo history with distinct versions and complete bodies", () => {
+    const source = readFileSync(
+      new URL("../../../../../VORTEO_CHANGELOG.md", import.meta.url),
+      "utf8",
+    );
+    const releases = parseChangelog(source);
+    expect(releases[0].version).toMatch(/\.vorteo\.\d+$/);
+    expect(new Set(releases.map((release) => release.version)).size).toBe(releases.length);
+    expect(
+      releases.find((release) => release.version === "0.9.0-beta.2.vorton.40")?.sections[0].body,
+    ).toContain("baseline summarizes");
+    for (const release of releases) {
+      expect(release.sections.map(sectionBody)).not.toContain("");
+    }
+  });
+
   it("reads the shape the changelog is authored in today", () => {
     const releases = parseChangelog(
       [

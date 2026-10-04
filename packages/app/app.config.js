@@ -187,6 +187,10 @@ export default {
       autolinkingModuleResolution: true,
     },
     extra: {
+      vorteoChangelog: fs.readFileSync(
+        path.resolve(__dirname, "../../VORTEO_CHANGELOG.md"),
+        "utf8",
+      ),
       vortonBuildCommit: resolveBuildCommit(path.resolve(__dirname, "../..")),
       fdroidBuild: isFdroidBuild,
       profileBuild: isProfileBuild,

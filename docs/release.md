@@ -6,7 +6,7 @@ All workspaces share one version.
 
 ## Vorteo commit versions
 
-This fork uses `<upstream-base>-vorton.<counter>` for stable upstream bases and `<upstream-base>.vorton.<counter>` for beta bases, for example `0.9.0-beta.2.vorton.1`. Every new local commit, including documentation and tooling changes, advances the counter. Change the upstream base only when adopting that upstream release; the new base starts at counter 1. A newer beta or promotion to stable starts a new counter. Returning to an earlier beta or from stable to a beta of the same release is rejected. Record source provenance with the Git commit, not build metadata in the version.
+This fork uses `<upstream-base>-vorteo.<counter>` for stable upstream bases and `<upstream-base>.vorteo.<counter>` for beta bases, for example `0.9.0-beta.2.vorteo.1`. Every new local commit, including documentation and tooling changes, advances the counter. Change the upstream base only when adopting that upstream release; the new base starts at counter 1. A newer beta or promotion to stable starts a new counter. Returning to an earlier beta or from stable to a beta of the same release is rejected. Record source provenance with the Git commit, not build metadata in the version.
 
 The installed Lefthook pre-commit hook runs `scripts/vorton-version.mjs` before validation. It synchronizes the root, workspace manifests, internal dependency pins and lockfile, then stages those files. It refuses unstaged manifest edits so it cannot include unrelated work. Stage intended manifest changes before committing. Other unstaged files stay untouched.
 
@@ -15,6 +15,14 @@ Use `npm run version:vorton` to prepare the same bump before a build or review, 
 Use ordinary Git commits for Vorteo work. Do not use `npm version` or the upstream `release:*` commands for these bumps: they perform upstream release preparation and publication. Commit versioning does not publish, tag, deploy or restart anything. The private desktop feed and distribution identity remain pending in [desktop builds](desktop-auto-builds.md).
 
 Vorteo native metadata reserves 100,000 build numbers per upstream major/minor/patch base. Starting at `0.9.0`, beta slots 1 through 98 and stable slot 99 each allow Vorteo counters 1 through 999. The native build number is `upstreamNumericBase * 100000 + slot * 1000 + counter`, so later betas and stable promotion increase monotonically. Versions before `0.9.0` retain their original numbering. Exhausted slots, counters and platform integer limits fail explicitly. This supports Expo configuration; it does not configure a separate mobile store distribution.
+
+## Vorteo release notes
+
+[VORTEO_CHANGELOG.md](../VORTEO_CHANGELOG.md) owns custom release history. Before committing user-facing changes, run `npm run version:vorton` and add an entry for the prepared version using `## <version> - YYYY-MM-DD`, with Added, Changed or Fixed sections. Keep newest entries first. Describe user-visible changes in short bullets. Documentation-only commits do not need a release entry. Do not rewrite historical versions when the suffix changes.
+
+The initial baseline covers custom behavior through `0.9.0-beta.2.vorton.40`; it is a cumulative summary, not a claim that every feature first shipped in that commit. New versions use `vorteo` while version parsing accepts legacy `vorton` parents and preserves their counter and native build numbering.
+
+Expo bundles the custom changelog with each build. What's new shows it above the independently fetched Paseo changelog in Vorteo mode. Each history has its own Show more control. Upstream loading or failure does not hide bundled custom notes. Standard mode retains the Paseo view. The external link opens Paseo's full upstream history; newer upstream notes do not imply those changes are installed locally.
 
 ## Upstream release procedure
 

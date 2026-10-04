@@ -8,6 +8,7 @@ import {
   closeSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { setInterval } from "node:timers/promises";
 import path from "node:path";
 import type { Logger } from "pino";
 import { writePrivateFileAtomicSync } from "../../private-files.js";
@@ -83,10 +84,22 @@ export function startProfileSynchronization(
       running = false;
     }
   }
-  const interval = setInterval(() => void synchronize(), 5000);
-  interval.unref();
+  const controller = new AbortController();
+  async function poll() {
+    try {
+      for await (const _tick of setInterval(5000, undefined, {
+        signal: controller.signal,
+        ref: false,
+      })) {
+        void synchronize();
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
+    }
+  }
+  void poll();
   void synchronize();
-  return () => clearInterval(interval);
+  return () => controller.abort();
 }
 
 function syncReceipt(file: string): void {
