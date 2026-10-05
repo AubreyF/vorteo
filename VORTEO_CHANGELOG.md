@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.114 - 2026-10-05
+
+### Added
+
+- Create a workspace or add a project in the destination environment directly from a profile handoff
+- Select the matching project automatically when continuing between host and container workspaces
+
 ## 0.11.0-beta.3.vorteo.113 - 2026-10-05
 
 ### Fixed
