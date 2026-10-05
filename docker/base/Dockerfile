@@ -45,6 +45,8 @@ ENV HOME=/home/paseo \
     XDG_CACHE_HOME=/home/paseo/.cache \
     ONNXRUNTIME_NODE_INSTALL=skip
 
+COPY docker/base/chromium-packages.txt /opt/paseo/chromium-packages.txt
+
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -58,6 +60,7 @@ RUN set -eux; \
       openssh-client \
       procps \
       tini; \
+    xargs apt-get install -y --no-install-recommends < /opt/paseo/chromium-packages.txt; \
     rm -rf /var/lib/apt/lists/*; \
     gh --version
 

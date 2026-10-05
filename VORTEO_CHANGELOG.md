@@ -14,6 +14,16 @@ Custom changes to vorteo. Paseo's release history remains in its upstream change
 - Kept goal permission updates consistent with the selected workflow
 - Preserved account usage in context details for Vorteo hosts
 
+## 0.9.0-beta.2.vorteo.45 - 2026-10-05
+
+### Added
+
+- Chromium libraries and fonts in new container builds, with setup and browser checks for existing Debian 12 development containers
+
+### Fixed
+
+- Disposable browser-test daemons no longer inherit the installation password unless a test explicitly supplies one
+
 ## 0.9.0-beta.2.vorteo.44 - 2026-10-04
 
 ### Added

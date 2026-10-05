@@ -1,6 +1,6 @@
 {
   "name": "paseo",
-  "version": "0.11.0-beta.3.vorteo.5",
+  "version": "0.11.0-beta.3.vorteo.6",
   "private": true,
   "description": "Vorteo: voice-controlled development environment for local AI coding agents",
   "keywords": [
@@ -69,6 +69,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "typecheck:server": "npm run typecheck --workspace=@getpaseo/relay && npm run typecheck --workspace=@getpaseo/protocol && npm run typecheck --workspace=@getpaseo/client && npm run typecheck --workspace=@getpaseo/builtin-plugins && npm run typecheck --workspace=@getpaseo/server && npm run typecheck --workspace=@getpaseo/cli",
     "test": "npm run test --workspaces --if-present",
+    "browser:setup": "cross-env PLAYWRIGHT_SKIP_BROWSER_GC=1 playwright install chromium && python3 scripts/setup-browser-runtime.py",
+    "browser:check": "node scripts/check-browser-runtime.mjs",
     "format": "oxfmt .",
     "format:files": "oxfmt",
     "format:check": "oxfmt --check .",

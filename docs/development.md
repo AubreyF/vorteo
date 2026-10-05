@@ -620,6 +620,14 @@ Point Playwright MCP at the running Expo web target. For root checkout dev, `npm
 
 Do NOT use browser history (back/forward). Always navigate by clicking UI elements or using `browser_navigate` with the full URL — the app uses client-side routing and browser history breaks state.
 
+## Chromium in the development container
+
+New container builds include Chromium's Debian libraries and fonts. From a source checkout, install the matching Playwright browser with `npx playwright install chromium`, then run `npm run browser:check`. The check launches both headless Chromium variants, renders text, clicks a control and saves screenshots to a temporary directory. Pass an output directory with `npm run browser:check -- <directory>`.
+
+For an existing Debian 12 container missing those libraries, run `npm run browser:setup` from the checkout. It downloads packages from the configured signed Debian repositories and extracts them into your user cache without root access or a daemon restart. It preserves the original Chromium executables beside their launchers and wraps them to use the cached libraries and fonts. Unknown launchers are rejected. Run setup again after Playwright installs a new browser revision; use `python3 scripts/setup-browser-runtime.py --refresh` to refresh libraries.
+
+The setup script honors `XDG_CACHE_HOME` and `PLAYWRIGHT_BROWSERS_PATH`; use `--cache <directory>` for a nonstandard browser cache. This repair is specific to Debian 12. On other systems use Playwright's platform installer, `npx playwright install --with-deps chromium`.
+
 ## App web deploys
 
 `packages/app` exports a single-page Expo web app and deploys the `dist/`

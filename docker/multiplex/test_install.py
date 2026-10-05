@@ -1,8 +1,11 @@
 """Exercise host scripts with a recording Docker CLI, without touching a daemon."""
 import json
+import importlib.util
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -107,6 +110,46 @@ elif args[0]=='compose' and '--url' in args: print('https://test.example.ts.net'
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.deployment.exists())
         self.assertFalse(any(call[0] in ['pull', 'run', 'image'] for call in self.calls()))
+
+
+class BrowserRuntimeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="browser runtime '")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        spec = importlib.util.spec_from_file_location(
+            'browser_runtime', SOURCE.parent.parent / 'scripts/setup-browser-runtime.py')
+        self.runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.runtime)
+
+    def test_launcher_preserves_the_executable_and_survives_repeated_setup(self):
+        browser = self.root / 'chrome'
+        shutil.copy2(sys.executable, browser)
+        original = browser.read_bytes()
+        libraries = self.root / 'runtime'
+        libraries.mkdir()
+        self.runtime.wrap_browser(browser, libraries)
+        self.runtime.wrap_browser(browser, libraries)
+        self.assertEqual(browser.with_name('chrome.paseo-real').read_bytes(), original)
+        result = subprocess.run([str(browser), '-c', 'print("working")'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'working')
+
+    def test_unknown_launcher_is_preserved(self):
+        browser = self.root / 'chrome'
+        original = '#!/bin/sh\necho custom launcher\n'
+        browser.write_text(original)
+        with self.assertRaisesRegex(RuntimeError, 'unknown browser launcher'):
+            self.runtime.wrap_browser(browser, self.root)
+        self.assertEqual(browser.read_text(), original)
+
+    def test_missing_original_is_not_replaced(self):
+        browser = self.root / 'chrome'
+        original = '#!/bin/sh\n' + self.runtime.MARKER + '\n'
+        browser.write_text(original)
+        with self.assertRaisesRegex(RuntimeError, 'Missing original browser executable'):
+            self.runtime.wrap_browser(browser, self.root)
+        self.assertEqual(browser.read_text(), original)
 
 
 if __name__ == '__main__':
