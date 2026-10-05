@@ -51,7 +51,7 @@ buildNpmPackage rec {
       # Top-level prose only (README, CHANGELOG, AGENTS...). Deeper markdown is
       # not necessarily documentation: skills/*/SKILL.md is a runtime file the
       # daemon's trace script copies into the output.
-      && builtins.match "/[^/]+\\.md" relPath == null
+      && (relPath == "/VORTEO_CHANGELOG.md" || builtins.match "/[^/]+\\.md" relPath == null)
       # Exclude test fixtures and debug files
       && !(lib.hasSuffix ".test.ts" baseName)
       && !(lib.hasSuffix ".e2e.test.ts" baseName)

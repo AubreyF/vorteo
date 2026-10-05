@@ -65,7 +65,7 @@ it("checks the app version before creating a runtime or evaluating plugin code",
   expect(starts()).toBe(0);
   expect(result.getSnapshot()).toEqual([]);
   expect(result.getEvaluationError("host", "example")).toBe(
-    'Plugin "example" requires Paseo >=0.9.0. Your app is 0.8.0. Use a compatible plugin version or update the app.',
+    'Plugin "example" requires Vorteo >=0.9.0. Your app is 0.8.0. Use a compatible plugin version or update the app.',
   );
 });
 
@@ -93,7 +93,7 @@ it("unloads on a requirement-only edit and recovers after correction", () => {
   expect(cleanups()).toBe(1);
   expect(starts()).toBe(1);
   expect(result.getSnapshot()).toEqual([]);
-  expect(result.getEvaluationError("host", "example")).toContain("requires Paseo >=0.9.0");
+  expect(result.getEvaluationError("host", "example")).toContain("requires Vorteo >=0.9.0");
   install(">=0.8.0");
   expect(starts()).toBe(2);
   expect(result.getSnapshot().map(({ id }) => id)).toEqual(["example"]);

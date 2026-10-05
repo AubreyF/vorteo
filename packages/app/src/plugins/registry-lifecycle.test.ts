@@ -108,7 +108,7 @@ test("reloading a plugin ends the old installation's subscriptions", async () =>
   expect(second).not.toBe(first);
   expect(second.paseo).not.toBe(first.paseo);
   await expect(first.paseo.dispose()).resolves.toBeUndefined();
-  expect(() => first.paseo.observeEvents(["project.update"])).toThrow("Paseo API is disposed");
+  expect(() => first.paseo.observeEvents(["project.update"])).toThrow("Vorteo API is disposed");
   expect(h.open).toEqual(new Set(["reloaded"]));
 });
 

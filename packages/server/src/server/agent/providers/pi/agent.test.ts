@@ -2776,7 +2776,7 @@ describe("PiRpcAgentClient", () => {
         id: "kimi-coding/kimi-k3",
         label: "Kimi K3",
         description: "kimi-coding/kimi-k3",
-        metadata: { provider: "kimi-coding", modelId: "kimi-k3" },
+        metadata: { provider: "kimi-coding", modelId: "kimi-k3", reasoning: true },
         thinkingOptions: [
           { id: "low", label: "Low", description: "Faster reasoning" },
           { id: "high", label: "High", description: "Deeper reasoning", isDefault: true },

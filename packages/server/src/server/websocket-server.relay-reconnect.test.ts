@@ -247,6 +247,7 @@ function createServer(options?: {
 }) {
   const speechReadiness = options?.speechReadiness ?? null;
   const daemonConfigStore = {
+    get: () => ({}),
     onApply: vi.fn(() => () => {}),
     onChange: vi.fn(() => () => {}),
   };

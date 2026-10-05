@@ -46,7 +46,7 @@ buildNpmPackage {
       # Top-level prose only (README, CHANGELOG, AGENTS...). Deeper markdown is
       # not necessarily documentation: skills/*/SKILL.md is a runtime file the
       # installPhase copies into the output.
-      && builtins.match "/[^/]+\\.md" relPath == null
+      && (relPath == "/VORTEO_CHANGELOG.md" || builtins.match "/[^/]+\\.md" relPath == null)
       # Test fixtures and build artifacts
       && !(lib.hasSuffix ".test.ts" baseName)
       && !(lib.hasSuffix ".e2e.test.ts" baseName)

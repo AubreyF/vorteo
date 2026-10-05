@@ -86,7 +86,7 @@ it("marks pre-0.8 plugins failed on startup and recovers after migration and rel
   await writePlugin(root, ">=0.8.0");
   await expect(service.reloadPlugin("example")).resolves.toMatchObject({ status: "running" });
   await writePlugin(root, ">=0.9.0");
-  await expect(service.reloadPlugin("example")).rejects.toThrow("requires Paseo >=0.9.0");
+  await expect(service.reloadPlugin("example")).rejects.toThrow("requires Vorteo >=0.9.0");
   expect(service.catalog()).toEqual([]);
 });
 
@@ -123,14 +123,14 @@ it("rejects Git install and update before build commands, preserving the running
   const [preview] = await service.previewUpdates({ pluginId: "example" });
   expect(preview).toMatchObject({ outcome: "update" });
   await expect(service.applyUpdates([preview!.proposal!])).resolves.toMatchObject([
-    { id: "example", outcome: "error", error: expect.stringContaining("requires Paseo >=0.9.0") },
+    { id: "example", outcome: "error", error: expect.stringContaining("requires Vorteo >=0.9.0") },
   ]);
   expect(await service.listPlugins()).toEqual([installed]);
   expect(service.catalog()).toHaveLength(1);
   expect(await readdir(path.join(home, "plugins", ".staging"))).toEqual([]);
   await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
   await expect(service.installSource({ source, id: "second" })).rejects.toThrow(
-    "requires Paseo >=0.9.0",
+    "requires Vorteo >=0.9.0",
   );
   await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
   expect(await service.listPlugins()).toEqual([installed]);

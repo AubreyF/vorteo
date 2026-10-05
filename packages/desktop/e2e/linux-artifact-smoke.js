@@ -19,11 +19,11 @@ async function main() {
   };
   try {
     process.env.PASEO_DESKTOP_SMOKE_ARTIFACT_DIR = path.join(artifactRoot, "installed");
-    const helper = fs.statSync("/opt/Paseo/chrome-sandbox");
+    const helper = fs.statSync("/opt/Vorteo/chrome-sandbox");
     if (helper.uid !== 0 || (helper.mode & 0o7777) !== 0o4755) {
       throw new Error("Installed native package did not provide a root-owned 4755 helper");
     }
-    await smokePackagedDesktopApp({ appPath: "/opt/Paseo", expectedSandbox: true });
+    await smokePackagedDesktopApp({ appPath: "/opt/Vorteo", expectedSandbox: true });
     if (installedOnly) return;
 
     const appImage = findArtifact(".AppImage");

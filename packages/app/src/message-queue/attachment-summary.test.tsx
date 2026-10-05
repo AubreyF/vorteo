@@ -88,6 +88,12 @@ vi.mock("@/components/draggable-list", () => ({
     </>
   ),
 }));
+// Attachment summaries do not exercise the durable edit transport.
+vi.mock("./edit-draft-runtime", () => ({
+  queueEditDraftStorage: { list: async () => [] },
+  queueEditDraftSession: { open: async () => undefined },
+  reviewRejectedQueueEdit: async () => undefined,
+}));
 vi.mock("./shared-attachments", () => ({ SharedQueueAttachments: () => null }));
 vi.mock("@/components/ui/text-input", () => ({ EditingTextInput: () => null }));
 vi.mock("@/components/ui/button", () => ({
@@ -108,6 +114,7 @@ vi.mock("@/components/ui/button", () => ({
   ),
 }));
 vi.mock("@/vorton-touch", () => ({ useVortonTouch: () => false }));
+vi.mock("@/vorton-mode", () => ({ useVortonMode: () => true }));
 vi.mock("@/goals/use-goal-elapsed", () => ({ useGoalElapsed: () => 0 }));
 vi.mock("@/goals/use-agent-goal", () => ({
   useAgentGoal: () => ({

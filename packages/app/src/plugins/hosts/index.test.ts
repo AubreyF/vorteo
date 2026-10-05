@@ -71,8 +71,8 @@ describe("plugin host access", () => {
   it("rejects unknown and disconnected targets without falling through to another host", () => {
     const h = registry();
     h.snapshots.set("a", { connectionStatus: "online", client: connection("a") });
-    expect(() => h.runtime.getPaseoClient("missing")).toThrow("Unknown Paseo host: missing");
-    expect(() => h.runtime.getPaseoClient("b")).toThrow("Paseo host is disconnected: b");
+    expect(() => h.runtime.getPaseoClient("missing")).toThrow("Unknown Vorteo host: missing");
+    expect(() => h.runtime.getPaseoClient("b")).toThrow("Vorteo host is disconnected: b");
     h.lifetime.abort();
   });
 
@@ -92,14 +92,14 @@ describe("plugin host access", () => {
     h.snapshots.set("b", { connectionStatus: "offline", client });
     h.publish();
     expect(() => h.runtime.getPaseoClient("b")).toThrow("disconnected");
-    expect(() => api.config.get()).toThrow("Paseo host is disconnected: b");
+    expect(() => api.config.get()).toThrow("Vorteo host is disconnected: b");
     h.snapshots.set("b", { connectionStatus: "online", client });
     h.publish();
     expect(h.runtime.getPaseoClient("b")).toBe(api);
     h.snapshots.set("b", { connectionStatus: "online", client: connection("new-b") });
     h.publish();
     expect(() => api.agents.subscribe(ignoreUpdate)).toThrow("disposed");
-    expect(() => api.config.get()).toThrow("Paseo client is released: b");
+    expect(() => api.config.get()).toThrow("Vorteo client is released: b");
     expect(h.runtime.getPaseoClient("b")).not.toBe(api);
     h.lifetime.abort();
     expect(() => h.runtime.getPaseoClient("b")).toThrow("Plugin has stopped");
@@ -116,7 +116,7 @@ it("reacquires a fresh API after explicit disposal without affecting a later bor
   const second = h.runtime.getPaseoClient("b");
   expect(second).not.toBe(first);
   expect(() => second.agents.subscribe(ignoreUpdate)).not.toThrow();
-  expect(() => first.config.get()).toThrow("Paseo client is released: b");
+  expect(() => first.config.get()).toThrow("Vorteo client is released: b");
   await first.dispose();
   expect(h.runtime.getPaseoClient("b")).toBe(second);
   h.lifetime.abort();

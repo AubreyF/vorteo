@@ -1907,6 +1907,8 @@ export async function createPaseoDaemon(
     // Close ingress before waiting for metadata processes or other teardown.
     wsServer?.prepareForShutdown();
     agentManager.prepareForShutdown();
+    // Revoke remote execution authority before asynchronous fork teardown.
+    await hubRelationships.stop();
     await scheduleService.stop().catch(() => undefined);
     const governedFailures: unknown[] = [];
     try {
@@ -1926,7 +1928,6 @@ export async function createPaseoDaemon(
     // that is still open. Plugins themselves are stopped once every session
     // they serve has been closed, further down.
     unsubscribePluginProviders();
-    await hubRelationships.stop();
     workspaceReconciliation.dispose();
     scriptHealthMonitor.stop();
     await quotaReservePolling.stop();

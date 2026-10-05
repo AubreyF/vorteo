@@ -51,6 +51,6 @@ describe.each(["daemon", "app"] as const)("plugin requirements on %s", (runtime)
         version,
         runtime,
       }),
-    ).toThrow(`Paseo ${runtime} version is unknown`);
+    ).toThrow(`Vorteo ${runtime} version is unknown`);
   });
 });
