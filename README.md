@@ -5,7 +5,7 @@
 
 ## Intelligent Frontier Account Pooling
 
-Connect an unlimited number of Codex and Claude accounts, then balance tasks across all of them simultaneously. Keep work moving while tracking usage and reset windows for each connected profile.
+Connect an unlimited number of Codex and Claude accounts, then balance tasks across all of them simultaneously. Keep work moving while tracking usage and reset windows for each connected profile. Drafts restore their saved account and workflow together. New drafts use a workflow from the selected account.
 
 <img width="600" alt="Animated demo of Vorteo account switching and profiles" src="https://github.com/user-attachments/assets/ae3f9872-f3d6-4efa-8f23-a032aa3133de" />
 
@@ -21,11 +21,11 @@ Connect an unlimited number of Codex and Claude accounts, then balance tasks acr
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
 
-- **Line up the next steps.** Queue messages with files or images, then edit, reorder, pause or send them from another connected device. The host owns the queue and can keep delivering messages after you close the client. Pausing the queue leaves an active goal eligible to continue; stopping the task pauses both. Saved queues do not guarantee uninterrupted execution of an active turn during a host restart. Queue, goal and subagent cards scroll with the conversation. Collapse the Subagents card using its heading; the count and Archive finished action stay visible. Unsaved queue edits stay on the device across reloads, including newly added images. Save synchronizes text and attachment changes; Cancel leaves the shared message unchanged. Drag queued messages to reorder them; sidebar badges show queued messages, subagents and active goals.
+- **Line up the next steps.** Queue messages with files or images, then edit, reorder, pause or send them from another connected device. The host owns the queue and can keep delivering messages after you close the client. Pausing the queue leaves an active goal eligible to continue; stopping the task pauses both. Saved queues do not guarantee uninterrupted execution of an active turn during a host restart. Question, approval, queue, goal and subagent cards share consistent spacing above the message box and scroll with the conversation. Collapse the Subagents card using its heading; the count and Archive finished action stay visible. Unsaved queue edits stay on the device across reloads, including newly added images. Save synchronizes text and attachment changes; Cancel leaves the shared message unchanged. Drag queued messages to reorder them; sidebar badges show queued messages, subagents and active goals.
 
 - **Put local workers to work.** Configure a Pi profile for a local or private OpenAI-compatible endpoint, then let a supervisor delegate work with a limit on concurrent workers.
 
-- **Keep projects in view.** In Vorteo mode, History and Schedules sit in the top sidebar toolbar. The three-dot menu holds Settings, Add project, New workspace, View preferences, and Help and support. In View preferences → Show, turn Activity badges on or off to show or hide subagent counts, queued-message counts, and active-goal badges. On mobile, the compact search field keeps a full-height tap target. iPhone toolbars use the system safe area. On iOS 27 Home Screen apps, Vorteo also keeps toolbar controls below the system status-bar blur. This clearance applies once per toolbar and disappears in landscape when the top safe area is zero; Safari tabs and Standard mode retain their existing spacing.
+- **Keep projects in view.** In Vorteo mode, History and Schedules always appear in the top sidebar toolbar. Usage stays out of the sidebar, and app preferences omit the Sidebar section. Search and the settings Back button share a compact outline style. The three-dot menu holds Settings, Add project, New workspace, View preferences, and Help and support. In View preferences → Show, turn Activity badges on or off to show or hide subagent counts, queued-message counts, and active-goal badges. On mobile, the compact search field keeps a full-height tap target. iPhone toolbars use the system safe area. On iOS 27 Home Screen apps, Vorteo also keeps toolbar controls below the system status-bar blur. This clearance applies once per toolbar and disappears in landscape when the top safe area is zero; Safari tabs and Standard mode retain their existing spacing.
 
 - **Seamlessly transition between phone, tablet, and desktop.** Compact profiles, visible touch controls and responsive task views keep account selection and task management within reach. Sidebar rows and actions expand into larger touch targets on touchscreens and in narrow windows. The workspace diff counter keeps a 44-pixel touch target in compact layouts. On desktop, hover a project or workspace row to reveal its three-dot menu.
 
@@ -36,6 +36,8 @@ Connect an unlimited number of Codex and Claude accounts, then balance tasks acr
 - **Track usage across coding tools.** Updated builds include Paseo's plugin usage sources and pinned usage windows alongside Vorteo's account and reserve controls.
 
 Installation controls in General settings lets the owner review restart requests and shared workflows. Use the separate owner password generated by the host installer; owner access lasts seven days per browser and can be locked explicitly. Each restart still requires approval, and saved daemon connections work while owner controls are locked. Owner session persistence supports Windows as well as POSIX hosts. The environment selector and profile dropdown use a teal cube for Dev container and an amber monitor with a key for Host access.
+
+- **Download files you cannot preview.** In Vorteo mode, binary file previews offer a visible Download button, including files opened from chat links.
 
 ## Install
 

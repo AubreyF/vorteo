@@ -8,7 +8,7 @@ All workspaces share one version.
 
 This fork uses `<upstream-base>-vorteo.<counter>` for stable upstream bases and `<upstream-base>.vorteo.<counter>` for beta bases, for example `0.9.0-beta.2.vorteo.1`. Every new local commit, including documentation and tooling changes, advances the counter. Change the upstream base only when adopting that upstream release; the counter continues across stable bases, newer betas and promotions to stable. The next counter is one greater than the highest counter in either commit parent, regardless of upstream base. Returning to an earlier beta or from stable to a beta of the same release is rejected. Record source provenance with the Git commit, not build metadata in the version.
 
-The continuous numbering baseline is 95: the integrated history reached counter 36 on `0.7.2`, 46 on `0.9.0-beta.2`, and 13 on `0.11.0-beta.3`. The first continuous version is `0.11.0-beta.3.vorteo.96`. The version script retains this floor so older parent versions cannot restart the sequence. Historical release labels remain unchanged.
+The continuous numbering baseline is 99: the integrated history reached counter 36 on `0.7.2`, 46 on `0.9.0-beta.2`, and 17 on `0.11.0-beta.3`. The first published continuous version is `0.11.0-beta.3.vorteo.100`. The version script retains this floor so older parent versions cannot restart the sequence. Historical release labels remain unchanged.
 
 The installed Lefthook pre-commit hook runs `scripts/vorton-version.mjs` before validation. It synchronizes the root, workspace manifests, internal dependency pins and lockfile, then stages those files. It refuses unstaged manifest edits so it cannot include unrelated work. Stage intended manifest changes before committing. Other unstaged files stay untouched.
 

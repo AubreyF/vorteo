@@ -1889,7 +1889,7 @@ export function DraftAgentControls({
   models,
   selectedModel,
   onSelectModel,
-  isModelLoading: _isModelLoading,
+  isModelLoading,
   modelSelectorProviders,
   isAllModelsLoading,
   onSelectProviderAndModel,
@@ -1957,9 +1957,11 @@ export function DraftAgentControls({
   });
   const appliedDefaultRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!presetPicker || selectedProfileId) return;
-    const available = savedProfiles?.filter((entry) =>
-      presetPicker.rows.some((row) => row.id === entry.id),
+    if (!presetPicker || selectedProfileId || isModelLoading) return;
+    const available = savedProfiles?.filter(
+      (entry) =>
+        (!selectedProvider || entry.provider === selectedProvider) &&
+        presetPicker.rows.some((row) => row.id === entry.id),
     );
     const profile = defaultProfile(available);
     if (!profile || !presetPicker.rows.some((row) => row.id === profile.id)) return;
@@ -1967,7 +1969,14 @@ export function DraftAgentControls({
     if (appliedDefaultRef.current === key) return;
     appliedDefaultRef.current = key;
     presetPicker.applyProfile(profile.id);
-  }, [modelSelectorServerId, presetPicker, savedProfiles, selectedProfileId]);
+  }, [
+    modelSelectorServerId,
+    presetPicker,
+    savedProfiles,
+    selectedProfileId,
+    selectedProvider,
+    isModelLoading,
+  ]);
   const profileActions = resolveAgentProfileEditorActions(agentProfiles !== null, profileEditor);
 
   const modeControl = useMemo<AgentModeControlValue | null>(

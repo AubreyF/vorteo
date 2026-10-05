@@ -2,12 +2,32 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
-## 0.11.0-beta.3.vorteo.96 - 2026-10-05
+## 0.11.0-beta.3.vorteo.100 - 2026-10-05
 
 ### Changed
 
-- Continued Vorteo numbering across upstream Paseo updates, accounting for 95 prior version increments
+- Continued Vorteo numbering across upstream Paseo updates, accounting for 99 prior version increments
 - Interleaved Vorteo and Paseo release notes by date with source labels and one Show more control
+
+## 0.11.0-beta.3.vorteo.17 - 2026-10-05
+
+### Fixed
+
+- Added a prominent Download button when a binary file cannot be previewed in Vorteo mode
+
+## 0.11.0-beta.3.vorteo.14 - 2026-10-05
+
+### Changed
+
+- Tightened sidebar Search corners, added space before History, and aligned the settings Back outline button with Search
+- Kept History and Schedules visible, removed Usage from the sidebar, and removed Sidebar preferences in Vorteo mode
+
+## 0.11.0-beta.3.vorteo.13 - 2026-10-05
+
+### Fixed
+
+- Keep draft accounts and workflows together when reopening or restoring a task. Wait for account selection to load before applying its default workflow.
+- Unified spacing between question, approval, subagent, task, queue and goal cards above the message box
 
 ## 0.11.0-beta.3.vorteo.10 - 2026-10-05
 

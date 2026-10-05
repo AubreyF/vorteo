@@ -2565,7 +2565,9 @@ function ComposerContentImpl({
         ) : null}
         {/* Input area */}
         <View style={inputAreaContainerStyle} testID="composer-input-area">
-          <View style={styles.inputAreaContent}>
+          <View
+            style={[styles.inputAreaContent, formPreferences.vortonMode && styles.bottomCardStack]}
+          >
             {!mobileComposer.enabled ? queueList : null}
             {sendErrorNode}
             {formPreferences.vortonMode && !agentControls && agentId ? (
@@ -2715,9 +2717,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
   mobileInputArea: {
     paddingHorizontal: theme.spacing[2],
     paddingBottom: MOBILE_COMPOSER_MARGIN,
-    paddingTop: theme.spacing[2],
-    borderTopWidth: theme.borderWidth[1],
-    borderTopColor: theme.colors.border,
+    paddingTop: 0,
   },
   inputAreaLocked: {
     opacity: 0.6,
@@ -2727,6 +2727,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
     width: "100%",
     maxWidth: theme.contentMaxWidth,
     gap: theme.spacing[3],
+  },
+  bottomCardStack: {
+    gap: theme.spacing[4],
   },
   messageInputContainer: {
     flexShrink: 1,

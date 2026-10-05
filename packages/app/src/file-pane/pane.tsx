@@ -1,4 +1,7 @@
 import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react-native";
+import { useFileDownload } from "@/hooks/use-file-download";
+import { useVortonMode } from "@/vorton-mode";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
   useCallback,
@@ -54,6 +57,7 @@ interface FilePreviewBodyProps {
   location: WorkspaceFileLocation;
   navigationRevision: number;
   imagePreviewUri: string | null;
+  onDownload?: () => void;
 }
 
 type TextExplorerFile = ExplorerFile & { kind: "text" };
@@ -135,6 +139,7 @@ function FilePreviewBody({
   location,
   navigationRevision,
   imagePreviewUri,
+  onDownload,
 }: FilePreviewBodyProps) {
   const { t } = useTranslation();
   const filePath = location.path;
@@ -215,6 +220,11 @@ function FilePreviewBody({
     <View style={styles.centerState}>
       <Text style={styles.emptyText}>{t("panels.file.binaryPreviewUnavailable")}</Text>
       <Text style={styles.binaryMetaText}>{formatFileSize({ size: preview.size })}</Text>
+      {onDownload ? (
+        <Button leftIcon={Download} onPress={onDownload} size="lg">
+          {t("workspace.fileActions.download")}
+        </Button>
+      ) : null}
     </View>
   );
 }
@@ -379,6 +389,18 @@ function FilePanePresentation({
   navigationRevision: number;
   imagePreviewUri: string | null;
 }) {
+  const vortonMode = useVortonMode();
+  const downloadFile = useFileDownload({
+    serverId,
+    workspaceRoot: readTarget?.cwd ?? "",
+  });
+  const onDownload = useCallback(() => {
+    if (readTarget) {
+      downloadFile({ fileName: filename, path: readTarget.path });
+    }
+  }, [downloadFile, filename, readTarget]);
+  const canDownload = vortonMode && readTarget !== null;
+
   if (!client && readTarget) {
     return (
       <View style={styles.container} testID="workspace-file-pane">
@@ -449,6 +471,7 @@ function FilePanePresentation({
         location={location}
         navigationRevision={navigationRevision}
         imagePreviewUri={imagePreviewUri}
+        onDownload={canDownload ? onDownload : undefined}
       />
     </View>
   );

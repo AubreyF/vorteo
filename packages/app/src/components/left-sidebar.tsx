@@ -524,8 +524,6 @@ function SidebarToolbar({
     }),
     [theme.iconSize.sm, theme.colors.foregroundMuted],
   );
-  const openUsageScreen = useOpenUsageScreen();
-
   // One line of icons: Add project, Usage, Hosts, then Help and Settings at the end.
   return (
     <View style={[styles.sidebarFooter, vorton && styles.sidebarToolbar]} testID="sidebar-toolbar">
@@ -627,9 +625,6 @@ function SidebarToolbar({
                   leading={menuIcons.settings}
                 >
                   {labels.settings}
-                </DropdownMenuItem>
-                <DropdownMenuItem testID="sidebar-usage-icon" onSelect={openUsageScreen}>
-                  {labels.usage}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   testID="sidebar-add-project"
@@ -1260,6 +1255,7 @@ const styles = StyleSheet.create((theme) => ({
     borderTopColor: theme.colors.border,
   },
   sidebarToolbar: {
+    gap: theme.spacing[2],
     height: VORTON_HEADER_HEIGHT,
     paddingTop: 0,
     paddingBottom: 0,
@@ -1290,6 +1286,7 @@ const styles = StyleSheet.create((theme) => ({
     borderWidth: 0,
   },
   searchField: {
+    borderRadius: theme.borderRadius.md,
     flex: 1,
     minWidth: 0,
     justifyContent: "flex-start",
