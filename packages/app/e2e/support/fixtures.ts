@@ -106,6 +106,7 @@ const daemonTest = metroTest.extend<
 });
 
 const test = daemonTest.extend<{
+  vortonMode: boolean;
   paseoE2ESetup: void;
   outdatedDaemon: OutdatedDaemon;
   desktopManagedOutdatedDaemon: OutdatedDaemon;
@@ -113,8 +114,9 @@ const test = daemonTest.extend<{
   projectPickerFixture: TrackedProjectPickerFixture;
   withWorkspace: WithWorkspace;
 }>({
+  vortonMode: [false, { option: true }],
   paseoE2ESetup: [
-    async ({ page }, provide, testInfo) => {
+    async ({ page, vortonMode }, provide, testInfo) => {
       const daemonPort = getE2EDaemonPort();
       const metroPort = process.env.E2E_METRO_PORT;
       if (!metroPort) {
@@ -151,7 +153,7 @@ const test = daemonTest.extend<{
         endpoint: `127.0.0.1:${daemonPort}`,
         nowIso,
       });
-      const createAgentPreferences = buildCreateAgentPreferences();
+      const createAgentPreferences = { ...buildCreateAgentPreferences(), vortonMode };
 
       await page.addInitScript(
         ({ daemon, preferences, seedNonce: nonce, extraHostsKey }) => {

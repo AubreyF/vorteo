@@ -19,13 +19,7 @@ async function openMockAgent(page: Page) {
   return session;
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    const key = "@paseo:create-agent-preferences";
-    const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
-    localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: true }));
-  });
-});
+test.use({ vortonMode: true });
 
 test.describe("provider usage tooltip", () => {
   test("fetches usage when the context tooltip opens and renders the active provider", async ({

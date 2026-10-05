@@ -24,12 +24,7 @@
 import assert from "node:assert";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  createE2ETestContext,
-  createTempDirs,
-  runPaseoCli,
-  startTestDaemon,
-} from "./helpers/test-daemon.ts";
+import { createTempDirs, runPaseoCli, startTestDaemon } from "./helpers/test-daemon.ts";
 
 console.log("=== Provider Commands ===\n");
 
@@ -149,7 +144,26 @@ const EXPECTED_CLAUDE_CATALOG_MODELS = [
 let claudeModelIdsFromJson: string[] = [];
 let claudeModelsFromJson: ProviderModel[] = [];
 
-const ctx = await createE2ETestContext({ timeout: 120000 });
+const catalogDirs = await createTempDirs();
+const catalogCommand = join(catalogDirs.paseoHome, "catalog-claude.cjs");
+await writeFile(
+  catalogCommand,
+  `
+  const command = process.argv.slice(2).join(" ");
+  if (command === "auth status") console.log(JSON.stringify({ loggedIn: true }));
+  else if (command === "--version") console.log("2.1.284 (Claude Code)");
+  else process.exit(1);
+`,
+);
+await writeFile(
+  join(catalogDirs.paseoHome, "config.json"),
+  JSON.stringify({
+    version: 1,
+    agents: { providers: { claude: { command: [process.execPath, catalogCommand] } } },
+  }),
+);
+const daemon = await startTestDaemon({ ...catalogDirs, timeout: 120000 });
+const ctx = { ...daemon, paseo: (args: string[]) => runPaseoCli(daemon, args) };
 
 async function runProviderModelsJson(provider: string): Promise<ProviderModel[]> {
   const transientNeedles = ["transport closed", "timed out", "timeout", "socket", "econn"];

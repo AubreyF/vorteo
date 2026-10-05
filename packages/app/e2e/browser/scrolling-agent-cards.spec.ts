@@ -127,8 +127,9 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       if (width === 390) {
         const actions = stack.getByTestId(/^subagents-track-(archive|detach)-/);
         for (const action of await actions.all()) {
-          const box = await action.boundingBox();
-          expect(box?.height).toBeGreaterThanOrEqual(44);
+          await expect
+            .poll(async () => (await action.boundingBox())?.height)
+            .toBeGreaterThanOrEqual(44);
         }
       }
       const geometry = await stack.evaluate((element, cardIds) => {
@@ -142,12 +143,12 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
             top: box.top,
             bottom: box.bottom,
             width: box.width,
+            padding: style.padding,
             frame: [
               style.backgroundColor,
               style.borderColor,
               style.borderWidth,
               style.borderRadius,
-              style.padding,
               style.gap,
             ],
           };
@@ -155,8 +156,11 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }, ids);
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top).toBeGreaterThanOrEqual(geometry[i - 1].bottom);
+      // Subagent rows retain their compact inset; the other cards share the responsive inset.
+      expect(geometry[1].padding).toBe("8px");
       for (const card of geometry.slice(2)) {
         expect(card.frame).toEqual(geometry[1].frame);
+        expect(card.padding).toBe(width === 390 ? "8px 8px 8px 12px" : "16px 8px 16px 16px");
         expect(card.width).toBe(geometry[1].width);
       }
       const movement = await stack.evaluate(async (element) => {

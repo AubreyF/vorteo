@@ -3,7 +3,9 @@ import { expect, type Page } from "../fixtures";
 import { drillIntoProvider, openModelPicker } from "./agent-profiles";
 
 export async function startWithoutRememberedModel(page: Page) {
-  await page.addInitScript(() => localStorage.removeItem("@paseo:create-agent-preferences"));
+  await page.addInitScript(() =>
+    localStorage.setItem("@paseo:create-agent-preferences", JSON.stringify({ vortonMode: false })),
+  );
 }
 
 export async function chooseModel(page: Page, provider: string, label: string) {

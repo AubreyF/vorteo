@@ -170,7 +170,13 @@ export async function expectWorkspaceAbsentFromSidebar(
 // row. Every caller has to walk the same path, so it lives here: when the menu's shape moves
 // again, this is the only place that has to follow.
 export async function openSidebarDisplayPage(page: Page, branchTestID: string): Promise<void> {
-  await page.getByTestId("sidebar-display-preferences-menu").click();
+  const overflow = page.getByTestId("sidebar-footer-overflow");
+  if (await overflow.isVisible()) {
+    await overflow.click();
+    await page.getByTestId("sidebar-display-preferences-action").click();
+  } else {
+    await page.getByTestId("sidebar-display-preferences-menu").click();
+  }
   await page.getByTestId(branchTestID).click();
 }
 

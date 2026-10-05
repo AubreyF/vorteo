@@ -4,13 +4,7 @@ import { installProviderUsageFixture } from "../support/helpers/provider-usage";
 import { getServerId } from "../support/helpers/server-id";
 import { openSettingsHostSection } from "../support/helpers/settings";
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    const key = "@paseo:create-agent-preferences";
-    const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
-    localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: true }));
-  });
-});
+test.use({ vortonMode: true });
 
 test.describe("provider usage settings", () => {
   test("renders every provider returned by the daemon usage RPC", async ({ page }) => {

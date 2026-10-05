@@ -48,6 +48,7 @@ test("browses shared host folders, opens a project, and explains unshared host p
         );
       }, enabled);
       await page.reload();
+      if (enabled) await page.getByTestId("sidebar-footer-overflow").click();
       await page.getByTestId("sidebar-add-project").click();
       await page.getByTestId("add-project-flow-method-shared-folders").click();
       const input = page.getByTestId("project-directory-host-path");
@@ -76,6 +77,7 @@ test("browses shared host folders, opens a project, and explains unshared host p
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("button", { name: "Open menu", exact: true }).click();
+    await page.getByTestId("sidebar-footer-overflow").click();
     await page.getByTestId("sidebar-add-project").click();
     await page.getByTestId("add-project-flow-method-shared-folders").click();
     await page

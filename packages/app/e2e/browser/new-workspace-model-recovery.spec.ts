@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { test, expect, type Page } from "../support/fixtures";
 import {
@@ -23,6 +24,7 @@ async function rememberModel(page: Page) {
       localStorage.setItem(
         "@paseo:create-agent-preferences",
         JSON.stringify({
+          vortonMode: false,
           provider,
           providerPreferences: { [provider]: { model } },
         }),
@@ -46,7 +48,9 @@ async function setProviderAvailability(client: DaemonClient, cwd: string, availa
   await client.patchDaemonConfig({
     providers: {
       [PROVIDER]: {
-        command: [available ? process.execPath : "/missing-paseo-diagnostic-provider"],
+        command: available
+          ? [process.execPath, path.resolve("e2e/fixtures/catalog-claude.cjs")]
+          : ["/missing-paseo-diagnostic-provider"],
       },
     },
   });
@@ -72,7 +76,6 @@ test("restores the remembered model when a provider recovers after New workspace
     id: PROVIDER,
     label: "Remembered provider",
     models: [{ id: MODEL, label: LABEL, description: "Model restoration diagnostic" }],
-    command: [process.execPath],
   });
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "model-recovery" });
   try {

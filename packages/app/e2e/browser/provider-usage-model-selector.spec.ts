@@ -1,3 +1,5 @@
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { expect, test } from "../support/fixtures";
 import {
   closeModelPicker,
@@ -54,6 +56,24 @@ test("account usage stays in Vorton presets while Paseo retains its model picker
       provider: SECONDARY.id,
     },
   ]);
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "usage-workflows" });
+  const previous = (await client.getDaemonConfig()).config.sharedProviderPreferences!;
+  await client.patchDaemonConfig({
+    expectedProviderPreferencesRevision: previous.revision,
+    sharedProviderPreferences: {
+      ...previous,
+      providers: {
+        ...previous.providers,
+        claude: {
+          defaults: {},
+          preferredModels: [],
+          preferredThinkingOptions: [],
+          workflows: [{ id: "usage", name: "Usage", provider: "claude" }],
+          defaultWorkflowId: "usage",
+        },
+      },
+    },
+  });
   const workspace = await seedWorkspace({
     repoPrefix: "provider-usage-selector-",
   });
@@ -103,8 +123,8 @@ test("account usage stays in Vorton presets while Paseo retains its model picker
     await setVortonMode(page, true);
     await page.getByTestId("agent-preset-selector").filter({ visible: true }).first().click();
     await usageFixture.waitForRequestCount(1);
-    const primaryPreset = page.getByTestId("preset-row-agent_profile_primary_usage");
-    const secondaryPreset = page.getByTestId("preset-row-agent_profile_secondary_usage");
+    const primaryPreset = page.getByTestId(`preset-account-${PRIMARY.id}`);
+    const secondaryPreset = page.getByTestId(`preset-account-${SECONDARY.id}`);
     await expect(primaryPreset).toContainText("84% left");
     await expect(primaryPreset).toContainText(/resets in \d+h/);
     await expect(secondaryPreset).toContainText("17% left");
@@ -119,6 +139,12 @@ test("account usage stays in Vorton presets while Paseo retains its model picker
     });
   } finally {
     await workspace.cleanup();
+    const current = (await client.getDaemonConfig()).config.sharedProviderPreferences!;
+    await client.patchDaemonConfig({
+      sharedProviderPreferences: previous,
+      expectedProviderPreferencesRevision: current.revision,
+    });
+    await client.close();
     await profiles.restore();
     await secondaryProvider.restore();
     await primaryProvider.restore();

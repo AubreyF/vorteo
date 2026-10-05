@@ -95,7 +95,7 @@ export async function openRequirementHost(page: Page, host: { serverId: string; 
 export async function expectAppMismatch(page: Page) {
   await expect(page.getByLabel("requirements-example failed", { exact: true })).toBeVisible();
   await expect(
-    page.getByText(/Plugin "requirements-example" requires Paseo \^99.0.0. Your app is/),
+    page.getByText(/Plugin "requirements-example" requires Vorteo \^99.0.0. Your app is/),
   ).toBeVisible();
 }
 

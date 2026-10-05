@@ -25,6 +25,7 @@ test.use({
     version: 1,
     agents: {
       providers: {
+        claude: { command: ["node", path.resolve("e2e/fixtures/catalog-claude.cjs")] },
         codex: { enabled: false },
         copilot: { enabled: false },
         omp: { enabled: false },
