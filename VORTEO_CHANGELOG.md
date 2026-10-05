@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.13 - 2026-10-05
+
+### Fixed
+
+- Keep draft accounts and workflows together when reopening or restoring a task. Wait for account selection to load before applying its default workflow.
+
 ## 0.11.0-beta.3.vorteo.10 - 2026-10-05
 
 ### Fixed

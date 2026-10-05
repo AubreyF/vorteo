@@ -1296,3 +1296,60 @@ it("owns input readiness, reopening and user edits in the reducer", () => {
   state = resolveAgentForm(state, { ...inputs, isPreferencesLoading: false, hasSnapshot: true });
   expect(state.form).toMatchObject({ provider: "codex", model: "astra" });
 });
+
+describe("draft workflow restoration", () => {
+  const inputs = {
+    type: "INPUTS_CHANGED" as const,
+    serverId: "host",
+    isVisible: true,
+    isCreateFlow: true,
+    isPreferencesLoading: false,
+    hasSnapshot: true,
+    preferences: { provider: "codex-two" },
+    allowedProviderMap: new Map(),
+    providerModelsByProvider: new Map(),
+  };
+
+  it("does not carry a previous account's workflow into a reopened draft", () => {
+    const selected = makeState(
+      { provider: "codex-one", profileId: "shared-workflow/codex-one/everyday" },
+      { provider: true },
+      { status: "completed" },
+    );
+    const reopened = resolveAgentForm(selected, { ...inputs, initialValues: undefined });
+    expect(reopened.form.provider).toBe("codex-two");
+    expect(reopened.form.profileId).toBeUndefined();
+  });
+
+  it("restores a changed workflow even when its other initial fields are identical", () => {
+    const initialValues = { provider: "codex", profileId: "shared-workflow/codex/everyday" };
+    const opened = resolveAgentForm(makeState(), { ...inputs, initialValues });
+    const changed = resolveAgentForm(opened, {
+      ...inputs,
+      initialValues: { ...initialValues, profileId: "shared-workflow/codex/review" },
+    });
+    expect(changed.form.profileId).toBe("shared-workflow/codex/review");
+    const cleared = resolveAgentForm(changed, {
+      ...inputs,
+      initialValues: { provider: "codex" },
+    });
+    expect(cleared.form.profileId).toBeUndefined();
+  });
+
+  it("keeps an explicitly selected account and workflow while catalogs refresh", () => {
+    const initialValues = { provider: "codex-two" };
+    const opened = resolveAgentForm(makeState(), { ...inputs, initialValues });
+    const selected = resolveAgentForm(opened, {
+      type: "APPLY_PROFILE_FROM_USER",
+      profileId: "shared-workflow/codex-one/everyday",
+      provider: "codex-one",
+      modelId: "astra",
+      modeId: "full-access",
+      thinkingOptionId: "medium",
+      providerDef: TEST_CODEX_DEFINITION,
+      providerModels: null,
+    });
+    const refreshed = resolveAgentForm(selected, { ...inputs, initialValues });
+    expect(refreshed.form).toEqual(selected.form);
+  });
+});

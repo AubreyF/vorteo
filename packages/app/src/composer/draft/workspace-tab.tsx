@@ -296,6 +296,7 @@ function buildDraftInitialValues(input: {
 }): CreateAgentInitialValues | undefined {
   if (!input.initialSetup) return undefined;
   return {
+    profileId: input.initialSetup.profileId,
     provider: input.initialSetup.provider,
     modeId: input.initialSetup.modeId,
     model: input.initialSetup.model,
