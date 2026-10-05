@@ -2022,6 +2022,7 @@ export const es: TranslationResources = {
     },
     groupInfo: "Acerca de{{title}}",
     sections: {
+      skills: "Habilidades",
       general: "General",
       chat: "Chat",
       appearance: "Apariencia",

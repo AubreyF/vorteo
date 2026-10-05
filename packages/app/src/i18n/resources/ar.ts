@@ -1974,6 +1974,7 @@ export const ar: TranslationResources = {
     },
     groupInfo: "حول{{title}}",
     sections: {
+      skills: "المهارات",
       general: "عام",
       chat: "الدردشة",
       appearance: "مظهر",

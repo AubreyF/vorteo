@@ -1984,6 +1984,7 @@ export const ko: TranslationResources = {
     },
     groupInfo: "{{title}} 정보",
     sections: {
+      skills: "스킬",
       general: "일반",
       chat: "채팅",
       appearance: "모양",

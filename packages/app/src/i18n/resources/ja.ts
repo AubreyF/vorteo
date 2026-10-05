@@ -1994,6 +1994,7 @@ export const ja: TranslationResources = {
     },
     groupInfo: "{{title}}について",
     sections: {
+      skills: "スキル",
       general: "一般",
       chat: "チャット",
       appearance: "外観",

@@ -2027,6 +2027,7 @@ export const fr: TranslationResources = {
     },
     groupInfo: "À propos de{{title}}",
     sections: {
+      skills: "Compétences",
       general: "Général",
       chat: "Discussion",
       appearance: "Apparence",

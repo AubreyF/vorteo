@@ -2007,6 +2007,7 @@ export const ru: TranslationResources = {
     },
     groupInfo: "О разделе «{{title}}»",
     sections: {
+      skills: "Навыки",
       general: "Основные",
       chat: "Чат",
       appearance: "Оформление",

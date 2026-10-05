@@ -1,3 +1,4 @@
+import { SkillLibraryContent } from "@/agent-skills/library";
 import { InstallationControlsButton } from "@/execution-installation/panel";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
 import { usePanelStore } from "@/stores/panel-store";
@@ -42,6 +43,7 @@ import {
   Smartphone,
   Sparkles,
   Blocks,
+  BookOpen,
   Globe,
   PanelLeft,
   MessageSquare,
@@ -157,6 +159,7 @@ interface SidebarSectionItem {
   icon: ComponentType<{ size: number; color: string; strokeWidth?: number }>;
   desktopOnly?: boolean;
   webOnly?: boolean;
+  vortonOnly?: boolean;
   /** The page body, for pages that need nothing from the settings screen. */
   Content?: ComponentType;
 }
@@ -224,6 +227,13 @@ const SIDEBAR_SECTION_ITEMS: SidebarSectionItem[] = [
     desktopOnly: true,
     Content: DesktopPermissionsSection,
   },
+  {
+    id: "skills",
+    labelKey: "settings.sections.skills",
+    icon: BookOpen,
+    vortonOnly: true,
+    Content: SkillLibraryContent,
+  },
   { id: "diagnostics", labelKey: "settings.sections.diagnostics", icon: Stethoscope },
 ];
 
@@ -233,6 +243,7 @@ function isSectionAvailable(
   vorton: boolean,
 ): boolean {
   if (vorton && item.id === "sidebar") return false;
+  if (item.vortonOnly && !vorton) return false;
   return (!item.desktopOnly || isDesktopApp) && (!item.webOnly || isWeb);
 }
 

@@ -1,6 +1,6 @@
 # Skill library
 
-In Vorteo mode, open Settings, select an environment, choose Agents, then open **Skill library**. The library groups observations from your connected environments in one view. Filter by name, provider, ownership, or environment. Offline results show their observation time. Add a project directory to include that project's skill roots.
+In Vorteo mode, open **Settings > Skills**. The same library is also available from **Skill library** under an environment's Agents settings. The library groups observations from your connected environments in one view. Filter by name, provider, ownership, or environment. Offline results show their observation time. Add a project directory to include that project's skill roots.
 
 Details show instructions, file hashes, package hash, source revision when recorded, resolved discovery links, and inspection problems. **Copy audit** copies that environment's inventory. **History** records library changes and offers restoration of retained previous packages.
 

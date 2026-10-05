@@ -17,7 +17,7 @@ Connect an unlimited number of Codex and Claude accounts, then balance tasks acr
 
 ## Power Tools to Manage Your Fleet
 
-- **Manage skills across environments.** Inspect installed skills, instructions, ownership and hashes in one library. Preview pinned installations, provider discovery links, identical-copy consolidation, removal and restoration. Profiles can inherit defaults with exclusions, select specific skills or disable optional skills on supported providers. See the [skill library guide](docs/skill-library.md).
+- **Manage skills across environments.** Open **Settings > Skills** to inspect installed skills, instructions, ownership and hashes across environments. Preview pinned installations, provider discovery links, identical-copy consolidation, removal and restoration. Profiles can inherit defaults with exclusions, select specific skills or disable optional skills on supported providers. See the [skill library guide](docs/skill-library.md).
 
 - **Give Codex a goal.** Set an objective with an optional token budget. Follow progress, elapsed time and token usage from the goal bar, and pause or resume when you need to intervene.
 
