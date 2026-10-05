@@ -7,6 +7,17 @@ import {
 import { buildEffectiveBindings, resolveKeyboardShortcut } from "../../keyboard/keyboard-shortcuts";
 
 describe("buildBrowserKeyboardPolicy", () => {
+  it("forwards Opt+Space from embedded browsers only in Vorteo on Mac", () => {
+    const bindings = buildEffectiveBindings({});
+    const input = { bindings, isMac: true, isDesktop: true };
+    const enabled = buildBrowserKeyboardPolicy({ ...input, isVorton: true });
+    const standard = buildBrowserKeyboardPolicy({ ...input, isVorton: false });
+    expect(enabled.prefixes).toContainEqual(expect.objectContaining({ code: "Space", alt: true }));
+    expect(standard.prefixes).not.toContainEqual(
+      expect.objectContaining({ code: "Space", alt: true }),
+    );
+  });
+
   it("publishes only chord starts while no browser chord is pending", () => {
     const bindings = buildEffectiveBindings({
       "workspace-tab-new-ctrl-t-non-mac": "Ctrl+Y",

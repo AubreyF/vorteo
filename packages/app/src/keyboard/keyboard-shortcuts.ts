@@ -19,6 +19,7 @@ export type { KeyCombo } from "@/keyboard/shortcut-string";
 export interface KeyboardShortcutContext {
   isMac: boolean;
   isDesktop: boolean;
+  isVorton?: boolean;
   focusScope: KeyboardFocusScope;
   commandCenterOpen: boolean;
 }
@@ -64,9 +65,11 @@ export interface KeyboardShortcutHelpSection {
 interface KeyboardShortcutPlatformContext {
   isMac: boolean;
   isDesktop: boolean;
+  isVorton?: boolean;
 }
 
 interface ShortcutWhen {
+  vorton?: true;
   /** true = mac only, false = non-mac only */
   mac?: boolean;
   /** true = desktop only, false = web only */
@@ -156,6 +159,7 @@ const SHORTCUT_HELP_SECTION_LABEL_KEYS: Record<ShortcutSectionId, string> = {
 export const SHORTCUT_HELP_ROW_ORDER: Record<ShortcutSectionId, readonly string[]> = {
   general: [
     "toggle-command-center",
+    "toggle-command-center-alternate",
     "search-files",
     "show-shortcuts",
     "toggle-settings",
@@ -235,6 +239,7 @@ const SHORTCUT_HELP_LABEL_KEYS: Record<string, string> = {
   "workspace-terminal-new": "settings.shortcuts.help.newTerminal",
   "search-files": "settings.shortcuts.help.searchFiles",
   "toggle-command-center": "settings.shortcuts.help.toggleCommandCenter",
+  "toggle-command-center-alternate": "sidebar.sections.search",
   "show-shortcuts": "settings.shortcuts.help.showKeyboardShortcuts",
   "toggle-left-sidebar": "settings.shortcuts.help.toggleLeftSidebar",
   "toggle-right-sidebar": "settings.shortcuts.help.toggleRightSidebar",
@@ -873,6 +878,18 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     },
   },
   {
+    id: "command-center-toggle-option-space-mac",
+    action: "command-center.toggle",
+    combo: "Alt+Space",
+    repeat: false,
+    when: { mac: true, vorton: true },
+    help: {
+      id: "toggle-command-center-alternate",
+      section: "general",
+      label: "Search",
+    },
+  },
+  {
     id: "command-center-toggle-ctrl-k-non-mac",
     action: "command-center.toggle",
     combo: "Ctrl+K",
@@ -1322,6 +1339,7 @@ export function matchesKeyboardShortcutContext(
   context: KeyboardShortcutContext,
 ): boolean {
   if (!when) return true;
+  if (when.vorton && !context.isVorton) return false;
   if (when.mac !== undefined && when.mac !== context.isMac) return false;
   if (when.desktop !== undefined && when.desktop !== context.isDesktop) return false;
   if (
@@ -1387,6 +1405,7 @@ function helpMatchesPlatform(
   when: ShortcutWhen | undefined,
   context: KeyboardShortcutPlatformContext,
 ): boolean {
+  if (when?.vorton && !context.isVorton) return false;
   if (when?.mac !== undefined && when.mac !== context.isMac) return false;
   if (when?.desktop !== undefined && when.desktop !== context.isDesktop) return false;
   return true;
@@ -1552,7 +1571,7 @@ export function resolveKeyboardShortcut(input: {
 
 export function getBindingIdForAction(
   actionId: string,
-  platform: { isMac: boolean; isDesktop: boolean },
+  platform: KeyboardShortcutPlatformContext,
 ): string | null {
   for (const binding of DEFAULT_BINDINGS) {
     if (binding.help?.id !== actionId) {
@@ -1590,7 +1609,7 @@ function displayChordForBinding(binding: ParsedShortcutBinding): ShortcutKey[][]
 
 export function getDefaultKeysForAction(
   actionId: string,
-  platform: { isMac: boolean; isDesktop: boolean },
+  platform: KeyboardShortcutPlatformContext,
   bindings: readonly ParsedShortcutBinding[] = DEFAULT_BINDINGS,
 ): ShortcutKey[][] | null {
   for (const binding of bindings) {
@@ -1617,7 +1636,7 @@ export function getDefaultKeysForAction(
 export function resolveShortcutKeysForAction(
   actionId: string,
   overrides: ShortcutOverrides,
-  platform: { isMac: boolean; isDesktop: boolean },
+  platform: KeyboardShortcutPlatformContext,
 ): ShortcutKey[][] | null {
   const bindingId = getBindingIdForAction(actionId, platform);
   if (bindingId === null) {
@@ -1659,7 +1678,7 @@ export function resolveShortcutKeysForAction(
  * the shortcut delivers.
  */
 export function getWorkspaceIndexJumpModifierKey(
-  platform: { isMac: boolean; isDesktop: boolean },
+  platform: KeyboardShortcutPlatformContext,
   bindings: readonly ParsedShortcutBinding[] = DEFAULT_BINDINGS,
 ): "Alt" | "Meta" | "Control" | null {
   const binding = bindings.find(function (candidate) {

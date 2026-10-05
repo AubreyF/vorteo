@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useOpenNewWorkspace } from "@/hooks/use-open-new-workspace";
 import { useVortonTouch } from "@/vorton-touch";
@@ -319,6 +318,7 @@ function FooterIconButton({
   icon: Icon,
   iconSizeAdjustment = 0,
   shortcutKeys,
+  alternateShortcutKeys,
   theme,
 }: {
   disabled?: boolean;
@@ -330,6 +330,7 @@ function FooterIconButton({
   /** Only for a glyph that reads larger than the others at the same size. */
   iconSizeAdjustment?: number;
   shortcutKeys?: ReturnType<typeof useShortcutKeys>;
+  alternateShortcutKeys?: ReturnType<typeof useShortcutKeys>;
   theme: SidebarTheme;
   buttonRef?: RefObject<View | null>;
 }) {
@@ -367,7 +368,11 @@ function FooterIconButton({
         </Pressable>
       </TooltipTrigger>
       <TooltipContent side="top" align="center" offset={8} testID={`${testID}-tooltip`}>
-        <IconTooltipContent label={label} shortcutKeys={shortcutKeys} />
+        <IconTooltipContent
+          label={label}
+          shortcutKeys={shortcutKeys}
+          alternateShortcutKeys={alternateShortcutKeys}
+        />
       </TooltipContent>
     </Tooltip>
   );
@@ -442,14 +447,18 @@ function SidebarHostPicker({
 function IconTooltipContent({
   label,
   shortcutKeys,
+  alternateShortcutKeys,
 }: {
   label: string;
   shortcutKeys?: ReturnType<typeof useShortcutKeys>;
+  alternateShortcutKeys?: ReturnType<typeof useShortcutKeys>;
 }) {
   return (
     <View style={styles.tooltipRow}>
       <Text style={styles.tooltipText}>{label}</Text>
       {shortcutKeys ? <Shortcut chord={shortcutKeys} /> : null}
+      {shortcutKeys && alternateShortcutKeys ? <Text style={styles.tooltipText}>/</Text> : null}
+      {alternateShortcutKeys ? <Shortcut chord={alternateShortcutKeys} /> : null}
     </View>
   );
 }
@@ -488,17 +497,15 @@ function SidebarToolbar({
   }, [onBeforeNavigate, setCommandCenterOpen]);
   const newAgentKeys = useShortcutKeys("new-agent");
   const settingsKeys = useShortcutKeys("toggle-settings");
+  const searchKeys = useShortcutKeys("toggle-command-center");
+  const alternateSearchKeys = useShortcutKeys("toggle-command-center-alternate");
   const { t } = useTranslation();
   const [hostsOpen, setHostsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [displayOpen, setDisplayOpen] = useState(false);
   const vorton = useVortonMode();
-  const { items } = useSidebarNavItems("header");
   const pathname = usePathname();
   const touch = useVortonTouch();
-  const navigationItems = items.filter(
-    (item) => item.visible && (item.key === "history" || item.key === "schedules"),
-  );
   const openHistory = useCallback(() => {
     onBeforeNavigate?.();
     router.push(buildSessionsRoute());
@@ -509,41 +516,29 @@ function SidebarToolbar({
   }, [onBeforeNavigate]);
   const openHelp = useCallback(() => setHelpOpen(true), []);
   const openDisplay = useCallback(() => setDisplayOpen(true), []);
-  const searchIcon = useMemo(
-    () => <Search size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
-    [theme.iconSize.sm, theme.colors.foregroundMuted],
-  );
-
   const menuIcons = useMemo(
     () => ({
       project: <FolderPlus size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
-      settings: <Settings size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       help: <CircleHelp size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       workspace: <Plus size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       display: <Settings2 size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
     }),
     [theme.iconSize.sm, theme.colors.foregroundMuted],
   );
-  // One line of icons: Add project, Usage, Hosts, then Help and Settings at the end.
   return (
     <View style={[styles.sidebarFooter, vorton && styles.sidebarToolbar]} testID="sidebar-toolbar">
-      {!vorton && <View style={styles.footerGap} />}
       {vorton && (
-        <View style={[styles.searchContainer, touch && styles.searchContainerTouch]}>
-          {touch && <View pointerEvents="none" style={styles.searchFieldSurface} />}
-          <Button
-            variant="outline"
-            size="sm"
-            leftIcon={searchIcon}
-            onPress={handleSearch}
-            style={[styles.searchField, touch && styles.searchFieldTouch]}
-            accessibilityLabel={t("sidebar.sections.search")}
-            testID="sidebar-search"
-          >
-            {t("sidebar.sections.search")}
-          </Button>
-        </View>
+        <FooterIconButton
+          icon={Search}
+          onPress={handleSearch}
+          label={t("sidebar.sections.search")}
+          shortcutKeys={searchKeys}
+          alternateShortcutKeys={alternateSearchKeys}
+          testID="sidebar-search"
+          theme={theme}
+        />
       )}
+      <View style={styles.footerGap} />
       <View style={styles.footerIconRow}>
         {!vorton && (
           <FooterIconButton
@@ -555,22 +550,26 @@ function SidebarToolbar({
             theme={theme}
           />
         )}
-        {vorton &&
-          navigationItems.map((item) => {
-            const history = item.key === "history";
-            const id = history ? "history" : "schedules";
-            return (
-              <FooterIconButton
-                key={item.key}
-                testID={history ? "sidebar-sessions" : "sidebar-schedules"}
-                icon={history ? History : CalendarClock}
-                onPress={history ? openHistory : openSchedules}
-                active={pathname.includes(history ? "/sessions" : "/schedules")}
-                label={t(builtinSidebarNavLabelKey(id))}
-                theme={theme}
-              />
-            );
-          })}
+        {vorton && (
+          <>
+            <FooterIconButton
+              testID="sidebar-sessions"
+              icon={History}
+              onPress={openHistory}
+              active={pathname.includes("/sessions")}
+              label={t(builtinSidebarNavLabelKey("history"))}
+              theme={theme}
+            />
+            <FooterIconButton
+              testID="sidebar-schedules"
+              icon={CalendarClock}
+              onPress={openSchedules}
+              active={pathname.includes("/schedules")}
+              label={t(builtinSidebarNavLabelKey("schedules"))}
+              theme={theme}
+            />
+          </>
+        )}
         {!vorton && (
           <SidebarHostPicker
             controlledOpen={hostsOpen}
@@ -591,16 +590,14 @@ function SidebarToolbar({
           />
         ) : null}
         {!vorton && <SidebarHelpMenu />}
-        {!vorton ? (
-          <FooterIconButton
-            onPress={handleSettings}
-            testID="sidebar-settings"
-            label={labels.settings}
-            icon={Settings}
-            shortcutKeys={settingsKeys}
-            theme={theme}
-          />
-        ) : null}
+        <FooterIconButton
+          onPress={handleSettings}
+          testID="sidebar-settings"
+          label={labels.settings}
+          icon={Settings}
+          shortcutKeys={settingsKeys}
+          theme={theme}
+        />
         {vorton && (
           <View>
             <SidebarHelpMenu hiddenTrigger controlledOpen={helpOpen} onOpenChange={setHelpOpen} />
@@ -619,13 +616,6 @@ function SidebarToolbar({
                 <MoreHorizontal size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="end" width={240}>
-                <DropdownMenuItem
-                  testID="sidebar-settings"
-                  onSelect={handleSettings}
-                  leading={menuIcons.settings}
-                >
-                  {labels.settings}
-                </DropdownMenuItem>
                 <DropdownMenuItem
                   testID="sidebar-add-project"
                   onSelect={handleOpenProject}
@@ -1262,36 +1252,6 @@ const styles = StyleSheet.create((theme) => ({
     borderTopWidth: 0,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
-  },
-  searchContainer: {
-    flex: 1,
-    minWidth: 0,
-  },
-  searchContainerTouch: {
-    height: 44,
-  },
-  searchFieldSurface: {
-    position: "absolute",
-    top: theme.spacing[1.5],
-    bottom: theme.spacing[1.5],
-    left: 0,
-    right: 0,
-    backgroundColor: theme.colors.surface0,
-    borderColor: theme.colors.border,
-    borderWidth: 1,
-    borderRadius: theme.borderRadius.md,
-  },
-  searchFieldTouch: {
-    backgroundColor: "transparent",
-    borderWidth: 0,
-  },
-  searchField: {
-    borderRadius: theme.borderRadius.md,
-    flex: 1,
-    minWidth: 0,
-    justifyContent: "flex-start",
-    backgroundColor: theme.colors.surface0,
-    borderColor: theme.colors.border,
   },
   scrollingNavGroup: {
     gap: 2,

@@ -33,6 +33,7 @@ interface BrowserShortcutPolicyInput {
   chordState?: ChordState;
   isMac: boolean;
   isDesktop: boolean;
+  isVorton?: boolean;
 }
 
 export function shouldPublishBrowserShortcutPolicy(input: {
@@ -149,6 +150,7 @@ function buildBrowserShortcutPrefixes(input: BrowserShortcutPolicyInput): Browse
   const prefixes = new Map<string, BrowserShortcutPrefix>();
   const context = {
     isMac: input.isMac,
+    isVorton: input.isVorton,
     isDesktop: input.isDesktop,
     focusScope: "browser" as const,
     commandCenterOpen: false,

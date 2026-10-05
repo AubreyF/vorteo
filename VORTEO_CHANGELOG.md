@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.103 - 2026-10-05
+
+### Changed
+
+- Kept Search as a left-aligned icon and placed History, Schedules, Settings and More on the right
+- Added Option+Space alongside Command+K as the default macOS Search shortcuts, with configured shortcuts in the tooltip
+
 ## 0.11.0-beta.3.vorteo.102 - 2026-10-05
 
 ### Changed
