@@ -102,3 +102,60 @@ test("readiness failure stays failed rather than retrying a restart", async () =
     detail: "readiness deadline exceeded",
   });
 });
+
+test("each target has one active request across all requesters", async () => {
+  const queue = new InstallationRestarts(new MemoryJournal(), { restart: async () => "ready" });
+  const host = queue.request({ target: "host", reason: "Prepared" }, "host-agent");
+  const container = queue.request(
+    { target: "container-daemon", reason: "Prepared" },
+    "container-agent",
+  );
+  expect(() => queue.request({ target: "host", reason: "Duplicate" }, "owner")).toThrow("already");
+  expect(() =>
+    queue.request({ target: "container-daemon", reason: "Duplicate" }, "host-agent"),
+  ).toThrow("already");
+  queue.decide(host.id, host.revision, "approve");
+  expect(() =>
+    queue.request({ target: "host", reason: "Duplicate approved" }, "container-agent"),
+  ).toThrow("already");
+  await queue.drain();
+  expect(queue.request({ target: "host", reason: "Next maintenance" }, "owner").status).toBe(
+    "pending",
+  );
+  expect(
+    queue
+      .list()
+      .filter((job) => job.status === "pending")
+      .map((job) => job.target),
+  ).toEqual([container.target, "host"]);
+});
+
+test("expired and duplicate legacy requests leave the pending queue without losing receipts", () => {
+  let now = Date.parse("2026-01-01T00:00:00Z");
+  const journal = new MemoryJournal();
+  const first = new InstallationRestarts(journal, { restart: async () => "ready" }, () => now);
+  const expired = first.request({ target: "host", reason: "Prepared" }, "host-agent");
+  now += 30 * 60_000;
+  expect(first.list()[0]).toMatchObject({
+    id: expired.id,
+    status: "failed",
+    detail: "Restart request expired",
+  });
+  expect(journal.read()[0]?.status).toBe("failed");
+  const original = first.request({ target: "host", reason: "Prepared again" }, "host-agent");
+  journal.jobs.push({
+    ...original,
+    id: "legacy-duplicate",
+    revision: "legacy-revision",
+    requestedBy: "owner",
+  });
+  const restored = new InstallationRestarts(journal, { restart: async () => "ready" }, () => now);
+  expect(restored.list().map((job) => [job.id, job.status])).toEqual([
+    [expired.id, "failed"],
+    [original.id, "rejected"],
+    ["legacy-duplicate", "pending"],
+  ]);
+  expect(() => restored.decide(original.id, original.revision, "approve")).toThrow(
+    "already decided",
+  );
+});

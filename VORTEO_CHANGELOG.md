@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.110 - 2026-10-05
+
+### Fixed
+
+- Limited restart approvals to one current request per environment and moved expired and completed requests into collapsed history
+
 ## 0.11.0-beta.3.vorteo.108 - 2026-10-05
 
 ### Fixed
