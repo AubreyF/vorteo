@@ -1,9 +1,21 @@
+import { generateMessageId } from "@/types/stream";
+import { readDestinationWorkspaces } from "./destination-workspaces";
+import { generateDraftId } from "@/stores/draft-keys";
+import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { createElement, useCallback, useMemo, useRef, useState, type ReactElement } from "react";
 import { router } from "expo-router";
 import { buildHostAgentDetailRoute } from "@/utils/host-routes";
-import { createProfileSuccessor, readProfileHandoff } from "./successor";
+import {
+  createProfileSuccessor,
+  createEnvironmentProfileSuccessor,
+  readProfileHandoff,
+} from "./successor";
 import { ProfileHandoffModal } from "../handoff-modal";
-import type { AgentProfile, AgentSnapshotPayload } from "@getpaseo/protocol/messages";
+import type {
+  AgentProfile,
+  AgentSnapshotPayload,
+  WorkspaceDescriptorPayload,
+} from "@getpaseo/protocol/messages";
 import { useTranslation } from "react-i18next";
 import { mergeCreateAgentSelectionPreferences } from "@/create-agent-preferences/preferences";
 import { useFormPreferences } from "@/hooks/use-form-preferences";
@@ -57,6 +69,7 @@ export interface AgentProfilePicker {
   handoffElement?: ReactElement | null;
   isApplying?: boolean;
   rows: AgentProfilePickerRow[];
+  applyDestinationProfile?: (serverId: string, profile: AgentProfile) => void;
   applyProfile: (
     profileId: string,
     choices?: Pick<AgentProfile, "model" | "thinkingOptionId">,
@@ -64,7 +77,9 @@ export interface AgentProfilePicker {
 }
 
 interface PendingHandoff {
-  source: AgentSnapshotPayload;
+  source: AgentSnapshotPayload | null;
+  destinationServerId?: string;
+  idempotencyKey?: string;
   profile: AgentProfile;
   context: string;
   serverId: string;
@@ -117,9 +132,60 @@ export function useAgentProfilePicker(
   const [handoff, setHandoff] = useState<PendingHandoff | null>(null);
   const closeHandoff = useCallback(() => setHandoff(null), []);
   const confirmHandoff = useCallback(
-    async (context: string) => {
+    async (context: string, workspace?: WorkspaceDescriptorPayload) => {
       if (!client || !handoff || handoff.serverId !== serverId)
         throw new Error("Reconnect to the original host before handing off.");
+      if (handoff.destinationServerId) {
+        const destinationClient =
+          useSessionStore.getState().sessions[handoff.destinationServerId]?.client;
+        if (!destinationClient || !workspace)
+          throw new Error("Reconnect and select a destination workspace.");
+        if (handoff.source) {
+          const successor = await createEnvironmentProfileSuccessor({
+            sourceClient: client,
+            destinationClient,
+            source: handoff.source,
+            sourceServerId: handoff.serverId,
+            profile: handoff.profile,
+            reviewedContext: context,
+            workspaceId: workspace.id,
+            idempotencyKey: handoff.idempotencyKey,
+          });
+          setHandoff(null);
+          router.push(
+            buildHostAgentDetailRoute(
+              handoff.destinationServerId,
+              successor.id,
+              successor.workspaceId,
+            ),
+          );
+          return;
+        }
+        const current = await readDestinationWorkspaces(destinationClient);
+        const destination = current.find((item) => item.id === workspace.id && !item.archivingAt);
+        if (!destination) throw new Error("The destination workspace is no longer available.");
+        const resolved = materializeAgentProfile(handoff.profile);
+        navigateToWorkspace({
+          serverId: handoff.destinationServerId,
+          workspaceId: destination.id,
+          target: {
+            kind: "draft",
+            draftId: generateDraftId(),
+            setup: {
+              provider: resolved.provider,
+              profileId: resolved.profileId,
+              cwd: destination.workspaceDirectory ?? destination.projectRootPath,
+              model: resolved.modelId || null,
+              modeId: resolved.modeId || null,
+              thinkingOptionId: resolved.thinkingOptionId || null,
+              featureValues: resolved.featureValues,
+            },
+          },
+        });
+        setHandoff(null);
+        return;
+      }
+      if (!handoff.source) throw new Error("Source task not found.");
       const successor = await createProfileSuccessor(
         client,
         handoff.source,
@@ -133,8 +199,18 @@ export function useAgentProfilePicker(
   );
   const handoffElement = handoff
     ? createElement(ProfileHandoffModal, {
-        key: `${handoff.source.id}:${handoff.profile.id}`,
+        key: `${handoff.source?.id ?? "draft"}:${handoff.profile.id}:${handoff.destinationServerId ?? serverId}`,
         name: handoff.profile.name,
+        destinationServerId: handoff.destinationServerId,
+        draft: handoff.source === null,
+        ...(handoff.source === null
+          ? {
+              title: `Use ${handoff.profile.name}`,
+              confirmLabel: "Open draft",
+              description:
+                "Choose a workspace in the destination environment. Your original draft and its attachments stay in place.",
+            }
+          : {}),
         initialContext: handoff.context,
         onClose: closeHandoff,
         onConfirm: confirmHandoff,
@@ -158,6 +234,40 @@ export function useAgentProfilePicker(
       }
     },
     [target, client, serverId, toast],
+  );
+
+  const applyDestinationProfile = useCallback(
+    (destinationServerId: string, profile: AgentProfile) => {
+      if (!client || !serverId || applyingRef.current) return;
+      applyingRef.current = true;
+      setIsApplying(true);
+      void (async () => {
+        try {
+          let source: AgentSnapshotPayload | null = null;
+          let context = "";
+          if (target.kind === "agent") {
+            const fetched = await client.fetchAgent(target.agentId);
+            if (!fetched) throw new Error("Source task not found.");
+            source = fetched.agent;
+            context = await readProfileHandoff(client, source);
+          }
+          setHandoff({
+            source,
+            profile,
+            context,
+            serverId,
+            destinationServerId,
+            idempotencyKey: generateMessageId(),
+          });
+        } catch (error) {
+          toast.error(toErrorMessage(error));
+        } finally {
+          applyingRef.current = false;
+          setIsApplying(false);
+        }
+      })();
+    },
+    [client, serverId, target, toast],
   );
 
   const applicableProfiles = useMemo(() => {
@@ -305,6 +415,7 @@ export function useAgentProfilePicker(
         ? {
             rows,
             applyProfile,
+            applyDestinationProfile,
             isApplying,
             handoffElement,
             refreshStatus,
@@ -314,6 +425,7 @@ export function useAgentProfilePicker(
         : null,
     [
       applyProfile,
+      applyDestinationProfile,
       isSupported,
       profiles,
       rows,

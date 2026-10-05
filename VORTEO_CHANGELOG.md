@@ -2,6 +2,18 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.9 - 2026-10-05
+
+### Changed
+
+- Choose environments, provider accounts and profile details in three desktop cards or collapsible mobile sections
+- Compact outline Search and Manage profiles controls, with mobile management in Settings
+- Matching green Dev container and gold Host icons, with provider icons beside accounts
+
+### Added
+
+- Reviewed handoffs with a destination workspace picker when continuing a chat in another environment
+
 ## 0.11.0-beta.3.vorteo.8 - 2026-10-05
 
 ### Changed

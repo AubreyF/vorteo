@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import type { AgentProfile } from "@getpaseo/protocol/messages";
+import type { AgentProfile, SharedProviderPreferences } from "@getpaseo/protocol/messages";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { gotoAppShell, openSettings } from "./app";
 import { connectDaemonClient } from "./daemon-client-loader";
@@ -12,9 +12,16 @@ import { openSettingsHost } from "./settings";
 interface AgentProfilesDaemonClient {
   connect(): Promise<void>;
   close(): Promise<void>;
-  getDaemonConfig(): Promise<{ config: { agentProfiles?: AgentProfile[] } }>;
+  getDaemonConfig(): Promise<{
+    config: {
+      agentProfiles?: AgentProfile[];
+      sharedProviderPreferences?: SharedProviderPreferences;
+    };
+  }>;
   patchDaemonConfig(config: {
     agentProfiles?: AgentProfile[];
+    sharedProviderPreferences?: SharedProviderPreferences;
+    expectedProviderPreferencesRevision?: number | null;
     providers?: Record<string, Record<string, unknown>>;
     removeProviders?: string[];
   }): Promise<unknown>;
@@ -34,13 +41,48 @@ async function connectAgentProfilesClient(): Promise<AgentProfilesDaemonClient> 
  * settings UI create theirs through it; every other journey starts from a host
  * that already has them.
  */
-export async function seedAgentProfiles(profiles: AgentProfile[]): Promise<HostSeed> {
+export async function seedAgentProfiles(
+  profiles: AgentProfile[],
+  shared = false,
+): Promise<HostSeed> {
   const client = await connectAgentProfilesClient();
-  const previous = (await client.getDaemonConfig()).config.agentProfiles ?? [];
-  await client.patchDaemonConfig({ agentProfiles: profiles });
+  const config = (await client.getDaemonConfig()).config;
+  const previous = config.agentProfiles ?? [];
+  if (shared) {
+    const providers: SharedProviderPreferences["providers"] = {};
+    for (const profile of profiles) {
+      const group = providers[profile.provider] ?? {
+        defaults: {},
+        workflows: [],
+        preferredModels: [],
+        preferredThinkingOptions: [],
+        defaultWorkflowId: null,
+      };
+      group.workflows.push(profile);
+      providers[profile.provider] = group;
+    }
+    await client.patchDaemonConfig({
+      sharedProviderPreferences: {
+        version: 1,
+        revision: config.sharedProviderPreferences?.revision ?? 0,
+        providers,
+        legacyProfiles: {},
+      },
+      expectedProviderPreferencesRevision: config.sharedProviderPreferences?.revision ?? null,
+    });
+  } else await client.patchDaemonConfig({ agentProfiles: profiles });
   return {
     async restore() {
-      await client.patchDaemonConfig({ agentProfiles: previous }).catch(() => undefined);
+      if (shared && config.sharedProviderPreferences) {
+        const current = (await client.getDaemonConfig()).config;
+        await client
+          .patchDaemonConfig({
+            sharedProviderPreferences: config.sharedProviderPreferences,
+            expectedProviderPreferencesRevision:
+              current.sharedProviderPreferences?.revision ?? null,
+          })
+          .catch(() => undefined);
+      } else await client.patchDaemonConfig({ agentProfiles: previous }).catch(() => undefined);
       await client.close().catch(() => undefined);
     },
   };

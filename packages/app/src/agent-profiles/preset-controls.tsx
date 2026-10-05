@@ -1,5 +1,5 @@
 import { ExecutionEnvironmentIcon } from "@/execution-installation/environment-icon";
-import { AccountPresetMenu } from "./account-preset-menu";
+import { EnvironmentPresetMenu } from "./environment-preset-menu";
 import { accountPresets } from "./account-presets";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
@@ -29,6 +29,9 @@ import { useCompactProfileName } from "./use-compact-profile-name";
 import { presetNickname } from "./nickname";
 import { RemainingRing } from "@/provider-usage/remaining-ring";
 import { selectedPresetPresentation } from "./selected-preset-presentation";
+
+const PROFILE_SNAP_POINTS = ["90%"];
+const EMPTY_OPTIONS: { id: string; label: string }[] = [];
 
 function PresetStatusIcon({
   waiting,
@@ -92,8 +95,8 @@ export function PresetControls({
   const selectionDisabled = disabled || Boolean(profiles.isApplying);
   const controlsRef = useRef<View>(null);
   const triggerAccessibilityState = useMemo(
-    () => ({ expanded: open, busy: waitingToOpen }),
-    [open, waitingToOpen],
+    () => ({ expanded: open, busy: waitingToOpen || Boolean(profiles.isApplying) }),
+    [open, waitingToOpen, profiles.isApplying],
   );
   const [query, setQuery] = useState("");
   const [inspectedId, setInspectedId] = useState<string>();
@@ -159,14 +162,6 @@ export function PresetControls({
     () => accountPresets({ rows: profiles.rows, definitions: definitions ?? [], entries, query }),
     [profiles.rows, definitions, entries, query],
   );
-  const accountOptions = useMemo(
-    () =>
-      accounts.map((account) => ({
-        id: account.rows.find((row) => row.id === selectedProfileId)?.id ?? account.rows[0].id,
-        label: account.label,
-      })),
-    [accounts, selectedProfileId],
-  );
   const options = useMemo(
     () => visibleRows.map((row) => ({ id: row.id, label: row.name })),
     [visibleRows],
@@ -215,6 +210,7 @@ export function PresetControls({
     },
     [disabled, profiles],
   );
+  const closeMenu = useCallback(() => setOpen(false), []);
   const edit = useCallback(() => {
     setOpen(false);
     const provider = inspected?.provider ?? accounts[0]?.provider ?? entries?.[0]?.provider;
@@ -269,7 +265,7 @@ export function PresetControls({
           testID="agent-preset-selector"
         >
           <PresetStatusIcon
-            waiting={waitingToOpen}
+            waiting={waitingToOpen || Boolean(profiles.isApplying)}
             showWarning={showWarning}
             showRing={showRing}
             remaining={remaining}
@@ -282,17 +278,18 @@ export function PresetControls({
         </ComboboxTrigger>
       </View>
       <Combobox
-        options={vortonMode ? accountOptions : options}
+        options={vortonMode ? EMPTY_OPTIONS : options}
         value={selectedProfileId ?? ""}
         onSelect={vortonMode ? setInspectedId : select}
         open={open}
         onOpenChange={setOpen}
         anchorRef={anchorRef}
-        title="Presets"
-        onActiveOptionChange={setInspectedId}
+        title={vortonMode ? "" : "Presets"}
+        mobileSnapPoints={vortonMode ? PROFILE_SNAP_POINTS : undefined}
+        onActiveOptionChange={vortonMode ? undefined : setInspectedId}
         desktopPlacement="top-start"
-        desktopMinWidth={Math.min(760, width - 32)}
-        desktopFixedHeight={440}
+        desktopMinWidth={Math.min(vortonMode ? 880 : 760, width - 32)}
+        desktopFixedHeight={vortonMode ? 520 : 440}
         desktopPreventInitialFlash
         desktopLockWidth
         desktopChildrenScrollEnabled={false}
@@ -300,24 +297,19 @@ export function PresetControls({
         keepOpenOnSelect
       >
         {vortonMode ? (
-          <AccountPresetMenu
+          <EnvironmentPresetMenu
+            now={now}
             key={`${open}-${isCompact}`}
             serverId={serverId}
-            accounts={accounts}
-            definitions={definitions ?? []}
-            entries={entries}
-            inspectedId={inspectedId ?? selectedProfileId}
+            profiles={profiles}
             selectedId={selectedProfileId}
             compact={isCompact}
             disabled={selectionDisabled}
-            onInspect={setInspectedId}
             onApply={select}
+            onClose={closeMenu}
             currentProvider={currentProvider}
             currentModel={currentModel}
             currentThinkingOptionId={currentThinkingOptionId}
-            onManage={edit}
-            onSearch={setQuery}
-            renderRail={renderRail}
           />
         ) : (
           <View style={isCompact || width < 760 ? styles.stacked : styles.split}>

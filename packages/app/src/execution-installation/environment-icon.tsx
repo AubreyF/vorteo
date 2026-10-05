@@ -18,7 +18,16 @@ export function ExecutionEnvironmentIcon({
   if (!environment || (hostOnly && environment.kind !== "host")) return null;
   const size = ICON_SIZE.sm;
   const color = EXECUTION_ENVIRONMENT_COLORS[environment.kind];
-  if (environment.kind === "container") return <Box size={size} color={color} />;
+  if (environment.kind === "container")
+    return (
+      <View
+        style={styles.monitor}
+        testID="execution-environment-container-icon"
+        accessibilityLabel="Runs in dev container"
+      >
+        <Box size={size} color={color} />
+      </View>
+    );
   return (
     <View
       style={styles.monitor}

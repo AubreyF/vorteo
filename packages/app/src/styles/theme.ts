@@ -2,7 +2,7 @@ import { Platform } from "react-native";
 import { darkHighlightColors, lightHighlightColors } from "@getpaseo/highlight";
 
 export const EXECUTION_ENVIRONMENT_COLORS = {
-  container: "#61C4B7",
+  container: "#7CB68B",
   host: "#E6B566",
 } as const;
 
