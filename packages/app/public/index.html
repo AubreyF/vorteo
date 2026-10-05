@@ -13,7 +13,7 @@
       data-paseo-status-bar-style="black-translucent"
     />
     <script>
-      // Apply the saved mode before the app loads so Home Screen launch uses an opaque status bar.
+      // Installation captures this value. Translucent shortcuts must be replaced to change it.
       (() => {
         const appleHandheld =
           /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -28,9 +28,13 @@
         } catch {
           // Unreadable preferences use the same Vorton default as the app.
         }
+        document.documentElement.dataset.vortonMode = String(enabled);
+        document.documentElement.dataset.vortonIosStandalone = String(
+          navigator.standalone === true,
+        );
         if (enabled)
           document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content =
-            "black";
+            "default";
       })();
     </script>
     <meta
@@ -78,6 +82,30 @@
       }
     </style>
     <style>
+      #vorton-ios-status-strip {
+        display: none;
+      }
+      /* WebKit samples fixed backgrounds to suppress its native scroll pocket.
+         11px exceeds its 10px threshold; clipping an empty element paints no pixels.
+         https://zenn.dev/uakihir0/articles/260920-ios27-pwa-blur */
+      html[data-vorton-mode="true"][data-vorton-ios-standalone="true"] #vorton-ios-status-strip {
+        display: block;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 11px;
+        z-index: 2147483647;
+        pointer-events: none;
+        background-color: var(--colors-surface-sidebar, #f4f4f5);
+        -webkit-background-clip: text;
+        background-clip: text;
+      }
+      @media (prefers-color-scheme: dark) {
+        html[data-vorton-mode="true"][data-vorton-ios-standalone="true"] #vorton-ios-status-strip {
+          background-color: var(--colors-surface-sidebar, #141716);
+        }
+      }
       button,
       a,
       input,
@@ -110,6 +138,7 @@
     </style>
   </head>
   <body>
+    <div id="vorton-ios-status-strip" aria-hidden="true"></div>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root">
       <!-- React replaces this shell when it mounts, including its timeout UI. -->

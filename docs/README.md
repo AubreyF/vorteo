@@ -47,6 +47,7 @@ Use this index to find the document that owns your task. Read relevant subjects 
 | [docs/host-handoff.md](host-handoff.md)                               | Team handoff entry point, fresh installation, migration and acceptance                                                         |
 | [docs/instance-continuity.md](instance-continuity.md)                 | Persistent web publication and active-instance development                                                                     |
 | [docs/agent-presets.md](agent-presets.md)                             | Saved presets, managed workers, quota lifecycle and implementation status                                                      |
+| [iOS Home Screen toolbar](ios-home-screen.md)                         | Native top blur, installation metadata, viewport ownership and acceptance                                                      |
 | [docs/vorton-touch-audit.md](vorton-touch-audit.md)                   | Vorteo touch contract, historical checks and physical-device limits                                                            |
 | [docs/publication-hygiene.md](publication-hygiene.md)                 | Public source boundaries, secret checks and history cleanup                                                                    |
 | [docs/release.md](release.md)                                         | Release playbook, draft releases, completion checklist                                                                         |

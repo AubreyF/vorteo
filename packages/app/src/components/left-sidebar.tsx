@@ -40,7 +40,7 @@ import {
 import { Gesture } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { useChromeInsets } from "@/appearance/use-chrome-insets";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
@@ -148,7 +148,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
   useVortonCompatibilityCallout();
   const { theme } = useUnistyles();
   const { t } = useTranslation();
-  const insets = useChromeInsets();
+  const insets = useSafeAreaInsets();
   const isCompactLayout = useIsCompactFormFactor();
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
 

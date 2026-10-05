@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.116 - 2026-10-05
+
+### Changed
+
+- Moved installation controls into General settings with visible host and container approval status, restart progress, and inline confirmation
+- Kept restart history, password help, and shared workflows available inline without opening a modal
+
 ## 0.11.0-beta.3.vorteo.114 - 2026-10-05
 
 ### Fixed
@@ -17,6 +24,13 @@ Custom changes to vorteo. Paseo's release history remains in its upstream change
 ### Fixed
 
 - Made the cross-environment skill library directly accessible from Settings > Skills on wide and compact layouts
+
+## 0.11.0-beta.3.vorteo.111 - 2026-10-05
+
+### Fixed
+
+- Fixed native top toolbar blur in newly installed iOS Home Screen apps without extra toolbar padding
+- Kept the toolbar visible after keyboard dismissal by sizing Home Screen apps to their available viewport
 
 ## 0.11.0-beta.3.vorteo.110 - 2026-10-05
 
