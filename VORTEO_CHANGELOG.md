@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.110 - 2026-10-05
+
+### Changed
+
+- Moved the sidebar three-dot menu before History, Schedules, and Settings
+
 ## 0.11.0-beta.3.vorteo.108 - 2026-10-05
 
 ### Fixed

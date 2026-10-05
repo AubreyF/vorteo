@@ -18,7 +18,7 @@ test("Vorton toolbar keeps navigation and sidebar actions above the projects", a
     const names = await navigationButtons.evaluateAll((buttons) =>
       buttons.map((button) => button.getAttribute("aria-label")),
     );
-    expect(names).toEqual(["Search", "History", "Schedules", "Settings", "More sidebar actions"]);
+    expect(names).toEqual(["Search", "More sidebar actions", "History", "Schedules", "Settings"]);
     await toolbar.getByTestId("sidebar-search").click();
     await expect(page.getByTestId("command-center-panel")).toBeVisible();
     await page.keyboard.press("Escape");
