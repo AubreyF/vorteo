@@ -122,6 +122,9 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await expect(stack).toContainText("stress-update-1");
     await expect(stack).toContainText("Queued after progress");
 
+    await agent.client.sendAgentMessage(agent.agentId, "Emit synthetic questions.");
+    await expect(stack.getByTestId("question-form-card")).toBeAttached();
+
     for (const width of [1400, 390]) {
       await page.setViewportSize({ width, height: 650 });
       if (width === 390) {
@@ -133,7 +136,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         }
       }
       const geometry = await stack.evaluate((element, cardIds) => {
-        const selectors = ["agent-history-plugin-pills", ...cardIds];
+        const selectors = ["question-form-card", "agent-history-plugin-pills", ...cardIds];
         return selectors.map((id) => {
           const node = element.querySelector(`[data-testid="${id}"]`)!;
           const box = node.getBoundingClientRect();
@@ -155,13 +158,12 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         });
       }, ids);
       for (let i = 1; i < geometry.length; i++)
-        expect(geometry[i].top).toBeGreaterThanOrEqual(geometry[i - 1].bottom);
-      // Subagent rows retain their compact inset; the other cards share the responsive inset.
-      expect(geometry[1].padding).toBe("8px");
-      for (const card of geometry.slice(2)) {
-        expect(card.frame).toEqual(geometry[1].frame);
+        expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
+      expect(geometry[2].padding).toBe("8px");
+      for (const card of geometry.slice(3)) {
+        expect(card.frame).toEqual(geometry[2].frame);
         expect(card.padding).toBe(width === 390 ? "8px 8px 8px 12px" : "16px 8px 16px 16px");
-        expect(card.width).toBe(geometry[1].width);
+        expect(card.width).toBe(geometry[2].width);
       }
       const movement = await stack.evaluate(async (element) => {
         let scroll = element.parentElement;
@@ -182,6 +184,14 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         return before - element.getBoundingClientRect().top;
       });
       expect(movement).toBeGreaterThan(30);
+      await expect
+        .poll(async () => {
+          const goal = await page.getByTestId("agent-goal-bar").boundingBox();
+          const composer = await page.getByTestId("message-input-root").boundingBox();
+          if (!goal || !composer) throw new Error("Goal or composer missing");
+          return Math.round(composer.y - goal.y - goal.height);
+        })
+        .toBe(16);
       await info.attach(`scrolling-cards-${width}`, {
         body: await page.screenshot(),
         contentType: "image/png",
