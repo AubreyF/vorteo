@@ -73,9 +73,6 @@ Keep updates brief. Request only the specific user or administrator action neede
 
 ## Further Reading
 
+- [Roadmap](docs/roadmap.md)
 - [Accounts and presets](docs/agent-presets.md)
 - [Development inside the container](docs/development.md)
-- [Updates and troubleshooting](docs/docker.md)
-- [Optional private workspace previews](docker/tailscale/README.md) reuse the task workspace, configured service and private HTTPS reservation. The host can admit registered projects and worktrees without individual grants while retaining host path verification. With matching daemon and web updates installed, Vorteo workspace hover cards include clickable globe rows for running previews, using the broker private HTTPS address.
-- [Team handoff and testing](docs/host-handoff.md)
-- [Planned work](docs/roadmap.md)
