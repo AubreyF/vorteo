@@ -118,7 +118,7 @@ test.describe("macOS Search shortcuts", () => {
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText("Search");
     await expect(tooltip).toContainText("J");
-    await expect(tooltip).toContainText("Space");
+    await expect(tooltip).toContainText("\u2423");
     await page.screenshot({ path: test.info().outputPath("search-shortcuts-tooltip.png") });
     await page.keyboard.press("Alt+Space");
     await expect(page.getByTestId("command-center-panel")).toBeVisible();
