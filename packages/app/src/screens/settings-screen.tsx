@@ -127,7 +127,11 @@ import { HostPluginsPage } from "@/screens/settings/plugins-page";
 import { MetadataGenerationPage } from "@/screens/settings/metadata-generation-page";
 import ProjectsScreen from "@/screens/projects-screen";
 import ProjectSettingsScreen from "@/screens/project-settings-screen";
-import { SETTINGS_DESKTOP_SIDEBAR_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
+import {
+  SETTINGS_DESKTOP_SIDEBAR_WIDTH,
+  VORTON_HEADER_HEIGHT,
+  useIsCompactFormFactor,
+} from "@/constants/layout";
 import { useLocalDaemonServerId } from "@/hooks/use-is-local-daemon";
 import {
   type EnableBuiltInDaemonOption,
@@ -223,7 +227,12 @@ const SIDEBAR_SECTION_ITEMS: SidebarSectionItem[] = [
   { id: "diagnostics", labelKey: "settings.sections.diagnostics", icon: Stethoscope },
 ];
 
-function isSectionAvailable(item: SidebarSectionItem, isDesktopApp: boolean): boolean {
+function isSectionAvailable(
+  item: SidebarSectionItem,
+  isDesktopApp: boolean,
+  vorton: boolean,
+): boolean {
+  if (vorton && item.id === "sidebar") return false;
   return (!item.desktopOnly || isDesktopApp) && (!item.webOnly || isWeb);
 }
 
@@ -959,7 +968,9 @@ function SettingsSidebar({
   const hasHosts = sortedHosts.length > 0;
   const enableBuiltInDaemonOption = useEnableBuiltInDaemonOption();
   const isDesktopApp = isElectronRuntime();
-  const items = SIDEBAR_SECTION_ITEMS.filter((item) => isSectionAvailable(item, isDesktopApp));
+  const items = SIDEBAR_SECTION_ITEMS.filter((item) =>
+    isSectionAvailable(item, isDesktopApp, vorton),
+  );
   const insets = useSafeAreaInsets();
   const isDesktop = layout === "desktop";
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
@@ -1072,22 +1083,21 @@ function SettingsSidebar({
     >
       {isDesktop ? (
         <View style={innerContainerStyle}>
-          <View
-            style={[sidebarStyles.sidebarDragArea, vorton && sidebarStyles.sidebarDragAreaVorton]}
-          >
+          <View style={sidebarStyles.sidebarDragArea}>
             <TitlebarDragRegion />
             <WindowChromeSafeArea placement="below" />
             {vorton ? (
               <View style={sidebarStyles.modeHeader} testID="settings-mode-header">
-                <View style={sidebarStyles.backButtonContainer}>
-                  <SidebarHeaderRow
-                    icon={ArrowLeft}
-                    label={t("settings.backToWorkspace")}
-                    onPress={onBackToWorkspace}
-                    testID="settings-back-to-workspace"
-                    variant="compact"
-                  />
-                </View>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={ArrowLeft}
+                  onPress={onBackToWorkspace}
+                  testID="settings-back-to-workspace"
+                  style={sidebarStyles.backButton}
+                >
+                  {t("settings.backToWorkspace")}
+                </Button>
               </View>
             ) : (
               <SidebarHeaderRow
@@ -1134,6 +1144,7 @@ export interface SettingsScreenProps {
 }
 
 export default function SettingsScreen({ view, openAddHostIntent = null }: SettingsScreenProps) {
+  const vorton = useVortonMode();
   const router = useRouter();
   const { t } = useTranslation();
   const voiceAudioEngine = useVoiceAudioEngineOptional();
@@ -1407,7 +1418,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
     }
     if (view.kind === "section") {
       const item = SIDEBAR_SECTION_ITEMS.find((candidate) => candidate.id === view.section);
-      if (!item || !isSectionAvailable(item, isDesktopApp)) return null;
+      if (!item || !isSectionAvailable(item, isDesktopApp, vorton)) return null;
       switch (view.section) {
         case "general":
           return (
@@ -1635,25 +1646,23 @@ const sidebarStyles = StyleSheet.create((theme) => ({
     padding: theme.spacing[3],
   },
   modeHeader: {
+    height: VORTON_HEADER_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: theme.spacing[2],
-    paddingBottom: theme.spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
   },
-  backButtonContainer: {
+  backButton: {
     flex: 1,
-    // The shared row already owns the header's horizontal inset.
-    marginHorizontal: -theme.spacing[2],
     minWidth: 0,
-    minHeight: 44,
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface0,
+    borderColor: theme.colors.border,
   },
   sidebarDragArea: {
     position: "relative",
-  },
-  sidebarDragAreaVorton: {
-    paddingTop: theme.spacing[2],
   },
   mobileContainer: {
     paddingVertical: theme.spacing[2],

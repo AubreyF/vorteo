@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.14 - 2026-10-05
+
+### Changed
+
+- Tightened sidebar Search corners, added space before History, and aligned the settings Back outline button with Search
+- Kept History and Schedules visible, removed Usage from the sidebar, and removed Sidebar preferences in Vorteo mode
+
 ## 0.11.0-beta.3.vorteo.13 - 2026-10-05
 
 ### Fixed

@@ -92,6 +92,7 @@ function isBuiltinSidebarItemId<Section extends SidebarSection>(
 
 export function resolveSidebarNavItems<Section extends SidebarSection>(input: {
   section: Section;
+  vorton?: boolean;
   excludedKeys?: readonly string[];
   pluginGroups: readonly PluginSidebarGroup[];
   preferences: readonly SidebarNavPreference[];
@@ -133,6 +134,13 @@ export function resolveSidebarNavItems<Section extends SidebarSection>(input: {
   for (const [key, group] of groupsByKey) {
     if (placed.has(key)) continue;
     items.push({ kind: "plugin", key, group, visible: true });
+  }
+  if (input.vorton) {
+    for (const item of items) {
+      if (item.kind !== "builtin") continue;
+      if (item.id === "history" || item.id === "schedules") item.visible = true;
+      if (item.id === "usage") item.visible = false;
+    }
   }
   return items.filter((item) => !input.excludedKeys?.includes(item.key));
 }
