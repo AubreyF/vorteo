@@ -136,3 +136,42 @@ test("restoring a browser session retains owner access and locking never approve
   expect(locks).toBe(1);
   expect(approvals).toBe(0);
 });
+
+test("the approval queue excludes expired and completed requests and keeps only the newest per target", async () => {
+  const base: RestartJob = {
+    id: "host-old",
+    revision: "revision",
+    target: "host",
+    requestedBy: "host-agent",
+    reason: "Prepared",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    status: "pending",
+    detail: "Approval required",
+  };
+  let jobs: RestartJob[] = [
+    base,
+    { ...base, id: "expired", target: "container-daemon", expiresAt: "2020-01-01T00:00:00.000Z" },
+    { ...base, id: "completed", status: "succeeded" },
+    { ...base, id: "host-new", requestedBy: "owner" },
+    { ...base, id: "container", target: "container-daemon" },
+  ];
+  const model = new InstallationPanelModel({
+    restoreSession: async () => true,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: true,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    unlock: async () => {},
+    listRestarts: async () => jobs,
+    decide: async () => {},
+  });
+  await model.initialize();
+  expect(model.getState().pendingJobs.map((job) => job.id)).toEqual(["container", "host-new"]);
+  expect(model.getState().jobs).toEqual(jobs);
+  jobs = structuredClone(jobs);
+  for (const job of jobs) job.expiresAt = "2020-01-01T00:00:00.000Z";
+  await model.refresh();
+  expect(model.getState().pendingJobs).toEqual([]);
+});

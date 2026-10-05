@@ -1,4 +1,7 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { createInstallationRestartExecutor } from "./daemon.js";
+import type { InstallationConfig } from "./config.js";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal } from "./restarts.js";
 
@@ -102,3 +105,101 @@ test("readiness failure stays failed rather than retrying a restart", async () =
     detail: "readiness deadline exceeded",
   });
 });
+
+test("each target has one active request across all requesters", async () => {
+  const queue = new InstallationRestarts(new MemoryJournal(), { restart: async () => "ready" });
+  const host = queue.request({ target: "host", reason: "Prepared" }, "host-agent");
+  const container = queue.request(
+    { target: "container-daemon", reason: "Prepared" },
+    "container-agent",
+  );
+  expect(() => queue.request({ target: "host", reason: "Duplicate" }, "owner")).toThrow("already");
+  expect(() =>
+    queue.request({ target: "container-daemon", reason: "Duplicate" }, "host-agent"),
+  ).toThrow("already");
+  queue.decide(host.id, host.revision, "approve");
+  expect(() =>
+    queue.request({ target: "host", reason: "Duplicate approved" }, "container-agent"),
+  ).toThrow("already");
+  await queue.drain();
+  expect(queue.request({ target: "host", reason: "Next maintenance" }, "owner").status).toBe(
+    "pending",
+  );
+  expect(
+    queue
+      .list()
+      .filter((job) => job.status === "pending")
+      .map((job) => job.target),
+  ).toEqual([container.target, "host"]);
+});
+
+test("expired and duplicate legacy requests leave the pending queue without losing receipts", () => {
+  let now = Date.parse("2026-01-01T00:00:00Z");
+  const journal = new MemoryJournal();
+  const first = new InstallationRestarts(journal, { restart: async () => "ready" }, () => now);
+  const expired = first.request({ target: "host", reason: "Prepared" }, "host-agent");
+  now += 30 * 60_000;
+  expect(first.list()[0]).toMatchObject({
+    id: expired.id,
+    status: "failed",
+    detail: "Restart request expired",
+  });
+  expect(journal.read()[0]?.status).toBe("failed");
+  const original = first.request({ target: "host", reason: "Prepared again" }, "host-agent");
+  journal.jobs.push({
+    ...original,
+    id: "legacy-duplicate",
+    revision: "legacy-revision",
+    requestedBy: "owner",
+  });
+  const restored = new InstallationRestarts(journal, { restart: async () => "ready" }, () => now);
+  expect(restored.list().map((job) => [job.id, job.status])).toEqual([
+    [expired.id, "failed"],
+    [original.id, "rejected"],
+    ["legacy-duplicate", "pending"],
+  ]);
+  expect(() => restored.decide(original.id, original.revision, "approve")).toThrow(
+    "already decided",
+  );
+});
+
+test("slow healthy status responses allow exactly one restart and require a replacement PID", async () => {
+  const config = {
+    public: { environments: [{ kind: "container", serverId: "test-container" }] },
+    container: { endpoint: "127.0.0.1:1", password: "test-only" },
+  } as unknown as InstallationConfig;
+  const connect = vi.spyOn(DaemonClient.prototype, "connect").mockResolvedValue();
+  const close = vi.spyOn(DaemonClient.prototype, "close").mockResolvedValue();
+  let calls = 0;
+  const status = vi.spyOn(DaemonClient.prototype, "getDaemonStatus").mockImplementation(
+    (options) =>
+      new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          clearTimeout(response);
+          reject(new Error("Status deadline exceeded"));
+        }, options?.timeout);
+        const response = setTimeout(() => {
+          clearTimeout(timeout);
+          resolve({ pid: ++calls === 1 ? 100 : 200 } as Awaited<
+            ReturnType<DaemonClient["getDaemonStatus"]>
+          >);
+        }, 4000);
+      }),
+  );
+  const restart = vi
+    .spyOn(DaemonClient.prototype, "restartServer")
+    .mockResolvedValue(undefined as never);
+  try {
+    await expect(
+      createInstallationRestartExecutor(config).restart("container-daemon"),
+    ).resolves.toContain("Replacement worker 200 is ready");
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(status).toHaveBeenCalledTimes(2);
+    expect(close).toHaveBeenCalledTimes(3);
+  } finally {
+    connect.mockRestore();
+    close.mockRestore();
+    status.mockRestore();
+    restart.mockRestore();
+  }
+}, 15_000);

@@ -33,25 +33,23 @@ export class InstallationRestarts {
       };
     });
     journal.write(this.jobs);
+    this.reconcilePending();
   }
 
   list(): RestartJob[] {
+    this.reconcilePending();
     return this.jobs.map((job) => ({ ...job }));
   }
 
   request(input: RestartRequest, requestedBy: RestartJob["requestedBy"]): RestartJob {
-    const pending = this.jobs.filter(
-      (job) =>
-        job.requestedBy === requestedBy &&
-        job.status === "pending" &&
-        Date.parse(job.expiresAt) > this.now(),
-    );
-    const sameTarget = pending.find(
-      (job) => job.target === input.target && Date.parse(job.expiresAt) > this.now(),
-    );
-    if (sameTarget)
-      throw new RestartRequestError("A restart request for this target is already pending");
-    if (pending.length >= 8) throw new RestartRequestError("Too many pending restart requests");
+    this.reconcilePending();
+    const active = this.jobs.find((job) => {
+      if (job.target !== input.target) return false;
+      if (job.status === "approved" || job.status === "running") return true;
+      return job.status === "pending" && Date.parse(job.expiresAt) > this.now();
+    });
+    if (active)
+      throw new RestartRequestError("A restart request for this target is already active");
     const job: RestartJob = {
       ...input,
       id: randomUUID(),
@@ -71,8 +69,10 @@ export class InstallationRestarts {
     if (!job || job.revision !== revision || job.status !== "pending") {
       throw new RestartRequestError("Restart request is missing, changed, or already decided");
     }
-    if (Date.parse(job.expiresAt) <= this.now())
+    if (Date.parse(job.expiresAt) <= this.now()) {
+      this.reconcilePending();
       throw new RestartRequestError("Restart approval expired");
+    }
     const next: RestartJob = { ...job, status: decision === "approve" ? "approved" : "rejected" };
     this.replace(next);
     return { ...next };
@@ -105,6 +105,31 @@ export class InstallationRestarts {
     } finally {
       this.running = false;
     }
+  }
+
+  private reconcilePending(): void {
+    const targets = new Set<RestartJob["target"]>();
+    const now = this.now();
+    let changed = false;
+    const jobs = [...this.jobs];
+    for (let index = jobs.length - 1; index >= 0; index--) {
+      const job = jobs[index]!;
+      if (job.status !== "pending") continue;
+      if (Date.parse(job.expiresAt) <= now) {
+        changed = true;
+        jobs[index] = { ...job, status: "failed", detail: "Restart request expired" };
+      } else if (targets.has(job.target)) {
+        changed = true;
+        jobs[index] = {
+          ...job,
+          status: "rejected",
+          detail: "Superseded by a newer request for this target",
+        };
+      } else {
+        targets.add(job.target);
+      }
+    }
+    if (changed) this.commit(jobs);
   }
 
   private replace(next: RestartJob): void {

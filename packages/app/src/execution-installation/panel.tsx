@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useEffect, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
@@ -69,6 +69,10 @@ export function InstallationPanelHost() {
 
 function InstallationPanel({ model }: { model: InstallationPanelModel }) {
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const toggleHistory = useCallback(() => setHistoryVisible((visible) => !visible), []);
+  const pendingIds = new Set(state.pendingJobs.map((job) => job.id));
+  const history = state.jobs.filter((job) => !pendingIds.has(job.id)).toReversed();
   useEffect(() => {
     void model.initialize();
     const timer = setInterval(() => {
@@ -182,24 +186,44 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
               model={model}
               busy={state.busy}
             />
-            <SettingsSection title="Restart requests" flush>
-              {state.jobs.length === 0 ? (
+            <SettingsSection title="Pending restart requests" flush>
+              {state.pendingJobs.length === 0 ? (
                 <View style={settingsStyles.card}>
                   <View style={styles.cardBody}>
-                    <Text style={settingsStyles.rowTitle}>No restart requests</Text>
+                    <Text style={settingsStyles.rowTitle}>No pending restart requests</Text>
                     <Text style={styles.text}>
                       Requests appear here when maintenance needs a restart
                     </Text>
                   </View>
                 </View>
               ) : null}
-              {state.jobs
-                .slice(-20)
-                .toReversed()
-                .map((job) => (
-                  <RestartRequest key={job.id} job={job} model={model} busy={state.busy} />
-                ))}
+              {state.pendingJobs.map((job) => (
+                <RestartRequest key={job.id} job={job} model={model} busy={state.busy} />
+              ))}
+              {state.notice ? (
+                <Text accessibilityLiveRegion="polite" style={styles.text}>
+                  {state.notice}
+                </Text>
+              ) : null}
+              {history.length > 0 ? (
+                <Button variant="ghost" onPress={toggleHistory} testID="restart-history-toggle">
+                  {historyVisible ? "Hide restart history" : "Show restart history"}
+                </Button>
+              ) : null}
             </SettingsSection>
+            {historyVisible && history.length > 0 ? (
+              <SettingsSection title="Restart history" flush>
+                {history.slice(0, 20).map((job) => (
+                  <RestartRequest
+                    key={job.id}
+                    job={job}
+                    model={model}
+                    busy={state.busy}
+                    historical
+                  />
+                ))}
+              </SettingsSection>
+            ) : null}
           </>
         )}
         {state.error ? (
@@ -320,11 +344,18 @@ function RestartRequest({
   job,
   model,
   busy,
+  historical = false,
 }: {
   job: RestartJob;
   model: InstallationPanelModel;
   busy: boolean;
+  historical?: boolean;
 }) {
+  const expired = job.status === "pending" && Date.parse(job.expiresAt) <= Date.now();
+  let status: string = job.status;
+  if (expired) status = "expired";
+  else if (historical && job.status === "pending") status = "superseded";
+  const canDecide = !historical && job.status === "pending" && !expired;
   const approve = useCallback(async () => {
     const target = job.target === "host" ? "native host daemon" : "dev-container daemon";
     const confirmed = await confirmDialog({
@@ -345,13 +376,13 @@ function RestartRequest({
           <Text style={settingsStyles.rowTitle}>
             {job.target === "host" ? "Host: full account access" : "Dev container"}
           </Text>
-          <StatusBadge label={job.status} />
+          <StatusBadge label={status} />
         </View>
         <Text style={styles.text}>{job.reason}</Text>
         <Text style={styles.text}>
           {job.requestedBy} · {job.detail}
         </Text>
-        {job.status === "pending" && Date.parse(job.expiresAt) > Date.now() ? (
+        {canDecide ? (
           <View style={styles.actions}>
             <Button
               variant="outline"
@@ -366,7 +397,7 @@ function RestartRequest({
             </Button>
           </View>
         ) : null}
-        {job.status === "pending" && Date.parse(job.expiresAt) <= Date.now() ? (
+        {expired ? (
           <Text style={styles.text}>
             This request expired. A new request is needed before restarting.
           </Text>
