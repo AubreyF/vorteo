@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.9 - 2026-10-05
+
+### Fixed
+
+- Unified spacing between question, approval, subagent, task, queue and goal cards above the message box
+
 ## 0.11.0-beta.3.vorteo.8 - 2026-10-05
 
 ### Changed

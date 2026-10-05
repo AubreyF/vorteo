@@ -1,7 +1,5 @@
 import { AgentHistoryTracks } from "@/panels/agent-tracks";
 import { useCallback, useState } from "react";
-import { View } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
 import { GoalBar } from "@/goals/goal-bar";
 import { GoalDetails } from "@/goals/goal-details";
 import { useAgentGoal } from "@/goals/use-agent-goal";
@@ -29,7 +27,7 @@ export function AgentTaskCards({
   const open = useCallback(() => setExpanded(true), []);
   const close = useCallback(() => setExpanded(false), []);
   return (
-    <View style={styles.cards} testID="agent-history-task-cards">
+    <>
       {workspaceId ? (
         <AgentHistoryTracks
           serverId={serverId}
@@ -57,9 +55,6 @@ export function AgentTaskCards({
       {expanded && goal.supported ? (
         <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />
       ) : null}
-    </View>
+    </>
   );
 }
-const styles = StyleSheet.create((theme) => ({
-  cards: { gap: theme.spacing[2] },
-}));

@@ -133,7 +133,7 @@ export const AgentTracks = memo(function AgentTracks({
 
   if (inline) {
     return (
-      <View style={styles.cards} testID="agent-history-tracks">
+      <>
         {hasPluginComposerPills ? (
           <View style={styles.pills} testID="agent-history-plugin-pills">
             <PluginComposerPills
@@ -156,7 +156,7 @@ export const AgentTracks = memo(function AgentTracks({
           onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
         />
         <AgentTaskList inline tasks={tasks} />
-      </View>
+      </>
     );
   }
 
@@ -245,6 +245,5 @@ export function AgentHistoryTracks({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  cards: { gap: theme.spacing[2] },
   pills: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[1], alignItems: "center" },
 }));
