@@ -371,8 +371,7 @@ export function resolveFormState(
   allowedProviderMap: Map<AgentProvider, AgentProviderDefinition>,
 ): FormState {
   const result = { ...currentState };
-  if (!userModified.provider && initialValues?.profileId)
-    result.profileId = initialValues.profileId;
+  if (!userModified.provider) result.profileId = initialValues?.profileId;
 
   result.provider = resolveProvider({
     currentProvider: result.provider,
@@ -588,6 +587,7 @@ function applyProfile(state: AgentFormReducerState, action: ApplyProfileAction) 
 
 function sameInitialValues(left: FormInitialValues = {}, right: FormInitialValues = {}): boolean {
   return (
+    left.profileId === right.profileId &&
     left.provider === right.provider &&
     left.model === right.model &&
     left.modeId === right.modeId &&

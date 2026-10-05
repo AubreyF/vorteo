@@ -3,6 +3,13 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { SharedProviderPreferences } from "@getpaseo/protocol/messages";
 import { expect, test } from "../support/fixtures";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
+import { gotoWorkspace } from "../support/helpers/launcher";
+import { seedWorkspace } from "../support/helpers/seed-client";
+import { runWorkspaceActionFromCommandCenter } from "../support/helpers/command-center-workspace-actions";
+import {
+  submitDraftAgent,
+  waitForDraftComposer,
+} from "../support/helpers/command-center-agent-controls";
 import { setVortonMode } from "../support/helpers/app";
 import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
@@ -236,6 +243,74 @@ test("shared launch freezes permissions and recreation uses the updated workflow
     expect(successors.entries).toHaveLength(1);
     expect(successors.entries[0].agent.currentModeId).toBe("approval-test");
     expect((await client.fetchAgent(agent.id))!.agent.currentModeId).toBe("load-test");
+  } finally {
+    await workspace.cleanup();
+    const current = (await client.getDaemonConfig()).config.sharedProviderPreferences!;
+    await client.patchDaemonConfig({
+      sharedProviderPreferences: previous,
+      expectedProviderPreferencesRevision: current.revision,
+    });
+    await client.close();
+  }
+});
+
+test("a new draft keeps the remembered account when another account owns the default workflow", async ({
+  page,
+}) => {
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "draft-account" });
+  const previous = (await client.getDaemonConfig()).config.sharedProviderPreferences!;
+  await client.patchDaemonConfig({
+    sharedProviderPreferences: {
+      version: 1,
+      revision: previous.revision,
+      defaultProvider: "codex",
+      legacyProfiles: {},
+      providers: {
+        codex: {
+          defaults: { model: "gpt-5.4-mini", modeId: "full-access" },
+          preferredModels: [],
+          preferredThinkingOptions: [],
+          workflows: [{ id: "review", name: "Other account review", provider: "codex" }],
+          defaultWorkflowId: "review",
+        },
+        mock: {
+          defaults: { model: "e2e-fast-stream", modeId: "load-test" },
+          preferredModels: [],
+          preferredThinkingOptions: [],
+          workflows: [{ id: "everyday", name: "Remembered account workflow", provider: "mock" }],
+          defaultWorkflowId: "everyday",
+        },
+      },
+    },
+    expectedProviderPreferencesRevision: previous.revision,
+  });
+  const workspace = await seedWorkspace({ repoPrefix: "draft-account-" });
+  try {
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        "@paseo:create-agent-preferences",
+        JSON.stringify({
+          vortonMode: true,
+          provider: "mock",
+          providerPreferences: { mock: { model: "e2e-fast-stream", mode: "load-test" } },
+        }),
+      );
+    });
+    await gotoWorkspace(page, workspace.workspaceId);
+    await runWorkspaceActionFromCommandCenter(page, "New agent");
+    await waitForDraftComposer(page);
+    await expect(page.getByTestId("agent-preset-selector").filter({ visible: true })).toContainText(
+      "Remembered account workflow",
+    );
+    await submitDraftAgent(page, "Launch with the remembered account workflow");
+    await expect
+      .poll(async () => {
+        const agents = await client.fetchAgents({ scope: "active" });
+        return agents.entries.find((entry) => entry.agent.workspaceId === workspace.workspaceId)
+          ?.agent.provider;
+      })
+      .toBe("mock");
+    await page.screenshot({ path: test.info().outputPath("draft-account-launch.png") });
   } finally {
     await workspace.cleanup();
     const current = (await client.getDaemonConfig()).config.sharedProviderPreferences!;

@@ -3,13 +3,16 @@ import { expect, test, type Page } from "../support/fixtures";
 import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-agent";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 
+test.use({ vortonMode: true });
+
 async function openShowPreferences(page: Page): Promise<void> {
   await page.getByTestId("sidebar-footer-overflow").click();
   await expect(page.getByRole("menuitem")).toHaveText([
+    "Settings",
+    "Usage",
     "Add project",
     "New workspace",
     "View preferences",
-    "Settings",
     "Help and support",
   ]);
   await page.getByTestId("sidebar-display-preferences-action").click();
@@ -37,13 +40,6 @@ test("activity badges can be hidden, stay hidden after reload, and return when e
       messageId: "badge-check",
       text: "Queued badge check",
       attachments: [],
-    });
-    await page.addInitScript(() => {
-      const key = "@paseo:create-agent-preferences";
-      localStorage.setItem(
-        key,
-        JSON.stringify({ ...JSON.parse(localStorage.getItem(key) ?? "{}"), vortonMode: true }),
-      );
     });
     await openAgentRoute(page, agent);
     const badge = page.getByTestId(/^workspace-queue-count-/);
