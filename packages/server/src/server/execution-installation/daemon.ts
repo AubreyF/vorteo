@@ -10,6 +10,9 @@ import type { RestartExecutor } from "./restarts.js";
 
 const execFileAsync = promisify(execFile);
 
+// Status includes provider availability probes, which can exceed three seconds.
+const DAEMON_RESPONSE_TIMEOUT_MS = 30_000;
+
 export async function connectInstallationDaemon(
   config: InstallationConfig,
   kind: ExecutionEnvironmentKind,
@@ -23,7 +26,7 @@ export async function connectInstallationDaemon(
     expectedServerId: descriptor.serverId,
     clientId: `installation-${randomUUID()}`,
     clientType: "cli",
-    connectTimeoutMs: 3000,
+    connectTimeoutMs: DAEMON_RESPONSE_TIMEOUT_MS,
     reconnect: { enabled: false },
     webSocketFactory: (url, options) => {
       const socket = new WebSocket(url, options?.protocols, { headers: options?.headers });
@@ -59,7 +62,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
       let before: DaemonClient | null = null;
       try {
         before = await connectInstallationDaemon(config, kind);
-        previousPid = (await before.getDaemonStatus({ timeout: 3000 })).pid;
+        previousPid = (await before.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS })).pid;
       } catch (error) {
         if (target !== "host") throw error;
         // The installation owns this launchd service even when its daemon is down.
@@ -96,7 +99,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
         let client: DaemonClient | null = null;
         try {
           client = await connectInstallationDaemon(config, kind);
-          const status = await client.getDaemonStatus({ timeout: 3000 });
+          const status = await client.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS });
           if (status.pid !== previousPid)
             return `Replacement worker ${status.pid} is ready; environment identity verified`;
         } catch {

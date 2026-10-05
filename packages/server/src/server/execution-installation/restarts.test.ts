@@ -1,4 +1,7 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { createInstallationRestartExecutor } from "./daemon.js";
+import type { InstallationConfig } from "./config.js";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal } from "./restarts.js";
 
@@ -102,3 +105,44 @@ test("readiness failure stays failed rather than retrying a restart", async () =
     detail: "readiness deadline exceeded",
   });
 });
+
+test("slow healthy status responses allow exactly one restart and require a replacement PID", async () => {
+  const config = {
+    public: { environments: [{ kind: "container", serverId: "test-container" }] },
+    container: { endpoint: "127.0.0.1:1", password: "test-only" },
+  } as unknown as InstallationConfig;
+  const connect = vi.spyOn(DaemonClient.prototype, "connect").mockResolvedValue();
+  const close = vi.spyOn(DaemonClient.prototype, "close").mockResolvedValue();
+  let calls = 0;
+  const status = vi.spyOn(DaemonClient.prototype, "getDaemonStatus").mockImplementation(
+    (options) =>
+      new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          clearTimeout(response);
+          reject(new Error("Status deadline exceeded"));
+        }, options?.timeout);
+        const response = setTimeout(() => {
+          clearTimeout(timeout);
+          resolve({ pid: ++calls === 1 ? 100 : 200 } as Awaited<
+            ReturnType<DaemonClient["getDaemonStatus"]>
+          >);
+        }, 4000);
+      }),
+  );
+  const restart = vi
+    .spyOn(DaemonClient.prototype, "restartServer")
+    .mockResolvedValue(undefined as never);
+  try {
+    await expect(
+      createInstallationRestartExecutor(config).restart("container-daemon"),
+    ).resolves.toContain("Replacement worker 200 is ready");
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(status).toHaveBeenCalledTimes(2);
+    expect(close).toHaveBeenCalledTimes(3);
+  } finally {
+    connect.mockRestore();
+    close.mockRestore();
+    status.mockRestore();
+    restart.mockRestore();
+  }
+}, 15_000);
