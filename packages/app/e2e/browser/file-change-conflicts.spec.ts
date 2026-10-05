@@ -8,6 +8,7 @@ import {
 } from "../support/helpers/file-explorer";
 import type { WithWorkspace } from "../support/helpers/with-workspace";
 import { installDaemonWebSocketGate } from "../support/helpers/daemon-websocket-gate";
+import { setVortonMode } from "../support/helpers/app";
 import {
   expectFileCalloutWasRendered,
   expectNoFileCalloutWasRendered,
@@ -129,6 +130,38 @@ async function restoreFileAfterWatcherObservedTemporaryAbsence(input: {
 }
 
 test.describe("Workspace file change conflicts", () => {
+  test("binary preview downloads the original file in Vorteo mode", async ({
+    page,
+    withWorkspace,
+  }, testInfo) => {
+    const content = new Uint8Array([0, 1, 2, 3, 255]);
+    await openTrackedFile(page, withWorkspace, {
+      prefix: "binary-preview-download-",
+      relativePath: "artifact.bin",
+      content,
+    });
+    const button = filePane(page).getByRole("button", { name: "Download", exact: true });
+    await expect(
+      filePane(page).getByText("Binary preview unavailable", { exact: true }),
+    ).toBeVisible();
+    await expect(button).toHaveCount(0);
+    await setVortonMode(page, true);
+    await expect(button).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("binary-download-desktop.png") });
+    const downloading = page.waitForEvent("download");
+    await button.click();
+    const download = await downloading;
+    expect(download.suggestedFilename()).toBe("artifact.bin");
+    const savedPath = await download.path();
+    if (!savedPath) throw new Error("The browser did not save the downloaded file");
+    expect(new Uint8Array(await readFile(savedPath))).toEqual(content);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(button).toBeVisible();
+    const bounds = await button.boundingBox();
+    expect(bounds?.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: testInfo.outputPath("binary-download-mobile.png") });
+  });
+
   test("a temporary write gap never renders a disk-change callout", async ({
     page,
     withWorkspace,
