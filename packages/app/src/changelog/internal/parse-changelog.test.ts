@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   formatChangelogDate,
+  mergeChangelogReleases,
   parseChangelog,
   type ChangelogRelease,
   type ChangelogSection,
@@ -313,5 +314,47 @@ describe("the repository's own CHANGELOG.md", () => {
     expect(releases.flatMap(authoredLines).filter(isNotBlank)).toEqual(
       fromFirstRelease.filter(isNotBlank).filter((line) => !line.startsWith("## ")),
     );
+  });
+});
+
+describe("mergeChangelogReleases", () => {
+  it("interleaves sources newest first even when authored dates are out of order", () => {
+    const custom = parseChangelog(
+      "## 0.11.0-beta.3.vorteo.3 - 2026-10-04\n\n- New base\n\n## 0.9.0-beta.2.vorteo.45 - 2026-10-05\n\n- Older base, newer date",
+    );
+    const upstream = parseChangelog(
+      "## 0.12.0 - 2026-10-06\n\n- Latest\n\n## 0.11.0 - 2026-10-04\n\n- Same day\n\n## 0.10.0 - 2026-10-03\n\n- Earlier",
+    );
+    expect(
+      mergeChangelogReleases(custom, upstream).map(({ source, version }) => [source, version]),
+    ).toEqual([
+      ["Paseo", "0.12.0"],
+      ["Vorteo", "0.9.0-beta.2.vorteo.45"],
+      ["Vorteo", "0.11.0-beta.3.vorteo.3"],
+      ["Paseo", "0.11.0"],
+      ["Paseo", "0.10.0"],
+    ]);
+    expect(custom[0].date).toBe("2026-10-04");
+  });
+
+  it("retains authored order for ties and puts undated notes last", () => {
+    const custom = parseChangelog(
+      "## 1.0.0-vorteo.96 - 2026-10-05\n\n- Two\n\n## 1.0.0-vorteo.95 - 2026-10-05\n\n- One\n\n## Unreleased\n\n- Pending",
+    );
+    const upstream = parseChangelog(
+      "## Unknown - someday\n\n- Unknown\n\n## 1.0.0 - 2026-10-05\n\n- Upstream",
+    );
+    expect(mergeChangelogReleases(custom, upstream).map(({ version }) => version)).toEqual([
+      "1.0.0-vorteo.96",
+      "1.0.0-vorteo.95",
+      "1.0.0",
+      "Unreleased",
+      "Unknown",
+    ]);
+    expect(mergeChangelogReleases(custom, [])).toHaveLength(3);
+    expect(mergeChangelogReleases([], upstream).every(({ source }) => source === "Paseo")).toBe(
+      true,
+    );
+    expect(mergeChangelogReleases([], [])).toEqual([]);
   });
 });

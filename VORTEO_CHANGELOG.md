@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.96 - 2026-10-05
+
+### Changed
+
+- Continued Vorteo numbering across upstream Paseo updates, accounting for 95 prior version increments
+- Interleaved Vorteo and Paseo release notes by date with source labels and one Show more control
+
 ## 0.11.0-beta.3.vorteo.10 - 2026-10-05
 
 ### Fixed

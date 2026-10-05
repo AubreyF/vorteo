@@ -149,3 +149,26 @@ export function formatChangelogDate(date: string): string {
     timeZone: "UTC",
   }).format(value);
 }
+
+export interface ChangelogTimelineRelease extends ChangelogRelease {
+  source: "Vorteo" | "Paseo";
+}
+
+/** Equal dates retain authored order, with bundled notes before upstream notes. */
+export function mergeChangelogReleases(
+  custom: readonly ChangelogRelease[],
+  upstream: readonly ChangelogRelease[],
+): ChangelogTimelineRelease[] {
+  const releases: ChangelogTimelineRelease[] = [
+    ...custom.map((release): ChangelogTimelineRelease => ({ ...release, source: "Vorteo" })),
+    ...upstream.map((release): ChangelogTimelineRelease => ({ ...release, source: "Paseo" })),
+  ];
+  return releases.sort(
+    (left, right) => changelogDateOrder(right.date) - changelogDateOrder(left.date),
+  );
+}
+
+function changelogDateOrder(date: string): number {
+  const timestamp = Date.parse(date);
+  return Number.isNaN(timestamp) ? -Number.MAX_VALUE : timestamp;
+}

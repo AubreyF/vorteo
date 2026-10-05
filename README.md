@@ -31,7 +31,7 @@ Connect an unlimited number of Codex and Claude accounts, then balance tasks acr
 
 - **Continue a chat in another project.** In Vorteo mode on web and desktop, drag a workspace onto another project, choose one chat and a destination profile, then review its handoff. The original stays available. Files, Git changes, other chats, attachments and tool results are not copied.
 
-- **Read custom release notes.** Open **Settings → General → What's new** for bundled Vorteo history alongside Paseo notes. Custom notes remain available when the upstream feed cannot be reached.
+- **Read custom release notes.** Open **Settings → General → What's new** for Vorteo and Paseo notes in one timeline, newest first, with a shared Show more control. Vorteo version counters continue across upstream Paseo updates. Custom notes remain available when the upstream feed cannot be reached.
 
 - **Track usage across coding tools.** Updated builds include Paseo's plugin usage sources and pinned usage windows alongside Vorteo's account and reserve controls.
 

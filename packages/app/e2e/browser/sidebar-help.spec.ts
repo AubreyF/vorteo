@@ -5,7 +5,9 @@ import { gotoAppShell, openSettings } from "../support/helpers/app";
 import { openSettingsSection } from "../support/helpers/settings";
 import { openWhatsNew, release, serveChangelog } from "../support/helpers/changelog";
 
-const customReleases = parseChangelog(readFileSync("../../VORTEO_CHANGELOG.md", "utf8"));
+const customReleases = parseChangelog(
+  readFileSync(new URL("../../../../VORTEO_CHANGELOG.md", import.meta.url), "utf8"),
+);
 const latestCustomRelease = customReleases[0]!;
 
 const DISCORD_DESTINATION =
@@ -203,8 +205,22 @@ async function tapHelpNearTargetEdge(page: Page): Promise<void> {
   await button.tap({ position: { x: 40, y: 40 } });
 }
 
-test("shows bundled Vorteo notes alongside Paseo and preserves Standard mode", async ({ page }) => {
-  await serveChangelog(page, ["## 9.1.0 - 2026-03-04", "", "- Added an upstream feature"]);
+test("interleaves Vorteo and Paseo notes with one Show more and preserves Standard mode", async ({
+  page,
+}) => {
+  await serveChangelog(page, [
+    "## 9.2.0 - 2026-10-06",
+    "",
+    "- Newest upstream feature",
+    "",
+    "## 9.1.0 - 2026-10-05",
+    "",
+    "- Same day upstream feature",
+    "",
+    "## 9.0.0 - 2026-10-04",
+    "",
+    "- Older upstream feature",
+  ]);
   await gotoAppShell(page);
   await openSettings(page);
   await page
@@ -213,27 +229,35 @@ test("shows bundled Vorteo notes alongside Paseo and preserves Standard mode", a
     .click();
   await page.getByTestId("settings-whats-new").click();
   const sheet = page.getByTestId("changelog-sheet");
-  await expect(sheet).toBeVisible();
-  const custom = sheet.getByTestId("changelog-vorteo");
-  await expect(
-    custom.getByTestId(`changelog-release-${latestCustomRelease.version}`),
-  ).toBeVisible();
-  await expect(custom.getByTestId(/^changelog-release-/)).toHaveCount(1);
-  await expect(
-    sheet.getByTestId("changelog-paseo").getByText("Added an upstream feature"),
-  ).toBeVisible();
-  await custom.getByTestId("changelog-show-more").click();
-  await expect(custom.getByTestId(/^changelog-release-/)).toHaveCount(
-    Math.min(11, customReleases.length),
+  const entries = sheet.locator('[data-testid^="changelog-release-"]');
+  await expect(entries).toHaveCount(5);
+  await expect(entries.first()).toHaveAttribute("data-testid", "changelog-release-9.2.0");
+  await expect(entries.first().getByText("Paseo", { exact: true })).toBeVisible();
+  await expect(entries.nth(1).getByText("Vorteo", { exact: true })).toBeVisible();
+  await expect(release(sheet, latestCustomRelease.version)).toBeVisible();
+  await expect(sheet.getByTestId("changelog-show-more")).toHaveCount(1);
+  await sheet.getByTestId("changelog-show-more").click();
+  await expect(release(sheet, "9.0.0")).toBeVisible();
+  await expect(sheet.getByTestId("changelog-show-more")).toHaveCount(0);
+  const dates = await entries.evaluateAll((elements) =>
+    elements.map((element) => {
+      const date = element.textContent?.match(/[A-Z][a-z]+ \d{1,2}, \d{4}/)?.[0];
+      return date ? Date.parse(date) : 0;
+    }),
   );
+  expect(dates).toEqual([...dates].sort((left, right) => right - left));
+  await closeSheet(page, "changelog-sheet");
+  await page.getByTestId("settings-whats-new").click();
+  await expect(entries).toHaveCount(5);
   await closeSheet(page, "changelog-sheet");
   await page
     .getByTestId("settings-vorton-mode")
     .getByRole("button", { name: "Standard mode", exact: true })
     .click();
   await page.getByTestId("settings-whats-new").click();
-  await expect(sheet.getByTestId("changelog-vorteo")).toHaveCount(0);
-  await expect(sheet.getByText("Added an upstream feature")).toBeVisible();
+  await expect(entries).toHaveCount(3);
+  await expect(sheet.getByText("Vorteo", { exact: true })).toHaveCount(0);
+  await expect(sheet.getByText("Newest upstream feature")).toBeVisible();
 });
 
 test("keeps Vorteo notes readable when Paseo fails and retries upstream", async ({ page }) => {
@@ -248,19 +272,11 @@ test("keeps Vorteo notes readable when Paseo fails and retries upstream", async 
   await page.getByTestId("settings-whats-new").click();
   const sheet = page.getByTestId("changelog-sheet");
   await expect(sheet).toBeVisible();
-  await expect(
-    sheet
-      .getByTestId("changelog-vorteo")
-      .getByTestId(`changelog-release-${latestCustomRelease.version}`),
-  ).toBeVisible();
-  await expect(sheet.getByTestId("changelog-paseo").getByTestId("changelog-error")).toBeVisible();
+  await expect(release(sheet, latestCustomRelease.version)).toBeVisible();
+  await expect(sheet.getByTestId("changelog-error")).toBeVisible();
   await page.unroute(url);
-  await serveChangelog(page, ["## 9.1.0 - 2026-03-04", "", "- Upstream recovered"]);
+  await serveChangelog(page, ["## 9.1.0 - 2026-10-06", "", "- Upstream recovered"]);
   await sheet.getByTestId("changelog-retry").click();
   await expect(sheet.getByText("Upstream recovered")).toBeVisible();
-  await expect(
-    sheet
-      .getByTestId("changelog-vorteo")
-      .getByTestId(`changelog-release-${latestCustomRelease.version}`),
-  ).toBeVisible();
+  await expect(release(sheet, latestCustomRelease.version)).toBeVisible();
 });
