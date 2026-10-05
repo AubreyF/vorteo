@@ -540,6 +540,56 @@ function SidebarToolbar({
       )}
       <View style={styles.footerGap} />
       <View style={styles.footerIconRow}>
+        {vorton && (
+          <View>
+            <SidebarHelpMenu hiddenTrigger controlledOpen={helpOpen} onOpenChange={setHelpOpen} />
+            <SidebarDisplayPreferencesMenu
+              hiddenTrigger
+              controlledOpen={displayOpen}
+              onOpenChange={setDisplayOpen}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                style={[styles.footerIconButton(false), touch && styles.touchIconButton]}
+                accessibilityLabel="More sidebar actions"
+                accessibilityRole="button"
+                testID="sidebar-footer-overflow"
+              >
+                <MoreHorizontal size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="end" width={240}>
+                <DropdownMenuItem
+                  testID="sidebar-add-project"
+                  onSelect={handleOpenProject}
+                  leading={menuIcons.project}
+                >
+                  {labels.addProject}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  testID="sidebar-global-new-workspace"
+                  onSelect={handleNewWorkspace}
+                  leading={menuIcons.workspace}
+                >
+                  {t("sidebar.actions.newWorkspace")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  testID="sidebar-display-preferences-action"
+                  onSelect={openDisplay}
+                  leading={menuIcons.display}
+                >
+                  {t("sidebar.display.viewPreferences")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  testID="sidebar-help-action"
+                  onSelect={openHelp}
+                  leading={menuIcons.help}
+                >
+                  {t("sidebar.help.trigger")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </View>
+        )}
         {!vorton && (
           <FooterIconButton
             testID="sidebar-add-project"
@@ -598,56 +648,6 @@ function SidebarToolbar({
           shortcutKeys={settingsKeys}
           theme={theme}
         />
-        {vorton && (
-          <View>
-            <SidebarHelpMenu hiddenTrigger controlledOpen={helpOpen} onOpenChange={setHelpOpen} />
-            <SidebarDisplayPreferencesMenu
-              hiddenTrigger
-              controlledOpen={displayOpen}
-              onOpenChange={setDisplayOpen}
-            />
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                style={[styles.footerIconButton(false), touch && styles.touchIconButton]}
-                accessibilityLabel="More sidebar actions"
-                accessibilityRole="button"
-                testID="sidebar-footer-overflow"
-              >
-                <MoreHorizontal size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="end" width={240}>
-                <DropdownMenuItem
-                  testID="sidebar-add-project"
-                  onSelect={handleOpenProject}
-                  leading={menuIcons.project}
-                >
-                  {labels.addProject}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  testID="sidebar-global-new-workspace"
-                  onSelect={handleNewWorkspace}
-                  leading={menuIcons.workspace}
-                >
-                  {t("sidebar.actions.newWorkspace")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  testID="sidebar-display-preferences-action"
-                  onSelect={openDisplay}
-                  leading={menuIcons.display}
-                >
-                  {t("sidebar.display.viewPreferences")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  testID="sidebar-help-action"
-                  onSelect={openHelp}
-                  leading={menuIcons.help}
-                >
-                  {t("sidebar.help.trigger")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </View>
-        )}
       </View>
     </View>
   );
