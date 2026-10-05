@@ -27,6 +27,7 @@ export function PresetUsageRail({
   serverId,
   providerId,
   name,
+  showConnectionActions = true,
 }: {
   view: ProviderUsageView;
   now: number;
@@ -34,6 +35,7 @@ export function PresetUsageRail({
   serverId: string | null;
   providerId: string;
   name: string;
+  showConnectionActions?: boolean;
 }) {
   const { window, usage, statusLabel } = quotaReading(view, providerId, now);
   const { config } = useDaemonConfig(serverId);
@@ -92,23 +94,15 @@ export function PresetUsageRail({
         </Text>
       )}
       <View style={[styles.resets, vortonMode && styles.resetsVorton]}>
-        {connectionAction ? (
-          <ProviderReconnectControl
-            usage={usage}
-            serverId={serverId}
-            providerId={providerId}
-            name={name}
-          />
-        ) : (
-          <ProviderResetControl
-            serverId={serverId}
-            providerId={providerId}
-            name={name}
-            critical={critical}
-            compact
-            preloaded
-          />
-        )}
+        <UsageControls
+          connectionAction={connectionAction}
+          showConnectionActions={showConnectionActions}
+          usage={usage}
+          serverId={serverId}
+          providerId={providerId}
+          name={name}
+          critical={critical}
+        />
       </View>
     </>
   );
@@ -119,6 +113,45 @@ export function PresetUsageRail({
       {rail}
       <Text style={[styles.status, critical && styles.critical]}>{statusLabel}</Text>
     </View>
+  );
+}
+function UsageControls({
+  connectionAction,
+  showConnectionActions,
+  usage,
+  serverId,
+  providerId,
+  name,
+  critical,
+}: {
+  connectionAction: ReturnType<typeof providerConnectionAction>;
+  showConnectionActions: boolean;
+  usage: Parameters<typeof providerConnectionAction>[0]["usage"];
+  serverId: string | null;
+  providerId: string;
+  name: string;
+  critical: boolean;
+}) {
+  if (connectionAction) {
+    if (!showConnectionActions) return null;
+    return (
+      <ProviderReconnectControl
+        usage={usage}
+        serverId={serverId}
+        providerId={providerId}
+        name={name}
+      />
+    );
+  }
+  return (
+    <ProviderResetControl
+      serverId={serverId}
+      providerId={providerId}
+      name={name}
+      critical={critical}
+      compact
+      preloaded
+    />
   );
 }
 const styles = StyleSheet.create((theme) => ({

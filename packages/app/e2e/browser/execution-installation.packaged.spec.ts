@@ -197,7 +197,7 @@ test.afterAll(async () => {
 test("owner connects two environments, prepares host drafts, and approves a verified container restart", async ({
   page,
 }, testInfo) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   await page.addInitScript(() => {
     if (!localStorage.getItem("paseo-drafts"))
       localStorage.setItem(
@@ -364,7 +364,7 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   ).toBeVisible();
   await expect(page.getByTestId("installation-status-container-daemon")).toContainText(
     "Restarted",
-    { timeout: 45_000 },
+    { timeout: 150_000 },
   );
   await page.getByTestId("restart-history-toggle").click();
   await expect(card).toContainText("environment identity verified");

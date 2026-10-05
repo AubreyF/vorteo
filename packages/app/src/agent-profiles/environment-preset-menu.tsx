@@ -62,21 +62,26 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   const { entries, isLoading, error } = useProvidersSnapshot(serverId, { cwd: null });
   const rows = useMemo<AgentProfilePickerRow[]>(
     () =>
-      (definitions ?? []).map((profile) => {
-        const entry = entries?.find((item) => item.provider === profile.provider);
-        const model = entry?.models?.find((item) => item.id === profile.model);
-        return {
-          id: profile.id,
-          provider: profile.provider,
-          modelId: profile.model ?? "",
-          name: profile.name,
-          summary: model?.label ?? profile.model ?? "",
-          icon: profile.icon ?? "",
-          color: profile.color ?? "",
-          unavailable: entry?.status !== "ready" || !entry.enabled,
-          localEndpoint: model?.localEndpoint,
-        };
-      }),
+      (definitions ?? [])
+        .filter(
+          (profile) =>
+            entries?.find((item) => item.provider === profile.provider)?.enabled !== false,
+        )
+        .map((profile) => {
+          const entry = entries?.find((item) => item.provider === profile.provider);
+          const model = entry?.models?.find((item) => item.id === profile.model);
+          return {
+            id: profile.id,
+            provider: profile.provider,
+            modelId: profile.model ?? "",
+            name: profile.name,
+            summary: model?.label ?? profile.model ?? "",
+            icon: profile.icon ?? "",
+            color: profile.color ?? "",
+            unavailable: entry?.status !== "ready" || !entry.enabled,
+            localEndpoint: model?.localEndpoint,
+          };
+        }),
     [definitions, entries],
   );
   const menuProfiles = useMemo<AgentProfilePicker>(
@@ -123,6 +128,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
     (row: AgentProfilePickerRow) => (
       <PresetUsageRail
         view={view}
+        showConnectionActions={false}
         now={props.now}
         localStatus={
           row.localEndpoint

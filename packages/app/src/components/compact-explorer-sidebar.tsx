@@ -3,7 +3,7 @@ import { View, Text, Pressable } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { useChromeInsets } from "@/appearance/use-chrome-insets";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
 import { X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -90,7 +90,7 @@ export function CompactExplorerSidebar({
   onOpenFile,
 }: ExplorerSidebarProps) {
   const { theme } = useUnistyles();
-  const insets = useChromeInsets();
+  const insets = useSafeAreaInsets();
   const isActive = useIsMobilePanelActive("file-explorer");
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
   const { explorerTab, handleTabPress } = useExplorerSidebarSharedState({
@@ -174,7 +174,7 @@ export function NativeExplorerSidebarDock({
   containerWidth,
 }: NativeExplorerSidebarDockProps) {
   const { theme } = useUnistyles();
-  const insets = useChromeInsets();
+  const insets = useSafeAreaInsets();
   const isOpen = usePanelStore(selectIsCompactFileExplorerOpen);
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
   const storedWidth = useWorkspaceLayoutStore(
