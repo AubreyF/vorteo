@@ -34,6 +34,7 @@ test("profile cards group accounts, search on demand, and collapse choices on mo
     await openAgentRoute(page, workspace);
     await expectComposerVisible(page);
     await setVortonMode(page, true);
+    await expect(page.getByTestId("agent-preset-selector")).toContainText("Choose profile");
     await page.getByTestId("agent-preset-selector").click();
     await expect(page.getByText("Choose profile", { exact: true })).toBeVisible();
     await expect(page.getByTestId("preset-environment-card")).toBeVisible();

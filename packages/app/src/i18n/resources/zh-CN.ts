@@ -1952,6 +1952,7 @@ export const zhCN: TranslationResources = {
     },
     groupInfo: "关于 {{title}}",
     sections: {
+      skills: "技能",
       general: "通用",
       chat: "聊天",
       appearance: "外观",

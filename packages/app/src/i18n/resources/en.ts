@@ -2011,6 +2011,7 @@ export const en = {
       notifications: "Notifications",
       permissions: "Permissions",
       diagnostics: "Diagnostics",
+      skills: "Skills",
       about: "About",
     },
     layout: {

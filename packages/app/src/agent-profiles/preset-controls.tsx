@@ -195,6 +195,9 @@ export function PresetControls({
       view,
       now,
     });
+  const triggerCopy = vortonMode
+    ? { label: "Choose profile", accessibilityLabel: "Choose profile" }
+    : { label: triggerLabel, accessibilityLabel };
   const show = useCallback(() => {
     setInspectedId(selectedProfileId);
     setQuery("");
@@ -261,7 +264,7 @@ export function PresetControls({
           accessibilityState={triggerAccessibilityState}
           onPress={show}
           disabled={selectionDisabled}
-          accessibilityLabel={accessibilityLabel}
+          accessibilityLabel={triggerCopy.accessibilityLabel}
           testID="agent-preset-selector"
         >
           <PresetStatusIcon
@@ -273,7 +276,7 @@ export function PresetControls({
           />
           <ExecutionEnvironmentIcon serverId={serverId} />
           <Text style={styles.toolbarText} numberOfLines={1}>
-            {triggerLabel}
+            {triggerCopy.label}
           </Text>
         </ComboboxTrigger>
       </View>

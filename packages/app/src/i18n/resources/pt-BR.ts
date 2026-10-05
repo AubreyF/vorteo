@@ -2007,6 +2007,7 @@ export const ptBR: TranslationResources = {
     },
     groupInfo: "Sobre {{title}}",
     sections: {
+      skills: "Habilidades",
       general: "Geral",
       chat: "Chat",
       appearance: "Aparência",

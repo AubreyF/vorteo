@@ -56,6 +56,9 @@ export default function SettingsSectionRoute() {
   if (vorton && rawSection === "sidebar")
     return <Redirect href={buildSettingsSectionRoute("general")} />;
 
+  if (!vorton && rawSection === "skills")
+    return <Redirect href={buildSettingsSectionRoute("general")} />;
+
   if (rawSection === "about") return <Redirect href={buildSettingsSectionRoute("general")} />;
 
   return <SettingsScreen view={view} openAddHostIntent={openAddHostIntent} />;

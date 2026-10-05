@@ -48,9 +48,8 @@ test("inspects skills and preserves an edit made after removal preview", async (
 }) => {
   await gotoAppShell(page);
   await openSettings(page);
-  await openSettingsHost(page, getServerId());
-  await page.getByRole("button", { name: "Agents", exact: true }).click();
-  await page.getByRole("button", { name: "Skill library", exact: true }).click();
+  await page.getByRole("button", { name: "Skills", exact: true }).click();
+  await expect(page).toHaveURL(/\/settings\/skills$/);
   await page.getByPlaceholder("Name, provider, ownership, or environment").fill("browser-example");
   await expect(page.getByText("browser-example", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Details", exact: true }).click();
@@ -76,11 +75,22 @@ test("inspects skills and preserves an edit made after removal preview", async (
   ).toBeVisible();
 });
 
+test("opens Skills from compact settings and a direct link", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Skills", exact: true }).click();
+  await expect(page).toHaveURL(/\/settings\/skills$/);
+  await expect(page.getByPlaceholder("Name, provider, ownership, or environment")).toBeVisible();
+  await page.reload();
+  await expect(page.getByPlaceholder("Name, provider, ownership, or environment")).toBeVisible();
+});
+
 test.describe("Standard mode", () => {
   test.use({ vortonMode: false });
   test("keeps the skill library out of Standard controls", async ({ page }) => {
     await gotoAppShell(page);
     await openSettings(page);
+    await expect(page.getByRole("button", { name: "Skills", exact: true })).toHaveCount(0);
     await openSettingsHost(page, getServerId());
     await page.getByRole("button", { name: "Agents", exact: true }).click();
     await expect(page.getByText("Orchestration skills", { exact: true }).first()).toBeVisible();

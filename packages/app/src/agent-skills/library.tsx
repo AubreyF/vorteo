@@ -37,37 +37,46 @@ export function SkillLibraryButton() {
 }
 
 function Library({ onClose }: { onClose: () => void }) {
+  return (
+    <AdaptiveModalSheet visible onClose={onClose} header={libraryHeader}>
+      <SkillLibraryContent />
+    </AdaptiveModalSheet>
+  );
+}
+
+export function SkillLibraryContent() {
   const hosts = useHosts();
   const [search, setSearch] = useState("");
   const [cwd, setCwd] = useState("");
   return (
-    <AdaptiveModalSheet visible onClose={onClose} header={libraryHeader}>
-      <View style={styles.content}>
-        <Field label="Filter skills">
-          <FormTextInput
-            initialValue=""
-            onChangeText={setSearch}
-            placeholder="Name, provider, ownership, or environment"
-          />
-        </Field>
-        <Field label="Project directory (optional)">
-          <FormTextInput
-            initialValue=""
-            onChangeText={setCwd}
-            placeholder="Absolute directory on the selected environments"
-          />
-        </Field>
-        {hosts.map((host) => (
-          <EnvironmentLibrary
-            key={host.serverId}
-            serverId={host.serverId}
-            label={host.label}
-            search={search}
-            cwd={cwd}
-          />
-        ))}
-      </View>
-    </AdaptiveModalSheet>
+    <View style={styles.content}>
+      <Field label="Filter skills">
+        <FormTextInput
+          initialValue=""
+          onChangeText={setSearch}
+          placeholder="Name, provider, ownership, or environment"
+        />
+      </Field>
+      <Field label="Project directory (optional)">
+        <FormTextInput
+          initialValue=""
+          onChangeText={setCwd}
+          placeholder="Absolute directory on the selected environments"
+        />
+      </Field>
+      {hosts.length === 0 ? (
+        <Text style={styles.muted}>Connect an environment to inspect and manage its skills.</Text>
+      ) : null}
+      {hosts.map((host) => (
+        <EnvironmentLibrary
+          key={host.serverId}
+          serverId={host.serverId}
+          label={host.label}
+          search={search}
+          cwd={cwd}
+        />
+      ))}
+    </View>
   );
 }
 
