@@ -521,3 +521,23 @@ describe("buildFeatureRequestKey", () => {
     );
   });
 });
+
+it("preserves and explicitly changes profile skill policy", () => {
+  const model = openWithCatalog({
+    mode: "edit",
+    profile: {
+      id: "review",
+      name: "Review",
+      provider: "claude",
+      skillPolicy: { mode: "selected", skills: ["github:example/skills/review"] },
+    },
+  });
+  expect(model.getState().submitValue?.skillPolicy).toEqual({
+    mode: "selected",
+    skills: ["github:example/skills/review"],
+  });
+  model.setSkillPolicy({ mode: "none" });
+  expect(model.getState().submitValue?.skillPolicy).toEqual({ mode: "none" });
+  model.setSkillPolicy(undefined);
+  expect(model.getState().submitValue?.skillPolicy).toBeUndefined();
+});

@@ -1,3 +1,9 @@
+import {
+  SkillLibraryReadSchema,
+  SkillLibraryChangeSchema,
+  SkillLibraryResultSchema,
+  SkillSnapshotSchema,
+} from "./skill-library.js";
 import { SharedProviderPreferencesSchema } from "./provider-preferences.js";
 export {
   ProviderPreferencesSchema,
@@ -248,6 +254,7 @@ const MutableMetadataGenerationConfigSchema = z
   .passthrough();
 
 export const AgentProfileLaunchSchema = z.object({
+  skillSnapshot: SkillSnapshotSchema.optional(),
   profile: AgentProfileSchema,
   worker: AgentProfileSchema.optional(),
   providerType: z.string().optional(),
@@ -1586,6 +1593,25 @@ export type AgentSkillsSaveResult = z.infer<typeof AgentSkillsSaveResultSchema>;
 function agentSkillsRequest<const Type extends string>(type: Type) {
   return z.object({ type: z.literal(type), requestId: z.string() }).strict();
 }
+
+export const SkillLibraryReadRequestSchema = z.object({
+  type: z.literal("agent.skills.library_read.request"),
+  requestId: z.string(),
+  request: SkillLibraryReadSchema,
+});
+export const SkillLibraryChangeRequestSchema = z.object({
+  type: z.literal("agent.skills.library_change.request"),
+  requestId: z.string(),
+  request: SkillLibraryChangeSchema,
+});
+export const SkillLibraryReadResponseSchema = z.object({
+  type: z.literal("agent.skills.library_read.response"),
+  payload: z.object({ requestId: z.string(), result: SkillLibraryResultSchema }),
+});
+export const SkillLibraryChangeResponseSchema = z.object({
+  type: z.literal("agent.skills.library_change.response"),
+  payload: z.object({ requestId: z.string(), result: SkillLibraryResultSchema }),
+});
 
 export const AgentSkillsGetStatusRequestSchema = agentSkillsRequest(
   "agent.skills.get_status.request",
@@ -3264,6 +3290,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   PluginRemoveRequestSchema,
   PluginRpcInvokeRequestSchema,
   AgentTimelineAppendRequestSchema,
+  SkillLibraryReadRequestSchema,
+  SkillLibraryChangeRequestSchema,
   AgentSkillsGetStatusRequestSchema,
   AgentSkillsReconcileRequestSchema,
   AgentSkillsUninstallRequestSchema,
@@ -3677,6 +3705,7 @@ export const ServerInfoStatusPayloadSchema = z
         pluginTimelineItems: z.boolean().optional(),
         // COMPAT(skillManagement): added in v0.4.0, remove gate after 2027-08-16.
         skillManagement: z.boolean().optional(),
+        skillLibrary: z.boolean().optional(),
         // COMPAT(terminalRestoreModes): added in v0.1.81, remove gate after 2026-11-23.
         "terminal-restore-modes": z.boolean().optional(),
         // COMPAT(terminalInputModeReplay): added in v0.2.6, remove gate after 2027-02-02.
@@ -6908,6 +6937,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   PluginRemoveResponseSchema,
   PluginRpcInvokeResponseSchema,
   AgentTimelineAppendResponseSchema,
+  SkillLibraryReadResponseSchema,
+  SkillLibraryChangeResponseSchema,
   AgentSkillsGetStatusResponseSchema,
   AgentSkillsReconcileResponseSchema,
   AgentSkillsUninstallResponseSchema,

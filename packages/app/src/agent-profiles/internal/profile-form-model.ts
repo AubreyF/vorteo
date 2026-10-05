@@ -1,3 +1,4 @@
+import type { SkillPolicy } from "@getpaseo/protocol/skill-library";
 import type {
   AgentFeature,
   AgentMode,
@@ -84,6 +85,7 @@ export interface AgentProfileFormState {
   color: string;
   notes: string;
   instructions: string;
+  skillPolicy: SkillPolicy | undefined;
   workerProfileId: string;
   maxWorkers: number;
   provider: string;
@@ -129,6 +131,7 @@ export interface AgentProfileFormModel {
   setNickname: (value: string) => void;
   setAppearance: (value: { icon: string; color: string }) => void;
   setNotes: (value: string) => void;
+  setSkillPolicy: (value: SkillPolicy | undefined) => void;
   setInstructions: (value: string) => void;
   setWorkerProfileId: (value: string) => void;
   setMaxWorkers: (value: number) => void;
@@ -362,6 +365,7 @@ function buildSubmitValue(state: AgentProfileFormState): AgentProfileValue | nul
     ...(Object.keys(state.featureValues).length > 0 ? { featureValues: state.featureValues } : {}),
     ...(notes ? { notes } : {}),
     instructions: state.instructions.trim(),
+    ...(state.skillPolicy ? { skillPolicy: state.skillPolicy } : {}),
     workerProfileId: state.workerProfileId,
     maxWorkers: state.maxWorkers,
   };
@@ -402,6 +406,7 @@ function buildInitialState(snapshot: AgentProfileFormSnapshot): AgentProfileForm
     color: profile.color ?? "",
     notes: profile.notes ?? "",
     instructions: profile.instructions ?? "",
+    skillPolicy: profile.skillPolicy,
     workerProfileId: profile.workerProfileId ?? "",
     maxWorkers: profile.maxWorkers ?? 2,
     provider,
@@ -571,6 +576,7 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
     setAppearance: (value) =>
       publish((current) => ({ ...current, icon: value.icon, color: value.color })),
     setNotes: (value) => publish((current) => ({ ...current, notes: value })),
+    setSkillPolicy: (value) => publish((current) => ({ ...current, skillPolicy: value })),
     setInstructions: (value) => publish((current) => ({ ...current, instructions: value })),
     setWorkerProfileId: (value) => publish((current) => ({ ...current, workerProfileId: value })),
     setMaxWorkers: (value) => publish((current) => ({ ...current, maxWorkers: value })),

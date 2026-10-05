@@ -1,3 +1,5 @@
+import { captureSkillPolicy, isRestricted } from "../../orchestration-skills/internal/policy.js";
+import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
 import { setAgentGoalWithContext } from "../agent-goal.js";
 import type { Logger } from "pino";
 
@@ -202,6 +204,7 @@ export async function createAgentCommand(
       : await resolveMcpCreateAgent(dependencies, input);
 
   await validateSharedLaunch(dependencies, resolved.config);
+  await captureLaunchSkills(dependencies, resolved.config);
 
   if (resolved.config.quotaReserve) {
     await dependencies.agentManager.checkQuotaReserveLaunch(resolved.config);
@@ -720,4 +723,26 @@ async function createMcpWorktree(
   } catch (error) {
     throw toWorktreeRequestError(error);
   }
+}
+
+async function captureLaunchSkills(
+  dependencies: CreateAgentCommandDependencies,
+  config: AgentSessionConfig,
+): Promise<void> {
+  const settings = dependencies.getSharedProviderConfig?.();
+  const provider = resolveProviderType(config.provider, settings?.providers ?? {});
+  const policy = config.profileLaunch?.profile.skillPolicy;
+  let defaults: string[] | undefined;
+  if (
+    policy?.mode === "inherit" &&
+    isRestricted(policy) &&
+    (provider === "claude" || provider === "codex")
+  ) {
+    const catalog = await dependencies.agentManager.listDraftCommands({
+      ...config,
+      profileLaunch: undefined,
+    });
+    defaults = catalog.filter((command) => command.kind === "skill").map((command) => command.name);
+  }
+  await captureSkillPolicy(config, provider, undefined, defaults);
 }

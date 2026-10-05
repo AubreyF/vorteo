@@ -56,3 +56,5 @@ Use this index to find the document that owns your task. Read relevant subjects 
 | [public-docs/hub/security.md](../public-docs/hub/security.md)         | Public Hub guide — trust boundaries, untrusted triggers, provider controls, and output authority                               |
 
 Host and container setup, trust boundaries, restart requests and removal: [Host and container execution](execution-installation.md).
+
+- [Skill library](skill-library.md): inventory, ownership, reviewed changes, and profile selection.

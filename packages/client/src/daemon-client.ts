@@ -1,3 +1,8 @@
+import type {
+  SkillLibraryRead,
+  SkillLibraryChange,
+  SkillLibraryResult,
+} from "@getpaseo/protocol/skill-library";
 import { legacyUsageIcon } from "./legacy-usage-icons.js";
 import { subscribeTimeline, type TimelineMessage } from "./timeline-subscription/index.js";
 import { ProviderSnapshotUpdates } from "./provider-snapshots/index.js";
@@ -5301,10 +5306,30 @@ export class DaemonClient {
     }
   }
 
+  private requireSkillPolicySupport(config: MutableDaemonConfigPatch): void {
+    const profiles = [...(config.agentProfiles ?? [])];
+    for (const group of Object.values(config.sharedProviderPreferences?.providers ?? {})) {
+      if (group.defaults.skillPolicy)
+        profiles.push({
+          ...group.defaults,
+          id: "defaults",
+          name: "defaults",
+          provider: "defaults",
+        });
+      profiles.push(...group.workflows);
+    }
+    if (
+      profiles.some((profile) => profile.skillPolicy) &&
+      this.lastServerInfoMessage?.features?.skillLibrary !== true
+    )
+      throw new Error("Update this environment before saving profile skill policies.");
+  }
+
   async patchDaemonConfig(
     config: MutableDaemonConfigPatch,
     requestId?: string,
   ): Promise<{ requestId: string; config: MutableDaemonConfig }> {
+    this.requireSkillPolicySupport(config);
     if (config.sharedProviderPreferences) this.requireSharedProviderPreferences();
     if (
       config.sharedProviderPreferences?.workflowAliases &&
@@ -5645,6 +5670,28 @@ export class DaemonClient {
       responseType: "plugin.logs.get.response",
     });
     return payload.entries;
+  }
+
+  async readSkillLibrary(request: SkillLibraryRead): Promise<SkillLibraryResult> {
+    if (this.lastServerInfoMessage?.features?.skillLibrary !== true)
+      throw new Error("This environment does not support the skill library");
+    const requestId = this.createRequestId();
+    const payload = await this.sendCorrelatedSessionRequest({
+      message: { type: "agent.skills.library_read.request", requestId, request },
+      responseType: "agent.skills.library_read.response",
+    });
+    return payload.result;
+  }
+
+  async changeSkillLibrary(request: SkillLibraryChange): Promise<SkillLibraryResult> {
+    if (this.lastServerInfoMessage?.features?.skillLibrary !== true)
+      throw new Error("This environment does not support the skill library");
+    const requestId = this.createRequestId();
+    const payload = await this.sendCorrelatedSessionRequest({
+      message: { type: "agent.skills.library_change.request", requestId, request },
+      responseType: "agent.skills.library_change.response",
+    });
+    return payload.result;
   }
 
   async getAgentSkillsStatus(): Promise<AgentSkillsStatus> {

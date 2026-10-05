@@ -1,3 +1,6 @@
+import { SkillLibrary } from "./internal/library.js";
+import { resolvePaseoHome } from "../paseo-home.js";
+import path from "node:path";
 import type { AgentSkillSelection } from "@getpaseo/protocol/messages";
 
 import type { DaemonConfigStore } from "../daemon-config-store.js";
@@ -11,6 +14,7 @@ import { resolveSkillTargets } from "./internal/paths.js";
 import { createSkillSelectionStore } from "./internal/selection-store.js";
 
 export interface OrchestrationSkills {
+  library: Pick<SkillLibrary, "read" | "change">;
   getStatus(): Promise<SkillsSnapshot>;
   reconcile(): Promise<SkillsSnapshot>;
   uninstall(): Promise<SkillsSnapshot>;
@@ -33,7 +37,12 @@ export function createOrchestrationSkills(
     resolveTargets,
     selectionStore: createSkillSelectionStore(configStore),
   });
+  const library = new SkillLibrary(path.join(resolvePaseoHome(), "skill-library"));
   return {
+    library: {
+      read: (request) => controller.runExclusive(() => library.read(request)),
+      change: (request) => controller.runExclusive(() => library.change(request)),
+    },
     getStatus: () => controller.status(),
     reconcile: () => controller.update(),
     uninstall: () => controller.uninstall(),

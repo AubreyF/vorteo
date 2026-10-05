@@ -1,3 +1,5 @@
+import { verifySkillSnapshot } from "../../orchestration-skills/internal/policy.js";
+import { codexSkillFilter } from "../../orchestration-skills/internal/codex-policy.js";
 import { validateProviderOptions } from "../provider-options.js";
 import {
   QuotaObserverDisposedError,
@@ -3566,6 +3568,8 @@ export class CodexAppServerAgentSession implements AgentSession {
     settings: Record<string, unknown>;
     name: string;
   } | null = null;
+  private skillFilter: Array<{ path: string; enabled: boolean }> | null = null;
+  private skillCatalogSignature: string | null = null;
   private cachedSkills: Array<{ name: string; description: string; path: string }> | null = null;
 
   private readonly usageSessionKey = randomUUID();
@@ -3692,6 +3696,7 @@ export class CodexAppServerAgentSession implements AgentSession {
 
   private async establishConnection(): Promise<void> {
     this.verifiedQuotaThreads.clear();
+    this.skillCatalogSignature = null;
     if (this.initialResumePurpose === "history") {
       await this.readArchivedHistory();
       this.connectionState = "history-ready";
@@ -3721,6 +3726,16 @@ export class CodexAppServerAgentSession implements AgentSession {
         await client.request("initialize", buildCodexAppServerInitializeParams()),
       );
       this.threadRollbackAvailable = codexServerHasThreadRollback(initialized?.userAgent);
+      await verifySkillSnapshot(this.config);
+      if (
+        this.config.profileLaunch?.skillSnapshot &&
+        (typeof initialized?.userAgent !== "string" ||
+          !codexVersionAtLeast(initialized.userAgent, [0, 159, 2]))
+      ) {
+        throw new Error(
+          "Restricted skill profiles require Codex 0.159.2 or later. Update this provider or use inherited defaults.",
+        );
+      }
       client.notify("initialized", {});
 
       if (this.quotaGovernance) await this.verifyGovernedConnection(client);
@@ -3940,6 +3955,7 @@ export class CodexAppServerAgentSession implements AgentSession {
       const response = toObjectRecord(
         await this.client.request("skills/list", {
           cwds: [this.config.cwd],
+          forceReload: Boolean(this.config.profileLaunch?.skillSnapshot),
         }),
       );
       const entries = Array.isArray(response?.data) ? response.data : [];
@@ -3950,6 +3966,34 @@ export class CodexAppServerAgentSession implements AgentSession {
         allSkills.push(...list);
       }
       this.cachedSkills = enabledCodexSkills(allSkills);
+      const snapshot = this.config.profileLaunch?.skillSnapshot;
+      if (snapshot) {
+        await verifySkillSnapshot(this.config);
+        const catalog = allSkills
+          .map((entry) => toObjectRecord(entry))
+          .flatMap((entry) => {
+            if (typeof entry?.name !== "string" || typeof entry.path !== "string") return [];
+            return [{ name: entry.name, path: entry.path }];
+          });
+        const signature = JSON.stringify(catalog.map((entry) => entry.path).sort());
+        if (this.skillCatalogSignature !== null && signature !== this.skillCatalogSignature)
+          throw new Error(
+            "Provider skill catalog changed during this task. Reconnect before continuing with its frozen selection.",
+          );
+        this.skillCatalogSignature = signature;
+        this.skillFilter = codexSkillFilter(snapshot, catalog);
+        const selected = new Set(
+          this.skillFilter.filter((entry) => entry.enabled).map((entry) => entry.path),
+        );
+        this.cachedSkills = enabledCodexSkills(
+          allSkills.map((item) => {
+            const entry = toObjectRecord(item);
+            return entry
+              ? Object.assign({}, entry, { enabled: selected.has(String(entry.path)) })
+              : item;
+          }),
+        );
+      }
     } catch (error) {
       this.logger.trace(
         {
@@ -3961,6 +4005,7 @@ export class CodexAppServerAgentSession implements AgentSession {
         },
         "provider.codex.metadata.skills_failed",
       );
+      if (this.config.profileLaunch?.skillSnapshot) throw error;
       this.cachedSkills = null;
     }
   }
@@ -4647,6 +4692,7 @@ export class CodexAppServerAgentSession implements AgentSession {
         throw new Error("Codex client not initialized");
       }
 
+      if (this.config.profileLaunch?.skillSnapshot) await this.loadSkills();
       const slashCommand = await this.resolveSlashCommandInvocation(prompt);
       const effectivePrompt = slashCommand
         ? await this.buildCommandPromptInput(slashCommand.commandName, slashCommand.args)
@@ -5813,6 +5859,9 @@ export class CodexAppServerAgentSession implements AgentSession {
         multi_agent: false,
         multi_agent_v2: false,
       };
+    }
+    if (this.skillFilter) {
+      configured.skills = { ...toObjectRecord(configured.skills), config: this.skillFilter };
     }
     return Object.keys(configured).length > 0 ? configured : null;
   }

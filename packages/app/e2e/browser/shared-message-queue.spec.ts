@@ -31,7 +31,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
       expectedRevision: 0,
     });
     await openAgentRoute(page, agent);
-    await expectComposerVisible(page);
+    await expectComposerVisible(page, { timeout: 30_000 });
     await page.evaluate(() => {
       const key = "@paseo:create-agent-preferences";
       localStorage.setItem(
@@ -40,7 +40,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
       );
     });
     await reloadPreservingPreferences(page);
-    await expectComposerVisible(page);
+    await expectComposerVisible(page, { timeout: 30_000 });
     await page.evaluate(() => {
       const original = WebSocket.prototype.send;
       WebSocket.prototype.send = function (data) {
@@ -88,6 +88,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
     expect((await client.readMessageQueue(agent.agentId)).snapshot?.items).toHaveLength(0);
     // Reload removes the interception and must recover the request from IndexedDB.
     await reloadPreservingPreferences(page);
+    await expectComposerVisible(page, { timeout: 30_000 });
     await expect(queue).toContainText("Keep this through reload");
     await expect
       .poll(async () => (await client.readMessageQueue(agent.agentId)).snapshot?.items.length)
@@ -128,7 +129,8 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
       const row = target.getByTestId(`queue-message-${initialOrder[0]}`);
       await row.getByRole("button", { name: "Edit queued message", exact: true }).click();
       const input = row.getByRole("textbox", { name: "Edit queued message" });
-      await expect(input).toHaveValue("Keep this through reload");
+      // Metro compiles the deferred editor on its first use.
+      await expect(input).toHaveValue("Keep this through reload", { timeout: 30_000 });
       await expect(input).toHaveCSS("border-top-width", "0px");
       await expect(row.getByRole("button", { name: "Send queued message now" })).toHaveCount(0);
       await expect(row.getByRole("button", { name: "Queued message actions" })).toHaveCount(0);
@@ -215,6 +217,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
           );
         }, variant);
         await reloadPreservingPreferences(target);
+        await expectComposerVisible(target, { timeout: 30_000 });
         await expect(target.getByTestId("shared-message-queue")).toContainText(
           "From another device",
         );
@@ -254,7 +257,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
       );
     });
     await reloadPreservingPreferences(page);
-    await expectComposerVisible(page);
+    await expectComposerVisible(page, { timeout: 30_000 });
     await expect(queue).toHaveCount(0);
     await expect(page.getByTestId(/^workspace-queue-count-/)).toHaveCount(0);
     await test.info().attach("queue-vorton-off", {
