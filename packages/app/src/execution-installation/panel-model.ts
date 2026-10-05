@@ -2,6 +2,8 @@ import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execut
 import { OwnerAccessExpired, type InstallationClient } from "./client";
 
 interface InstallationPanelState {
+  initialized: boolean;
+  lastUpdatedAt: string | null;
   visible: boolean;
   unlocked: boolean;
   busy: boolean;
@@ -17,6 +19,8 @@ interface InstallationPanelState {
 
 export class InstallationPanelModel {
   private state: InstallationPanelState = {
+    initialized: false,
+    lastUpdatedAt: null,
     visible: true,
     unlocked: false,
     busy: false,
@@ -33,7 +37,6 @@ export class InstallationPanelModel {
   private refreshing = false;
   private initialized = false;
   private accessGeneration = 0;
-  private seenRequests = new Set<string>();
 
   constructor(
     private readonly client: Pick<
@@ -71,7 +74,7 @@ export class InstallationPanelModel {
     } catch (error) {
       this.fail(error);
     } finally {
-      this.publish({ busy: false });
+      this.publish({ busy: false, initialized: true });
     }
   }
 
@@ -83,6 +86,7 @@ export class InstallationPanelModel {
       this.accessGeneration++;
       this.publish({
         unlocked: false,
+        lastUpdatedAt: null,
         password: "",
         jobs: [],
         pendingJobs: [],
@@ -143,13 +147,12 @@ export class InstallationPanelModel {
         targets.add(job.target);
         return true;
       });
-      const newRequest = pending.some((job) => !this.seenRequests.has(job.id));
-      for (const job of pending) this.seenRequests.add(job.id);
       this.publish({
         jobs,
         pendingJobs: pending,
         profileSharing,
-        ...(newRequest ? { visible: true } : {}),
+        lastUpdatedAt: new Date().toISOString(),
+        error: null,
       });
     } catch (error) {
       this.fail(error);
@@ -165,7 +168,7 @@ export class InstallationPanelModel {
       await this.client.decide(job, decision);
       const notice =
         decision === "approve"
-          ? "Restart approved. Open restart history to follow its progress."
+          ? "Restart approved. Its progress is shown here."
           : "Restart request rejected.";
       this.publish({ notice });
       await this.refresh();
@@ -198,6 +201,7 @@ export class InstallationPanelModel {
     if (error instanceof OwnerAccessExpired)
       this.publish({
         unlocked: false,
+        lastUpdatedAt: null,
         password: "",
         jobs: [],
         pendingJobs: [],

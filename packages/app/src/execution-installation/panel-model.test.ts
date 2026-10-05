@@ -59,7 +59,7 @@ test("opening or observing a request never approves it", async () => {
   model.setPassword("owner-password");
   await model.unlock();
   expect(model.getState().password).toBe("");
-  expect(model.getState().visible).toBe(true);
+  expect(model.getState().visible).toBe(false);
   model.close();
   await model.refresh();
   expect(model.getState().visible).toBe(false);
@@ -170,6 +170,12 @@ test("the approval queue excludes expired and completed requests and keeps only 
   await model.initialize();
   expect(model.getState().pendingJobs.map((job) => job.id)).toEqual(["container", "host-new"]);
   expect(model.getState().jobs).toEqual(jobs);
+  expect(model.getState().visible).toBe(false);
+  expect(model.getState().lastUpdatedAt).not.toBeNull();
+  jobs = jobs.map((job) => (job.id === "container" ? { ...job, status: "running" as const } : job));
+  await model.refresh();
+  expect(model.getState().jobs.find((job) => job.id === "container")?.status).toBe("running");
+  expect(model.getState().pendingJobs.map((job) => job.id)).toEqual(["host-new"]);
   jobs = structuredClone(jobs);
   for (const job of jobs) job.expiresAt = "2020-01-01T00:00:00.000Z";
   await model.refresh();

@@ -2,18 +2,42 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
-## 0.11.0-beta.3.vorteo.114 - 2026-10-05
+## 0.11.0-beta.3.vorteo.118 - 2026-10-05
 
 ### Added
 
 - Create a workspace or add a project in the destination environment directly from a profile handoff
 - Select the matching project automatically when continuing between host and container workspaces
 
+## 0.11.0-beta.3.vorteo.116 - 2026-10-05
+
+### Changed
+
+- Moved installation controls into General settings with visible host and container approval status, restart progress, and inline confirmation
+- Kept restart history, password help, and shared workflows available inline without opening a modal
+
+## 0.11.0-beta.3.vorteo.114 - 2026-10-05
+
+### Fixed
+
+- Restored orange selected outlines and left-side checks in the profile selector
+- Show saved profiles and their model and reasoning summaries without overriding them with current chat settings
+- Omit disabled accounts and keep account connection buttons in Settings
+- Remove the header divider and match desktop outer padding to column gaps
+- Label the composer dropdown Choose profile to match its menu title
+
 ## 0.11.0-beta.3.vorteo.113 - 2026-10-05
 
 ### Fixed
 
 - Made the cross-environment skill library directly accessible from Settings > Skills on wide and compact layouts
+
+## 0.11.0-beta.3.vorteo.111 - 2026-10-05
+
+### Fixed
+
+- Fixed native top toolbar blur in newly installed iOS Home Screen apps without extra toolbar padding
+- Kept the toolbar visible after keyboard dismissal by sizing Home Screen apps to their available viewport
 
 ## 0.11.0-beta.3.vorteo.110 - 2026-10-05
 

@@ -2,7 +2,7 @@ import { ExecutionEnvironmentIcon } from "@/execution-installation/environment-i
 import { useVortonTouch } from "@/vorton-touch";
 import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { sharedChoiceState, type LaunchChoices } from "./shared-choices";
-import { useCallback, useMemo, useReducer, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useReducer, type ReactNode } from "react";
 import { Keyboard, ScrollView, Text, View } from "react-native";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { Search, ChevronDown, ChevronUp } from "lucide-react-native";
@@ -11,7 +11,6 @@ import type { AgentProfile, ProviderPreferences } from "@getpaseo/protocol/messa
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
 import { ComboboxItem, SearchInput } from "@/components/ui/combobox";
-import { PiModelCatalog } from "./pi-model-catalog";
 import { ProfileDetailsView } from "./profile-details-view";
 import { type AccountPresets } from "./account-presets";
 import type { AgentProfilePickerRow } from "./internal/use-agent-profile-picker";
@@ -21,7 +20,6 @@ import {
   sharedWorkflowProfileId,
 } from "@getpaseo/protocol/provider-preferences";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
-import { SelectField, type SelectFieldRenderOptionInput } from "@/components/ui/select-field";
 
 import { withUnistyles } from "react-native-unistyles";
 import { type ProviderIconComponent, useProviderIcon } from "@/components/provider-icons";
@@ -78,10 +76,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
     accounts.find((group) => group.rows.some((row) => row.id === inspectedId)) ?? accounts[0];
   const inspected = account?.rows.find((row) => row.id === inspectedId) ?? account?.rows[0];
   const environment = props.environments.find((item) => item.serverId === props.serverId);
-  const { choices, changeChoices, preferences, family, retainWorkflow } = useSharedChoices(
-    props,
-    account,
-  );
+  const { preferences, family, retainWorkflow } = useSharedChoices(props, account);
   const inspectAccount = useCallback(
     (id: string) => {
       onInspect(retainWorkflow(id));
@@ -130,15 +125,13 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           {...props}
           account={account}
           inspected={inspected}
-          choices={choices}
-          onChoices={changeChoices}
           preferences={preferences}
           family={family}
         />
       ) : (
         <Text style={styles.empty}>Select an account</Text>
       ),
-    [account, inspected, props, choices, changeChoices, preferences, family],
+    [account, inspected, props, preferences, family],
   );
   const environments = useMemo(
     () => (
@@ -400,39 +393,18 @@ function EnvironmentButton({
       disabled={!environment.available}
       description={environment.available ? undefined : "Disconnected"}
       onPress={select}
-      style={styles.environmentButton}
+      selectionPlacement="leading"
+      style={[styles.environmentButton, selected && styles.selectedChoice]}
       testID={`preset-environment-${environment.serverId}`}
     />
   );
 }
 
 function useSharedChoices(props: AccountPresetMenuProps, account: AccountPresets | undefined) {
-  const [choicesByType, setChoicesByType] = useState<Record<string, LaunchChoices>>({});
   const { config } = useDaemonConfig(props.serverId);
   const providerType = account
     ? resolveProviderType(account.provider, config?.providers ?? {})
     : "";
-  const selected = props.definitions.find((profile) => profile.id === props.selectedId);
-  const currentProvider = props.currentProvider ?? selected?.provider;
-  const selectedType = currentProvider
-    ? resolveProviderType(currentProvider, config?.providers ?? {})
-    : null;
-  const seedChoices =
-    selectedType === providerType
-      ? {
-          model: props.currentModel === null ? "" : props.currentModel,
-          thinkingOptionId:
-            props.currentThinkingOptionId === null ? "" : props.currentThinkingOptionId,
-        }
-      : {};
-  const choiceKey = `${props.serverId}:${providerType}`;
-  const choices = choicesByType[choiceKey] ?? seedChoices;
-  const changeChoices = useCallback(
-    (next: LaunchChoices) => {
-      setChoicesByType((current) => ({ ...current, [choiceKey]: next }));
-    },
-    [choiceKey],
-  );
   const family = useMemo(
     () =>
       (props.entries ?? []).filter(
@@ -462,7 +434,7 @@ function useSharedChoices(props: AccountPresetMenuProps, account: AccountPresets
     },
     [props.definitions, props.inspectedId, props.selectedId, config],
   );
-  return { choices, changeChoices, preferences, family, retainWorkflow };
+  return { preferences, family, retainWorkflow };
 }
 
 function ProviderGlyph({
@@ -516,11 +488,11 @@ function AccountButton({
       label={group.label}
       labelStyle={styles.accountTitle}
       active={active}
-      selectionPlacement="trailing"
+      selectionPlacement="leading"
       selectionIndicatorSize={24}
-      selected={group.rows.some((row) => row.id === selectedId)}
+      selected={active}
       onPress={select}
-      style={styles.accountButton}
+      style={[styles.accountButton, active && styles.selectedChoice]}
       testID={`preset-account-${group.provider}`}
     />
   );
@@ -529,16 +501,12 @@ function AccountButton({
 function AccountChoices({
   account,
   inspected,
-  choices,
-  onChoices,
   preferences,
   family,
   ...props
 }: AccountPresetMenuProps & {
   account: AccountPresets;
   inspected: AgentProfilePickerRow;
-  choices: LaunchChoices;
-  onChoices: (choices: LaunchChoices) => void;
   preferences: ProviderPreferences | undefined;
   family: ProviderSnapshotEntry[];
 }) {
@@ -549,16 +517,13 @@ function AccountChoices({
   const selection = useMemo(
     () =>
       definition
-        ? sharedChoiceState({ profile: definition, choices, entry, preferences, family })
+        ? sharedChoiceState({ profile: definition, choices: {}, entry, preferences, family })
         : null,
-    [definition, choices, entry, preferences, family],
+    [definition, entry, preferences, family],
   );
   const selectionUnavailable = shared && Boolean(selection?.unavailable);
   const { onApply } = props;
-  const apply = useCallback(
-    () => onApply(inspected.id, shared ? selection?.choices : undefined),
-    [onApply, inspected.id, shared, selection],
-  );
+  const apply = useCallback(() => onApply(inspected.id), [onApply, inspected.id]);
   return (
     <View style={styles.detail} testID={`preset-choices-${account.provider}`}>
       <DetailScrollView
@@ -568,20 +533,25 @@ function AccountChoices({
       >
         <View style={styles.choices}>
           {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
-          <WorkflowField
-            account={account}
-            inspected={inspected}
-            disabled={props.disabled}
-            onInspect={props.onInspect}
-          />
-          {shared && selection ? (
-            <SharedChoiceFields selection={selection} onChoices={onChoices} />
+          <View style={styles.profileList}>
+            {account.rows.map((row) => (
+              <ProfileChoice
+                key={row.id}
+                row={row}
+                selected={row.id === inspected.id}
+                definition={props.definitions.find((profile) => profile.id === row.id)}
+                entry={entry}
+                onInspect={props.onInspect}
+              />
+            ))}
+          </View>
+          {selectionUnavailable ? (
+            <Text style={styles.summary}>
+              This saved profile is unavailable on this account. Choose another profile or update it
+              in Settings.
+            </Text>
           ) : null}
-          {!shared ? <Text style={styles.summary}>{inspected.summary}</Text> : null}
           {inspected.localEndpoint ? props.renderRail(inspected) : null}
-          {account.provider === "pi" ? (
-            <PiModelCatalog entry={entry} profileModel={definition?.model} />
-          ) : null}
           {definition ? (
             <ProfileDetailsView serverId={props.serverId} profile={definition} compact />
           ) : null}
@@ -632,140 +602,37 @@ function WorkflowInstructions({
   );
 }
 
-function SharedChoiceFields({
-  selection,
-  onChoices,
-}: {
-  selection: ReturnType<typeof sharedChoiceState>;
-  onChoices: (choices: LaunchChoices) => void;
-}) {
-  const selectModel = useCallback(
-    (model: string) => onChoices({ ...selection.choices, model }),
-    [selection, onChoices],
-  );
-  const selectThinking = useCallback(
-    (thinkingOptionId: string) => onChoices({ ...selection.choices, thinkingOptionId }),
-    [selection, onChoices],
-  );
-  const renderModel = useCallback(
-    ({ option, selected, active, onPress }: SelectFieldRenderOptionInput<string>) => {
-      const available =
-        selection.modelOptions.find((item) => item.id === option.id)?.available === true;
-      return (
-        <ComboboxItem
-          label={option.label}
-          description={available ? undefined : "Unavailable on this account"}
-          selected={selected}
-          active={active}
-          disabled={!available}
-          onPress={onPress}
-        />
-      );
-    },
-    [selection.modelOptions],
-  );
-  const renderThinking = useCallback(
-    ({ option, selected, active, onPress }: SelectFieldRenderOptionInput<string>) => {
-      const available =
-        selection.thinkingOptions.find((item) => item.id === option.id)?.available === true;
-      return (
-        <ComboboxItem
-          label={option.label}
-          description={available ? undefined : "Unavailable on this account"}
-          selected={selected}
-          active={active}
-          disabled={!available}
-          onPress={onPress}
-        />
-      );
-    },
-    [selection.thinkingOptions],
-  );
-  return (
-    <>
-      <SelectField
-        label="Model"
-        value={selection.choices.model}
-        selectedDisplay={selection.modelDisplay}
-        options={selection.modelOptions}
-        renderOption={renderModel}
-        onChange={selectModel}
-        placeholder="Select model"
-        emptyText="No models available"
-        searchable
-        size="md"
-        triggerTestID="shared-model-trigger"
-        error={selection.modelError}
-      />
-      <SelectField
-        label="Reasoning"
-        value={selection.choices.thinkingOptionId}
-        selectedDisplay={selection.thinkingDisplay}
-        options={selection.thinkingOptions}
-        renderOption={renderThinking}
-        onChange={selectThinking}
-        placeholder="Provider default"
-        emptyText="No reasoning choices"
-        size="md"
-        triggerTestID="shared-thinking-trigger"
-        error={selection.thinkingError}
-      />
-    </>
-  );
-}
-
-function WorkflowField({
-  account,
-  inspected,
-  disabled,
+function ProfileChoice({
+  row,
+  selected,
+  definition,
+  entry,
   onInspect,
 }: {
-  account: AccountPresets;
-  inspected: AgentProfilePickerRow;
-  disabled: boolean;
+  row: AgentProfilePickerRow;
+  selected: boolean;
+  definition: AgentProfile | undefined;
+  entry: ProviderSnapshotEntry | undefined;
   onInspect: (id: string) => void;
 }) {
-  const options = useMemo(
-    () =>
-      account.rows.map((row) => ({
-        id: row.id,
-        value: row.id,
-        label: row.name,
-        testID: `preset-row-${row.id}`,
-      })),
-    [account.rows],
-  );
-  const renderOption = useCallback(
-    ({ option, selected, active, onPress }: SelectFieldRenderOptionInput<string>) => {
-      const row = account.rows.find((item) => item.id === option.id);
-      return (
-        <ComboboxItem
-          label={option.label}
-          selected={selected}
-          active={active}
-          disabled={Boolean(row?.unavailable)}
-          onPress={onPress}
-          testID={option.testID}
-        />
-      );
-    },
-    [account.rows],
-  );
-  const display = useMemo(() => ({ label: inspected.name }), [inspected.name]);
+  const select = useCallback(() => onInspect(row.id), [onInspect, row.id]);
+  const model = entry?.models?.find((item) => item.id === definition?.model);
+  const reasoning =
+    model?.thinkingOptions?.find((item) => item.id === definition?.thinkingOptionId)?.label ??
+    definition?.thinkingOptionId;
+  const summary = [model?.label ?? definition?.model ?? "Provider default model", reasoning]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <SelectField
-      label="Workflow"
-      value={inspected.id}
-      selectedDisplay={display}
-      options={options}
-      onChange={onInspect}
-      renderOption={renderOption}
-      size="md"
-      searchable
-      placeholder="Select workflow"
-      emptyText="No workflows available"
-      disabled={disabled}
-      triggerTestID="preset-workflow-trigger"
+    <ComboboxItem
+      label={row.name}
+      description={summary}
+      descriptionPlacement="below"
+      selected={selected}
+      selectionPlacement="leading"
+      onPress={select}
+      style={[styles.profileChoice, selected && styles.selectedChoice]}
+      testID={`preset-row-${row.id}`}
     />
   );
 }
@@ -777,8 +644,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
     padding: theme.spacing[2],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
   },
   menuTitle: {
     flex: 1,
@@ -790,7 +655,7 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minHeight: 0,
     flexDirection: "row",
-    padding: theme.spacing[3],
+    padding: theme.spacing[2],
     gap: theme.spacing[2],
   },
   searchField: {
@@ -808,7 +673,15 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.medium,
   },
   accountList: { padding: theme.spacing[2], gap: theme.spacing[1] },
-  environmentButton: { minHeight: 44 },
+  environmentButton: { minHeight: 44, borderWidth: 1, borderColor: "transparent" },
+  selectedChoice: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surface3 },
+  profileList: { gap: theme.spacing[2] },
+  profileChoice: {
+    minHeight: 56,
+    borderWidth: 1,
+    borderColor: "transparent",
+    borderRadius: theme.borderRadius.md,
+  },
   compactBody: { flex: 1, minHeight: 0, padding: theme.spacing[3], gap: theme.spacing[2] },
   compactList: { maxHeight: 220 },
   compactProfile: { flex: 1, minHeight: 0 },
@@ -818,6 +691,8 @@ const styles = StyleSheet.create((theme) => ({
     padding: theme.spacing[1],
   },
   accountButton: {
+    borderWidth: 1,
+    borderColor: "transparent",
     minHeight: Math.ceil(theme.fontSize.base * 1.4) + CONTROL_HEIGHTS.field + theme.spacing[2],
     paddingVertical: theme.spacing[1],
     paddingRight: theme.spacing[1],
@@ -834,7 +709,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   detailScroll: { flex: 1, minHeight: 0 },
   footer: { padding: theme.spacing[4], borderTopWidth: 1, borderTopColor: theme.colors.border },
-  choices: { padding: theme.spacing[4], gap: theme.spacing[3] },
+  choices: { padding: theme.spacing[2], gap: theme.spacing[3] },
   heading: {
     fontSize: theme.fontSize.lg,
     fontWeight: theme.fontWeight.medium,
