@@ -65,19 +65,22 @@ it("excludes equivalent packages without relying on display names", async () => 
   expect(await verifySkillSnapshot(config)).toEqual([]);
 });
 it("maps native Codex paths to an explicit session allowlist", () => {
+  const selectedDirectory = path.resolve("selected");
+  const selectedPath = path.join(selectedDirectory, "SKILL.md");
+  const otherPath = path.resolve("other", "SKILL.md");
   const snapshot = {
     capturedAt: "now",
     provider: "codex",
-    skills: [{ identity: "one", name: "same-name", path: "/selected", sha256: "hash" }],
+    skills: [{ identity: "one", name: "same-name", path: selectedDirectory, sha256: "hash" }],
   };
   expect(
     codexSkillFilter(snapshot, [
-      { name: "same-name", path: "/selected/SKILL.md" },
-      { name: "same-name", path: "/other/SKILL.md" },
+      { name: "same-name", path: selectedPath },
+      { name: "same-name", path: otherPath },
     ]),
   ).toEqual([
-    { path: "/selected/SKILL.md", enabled: true },
-    { path: "/other/SKILL.md", enabled: false },
+    { path: selectedPath, enabled: true },
+    { path: otherPath, enabled: false },
   ]);
   expect(() => codexSkillFilter(snapshot, [])).toThrow("did not discover");
 });
