@@ -6,7 +6,9 @@ All workspaces share one version.
 
 ## Vorteo commit versions
 
-This fork uses `<upstream-base>-vorteo.<counter>` for stable upstream bases and `<upstream-base>.vorteo.<counter>` for beta bases, for example `0.9.0-beta.2.vorteo.1`. Every new local commit, including documentation and tooling changes, advances the counter. Change the upstream base only when adopting that upstream release; the new base starts at counter 1. A newer beta or promotion to stable starts a new counter. Returning to an earlier beta or from stable to a beta of the same release is rejected. Record source provenance with the Git commit, not build metadata in the version.
+This fork uses `<upstream-base>-vorteo.<counter>` for stable upstream bases and `<upstream-base>.vorteo.<counter>` for beta bases, for example `0.9.0-beta.2.vorteo.1`. Every new local commit, including documentation and tooling changes, advances the counter. Change the upstream base only when adopting that upstream release; the counter continues across stable bases, newer betas and promotions to stable. The next counter is one greater than the highest counter in either commit parent, regardless of upstream base. Returning to an earlier beta or from stable to a beta of the same release is rejected. Record source provenance with the Git commit, not build metadata in the version.
+
+The continuous numbering baseline is 99: the integrated history reached counter 36 on `0.7.2`, 46 on `0.9.0-beta.2`, and 17 on `0.11.0-beta.3`. The first published continuous version is `0.11.0-beta.3.vorteo.100`. The version script retains this floor so older parent versions cannot restart the sequence. Historical release labels remain unchanged.
 
 The installed Lefthook pre-commit hook runs `scripts/vorton-version.mjs` before validation. It synchronizes the root, workspace manifests, internal dependency pins and lockfile, then stages those files. It refuses unstaged manifest edits so it cannot include unrelated work. Stage intended manifest changes before committing. Other unstaged files stay untouched.
 
@@ -22,7 +24,7 @@ Vorteo native metadata reserves 100,000 build numbers per upstream major/minor/p
 
 The initial baseline covers custom behavior through `0.9.0-beta.2.vorton.40`; it is a cumulative summary, not a claim that every feature first shipped in that commit. New versions use `vorteo` while version parsing accepts legacy `vorton` parents and preserves their counter and native build numbering.
 
-Expo bundles the custom changelog with each build. What's new shows it above the independently fetched Paseo changelog in Vorteo mode. Each history has its own Show more control. Upstream loading or failure does not hide bundled custom notes. Standard mode retains the Paseo view. The external link opens Paseo's full upstream history; newer upstream notes do not imply those changes are installed locally.
+Expo bundles the custom changelog with each build. What's new interleaves it with the independently fetched Paseo changelog by date, newest first, in Vorteo mode. Entries identify their source and share one Show more control. Equal dates retain authored order within each source, with Vorteo entries first; undated entries appear last. Upstream loading or failure does not hide bundled custom notes. Standard mode retains the Paseo view. The external link opens Paseo's full upstream history; newer upstream notes do not imply those changes are installed locally.
 
 ## Upstream release procedure
 

@@ -24,14 +24,13 @@ import { useRevealedReleases } from "./use-revealed-releases";
 import {
   parseChangelog,
   formatChangelogDate,
-  type ChangelogRelease,
+  mergeChangelogReleases,
+  type ChangelogTimelineRelease,
   type ChangelogSection,
 } from "./parse-changelog";
 
 const customMarkdown: unknown = Constants.expoConfig?.extra?.vorteoChangelog;
 const customReleases = parseChangelog(typeof customMarkdown === "string" ? customMarkdown : "");
-
-const customState: ChangelogState = { status: "ready", releases: customReleases };
 
 const WEBSITE_CHANGELOG_URL = "https://paseo.sh/changelog";
 
@@ -52,8 +51,16 @@ export function ChangelogSheet({ visible, onClose }: ChangelogSheetProps) {
   const { t } = useTranslation();
   const vorteoMode = useVortonMode();
   const { state, reload } = useChangelog(visible);
-  const custom = useRevealedReleases(visible, 1);
-  const { count, showMore } = useRevealedReleases(visible && state.status === "ready");
+  const releases = useMemo(
+    () =>
+      mergeChangelogReleases(
+        vorteoMode ? customReleases : [],
+        state.status === "ready" ? state.releases : [],
+      ),
+    [vorteoMode, state],
+  );
+  const hasReleases = visible && releases.length > 0;
+  const { count, showMore } = useRevealedReleases(hasReleases);
 
   const handleOpenWebsite = useCallback(() => {
     void openExternalUrl(WEBSITE_CHANGELOG_URL);
@@ -93,26 +100,13 @@ export function ChangelogSheet({ visible, onClose }: ChangelogSheetProps) {
       testID="changelog-sheet"
     >
       <View style={styles.releaseList}>
-        {vorteoMode ? (
-          <View style={styles.releaseList} testID="changelog-vorteo">
-            <Text style={styles.sourceTitle}>Vorteo</Text>
-            <ChangelogBody
-              state={customState}
-              shownReleases={custom.count}
-              onShowMore={custom.showMore}
-              onRetry={reload}
-            />
-          </View>
-        ) : null}
-        <View style={styles.releaseList} testID="changelog-paseo">
-          {vorteoMode ? <Text style={styles.sourceTitle}>Paseo</Text> : null}
-          <ChangelogBody
-            state={state}
-            shownReleases={count}
-            onShowMore={showMore}
-            onRetry={reload}
-          />
-        </View>
+        <ChangelogBody
+          releases={releases}
+          showSource={vorteoMode}
+          shownReleases={count}
+          onShowMore={showMore}
+        />
+        <ChangelogStatus state={state} onRetry={reload} />
       </View>
     </AdaptiveModalSheet>
   );
@@ -120,16 +114,13 @@ export function ChangelogSheet({ visible, onClose }: ChangelogSheetProps) {
 
 const SNAP_POINTS = ["85%", "95%"];
 
-interface ChangelogBodyProps {
+interface ChangelogStatusProps {
   state: ChangelogState;
-  shownReleases: number;
-  onShowMore: () => void;
   onRetry: () => void;
 }
 
-function ChangelogBody({ state, shownReleases, onShowMore, onRetry }: ChangelogBodyProps) {
+function ChangelogStatus({ state, onRetry }: ChangelogStatusProps) {
   const { t } = useTranslation();
-  const appVersion = useMemo(() => resolveAppVersion()?.replace(/^v/i, "") ?? null, []);
 
   if (state.status === "loading") {
     return (
@@ -157,18 +148,32 @@ function ChangelogBody({ state, shownReleases, onShowMore, onRetry }: ChangelogB
     );
   }
 
-  const visibleReleases = state.releases.slice(0, shownReleases);
+  return null;
+}
+
+interface ChangelogBodyProps {
+  releases: ChangelogTimelineRelease[];
+  showSource: boolean;
+  shownReleases: number;
+  onShowMore: () => void;
+}
+
+function ChangelogBody({ releases, showSource, shownReleases, onShowMore }: ChangelogBodyProps) {
+  const { t } = useTranslation();
+  const appVersion = useMemo(() => resolveAppVersion()?.replace(/^v/i, "") ?? null, []);
+  const visibleReleases = releases.slice(0, shownReleases);
 
   return (
     <View style={styles.releaseList}>
       {visibleReleases.map((release) => (
         <ReleaseView
-          key={`${release.version}:${release.date}`}
+          key={`${release.source}:${release.version}:${release.date}`}
           release={release}
+          showSource={showSource}
           isCurrent={release.version === appVersion}
         />
       ))}
-      {state.releases.length > visibleReleases.length ? (
+      {releases.length > visibleReleases.length ? (
         <Button
           variant="ghost"
           onPress={onShowMore}
@@ -183,16 +188,22 @@ function ChangelogBody({ state, shownReleases, onShowMore, onRetry }: ChangelogB
 }
 
 interface ReleaseViewProps {
-  release: ChangelogRelease;
+  release: ChangelogTimelineRelease;
+  showSource: boolean;
   isCurrent: boolean;
 }
 
-const ReleaseView = memo(function ReleaseView({ release, isCurrent }: ReleaseViewProps) {
+const ReleaseView = memo(function ReleaseView({
+  release,
+  showSource,
+  isCurrent,
+}: ReleaseViewProps) {
   const { t } = useTranslation();
   const date = formatChangelogDate(release.date);
 
   return (
     <View style={styles.release} testID={`changelog-release-${release.version}`}>
+      {showSource ? <Text style={styles.sourceTitle}>{release.source}</Text> : null}
       <View style={styles.releaseHeading}>
         <Text style={styles.version}>{release.version}</Text>
         {isCurrent ? <StatusBadge label={t("changelog.installed")} /> : null}
@@ -224,7 +235,7 @@ function keyChangelogSections(
 
 const styles = StyleSheet.create((theme) => ({
   sourceTitle: {
-    fontSize: theme.fontSize.lg,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
     color: theme.colors.foreground,
   },

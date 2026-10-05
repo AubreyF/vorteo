@@ -39,13 +39,11 @@ if (existsSync(mergeHeadPath)) {
 if (parentVersions.some((parent) => compareBase(current, parent) < 0)) {
   throw new Error("The upstream base cannot decrease below a parent.");
 }
-const counter =
-  Math.max(
-    0,
-    ...parentVersions
-      .filter((parent) => upstreamBase(parent) === base)
-      .map((parent) => Number(parent[5] ?? parent[6] ?? 0)),
-  ) + 1;
+// Recover the counters consumed before upstream updates stopped resetting them:
+// 0.7.2 reached 36, 0.9.0-beta.2 reached 46, and 0.11.0-beta.3 reached 17.
+const historicalCounterFloor = 36 + 46 + 17;
+const parentCounters = parentVersions.map((parent) => Number(parent[5] ?? parent[6] ?? 0));
+const counter = Math.max(historicalCounterFloor, ...parentCounters) + 1;
 if (!Number.isSafeInteger(counter)) throw new Error("Vorteo counter exceeds safe integer range.");
 const next = `${base}${current[4] ? "." : "-"}vorteo.${counter}`;
 const files = [

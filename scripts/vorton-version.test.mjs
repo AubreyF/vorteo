@@ -40,15 +40,15 @@ test("commit versions advance once, preserve staging, and synchronize lock metad
     writeFileSync(hook, `#!/bin/sh\nexec "${process.execPath}" "${script}" --hook\n`);
     chmodSync(hook, 0o755);
     run(process.execPath, [script, "--hook"]);
-    assert.equal(read("package.json").version, "0.7.2-vorteo.1");
+    assert.equal(read("package.json").version, "0.7.2-vorteo.100");
     run(process.execPath, [script, "--hook"]);
     run(process.execPath, [script, "--check"]);
-    assert.equal(read("package.json").version, "0.7.2-vorteo.1");
+    assert.equal(read("package.json").version, "0.7.2-vorteo.100");
     git("commit", "-m", "first");
     writeFileSync(path.join(cwd, "unrelated.txt"), "leave me unstaged");
     run(process.execPath, [script, "--hook"]);
-    assert.equal(read("package.json").version, "0.7.2-vorteo.2");
-    assert.equal(read("package-lock.json").packages["packages/a"].version, "0.7.2-vorteo.2");
+    assert.equal(read("package.json").version, "0.7.2-vorteo.101");
+    assert.equal(read("package-lock.json").packages["packages/a"].version, "0.7.2-vorteo.101");
     assert.ok(!git("diff", "--cached", "--name-only").includes("unrelated.txt"));
     const pkg = read("packages/a/package.json");
     pkg.description = "unstaged change";
@@ -62,26 +62,26 @@ test("commit versions advance once, preserve staging, and synchronize lock metad
     root.version = "0.7.3";
     write("package.json", root);
     run(process.execPath, [script]);
-    assert.equal(read("package.json").version, "0.7.3-vorteo.1");
+    assert.equal(read("package.json").version, "0.7.3-vorteo.102");
     root.version = "0.9.0-beta.2";
     write("package.json", root);
     run(process.execPath, [script]);
-    assert.equal(read("package.json").version, "0.9.0-beta.2.vorteo.1");
+    assert.equal(read("package.json").version, "0.9.0-beta.2.vorteo.102");
     git("add", "package.json", "packages/a/package.json", "package-lock.json");
     git("commit", "-m", "beta base");
     run(process.execPath, [script, "--hook"]);
-    assert.equal(read("package.json").version, "0.9.0-beta.2.vorteo.2");
+    assert.equal(read("package.json").version, "0.9.0-beta.2.vorteo.103");
     root.version = "0.9.0-beta.1";
     write("package.json", root);
     assert.throws(() => run(process.execPath, [script]), /cannot decrease/);
     root.version = "0.9.0-beta.3";
     write("package.json", root);
     run(process.execPath, [script]);
-    assert.equal(read("package.json").version, "0.9.0-beta.3.vorteo.1");
+    assert.equal(read("package.json").version, "0.9.0-beta.3.vorteo.103");
     root.version = "0.9.0";
     write("package.json", root);
     run(process.execPath, [script]);
-    assert.equal(read("package.json").version, "0.9.0-vorteo.1");
+    assert.equal(read("package.json").version, "0.9.0-vorteo.103");
     git("add", "package.json", "packages/a/package.json", "package-lock.json");
     git("commit", "-m", "stable base");
     root.version = "0.9.0-beta.3";
@@ -96,9 +96,10 @@ test("commit versions advance once, preserve staging, and synchronize lock metad
 });
 
 for (const versions of [
-  ["0.7.2-vorton.11", "0.7.2-vorteo.23", "0.7.2-vorteo.24"],
-  ["0.9.0-beta.2.vorton.1", "0.9.0-beta.2.vorton.23", "0.9.0-beta.2.vorteo.24"],
-  ["0.9.0-beta.2.vorteo.1", "0.7.2-vorteo.29", "0.9.0-beta.2.vorteo.2"],
+  ["0.7.2-vorton.11", "0.7.2-vorteo.23", "0.7.2-vorteo.100"],
+  ["0.11.0-beta.3.vorteo.17", "0.9.0-beta.2.vorteo.46", "0.11.0-beta.3.vorteo.100"],
+  ["0.9.0-beta.2.vorton.100", "0.9.0-beta.2.vorteo.123", "0.9.0-beta.2.vorteo.124"],
+  ["0.9.0-beta.2.vorteo.100", "0.7.2-vorteo.129", "0.9.0-beta.2.vorteo.130"],
 ]) {
   test(`merge versions advance beyond both parents: ${versions.join(", ")}`, () => {
     const cwd = mkdtempSync(path.join(tmpdir(), "vorton-merge-version-"));
