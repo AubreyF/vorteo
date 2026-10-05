@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, cp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -98,4 +98,28 @@ it("does not enable installed packages that the provider disabled by default", a
   };
   await captureSkillPolicy(config, "claude", home, []);
   expect(await verifySkillSnapshot(config)).toEqual(["example"]);
+});
+
+it("excludes identical copies even when only one has source provenance", async () => {
+  const { home, directory, config } = await setup();
+  const duplicate = path.join(home, ".claude/skills/duplicate");
+  await cp(directory, duplicate, { recursive: true });
+  await writeFile(
+    path.join(directory, ".vorteo-skill-source.json"),
+    JSON.stringify({
+      repository: "example/skills",
+      revision: "a".repeat(40),
+      directory: "skills/example",
+    }),
+  );
+  const installed = (await inventorySkills({ home })).skills.find(
+    (skill) => skill.path === directory,
+  )!;
+  config.profileLaunch!.profile.skillPolicy = {
+    mode: "inherit",
+    include: [],
+    exclude: [installed.identity],
+  };
+  await captureSkillPolicy(config, "claude", home, ["example"]);
+  expect(await verifySkillSnapshot(config)).toEqual([]);
 });

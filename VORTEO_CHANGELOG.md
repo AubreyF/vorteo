@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.106 - 2026-10-05
+
+### Fixed
+
+- Applied profile exclusions to equivalent skill copies with different provenance records and refused newly conflicting Claude selectors on resume
+
 ## 0.11.0-beta.3.vorteo.105 - 2026-10-05
 
 ### Added

@@ -34,13 +34,19 @@ export async function captureSkillPolicy(
       );
   }
   validateNativeDefaults(nativeDefaults, candidates);
+  const selectedHashes = new Set(
+    candidates.filter((skill) => include.includes(skill.identity)).map((skill) => skill.sha256),
+  );
+  const exclusions = policy.mode === "inherit" ? policy.exclude : [];
+  const excludedHashes = new Set(
+    candidates.filter((skill) => exclusions.includes(skill.identity)).map((skill) => skill.sha256),
+  );
   const selected = candidates.filter((skill) => {
     if (policy.mode === "none") return false;
-    if (policy.mode === "selected") return policy.skills.includes(skill.identity);
+    if (policy.mode === "selected") return selectedHashes.has(skill.sha256);
     const enabledByDefault = nativeDefaults ? nativeDefaults.includes(skill.name) : true;
     return (
-      (enabledByDefault || policy.include.includes(skill.identity)) &&
-      !policy.exclude.includes(skill.identity)
+      (enabledByDefault || selectedHashes.has(skill.sha256)) && !excludedHashes.has(skill.sha256)
     );
   });
   const snapshot: SkillSnapshot = { capturedAt: new Date().toISOString(), provider, skills: [] };
@@ -51,9 +57,7 @@ export async function captureSkillPolicy(
         `Cannot verify a unique provider selector for ${skill.name}`,
       );
     const conflicting = candidates.some(
-      (other) =>
-        other.name === skill.name &&
-        (other.identity !== skill.identity || other.sha256 !== skill.sha256),
+      (other) => other.name === skill.name && other.sha256 !== skill.sha256,
     );
     if (conflicting)
       throw new SkillLibraryError(
@@ -93,6 +97,21 @@ export async function verifySkillSnapshot(
         "skill_changed",
         `Skill ${skill.name} changed after launch. Restore its recorded version or recreate this task.`,
       );
+  }
+  if (snapshot.provider === "claude" && snapshot.skills.length) {
+    const current = await inventorySkills({ cwd: config.cwd });
+    for (const candidate of current.skills) {
+      const selected = snapshot.skills.find((skill) => skill.name === candidate.name);
+      if (
+        selected &&
+        candidate.providers.includes("claude") &&
+        candidate.sha256 !== selected.sha256
+      )
+        throw new SkillLibraryError(
+          "ambiguous_skill",
+          `Provider selector ${candidate.name} now refers to a different package. Review the profile before continuing.`,
+        );
+    }
   }
   return [...new Set(snapshot.skills.map((skill) => skill.name))];
 }
