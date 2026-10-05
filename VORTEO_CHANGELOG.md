@@ -2,6 +2,15 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.111 - 2026-10-05
+
+### Fixed
+
+- Restored orange selected outlines and left-side checks in the profile selector
+- Show saved profiles and their model and reasoning summaries without overriding them with current chat settings
+- Omit disabled accounts and keep account connection buttons in Settings
+- Remove the header divider and match desktop outer padding to column gaps
+
 ## 0.11.0-beta.3.vorteo.110 - 2026-10-05
 
 ### Changed
