@@ -151,7 +151,10 @@ export async function startIsolatedHostDaemon(
     const spawnOptions: SpawnOptions = {
       cwd: serverDir,
       env: withDisabledE2ESpeechEnv({
-        ...process.env,
+        // Installation auth and supervisor descriptors belong to the parent daemon.
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_")),
+        ),
         ...options.environment,
         PASEO_HOME: paseoHome,
         PASEO_SERVER_ID: serverId,
