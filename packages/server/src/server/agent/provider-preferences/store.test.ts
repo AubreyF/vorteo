@@ -25,7 +25,6 @@ test("migration backs up first, survives restart, and rejects concurrent edits w
   const files = readdirSync(directory);
   expect(files).toHaveLength(1);
   const receipt = join(directory, files[0]);
-  expect(statSync(receipt).mode & 0o777).toBe(0o600);
   expect(JSON.parse(readFileSync(receipt, "utf8")).profiles).toEqual(initial.agentProfiles);
   const restarted = new DaemonConfigStore(home, {
     ...initial,
@@ -122,4 +121,18 @@ test("an older editor cannot erase local migrated workflow aliases", () => {
   expect(loadPersistedConfig(home).daemon?.sharedProviderPreferences?.workflowAliases).toEqual(
     aliases,
   );
+});
+
+test.runIf(process.platform !== "win32")("migration backups are private on POSIX", () => {
+  const home = mkdtempSync(join(tmpdir(), "provider-preferences-mode-"));
+  homes.push(home);
+  const store = new DaemonConfigStore(
+    home,
+    MutableDaemonConfigSchema.parse({ mcp: { injectIntoAgents: false } }),
+  );
+  store.initializeProviderPreferences();
+  const directory = join(home, "backups", "provider-preferences-v1");
+  const files = readdirSync(directory);
+  expect(files).toHaveLength(1);
+  expect(statSync(join(directory, files[0])).mode & 0o777).toBe(0o600);
 });

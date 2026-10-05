@@ -265,6 +265,7 @@ describe("paseo daemon bootstrap", () => {
           "daemon.hostnames",
           "daemon.mcp.enabled",
           "daemon.relay.enabled",
+          "daemon.sharedProviderPreferences",
           "daemon.trustedProxies",
         ],
         restartRequiredPaths: [],

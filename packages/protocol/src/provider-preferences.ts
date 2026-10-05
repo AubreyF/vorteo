@@ -1,4 +1,34 @@
-import type { AgentProfile, SharedProviderPreferences } from "./messages.js";
+import { z } from "zod";
+import { AgentProfileSchema, type AgentProfile } from "./agent-profile.js";
+
+/** Shared launch choices are keyed by configured provider ancestry, never account labels. */
+export const ProviderPreferencesSchema = z.object({
+  defaults: AgentProfileSchema.omit({ id: true, name: true, provider: true, isDefault: true }),
+  preferredModels: z.array(z.string()),
+  preferredThinkingOptions: z.array(z.string()),
+  workflows: z.array(AgentProfileSchema),
+  defaultWorkflowId: z.string().nullable(),
+});
+export type ProviderPreferences = z.infer<typeof ProviderPreferencesSchema>;
+
+export const SharedProviderPreferencesSchema = z.object({
+  version: z.literal(1),
+  revision: z.number().int().nonnegative(),
+  defaultProvider: z.string().optional(),
+  workflowAliases: z.record(z.string(), z.record(z.string(), z.string())).optional(),
+  providers: z.record(z.string(), ProviderPreferencesSchema),
+  legacyProfiles: z.record(
+    z.string(),
+    z.object({
+      provider: z.string(),
+      providerType: z.string(),
+      workflowId: z.string(),
+      model: z.string().nullable().optional(),
+      thinkingOptionId: z.string().nullable().optional(),
+    }),
+  ),
+});
+export type SharedProviderPreferences = z.infer<typeof SharedProviderPreferencesSchema>;
 
 export interface ProviderAncestry {
   extends?: string;

@@ -633,7 +633,7 @@ test("setup progress is adapted per socket without changing the canonical snapsh
       payload: {
         ...message.payload,
         status: "failed",
-        error: expect.stringContaining("Update Paseo"),
+        error: expect.stringContaining("Update Vorteo"),
         subscriptionId: expect.any(String),
       },
     },

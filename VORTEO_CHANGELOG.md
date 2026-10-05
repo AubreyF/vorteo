@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.10 - 2026-10-05
+
+### Fixed
+
+- Saved installation owner access reliably on Windows
+- Preserved Vorteo application naming in Darwin Nix desktop packages
+
 ## 0.11.0-beta.3.vorteo.8 - 2026-10-05
 
 ### Changed

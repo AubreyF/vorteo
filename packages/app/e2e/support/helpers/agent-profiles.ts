@@ -1,3 +1,4 @@
+import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { AgentProfile } from "@getpaseo/protocol/messages";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
@@ -103,7 +104,8 @@ export interface SeededProviderModel {
  * shipped providers plus `acp`. Extending `claude` with a replacement `models`
  * list is what avoids running anything: replacement models skip catalog
  * discovery, and Claude's static modes mean the provider never spawns. The
- * command only has to resolve for the availability probe, hence `node`.
+ * default command implements the authenticated CLI availability response without
+ * invoking a provider or using real credentials.
  * Providers with dynamic catalogs can pass a small RPC fixture as `command`.
  */
 export async function seedModelProvider(input: {
@@ -121,7 +123,7 @@ export async function seedModelProvider(input: {
         label: input.label,
         description: `${input.label} test provider`,
         enabled: true,
-        command: input.command ?? ["node"],
+        command: input.command ?? ["node", path.resolve("e2e/fixtures/catalog-claude.cjs")],
         models: input.models,
       },
     },

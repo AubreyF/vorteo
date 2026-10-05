@@ -12,7 +12,6 @@ test("sessions survive service reload, expire absolutely, and revoke durably", (
     const sessions = new OwnerSessions(file, () => now);
     const token = sessions.create();
     expect(readFileSync(file, "utf8")).not.toContain(token);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
     const reloaded = new OwnerSessions(file, () => now);
     expect(reloaded.expiresAt(token)).toBeTruthy();
     expect(reloaded.expiresAt("forged-token")).toBeNull();
@@ -25,3 +24,17 @@ test("sessions survive service reload, expire absolutely, and revoke durably", (
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test.runIf(process.platform !== "win32")(
+  "owner session hashes are stored privately on POSIX",
+  () => {
+    const root = mkdtempSync(path.join(tmpdir(), "owner-session-mode-"));
+    try {
+      const file = path.join(root, "sessions.json");
+      new OwnerSessions(file).create();
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);

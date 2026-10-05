@@ -26,8 +26,12 @@ export class OwnerSessions {
 
   private write(sessions: z.infer<typeof SessionsSchema>): void {
     writePrivateFileAtomicSync(this.file, JSON.stringify(sessions));
-    for (const target of [this.file, path.dirname(this.file)]) {
-      const fd = openSync(target, "r");
+    // Windows requires a writable handle for FlushFileBuffers and does not
+    // support opening directories through this API. POSIX also syncs the rename.
+    const targets =
+      process.platform === "win32" ? [this.file] : [this.file, path.dirname(this.file)];
+    for (const target of targets) {
+      const fd = openSync(target, target === this.file ? "r+" : "r");
       try {
         fsyncSync(fd);
       } finally {

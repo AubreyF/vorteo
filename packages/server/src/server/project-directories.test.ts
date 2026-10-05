@@ -23,8 +23,14 @@ describe("shared project directories", () => {
         mountPaths: new Set(mounted ? [share] : []),
         config: {
           version: 1,
-          hostHome: "/Users/example",
-          shares: [{ id: "documents", hostPath: "/Users/example/Documents", containerPath: share }],
+          hostHome: path.resolve("/Users/example"),
+          shares: [
+            {
+              id: "documents",
+              hostPath: path.resolve("/Users/example/Documents"),
+              containerPath: share,
+            },
+          ],
         },
       },
     );
@@ -36,7 +42,7 @@ describe("shared project directories", () => {
     expect(result.directory).toMatchObject({
       rootId: "documents",
       containerPath: path.join(temp, "share", "Codex"),
-      hostPath: "/Users/example/Documents/Codex",
+      hostPath: path.resolve("/Users/example/Documents/Codex"),
       entries: [{ name: "child", path: path.join("Codex", "child") }],
     });
   });

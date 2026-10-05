@@ -1,3 +1,9 @@
+import { SharedProviderPreferencesSchema } from "./provider-preferences.js";
+export {
+  ProviderPreferencesSchema,
+  SharedProviderPreferencesSchema,
+} from "./provider-preferences.js";
+export type { ProviderPreferences, SharedProviderPreferences } from "./provider-preferences.js";
 import {
   ProjectDirectoryBrowseRequestSchema,
   ProjectDirectoryBrowseResponseSchema,
@@ -240,35 +246,6 @@ const MutableMetadataGenerationConfigSchema = z
     providers: z.array(MutableStructuredGenerationProviderSchema).default([]),
   })
   .passthrough();
-
-/** Shared launch choices are keyed by configured provider ancestry, never account labels. */
-export const ProviderPreferencesSchema = z.object({
-  defaults: AgentProfileSchema.omit({ id: true, name: true, provider: true, isDefault: true }),
-  preferredModels: z.array(z.string()),
-  preferredThinkingOptions: z.array(z.string()),
-  workflows: z.array(AgentProfileSchema),
-  defaultWorkflowId: z.string().nullable(),
-});
-export type ProviderPreferences = z.infer<typeof ProviderPreferencesSchema>;
-
-export const SharedProviderPreferencesSchema = z.object({
-  version: z.literal(1),
-  revision: z.number().int().nonnegative(),
-  defaultProvider: z.string().optional(),
-  workflowAliases: z.record(z.string(), z.record(z.string(), z.string())).optional(),
-  providers: z.record(z.string(), ProviderPreferencesSchema),
-  legacyProfiles: z.record(
-    z.string(),
-    z.object({
-      provider: z.string(),
-      providerType: z.string(),
-      workflowId: z.string(),
-      model: z.string().nullable().optional(),
-      thinkingOptionId: z.string().nullable().optional(),
-    }),
-  ),
-});
-export type SharedProviderPreferences = z.infer<typeof SharedProviderPreferencesSchema>;
 
 export const AgentProfileLaunchSchema = z.object({
   profile: AgentProfileSchema,

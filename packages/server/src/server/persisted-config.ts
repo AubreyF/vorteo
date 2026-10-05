@@ -13,7 +13,7 @@ import { ensurePrivateFile, writePrivateFileAtomicSync } from "./private-files.j
 import { AgentProfileSchema, AgentSkillSelectionSchema } from "@getpaseo/protocol/agent-profile";
 import { PluginIdSchema, PluginSourceSchema } from "@getpaseo/protocol/plugin-config";
 import { TerminalProfileSchema } from "@getpaseo/protocol/terminal-profile";
-import { SharedProviderPreferencesSchema } from "@getpaseo/protocol/messages";
+import { SharedProviderPreferencesSchema } from "@getpaseo/protocol/provider-preferences";
 import { PaseoServicePortAllocationSchema } from "@getpaseo/protocol/paseo-config-schema";
 
 export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);

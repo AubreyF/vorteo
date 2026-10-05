@@ -251,7 +251,14 @@ describe("configured provider options", () => {
     const logger = createTestLogger();
     const registry = buildProviderRegistry(logger, {
       providerOverrides: {
-        claude: { options: { sandbox: { network: { allowLocalBinding: "yes" } } } },
+        claude: {
+          command: [
+            process.execPath,
+            "-e",
+            "process.stdout.write(JSON.stringify({ loggedIn: true }))",
+          ],
+          options: { sandbox: { network: { allowLocalBinding: "yes" } } },
+        },
       },
     });
     const manager = new AgentManager({
