@@ -31,6 +31,42 @@ function summarize(items: readonly SidebarNavItem[]): SidebarNavPreference[] {
 }
 
 describe("resolveSidebarNavItems", () => {
+  it("keeps Vorteo navigation visible and usage hidden without changing saved preferences", () => {
+    const preferences = [
+      { key: "history", visible: false },
+      { key: "schedules", visible: false },
+      { key: "usage", visible: true },
+    ];
+    const header = resolveSidebarNavItems({
+      section: "header",
+      pluginGroups: [],
+      preferences,
+      vorton: true,
+    });
+    const footer = resolveSidebarNavItems({
+      section: "footer",
+      pluginGroups: [],
+      preferences,
+      vorton: true,
+    });
+    expect(header.find((item) => item.key === "history")?.visible).toBe(true);
+    expect(header.find((item) => item.key === "schedules")?.visible).toBe(true);
+    expect(footer.find((item) => item.key === "usage")?.visible).toBe(false);
+    const standardHeader = resolveSidebarNavItems({
+      section: "header",
+      pluginGroups: [],
+      preferences,
+    });
+    const standardFooter = resolveSidebarNavItems({
+      section: "footer",
+      pluginGroups: [],
+      preferences,
+    });
+    expect(standardHeader.find((item) => item.key === "history")?.visible).toBe(false);
+    expect(standardHeader.find((item) => item.key === "schedules")?.visible).toBe(false);
+    expect(standardFooter.find((item) => item.key === "usage")?.visible).toBe(true);
+  });
+
   it("yields builtins then plugins, all visible, when nothing is stored", () => {
     const items = resolveSidebarNavItems({
       section: "header",

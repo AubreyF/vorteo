@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { useVortonMode } from "@/vorton-mode";
 import { useAppSettings } from "@/hooks/use-settings";
 import type { AppSettings } from "@/hooks/use-settings/storage";
 import { useInstalledPlugins } from "@/plugins/registry";
@@ -27,6 +28,7 @@ export function useSidebarNavItems<Section extends SidebarSection>(
   section: Section,
   excludedKeys?: readonly string[],
 ): UseSidebarNavItemsReturn<Section> {
+  const vorton = useVortonMode();
   const plugins = useInstalledPlugins();
   const { settings, updateSettings } = useAppSettings();
   const field = PREFERENCE_FIELDS[section];
@@ -34,8 +36,8 @@ export function useSidebarNavItems<Section extends SidebarSection>(
   const pluginGroups = useMemo(() => groupPluginSidebarItems(plugins, section), [plugins, section]);
 
   const items = useMemo(
-    () => resolveSidebarNavItems({ section, pluginGroups, preferences, excludedKeys }),
-    [pluginGroups, preferences, section, excludedKeys],
+    () => resolveSidebarNavItems({ section, pluginGroups, preferences, excludedKeys, vorton }),
+    [pluginGroups, preferences, section, excludedKeys, vorton],
   );
 
   const setVisible = useCallback(
