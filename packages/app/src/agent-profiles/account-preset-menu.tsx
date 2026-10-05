@@ -2,10 +2,10 @@ import { ExecutionEnvironmentIcon } from "@/execution-installation/environment-i
 import { useVortonTouch } from "@/vorton-touch";
 import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { sharedChoiceState, type LaunchChoices } from "./shared-choices";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { Keyboard, ScrollView, StyleSheet as RNStyleSheet, Text, View } from "react-native";
+import { useCallback, useMemo, useReducer, useState, type ReactNode } from "react";
+import { Keyboard, ScrollView, Text, View } from "react-native";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { ArrowLeft } from "lucide-react-native";
+import { Search, ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { AgentProfile, ProviderPreferences } from "@getpaseo/protocol/messages";
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { ComboboxItem, SearchInput } from "@/components/ui/combobox";
 import { PiModelCatalog } from "./pi-model-catalog";
 import { ProfileDetailsView } from "./profile-details-view";
-import { intelligenceLabel, type AccountPresets } from "./account-presets";
+import { type AccountPresets } from "./account-presets";
 import type { AgentProfilePickerRow } from "./internal/use-agent-profile-picker";
 import {
   isSharedWorkflowProfile,
@@ -23,20 +23,32 @@ import {
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { SelectField, type SelectFieldRenderOptionInput } from "@/components/ui/select-field";
 
-import Animated, {
-  SlideInLeft,
-  SlideInRight,
-  SlideOutLeft,
-  SlideOutRight,
-} from "react-native-reanimated";
+import { withUnistyles } from "react-native-unistyles";
+import { type ProviderIconComponent, useProviderIcon } from "@/components/provider-icons";
+import { settingsStyles } from "@/styles/settings";
+import { selectorNavigation, type SelectorSection } from "./selector-navigation";
 
-const enterList = SlideInLeft.duration(220);
-const exitList = SlideOutLeft.duration(220);
-const enterDetails = SlideInRight.duration(220);
-const exitDetails = SlideOutRight.duration(220);
+const ThemedChevronUp = withUnistyles(ChevronUp, (theme) => ({
+  size: theme.iconSize.sm,
+  color: theme.colors.foregroundMuted,
+}));
+const ThemedChevronDown = withUnistyles(ChevronDown, (theme) => ({
+  size: theme.iconSize.sm,
+  color: theme.colors.foregroundMuted,
+}));
+
+export interface PresetEnvironment {
+  serverId: string;
+  label: string;
+  available: boolean;
+}
 
 interface AccountPresetMenuProps {
   serverId: string | null;
+  environments: PresetEnvironment[];
+  onEnvironment: (serverId: string) => void;
+  loading?: boolean;
+  error?: string | null;
   accounts: AccountPresets[];
   definitions: readonly AgentProfile[];
   entries: ProviderSnapshotEntry[] | undefined;
@@ -55,15 +67,17 @@ interface AccountPresetMenuProps {
 }
 
 export function AccountPresetMenu(props: AccountPresetMenuProps) {
-  const { accounts, inspectedId, selectedId, compact, onInspect } = props;
+  const { accounts, inspectedId, selectedId, compact, onInspect, onEnvironment, onSearch } = props;
   const touch = useVortonTouch();
-  const headerSize = touch ? "md" : "sm";
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const showDetails = compact && detailsOpen;
-  const back = useCallback(() => setDetailsOpen(false), []);
+  const headerSize = compact || touch ? "md" : "sm";
+  const [navigation, dispatch] = useReducer(selectorNavigation, {
+    section: "profile",
+    searchOpen: false,
+  });
   const account =
     accounts.find((group) => group.rows.some((row) => row.id === inspectedId)) ?? accounts[0];
   const inspected = account?.rows.find((row) => row.id === inspectedId) ?? account?.rows[0];
+  const environment = props.environments.find((item) => item.serverId === props.serverId);
   const { choices, changeChoices, preferences, family, retainWorkflow } = useSharedChoices(
     props,
     account,
@@ -71,114 +85,324 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
   const inspectAccount = useCallback(
     (id: string) => {
       onInspect(retainWorkflow(id));
-      if (compact) {
-        Keyboard.dismiss();
-        setDetailsOpen(true);
-      }
+      Keyboard.dismiss();
+      dispatch({ type: "account" });
     },
-    [compact, onInspect, retainWorkflow],
+    [onInspect, retainWorkflow],
   );
-
-  const details =
-    account && inspected ? (
-      <AccountChoices
-        {...props}
+  const selectEnvironment = useCallback(
+    (id: string) => {
+      onEnvironment(id);
+      dispatch({ type: "environment" });
+    },
+    [onEnvironment],
+  );
+  const toggleSearch = useCallback(() => {
+    if (navigation.searchOpen) {
+      onSearch("");
+      Keyboard.dismiss();
+    }
+    dispatch({ type: "search" });
+  }, [navigation.searchOpen, onSearch]);
+  const showSection = useCallback(
+    (section: SelectorSection) => dispatch({ type: "section", section }),
+    [],
+  );
+  const list = useMemo(
+    () => (
+      <AccountList
+        accounts={accounts}
         account={account}
-        inspected={inspected}
-        choices={choices}
-        onChoices={changeChoices}
-        preferences={preferences}
-        family={family}
+        selectedId={selectedId}
+        serverId={props.serverId}
+        loading={props.loading}
+        error={props.error}
+        onInspect={inspectAccount}
+        renderRail={props.renderRail}
       />
-    ) : null;
-  const AccountScrollView = compact ? BottomSheetScrollView : ScrollView;
-  const list = (
-    <AccountScrollView
-      style={compact ? styles.compactList : styles.list}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-    >
-      {accounts.map((group) => (
-        <View key={group.provider} style={styles.account}>
-          <AccountButton
-            serverId={props.serverId}
-            group={group}
-            active={!compact && group === account}
-            selectedId={selectedId}
-            onInspect={inspectAccount}
-            renderRail={props.renderRail}
+    ),
+    [accounts, account, selectedId, props, inspectAccount],
+  );
+  const details = useMemo(
+    () =>
+      account && inspected ? (
+        <AccountChoices
+          {...props}
+          account={account}
+          inspected={inspected}
+          choices={choices}
+          onChoices={changeChoices}
+          preferences={preferences}
+          family={family}
+        />
+      ) : (
+        <Text style={styles.empty}>Select an account</Text>
+      ),
+    [account, inspected, props, choices, changeChoices, preferences, family],
+  );
+  const environments = useMemo(
+    () => (
+      <View style={styles.accountList}>
+        {props.environments.map((item) => (
+          <EnvironmentButton
+            key={item.serverId}
+            environment={item}
+            selected={item.serverId === props.serverId}
+            onSelect={selectEnvironment}
           />
-        </View>
-      ))}
-      {!accounts.length ? <Text style={styles.empty}>No matching accounts</Text> : null}
-    </AccountScrollView>
+        ))}
+      </View>
+    ),
+    [props.environments, props.serverId, selectEnvironment],
+  );
+  const environmentIcon = useMemo(
+    () => <ExecutionEnvironmentIcon serverId={props.serverId} />,
+    [props.serverId],
+  );
+  const searchAccessibility = useMemo(
+    () => ({ expanded: navigation.searchOpen }),
+    [navigation.searchOpen],
   );
   return (
     <View style={styles.root} testID="account-preset-menu">
       <View style={styles.header}>
-        <View style={styles.search}>
-          {showDetails ? (
-            <Button
-              variant="ghost"
-              size={headerSize}
-              leftIcon={ArrowLeft}
-              onPress={back}
-              style={styles.back}
-              testID="preset-accounts-back"
-              accessibilityLabel="Back to connections"
-            >
-              Back
-            </Button>
-          ) : null}
-          <View style={showDetails ? styles.hidden : styles.searchField}>
-            <SearchInput
-              size={headerSize}
-              placeholder="Search accounts"
-              onChangeText={props.onSearch}
-              autoFocus={!compact}
-            />
-          </View>
-        </View>
+        <Text style={styles.menuTitle}>Choose profile</Text>
         <Button
           variant="outline"
           size={headerSize}
-          onPress={props.onManage}
-          testID="preset-manage-profiles"
-        >
-          Manage profiles
-        </Button>
+          leftIcon={Search}
+          onPress={toggleSearch}
+          accessibilityLabel="Search accounts"
+          accessibilityState={searchAccessibility}
+          testID="preset-search-toggle"
+        />
+        {!compact ? (
+          <Button
+            variant="outline"
+            size={headerSize}
+            onPress={props.onManage}
+            testID="preset-manage-profiles"
+          >
+            Manage profiles
+          </Button>
+        ) : null}
       </View>
-      {compact ? (
-        <View style={styles.pages}>
-          {showDetails ? (
-            <Animated.View
-              key="details"
-              entering={enterDetails}
-              exiting={exitDetails}
-              style={RNStyleSheet.absoluteFill}
-            >
-              <View style={styles.detail} testID="preset-connection-details">
-                {details}
-              </View>
-            </Animated.View>
-          ) : (
-            <Animated.View
-              key="accounts"
-              entering={enterList}
-              exiting={exitList}
-              style={RNStyleSheet.absoluteFill}
-            >
-              {list}
-            </Animated.View>
-          )}
+      {navigation.searchOpen ? (
+        <View style={styles.searchField}>
+          <SearchInput
+            size={headerSize}
+            placeholder="Search accounts"
+            onChangeText={props.onSearch}
+            autoFocus
+          />
         </View>
+      ) : null}
+      {compact ? (
+        <CompactSelector
+          navigation={navigation.section}
+          onSection={showSection}
+          environmentLabel={environment?.label ?? "Current environment"}
+          accountLabel={account?.label ?? "Select account"}
+          environmentIcon={environmentIcon}
+          environments={environments}
+          accounts={list}
+          details={details}
+        />
       ) : (
         <View style={styles.split}>
-          {list}
-          <View style={styles.detail}>{details}</View>
+          <View
+            style={[settingsStyles.card, styles.environmentCard]}
+            testID="preset-environment-card"
+          >
+            <Text style={styles.cardHeading}>Environment</Text>
+            <ScrollView>{environments}</ScrollView>
+          </View>
+          <View style={[settingsStyles.card, styles.accountCard]}>
+            <Text style={styles.cardHeading}>Account</Text>
+            <ScrollView keyboardShouldPersistTaps="handled">{list}</ScrollView>
+          </View>
+          <View style={[settingsStyles.card, styles.profileCard]}>
+            <Text style={styles.cardHeading}>Profile</Text>
+            {details}
+          </View>
         </View>
       )}
     </View>
+  );
+}
+
+function AccountList({
+  accounts,
+  account,
+  selectedId,
+  serverId,
+  loading,
+  error,
+  onInspect,
+  renderRail,
+}: {
+  accounts: AccountPresets[];
+  account: AccountPresets | undefined;
+  selectedId: string | undefined;
+  serverId: string | null;
+  loading?: boolean;
+  error?: string | null;
+  onInspect: (id: string) => void;
+  renderRail: AccountPresetMenuProps["renderRail"];
+}) {
+  const empty = !loading && !error && !accounts.length;
+  return (
+    <View style={styles.accountList}>
+      {accounts.map((group) => (
+        <AccountButton
+          key={group.provider}
+          serverId={serverId}
+          group={group}
+          active={group === account}
+          selectedId={selectedId}
+          onInspect={onInspect}
+          renderRail={renderRail}
+        />
+      ))}
+      {loading ? <Text style={styles.empty}>Loading accounts...</Text> : null}
+      {error ? (
+        <Text style={styles.empty} accessibilityRole="alert">
+          {error}
+        </Text>
+      ) : null}
+      {empty ? <Text style={styles.empty}>No matching accounts</Text> : null}
+    </View>
+  );
+}
+
+function CompactSelector({
+  navigation,
+  onSection,
+  environmentLabel,
+  accountLabel,
+  environmentIcon,
+  environments,
+  accounts,
+  details,
+}: {
+  navigation: SelectorSection;
+  onSection: (section: SelectorSection) => void;
+  environmentLabel: string;
+  accountLabel: string;
+  environmentIcon: ReactNode;
+  environments: ReactNode;
+  accounts: ReactNode;
+  details: ReactNode;
+}) {
+  return (
+    <View style={styles.compactBody}>
+      <View style={settingsStyles.card}>
+        <SectionButton
+          section="environment"
+          label="Environment"
+          value={environmentLabel}
+          icon={environmentIcon}
+          expanded={navigation === "environment"}
+          onSection={onSection}
+        />
+        {navigation === "environment" ? (
+          <BottomSheetScrollView style={styles.compactList}>{environments}</BottomSheetScrollView>
+        ) : null}
+      </View>
+      <View style={settingsStyles.card}>
+        <SectionButton
+          section="account"
+          label="Account"
+          value={accountLabel}
+          expanded={navigation === "account"}
+          onSection={onSection}
+        />
+        {navigation === "account" ? (
+          <BottomSheetScrollView style={styles.compactList} keyboardShouldPersistTaps="handled">
+            {accounts}
+          </BottomSheetScrollView>
+        ) : null}
+      </View>
+      <View style={[settingsStyles.card, navigation === "profile" && styles.compactProfile]}>
+        <SectionButton
+          section="profile"
+          label="Profile"
+          expanded={navigation === "profile"}
+          onSection={onSection}
+        />
+        {navigation === "profile" ? details : null}
+      </View>
+    </View>
+  );
+}
+function SectionButton({
+  section,
+  label,
+  value,
+  icon,
+  expanded,
+  onSection,
+}: {
+  section: SelectorSection;
+  label: string;
+  value?: string;
+  icon?: ReactNode;
+  expanded: boolean;
+  onSection: (section: SelectorSection) => void;
+}) {
+  const press = useCallback(() => onSection(section), [section, onSection]);
+  const leadingIcon = useMemo(() => (icon ? <View>{icon}</View> : null), [icon]);
+  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
+  const chevron = useMemo(
+    () => (expanded ? <ThemedChevronUp /> : <ThemedChevronDown />),
+    [expanded],
+  );
+  return (
+    <Button
+      variant="ghost"
+      size="md"
+      onPress={press}
+      leftIcon={leadingIcon}
+      style={styles.sectionButton}
+      accessibilityLabel={`${label}${value ? `: ${value}` : ""}`}
+      accessibilityState={accessibilityState}
+      trailing={chevron}
+      testID={`preset-section-${section}`}
+    >
+      {label}
+      {value ? `   ${value}` : ""}
+    </Button>
+  );
+}
+function EnvironmentButton({
+  environment,
+  selected,
+  onSelect,
+}: {
+  environment: PresetEnvironment;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const environmentIcon = useMemo(
+    () => <ExecutionEnvironmentIcon serverId={environment.serverId} />,
+    [environment.serverId],
+  );
+  const select = useCallback(
+    () => onSelect(environment.serverId),
+    [onSelect, environment.serverId],
+  );
+  return (
+    <ComboboxItem
+      label={environment.label}
+      leadingSlot={environmentIcon}
+      active={selected}
+      selected={selected}
+      disabled={!environment.available}
+      description={environment.available ? undefined : "Disconnected"}
+      onPress={select}
+      style={styles.environmentButton}
+      testID={`preset-environment-${environment.serverId}`}
+    />
   );
 }
 
@@ -201,12 +425,13 @@ function useSharedChoices(props: AccountPresetMenuProps, account: AccountPresets
             props.currentThinkingOptionId === null ? "" : props.currentThinkingOptionId,
         }
       : {};
-  const choices = choicesByType[providerType] ?? seedChoices;
+  const choiceKey = `${props.serverId}:${providerType}`;
+  const choices = choicesByType[choiceKey] ?? seedChoices;
   const changeChoices = useCallback(
     (next: LaunchChoices) => {
-      setChoicesByType((current) => ({ ...current, [providerType]: next }));
+      setChoicesByType((current) => ({ ...current, [choiceKey]: next }));
     },
-    [providerType],
+    [choiceKey],
   );
   const family = useMemo(
     () =>
@@ -240,6 +465,22 @@ function useSharedChoices(props: AccountPresetMenuProps, account: AccountPresets
   return { choices, changeChoices, preferences, family, retainWorkflow };
 }
 
+function ProviderGlyph({
+  Icon,
+  size,
+  color,
+}: {
+  Icon: ProviderIconComponent;
+  size: number;
+  color: string;
+}) {
+  return <Icon size={size} color={color} />;
+}
+const ThemedProviderGlyph = withUnistyles(ProviderGlyph, (theme) => ({
+  color: theme.colors.foregroundMuted,
+  size: theme.iconSize.sm,
+}));
+
 function AccountButton({
   serverId,
   group,
@@ -259,17 +500,16 @@ function AccountButton({
     () => onInspect(group.rows.find((row) => row.id === selectedId)?.id ?? group.rows[0].id),
     [group, selectedId, onInspect],
   );
-  const environmentIcon = useMemo(
-    () => <ExecutionEnvironmentIcon serverId={serverId} />,
-    [serverId],
-  );
+  const ProviderIcon = useProviderIcon(group.provider, serverId);
+  const icon = useMemo(() => <ThemedProviderGlyph Icon={ProviderIcon} />, [ProviderIcon]);
+
   const usage = useMemo(
     () => <View style={styles.usage}>{renderRail(group.rows[0])}</View>,
     [group, renderRail],
   );
   return (
     <ComboboxItem
-      leadingSlot={environmentIcon}
+      leadingSlot={icon}
       descriptionSlot={usage}
       descriptionPlacement="below"
       labelNumberOfLines={1}
@@ -327,24 +567,16 @@ function AccountChoices({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.choices}>
-          <Text style={styles.heading}>{account.label}</Text>
           {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
+          <WorkflowField
+            account={account}
+            inspected={inspected}
+            disabled={props.disabled}
+            onInspect={props.onInspect}
+          />
           {shared && selection ? (
             <SharedChoiceFields selection={selection} onChoices={onChoices} />
           ) : null}
-          <View style={styles.options}>
-            {account.rows.map((row) => (
-              <ProfileChoice
-                key={row.id}
-                row={row}
-                definition={props.definitions.find((profile) => profile.id === row.id)}
-                entry={entry}
-                active={row.id === inspected.id}
-                disabled={props.disabled || Boolean(row.unavailable)}
-                onInspect={props.onInspect}
-              />
-            ))}
-          </View>
           {!shared ? <Text style={styles.summary}>{inspected.summary}</Text> : null}
           {inspected.localEndpoint ? props.renderRail(inspected) : null}
           {account.provider === "pi" ? (
@@ -478,40 +710,63 @@ function SharedChoiceFields({
         triggerTestID="shared-thinking-trigger"
         error={selection.thinkingError}
       />
-      <Text style={styles.label}>Workflow</Text>
     </>
   );
 }
 
-function ProfileChoice({
-  row,
-  definition,
-  entry,
-  active,
+function WorkflowField({
+  account,
+  inspected,
   disabled,
   onInspect,
 }: {
-  row: AgentProfilePickerRow;
-  definition: AgentProfile | undefined;
-  entry: ProviderSnapshotEntry | undefined;
-  active: boolean;
+  account: AccountPresets;
+  inspected: AgentProfilePickerRow;
   disabled: boolean;
   onInspect: (id: string) => void;
 }) {
-  const inspect = useCallback(() => onInspect(row.id), [onInspect, row.id]);
+  const options = useMemo(
+    () =>
+      account.rows.map((row) => ({
+        id: row.id,
+        value: row.id,
+        label: row.name,
+        testID: `preset-row-${row.id}`,
+      })),
+    [account.rows],
+  );
+  const renderOption = useCallback(
+    ({ option, selected, active, onPress }: SelectFieldRenderOptionInput<string>) => {
+      const row = account.rows.find((item) => item.id === option.id);
+      return (
+        <ComboboxItem
+          label={option.label}
+          selected={selected}
+          active={active}
+          disabled={Boolean(row?.unavailable)}
+          onPress={onPress}
+          testID={option.testID}
+        />
+      );
+    },
+    [account.rows],
+  );
+  const display = useMemo(() => ({ label: inspected.name }), [inspected.name]);
   return (
-    <View style={[styles.option, active && styles.activeOption]}>
-      <ComboboxItem
-        label={isSharedWorkflowProfile(row.id) ? row.name : intelligenceLabel(definition, entry)}
-        description={isSharedWorkflowProfile(row.id) ? undefined : row.name}
-        descriptionPlacement="below"
-        selected={active}
-        onPress={inspect}
-        disabled={disabled}
-        style={styles.choiceButton}
-        testID={`preset-row-${row.id}`}
-      />
-    </View>
+    <SelectField
+      label="Workflow"
+      value={inspected.id}
+      selectedDisplay={display}
+      options={options}
+      onChange={onInspect}
+      renderOption={renderOption}
+      size="md"
+      searchable
+      placeholder="Select workflow"
+      emptyText="No workflows available"
+      disabled={disabled}
+      triggerTestID="preset-workflow-trigger"
+    />
   );
 }
 
@@ -525,21 +780,40 @@ const styles = StyleSheet.create((theme) => ({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
-  search: { flex: 1, minWidth: 0 },
-  split: { flex: 1, minHeight: 0, flexDirection: "row" },
-  pages: { flex: 1, minHeight: 0, overflow: "hidden" },
-  hidden: { display: "none" },
-  searchField: { flex: 1 },
-  back: { alignSelf: "flex-start" },
-  list: {
-    width: "44%",
-    flexGrow: 0,
-    flexShrink: 0,
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
+  menuTitle: {
+    flex: 1,
+    fontSize: theme.fontSize.base,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foreground,
   },
-  compactList: { flex: 1 },
-  detail: { flex: 1, backgroundColor: theme.colors.surface1 },
+  split: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: "row",
+    padding: theme.spacing[3],
+    gap: theme.spacing[2],
+  },
+  searchField: {
+    padding: theme.spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  environmentCard: { flex: 0.8, minWidth: 0 },
+  accountCard: { flex: 1, minWidth: 0 },
+  profileCard: { flex: 1.8, minWidth: 0 },
+  cardHeading: {
+    padding: theme.spacing[3],
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.base,
+    fontWeight: theme.fontWeight.medium,
+  },
+  accountList: { padding: theme.spacing[2], gap: theme.spacing[1] },
+  environmentButton: { minHeight: 44 },
+  compactBody: { flex: 1, minHeight: 0, padding: theme.spacing[3], gap: theme.spacing[2] },
+  compactList: { maxHeight: 220 },
+  compactProfile: { flex: 1, minHeight: 0 },
+  sectionButton: { justifyContent: "space-between" },
+  detail: { flex: 1, minHeight: 0 },
   account: {
     padding: theme.spacing[1],
   },
@@ -572,20 +846,6 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
   },
   summary: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted },
-  options: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
-  option: {
-    flexGrow: 1,
-    flexBasis: 120,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.lg,
-    overflow: "hidden",
-  },
-  activeOption: {
-    borderColor: theme.colors.accent,
-    backgroundColor: theme.colors.interactionHighlight,
-  },
-  choiceButton: { minHeight: 64 },
   empty: {
     padding: theme.spacing[4],
     color: theme.colors.foregroundMuted,

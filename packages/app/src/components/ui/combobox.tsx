@@ -103,7 +103,9 @@ export interface ComboboxProps {
   customValueDescription?: string;
   customValueKind?: "directory" | "file";
   optionsPosition?: "below-search" | "above-search";
+  /** Empty string omits the legacy mobile title for custom headers. */
   title?: string;
+  mobileSnapPoints?: string[];
   /**
    * Structured header. When provided, replaces `title` + `stickyHeader` and
    * is rendered via the shared SheetHeaderView (mobile) / InlineHeaderView
@@ -1038,11 +1040,13 @@ function MobileComboboxBody(props: MobileBodyProps): ReactElement {
         <SheetHeaderView header={props.header} onClose={props.onClose} />
       ) : (
         <>
-          <View style={styles.bottomSheetHeader}>
-            <Text key={props.titleColor} style={comboboxTitleStyle}>
-              {props.title}
-            </Text>
-          </View>
+          {props.title ? (
+            <View style={styles.bottomSheetHeader}>
+              <Text key={props.titleColor} style={comboboxTitleStyle}>
+                {props.title}
+              </Text>
+            </View>
+          ) : null}
           {props.stickyHeader}
           {!props.hasChildren && props.searchable ? (
             <SearchInput
@@ -1351,6 +1355,7 @@ export function Combobox({
   customValueKind,
   optionsPosition = "below-search",
   title,
+  mobileSnapPoints,
   header,
   mobileChildrenScrollEnabled = true,
   desktopChildrenScrollEnabled = true,
@@ -1381,7 +1386,7 @@ export function Combobox({
   const effectiveOptionsPosition = resolveEffectiveOptionsPosition(isMobile, optionsPosition);
   const isDesktopAboveSearch = resolveIsDesktopAboveSearch(isMobile, effectiveOptionsPosition);
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const snapPoints = useMemo(() => ["60%", "90%"], []);
+  const snapPoints = useMemo(() => mobileSnapPoints ?? ["60%", "90%"], [mobileSnapPoints]);
   const [availableSize, setAvailableSize] = useState<{ width?: number; height?: number } | null>(
     null,
   );

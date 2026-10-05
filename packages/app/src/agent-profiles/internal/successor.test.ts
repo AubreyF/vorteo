@@ -1,6 +1,11 @@
+import { WorkspaceDescriptorPayloadSchema } from "@getpaseo/protocol/messages";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
-import { createProfileSuccessor, readProfileHandoff } from "./successor";
+import {
+  createProfileSuccessor,
+  createEnvironmentProfileSuccessor,
+  readProfileHandoff,
+} from "./successor";
 
 const source = {
   id: "source",
@@ -68,4 +73,86 @@ describe("explicit preset handoff", () => {
     );
     expect(api.createAgent).not.toHaveBeenCalled();
   });
+});
+
+it("cross-environment handoff uses the reviewed destination workspace instead of the source path", async () => {
+  const sourceApi = client();
+  const destinationWorkspace = WorkspaceDescriptorPayloadSchema.parse({
+    id: "destination-workspace",
+    projectId: "destination-project",
+    projectDisplayName: "Destination",
+    projectRootPath: "/destination/project",
+    workspaceDirectory: "/destination/worktree",
+    projectKind: "git",
+    workspaceKind: "worktree",
+    name: "Destination work",
+    status: "done",
+    activityAt: null,
+  });
+  const destinationApi = {
+    fetchWorkspaces: vi.fn(async () => ({
+      requestId: "workspaces",
+      entries: [destinationWorkspace],
+      emptyProjects: [],
+      pageInfo: { nextCursor: null, prevCursor: null, hasMore: false },
+    })),
+    createAgent: vi.fn(async () => ({
+      ...source,
+      id: "destination-successor",
+      cwd: destinationWorkspace.workspaceDirectory,
+      workspaceId: destinationWorkspace.id,
+    })),
+  };
+  await createEnvironmentProfileSuccessor({
+    sourceClient: sourceApi,
+    destinationClient: destinationApi,
+    source,
+    sourceServerId: "source-server",
+    profile,
+    reviewedContext: "Reviewed context",
+    workspaceId: destinationWorkspace.id,
+  });
+  expect(destinationApi.createAgent).toHaveBeenCalledWith(
+    expect.objectContaining({
+      workspaceId: "destination-workspace",
+      config: expect.objectContaining({
+        cwd: "/destination/worktree",
+        profileId: "other",
+        provider: "codex-two",
+      }),
+      labels: { "paseo:continued-from": "source", "paseo:continued-from-server": "source-server" },
+    }),
+  );
+  sourceApi.fetchAgent.mockResolvedValue({ agent: { ...source, updatedAt: "changed" } });
+  await expect(
+    createEnvironmentProfileSuccessor({
+      sourceClient: sourceApi,
+      destinationClient: destinationApi,
+      source,
+      sourceServerId: "source-server",
+      profile,
+      reviewedContext: "Reviewed context",
+      workspaceId: destinationWorkspace.id,
+    }),
+  ).rejects.toThrow("source task changed");
+  expect(destinationApi.createAgent).toHaveBeenCalledOnce();
+  sourceApi.fetchAgent.mockResolvedValue({ agent: source });
+  destinationApi.fetchWorkspaces.mockResolvedValue({
+    requestId: "workspaces",
+    entries: [],
+    emptyProjects: [],
+    pageInfo: { nextCursor: null, prevCursor: null, hasMore: false },
+  });
+  await expect(
+    createEnvironmentProfileSuccessor({
+      sourceClient: sourceApi,
+      destinationClient: destinationApi,
+      source,
+      sourceServerId: "source-server",
+      profile,
+      reviewedContext: "Reviewed context",
+      workspaceId: destinationWorkspace.id,
+    }),
+  ).rejects.toThrow("destination workspace is no longer available");
+  expect(destinationApi.createAgent).toHaveBeenCalledOnce();
 });

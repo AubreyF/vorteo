@@ -1,3 +1,5 @@
+import { buildHostAgentDetailRoute } from "../../../app/src/utils/host-routes";
+import { expectComposerVisible } from "../support/helpers/composer";
 import { test, expect } from "@playwright/test";
 import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,6 +29,25 @@ const daemons: IsolatedHostDaemon[] = [];
 const ownerPassword = "installation-browser-owner-password";
 const guestToken = "installation-browser-guest-request-token";
 const hostToken = "installation-browser-host-request-token";
+
+async function connectReadyInstallationDaemon(kind: "host" | "container") {
+  let client: Awaited<ReturnType<typeof connectInstallationDaemon>> | undefined;
+  await expect
+    .poll(
+      async () => {
+        try {
+          client = await connectInstallationDaemon(config, kind);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+  if (!client) throw new Error("Isolated installation daemon did not become ready");
+  return client;
+}
 
 async function request(route: string, token: string, body: unknown) {
   return fetch(`${origin}/api/installation/${route}`, {
@@ -119,7 +140,7 @@ test.beforeAll(async () => {
   );
   listener.on("request", app);
   for (const kind of ["host", "container"] as const) {
-    const client = await connectInstallationDaemon(config, kind);
+    const client = await connectReadyInstallationDaemon(kind);
     try {
       const home = kind === "host" ? host.paseoHome : guest.paseoHome;
       const file = path.join(home, "config.json");
@@ -290,4 +311,131 @@ test("owner connects two environments, prepares host drafts, and approves a veri
     "environment identity verified",
   );
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
+});
+
+test("environment profile selection reviews a destination workspace before creating a successor", async ({
+  page,
+}, testInfo) => {
+  const sourceClient = await connectInstallationDaemon(config, "host");
+  const destinationClient = await connectInstallationDaemon(config, "container");
+  try {
+    for (const [client, kind] of [
+      [sourceClient, "host"],
+      [destinationClient, "container"],
+    ] as const) {
+      const current = (await client.getDaemonConfig()).config;
+      await client.patchDaemonConfig({
+        expectedProviderPreferencesRevision: current.sharedProviderPreferences?.revision ?? null,
+        sharedProviderPreferences: {
+          version: 1,
+          revision: current.sharedProviderPreferences?.revision ?? 0,
+          legacyProfiles: {},
+          providers: {
+            mock: {
+              defaults: {},
+              preferredModels: [],
+              preferredThinkingOptions: [],
+              defaultWorkflowId: null,
+              workflows: [
+                {
+                  id: "handoff",
+                  provider: "mock",
+                  name: "Browser handoff",
+                  model: "ten-second-stream",
+                  modeId: "load-test",
+                },
+              ],
+            },
+          },
+        },
+      });
+      await mkdir(path.join(root, `${kind}-workspace`), { recursive: true });
+    }
+    const { workspace: sourceWorkspace } = await sourceClient.createWorkspace({
+      source: { kind: "directory", path: path.join(root, "host-workspace") },
+      title: "Source workspace",
+    });
+    const { workspace: destinationWorkspace } = await destinationClient.createWorkspace({
+      source: { kind: "directory", path: path.join(root, "container-workspace") },
+      title: "Destination workspace",
+    });
+    if (!sourceWorkspace || !destinationWorkspace) throw new Error("Missing test workspaces");
+    const source = await sourceClient.createAgent({
+      config: {
+        provider: "mock",
+        model: "e2e-fast-stream",
+        modeId: "load-test",
+        cwd: path.join(root, "host-workspace"),
+        title: "Environment handoff",
+      },
+      workspaceId: sourceWorkspace.id,
+      initialPrompt: "Remember the cross environment handoff acceptance task.",
+    });
+    await expect
+      .poll(async () => (await sourceClient.fetchAgent(source.id))?.agent.status)
+      .toBe("idle");
+    await page.goto(origin);
+    await page.getByTestId("installation-password").fill(ownerPassword);
+    await page.getByTestId("installation-unlock").click();
+    await expect(page.getByTestId("installation-panel")).not.toBeVisible();
+    await page.goto(
+      `${origin}${buildHostAgentDetailRoute(daemons[1]!.serverId, source.id, sourceWorkspace.id)}`,
+    );
+    await expectComposerVisible(page);
+    await expect(page.getByTestId("agent-preset-selector")).toBeVisible();
+    await page.getByTestId("agent-preset-selector").click();
+    if (testInfo.project.name === "phone")
+      await page.getByTestId("preset-section-environment").click();
+    await expect(page.getByTestId("execution-environment-host-icon").first()).toBeVisible();
+    await expect(page.getByTestId("execution-environment-container-icon").first()).toBeVisible();
+    await page.getByTestId(`preset-environment-${daemons[0]!.serverId}`).click();
+    await page.getByTestId("preset-account-mock").click();
+    await expect(
+      page.getByTestId("execution-environment-container-icon").first().locator("svg"),
+    ).toHaveAttribute("stroke", "#7CB68B");
+    await page.screenshot({
+      path: testInfo.outputPath("profile-environment-cards.png"),
+      fullPage: true,
+    });
+    await page.getByTestId("preset-use-profile").click();
+    await expect(page.getByTestId("preset-handoff-modal")).toBeVisible();
+    await expect(page.getByTestId("preset-handoff-confirm")).toBeDisabled();
+    await page
+      .getByTestId("preset-handoff-context")
+      .fill("Continue the reviewed task in the destination workspace. Preserve the original chat.");
+    await page.getByTestId("preset-destination-workspace").click();
+    await page
+      .getByText(`${destinationWorkspace.projectDisplayName} / ${destinationWorkspace.name}`, {
+        exact: true,
+      })
+      .click();
+    await expect(page.getByTestId("preset-handoff-confirm")).toBeEnabled();
+    await page.screenshot({
+      path: testInfo.outputPath("environment-handoff-review.png"),
+      fullPage: true,
+    });
+    await page.getByTestId("preset-handoff-confirm").click();
+    await expect(page.getByTestId("preset-handoff-modal")).not.toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          (await destinationClient.fetchAgents()).entries.filter(
+            ({ agent }) => agent.labels?.["paseo:continued-from"] === source.id,
+          ).length,
+      )
+      .toBe(1);
+    const successor = (await destinationClient.fetchAgents()).entries.find(
+      ({ agent }) => agent.labels?.["paseo:continued-from"] === source.id,
+    )!.agent;
+    expect(successor.cwd).toBe(path.join(root, "container-workspace"));
+    expect(successor.workspaceId).toBe(destinationWorkspace.id);
+    expect(successor.labels?.["paseo:continued-from-server"]).toBe(daemons[1]!.serverId);
+    expect((await sourceClient.fetchAgent(source.id))?.agent.cwd).toBe(
+      path.join(root, "host-workspace"),
+    );
+    await expect(page).toHaveURL(new RegExp(`/h/${daemons[0]!.serverId}/workspace/`));
+  } finally {
+    await sourceClient.close();
+    await destinationClient.close();
+  }
 });

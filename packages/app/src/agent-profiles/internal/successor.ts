@@ -1,3 +1,7 @@
+import {
+  readDestinationWorkspaces,
+  type DestinationWorkspaceClient,
+} from "./destination-workspaces";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { AgentProfile, AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
@@ -72,4 +76,39 @@ export async function validateTaskHandoff(
   if (!current || current.agent.activeTurn || current.agent.updatedAt !== source.updatedAt) {
     throw new Error("The source task changed. Review it and retry the handoff.");
   }
+}
+
+export async function createEnvironmentProfileSuccessor(input: {
+  sourceClient: HandoffClient;
+  destinationClient: Pick<DaemonClient, "createAgent"> & DestinationWorkspaceClient;
+  source: AgentSnapshotPayload;
+  sourceServerId: string;
+  profile: AgentProfile;
+  reviewedContext: string;
+  workspaceId: string;
+  idempotencyKey?: string;
+}) {
+  await validateTaskHandoff(input.sourceClient, input.source, input.reviewedContext);
+  const destination = await readDestinationWorkspaces(input.destinationClient);
+  const workspace = destination.find((item) => item.id === input.workspaceId && !item.archivingAt);
+  if (!workspace)
+    throw new Error("The destination workspace is no longer available. Select another workspace.");
+  const cwd = workspace.workspaceDirectory ?? workspace.projectRootPath;
+  return input.destinationClient.createAgent({
+    idempotencyKey: input.idempotencyKey,
+    config: {
+      provider: input.profile.provider,
+      profileId: input.profile.id,
+      model: input.profile.model,
+      thinkingOptionId: input.profile.thinkingOptionId,
+      cwd,
+      title: input.source.title ?? "Continued task",
+    },
+    workspaceId: workspace.id,
+    labels: {
+      "paseo:continued-from": input.source.id,
+      "paseo:continued-from-server": input.sourceServerId,
+    },
+    initialPrompt: `Continue task ${input.source.id} from another execution environment using the selected preset. Review the destination working tree before changing anything. Files, attachments, tool results and provider state were not transferred. The previous working directory was ${input.source.cwd}. Verify paths and ask for missing context when necessary.\n\n<recorded-context>\n${input.reviewedContext}\n</recorded-context>`,
+  });
 }
