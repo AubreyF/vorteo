@@ -2,6 +2,8 @@
 
 In Vorteo mode, open **Settings > Skills**. The same library is also available from **Skill library** under an environment's Agents settings. The library groups observations from your connected environments in one view. Filter by name, provider, ownership, or environment. Offline results show their observation time. Add a project directory to include that project's skill roots.
 
+Paths that resolve to the same inspected package appear in one row per environment with combined provider labels. Details lists the discovery paths and lets you select the path to inspect or manage. Filtering by a provider retains all paths in its group. Separate physical copies, different versions, and observations with inspection problems remain separate.
+
 Details show instructions, file hashes, package hash, source revision when recorded, resolved discovery links, and inspection problems. **Copy audit** copies that environment's inventory. **History** records library changes and offers restoration of retained previous packages.
 
 ## Ownership and consolidation

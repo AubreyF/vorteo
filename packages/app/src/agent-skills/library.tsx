@@ -20,6 +20,8 @@ import { settingsStyles } from "@/styles/settings";
 import { useVortonMode } from "@/vorton-mode";
 import { copyToClipboard } from "@/utils/copy-to-clipboard";
 
+import { groupSkillLocations, findSkillLocations, type SkillGroup } from "./library-groups";
+
 export function SkillLibraryButton() {
   const vortonMode = useVortonMode();
   const [open, setOpen] = useState(false);
@@ -135,12 +137,14 @@ function EnvironmentLibrary({
       </SettingsSection>
     );
   const inventory = query.data?.kind === "inventory" ? query.data.inventory : null;
-  const skills =
-    inventory?.skills.filter((skill) =>
+  const groups = groupSkillLocations(inventory?.skills ?? emptySkills);
+  const skills = groups.filter((group) =>
+    group.locations.some((skill) =>
       `${label} ${skill.name} ${skill.description} ${skill.owner} ${skill.providers.join(" ")} ${skill.issues.join(" ")}`
         .toLowerCase()
         .includes(search.toLowerCase()),
-    ) ?? [];
+    ),
+  );
   return (
     <SettingsSection title={label}>
       <View style={styles.actions}>
@@ -167,7 +171,7 @@ function EnvironmentLibrary({
       />
       <View style={settingsStyles.card}>
         {skills.map((skill) => (
-          <SkillRow key={skill.id} skill={skill} onSelect={setDetail} />
+          <SkillRow key={skill.id} group={skill} onSelect={setDetail} />
         ))}
         {inventory && skills.length === 0 ? (
           <Text style={styles.muted}>No matching skills in the inspected locations.</Text>
@@ -182,6 +186,9 @@ function EnvironmentLibrary({
         ))}
       {detail ? (
         <SkillDetail
+          key={detail.id}
+          locations={findSkillLocations(groups, detail)}
+          onSelectLocation={setDetail}
           serverId={serverId}
           skill={detail}
           cwd={cwd}
@@ -266,6 +273,8 @@ function ChangeResult({
 }
 
 function SkillDetail({
+  locations,
+  onSelectLocation,
   serverId,
   skill,
   cwd,
@@ -273,6 +282,8 @@ function SkillDetail({
   onClose,
   onChanged,
 }: {
+  locations: SkillInstallation[];
+  onSelectLocation: (skill: SkillInstallation) => void;
   serverId: string;
   skill: SkillInstallation;
   cwd: string;
@@ -312,6 +323,22 @@ function SkillDetail({
   return (
     <AdaptiveModalSheet visible header={header} onClose={onClose}>
       <View style={styles.content}>
+        {locations.length > 1 ? (
+          <SettingsSection title="Discovery paths">
+            <Text style={styles.muted}>
+              One package shared by these providers. Actions apply to the selected path.
+            </Text>
+            {locations.map((location) => (
+              <SkillLocationRow
+                key={location.id}
+                skill={location}
+                selected={location.id === skill.id}
+                pending={change.isPending}
+                onSelect={onSelectLocation}
+              />
+            ))}
+          </SettingsSection>
+        ) : null}
         <Text style={styles.text}>{skill.description}</Text>
         <Text selectable style={styles.muted}>
           {skill.path}
@@ -554,24 +581,56 @@ const installHeader = { title: "Install a skill" };
 const historyHeader = { title: "Skill history" };
 const emptySkills: SkillInstallation[] = [];
 function SkillRow({
-  skill,
+  group,
   onSelect,
 }: {
-  skill: SkillInstallation;
+  group: SkillGroup;
   onSelect: (skill: SkillInstallation) => void;
 }) {
+  const skill = group.primary;
   const select = useCallback(() => onSelect(skill), [onSelect, skill]);
   return (
     <View style={settingsStyles.row}>
       <View style={settingsStyles.rowContent}>
         <Text style={settingsStyles.rowTitle}>{skill.name}</Text>
         <Text style={settingsStyles.rowHint}>
-          {skill.owner}, {skill.providers.join(", ")},{" "}
+          {skill.owner}, {group.providers.join(", ")},{" "}
           {skill.issues.length ? "Needs review" : "Inspected"}
         </Text>
       </View>
       <Button variant="outline" onPress={select}>
         Details
+      </Button>
+    </View>
+  );
+}
+function SkillLocationRow({
+  skill,
+  selected,
+  pending,
+  onSelect,
+}: {
+  skill: SkillInstallation;
+  selected: boolean;
+  pending: boolean;
+  onSelect: (skill: SkillInstallation) => void;
+}) {
+  const select = useCallback(() => onSelect(skill), [onSelect, skill]);
+  return (
+    <View style={settingsStyles.row}>
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>{skill.providers.join(", ")}</Text>
+        <Text selectable style={settingsStyles.rowHint}>
+          {skill.path}
+        </Text>
+      </View>
+      <Button
+        variant="outline"
+        disabled={selected || pending}
+        onPress={select}
+        accessibilityLabel={`Inspect ${skill.providers.join(", ")} path`}
+      >
+        {selected ? "Selected" : "Inspect"}
       </Button>
     </View>
   );

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile, symlink, lstat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test as base, expect } from "../support/fixtures";
@@ -25,6 +25,23 @@ const test = base.extend<{}, { skillHome: string }>({
           directory: "skills/browser-example",
         }),
       );
+      const linked = path.join(home, ".agents/skills/linked-example");
+      const claude = path.join(home, ".claude/skills");
+      await mkdir(linked, { recursive: true });
+      await mkdir(claude, { recursive: true });
+      await writeFile(
+        path.join(linked, "SKILL.md"),
+        "---\nname: linked-example\ndescription: Shared provider fixture\n---\nShared instructions\n",
+      );
+      await writeFile(
+        path.join(linked, ".vorteo-skill-source.json"),
+        JSON.stringify({
+          repository: "example/skills",
+          revision: "a".repeat(40),
+          directory: "skills/linked-example",
+        }),
+      );
+      await symlink(linked, path.join(claude, "linked-example"), "junction");
       try {
         await provide(home);
       } finally {
@@ -73,6 +90,31 @@ test("inspects skills and preserves an edit made after removal preview", async (
   await expect(
     page.getByText("Change applied. Recovery is available in History.", { exact: true }),
   ).toBeVisible();
+});
+
+test("groups provider links and keeps removal scoped to the selected path", async ({
+  page,
+  skillHome,
+}) => {
+  await page.goto("/settings/skills");
+  await page.getByPlaceholder("Name, provider, ownership, or environment").fill("linked-example");
+  await expect(page.getByText("linked-example", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("personal, claude, codex, Inspected", { exact: true })).toBeVisible();
+  await page.getByPlaceholder("Name, provider, ownership, or environment").fill("claude");
+  await expect(page.getByText("linked-example", { exact: true })).toHaveCount(1);
+  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await page.getByRole("button", { name: "Inspect claude path", exact: true }).click();
+  await page.getByRole("button", { name: "Preview removal", exact: true }).click();
+  const link = path.join(skillHome, ".claude/skills/linked-example");
+  await expect(page.getByText(`remove: ${link}`, { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Apply reviewed change", exact: true }).click();
+  await expect(
+    page.getByText("Change applied. Recovery is available in History.", { exact: true }),
+  ).toBeVisible();
+  await expect(lstat(link)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(
+    await readFile(path.join(skillHome, ".agents/skills/linked-example/SKILL.md"), "utf8"),
+  ).toContain("Shared instructions");
 });
 
 test("opens Skills from compact settings and a direct link", async ({ page }) => {
