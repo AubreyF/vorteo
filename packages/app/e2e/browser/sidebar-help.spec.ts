@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { parseChangelog } from "../../src/changelog/internal/parse-changelog";
 import { expect, test, type Page } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
@@ -6,7 +7,7 @@ import { openSettingsSection } from "../support/helpers/settings";
 import { openWhatsNew, release, serveChangelog } from "../support/helpers/changelog";
 
 const customReleases = parseChangelog(
-  readFileSync(new URL("../../../../VORTEO_CHANGELOG.md", import.meta.url), "utf8"),
+  readFileSync(path.resolve(__dirname, "../../../../VORTEO_CHANGELOG.md"), "utf8"),
 );
 const latestCustomRelease = customReleases[0]!;
 
