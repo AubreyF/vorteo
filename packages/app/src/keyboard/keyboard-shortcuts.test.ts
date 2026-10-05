@@ -253,6 +253,18 @@ describe("keyboard-shortcuts", () => {
       action: "agent.new",
     },
     {
+      name: "matches Cmd+K alongside Opt+Space in Vorteo on Mac",
+      event: { key: "k", code: "KeyK", metaKey: true },
+      context: { isMac: true, isVorton: true },
+      action: "command-center.toggle",
+    },
+    {
+      name: "matches Opt+Space even when macOS reports a nonbreaking space",
+      event: { key: "\u00a0", code: "Space", altKey: true },
+      context: { isMac: true, isVorton: true },
+      action: "command-center.toggle",
+    },
+    {
       name: "matches Ctrl+K for command center on non-mac",
       event: { key: "k", code: "KeyK", ctrlKey: true },
       context: { isMac: false },
@@ -1260,5 +1272,30 @@ describe("direct new-tab target shortcuts", () => {
     expect(
       resolveShortcutKeysForAction("workspace-tab-target-agent", overrides, desktopNonMac),
     ).toEqual([["ctrl", "shift", "H"]]);
+  });
+});
+
+describe("Mac alternate command palette shortcut", () => {
+  it("leaves Standard mode and other platforms unchanged", () => {
+    const event = { key: " ", code: "Space", altKey: true };
+    expectNoShortcutResolution({ event, context: { isMac: true, isVorton: false } });
+    expectNoShortcutResolution({ event, context: { isMac: false, isVorton: true } });
+  });
+
+  it("shows each binding's configured shortcut independently", () => {
+    const platform = { isMac: true, isDesktop: true, isVorton: true };
+    expect(resolveShortcutKeysForAction("toggle-command-center", {}, platform)).toEqual([
+      ["mod", "K"],
+    ]);
+    expect(resolveShortcutKeysForAction("toggle-command-center-alternate", {}, platform)).toEqual([
+      ["alt", "Space"],
+    ]);
+    const overrides = { "command-center-toggle-option-space-mac": "Alt+J" };
+    expect(
+      resolveShortcutKeysForAction("toggle-command-center-alternate", overrides, platform),
+    ).toEqual([["alt", "J"]]);
+    expect(resolveShortcutKeysForAction("toggle-command-center", overrides, platform)).toEqual([
+      ["mod", "K"],
+    ]);
   });
 });

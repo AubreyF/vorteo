@@ -1,3 +1,4 @@
+import { useVortonMode } from "@/vorton-mode";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View, Text, type PressableStateCallbackType } from "react-native";
@@ -335,8 +336,9 @@ export function KeyboardShortcutsSection() {
 
   const isFocused = useIsFocused();
   const isMac = getShortcutOs() === "mac";
+  const isVorton = useVortonMode();
   const isDesktopApp = getIsElectronRuntime();
-  const sections = buildKeyboardShortcutHelpSections({ isMac, isDesktop: isDesktopApp });
+  const sections = buildKeyboardShortcutHelpSections({ isMac, isDesktop: isDesktopApp, isVorton });
 
   const cancelCapture = useCallback(() => {
     setCapturedCombos([]);
@@ -452,7 +454,7 @@ export function KeyboardShortcutsSection() {
           >
             <View style={settingsStyles.card}>
               {section.rows.map(function (row, index) {
-                const platform = { isMac, isDesktop: isDesktopApp };
+                const platform = { isMac, isDesktop: isDesktopApp, isVorton };
                 const bindingId = getBindingIdForAction(row.id, platform);
                 const displayChord = resolveShortcutKeysForAction(row.id, overrides, platform);
                 // `in`, not a truthiness check: an unassigned shortcut stores
