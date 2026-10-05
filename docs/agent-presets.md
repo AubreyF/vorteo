@@ -4,7 +4,7 @@ Launch presets extend the existing `daemon.agentProfiles` collection. There is n
 
 For the experimental fork's host migration, pending work and destination acceptance checks, read [the host handoff](host-handoff.md).
 
-Wide Vorteo composers show the full profile name. Mobile and composers narrower than 640 CSS pixels show its nickname. Vorteo has no separate task permission control or command-menu permission override. The profile inspector shows saved profile permissions. Existing chats retain their permissions after profile edits; a warning appears when the saved profile differs, with an optional Recreate chat action that opens the handoff review. Recreation creates a new chat with the selected profile’s permissions and preserves the original chat. Stop the current turn and active workers before recreating. Standard Vorteo retains its task permission controls.
+The Vorteo composer opens the selector with Choose profile on every screen size. The menu shows saved profile names with their model and reasoning summaries. Vorteo has no separate task permission control or command-menu permission override. The profile inspector shows saved profile permissions. Existing chats retain their permissions after profile edits; a warning appears when the saved profile differs, with an optional Recreate chat action that opens the handoff review. Recreation creates a new chat with the selected profile’s permissions and preserves the original chat. Stop the current turn and active workers before recreating. Standard Vorteo retains its task permission controls.
 
 ## Shared provider preferences
 
