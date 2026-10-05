@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.120 - 2026-10-05
+
+### Changed
+
+- Added expanding and collapsing chevrons to installation history, shared workflows, password help, and request details
+
 ## 0.11.0-beta.3.vorteo.119 - 2026-10-05
 
 ### Fixed

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
+import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { usePathname, useRouter } from "expo-router";
@@ -15,6 +16,12 @@ import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
 import { InstallationPanelModel } from "./panel-model";
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
+
+const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
+const collapsedDisclosure = { leftIcon: ChevronDown, accessibilityState: { expanded: false } };
+function disclosureProps(expanded: boolean) {
+  return expanded ? expandedDisclosure : collapsedDisclosure;
+}
 
 let panelModel: InstallationPanelModel | null = null;
 function getInstallationPanel(registryLoaded: boolean): InstallationPanelModel | null {
@@ -187,6 +194,7 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
               variant="ghost"
               size={controlSize}
               onPress={toggleHistory}
+              {...disclosureProps(historyVisible)}
               testID="restart-history-toggle"
               disabled={!history.length}
             >
@@ -198,6 +206,7 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
                 variant="ghost"
                 size={controlSize}
                 onPress={toggleSharing}
+                {...disclosureProps(sharingVisible)}
                 testID="installation-sharing-toggle"
               >
                 {sharingVisible ? "Hide shared workflows" : "Shared workflows"}
@@ -304,6 +313,7 @@ function InstallationOwnerAccess({
             variant="ghost"
             size={controlSize}
             onPress={toggleHelp}
+            {...disclosureProps(helpVisible)}
             testID="installation-password-help"
           >
             {helpVisible ? "Hide password help" : "Find owner password"}
@@ -489,7 +499,12 @@ function RestartRequest({
           </Text>
         ) : null}
         {!reviewing ? (
-          <Button size={controlSize} variant="ghost" onPress={toggleDetails}>
+          <Button
+            size={controlSize}
+            variant="ghost"
+            onPress={toggleDetails}
+            {...disclosureProps(detailsVisible)}
+          >
             {detailsVisible ? "Hide details" : "Details"}
           </Button>
         ) : null}
