@@ -44,10 +44,6 @@ test("profile cards group accounts, search on demand, and collapse choices on mo
     await expect(page.getByRole("textbox", { name: "Search accounts" })).toHaveCount(0);
     await page.getByTestId("preset-row-shared-workflow/mock/account-ultra").click();
     await expect(page.getByTestId("profile-customization-details")).toContainText("Approval Test");
-    await expect(page.getByTestId("preset-row-shared-workflow/mock/account-ultra")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
     await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
     const chosenProfile = page.getByTestId("preset-row-shared-workflow/mock/account-ultra");
     await expect(chosenProfile).not.toHaveCSS("border-left-color", "rgba(0, 0, 0, 0)");

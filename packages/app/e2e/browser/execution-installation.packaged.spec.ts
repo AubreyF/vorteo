@@ -133,6 +133,22 @@ test.beforeAll(async () => {
   config.listenPort = address.port;
   origin = `http://127.0.0.1:${address.port}`;
   config.public.origin = origin;
+  await writeFile(
+    path.join(root, "restart-jobs.json"),
+    JSON.stringify([
+      {
+        id: randomUUID(),
+        revision: randomUUID(),
+        target: "host",
+        requestedBy: "host-agent",
+        reason: "Historical expired maintenance",
+        createdAt: "2020-01-01T00:00:00.000Z",
+        expiresAt: "2020-01-01T00:30:00.000Z",
+        status: "pending",
+        detail: "Approval required",
+      },
+    ]),
+  );
   const app = createInstallationServer(
     config,
     createInstallationRestartExecutor(config),
@@ -242,6 +258,12 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await page.screenshot({ path: testInfo.outputPath("installation-settings.png"), fullPage: true });
   await page.getByTestId("installation-controls-open").click();
   await expect(page.getByText("Owner access is unlocked", { exact: true })).toBeVisible();
+  await expect(page.getByText("No pending restart requests", { exact: true })).toBeVisible();
+  await expect(page.getByText("Historical expired maintenance", { exact: true })).not.toBeVisible();
+  await page.getByTestId("restart-history-toggle").click();
+  await expect(page.getByText("Historical expired maintenance", { exact: true })).toBeVisible();
+  await expect(page.getByText("Restart request expired", { exact: false })).toBeVisible();
+  await page.getByTestId("restart-history-toggle").click();
   await page.getByTestId("installation-lock").click();
   await expect(page.getByTestId("installation-password-file")).toHaveText(
     path.join(root, "owner-password"),
@@ -304,6 +326,14 @@ test("owner connects two environments, prepares host drafts, and approves a veri
     await dialog.accept();
   });
   await page.getByTestId(`restart-approve-${job.id}`).click();
+  await expect(page.getByText("No pending restart requests", { exact: true })).toBeVisible();
+  await expect(page.getByTestId(`restart-request-${job.id}`)).not.toBeVisible();
+  await expect(
+    page.getByText("Restart approved. Open restart history to follow its progress.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.getByTestId("restart-history-toggle").click();
   await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("succeeded", {
     timeout: 45_000,
   });

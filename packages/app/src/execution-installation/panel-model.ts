@@ -7,7 +7,9 @@ interface InstallationPanelState {
   busy: boolean;
   password: string;
   error: string | null;
+  notice: string | null;
   jobs: RestartJob[];
+  pendingJobs: RestartJob[];
   profileSharing: ProfileSharingStatus | null;
   passwordFile: string | null;
   sessionsSupported: boolean;
@@ -20,7 +22,9 @@ export class InstallationPanelModel {
     busy: false,
     password: "",
     error: null,
+    notice: null,
     jobs: [],
+    pendingJobs: [],
     profileSharing: null,
     passwordFile: null,
     sessionsSupported: false,
@@ -73,11 +77,17 @@ export class InstallationPanelModel {
 
   async lock(): Promise<void> {
     if (this.state.busy) return;
-    this.publish({ busy: true, error: null });
+    this.publish({ busy: true, error: null, notice: null });
     try {
       await this.client.lock();
       this.accessGeneration++;
-      this.publish({ unlocked: false, password: "", jobs: [], profileSharing: null });
+      this.publish({
+        unlocked: false,
+        password: "",
+        jobs: [],
+        pendingJobs: [],
+        profileSharing: null,
+      });
     } catch (error) {
       this.fail(error);
     } finally {
@@ -104,7 +114,7 @@ export class InstallationPanelModel {
 
   async unlock(): Promise<void> {
     if (this.state.busy) return;
-    this.publish({ busy: true, error: null });
+    this.publish({ busy: true, error: null, notice: null });
     try {
       await this.client.unlock(this.state.password);
       this.publish({ unlocked: true, password: "", visible: false });
@@ -126,12 +136,21 @@ export class InstallationPanelModel {
         this.client.profileSharingStatus(),
       ]);
       if (generation !== this.accessGeneration) return;
-      const pending = jobs.filter(
-        (job) => job.status === "pending" && Date.parse(job.expiresAt) > Date.now(),
-      );
+      const targets = new Set<RestartJob["target"]>();
+      const pending = jobs.toReversed().filter((job) => {
+        if (job.status !== "pending" || Date.parse(job.expiresAt) <= Date.now()) return false;
+        if (targets.has(job.target)) return false;
+        targets.add(job.target);
+        return true;
+      });
       const newRequest = pending.some((job) => !this.seenRequests.has(job.id));
       for (const job of pending) this.seenRequests.add(job.id);
-      this.publish({ jobs, profileSharing, ...(newRequest ? { visible: true } : {}) });
+      this.publish({
+        jobs,
+        pendingJobs: pending,
+        profileSharing,
+        ...(newRequest ? { visible: true } : {}),
+      });
     } catch (error) {
       this.fail(error);
     } finally {
@@ -141,9 +160,14 @@ export class InstallationPanelModel {
 
   async decide(job: RestartJob, decision: "approve" | "reject"): Promise<void> {
     if (this.state.busy) return;
-    this.publish({ busy: true, error: null });
+    this.publish({ busy: true, error: null, notice: null });
     try {
       await this.client.decide(job, decision);
+      const notice =
+        decision === "approve"
+          ? "Restart approved. Open restart history to follow its progress."
+          : "Restart request rejected.";
+      this.publish({ notice });
       await this.refresh();
     } catch (error) {
       this.fail(error);
@@ -155,7 +179,7 @@ export class InstallationPanelModel {
   async resolveProfileConflict(serverId: string, choice: "shared" | "environment"): Promise<void> {
     const snapshot = this.state.profileSharing;
     if (this.state.busy || !snapshot) return;
-    this.publish({ busy: true, error: null });
+    this.publish({ busy: true, error: null, notice: null });
     try {
       await this.client.resolveProfileConflict({
         serverId,
@@ -172,7 +196,13 @@ export class InstallationPanelModel {
 
   private fail(error: unknown): void {
     if (error instanceof OwnerAccessExpired)
-      this.publish({ unlocked: false, password: "", jobs: [], profileSharing: null });
+      this.publish({
+        unlocked: false,
+        password: "",
+        jobs: [],
+        pendingJobs: [],
+        profileSharing: null,
+      });
     this.publish({ error: error instanceof Error ? error.message : "Installation request failed" });
   }
   private publish(update: Partial<InstallationPanelState>): void {
