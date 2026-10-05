@@ -7,6 +7,7 @@ Custom changes to vorteo. Paseo's release history remains in its upstream change
 ### Fixed
 
 - Limited restart approvals to one current request per environment and moved expired and completed requests into collapsed history
+- Allowed installation restart checks to wait for slower daemon connections and provider status responses
 
 ### Changed
 
