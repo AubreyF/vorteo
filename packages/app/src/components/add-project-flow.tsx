@@ -102,6 +102,8 @@ import { buildNewWorkspaceRoute, buildSettingsAddHostRoute } from "@/utils/host-
 interface AddProjectFlowProps {
   request: AddProjectFlowRequest;
   onClose: () => void;
+  destinationServerId?: string;
+  onAdded?: (project: WorkspaceProjectDescriptorPayload) => void;
 }
 
 interface FlowRowOption {
@@ -317,7 +319,12 @@ function setPageStatus(
 
 // The product flow is intentionally one cohesive page-stack state machine.
 // eslint-disable-next-line complexity
-export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
+export function AddProjectFlow({
+  request,
+  onClose,
+  destinationServerId,
+  onAdded,
+}: AddProjectFlowProps) {
   const hosts = useHosts();
   const hostIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
   const connectionStatuses = useHostRuntimeConnectionStatuses(hostIds);
@@ -334,6 +341,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
   const availableHosts = useMemo<AddProjectHost[]>(
     () =>
       hosts.flatMap((host) => {
+        if (destinationServerId && host.serverId !== destinationServerId) return [];
         if (connectionStatuses.get(host.serverId) !== "online") return [];
         const canAddProject =
           projectAddByHost.get(host.serverId) === true &&
@@ -359,6 +367,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
       localServerId,
       projectAddByHost,
       stableProjectIdentityByHost,
+      destinationServerId,
     ],
   );
   const [state, setState] = useState(() =>
@@ -464,6 +473,11 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
 
   const openNewWorkspaceForProject = useCallback(
     (serverId: string, project: WorkspaceProjectDescriptorPayload) => {
+      if (onAdded) {
+        onAdded(project);
+        onClose();
+        return;
+      }
       onClose();
       router.push(
         buildNewWorkspaceRoute({
@@ -474,7 +488,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         }),
       );
     },
-    [onClose],
+    [onClose, onAdded],
   );
 
   const openAddedProject = useCallback(

@@ -6,7 +6,9 @@ This implementation requires host installation and acceptance. Source checks alo
 
 ## Use the installation
 
-Open the private HTTPS address returned by setup and enter its installation password. The interface registers **Dev container** and **Host: full account access** together. New work defaults to the container. Selecting the host requires confirmation. Local versus new worktree remains a separate choice within the selected environment.
+Open the private HTTPS address returned by setup and enter its installation password. The interface registers **Dev container** and **Host: full account access** together. New work defaults to the container. Selecting the host requires confirmation. Local versus new worktree remains a separate choice within the selected environment. Projects are sidebar groupings, not execution boundaries: register the same repository in both environments to keep its host and container workspaces under one project. Each environment resolves its own directory and retains its own agents and credentials.
+
+When choosing a profile in another environment, the handoff dialog can create a workspace or select an existing one. Use **Add project in this environment** to register a directory or clone the repository without leaving the handoff. Choose the destination path explicitly; a container path is not assumed to be a host path. New workspaces use their destination project identity. Matching repository keys group across environments; unrelated directories and ambiguous duplicate clones remain separate.
 
 For an existing browser or PWA entry point, publish an installation redirect to its existing web directory with the [guarded web publisher](instance-continuity.md#publish-a-web-only-change). Add `--installation-origin <protected-https-origin>` to the build command. The entry keeps the current path, query and fragment, then replaces the page with the protected interface. Existing bookmarks and reloads reach the installation without remembering a second address. Daemon API and WebSocket endpoints stay in place; no daemon restart is needed. The release receipt records the redirect destination.
 

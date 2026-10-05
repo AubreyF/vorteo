@@ -2,12 +2,19 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
-## 0.11.0-beta.3.vorteo.117 - 2026-10-05
+## 0.11.0-beta.3.vorteo.119 - 2026-10-05
 
 ### Fixed
 
 - Show shared skill packages once per environment with combined provider labels
 - Keep each discovery path available in Details for inspection and reviewed changes
+
+## 0.11.0-beta.3.vorteo.118 - 2026-10-05
+
+### Added
+
+- Create a workspace or add a project in the destination environment directly from a profile handoff
+- Select the matching project automatically when continuing between host and container workspaces
 
 ## 0.11.0-beta.3.vorteo.116 - 2026-10-05
 

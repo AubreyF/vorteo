@@ -1,7 +1,10 @@
 import { generateMessageId } from "@/types/stream";
 import { readDestinationWorkspaces } from "./destination-workspaces";
 import { generateDraftId } from "@/stores/draft-keys";
-import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
+import {
+  navigateToWorkspace,
+  useActiveWorkspaceSelection,
+} from "@/stores/navigation-active-workspace-store";
 import { createElement, useCallback, useMemo, useRef, useState, type ReactElement } from "react";
 import { router } from "expo-router";
 import { buildHostAgentDetailRoute } from "@/utils/host-routes";
@@ -15,6 +18,7 @@ import type {
   AgentProfile,
   AgentSnapshotPayload,
   WorkspaceDescriptorPayload,
+  WorkspaceProjectDescriptorPayload,
 } from "@getpaseo/protocol/messages";
 import { useTranslation } from "react-i18next";
 import { mergeCreateAgentSelectionPreferences } from "@/create-agent-preferences/preferences";
@@ -79,6 +83,7 @@ export interface AgentProfilePicker {
 interface PendingHandoff {
   source: AgentSnapshotPayload | null;
   destinationServerId?: string;
+  destinationProject?: WorkspaceProjectDescriptorPayload;
   idempotencyKey?: string;
   profile: AgentProfile;
   context: string;
@@ -107,6 +112,9 @@ export function useAgentProfilePicker(
   input: UseAgentProfilePickerInput,
 ): AgentProfilePicker | null {
   const { serverId, availableProviders, target } = input;
+  const activeWorkspace = useActiveWorkspaceSelection();
+  const activeWorkspaceId =
+    activeWorkspace?.serverId === serverId ? activeWorkspace.workspaceId : null;
   const { t } = useTranslation();
   const {
     profiles,
@@ -202,13 +210,14 @@ export function useAgentProfilePicker(
         key: `${handoff.source?.id ?? "draft"}:${handoff.profile.id}:${handoff.destinationServerId ?? serverId}`,
         name: handoff.profile.name,
         destinationServerId: handoff.destinationServerId,
+        initialDestinationProject: handoff.destinationProject,
         draft: handoff.source === null,
         ...(handoff.source === null
           ? {
               title: `Use ${handoff.profile.name}`,
               confirmLabel: "Open draft",
               description:
-                "Choose a workspace in the destination environment. Your original draft and its attachments stay in place.",
+                "Create or choose a workspace in the destination environment. Your original draft and its attachments stay in place.",
             }
           : {}),
         initialContext: handoff.context,
@@ -251,12 +260,30 @@ export function useAgentProfilePicker(
             source = fetched.agent;
             context = await readProfileHandoff(client, source);
           }
+          const sessions = useSessionStore.getState().sessions;
+          const workspaceId = source?.workspaceId ?? activeWorkspaceId;
+          const sourceWorkspace = workspaceId
+            ? sessions[serverId]?.workspaces.get(workspaceId)
+            : null;
+          const sourceProject = sourceWorkspace
+            ? sessions[serverId]?.projects.get(sourceWorkspace.projectId)
+            : null;
+          let destinationProject: WorkspaceProjectDescriptorPayload | undefined;
+          const destinationClient = sessions[destinationServerId]?.client;
+          if (destinationClient && sourceProject?.projectKey) {
+            const projects = (await destinationClient.listProjects()).projects;
+            const matches = projects.filter(
+              (project) => project.projectKey === sourceProject.projectKey,
+            );
+            if (matches.length === 1) destinationProject = matches[0];
+          }
           setHandoff({
             source,
             profile,
             context,
             serverId,
             destinationServerId,
+            destinationProject,
             idempotencyKey: generateMessageId(),
           });
         } catch (error) {
@@ -267,7 +294,7 @@ export function useAgentProfilePicker(
         }
       })();
     },
-    [client, serverId, target, toast],
+    [client, serverId, target, toast, activeWorkspaceId],
   );
 
   const applicableProfiles = useMemo(() => {

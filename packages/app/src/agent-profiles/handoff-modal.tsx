@@ -1,8 +1,17 @@
-import { readDestinationWorkspaces } from "./internal/destination-workspaces";
-import { useFetchQuery } from "@/data/query";
-import type { WorkspaceDescriptorPayload } from "@getpaseo/protocol/messages";
+import { createDestinationWorkspace } from "./internal/destination-workspaces";
+import { DestinationPicker } from "./destination-picker";
+import {
+  destinationSelectionReady,
+  type DestinationSelection,
+} from "./internal/destination-selection";
+import { generateMessageId } from "@/types/stream";
+import { useHostFeature } from "@/runtime/host-features";
+import { useVortonMode } from "@/vorton-mode";
+import type {
+  WorkspaceDescriptorPayload,
+  WorkspaceProjectDescriptorPayload,
+} from "@getpaseo/protocol/messages";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import { SelectField } from "@/components/ui/select-field";
 import { useCallback, useMemo, useReducer, useState } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -20,6 +29,7 @@ interface HandoffModalProps {
   initialContext: string;
   onClose: () => void;
   destinationServerId?: string;
+  initialDestinationProject?: WorkspaceProjectDescriptorPayload;
   draft?: boolean;
   onConfirm: (context: string, workspace?: WorkspaceDescriptorPayload) => Promise<void>;
 }
@@ -47,6 +57,7 @@ export function ProfileHandoffModal({
   onClose,
   onConfirm,
   destinationServerId,
+  initialDestinationProject,
   draft = false,
 }: HandoffModalProps) {
   const [state, dispatch] = useReducer(reduce, {
@@ -54,17 +65,32 @@ export function ProfileHandoffModal({
     pending: false,
     error: null,
   });
-  const {
-    workspaceId,
-    setWorkspaceId,
-    connected,
-    workspaces,
-    workspace,
-    workspaceOptions,
-    display,
-  } = useDestinationWorkspace(destinationServerId);
+  const destinationClient = useHostRuntimeClient(destinationServerId ?? "");
+  const connected = useHostRuntimeIsConnected(destinationServerId ?? "");
+  const receipts = useHostFeature(destinationServerId, "workspaceRequestReceipts");
+  const multiplicity = useHostFeature(destinationServerId, "workspaceMultiplicity");
+  const vorton = useVortonMode();
+  const canCreate = receipts && multiplicity && vorton;
+  const [selection, setSelection] = useState<DestinationSelection>(() =>
+    canCreate
+      ? {
+          kind: "new",
+          project: initialDestinationProject ?? null,
+          title: "",
+          checkout: "directory",
+        }
+      : { kind: "existing", workspace: null },
+  );
+  const [creationId] = useState(generateMessageId);
+  const [submitted, setSubmitted] = useState(false);
   const contextReady = draft || Boolean(state.context.trim());
-  const destinationReady = !destinationServerId || Boolean(connected && workspace);
+  const destinationReady =
+    !destinationServerId ||
+    Boolean(
+      connected &&
+      destinationSelectionReady(selection) &&
+      (selection.kind === "existing" || canCreate),
+    );
   const canSubmit = !state.pending && contextReady && destinationReady;
   const header = useMemo(() => ({ title: title ?? `Continue with ${name}` }), [title, name]);
   const edit = useCallback((context: string) => dispatch({ type: "edit", context }), []);
@@ -74,10 +100,34 @@ export function ProfileHandoffModal({
   const submit = useCallback(() => {
     if (!canSubmit) return;
     dispatch({ type: "submit" });
-    void onConfirm(state.context, workspace).catch((error) =>
-      dispatch({ type: "error", error: toErrorMessage(error) }),
-    );
-  }, [canSubmit, state.context, onConfirm, workspace]);
+    setSubmitted(true);
+    void (async () => {
+      let workspace: WorkspaceDescriptorPayload | undefined;
+      if (destinationServerId) {
+        if (!destinationClient) throw new Error("Reconnect to the destination environment");
+        if (selection.kind === "existing") {
+          workspace = selection.workspace ?? undefined;
+        } else if (selection.project) {
+          workspace = await createDestinationWorkspace({
+            client: destinationClient,
+            project: selection.project,
+            checkout: selection.checkout,
+            title: selection.title,
+            idempotencyKey: creationId,
+          });
+        }
+      }
+      await onConfirm(state.context, workspace);
+    })().catch((error) => dispatch({ type: "error", error: toErrorMessage(error) }));
+  }, [
+    canSubmit,
+    destinationClient,
+    destinationServerId,
+    selection,
+    creationId,
+    state.context,
+    onConfirm,
+  ]);
   const footer = useMemo(
     () => (
       <View style={styles.actions}>
@@ -109,21 +159,11 @@ export function ProfileHandoffModal({
           <Alert variant="warning" title="Incomplete handoff" description={warning} />
         ) : null}
         {destinationServerId ? (
-          <SelectField
-            label="Destination workspace"
-            value={workspaceId}
-            selectedDisplay={display}
-            options={workspaceOptions}
-            onChange={setWorkspaceId}
-            searchable
-            size="md"
-            placeholder="Select workspace"
-            emptyText="No available workspaces"
-            disabled={state.pending || !connected || workspaces.isPending}
-            triggerTestID="preset-destination-workspace"
-            error={
-              !connected ? "Reconnect to the destination environment" : workspaces.error?.message
-            }
+          <DestinationPicker
+            serverId={destinationServerId}
+            selection={selection}
+            onChange={setSelection}
+            disabled={state.pending || submitted}
           />
         ) : null}
         {!draft ? (
@@ -159,51 +199,6 @@ export function ProfileHandoffModal({
       </View>
     </AdaptiveModalSheet>
   );
-}
-function useDestinationWorkspace(destinationServerId: string | undefined) {
-  const [workspaceId, setWorkspaceId] = useState("");
-  const destinationClient = useHostRuntimeClient(destinationServerId ?? "");
-  const connected = useHostRuntimeIsConnected(destinationServerId ?? "");
-  const workspaces = useFetchQuery({
-    dataShape: "list",
-    staleTimeMs: 0,
-    queryKey: ["profile-destination-workspaces", destinationServerId],
-    enabled: Boolean(destinationServerId && destinationClient && connected),
-    queryFn: async () => {
-      if (!destinationClient) throw new Error("Reconnect to the destination environment");
-      return readDestinationWorkspaces(destinationClient);
-    },
-  });
-  const workspace = workspaces.data?.find((item) => item.id === workspaceId);
-  const display = useMemo(
-    () =>
-      workspace
-        ? {
-            label: `${workspace.projectDisplayName} / ${workspace.name}`,
-            description: workspace.workspaceDirectory ?? workspace.projectRootPath,
-          }
-        : null,
-    [workspace],
-  );
-  const workspaceOptions = useMemo(
-    () =>
-      (workspaces.data ?? []).map((item) => ({
-        id: item.id,
-        value: item.id,
-        label: `${item.projectDisplayName} / ${item.name}`,
-        description: item.workspaceDirectory ?? item.projectRootPath,
-      })),
-    [workspaces.data],
-  );
-  return {
-    workspaceId,
-    setWorkspaceId,
-    connected,
-    workspaces,
-    workspace,
-    workspaceOptions,
-    display,
-  };
 }
 const styles = StyleSheet.create((theme) => ({
   body: { padding: theme.spacing[4], gap: theme.spacing[3] },
