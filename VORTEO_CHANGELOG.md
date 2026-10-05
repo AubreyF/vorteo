@@ -2,7 +2,16 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
-## 0.11.0-beta.3.vorteo.8 - 2026-10-04
+## 0.11.0-beta.3.vorteo.8 - 2026-10-05
+
+### Changed
+
+- Integrated the upstream update with the published browser tooling, workspace recreation and installation instructions
+- Documented plugin usage sources and pinned usage windows alongside Vorteo account controls
+
+### Added
+
+- Owner access that survives reloads for seven days per browser, with explicit locking and separate approval for every restart
 
 ### Fixed
 
