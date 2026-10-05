@@ -55,7 +55,9 @@ async function openSettingsDestination(page, title) {
 }
 
 async function rotateSettings(page) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const overflow = page.getByTestId("sidebar-footer-overflow");
+  if (await overflow.isVisible()) await overflow.click();
+  await page.locator('[data-testid="sidebar-settings"]:visible').click();
   await page.locator('[data-testid="settings-sidebar"]:visible').waitFor({ state: "visible" });
 
   for (const title of SETTINGS_DESTINATIONS) {
