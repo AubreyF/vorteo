@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
-import { useChromeInsets } from "@/appearance/use-chrome-insets";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import { useTranslation } from "react-i18next";
@@ -170,7 +170,7 @@ function ToastViewportContent({
   placement?: ToastViewportPlacement;
 }) {
   const vortonMode = useVortonMode();
-  const insets = useChromeInsets();
+  const insets = useSafeAreaInsets();
   const isMobile = useIsCompactFormFactor();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dismissDeadlineRef = useRef<number | null>(null);
