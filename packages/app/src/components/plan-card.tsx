@@ -1,3 +1,4 @@
+import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   Pressable,
@@ -236,7 +237,11 @@ function PlanCardContent({
   );
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const containerStyle = useMemo(
-    () => [styles.container, disableOuterSpacing && styles.containerCompact],
+    () => [
+      taskCardStyles.surface,
+      styles.container,
+      disableOuterSpacing && styles.containerCompact,
+    ],
     [disableOuterSpacing],
   );
   const chevronStyle = useMemo(
@@ -274,10 +279,6 @@ const styles = StyleSheet.create((theme) => ({
   container: {
     marginVertical: theme.spacing[3],
     padding: theme.spacing[3],
-    borderRadius: theme.spacing[2],
-    borderWidth: 1,
-    backgroundColor: theme.colors.surface1,
-    borderColor: theme.colors.border,
     gap: theme.spacing[2],
   },
   containerCompact: {

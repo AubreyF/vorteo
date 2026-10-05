@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.18 - 2026-10-05
+
+### Fixed
+
+- Matched bottom card and composer borders and corners to question cards, and removed excess space below subagent rows
+
 ## 0.11.0-beta.3.vorteo.17 - 2026-10-05
 
 ### Fixed

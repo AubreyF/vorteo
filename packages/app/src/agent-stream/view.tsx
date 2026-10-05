@@ -1,3 +1,4 @@
+import { taskCardStyles } from "./task-card-styles";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
 import { AgentTaskCards } from "./task-cards";
 import { JumpToLatest } from "./jump-to-latest";
@@ -1504,6 +1505,7 @@ function PermissionRequestCard({
 }) {
   const { t } = useTranslation();
   const isMobile = useIsCompactFormFactor();
+  const vortonMode = useVortonMode();
 
   const { request } = permission;
   const isPlanRequest = request.kind === "plan";
@@ -1689,7 +1691,14 @@ function PermissionRequestCard({
   }
 
   return (
-    <View style={permissionStyles.container}>
+    <View
+      style={[
+        taskCardStyles.surface,
+        permissionStyles.container,
+        vortonMode && permissionStyles.bottomCard,
+      ]}
+      testID="permission-request-card"
+    >
       <Text style={permissionStyles.title}>{title}</Text>
 
       {description ? <Text style={permissionStyles.description}>{description}</Text> : null}
@@ -1797,14 +1806,11 @@ const stylesheet = StyleSheet.create((theme) => ({
 }));
 
 const permissionStyles = StyleSheet.create((theme) => ({
+  bottomCard: { marginVertical: 0 },
   container: {
     marginVertical: theme.spacing[3],
     padding: theme.spacing[3],
-    borderRadius: theme.spacing[2],
-    borderWidth: 1,
     gap: theme.spacing[2],
-    backgroundColor: theme.colors.surface1,
-    borderColor: theme.colors.border,
   },
   title: {
     fontSize: theme.fontSize.base,

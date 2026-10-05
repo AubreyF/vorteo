@@ -152,14 +152,31 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
               style.borderColor,
               style.borderWidth,
               style.borderRadius,
-              style.gap,
             ],
           };
         });
       }, ids);
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
+      expect(geometry[0].frame[3]).toBe("8px");
       expect(geometry[2].padding).toBe("8px");
+      for (const card of geometry.slice(2)) {
+        expect(card.frame).toEqual(geometry[0].frame);
+      }
+      const subagentBottomInset = await stack.getByTestId("subagents-card").evaluate((card) => {
+        const rows = card.lastElementChild;
+        const lastRow = rows?.lastElementChild;
+        if (!lastRow) throw new Error("Subagent rows missing");
+        return card.getBoundingClientRect().bottom - lastRow.getBoundingClientRect().bottom;
+      });
+      expect(subagentBottomInset).toBeCloseTo(9, 0);
+      if (width === 1400) {
+        const composerFrame = await page.getByTestId("message-input-surface").evaluate((node) => {
+          const style = getComputedStyle(node);
+          return [style.backgroundColor, style.borderColor, style.borderWidth, style.borderRadius];
+        });
+        expect(composerFrame).toEqual(geometry[0].frame);
+      }
       for (const card of geometry.slice(3)) {
         expect(card.frame).toEqual(geometry[2].frame);
         expect(card.padding).toBe(width === 390 ? "8px 8px 8px 12px" : "16px 8px 16px 16px");

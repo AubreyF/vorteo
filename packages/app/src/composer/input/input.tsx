@@ -1,3 +1,4 @@
+import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useMobileComposerLayout, COMPOSER_CORNER_INSET } from "../mobile-layout";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useVortonTouch } from "@/vorton-touch";
@@ -1901,6 +1902,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const inputWrapperCombinedStyle = useMemo(
       () => [
         styles.inputWrapper,
+        vortonMode && taskCardStyles.surface,
         mobileComposer.enabled && { paddingBottom: mobileComposer.bottomPadding },
         readOnly && styles.inputWrapperReadOnly,
         inputWrapperStyle,
@@ -1910,6 +1912,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       ],
       [
         inputWrapperStyle,
+        vortonMode,
         readOnly,
         surfacePresentation.input.opacity,
         mobileComposer.enabled,
@@ -2036,6 +2039,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         {/* Regular input */}
         <View
           ref={inputWrapperRef}
+          testID="message-input-surface"
           style={inputWrapperCombinedStyle}
           pointerEvents={surfacePresentation.input.pointerEvents}
         >

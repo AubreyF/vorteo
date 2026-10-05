@@ -454,7 +454,6 @@ const styles = StyleSheet.create((theme) => ({
   cardHeader: { alignItems: "center" },
   cardRows: {
     marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
-    marginBottom: { xs: 0, md: theme.spacing[2] },
   },
   archiveHeaderText: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted },
   collapseHeaderText: {

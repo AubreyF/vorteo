@@ -1,3 +1,4 @@
+import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useState, useCallback, useMemo, useRef, type RefObject } from "react";
 import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
@@ -486,16 +487,6 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
     [primaryDisabled, theme.colors.accent],
   );
 
-  const containerStyle = useMemo(
-    () => [
-      styles.container,
-      {
-        backgroundColor: theme.colors.surface1,
-        borderColor: theme.colors.border,
-      },
-    ],
-    [theme.colors.surface1, theme.colors.border],
-  );
   const questionTextStyle = useMemo(
     () => [styles.questionText, { color: theme.colors.foreground }],
     [theme.colors.foreground],
@@ -535,7 +526,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
   const showTextInput = activeQuestion ? questionShowsTextInput(activeQuestion) : false;
 
   return (
-    <View style={containerStyle} testID="question-form-card">
+    <View style={[taskCardStyles.surface, styles.container]} testID="question-form-card">
       <QuestionNav
         questions={questions}
         activeIndex={resolvedActiveQuestionIndex}
@@ -630,8 +621,6 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
 const styles = StyleSheet.create((theme) => ({
   container: {
     padding: theme.spacing[3],
-    borderRadius: theme.spacing[2],
-    borderWidth: 1,
     gap: theme.spacing[3],
   },
   questionBlock: {
