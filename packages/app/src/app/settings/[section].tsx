@@ -1,3 +1,4 @@
+import { useVortonMode } from "@/vorton-mode";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { useMemo } from "react";
 import { useHostRuntimeBootstrapState } from "@/app/_layout";
@@ -36,6 +37,7 @@ function SettingsDaemonRedirect() {
 }
 
 export default function SettingsSectionRoute() {
+  const vorton = useVortonMode();
   const params = useLocalSearchParams<{ section?: string; addHost?: string }>();
   const rawSection = typeof params.section === "string" ? params.section : "";
   const section: SettingsSectionSlug = isSettingsSectionSlug(rawSection) ? rawSection : "general";
@@ -50,6 +52,9 @@ export default function SettingsSectionRoute() {
       </HostRouteBootstrapBoundary>
     );
   }
+
+  if (vorton && rawSection === "sidebar")
+    return <Redirect href={buildSettingsSectionRoute("general")} />;
 
   if (rawSection === "about") return <Redirect href={buildSettingsSectionRoute("general")} />;
 

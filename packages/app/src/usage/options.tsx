@@ -1,3 +1,4 @@
+import { useVortonMode } from "@/vorton-mode";
 import { View } from "react-native";
 import {
   SettingsCard,
@@ -22,18 +23,21 @@ const DISPLAY_AS_OPTIONS: SegmentedControlOption<UsageDisplayAs>[] = [
  * switch as Settings > Sidebar) and whether percents read as used or remaining.
  */
 export function UsageOptions({ display }: { display: UsageDisplay }) {
+  const vorton = useVortonMode();
   const { inSidebar, setInSidebar } = useUsageInSidebar();
   return (
     <View style={settingsStyles.section}>
       <SettingsCard>
         <SettingsCollapsibleRow label={usageCopy.options} testID="usage-options">
-          <SettingsSwitch
-            label={usageCopy.showInSidebar}
-            hint={usageCopy.showInSidebarHint}
-            value={inSidebar}
-            onValueChange={setInSidebar}
-            testID="usage-show-in-sidebar"
-          />
+          {!vorton && (
+            <SettingsSwitch
+              label={usageCopy.showInSidebar}
+              hint={usageCopy.showInSidebarHint}
+              value={inSidebar}
+              onValueChange={setInSidebar}
+              testID="usage-show-in-sidebar"
+            />
+          )}
           <SettingsRow label={usageCopy.displayAs}>
             <SegmentedControl
               options={DISPLAY_AS_OPTIONS}

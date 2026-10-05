@@ -5,7 +5,7 @@
 
 ## Intelligent Frontier Account Pooling
 
-Connect an unlimited number of Codex and Claude accounts, then balance tasks across all of them simultaneously. Keep work moving while tracking usage and reset windows for each connected profile.
+Connect an unlimited number of Codex and Claude accounts, then balance tasks across all of them simultaneously. Keep work moving while tracking usage and reset windows for each connected profile. Drafts restore their saved account and workflow together. New drafts use a workflow from the selected account.
 
 <img width="600" alt="Animated demo of Vorteo account switching and profiles" src="https://github.com/user-attachments/assets/ae3f9872-f3d6-4efa-8f23-a032aa3133de" />
 
@@ -25,7 +25,7 @@ Connect an unlimited number of Codex and Claude accounts, then balance tasks acr
 
 - **Put local workers to work.** Configure a Pi profile for a local or private OpenAI-compatible endpoint, then let a supervisor delegate work with a limit on concurrent workers.
 
-- **Keep projects in view.** In Vorteo mode, History and Schedules sit in the top sidebar toolbar. The three-dot menu holds Settings, Add project, New workspace, View preferences, and Help and support. In View preferences → Show, turn Activity badges on or off to show or hide subagent counts, queued-message counts, and active-goal badges. On mobile, the compact search field keeps a full-height tap target. iPhone toolbars use the system safe area. On iOS 27 Home Screen apps, Vorteo also keeps toolbar controls below the system status-bar blur. This clearance applies once per toolbar and disappears in landscape when the top safe area is zero; Safari tabs and Standard mode retain their existing spacing.
+- **Keep projects in view.** In Vorteo mode, History and Schedules always appear in the top sidebar toolbar. Usage stays out of the sidebar, and app preferences omit the Sidebar section. Search and the settings Back button share a compact outline style. The three-dot menu holds Settings, Add project, New workspace, View preferences, and Help and support. In View preferences → Show, turn Activity badges on or off to show or hide subagent counts, queued-message counts, and active-goal badges. On mobile, the compact search field keeps a full-height tap target. iPhone toolbars use the system safe area. On iOS 27 Home Screen apps, Vorteo also keeps toolbar controls below the system status-bar blur. This clearance applies once per toolbar and disappears in landscape when the top safe area is zero; Safari tabs and Standard mode retain their existing spacing.
 
 - **Seamlessly transition between phone, tablet, and desktop.** Compact profiles, visible touch controls and responsive task views keep account selection and task management within reach. Sidebar rows and actions expand into larger touch targets on touchscreens and in narrow windows. The workspace diff counter keeps a 44-pixel touch target in compact layouts. On desktop, hover a project or workspace row to reveal its three-dot menu.
 

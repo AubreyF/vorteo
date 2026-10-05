@@ -96,7 +96,7 @@ The Docker recipe is optional. Upstream core does not require Docker, MTPLX, a p
 
 Manage profiles in host settings includes Default configuration. The selected profile stores `isDefault: true` in the host's profile list. The settings control writes false on other profiles so only one is selected. Vorteo uses the first configuration when no default exists and persists that choice on the next profile save. Removing the default selects the first remaining configuration. Both profile editors retain this marker when editing a profile.
 
-New Vorteo drafts visibly apply the available default, or the first available configuration when the default is unavailable. An existing draft selection is retained. Submission and audio start remain blocked while no configuration is available. The new-workspace creation handler also rejects a missing Vorteo profile. Existing chats are not changed. Standard mode behavior is unchanged.
+New Vorteo drafts wait for account selection to load, then visibly apply an available default from that account, or its first available configuration. Without a selected account, the host default is used. Saved drafts restore the account and workflow together; an existing draft selection is retained. Submission and audio start remain blocked while no configuration is available. The new-workspace creation handler also rejects a missing Vorteo profile. Existing chats are not changed. Standard mode behavior is unchanged.
 
 ## Implementation and deployment status
 

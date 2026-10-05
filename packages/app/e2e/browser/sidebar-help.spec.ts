@@ -1,7 +1,12 @@
+import { readFileSync } from "node:fs";
+import { parseChangelog } from "../../src/changelog/internal/parse-changelog";
 import { expect, test, type Page } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
 import { openSettingsSection } from "../support/helpers/settings";
 import { openWhatsNew, release, serveChangelog } from "../support/helpers/changelog";
+
+const customReleases = parseChangelog(readFileSync("../../VORTEO_CHANGELOG.md", "utf8"));
+const latestCustomRelease = customReleases[0]!;
 
 const DISCORD_DESTINATION =
   /^https:\/\/(?:discord\.gg\/jz8T2uahpH|discord\.com\/invite\/jz8T2uahpH)(?:[/?#]|$)/;
@@ -211,18 +216,16 @@ test("shows bundled Vorteo notes alongside Paseo and preserves Standard mode", a
   await expect(sheet).toBeVisible();
   const custom = sheet.getByTestId("changelog-vorteo");
   await expect(
-    custom.getByText("Added Vorteo release notes alongside Paseo's upstream notes in What's new"),
+    custom.getByTestId(`changelog-release-${latestCustomRelease.version}`),
   ).toBeVisible();
-  await expect(custom.getByText("Installed", { exact: true })).toBeVisible();
+  await expect(custom.getByTestId(/^changelog-release-/)).toHaveCount(1);
   await expect(
     sheet.getByTestId("changelog-paseo").getByText("Added an upstream feature"),
   ).toBeVisible();
   await custom.getByTestId("changelog-show-more").click();
-  await expect(
-    custom.getByText(
-      "Added multiple isolated Codex and Claude accounts with account switching per task",
-    ),
-  ).toBeVisible();
+  await expect(custom.getByTestId(/^changelog-release-/)).toHaveCount(
+    Math.min(11, customReleases.length),
+  );
   await closeSheet(page, "changelog-sheet");
   await page
     .getByTestId("settings-vorton-mode")
@@ -246,7 +249,9 @@ test("keeps Vorteo notes readable when Paseo fails and retries upstream", async 
   const sheet = page.getByTestId("changelog-sheet");
   await expect(sheet).toBeVisible();
   await expect(
-    sheet.getByTestId("changelog-vorteo").getByText("Installed", { exact: true }),
+    sheet
+      .getByTestId("changelog-vorteo")
+      .getByTestId(`changelog-release-${latestCustomRelease.version}`),
   ).toBeVisible();
   await expect(sheet.getByTestId("changelog-paseo").getByTestId("changelog-error")).toBeVisible();
   await page.unroute(url);
@@ -254,6 +259,8 @@ test("keeps Vorteo notes readable when Paseo fails and retries upstream", async 
   await sheet.getByTestId("changelog-retry").click();
   await expect(sheet.getByText("Upstream recovered")).toBeVisible();
   await expect(
-    sheet.getByTestId("changelog-vorteo").getByText("Installed", { exact: true }),
+    sheet
+      .getByTestId("changelog-vorteo")
+      .getByTestId(`changelog-release-${latestCustomRelease.version}`),
   ).toBeVisible();
 });
