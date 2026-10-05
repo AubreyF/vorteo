@@ -2,6 +2,14 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.105 - 2026-10-05
+
+### Added
+
+- Added a shared skills inventory with environment status, instruction details, hashes, provenance and audit export
+- Added reviewed pinned installations, provider discovery links, duplicate consolidation, removal and restoration with conflict checks
+- Added profile skill inheritance with exclusions, selected-only and no-optional modes with frozen selections for supported Claude and Codex runtimes
+
 ## 0.11.0-beta.3.vorteo.103 - 2026-10-05
 
 ### Changed

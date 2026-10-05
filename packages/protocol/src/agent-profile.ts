@@ -1,3 +1,4 @@
+import { SkillPolicySchema } from "./skill-library.js";
 import { z } from "zod";
 import { QuotaReservePolicySchema } from "./quota-reserve.js";
 
@@ -27,6 +28,7 @@ export const AgentProfileSchema = z
     /** Free text, surfaced to orchestrating agents by the `list_profiles` MCP tool. */
     notes: z.string().optional(),
     instructions: z.string().optional(),
+    skillPolicy: SkillPolicySchema.optional(),
     /** Selected automatically for new Vorton drafts on this host. */
     isDefault: z.boolean().optional(),
     workerProfileId: z.string().optional(),

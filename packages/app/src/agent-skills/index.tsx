@@ -1,3 +1,4 @@
+import { SkillLibraryButton } from "./library";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
@@ -116,6 +117,7 @@ export function AgentSkillsSection({ serverId }: { serverId: string }) {
   if (!skills.connected || !skills.supported) {
     return (
       <SettingsSection title={t("settings.host.skills.sectionTitle")} trailing={trailing}>
+        <SkillLibraryButton />
         <View style={settingsStyles.card} testID="host-agent-skills-unavailable">
           <View style={styles.emptyCard}>
             <Text style={styles.mutedText}>
@@ -131,6 +133,7 @@ export function AgentSkillsSection({ serverId }: { serverId: string }) {
 
   return (
     <SettingsSection title={t("settings.host.skills.sectionTitle")} trailing={trailing}>
+      <SkillLibraryButton />
       <View style={settingsStyles.card} testID="host-agent-skills-card">
         <View style={settingsStyles.row}>
           <View style={settingsStyles.rowContent}>

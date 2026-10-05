@@ -29,6 +29,7 @@ export interface SkillsSaveResult extends SkillsSnapshot {
 }
 
 export interface SkillsController {
+  runExclusive<T>(run: () => Promise<T>): Promise<T>;
   status(): Promise<SkillsSnapshot>;
   install(): Promise<SkillsSnapshot>;
   update(): Promise<SkillsSnapshot>;
@@ -159,6 +160,7 @@ export function createSkillsController({
   }
 
   return {
+    runExclusive: serialize,
     status: () => serialize(() => converge(getSkillsStatus)),
     install: () => serialize(() => converge(updateSkills)),
     update: () => serialize(() => converge(updateSkills)),

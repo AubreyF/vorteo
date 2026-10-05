@@ -1,4 +1,5 @@
 import { createWriteStream } from "node:fs";
+import { openSettings } from "./settings-navigation.electron.mjs";
 
 const GC_ATTEMPTS = 6;
 const SETTINGS_PANE_TEST_ID = "settings-detail-pane";
@@ -19,7 +20,6 @@ const SETTINGS_DESTINATIONS = [
   "Notifications",
   "Permissions",
   "Diagnostics",
-  "About",
   "Overview",
   "Projects",
   "Connections",
@@ -55,10 +55,7 @@ async function openSettingsDestination(page, title) {
 }
 
 async function rotateSettings(page) {
-  const overflow = page.getByTestId("sidebar-footer-overflow");
-  if (await overflow.isVisible()) await overflow.click();
-  await page.locator('[data-testid="sidebar-settings"]:visible').click();
-  await page.locator('[data-testid="settings-sidebar"]:visible').waitFor({ state: "visible" });
+  await openSettings(page);
 
   for (const title of SETTINGS_DESTINATIONS) {
     await openSettingsDestination(page, title);

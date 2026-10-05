@@ -2410,6 +2410,20 @@ export class Session {
         return undefined;
       });
     switch (msg.type) {
+      case "agent.skills.library_read.request":
+        return this.orchestrationSkills.library.read(msg.request).then((result) => {
+          return this.emit({
+            type: "agent.skills.library_read.response",
+            payload: { requestId: msg.requestId, result },
+          });
+        });
+      case "agent.skills.library_change.request":
+        return this.orchestrationSkills.library.change(msg.request).then((result) => {
+          return this.emit({
+            type: "agent.skills.library_change.response",
+            payload: { requestId: msg.requestId, result },
+          });
+        });
       case "agent.skills.get_status.request":
         return emitStatus(
           "agent.skills.get_status.response",

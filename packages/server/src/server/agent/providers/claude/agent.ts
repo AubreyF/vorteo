@@ -1,3 +1,4 @@
+import { verifySkillSnapshot } from "../../../orchestration-skills/internal/policy.js";
 import { ClaudeLoginSession } from "./login.js";
 import { requireClaudeAuthentication } from "./authentication.js";
 import { validateProviderOptions } from "../../provider-options.js";
@@ -2261,6 +2262,7 @@ class ClaudeAgentSession implements AgentSession {
       throw new Error("A foreground turn is already active");
     }
 
+    await verifySkillSnapshot(this.config);
     const slashCommand = this.resolveSlashCommandInvocation(prompt);
     if (slashCommand?.commandName === REWIND_COMMAND_NAME) {
       const turnId = this.createTurnId("foreground");
@@ -3312,6 +3314,7 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private async buildOptions(): Promise<ClaudeOptions> {
+    const selectedSkills = await verifySkillSnapshot(this.config);
     const { thinking, effort, ultracode } = this.resolveThinkingConfig();
     const appendedSystemPrompt = this.buildAppendedSystemPrompt();
     const providerOptions = applyClaudeToolPolicy(
@@ -3396,6 +3399,7 @@ class ClaudeAgentSession implements AgentSession {
         ...this.runtimeSettings.disallowedTools,
       ];
     }
+    if (selectedSkills) base.skills = selectedSkills;
     return base;
   }
 

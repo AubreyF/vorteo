@@ -1,3 +1,4 @@
+import { ProfileSkillPolicy } from "@/agent-skills/profile-policy";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -186,6 +187,11 @@ function ProfileLaunchFields({
           />
         </Field>
       ) : null}
+      <ProfileSkillPolicy
+        serverId={serverId}
+        value={state.skillPolicy}
+        onChange={model.setSkillPolicy}
+      />
       <Field
         label="Launch instructions"
         hint="Applied to new tasks together with this profile’s permissions."
