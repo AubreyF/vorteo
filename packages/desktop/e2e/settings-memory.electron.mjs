@@ -56,6 +56,15 @@ async function openSettingsDestination(page, title) {
 
 async function rotateSettings(page) {
   await openSettings(page);
+  await openSettingsDestination(page, "General");
+  // Standard mode exposes the Sidebar page included in this retention sweep.
+  await page
+    .getByTestId("settings-vorton-mode")
+    .getByRole("button", {
+      name: "Standard mode",
+      exact: true,
+    })
+    .click();
 
   for (const title of SETTINGS_DESTINATIONS) {
     await openSettingsDestination(page, title);
