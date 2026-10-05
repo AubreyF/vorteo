@@ -1,14 +1,16 @@
-import { useCallback, useMemo, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
+import { EditingTextInput } from "@/components/ui/text-input";
+import { usePathname, useRouter } from "expo-router";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { settingsStyles } from "@/styles/settings";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
-import { confirmDialog } from "@/utils/confirm-dialog";
-import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runtime";
+
+import { getHostRuntimeStore, useHostRegistryLoaded, useHosts } from "@/runtime/host-runtime";
 import { useVortonMode } from "@/vorton-mode";
+import { useVortonTouch } from "@/vorton-touch";
 import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
 import { InstallationPanelModel } from "./panel-model";
@@ -36,43 +38,29 @@ function getInstallationPanel(registryLoaded: boolean): InstallationPanelModel |
   return panelModel;
 }
 
-export function InstallationControlsButton() {
+export function InstallationControls() {
   const vortonMode = useVortonMode();
   const registryLoaded = useHostRegistryLoaded();
   const model = getInstallationPanel(registryLoaded);
-  const open = useCallback(() => model?.open(), [model]);
-  if (!vortonMode || !model) return null;
-  return (
-    <SettingsSection title="Installation">
-      <View style={settingsStyles.card}>
-        <View style={settingsStyles.row}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>Host and container</Text>
-            <Text style={settingsStyles.rowHint}>
-              Review restart requests and shared workflows with owner access
-            </Text>
-          </View>
-          <Button variant="outline" size="md" testID="installation-controls-open" onPress={open}>
-            Manage
-          </Button>
-        </View>
-      </View>
-    </SettingsSection>
-  );
+  const hosts = useHosts();
+  const installation = readExecutionInstallation();
+  const needsSetup = installation && !hasInstallationConnections(installation, hosts);
+  if (!model || (!vortonMode && !needsSetup)) return null;
+  return <InstallationPanel model={model} />;
 }
 
-export function InstallationPanelHost() {
+// Session restoration stays app-wide. Setup routes to the inline controls once;
+// incoming restart requests never interrupt another screen or open a dialog.
+export function InstallationSessionHost() {
   const registryLoaded = useHostRegistryLoaded();
   const model = getInstallationPanel(registryLoaded);
-  return model ? <InstallationPanel model={model} /> : null;
+  return model ? <InstallationSession model={model} /> : null;
 }
 
-function InstallationPanel({ model }: { model: InstallationPanelModel }) {
+function InstallationSession({ model }: { model: InstallationPanelModel }) {
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
-  const [historyVisible, setHistoryVisible] = useState(false);
-  const toggleHistory = useCallback(() => setHistoryVisible((visible) => !visible), []);
-  const pendingIds = new Set(state.pendingJobs.map((job) => job.id));
-  const history = state.jobs.filter((job) => !pendingIds.has(job.id)).toReversed();
+  const router = useRouter();
+  const pathname = usePathname();
   useEffect(() => {
     void model.initialize();
     const timer = setInterval(() => {
@@ -80,159 +68,273 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
     }, 5000);
     return () => clearInterval(timer);
   }, [model]);
+  useEffect(() => {
+    if (!state.initialized || state.busy || !state.visible) return;
+    model.close();
+    if (pathname !== "/settings/general") router.replace("/settings/general");
+  }, [model, pathname, router, state.busy, state.initialized, state.visible]);
+  return null;
+}
 
-  const header = useMemo(() => {
-    let subtitle = "Owner approval for host and container operations";
-    if (state.unlocked) {
-      subtitle = "Owner access unlocked for this page";
-      if (state.sessionsSupported) subtitle = "Owner access unlocked in this browser";
-    }
-    return {
-      title: "Installation controls",
-      subtitle: <Text style={styles.text}>{subtitle}</Text>,
-    };
-  }, [state.unlocked, state.sessionsSupported]);
-  const close = useCallback(() => model.close(), [model]);
-  const setPassword = useCallback((value: string) => model.setPassword(value), [model]);
-  const lock = useCallback(() => {
-    void model.lock();
-  }, [model]);
-  const unlock = useCallback(() => {
-    void model.unlock();
-  }, [model]);
+function restartStatus(job: RestartJob, historical = false) {
+  if (job.status === "pending") {
+    if (Date.parse(job.expiresAt) <= Date.now())
+      return { label: "Expired", variant: "muted" as const };
+    if (historical) return { label: "Superseded", variant: "muted" as const };
+    return { label: "Approval needed", variant: "warning" as const };
+  }
+  const labels = {
+    approved: "Approved, queued",
+    running: "Restarting",
+    succeeded: "Restarted",
+    failed: "Failed",
+    rejected: "Rejected",
+  };
+  let variant: StatusBadgeVariant = "muted";
+  if (job.status === "succeeded") variant = "success";
+  if (job.status === "failed") variant = "error";
+  return { label: labels[job.status], variant };
+}
 
+function InstallationPanel({ model }: { model: InstallationPanelModel }) {
+  const controlSize = useVortonTouch() ? "md" : "sm";
+  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [sharingVisible, setSharingVisible] = useState(false);
+  const pendingIds = new Set(state.pendingJobs.map((job) => job.id));
+  const active = state.jobs
+    .filter(
+      (job) => pendingIds.has(job.id) || job.status === "approved" || job.status === "running",
+    )
+    .toReversed();
+  const activeIds = new Set(active.map((job) => job.id));
+  const history = state.jobs.filter((job) => !activeIds.has(job.id)).toReversed();
+  const conflicts = Object.values(state.profileSharing?.sources ?? {}).some(
+    (source) => source.error || source.conflicts.length,
+  );
+  const toggleHistory = useCallback(() => setHistoryVisible((value) => !value), []);
+  const toggleSharing = useCallback(() => setSharingVisible((value) => !value), []);
+  let sharingLabel = state.profileSharing ? "Synchronized" : "Unavailable";
+  let sharingVariant: StatusBadgeVariant = state.profileSharing ? "success" : "muted";
+  if (conflicts) {
+    sharingLabel = "Needs attention";
+    sharingVariant = "warning";
+  }
   return (
-    <AdaptiveModalSheet
-      header={header}
-      visible={state.visible}
-      onClose={close}
-      testID="installation-panel"
-    >
-      <View style={styles.body}>
-        {!state.unlocked ? (
-          <SettingsSection title="Owner access" flush>
-            <View style={settingsStyles.card}>
-              <View style={styles.cardBody}>
-                <Text style={settingsStyles.rowTitle}>Unlock installation controls</Text>
-                <Text style={styles.text}>
-                  Your host and container connections are separate from owner access. Unlocking lets
-                  you review and approve restarts and resolve shared workflow conflicts.
-                </Text>
-                <Text style={styles.label}>Owner password</Text>
-                <AdaptiveTextInput
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  initialValue=""
-                  onChangeText={setPassword}
-                  accessibilityLabel="Owner password"
-                  placeholder="Enter the installation owner password"
-                  testID="installation-password"
-                  style={styles.input}
-                />
-                <View style={styles.actions}>
-                  <Button
-                    disabled={state.busy || !state.password.trim()}
-                    onPress={unlock}
-                    testID="installation-unlock"
-                  >
-                    {state.busy ? "Unlocking..." : "Unlock controls"}
-                  </Button>
-                </View>
-              </View>
-              <View style={[styles.cardBody, settingsStyles.rowBorder]}>
-                <Text style={settingsStyles.rowTitle}>Where did this password come from?</Text>
-                <Text style={styles.text}>
-                  The host installer generates this password during setup. You did not choose it.
-                  Find it in the owner-password file on your host:
-                </Text>
-                {state.passwordFile ? (
-                  <Text selectable style={styles.text} testID="installation-password-file">
-                    {state.passwordFile}
-                  </Text>
-                ) : null}
-                <Text style={styles.text}>
-                  This separates owner approval from daemon and container credentials. An agent with
-                  full host access can read this file, so it is not a barrier against that agent.
-                </Text>
-                <Text style={styles.text}>
-                  Owner access is remembered in this browser for seven days. Lock controls to end it
-                  sooner. Each restart still needs your explicit approval.
-                </Text>
-              </View>
-            </View>
-          </SettingsSection>
-        ) : (
-          <>
-            <View style={settingsStyles.card}>
-              <View style={styles.cardBody}>
-                <Text style={settingsStyles.rowTitle}>Owner access is unlocked</Text>
-                <Button
-                  variant="outline"
-                  disabled={state.busy}
-                  testID="installation-lock"
-                  onPress={lock}
+    <SettingsSection title="Installation" testID="installation-panel">
+      <View style={settingsStyles.card}>
+        <InstallationOwnerAccess model={model} state={state} />
+        {state.unlocked
+          ? (["host", "container-daemon"] as const).map((target) => {
+              const job =
+                active.find((candidate) => candidate.target === target) ??
+                history.find((candidate) => candidate.target === target);
+              const badge = job
+                ? restartStatus(job, !activeIds.has(job.id))
+                : {
+                    label: state.lastUpdatedAt ? "No requests" : "Loading",
+                    variant: "muted" as const,
+                  };
+              return (
+                <View
+                  key={target}
+                  style={[styles.cardBody, settingsStyles.rowBorder]}
+                  testID={`installation-status-${target}`}
                 >
-                  Lock controls
-                </Button>
-                <Text style={styles.text}>
-                  Review each request before approving it. Restarting can interrupt active tasks and
-                  terminals. Scoped agent credentials can request a restart, but cannot approve one.
-                </Text>
-              </View>
-            </View>
-            <ProfileSharingStatusView
-              status={state.profileSharing}
+                  <View style={styles.requestHeader}>
+                    <Text style={settingsStyles.rowTitle}>
+                      {target === "host" ? "Host" : "Dev container"}
+                    </Text>
+                    <StatusBadge {...badge} />
+                  </View>
+                  {job ? (
+                    <Text style={styles.text}>
+                      {job.status === "failed"
+                        ? job.detail
+                        : `Latest request: ${new Date(job.createdAt).toLocaleString()}`}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })
+          : null}
+      </View>
+      {state.error ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {state.error}
+        </Text>
+      ) : null}
+      {state.unlocked ? (
+        <>
+          {active.map((job) => (
+            <RestartRequest
+              key={`${job.id}:${job.revision}`}
+              job={job}
               model={model}
               busy={state.busy}
             />
-            <SettingsSection title="Pending restart requests" flush>
-              {state.pendingJobs.length === 0 ? (
-                <View style={settingsStyles.card}>
-                  <View style={styles.cardBody}>
-                    <Text style={settingsStyles.rowTitle}>No pending restart requests</Text>
-                    <Text style={styles.text}>
-                      Requests appear here when maintenance needs a restart
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
-              {state.pendingJobs.map((job) => (
-                <RestartRequest key={job.id} job={job} model={model} busy={state.busy} />
-              ))}
-              {state.notice ? (
-                <Text accessibilityLiveRegion="polite" style={styles.text}>
-                  {state.notice}
-                </Text>
-              ) : null}
-              {history.length > 0 ? (
-                <Button variant="ghost" onPress={toggleHistory} testID="restart-history-toggle">
-                  {historyVisible ? "Hide restart history" : "Show restart history"}
-                </Button>
-              ) : null}
-            </SettingsSection>
-            {historyVisible && history.length > 0 ? (
-              <SettingsSection title="Restart history" flush>
-                {history.slice(0, 20).map((job) => (
+          ))}
+          {state.lastUpdatedAt && active.length === 0 ? (
+            <Text style={styles.text}>No pending restart requests</Text>
+          ) : null}
+          {state.notice ? (
+            <Text accessibilityLiveRegion="polite" style={styles.text}>
+              {state.notice}
+            </Text>
+          ) : null}
+          <View style={styles.requestHeader}>
+            <Button
+              variant="ghost"
+              size={controlSize}
+              onPress={toggleHistory}
+              testID="restart-history-toggle"
+              disabled={!history.length}
+            >
+              {historyVisible ? "Hide restart history" : `Restart history (${history.length})`}
+            </Button>
+            <View style={styles.actions}>
+              <StatusBadge label={sharingLabel} variant={sharingVariant} />
+              <Button
+                variant="ghost"
+                size={controlSize}
+                onPress={toggleSharing}
+                testID="installation-sharing-toggle"
+              >
+                {sharingVisible ? "Hide shared workflows" : "Shared workflows"}
+              </Button>
+            </View>
+          </View>
+          {historyVisible
+            ? history
+                .slice(0, 20)
+                .map((job) => (
                   <RestartRequest
-                    key={job.id}
+                    key={`${job.id}:${job.revision}`}
                     job={job}
                     model={model}
                     busy={state.busy}
                     historical
                   />
-                ))}
-              </SettingsSection>
-            ) : null}
-          </>
-        )}
-        {state.error ? (
-          <Text accessibilityRole="alert" style={styles.error}>
-            {state.error}
-          </Text>
-        ) : null}
+                ))
+            : null}
+          {sharingVisible ? (
+            <ProfileSharingStatusView
+              status={state.profileSharing}
+              model={model}
+              busy={state.busy}
+            />
+          ) : null}
+        </>
+      ) : null}
+    </SettingsSection>
+  );
+}
+
+function InstallationOwnerAccess({
+  model,
+  state,
+}: {
+  model: InstallationPanelModel;
+  state: ReturnType<InstallationPanelModel["getState"]>;
+}) {
+  const controlSize = useVortonTouch() ? "md" : "sm";
+  const [helpVisible, setHelpVisible] = useState(false);
+  const toggleHelp = useCallback(() => setHelpVisible((value) => !value), []);
+  const ownerLabel = state.unlocked ? "Owner unlocked" : "Owner locked";
+  const setPassword = useCallback((value: string) => model.setPassword(value), [model]);
+  const lock = useCallback(() => {
+    void model.lock();
+  }, [model]);
+  const unlock = useCallback(() => {
+    setHelpVisible(false);
+    void model.unlock();
+  }, [model]);
+  return (
+    <View style={styles.cardBody}>
+      <View style={styles.requestHeader}>
+        <Text style={settingsStyles.rowTitle}>Host and container</Text>
+        <View style={styles.actions}>
+          <StatusBadge
+            label={state.initialized ? ownerLabel : "Checking access"}
+            variant={state.unlocked ? "success" : "muted"}
+          />
+          {state.unlocked ? (
+            <Button
+              variant="ghost"
+              size={controlSize}
+              disabled={state.busy}
+              testID="installation-lock"
+              onPress={lock}
+            >
+              Lock
+            </Button>
+          ) : null}
+        </View>
       </View>
-    </AdaptiveModalSheet>
+      {!state.initialized ? <Text style={styles.text}>Checking owner access...</Text> : null}
+      {state.initialized && !state.unlocked ? (
+        <>
+          <Text style={styles.text}>
+            Unlock to view approval status and manage restarts. Your daemon connections stay
+            available.
+          </Text>
+          <View style={styles.unlockRow}>
+            <EditingTextInput
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              initialValue=""
+              onChangeText={setPassword}
+              onSubmitEditing={unlock}
+              accessibilityLabel="Owner password"
+              placeholder="Owner password"
+              testID="installation-password"
+              style={[styles.input, styles.passwordInput]}
+            />
+            <Button
+              variant="outline"
+              disabled={state.busy || !state.password.trim()}
+              onPress={unlock}
+              testID="installation-unlock"
+            >
+              {state.busy ? "Unlocking..." : "Unlock controls"}
+            </Button>
+          </View>
+          <Button
+            variant="ghost"
+            size={controlSize}
+            onPress={toggleHelp}
+            testID="installation-password-help"
+          >
+            {helpVisible ? "Hide password help" : "Find owner password"}
+          </Button>
+          {helpVisible ? (
+            <View style={styles.details}>
+              <Text style={styles.text}>
+                The host installer generates this password. Find it in the owner-password file on
+                your host:
+              </Text>
+              {state.passwordFile ? (
+                <Text selectable style={styles.text} testID="installation-password-file">
+                  {state.passwordFile}
+                </Text>
+              ) : null}
+              <Text style={styles.text}>
+                Owner access is remembered in this browser for seven days. Lock ends it sooner. Each
+                restart requires a separate approval.
+              </Text>
+            </View>
+          ) : null}
+        </>
+      ) : null}
+      {state.unlocked ? (
+        <Text style={styles.text}>
+          {state.lastUpdatedAt
+            ? `Updated ${new Date(state.lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Each restart requires your approval.`
+            : "Loading restart status..."}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -310,8 +412,8 @@ function ProfileSharingEnvironment({
       <View style={styles.requestHeader}>
         <Text style={settingsStyles.rowTitle}>{label}</Text>
         <StatusBadge
-          label={source.error ? "Needs attention" : "Synchronized"}
-          variant={source.error ? "warning" : "success"}
+          label={source.error || source.conflicts.length ? "Needs attention" : "Synchronized"}
+          variant={source.error || source.conflicts.length ? "warning" : "success"}
         />
       </View>
       {source.error ? <Text style={styles.text}>{source.error}</Text> : null}
@@ -351,20 +453,17 @@ function RestartRequest({
   busy: boolean;
   historical?: boolean;
 }) {
+  const controlSize = useVortonTouch() ? "md" : "sm";
   const expired = job.status === "pending" && Date.parse(job.expiresAt) <= Date.now();
-  let status: string = job.status;
-  if (expired) status = "expired";
-  else if (historical && job.status === "pending") status = "superseded";
+  const status = restartStatus(job, historical);
   const canDecide = !historical && job.status === "pending" && !expired;
-  const approve = useCallback(async () => {
-    const target = job.target === "host" ? "native host daemon" : "dev-container daemon";
-    const confirmed = await confirmDialog({
-      title: `Restart ${target}?`,
-      message: `Running agents and terminals on this daemon may be interrupted. This approves only this restart request.\n\nReason: ${job.reason}`,
-      confirmLabel: "Approve restart",
-      destructive: true,
-    });
-    if (confirmed) await model.decide(job, "approve");
+  const [reviewing, setReviewing] = useState(false);
+  const [detailsVisible, setDetailsVisible] = useState(false);
+  const toggleDetails = useCallback(() => setDetailsVisible((value) => !value), []);
+  const review = useCallback(() => setReviewing(true), []);
+  const cancel = useCallback(() => setReviewing(false), []);
+  const approve = useCallback(() => {
+    void model.decide(job, "approve");
   }, [job, model]);
   const reject = useCallback(() => {
     void model.decide(job, "reject");
@@ -376,18 +475,54 @@ function RestartRequest({
           <Text style={settingsStyles.rowTitle}>
             {job.target === "host" ? "Host: full account access" : "Dev container"}
           </Text>
-          <StatusBadge label={status} />
+          <StatusBadge {...status} />
         </View>
-        <Text style={styles.text}>{job.reason}</Text>
-        <Text style={styles.text}>
-          {job.requestedBy} · {job.detail}
+        <Text style={styles.text} numberOfLines={reviewing || detailsVisible ? undefined : 2}>
+          {job.reason}
         </Text>
-        {canDecide ? (
+        <Text style={styles.text}>{job.detail}</Text>
+        {reviewing || detailsVisible ? (
+          <Text selectable style={styles.text}>
+            Request {job.id}
+            {"\n"}Requested {new Date(job.createdAt).toLocaleString()} by {job.requestedBy}
+            {"\n"}Approval expires {new Date(job.expiresAt).toLocaleString()}
+          </Text>
+        ) : null}
+        {!reviewing ? (
+          <Button size={controlSize} variant="ghost" onPress={toggleDetails}>
+            {detailsVisible ? "Hide details" : "Details"}
+          </Button>
+        ) : null}
+        {canDecide && reviewing ? (
+          <View style={styles.details} testID={`restart-confirmation-${job.id}`}>
+            <Text style={settingsStyles.rowTitle}>
+              Restart {job.target === "host" ? "host" : "dev container"} daemon?
+            </Text>
+            <Text style={styles.text}>
+              Running agents and terminals may be interrupted. This approves only the request shown
+              above.
+            </Text>
+            <View style={styles.actions}>
+              <Button
+                variant="destructive"
+                disabled={busy}
+                onPress={approve}
+                testID={`restart-confirm-${job.id}`}
+              >
+                Approve restart
+              </Button>
+              <Button variant="ghost" disabled={busy} onPress={cancel}>
+                Cancel
+              </Button>
+            </View>
+          </View>
+        ) : null}
+        {canDecide && !reviewing ? (
           <View style={styles.actions}>
             <Button
               variant="outline"
               disabled={busy}
-              onPress={approve}
+              onPress={review}
               testID={`restart-approve-${job.id}`}
             >
               Review restart
@@ -408,8 +543,15 @@ function RestartRequest({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  body: { gap: theme.spacing[6] },
-  cardBody: { padding: theme.spacing[4], gap: theme.spacing[3] },
+  details: { gap: theme.spacing[2] },
+  unlockRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  passwordInput: { flexGrow: 1, flexBasis: 200 },
+  cardBody: { padding: theme.spacing[4], gap: theme.spacing[2] },
   requestHeader: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -432,7 +574,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     backgroundColor: theme.colors.surface0,
   },
-  text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
+  text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.base },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
 }));

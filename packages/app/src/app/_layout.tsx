@@ -1,5 +1,5 @@
 import "@/styles/unistyles";
-import { InstallationPanelHost } from "@/execution-installation/panel";
+import { InstallationSessionHost } from "@/execution-installation/panel";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { PortalProvider } from "@gorhom/portal";
 import { LucideProvider } from "lucide-react-native";
@@ -617,7 +617,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <KeyboardShortcutsDialog />
         <AppDiagnosticHost />
         <ChangelogHost />
-        <InstallationPanelHost />
+        <InstallationSessionHost />
         <QuittingOverlay />
       </AppearanceStyleBoundary>
     </View>

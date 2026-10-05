@@ -220,7 +220,9 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   });
   await page.goto(origin);
   await expect(page.getByTestId("installation-panel")).toBeVisible();
-  await expect(page.getByText("Unlock installation controls", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/settings\/general/);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByTestId("installation-password-help").click();
   await expect(page.getByText("The host installer generates", { exact: false })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("installation-owner-access.png"),
@@ -231,7 +233,7 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await expect(page.getByRole("alert")).toContainText("Incorrect owner password");
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
-  await expect(page.getByTestId("installation-panel")).not.toBeVisible();
+  await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(
@@ -243,7 +245,7 @@ test("owner connects two environments, prepares host drafts, and approves a veri
     .poll(() => page.evaluate(() => Reflect.get(globalThis, "__installationPluginKinds")))
     .toEqual(["host"]);
   await page.goto(`${origin}/settings/general`);
-  await expect(page.getByTestId("installation-panel")).not.toBeVisible();
+  await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await expect
     .poll(async () =>
       (
@@ -254,17 +256,32 @@ test("owner connects two environments, prepares host drafts, and approves a veri
     )
     .toMatchObject({ authenticated: true });
   await page.getByTestId("settings-vorton-mode").getByLabel("Vorteo mode", { exact: true }).click();
-  await expect(page.getByTestId("installation-controls-open")).toHaveText("Manage");
-  await page.screenshot({ path: testInfo.outputPath("installation-settings.png"), fullPage: true });
-  await page.getByTestId("installation-controls-open").click();
-  await expect(page.getByText("Owner access is unlocked", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("installation-controls-open")).toHaveCount(0);
+  await expect(page.getByTestId("installation-panel")).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page
+    .getByTestId("installation-panel")
+    .screenshot({ path: testInfo.outputPath("installation-settings.png") });
+  await expect(page.getByText("Owner unlocked", { exact: true })).toBeVisible();
+  if (testInfo.project.name === "phone") {
+    const lockBox = await page.getByTestId("installation-lock").boundingBox();
+    expect(lockBox?.height).toBeGreaterThanOrEqual(44);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    ).toBe(true);
+  }
   await expect(page.getByText("No pending restart requests", { exact: true })).toBeVisible();
   await expect(page.getByText("Historical expired maintenance", { exact: true })).not.toBeVisible();
   await page.getByTestId("restart-history-toggle").click();
   await expect(page.getByText("Historical expired maintenance", { exact: true })).toBeVisible();
-  await expect(page.getByText("Restart request expired", { exact: false })).toBeVisible();
+  await expect(page.getByTestId("installation-status-host")).toContainText(
+    "Restart request expired",
+  );
   await page.getByTestId("restart-history-toggle").click();
   await page.getByTestId("installation-lock").click();
+  await expect(page.getByText("Unlock to view approval status", { exact: false })).toBeVisible();
+  await expect(page.getByTestId("installation-status-host")).toHaveCount(0);
+  await page.getByTestId("installation-password-help").click();
   await expect(page.getByTestId("installation-password-file")).toHaveText(
     path.join(root, "owner-password"),
   );
@@ -319,27 +336,39 @@ test("owner connects two environments, prepares host drafts, and approves a veri
       })
     ).status,
   ).toBe(401);
-  await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("pending");
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Verify isolated test daemon restart");
-    expect(dialog.message()).toContain("may be interrupted");
-    await dialog.accept();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.goto(`${origin}/settings/general?installation=1`);
+  await expect(page.getByTestId("installation-status-container-daemon")).toContainText(
+    "Approval needed",
+  );
+  const card = page.getByTestId(`restart-request-${job.id}`);
+  await expect(card).toContainText("Approval needed");
+  page.on("dialog", () => {
+    throw new Error("Installation controls must not open browser dialogs");
   });
   await page.getByTestId(`restart-approve-${job.id}`).click();
-  await expect(page.getByText("No pending restart requests", { exact: true })).toBeVisible();
-  await expect(page.getByTestId(`restart-request-${job.id}`)).not.toBeVisible();
-  await expect(
-    page.getByText("Restart approved. Open restart history to follow its progress.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await page.getByTestId("restart-history-toggle").click();
-  await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("succeeded", {
-    timeout: 45_000,
-  });
-  await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText(
-    "environment identity verified",
+  await expect(page.getByTestId(`restart-confirmation-${job.id}`)).toContainText(
+    "may be interrupted",
   );
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await card.screenshot({ path: testInfo.outputPath("installation-inline-review.png") });
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByTestId(`restart-confirmation-${job.id}`)).toHaveCount(0);
+  await expect(page.getByTestId("installation-status-container-daemon")).toContainText(
+    "Approval needed",
+  );
+  await page.getByTestId(`restart-approve-${job.id}`).click();
+  await page.getByTestId(`restart-confirm-${job.id}`).click();
+  await expect(
+    page.getByText("Restart approved. Its progress is shown here.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("installation-status-container-daemon")).toContainText(
+    "Restarted",
+    { timeout: 45_000 },
+  );
+  await page.getByTestId("restart-history-toggle").click();
+  await expect(card).toContainText("environment identity verified");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
 });
 
@@ -407,7 +436,7 @@ test("environment profile selection reviews a destination workspace before creat
     await page.goto(origin);
     await page.getByTestId("installation-password").fill(ownerPassword);
     await page.getByTestId("installation-unlock").click();
-    await expect(page.getByTestId("installation-panel")).not.toBeVisible();
+    await expect(page.getByTestId("installation-password")).not.toBeVisible();
     await page.goto(
       `${origin}${buildHostAgentDetailRoute(daemons[1]!.serverId, source.id, sourceWorkspace.id)}`,
     );
