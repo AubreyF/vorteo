@@ -4,11 +4,6 @@ const CSS = `
 @supports (height: 100dvh) {
   html[data-vorton-mode="true"], html[data-vorton-mode="true"] body { height: 100dvh; }
 }
-/* Standalone iOS can retain a shrunken dynamic viewport after rotation.
-   Keep its document on the large viewport; do not mutate installation metadata. */
-@media (display-mode: standalone) {
-  html[data-vorton-mode="true"], html[data-vorton-mode="true"] body { height: 100vh; }
-}
 /* Header and panel shells own safe-area spacing. Do not add a second top inset here. */
 html[data-vorton-mode="true"][data-vorton-ios-standalone="true"] #root {
   box-sizing: border-box;
@@ -41,7 +36,8 @@ export function applyVortonWeb(enabled: boolean, touch: boolean): () => void {
   );
   const originalStatusBar = statusBar?.dataset.paseoStatusBarStyle ?? statusBar?.content;
   if (statusBar && originalStatusBar) {
-    statusBar.content = enabled && isAppleHandheldPlatform(navigator) ? "black" : originalStatusBar;
+    statusBar.content =
+      enabled && isAppleHandheldPlatform(navigator) ? "default" : originalStatusBar;
   }
   const style = document.createElement("style");
   style.dataset.vortonStyles = "true";

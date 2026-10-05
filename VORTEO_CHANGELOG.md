@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.111 - 2026-10-05
+
+### Fixed
+
+- Fixed native top toolbar blur in newly installed iOS Home Screen apps without extra toolbar padding
+- Kept the toolbar visible after keyboard dismissal by sizing Home Screen apps to their available viewport
+
 ## 0.11.0-beta.3.vorteo.110 - 2026-10-05
 
 ### Changed
