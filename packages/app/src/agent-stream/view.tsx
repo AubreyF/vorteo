@@ -153,6 +153,7 @@ function renderLiveAuxiliaryNode(input: {
   turnFooter: ReactNode;
   bottomOverlayInset: number;
   taskCards: ReactNode;
+  vortonMode: boolean;
 }): ReactNode {
   if (
     !input.pendingPermissions &&
@@ -165,12 +166,16 @@ function renderLiveAuxiliaryNode(input: {
   return (
     <>
       {input.turnFooter}
-      {input.pendingPermissions ? (
-        <View style={stylesheet.contentWrapper}>
-          <View style={stylesheet.listHeaderContent}>{input.pendingPermissions}</View>
-        </View>
-      ) : null}
-      {input.taskCards ? <View style={stylesheet.contentWrapper}>{input.taskCards}</View> : null}
+      <View
+        style={[
+          stylesheet.contentWrapper,
+          input.vortonMode ? stylesheet.bottomCardStack : stylesheet.permissionsContainer,
+        ]}
+        testID={input.taskCards ? "agent-history-task-cards" : undefined}
+      >
+        {input.pendingPermissions}
+        {input.taskCards}
+      </View>
       {input.bottomOverlayInset > 0 ? (
         <BottomOverlayInset height={input.bottomOverlayInset} />
       ) : null}
@@ -191,11 +196,11 @@ function renderPendingPermissionsNode(input: {
     return null;
   }
   return (
-    <View style={stylesheet.permissionsContainer}>
+    <>
       {input.pendingPermissions.map((permission) => (
         <PermissionRequestCard key={permission.key} permission={permission} client={input.client} />
       ))}
-    </View>
+    </>
   );
 }
 
@@ -1136,6 +1141,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             />
           ) : null),
         bottomOverlayInset,
+        vortonMode,
       });
     }, [
       auxiliary.pendingPermissions,
@@ -1747,8 +1753,8 @@ const stylesheet = StyleSheet.create((theme) => ({
   permissionsContainer: {
     gap: theme.spacing[2],
   },
-  listHeaderContent: {
-    gap: theme.spacing[3],
+  bottomCardStack: {
+    gap: theme.spacing[4],
   },
   syncingIndicator: {
     flexDirection: "row",
