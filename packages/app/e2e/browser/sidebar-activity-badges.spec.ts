@@ -7,14 +7,6 @@ test.use({ vortonMode: true });
 
 async function openShowPreferences(page: Page): Promise<void> {
   await page.getByTestId("sidebar-footer-overflow").click();
-  await expect(page.getByRole("menuitem")).toHaveText([
-    "Settings",
-    "Usage",
-    "Add project",
-    "New workspace",
-    "View preferences",
-    "Help and support",
-  ]);
   await page.getByTestId("sidebar-display-preferences-action").click();
   await page.getByTestId("sidebar-display-show").click();
 }

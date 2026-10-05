@@ -133,6 +133,67 @@ test("scroll detector accounts for delayed wheel input and growth below the new 
   ).toHaveLength(1);
 });
 
+test("scroll detector separates wheel input from measurements above the entered image", () => {
+  const before: ScrollFrame = {
+    at: 1100,
+    scrollTop: 2208,
+    scrollHeight: 5000,
+    viewportHeight: 800,
+    virtualized: true,
+    loading: false,
+    rows: [
+      { id: "image", top: -704, height: 560 },
+      { id: "between", top: -144, height: 100 },
+      { id: "reading", top: -44, height: 127 },
+      { id: "next", top: 83, height: 300 },
+    ],
+    anchor: "reading",
+    wheelTotal: 160,
+    lastWheelAt: 1050,
+    inputFinishedAt: null,
+    imageLoads: 0,
+    mounted: 0,
+    unmounted: 0,
+  };
+  const earlier = {
+    ...before,
+    at: 1000,
+    scrollTop: 2368,
+    anchor: "next",
+    wheelTotal: 0,
+    lastWheelAt: 950,
+    rows: before.rows.map((row) => ({ id: row.id, height: row.height, top: row.top - 160 })),
+  };
+  const after: ScrollFrame = {
+    ...before,
+    at: 1143,
+    scrollTop: 1938,
+    scrollHeight: 5962,
+    wheelTotal: 320,
+    lastWheelAt: 1120,
+    anchor: "image",
+    rows: [
+      { id: "image", top: -544, height: 1632 },
+      { id: "between", top: 1088, height: 100 },
+      { id: "reading", top: 1188, height: 127 },
+      { id: "next", top: 1315, height: 300 },
+    ],
+  };
+  expect(findScrollJumps([earlier, before, after])).toEqual([]);
+  for (const jump of [-500, 500]) {
+    expect(
+      findScrollJumps([
+        earlier,
+        before,
+        {
+          ...after,
+          rows: after.rows.map((row) => ({ id: row.id, height: row.height, top: row.top + jump })),
+        },
+      ]),
+    ).toHaveLength(1);
+  }
+});
+
 for (const cadence of scrollCadences) {
   test(`varied timeline preserves reading position during ${cadence.name} upward scrolling`, async ({
     page,

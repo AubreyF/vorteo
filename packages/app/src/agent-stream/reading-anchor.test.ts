@@ -46,6 +46,28 @@ describe("reading anchor", () => {
     ).toBe(600);
   });
 
+  it("preserves the following text when an entered image shrinks above the reading line", () => {
+    const anchor = createReadingAnchor();
+    anchor.reconcile(1000, [
+      { id: "image", top: 326, height: 560 },
+      { id: "reading", top: 886, height: 130 },
+      { id: "below", top: 1016, height: 100 },
+    ]);
+    anchor.scroll(840);
+    expect(anchor.getRowId()).toBe("image");
+    const measured = [
+      { id: "image", top: 326, height: 225 },
+      { id: "reading", top: 551, height: 130 },
+      { id: "below", top: 681, height: 100 },
+    ];
+    expect(anchor.reconcile(840, measured)).toBe(505);
+    expect(anchor.getRowId()).toBe("reading");
+    expect(anchor.reconcile(505, measured)).toBe(505);
+    anchor.scroll(495);
+    expect(anchor.getRowId()).toBe("image");
+    expect(anchor.reconcile(495, measured)).toBe(495);
+  });
+
   it("keeps the existing reader through prepend measurements until the user scrolls", () => {
     const anchor = createReadingAnchor();
     anchor.reconcile(0, [{ id: "reading", top: 48, height: 100 }]);

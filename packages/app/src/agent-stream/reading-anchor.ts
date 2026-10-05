@@ -29,6 +29,22 @@ export function createReadingAnchor() {
       anchor = next ? { id: next.id, top: next.top } : null;
     },
     reconcile(scrollTop: number, rows: readonly RowGeometry[], userScrolled = false): number {
+      const oldRow = anchor && geometry.find((row) => row.id === anchor?.id);
+      const newRow = anchor && rows.find((row) => row.id === anchor?.id);
+      if (oldRow && newRow) {
+        const shrank = newRow.height < oldRow.height;
+        const readingLine = project(scrollTop, newRow) + READING_POSITION_OFFSET_PX;
+        const collapsedAboveReader = shrank && newRow.top + newRow.height <= readingLine;
+        const following = geometry[geometry.indexOf(oldRow) + 1];
+        if (collapsedAboveReader && following && !userScrolled) {
+          const followingIsMounted = rows.some((row) => row.id === following.id);
+          if (followingIsMounted) {
+            // An image can shrink entirely above the reading line after wheel
+            // input enters it. Keep the following text from reversing direction.
+            anchor = { id: following.id, top: following.top };
+          }
+        }
+      }
       geometry = rows;
       const previous = anchor && rows.find((row) => row.id === anchor?.id);
       // The first virtualized commit can precede its mounted range. Keep the

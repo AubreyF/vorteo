@@ -320,17 +320,28 @@ export function findScrollJumps(frames: ScrollFrame[]) {
     // applied in earlier frames. Locate the reader with this frame's scroll,
     // bounded by recent input. Growth below it can move the old anchor without
     // moving the reading line.
-    const readerFollowsInput =
-      intendedRow &&
-      currentRows.has(intendedRow.id) &&
-      Math.abs(currentRows.get(intendedRow.id)!.top - intendedRow.top - availableScroll) <= 32;
-    const enteredRowGrowth = readerFollowsInput
-      ? previous.rows.reduce((growth, row) => {
+    const reader = intendedRow && currentRows.get(intendedRow.id);
+    let enteredRowGrowth = 0;
+    if (intendedRow && reader) {
+      const readerMovement = reader.top - intendedRow.top;
+      const followsScroll = Math.abs(readerMovement - availableScroll) <= 32;
+      // Measurements above the reader can add a scrollTop correction to this
+      // frame's wheel movement without changing the reader's viewport motion.
+      const frameWheelInput = Math.min(
+        current.wheelTotal - previous.wheelTotal,
+        previous.scrollTop,
+      );
+      const followsNewInput =
+        frameWheelInput > 0 && Math.abs(readerMovement - frameWheelInput) <= 32;
+      const readerFollowsInput = followsScroll || followsNewInput;
+      if (readerFollowsInput) {
+        enteredRowGrowth = previous.rows.reduce((growth, row) => {
           if (row.top < intendedRow.top || row.top >= before.top) return growth;
           const height = currentRows.get(row.id)?.height ?? row.height;
           return growth + Math.max(0, height - row.height);
-        }, 0)
-      : 0;
+        }, 0);
+      }
+    }
     const excessForward = movement > wheelBudget + enteredRowGrowth + 32;
     // Upward wheel input moves the same text DOWN the viewport. A negative move
     // is a reversal, independent of legitimate scrollTop compensation on prepend.

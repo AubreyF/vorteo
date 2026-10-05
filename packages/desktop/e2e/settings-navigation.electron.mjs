@@ -5,8 +5,8 @@ export async function openSettings(page) {
     )
     .first()
     .waitFor({ state: "visible", timeout: 90_000 });
-  const overflow = page.getByTestId("sidebar-footer-overflow");
-  if (await overflow.isVisible()) await overflow.click();
-  await page.locator('[data-testid="sidebar-settings"]:visible').click();
+  const settings = page.locator('[data-testid="sidebar-settings"]:visible');
+  if (!(await settings.isVisible())) await page.getByTestId("sidebar-footer-overflow").click();
+  await settings.click();
   await page.locator('[data-testid="settings-sidebar"]:visible').waitFor({ state: "visible" });
 }
