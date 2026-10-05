@@ -54,3 +54,9 @@ condition = "AND"
 commits = ["fee0f4fd285d2549ddad8d265fd4df69d1740bd0"]
 paths = ['''^packages/web/REALTIME_API_CONFIGURATION\.md$''']
 description = "Pre-existing upstream example address; only this historical file and commit"
+
+[[rules.allowlists]]
+condition = "AND"
+commits = ["acaafbfdd175f70efa201c2e9a8f926ecd36a8fa"]
+paths = ['''^scroll-regression/QA\.md$''']
+description = "Pre-existing upstream QA address; only this historical file and commit"
