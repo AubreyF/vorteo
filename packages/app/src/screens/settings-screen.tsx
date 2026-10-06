@@ -1,3 +1,4 @@
+import { EnvironmentsSettingsPage } from "./settings/environments-page";
 import { SkillLibraryContent } from "@/agent-skills/library";
 import { InstallationControls, InstallationRestartBanner } from "@/execution-installation/panel";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
@@ -1193,13 +1194,7 @@ export default function SettingsScreen({
     }
     if (view.kind === "section") {
       if (isInstallationSettingsSection(view.section)) {
-        return (
-          <InstallationSettingsContent
-            section={view.section}
-            onHostRemoved={handleHostRemoved}
-            onAddHost={handleAddHost}
-          />
-        );
+        return <InstallationSettingsContent section={view.section} onAddHost={handleAddHost} />;
       }
       const item = SIDEBAR_SECTION_ITEMS.find((candidate) => candidate.id === view.section);
       if (!item || !isSectionAvailable(item, isDesktopApp)) return null;
@@ -1244,6 +1239,19 @@ export default function SettingsScreen({
       </View>
     );
   }
+
+  const detailPage =
+    view.kind === "section" && view.section === "environments" ? (
+      <EnvironmentsSettingsPage onBack={handleBackFromDetail} onHostRemoved={handleHostRemoved} />
+    ) : (
+      <PageLayout
+        title={detailTitle}
+        titleTestID="settings-detail-header-title"
+        onBack={handleBackFromDetail}
+      >
+        {content}
+      </PageLayout>
+    );
 
   const addHostModals = (
     <>
@@ -1300,9 +1308,7 @@ export default function SettingsScreen({
   if (isCompactLayout) {
     return (
       <View style={styles.container}>
-        <PageLayout title={detailTitle} onBack={handleBackFromDetail}>
-          {content}
-        </PageLayout>
+        {detailPage}
         <InstallationRestartBanner />
         {addHostModals}
       </View>
@@ -1327,9 +1333,7 @@ export default function SettingsScreen({
         </WindowChromeRegion>
         <WindowChromeRegion corners="top-right">
           <View style={desktopStyles.contentPane} testID="settings-detail-pane">
-            <PageLayout title={detailTitle} titleTestID="settings-detail-header-title">
-              {content}
-            </PageLayout>
+            {detailPage}
           </View>
         </WindowChromeRegion>
       </View>

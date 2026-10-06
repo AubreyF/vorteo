@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.150 - 2026-10-06
+
+### Changed
+
+- Keep environment tabs visible above scrolling settings, showing one environment at a time on desktop and mobile
+
 ## 0.11.0-beta.3.vorteo.149 - 2026-10-06
 
 ### Changed
