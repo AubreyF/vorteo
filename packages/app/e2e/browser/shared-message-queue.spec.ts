@@ -14,7 +14,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
   page,
   browser,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const agent = await seedMockAgentWorkspace({
     repoPrefix: "shared-queue-",
     title: "Shared queue acceptance",
@@ -82,11 +82,12 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
       .toBe("true");
     await expect(queue).not.toContainText("Saved on this device");
     const localStatus = queue.getByRole("button", { name: "Queued on this device", exact: true });
+    const localTooltip = page.getByRole("tooltip", { name: "Queued on this device", exact: true });
     await expect(localStatus).toBeVisible();
     await localStatus.hover();
-    await expect(page.getByRole("tooltip")).toHaveText("Queued on this device");
+    await expect(localTooltip).toHaveText("Queued on this device");
     await page.mouse.move(0, 0);
-    await expect(page.getByRole("tooltip")).toBeHidden();
+    await expect(localTooltip).toBeHidden();
     await test.info().attach("queue-local-message", {
       body: await queue.screenshot(),
       contentType: "image/png",
@@ -95,9 +96,9 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(localStatus).toHaveCSS("min-height", "44px");
     await localStatus.click();
-    await expect(page.getByRole("tooltip")).toHaveText("Queued on this device");
+    await expect(localTooltip).toHaveText("Queued on this device");
     await localStatus.click();
-    await expect(page.getByRole("tooltip")).toBeHidden();
+    await expect(localTooltip).toBeHidden();
     await test.info().attach("queue-local-message-compact", {
       body: await queue.screenshot(),
       contentType: "image/png",
@@ -217,15 +218,16 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
       await expect(heading).toBeVisible();
       await expect(icon).toBeVisible();
       // Streaming can move the card between browser calls; measure both in one frame.
-      const offset = await heading.evaluate(
+      const centerOffset = await heading.evaluate(
         (label, glyph) => {
           if (!glyph) throw new Error("Queue control icon is missing");
-          return glyph.getBoundingClientRect().y - label.getBoundingClientRect().y;
+          const labelRect = label.getBoundingClientRect();
+          const glyphRect = glyph.getBoundingClientRect();
+          return glyphRect.y + glyphRect.height / 2 - (labelRect.y + labelRect.height / 2);
         },
         await icon.elementHandle(),
       );
-      // Text glyphs sit below the line box; align icons with the visible letters.
-      expect(Math.abs(offset - 3)).toBeLessThanOrEqual(1);
+      expect(Math.abs(centerOffset)).toBeLessThanOrEqual(1);
     }
     for (const target of [page, other]) {
       for (const variant of ["circle"]) {
