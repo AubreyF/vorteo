@@ -122,42 +122,42 @@ function LinkedInstallationPanel({
   const active = pending || selected?.status === "approved" || selected?.status === "running";
   return (
     <SettingsSection title="Installation" testID="installation-panel">
-      <View style={settingsStyles.card}>
+      <View style={settingsStyles.card} testID="installation-card">
         <InstallationOwnerAccess model={model} state={state} />
+        {state.error ? (
+          <Text accessibilityRole="alert" style={[styles.textInset, styles.error]}>
+            {state.error}
+          </Text>
+        ) : null}
+        {state.unlocked ? (
+          <>
+            {selected ? (
+              <RestartRequest
+                key={`${selected.id}:${selected.revision}`}
+                job={selected}
+                model={model}
+                busy={state.busy}
+                historical={!active}
+                linked
+              />
+            ) : (
+              <Text accessibilityLiveRegion="polite" style={[styles.textInset, styles.text]}>
+                {state.lastUpdatedAt
+                  ? "This restart request is no longer available."
+                  : "Loading restart request…"}
+              </Text>
+            )}
+            {state.notice ? (
+              <Text accessibilityLiveRegion="polite" style={[styles.textInset, styles.text]}>
+                {state.notice}
+              </Text>
+            ) : null}
+            <Button variant="ghost" onPress={showAll}>
+              All restart requests
+            </Button>
+          </>
+        ) : null}
       </View>
-      {state.error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
-          {state.error}
-        </Text>
-      ) : null}
-      {state.unlocked ? (
-        <>
-          {selected ? (
-            <RestartRequest
-              key={`${selected.id}:${selected.revision}`}
-              job={selected}
-              model={model}
-              busy={state.busy}
-              historical={!active}
-              linked
-            />
-          ) : (
-            <Text accessibilityLiveRegion="polite" style={styles.text}>
-              {state.lastUpdatedAt
-                ? "This restart request is no longer available."
-                : "Loading restart request…"}
-            </Text>
-          )}
-          {state.notice ? (
-            <Text accessibilityLiveRegion="polite" style={styles.text}>
-              {state.notice}
-            </Text>
-          ) : null}
-          <Button variant="ghost" onPress={showAll}>
-            All restart requests
-          </Button>
-        </>
-      ) : null}
     </SettingsSection>
   );
 }
@@ -188,112 +188,82 @@ function InstallationPanel({ model }: { model: InstallationPanelModel }) {
   }
   return (
     <SettingsSection title="Installation" testID="installation-panel">
-      <View style={settingsStyles.card}>
+      <View style={settingsStyles.card} testID="installation-card">
         <InstallationOwnerAccess model={model} state={state} />
-        {state.unlocked
-          ? (["host", "container-daemon"] as const).map((target) => {
-              const job =
-                active.find((candidate) => candidate.target === target) ??
-                history.find((candidate) => candidate.target === target);
-              const badge = job
-                ? restartStatus(job, !activeIds.has(job.id))
-                : {
-                    label: state.lastUpdatedAt ? "No requests" : "Loading",
-                    variant: "muted" as const,
-                  };
-              return (
-                <View
-                  key={target}
-                  style={[styles.cardBody, settingsStyles.rowBorder]}
-                  testID={`installation-status-${target}`}
+        {state.error ? (
+          <Text accessibilityRole="alert" style={[styles.textInset, styles.error]}>
+            {state.error}
+          </Text>
+        ) : null}
+        {state.unlocked ? (
+          <>
+            {active.map((job) => (
+              <RestartRequest
+                key={`${job.id}:${job.revision}`}
+                job={job}
+                model={model}
+                busy={state.busy}
+              />
+            ))}
+            {state.lastUpdatedAt && active.length === 0 ? (
+              <Text style={[styles.textInset, styles.text]}>No pending restart requests</Text>
+            ) : null}
+            {state.notice ? (
+              <Text accessibilityLiveRegion="polite" style={[styles.textInset, styles.text]}>
+                {state.notice}
+              </Text>
+            ) : null}
+            <View style={[styles.cardBody, settingsStyles.rowBorder]}>
+              <View style={styles.requestHeader}>
+                <Button
+                  variant="ghost"
+                  size={controlSize}
+                  onPress={toggleSharing}
+                  {...disclosureProps(sharingVisible)}
+                  testID="installation-sharing-toggle"
                 >
-                  <View style={styles.requestHeader}>
-                    <Text style={settingsStyles.rowTitle}>
-                      {target === "host" ? "Host" : "Dev container"}
-                    </Text>
-                    <StatusBadge {...badge} />
-                  </View>
-                  {job ? (
-                    <Text style={styles.text}>
-                      {job.status === "failed"
-                        ? job.detail
-                        : `Latest request: ${new Date(job.createdAt).toLocaleString()}`}
-                    </Text>
-                  ) : null}
-                </View>
-              );
-            })
-          : null}
-      </View>
-      {state.error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
-          {state.error}
-        </Text>
-      ) : null}
-      {state.unlocked ? (
-        <>
-          {active.map((job) => (
-            <RestartRequest
-              key={`${job.id}:${job.revision}`}
-              job={job}
-              model={model}
-              busy={state.busy}
-            />
-          ))}
-          {state.lastUpdatedAt && active.length === 0 ? (
-            <Text style={styles.text}>No pending restart requests</Text>
-          ) : null}
-          {state.notice ? (
-            <Text accessibilityLiveRegion="polite" style={styles.text}>
-              {state.notice}
-            </Text>
-          ) : null}
-          <View style={styles.requestHeader}>
-            <Button
-              variant="ghost"
-              size={controlSize}
-              onPress={toggleHistory}
-              {...disclosureProps(historyVisible)}
-              testID="restart-history-toggle"
-              disabled={!history.length}
-            >
-              {historyVisible ? "Hide restart history" : `Restart history (${history.length})`}
-            </Button>
-            <View style={styles.actions}>
-              <StatusBadge label={sharingLabel} variant={sharingVariant} />
-              <Button
-                variant="ghost"
-                size={controlSize}
-                onPress={toggleSharing}
-                {...disclosureProps(sharingVisible)}
-                testID="installation-sharing-toggle"
-              >
-                {sharingVisible ? "Hide shared workflows" : "Shared workflows"}
-              </Button>
+                  {sharingVisible ? "Hide shared workflows" : "Shared workflows"}
+                </Button>
+                <StatusBadge label={sharingLabel} variant={sharingVariant} />
+              </View>
+              {sharingVisible ? (
+                <ProfileSharingStatusView
+                  status={state.profileSharing}
+                  model={model}
+                  busy={state.busy}
+                />
+              ) : null}
             </View>
-          </View>
-          {historyVisible
-            ? history
-                .slice(0, 20)
-                .map((job) => (
-                  <RestartRequest
-                    key={`${job.id}:${job.revision}`}
-                    job={job}
-                    model={model}
-                    busy={state.busy}
-                    historical
-                  />
-                ))
-            : null}
-          {sharingVisible ? (
-            <ProfileSharingStatusView
-              status={state.profileSharing}
-              model={model}
-              busy={state.busy}
-            />
-          ) : null}
-        </>
-      ) : null}
+            <View testID="restart-history" style={settingsStyles.rowBorder}>
+              <View style={[styles.cardBody, styles.requestHeader]}>
+                <Button
+                  variant="ghost"
+                  size={controlSize}
+                  onPress={toggleHistory}
+                  {...disclosureProps(historyVisible)}
+                  testID="restart-history-toggle"
+                  disabled={!history.length}
+                >
+                  {historyVisible ? "Hide restart history" : `Restart history (${history.length})`}
+                </Button>
+              </View>
+              {historyVisible
+                ? history
+                    .slice(0, 20)
+                    .map((job) => (
+                      <RestartRequest
+                        key={`${job.id}:${job.revision}`}
+                        job={job}
+                        model={model}
+                        busy={state.busy}
+                        historical
+                      />
+                    ))
+                : null}
+            </View>
+          </>
+        ) : null}
+      </View>
     </SettingsSection>
   );
 }
@@ -419,7 +389,7 @@ function ProfileSharingStatusView({
   if (!status)
     return (
       <SettingsSection title="Shared workflows" flush>
-        <View style={settingsStyles.card}>
+        <View>
           <View style={styles.cardBody}>
             <Text style={settingsStyles.rowTitle}>Waiting for compatible environments</Text>
             <Text style={styles.text}>
@@ -432,7 +402,7 @@ function ProfileSharingStatusView({
     );
   return (
     <SettingsSection title="Shared workflows" flush>
-      <View style={settingsStyles.card}>
+      <View>
         <View style={styles.cardBody}>
           <Text style={styles.text}>
             Workflows, model choices and provider defaults synchronize across environments. Account
@@ -552,7 +522,7 @@ function RestartRequest({
   }, [job, model]);
   return (
     <View
-      style={settingsStyles.card}
+      style={settingsStyles.rowBorder}
       nativeID={`restart-request-${job.id}`}
       testID={`restart-request-${job.id}`}
     >
@@ -775,6 +745,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   passwordInput: { flexGrow: 1, flexBasis: 200 },
+  textInset: { padding: theme.spacing[4] },
   cardBody: { padding: theme.spacing[4], gap: theme.spacing[2] },
   requestHeader: {
     flexDirection: "row",

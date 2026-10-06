@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.156 - 2026-10-06
+
+### Changed
+
+- Keep installation access, restart requests and expandable history in one card without duplicate environment summaries.
+
 ## 0.11.0-beta.3.vorteo.155 - 2026-10-06
 
 ### Changed

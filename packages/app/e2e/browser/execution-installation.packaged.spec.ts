@@ -413,12 +413,19 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   const oldCard = page
     .locator('[data-testid^="restart-request-"]')
     .filter({ hasText: "Maintenance requested six days ago" });
+  const installationCard = page.getByTestId("installation-card");
+  await expect(installationCard).toHaveCount(1);
+  await expect(installationCard.locator('[data-testid^="restart-request-"]')).toHaveCount(1);
+  await expect(page.getByTestId("installation-status-host")).toHaveCount(0);
+  await expect(page.getByTestId("installation-status-container-daemon")).toHaveCount(0);
   await expect(oldCard).toContainText("Approval needed");
   await expect(oldCard).toContainText("Requests do not expire");
   await oldCard.getByRole("button", { name: "Reject", exact: true }).click();
   await expect(page.getByText("No pending restart requests", { exact: true })).toBeVisible();
   await page.getByTestId("restart-history-toggle").click();
   await expect(oldCard).toContainText("Rejected");
+  await expect(installationCard.getByTestId("restart-history")).toContainText("Rejected");
+  await installationCard.screenshot({ path: testInfo.outputPath("installation-history.png") });
   await page.getByTestId("restart-history-toggle").click();
   await page.getByTestId("installation-lock").click();
   await expect(page.getByText("Unlock to view approval status", { exact: false })).toBeVisible();
