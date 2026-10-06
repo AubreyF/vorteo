@@ -69,6 +69,27 @@ test("matching labels and local IDs never merge unverified accounts or discard a
   ]);
   expect(merged.candidates.host).toEqual(merged.candidates.dev);
 });
+test("Dev defaults preserve a restored Host legacy binding used by existing sessions", () => {
+  const restoredHost: ProviderOverrides = {
+    codex: { enabled: true, env: { CODEX_HOME: "/host/legacy" } },
+    ...host,
+  };
+  const container: ProviderOverrides = {
+    codex: { enabled: false, env: { CODEX_HOME: "/dev/legacy" } },
+    ...dev,
+  };
+  const merged = mergeInstallationProviders({
+    host: readInstallationProviders("host", restoredHost),
+    dev: readInstallationProviders("dev", container),
+  });
+  expect(merged.conflicts).toEqual([]);
+  const projectedHost = projectInstallationProviders(merged.candidates.dev, "host", restoredHost);
+  const projectedDev = projectInstallationProviders(merged.candidates.dev, "dev", container);
+  expect(projectedHost.codex).toEqual(restoredHost.codex);
+  expect(projectedDev.codex).toEqual(container.codex);
+  expect(Object.keys(projectedHost)).toEqual(Object.keys(restoredHost));
+  expect(Object.keys(projectedDev)).toEqual(Object.keys(container));
+});
 test("conflicting account policies retain complete candidates for explicit resolution", () => {
   const differing = structuredClone(dev);
   differing["dev-account"].enabled = false;

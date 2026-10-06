@@ -11,7 +11,7 @@ import {
 import { resolvePaseoHome } from "../src/server/paseo-home.js";
 import { daemonLogPath } from "../src/server/daemon-instance.js";
 import { PRIVATE_FILE_MODE } from "../src/server/private-files.js";
-import { loadPersistedConfig } from "../src/server/persisted-config.js";
+import { loadPersistedConfig, readPersistedConfig } from "../src/server/persisted-config.js";
 import { parseControllerLifetimeFd, runSupervisor } from "./supervisor.js";
 import { resolveSupervisorLogFile } from "./supervisor-log-config.js";
 
@@ -98,6 +98,11 @@ function resolvePackagedNodeEntrypointRunnerPath(currentScriptPath: string): str
 }
 
 async function main(): Promise<void> {
+  if (process.env.PASEO_VALIDATE_STARTUP === "1") {
+    readPersistedConfig(resolvePaseoHome(process.env));
+    resolveWorkerEntry();
+    return;
+  }
   const controllerLifetimeFd = parseControllerLifetimeFd(process.env.PASEO_CONTROLLER_LIFETIME_FD);
   const config = parseConfig(process.argv.slice(2));
   const workerEntry = config.devMode ? resolveDevWorkerEntry() : resolveWorkerEntry();
@@ -206,6 +211,16 @@ function failStartup(detail: string, summary: string): never {
 }
 
 void main().catch((error) => {
+  if (process.env.PASEO_VALIDATE_STARTUP === "1") {
+    const message = error instanceof Error ? error.message : "Startup validation failed";
+    const fields = [...message.matchAll(/^  - ([a-zA-Z0-9_.-]+):/gm)].map((match) => match[1]);
+    process.stderr.write(
+      fields.length
+        ? `Invalid configuration fields: ${fields.join(", ")}`
+        : "Startup validation failed. Check configuration JSON, file access and release entrypoint.",
+    );
+    process.exit(1);
+  }
   if (error instanceof Error) failStartup(error.stack ?? error.message, error.message);
   failStartup(String(error), String(error));
 });

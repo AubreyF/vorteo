@@ -1,6 +1,9 @@
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import { createInstallationRestartExecutor } from "./daemon.js";
+import { createInstallationRestartExecutor, validateHostStartup } from "./daemon.js";
 import type { InstallationConfig } from "./config.js";
 import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal } from "./restarts.js";
@@ -291,4 +294,53 @@ test("an unreachable target waits without blocking another target; cancellation 
   await draining;
   expect(calls).toEqual(["container-daemon"]);
   expect(queue.list()[0]?.status).toBe("rejected");
+});
+
+test("host preflight refuses a failing release before connecting or dispatching", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "restart-preflight-"));
+  const entrypoint = path.join(root, "validator.mjs");
+  await writeFile(
+    entrypoint,
+    'process.stderr.write("Invalid configuration fields: agents.providers.retired.extends"); process.exit(1);',
+  );
+  const config: InstallationConfig = {
+    public: {
+      version: 1,
+      installationId: "00000000-0000-4000-8000-000000000001",
+      origin: "https://installation.example",
+      environments: [
+        { kind: "host", serverId: "host", endpoint: "host.example", useTls: true },
+        { kind: "container", serverId: "container", endpoint: "container.example", useTls: true },
+      ],
+    },
+    listenPort: 6770,
+    webDistDir: root,
+    stateDir: root,
+    ownerPasswordHash: "$2-test",
+    hostAgentTokenHash: "0".repeat(64),
+    containerAgentTokenHash: "1".repeat(64),
+    container: { endpoint: "127.0.0.1:6768", password: "container-test" },
+    host: {
+      endpoint: "127.0.0.1:6771",
+      password: "host-test",
+      launchdService: "gui/501/local.vorteo.test.host",
+      startupValidation: { node: process.execPath, entrypoint, home: root },
+    },
+  };
+  const connect = vi.spyOn(DaemonClient.prototype, "connect");
+  try {
+    await expect(createInstallationRestartExecutor(config).restart("host")).rejects.toThrow(
+      "No restart was dispatched. Invalid fields: agents.providers.retired.extends.",
+    );
+    expect(connect).not.toHaveBeenCalled();
+    await writeFile(entrypoint, 'process.stderr.write("private-value"); process.exit(1);');
+    await expect(validateHostStartup(config)).rejects.toThrow(
+      "Repair configuration or restore a validated backup",
+    );
+    await writeFile(entrypoint, "process.exit(0);");
+    await expect(validateHostStartup(config)).resolves.toBeUndefined();
+  } finally {
+    connect.mockRestore();
+    await rm(root, { recursive: true, force: true });
+  }
 });
