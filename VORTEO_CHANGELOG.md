@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.147 - 2026-10-06
+
+### Fixed
+
+- Keep worker worktrees with independent follow-ups under their originating project without hiding tasks, terminals or running scripts
+- Fold unused inherited script definitions beneath the originating task instead of retaining duplicate worker projects
+
 ## 0.11.0-beta.3.vorteo.146 - 2026-10-06
 
 ### Fixed
