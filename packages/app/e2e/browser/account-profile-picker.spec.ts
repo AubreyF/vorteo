@@ -38,7 +38,9 @@ test("profile cards use border selection, a separate activation action, and comp
     await setVortonMode(page, true);
     await expect(page.getByTestId("agent-preset-selector")).toContainText("Choose profile");
     await page.getByTestId("agent-preset-selector").click();
-    await expect(page.getByText("Choose profile", { exact: true })).toBeVisible();
+    await expect(
+      page.getByTestId("account-preset-menu").getByText("Choose profile", { exact: true }),
+    ).toBeVisible();
     await expect(page.getByTestId("preset-environment-card")).toBeVisible();
     await expect(page.getByTestId("preset-account-mock")).toHaveCount(1);
     const environmentTile = page
@@ -50,6 +52,7 @@ test("profile cards use border selection, a separate activation action, and comp
     const accountRadius = await page
       .getByTestId("preset-account-mock")
       .evaluate((element) => getComputedStyle(element).borderRadius);
+    expect(accountRadius).not.toBe("0px");
     await expect(environmentTile).toHaveCSS("border-radius", accountRadius);
     await expect(page.getByTestId("shared-model-trigger")).toHaveCount(0);
     await expect(page.getByTestId("shared-thinking-trigger")).toHaveCount(0);
@@ -60,6 +63,7 @@ test("profile cards use border selection, a separate activation action, and comp
     await expect(page.getByTestId("profile-customization-details")).toContainText("Approval Test");
     await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
     const chosenProfile = page.getByTestId("preset-row-shared-workflow/mock/account-ultra");
+    await expect(chosenProfile).toHaveCSS("border-radius", accountRadius);
     await expect(chosenProfile).not.toHaveCSS("border-left-color", "rgba(0, 0, 0, 0)");
     await expect(chosenProfile.locator("svg")).toHaveCount(0);
     await expect(page.getByTestId("preset-use-profile")).toHaveText("Activate Profile");

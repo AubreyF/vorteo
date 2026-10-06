@@ -2,7 +2,7 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
-## 0.11.0-beta.3.vorteo.124 - 2026-10-05
+## 0.11.0-beta.3.vorteo.125 - 2026-10-05
 
 ### Changed
 
@@ -10,6 +10,13 @@ Custom changes to vorteo. Paseo's release history remains in its upstream change
 - Move Activate Profile and Switch to Profile below the scrolling profile card and hide the action for the active selection
 - Remove account search and restore the ghost Manage profiles button
 - Show the selected profile name in the closed chooser instead of always showing Choose profile
+
+## 0.11.0-beta.3.vorteo.124 - 2026-10-05
+
+### Changed
+
+- Keep the selected project when choosing a profile from another environment, without selecting or adding the project again
+- Move a workspace and all its chats to any project while preserving its history, environment and working directory
 
 ## 0.11.0-beta.3.vorteo.123 - 2026-10-05
 

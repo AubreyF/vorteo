@@ -3,7 +3,7 @@ import { WorkspaceDescriptorPayloadSchema } from "@getpaseo/protocol/messages";
 import { createDestinationWorkspace } from "./destination-workspaces";
 import type { NewDestinationWorkspace } from "./destination-workspaces";
 
-test("creates a host workspace using the destination project identity and path", async () => {
+test("creates a host workspace in the original project using the destination directory", async () => {
   const requests: unknown[] = [];
   const workspace = WorkspaceDescriptorPayloadSchema.parse({
     id: "host-workspace",
@@ -17,28 +17,29 @@ test("creates a host workspace using the destination project identity and path",
     activityAt: "2026-10-05T00:00:00Z",
     scripts: [],
   });
+  const memberships: unknown[] = [];
   const result = await createDestinationWorkspace({
     client: {
+      setWorkspaceProject: async (request) => {
+        memberships.push(request);
+      },
       createWorkspace: async (request) => {
         requests.push(request);
         return { workspace, error: null, setupTerminalId: null, requestId: "request" };
       },
     },
-    project: {
-      projectId: "host-project",
-      projectRootPath: "/host/repo",
-      projectKind: "git",
-      projectDisplayName: "Repo",
-      projectKey: "remote:github.com/acme/repo",
-    },
-    checkout: "directory",
+    project: { key: "source-project", name: "Repo" },
+    directory: "/host/repo",
     title: "Host task",
     idempotencyKey: "retry-safe",
   });
   expect(result).toEqual(workspace);
+  expect(memberships).toEqual([
+    { workspaceId: "host-workspace", membership: { key: "source-project", name: "Repo" } },
+  ]);
   expect(requests).toEqual([
     {
-      source: { kind: "directory", projectId: "host-project", path: "/host/repo" },
+      source: { kind: "directory", path: "/host/repo" },
       title: "Host task",
       idempotencyKey: "retry-safe",
     },
@@ -49,6 +50,9 @@ test("keeps a creation retry on the selected environment and reports its failure
   const requests: unknown[] = [];
   const input: NewDestinationWorkspace = {
     client: {
+      setWorkspaceProject: async () => {
+        throw new Error("Must not assign a failed workspace");
+      },
       createWorkspace: async (request) => {
         requests.push(request);
         return {
@@ -59,13 +63,8 @@ test("keeps a creation retry on the selected environment and reports its failure
         };
       },
     },
-    project: {
-      projectId: "destination",
-      projectRootPath: "/destination/repo",
-      projectKind: "git",
-      projectDisplayName: "Repo",
-    },
-    checkout: "worktree",
+    project: { key: "source-project", name: "Repo" },
+    directory: "/destination/repo",
     title: "Task",
     idempotencyKey: "same-request",
   };
@@ -78,33 +77,11 @@ test("keeps a creation retry on the selected environment and reports its failure
   expect(requests).toEqual(
     [0, 1].map(() => ({
       source: {
-        kind: "worktree",
-        projectId: "destination",
-        cwd: "/destination/repo",
-        action: "branch-off",
+        kind: "directory",
+        path: "/destination/repo",
       },
       title: "Task",
       idempotencyKey: "same-request",
     })),
   );
-});
-
-test("rejects a worktree for a directory project without creating anything", async () => {
-  const input: NewDestinationWorkspace = {
-    client: {
-      createWorkspace: async () => {
-        throw new Error("Unexpected creation");
-      },
-    },
-    project: {
-      projectId: "directory",
-      projectRootPath: "/destination/notes",
-      projectKind: "non_git",
-      projectDisplayName: "Notes",
-    },
-    checkout: "worktree",
-    title: "Task",
-    idempotencyKey: "request",
-  };
-  await expect(createDestinationWorkspace(input)).rejects.toThrow("Choose a Git project");
 });

@@ -1,5 +1,7 @@
 import { generateMessageId } from "@/types/stream";
-import { readDestinationWorkspaces } from "./destination-workspaces";
+import { readDestinationWorkspaces, resolveDestinationDirectory } from "./destination-workspaces";
+import { selectWorkspaceStructureProjects } from "@/stores/session-store-hooks/selectors";
+import type { HostProjectListItem } from "@/projects/host-project-model";
 import { generateDraftId } from "@/stores/draft-keys";
 import {
   navigateToWorkspace,
@@ -18,7 +20,6 @@ import type {
   AgentProfile,
   AgentSnapshotPayload,
   WorkspaceDescriptorPayload,
-  WorkspaceProjectDescriptorPayload,
 } from "@getpaseo/protocol/messages";
 import { useTranslation } from "react-i18next";
 import { mergeCreateAgentSelectionPreferences } from "@/create-agent-preferences/preferences";
@@ -39,6 +40,7 @@ import { useAgentProfiles } from "./use-agent-profiles";
 
 /** The draft composer owns profile application as one state transition. */
 export interface DraftAgentProfileControls {
+  project?: HostProjectListItem | null;
   applyProfile: (profile: MaterializedAgentProfile) => void;
 }
 
@@ -83,7 +85,9 @@ export interface AgentProfilePicker {
 interface PendingHandoff {
   source: AgentSnapshotPayload | null;
   destinationServerId?: string;
-  destinationProject?: WorkspaceProjectDescriptorPayload;
+  destinationProject?: NonNullable<WorkspaceDescriptorPayload["projectMembership"]>;
+  destinationDirectory?: string;
+  workspaceName?: string;
   idempotencyKey?: string;
   profile: AgentProfile;
   context: string;
@@ -210,14 +214,16 @@ export function useAgentProfilePicker(
         key: `${handoff.source?.id ?? "draft"}:${handoff.profile.id}:${handoff.destinationServerId ?? serverId}`,
         name: handoff.profile.name,
         destinationServerId: handoff.destinationServerId,
-        initialDestinationProject: handoff.destinationProject,
+        destinationProject: handoff.destinationProject,
+        destinationDirectory: handoff.destinationDirectory,
+        workspaceName: handoff.workspaceName,
         draft: handoff.source === null,
         ...(handoff.source === null
           ? {
               title: `Use ${handoff.profile.name}`,
               confirmLabel: "Open draft",
               description:
-                "Create or choose a workspace in the destination environment. Your original draft and its attachments stay in place.",
+                "Open a thread in this project using the selected environment. Your original draft and its attachments stay in place.",
             }
           : {}),
         initialContext: handoff.context,
@@ -265,18 +271,33 @@ export function useAgentProfilePicker(
           const sourceWorkspace = workspaceId
             ? sessions[serverId]?.workspaces.get(workspaceId)
             : null;
-          const sourceProject = sourceWorkspace
-            ? sessions[serverId]?.projects.get(sourceWorkspace.projectId)
-            : null;
-          let destinationProject: WorkspaceProjectDescriptorPayload | undefined;
           const destinationClient = sessions[destinationServerId]?.client;
-          if (destinationClient && sourceProject?.projectKey) {
-            const projects = (await destinationClient.listProjects()).projects;
-            const matches = projects.filter(
-              (project) => project.projectKey === sourceProject.projectKey,
+          const supportsMembership =
+            sessions[destinationServerId]?.serverInfo?.features?.workspaceProjectMembership;
+          if (!destinationClient) throw new Error("Reconnect to the selected environment.");
+          if (!supportsMembership)
+            throw new Error("Update the selected environment to keep this thread in its project.");
+          const projects = selectWorkspaceStructureProjects(
+            useSessionStore.getState(),
+            Object.keys(sessions),
+          );
+          const draftProject = target.kind === "draft" ? target.controls.project : null;
+          const selectedProject =
+            draftProject ??
+            projects.find((project) =>
+              project.workspaceKeys.includes(`${serverId}:${workspaceId}`),
             );
-            if (matches.length === 1) destinationProject = matches[0];
-          }
+          if (!selectedProject)
+            throw new Error("Select a project before choosing a profile from another environment.");
+          const destinationProject = {
+            key: selectedProject.viewKey,
+            name: selectedProject.projectName,
+          };
+          const destinationDirectory = await resolveDestinationDirectory({
+            client: destinationClient,
+            project: destinationProject,
+            repositoryKey: selectedProject.projectKey,
+          });
           setHandoff({
             source,
             profile,
@@ -284,6 +305,8 @@ export function useAgentProfilePicker(
             serverId,
             destinationServerId,
             destinationProject,
+            destinationDirectory,
+            workspaceName: sourceWorkspace?.name ?? "New workspace",
             idempotencyKey: generateMessageId(),
           });
         } catch (error) {

@@ -66,13 +66,16 @@ export function hostProjectFromWorkspace(input: {
   }
   const canCreate = canCreateWorktreeForProjectKind(input.workspace.projectKind);
   return {
-    viewKey: createProjectViewKey({
-      kind: "placement",
-      serverId: input.serverId,
-      projectId,
-    }),
+    viewKey:
+      input.workspace.projectMembership?.key ??
+      createProjectViewKey({
+        kind: "placement",
+        serverId: input.serverId,
+        projectId,
+      }),
     projectKey: input.workspace.project?.projectKey ?? null,
-    projectName: input.workspace.projectDisplayName || projectId,
+    projectName:
+      input.workspace.projectMembership?.name ?? (input.workspace.projectDisplayName || projectId),
     projectKind: input.workspace.projectKind,
     iconWorkingDir,
     hosts: [

@@ -3117,6 +3117,24 @@ export class DaemonClient {
     return { title: payload.title };
   }
 
+  async setWorkspaceProject(options: {
+    workspaceId: string;
+    membership: Extract<
+      SessionInboundMessage,
+      { type: "workspace.project.set.request" }
+    >["membership"];
+  }): Promise<void> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.project.set.response">({
+        message: {
+          type: "workspace.project.set.request",
+          workspaceId: options.workspaceId,
+          membership: options.membership ?? null,
+        },
+      });
+    if (!payload.accepted) throw new Error(payload.error ?? "Failed to move workspace");
+  }
+
   async setWorkspacePinned(
     workspaceId: string,
     pinned: boolean,

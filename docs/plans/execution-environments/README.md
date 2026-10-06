@@ -16,7 +16,7 @@ New Workspace offers an execution choice: **Dev container** or **Host: full acco
 
 Default new unassigned work to the dev container. Host selection is explicit and remains visible in workspace and terminal context. Confirm the first host activation in the trusted owner interface. Do not silently fall back from an unavailable container to the host. Existing workspaces retain their owning daemon and histories; switching environments creates a new workspace rather than moving a live session.
 
-Use one sidebar project for matching repositories across environments, with the environment chosen per workspace. Keep project placement records and execution state scoped to their owning daemon. The handoff dialog can register a destination project and create a workspace there. Paths are explicitly selected and resolved by the destination daemon. Provider authentication remains local to each daemon; do not copy all container credentials to the host. Existing host credentials may be used only through the provider's normal configuration.
+A project can contain workspaces from any environment or repository. Keep project membership separate from the directory and execution state owned by each daemon. Profile handoffs retain the current project; moving a workspace to another project preserves all its chats and its execution directory. The destination daemon resolves paths. Provider authentication remains local to each daemon; do not copy all container credentials to the host. Existing host credentials may be used only through the provider's normal configuration.
 
 ## Installation and trust boundary
 

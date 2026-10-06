@@ -1,16 +1,8 @@
 import { createDestinationWorkspace } from "./internal/destination-workspaces";
-import { DestinationPicker } from "./destination-picker";
-import {
-  destinationSelectionReady,
-  type DestinationSelection,
-} from "./internal/destination-selection";
 import { generateMessageId } from "@/types/stream";
 import { useHostFeature } from "@/runtime/host-features";
 import { useVortonMode } from "@/vorton-mode";
-import type {
-  WorkspaceDescriptorPayload,
-  WorkspaceProjectDescriptorPayload,
-} from "@getpaseo/protocol/messages";
+import type { WorkspaceDescriptorPayload } from "@getpaseo/protocol/messages";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useCallback, useMemo, useReducer, useState } from "react";
 import { Text, View } from "react-native";
@@ -18,6 +10,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Field, FormTextInput } from "@/components/ui/form-field";
 import { toErrorMessage } from "@/utils/error-messages";
 
 interface HandoffModalProps {
@@ -29,7 +22,9 @@ interface HandoffModalProps {
   initialContext: string;
   onClose: () => void;
   destinationServerId?: string;
-  initialDestinationProject?: WorkspaceProjectDescriptorPayload;
+  destinationProject?: NonNullable<WorkspaceDescriptorPayload["projectMembership"]>;
+  destinationDirectory?: string;
+  workspaceName?: string;
   draft?: boolean;
   onConfirm: (context: string, workspace?: WorkspaceDescriptorPayload) => Promise<void>;
 }
@@ -57,8 +52,10 @@ export function ProfileHandoffModal({
   onClose,
   onConfirm,
   destinationServerId,
-  initialDestinationProject,
-  draft = false,
+  destinationProject,
+  destinationDirectory,
+  workspaceName,
+  draft,
 }: HandoffModalProps) {
   const [state, dispatch] = useReducer(reduce, {
     context: initialContext,
@@ -70,27 +67,24 @@ export function ProfileHandoffModal({
   const receipts = useHostFeature(destinationServerId, "workspaceRequestReceipts");
   const multiplicity = useHostFeature(destinationServerId, "workspaceMultiplicity");
   const vorton = useVortonMode();
-  const canCreate = receipts && multiplicity && vorton;
-  const [selection, setSelection] = useState<DestinationSelection>(() =>
-    canCreate
-      ? {
-          kind: "new",
-          project: initialDestinationProject ?? null,
-          title: "",
-          checkout: "directory",
-        }
-      : { kind: "existing", workspace: null },
-  );
-  const [creationId] = useState(generateMessageId);
-  const [submitted, setSubmitted] = useState(false);
+  const membership = useHostFeature(destinationServerId, "workspaceProjectMembership");
+  const canCreate = receipts && multiplicity && membership && vorton;
+  const [destination, setDestination] = useState(() => ({
+    directory: destinationDirectory ?? "",
+    creationId: generateMessageId(),
+  }));
+  const { directory, creationId } = destination;
+  const editDirectory = useCallback((nextDirectory: string) => {
+    setDestination((current) =>
+      current.directory === nextDirectory
+        ? current
+        : { directory: nextDirectory, creationId: generateMessageId() },
+    );
+  }, []);
   const contextReady = draft || Boolean(state.context.trim());
   const destinationReady =
     !destinationServerId ||
-    Boolean(
-      connected &&
-      destinationSelectionReady(selection) &&
-      (selection.kind === "existing" || canCreate),
-    );
+    Boolean(connected && destinationProject && directory.trim() && canCreate);
   const canSubmit = !state.pending && contextReady && destinationReady;
   const header = useMemo(() => ({ title: title ?? `Continue with ${name}` }), [title, name]);
   const edit = useCallback((context: string) => dispatch({ type: "edit", context }), []);
@@ -100,22 +94,18 @@ export function ProfileHandoffModal({
   const submit = useCallback(() => {
     if (!canSubmit) return;
     dispatch({ type: "submit" });
-    setSubmitted(true);
     void (async () => {
       let workspace: WorkspaceDescriptorPayload | undefined;
       if (destinationServerId) {
         if (!destinationClient) throw new Error("Reconnect to the destination environment");
-        if (selection.kind === "existing") {
-          workspace = selection.workspace ?? undefined;
-        } else if (selection.project) {
-          workspace = await createDestinationWorkspace({
-            client: destinationClient,
-            project: selection.project,
-            checkout: selection.checkout,
-            title: selection.title,
-            idempotencyKey: creationId,
-          });
-        }
+        if (!destinationProject) throw new Error("Project not found.");
+        workspace = await createDestinationWorkspace({
+          client: destinationClient,
+          project: destinationProject,
+          directory: directory.trim(),
+          title: workspaceName ?? "New workspace",
+          idempotencyKey: creationId,
+        });
       }
       await onConfirm(state.context, workspace);
     })().catch((error) => dispatch({ type: "error", error: toErrorMessage(error) }));
@@ -123,7 +113,9 @@ export function ProfileHandoffModal({
     canSubmit,
     destinationClient,
     destinationServerId,
-    selection,
+    destinationProject,
+    directory,
+    workspaceName,
     creationId,
     state.context,
     onConfirm,
@@ -159,12 +151,17 @@ export function ProfileHandoffModal({
           <Alert variant="warning" title="Incomplete handoff" description={warning} />
         ) : null}
         {destinationServerId ? (
-          <DestinationPicker
-            serverId={destinationServerId}
-            selection={selection}
-            onChange={setSelection}
-            disabled={state.pending || submitted}
-          />
+          <View>
+            <Text style={styles.text}>{destinationProject?.name}</Text>
+            <Field label="Working directory">
+              <FormTextInput
+                initialValue={destinationDirectory}
+                onChangeText={editDirectory}
+                editable={!state.pending}
+                testID="preset-destination-directory"
+              />
+            </Field>
+          </View>
         ) : null}
         {!draft ? (
           <>

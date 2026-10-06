@@ -1,6 +1,6 @@
 import { buildHostAgentDetailRoute } from "../../../app/src/utils/host-routes";
 import { expectComposerVisible } from "../support/helpers/composer";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page, type TestInfo } from "@playwright/test";
 import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -373,14 +373,81 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
 });
 
+async function verifyCrossEnvironmentWorkspaceMove(input: {
+  page: Page;
+  testInfo: TestInfo;
+  sourceClient: Awaited<ReturnType<typeof connectInstallationDaemon>>;
+  destinationClient: Awaited<ReturnType<typeof connectInstallationDaemon>>;
+  destinationServerId: string;
+  workspaceId: string;
+  directory: string;
+}) {
+  const { page, sourceClient, destinationClient, workspaceId, directory, testInfo } = input;
+  const targetPath = path.join(root, "Any project");
+  await mkdir(targetPath, { recursive: true });
+  execFileSync("git", ["init", targetPath]);
+  execFileSync("git", [
+    "-C",
+    targetPath,
+    "remote",
+    "add",
+    "origin",
+    "https://github.com/example/any-project.git",
+  ]);
+  await sourceClient.createWorkspace({ source: { kind: "directory", path: targetPath } });
+  const target = (await sourceClient.listProjects()).projects.find(
+    (project) => project.projectRootPath === targetPath,
+  )!;
+  await destinationClient.createAgent({
+    config: { provider: "mock", cwd: directory, title: "Another retained chat" },
+    workspaceId,
+  });
+  const chatIds = async () =>
+    (await destinationClient.fetchAgents()).entries
+      .filter(({ agent }) => agent.workspaceId === workspaceId)
+      .map(({ agent }) => agent.id)
+      .sort();
+  const before = await chatIds();
+  expect(before).toHaveLength(2);
+  if (testInfo.project.name === "phone") await page.getByTestId("menu-button").click();
+  const key = `${input.destinationServerId}:${workspaceId}`;
+  const row = page.getByTestId(`sidebar-workspace-row-${key}`);
+  await expect(row).toBeVisible();
+  if (testInfo.project.name === "desktop") await row.hover();
+  await page.getByTestId(`sidebar-workspace-kebab-${key}`).click();
+  await page.getByTestId(`sidebar-workspace-menu-move-project-${key}`).click();
+  await page.getByTestId("project-move-project").click();
+  await page.getByText(target.projectDisplayName, { exact: true }).last().click();
+  await page.screenshot({ path: testInfo.outputPath("workspace-move-review.png"), fullPage: true });
+  await page.getByTestId("project-move-confirm").click();
+  await expect(page.getByTestId("project-move-modal")).toHaveCount(0);
+  const moved = (await destinationClient.fetchWorkspaces()).entries.find(
+    (item) => item.id === workspaceId,
+  )!;
+  expect(moved.workspaceDirectory).toBe(directory);
+  expect(moved.projectMembership).toEqual({
+    key: target.projectKey,
+    name: target.projectDisplayName,
+  });
+  expect(await chatIds()).toEqual(before);
+  await page.reload();
+  await expectComposerVisible(page);
+  expect(
+    (await destinationClient.fetchWorkspaces()).entries.find((item) => item.id === workspaceId)
+      ?.projectMembership,
+  ).toEqual(moved.projectMembership);
+}
+
 for (const destinationMode of ["existing", "new"] as const) {
-  test(`environment profile selection uses a ${destinationMode} workspace in a shared project`, async ({
+  const sourceKind = destinationMode === "new" ? "container" : "host";
+  const destinationKind = destinationMode === "new" ? "host" : "container";
+  const sourceIndex = destinationMode === "new" ? 0 : 1;
+  const destinationIndex = destinationMode === "new" ? 1 : 0;
+  test(`environment profile selection keeps its project with a ${destinationMode} destination directory`, async ({
     page,
   }, testInfo) => {
-    const sourceKind = destinationMode === "new" ? "container" : "host";
-    const destinationKind = destinationMode === "new" ? "host" : "container";
-    const sourceServerId = daemons[destinationMode === "new" ? 0 : 1]!.serverId;
-    const destinationServerId = daemons[destinationMode === "new" ? 1 : 0]!.serverId;
+    const sourceServerId = daemons[sourceIndex]!.serverId;
+    const destinationServerId = daemons[destinationIndex]!.serverId;
     const sourcePath = path.join(root, `${sourceKind}-${destinationMode}-workspace`);
     const destinationPath = path.join(root, `${destinationKind}-${destinationMode}-workspace`);
     const sourceClient = await connectInstallationDaemon(config, sourceKind);
@@ -425,7 +492,7 @@ for (const destinationMode of ["existing", "new"] as const) {
           "remote",
           "add",
           "origin",
-          `https://github.com/example/shared-${destinationMode}.git`,
+          `https://github.com/example/${destinationMode === "new" ? kind : "shared"}-${destinationMode}.git`,
         ]);
       }
       const { workspace: sourceWorkspace } = await sourceClient.createWorkspace({
@@ -485,38 +552,19 @@ for (const destinationMode of ["existing", "new"] as const) {
       });
       await page.getByTestId("preset-use-profile").click();
       await expect(page.getByTestId("preset-handoff-modal")).toBeVisible();
-      if (destinationMode === "existing")
-        await page.getByTestId("preset-destination-existing").click();
-      await expect(page.getByTestId("preset-handoff-confirm")).toBeDisabled();
+      await expect(page.getByTestId("preset-destination-project")).toHaveCount(0);
+      await expect(page.getByTestId("preset-destination-add-project")).toHaveCount(0);
       await page
         .getByTestId("preset-handoff-context")
-        .fill(
-          "Continue the reviewed task in the destination workspace. Preserve the original chat.",
-        );
+        .fill("Continue this task in the same project. Preserve the original chat.");
+      const directory = page.getByTestId("preset-destination-directory");
       if (destinationMode === "existing") {
-        if (!destinationWorkspace) throw new Error("Missing destination workspace");
-        await page.getByTestId("preset-destination-existing").click();
-        await page.getByTestId("preset-destination-workspace").click();
-        await page
-          .getByText(`${destinationWorkspace.projectDisplayName} / ${destinationWorkspace.name}`, {
-            exact: true,
-          })
-          .click();
+        await expect(directory).toHaveValue(destinationPath);
       } else {
-        await page.getByTestId("preset-destination-add-project").click();
-        await page.getByTestId("add-project-flow-method-directory-search").click();
-        const input = page.getByTestId("add-project-flow-input");
-        const missing = path.join(root, "does-not-exist");
-        await input.fill(missing);
-        await page.getByTestId(`add-project-flow-path-${encodeURIComponent(missing)}`).click();
-        await expect(page.getByTestId("add-project-flow-error")).toBeVisible();
-        await expect(page.getByTestId("preset-handoff-modal")).toBeAttached();
-        await input.fill(destinationPath);
-        await page
-          .getByTestId(`add-project-flow-path-${encodeURIComponent(destinationPath)}`)
-          .click();
-        await expect(page.getByTestId("add-project-flow")).not.toBeVisible();
-        await page.getByTestId("preset-destination-name").fill("Host project task");
+        await directory.fill(path.join(root, "does-not-exist"));
+        await page.getByTestId("preset-handoff-confirm").click();
+        await expect(page.getByTestId("preset-handoff-modal").getByRole("alert")).toBeVisible();
+        await directory.fill(destinationPath);
       }
       await expect(page.getByTestId("preset-handoff-confirm")).toBeEnabled();
       await page.screenshot({
@@ -537,22 +585,35 @@ for (const destinationMode of ["existing", "new"] as const) {
         ({ agent }) => agent.labels?.["paseo:continued-from"] === source.id,
       )!.agent;
       expect(successor.cwd).toBe(destinationPath);
-      if (destinationWorkspace) expect(successor.workspaceId).toBe(destinationWorkspace.id);
+      if (destinationWorkspace) expect(successor.workspaceId).not.toBe(destinationWorkspace.id);
       const sourceProject = (await sourceClient.listProjects()).projects.find(
         (project) => project.projectRootPath === sourcePath,
       )!;
       const destinationProject = (await destinationClient.listProjects()).projects.find(
         (project) => project.projectRootPath === destinationPath,
       )!;
-      expect(destinationProject.projectKey).toBe(sourceProject.projectKey);
+      if (destinationMode === "new")
+        expect(destinationProject.projectKey).not.toBe(sourceProject.projectKey);
       const workspaces = (await destinationClient.fetchWorkspaces()).entries.filter(
         (workspace) => workspace.projectId === destinationProject.projectId,
       );
-      expect(workspaces).toHaveLength(1);
-      expect(workspaces[0]!.id).toBe(successor.workspaceId);
+      expect(workspaces).toHaveLength(destinationWorkspace ? 2 : 1);
+      expect(
+        workspaces.find((workspace) => workspace.id === successor.workspaceId)?.projectMembership,
+      ).toEqual({ key: sourceProject.projectKey, name: sourceProject.projectDisplayName });
       expect(successor.labels?.["paseo:continued-from-server"]).toBe(sourceServerId);
       expect((await sourceClient.fetchAgent(source.id))?.agent.cwd).toBe(sourcePath);
       await expect(page).toHaveURL(new RegExp(`/h/${destinationServerId}/workspace/`));
+      if (destinationMode === "new")
+        await verifyCrossEnvironmentWorkspaceMove({
+          page,
+          testInfo,
+          sourceClient,
+          destinationClient,
+          destinationServerId,
+          workspaceId: successor.workspaceId!,
+          directory: destinationPath,
+        });
     } finally {
       await sourceClient.close();
       await destinationClient.close();

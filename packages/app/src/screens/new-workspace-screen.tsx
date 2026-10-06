@@ -2336,10 +2336,11 @@ export function NewWorkspaceScreen({
       composerState
         ? {
             ...composerState.agentControls,
+            project: selectedProject,
             disabled: isPending,
           }
         : undefined,
-    [composerState, isPending],
+    [composerState, isPending, selectedProject],
   );
 
   const pickerEmptyText =
