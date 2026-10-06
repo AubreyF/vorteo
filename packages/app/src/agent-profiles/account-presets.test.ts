@@ -7,7 +7,7 @@ function row(id: string, provider: string): AgentProfilePickerRow {
 }
 
 describe("account presets", () => {
-  it("follows provider order while preserving profile order within each account", () => {
+  it("sorts accounts by name while preserving profile order within each account", () => {
     const rows = [row("medium", "codex1"), row("other", "codex2"), row("ultra", "codex1")];
     const entries = ["codex2", "codex1"].map((provider) => ({
       provider,
@@ -15,10 +15,31 @@ describe("account presets", () => {
       enabled: true,
     }));
     expect(accountPresets({ rows, definitions: [], entries, query: "" })).toEqual([
-      { provider: "codex2", label: "codex2", rows: [rows[1]] },
       { provider: "codex1", label: "codex1", rows: [rows[0], rows[2]] },
+      { provider: "codex2", label: "codex2", rows: [rows[1]] },
     ]);
   });
+  it("keeps natural account order across environments with different IDs and registration order", () => {
+    const labels = ["Pi", "Codex 10", "Codex 2", "Codex 3 (Christian)", "Codex 1"];
+    const ordered = (environment: string, names: string[]) => {
+      const entries = names.map((label, index) => ({
+        provider: `${environment}-${index}`,
+        label,
+        status: "ready" as const,
+        enabled: true,
+      }));
+      return accountPresets({
+        rows: entries.map((entry) => row(entry.provider, entry.provider)),
+        definitions: [],
+        entries,
+        query: "",
+      }).map((group) => group.label);
+    };
+    const expected = ["Codex 1", "Codex 2", "Codex 3 (Christian)", "Codex 10", "Pi"];
+    expect(ordered("host", labels)).toEqual(expected);
+    expect(ordered("container", labels.toReversed())).toEqual(expected);
+  });
+
   it("groups intelligence profiles by account while retaining their order and identity", () => {
     const rows = [row("medium", "codex1"), row("other", "codex2"), row("ultra", "codex1")];
     expect(accountPresets({ rows, definitions: [], entries: undefined, query: "" })).toEqual([

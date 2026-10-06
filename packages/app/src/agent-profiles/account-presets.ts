@@ -3,6 +3,8 @@ import type { AgentProfile } from "@getpaseo/protocol/messages";
 import type { AgentProfilePickerRow } from "./internal/use-agent-profile-picker";
 import { resolveProviderLabel } from "@/utils/provider-definitions";
 
+const accountOrder = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+
 export interface AccountPresets {
   provider: string;
   label: string;
@@ -29,11 +31,12 @@ export function accountPresets(input: {
     group.rows.push(row);
   }
   const query = input.query.trim().toLowerCase();
-  const providerRanks = new Map(input.entries?.map((entry, index) => [entry.provider, index]));
+  // Daemons register the same accounts in different orders. Display names provide
+  // a shared ordering even when environment-local provider IDs differ.
   const orderedGroups = [...groups.values()].sort(
     (left, right) =>
-      (providerRanks.get(left.provider) ?? Number.MAX_SAFE_INTEGER) -
-      (providerRanks.get(right.provider) ?? Number.MAX_SAFE_INTEGER),
+      accountOrder.compare(left.label, right.label) ||
+      accountOrder.compare(left.provider, right.provider),
   );
   return orderedGroups.filter((group) => {
     const models = input.entries?.find((entry) => entry.provider === group.provider)?.models;

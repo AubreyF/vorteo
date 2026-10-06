@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.146 - 2026-10-06
+
+### Fixed
+
+- Keep account names in the same natural order across Host and Dev container, independent of provider registration order
+
 ## 0.11.0-beta.3.vorteo.145 - 2026-10-06
 
 ### Changed
