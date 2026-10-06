@@ -1,4 +1,5 @@
 import { CountBadge } from "@/components/ui/count-badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
 import { isNative } from "@/constants/platform";
@@ -14,6 +15,7 @@ import {
   Pause,
   MoreHorizontal,
   GripVertical,
+  TriangleAlert,
 } from "lucide-react-native";
 import { useVortonTouch } from "@/vorton-touch";
 import {
@@ -368,6 +370,8 @@ function PendingRow({
   control: MessageQueueControl;
   separated: boolean;
 }) {
+  const touch = useVortonTouch();
+  const localStatus = record.dismissed ? "Kept on this device" : "Queued on this device";
   const attachments =
     record.operation.kind === "enqueue" || record.operation.kind === "edit"
       ? [...record.operation.attachments, ...record.localAttachments]
@@ -399,18 +403,33 @@ function PendingRow({
   }, [record, control]);
   return (
     <View style={[taskCardStyles.item, separated && taskCardStyles.separator]}>
-      <Text style={styles.secondary}>
-        {record.error ? "Could not synchronize" : "Saved on this device"}
-      </Text>
+      {record.error ? <Text style={styles.secondary}>Could not synchronize</Text> : null}
       {record.dismissed ? (
         <Text style={styles.secondary}>Kept locally. This change will not be sent.</Text>
       ) : null}
       <View style={styles.summary}>
+        <Tooltip enabledOnDesktop enabledOnMobile>
+          <TooltipTrigger
+            accessibilityRole="button"
+            accessibilityLabel={localStatus}
+            style={[styles.localStatus, touch && styles.touch]}
+          >
+            <ThemedWarning size={14} uniProps={warningIconMapping} />
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <Text style={styles.tooltipText}>{localStatus}</Text>
+          </TooltipContent>
+        </Tooltip>
         <QueueAttachmentSummary
           count={attachments.length}
           hasMedia={attachments.some((attachment) => attachment.kind === "image")}
         />
-        <Text selectable style={[taskCardStyles.rowText, styles.summaryText]}>
+        <Text
+          selectable
+          style={[taskCardStyles.rowText, styles.summaryText]}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+        >
           {describePendingChange(record)}
         </Text>
       </View>
@@ -729,13 +748,22 @@ function QueuePrimaryActions({
 }
 
 const ThemedGrip = withUnistyles(GripVertical);
+const ThemedWarning = withUnistyles(TriangleAlert);
 const ThemedMore = withUnistyles(MoreHorizontal);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const warningIconMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
 
 const styles = StyleSheet.create((theme) => ({
   row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: theme.spacing[1] },
   summary: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
   summaryText: { flex: 1, minWidth: 0 },
+  localStatus: {
+    width: 24,
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tooltipText: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   heading: {
     flex: 1,
   },
