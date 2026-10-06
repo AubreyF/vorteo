@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.122 - 2026-10-05
+
+### Changed
+
+- Choose Host or Dev container in the profile switcher without a duplicate dropdown above the New workspace composer
+
 ## 0.11.0-beta.3.vorteo.121 - 2026-10-05
 
 ### Fixed
