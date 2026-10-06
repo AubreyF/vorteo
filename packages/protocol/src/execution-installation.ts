@@ -17,6 +17,7 @@ export const ExecutionInstallationSchema = z.strictObject({
   version: z.literal(1),
   installationId: z.string().uuid(),
   profileSharing: z.boolean().optional(),
+  idleRestarts: z.boolean().optional(),
   origin: z.url(),
   environments: z.array(InstallationEnvironmentSchema).length(2),
 });
@@ -35,8 +36,26 @@ export const RestartTargetSchema = z.enum(["host", "container-daemon"]);
 export const RestartRequestSchema = z.strictObject({
   target: RestartTargetSchema,
   reason: z.string().trim().min(1).max(2000),
+  requester: z.string().trim().min(1).max(200).optional(),
 });
 export type RestartRequest = z.infer<typeof RestartRequestSchema>;
+
+export const RestartSummarySchema = z.object({
+  requested: z.number().int().nonnegative(),
+  queued: z.number().int().nonnegative(),
+  running: z.number().int().nonnegative(),
+});
+export type RestartSummary = z.infer<typeof RestartSummarySchema>;
+
+export const RestartImpactSchema = z.object({
+  target: RestartTargetSchema,
+  checkedAt: z.string().datetime(),
+  agents: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
+  pendingStarts: z.number().int().nonnegative(),
+  idleRestartSupported: z.boolean(),
+  error: z.string().nullable(),
+});
+export type RestartImpact = z.infer<typeof RestartImpactSchema>;
 
 export const RestartJobSchema = RestartRequestSchema.extend({
   id: z.string().uuid(),
@@ -46,12 +65,15 @@ export const RestartJobSchema = RestartRequestSchema.extend({
   expiresAt: z.string().datetime(),
   status: z.enum(["pending", "approved", "running", "succeeded", "failed", "rejected"]),
   detail: z.string(),
+  whenIdle: z.boolean().optional(),
+  approvedAt: z.string().datetime().optional(),
+  impact: RestartImpactSchema.optional(),
 });
 export type RestartJob = z.infer<typeof RestartJobSchema>;
 
 export const RestartDecisionSchema = z.strictObject({
   revision: z.string().uuid(),
-  decision: z.enum(["approve", "reject"]),
+  decision: z.enum(["approve", "reject", "approve-when-idle", "cancel"]),
 });
 
 export const EXECUTION_ENVIRONMENT_LABELS: Record<ExecutionEnvironmentKind, string> = {

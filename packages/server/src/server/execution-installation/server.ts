@@ -10,6 +10,7 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import {
   RestartJobSchema,
+  type RestartJob,
   RestartRequestSchema,
   RestartDecisionSchema,
 } from "@getpaseo/protocol/execution-installation";
@@ -25,6 +26,19 @@ function matchesToken(token: string | null, hash: string): boolean {
   if (!token) return false;
   const actual = createHash("sha256").update(token).digest();
   return timingSafeEqual(actual, Buffer.from(hash, "hex"));
+}
+
+// COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
+function restartReply(job: RestartJob, details: boolean) {
+  if (details) return job;
+  const {
+    whenIdle: _whenIdle,
+    approvedAt: _approvedAt,
+    impact: _impact,
+    requester: _requester,
+    ...legacy
+  } = job;
+  return { ...legacy, expiresAt: "9999-12-31T23:59:59.999Z" };
 }
 
 export function createInstallationServer(
@@ -56,6 +70,10 @@ export function createInstallationServer(
     },
     executor,
   );
+  const drainRestarts = () =>
+    restarts
+      .drain()
+      .catch((error) => logger.error({ err: error }, "Installation restart journal failed"));
   const sessions = new OwnerSessions(path.join(config.stateDir, "owner-sessions.json"));
   const secureCookies = new URL(config.public.origin).protocol === "https:";
   const cookieName = secureCookies ? "__Host-vorteo-owner" : "vorteo-owner";
@@ -112,6 +130,16 @@ export function createInstallationServer(
   app.get("/api/installation/health", (_req, res) =>
     res.json({ installationId: config.public.installationId }),
   );
+
+  // Only counts are public. Reasons and task identities require owner access.
+  app.get("/api/installation/restart-summary", (_req, res) => {
+    const jobs = restarts.list();
+    res.json({
+      requested: jobs.filter((job) => job.status === "pending").length,
+      queued: jobs.filter((job) => job.status === "approved").length,
+      running: jobs.filter((job) => job.status === "running").length,
+    });
+  });
 
   // Request-only credentials never authorize login, approval, delegation, or another daemon.
   app.post("/api/installation/restart-requests", (req, res) => {
@@ -248,14 +276,29 @@ export function createInstallationServer(
       .parse(req.body);
     void profiles.resolve(input).then(() => res.json(profiles.status()), next);
   });
-  app.post("/api/installation/owner/restarts/query", (_req, res) => res.json(restarts.list()));
+  app.post("/api/installation/owner/restarts/impact", (_req, res, next) => {
+    void restarts.impacts().then((impacts) => res.json(impacts), next);
+  });
+  app.post("/api/installation/owner/restarts/query", (req, res) => {
+    res.json(restarts.list().map((job) => restartReply(job, req.query.idleRestarts === "1")));
+    void restarts
+      .refreshImpacts()
+      .catch((error) => logger.error({ err: error }, "Restart impact refresh failed"));
+  });
   app.post("/api/installation/owner/restarts", (req, res) =>
-    res.status(201).json(restarts.request(RestartRequestSchema.parse(req.body), "owner")),
+    res
+      .status(201)
+      .json(
+        restartReply(
+          restarts.request(RestartRequestSchema.parse(req.body), "owner"),
+          req.query.idleRestarts === "1",
+        ),
+      ),
   );
   app.post("/api/installation/owner/restarts/:id/decision", (req, res) => {
     const decision = RestartDecisionSchema.parse(req.body);
     const job = restarts.decide(req.params.id, decision.revision, decision.decision);
-    res.json(job);
+    res.json(restartReply(job, req.query.idleRestarts === "1"));
     void restarts
       .drain()
       .catch((error) => logger.error({ err: error }, "Installation restart journal failed"));
@@ -266,7 +309,11 @@ export function createInstallationServer(
       distDir: config.webDistDir,
       label: "Vorteo",
       logger,
-      installation: { ...config.public, profileSharing: true },
+      installation: {
+        ...config.public,
+        profileSharing: true,
+        idleRestarts: Boolean(executor.inspect && executor.restartWhenIdle),
+      },
     }),
   );
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
@@ -281,5 +328,5 @@ export function createInstallationServer(
     logger.error({ err: error }, "Installation request failed");
     res.status(500).json({ error: "Installation request failed" });
   });
-  return app;
+  return Object.assign(app, { drainRestarts });
 }

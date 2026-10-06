@@ -29,8 +29,9 @@ import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 let root: string;
 let origin: string;
 let listener: Server;
+let restartTimer: ReturnType<typeof setInterval>;
 let config: InstallationConfig;
-let expiredRestartId: string;
+let historicalRestartId: string;
 const daemons: IsolatedHostDaemon[] = [];
 const ownerPassword = "installation-browser-owner-password";
 const guestToken = "installation-browser-guest-request-token";
@@ -139,16 +140,16 @@ test.beforeAll(async () => {
   config.listenPort = address.port;
   origin = `http://127.0.0.1:${address.port}`;
   config.public.origin = origin;
-  expiredRestartId = randomUUID();
+  historicalRestartId = randomUUID();
   await writeFile(
     path.join(root, "restart-jobs.json"),
     JSON.stringify([
       {
-        id: expiredRestartId,
+        id: historicalRestartId,
         revision: randomUUID(),
         target: "host",
         requestedBy: "host-agent",
-        reason: "Historical expired maintenance",
+        reason: "Maintenance requested six days ago",
         createdAt: "2020-01-01T00:00:00.000Z",
         expiresAt: "2020-01-01T00:30:00.000Z",
         status: "pending",
@@ -162,6 +163,9 @@ test.beforeAll(async () => {
     pino({ level: "silent" }),
   );
   listener.on("request", app);
+  restartTimer = setInterval(() => {
+    void app.drainRestarts();
+  }, 100);
   for (const kind of ["host", "container"] as const) {
     const client = await connectReadyInstallationDaemon(kind);
     try {
@@ -196,6 +200,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
+  clearInterval(restartTimer);
   if (listener) await new Promise<void>((resolve) => listener.close(() => resolve()));
   for (const daemon of daemons.toReversed()) await daemon.close();
   if (root) await rm(root, { recursive: true, force: true });
@@ -237,7 +242,9 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   });
   await page.getByTestId("installation-password").fill("incorrect");
   await page.getByTestId("installation-unlock").click();
-  await expect(page.getByRole("alert")).toContainText("Incorrect owner password");
+  await expect(page.getByTestId("installation-panel").getByRole("alert")).toContainText(
+    "Incorrect owner password",
+  );
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
@@ -277,13 +284,15 @@ test("owner connects two environments, prepares host drafts, and approves a veri
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
     ).toBe(true);
   }
+  const oldCard = page
+    .locator('[data-testid^="restart-request-"]')
+    .filter({ hasText: "Maintenance requested six days ago" });
+  await expect(oldCard).toContainText("Approval needed");
+  await expect(oldCard).toContainText("Requests do not expire");
+  await oldCard.getByRole("button", { name: "Reject", exact: true }).click();
   await expect(page.getByText("No pending restart requests", { exact: true })).toBeVisible();
-  await expect(page.getByText("Historical expired maintenance", { exact: true })).not.toBeVisible();
   await page.getByTestId("restart-history-toggle").click();
-  await expect(page.getByText("Historical expired maintenance", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("installation-status-host")).toContainText(
-    "Restart request expired",
-  );
+  await expect(oldCard).toContainText("Rejected");
   await page.getByTestId("restart-history-toggle").click();
   await page.getByTestId("installation-lock").click();
   await expect(page.getByText("Unlock to view approval status", { exact: false })).toBeVisible();
@@ -327,6 +336,27 @@ test("owner connects two environments, prepares host drafts, and approves a veri
     environment: "container",
     serverId: daemons[0]!.serverId,
   });
+  const activity = await connectInstallationDaemon(config, "container");
+  const directory = path.join(root, "restart-blocker");
+  await mkdir(directory);
+  const { workspace } = await activity.createWorkspace({
+    source: { kind: "directory", path: directory },
+  });
+  if (!workspace) throw new Error("Missing restart test workspace");
+  const blocker = await activity.createAgent({
+    config: {
+      provider: "mock",
+      cwd: directory,
+      title: "Finish before restart",
+      model: "thirty-minute-stream",
+    },
+    workspaceId: workspace.id,
+    initialPrompt: "Exercise the idle restart queue",
+  });
+  await expect
+    .poll(async () => (await activity.fetchAgent({ agentId: blocker.id }))?.agent.status)
+    .toBe("running");
+  const beforePid = (await activity.getDaemonStatus()).pid;
   const job = RestartJobSchema.parse(
     await (
       await request("restart-requests", guestToken, {
@@ -371,15 +401,21 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await expect(page.getByTestId(`restart-confirmation-${job.id}`)).toHaveCount(0);
   await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("Approval needed");
   await page.getByTestId(`restart-approve-${job.id}`).click();
-  await page.getByTestId(`restart-confirm-${job.id}`).click();
-  await expect(
-    page.getByText("Restart approved. Its progress is shown here.", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("Restarted", {
-    timeout: 150_000,
-  });
+  await expect(card).toContainText("Finish before restart");
+  await page.getByTestId(`restart-queue-${job.id}`).click();
+  await expect(card).toContainText("Queued until idle");
+  await expect(card).toContainText("Waiting 0h");
+  expect((await activity.getDaemonStatus()).pid).toBe(beforePid);
+  const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
+  await expect(banner).toContainText("Queued until idle");
+  await expect(banner).toContainText("Finish before restart");
+  await banner.screenshot({ path: testInfo.outputPath("restart-queued-sidebar.png") });
+  await page.reload();
+  await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("Queued until idle");
+  await activity.cancelAgent(blocker.id);
+  await activity.close();
+  await expect(card).toContainText("Restarted", { timeout: 150_000 });
   await expect(card).toContainText("environment identity verified");
-  await expect(page.getByTestId(`restart-confirm-${job.id}`)).toHaveCount(0);
   await page.getByRole("button", { name: "All restart requests", exact: true }).click();
   await page.getByTestId("restart-history-toggle").click();
   await expect(card).toContainText("environment identity verified");
@@ -387,9 +423,19 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
 });
 
-test("restart links keep expired and missing requests separate from a pending approval", async ({
+test("restart links keep rejected and missing requests separate from a pending approval", async ({
   page,
 }) => {
+  const historical = RestartJobSchema.array()
+    .parse(await (await request("owner/restarts/query", ownerPassword, {})).json())
+    .find((job) => job.id === historicalRestartId);
+  if (!historical) throw new Error("Missing historical restart fixture");
+  if (historical.status === "pending") {
+    await request(`owner/restarts/${historical.id}/decision`, ownerPassword, {
+      revision: historical.revision,
+      decision: "reject",
+    });
+  }
   const pending = RestartJobSchema.parse(
     await (
       await request("restart-requests", hostToken, {
@@ -398,16 +444,18 @@ test("restart links keep expired and missing requests separate from a pending ap
       })
     ).json(),
   );
-  await page.goto(`${origin}/settings/general?installation=1&restart=${expiredRestartId}`);
+  await page.goto(`${origin}/settings/general?installation=1&restart=${historicalRestartId}`);
   await page
     .getByTestId("settings-vorton-mode")
     .getByRole("button", { name: "Vorteo mode", exact: true })
     .click();
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
-  await expect(page.getByTestId(`restart-request-${expiredRestartId}`)).toContainText("expired");
+  await expect(page.getByTestId(`restart-request-${historicalRestartId}`)).toContainText(
+    "Rejected",
+  );
   await expect(page.getByTestId(`restart-request-${pending.id}`)).toHaveCount(0);
-  await expect(page.getByTestId(`restart-confirm-${expiredRestartId}`)).toHaveCount(0);
+  await expect(page.getByTestId(`restart-confirm-${historicalRestartId}`)).toHaveCount(0);
   await page.goto(`${origin}/settings/general?installation=1&restart=${randomUUID()}`);
   await expect(
     page.getByText("This restart request is no longer available.", { exact: true }),
@@ -719,7 +767,10 @@ for (const destinationMode of ["existing", "new"] as const) {
         await directory.fill(path.join(root, "does-not-exist"));
         await page.getByTestId("preset-handoff-confirm").click();
         await expect(
-          page.getByRole("alert").filter({ hasText: "Directory not found:" }),
+          page
+            .getByTestId("installation-panel")
+            .getByRole("alert")
+            .filter({ hasText: "Directory not found:" }),
         ).toBeVisible();
         await directory.fill(destinationPath);
       }

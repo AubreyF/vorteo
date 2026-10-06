@@ -90,6 +90,7 @@ import {
 import { openHostOverview } from "@/navigation/settings-navigation";
 import { UsageSidebarItem, useHasUsageSummary, useOpenUsageScreen } from "@/usage";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
+import { InstallationRestartBanner } from "@/execution-installation/panel";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 
@@ -1086,6 +1087,7 @@ function DesktopSidebar({
           />
         )}
 
+        <InstallationRestartBanner />
         <SidebarCalloutSlot />
 
         {vorton ? (

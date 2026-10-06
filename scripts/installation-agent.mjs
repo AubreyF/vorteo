@@ -7,6 +7,7 @@ const { values, positionals } = parseArgs({
   options: {
     config: { type: "string" },
     target: { type: "string" },
+    requester: { type: "string" },
     "reason-file": { type: "string" },
     "request-file": { type: "string" },
   },
@@ -24,7 +25,11 @@ switch (positionals[0]) {
     if (!values["reason-file"])
       throw new Error("Use --reason-file with the disruption and restart reason");
     resource = "/api/installation/restart-requests";
-    body = { target: values.target, reason: readFileSync(values["reason-file"], "utf8") };
+    body = {
+      target: values.target,
+      reason: readFileSync(values["reason-file"], "utf8"),
+      ...(values.requester ? { requester: values.requester } : {}),
+    };
     break;
   case "restart-status":
     if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");

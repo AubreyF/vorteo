@@ -143,3 +143,27 @@ test("session-capable clients discard the password and restore verified connecti
     vi.unstubAllGlobals();
   }
 });
+
+test("capable installation clients request extended restart details without changing legacy requests", async () => {
+  const calls: string[] = [];
+  const client = new InstallationClient(
+    { ...installation, idleRestarts: true },
+    {
+      request: async (route) => {
+        calls.push(route);
+        if (route === "unlock")
+          return {
+            installationId: installation.installationId,
+            connections: installation.environments.map((environment) =>
+              Object.assign({}, environment, { password: "test-password" }),
+            ),
+          };
+        return [];
+      },
+      register: { installExecutionEnvironments: async () => {} },
+    },
+  );
+  await client.unlock("test-owner");
+  await client.listRestarts();
+  expect(calls).toEqual(["unlock", "restarts/query?idleRestarts=1"]);
+});

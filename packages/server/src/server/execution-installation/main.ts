@@ -16,6 +16,10 @@ const app = createInstallationServer(
   logger,
   profiles,
 );
+const restartTimer = setInterval(() => {
+  void app.drainRestarts();
+}, 2000);
+restartTimer.unref();
 const server = app.listen(config.listenPort, "127.0.0.1", () =>
   logger.info("Installation coordinator ready"),
 );
@@ -25,6 +29,7 @@ server.on("error", (error) => {
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
+    clearInterval(restartTimer);
     stopProfileSynchronization();
     server.close();
   });
