@@ -129,6 +129,7 @@ interface EffectiveWorkspaceStatus {
 
 function projectNameForWorkspace(workspace: WorkspaceDescriptor): string {
   return (
+    workspace.projectMembership?.name ??
     workspace.projectCustomName ??
     workspace.projectDisplayName ??
     projectDisplayNameFromProjectId(workspace.projectId)
@@ -476,6 +477,7 @@ export function shouldShowSidebarHostLabels(projects: SidebarProjectEntry[]): bo
     for (const host of project.hosts) {
       serverIds.add(host.serverId);
     }
+    for (const workspace of project.workspaces) serverIds.add(workspace.serverId);
   }
   return serverIds.size >= 2;
 }

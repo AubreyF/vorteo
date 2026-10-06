@@ -81,8 +81,22 @@ export function buildWorkspaceStructureProjects(input: {
 
   for (const session of input.sessions) {
     for (const workspace of session.workspaces) {
-      const viewKey = viewKeyByServerProjectId.get(session.serverId)?.get(workspace.projectId);
+      const membership = workspace.projectMembership;
+      const viewKey =
+        membership?.key ?? viewKeyByServerProjectId.get(session.serverId)?.get(workspace.projectId);
       if (!viewKey) continue;
+      if (membership && !byProject.has(viewKey)) {
+        byProject.set(viewKey, {
+          viewKey,
+          projectKey: null,
+          projectName: membership.name,
+          hasCustomName: true,
+          projectKind: workspace.projectKind,
+          iconWorkingDir: "",
+          hosts: new Map(),
+          workspaces: [],
+        });
+      }
       byProject.get(viewKey)?.workspaces.push({
         workspaceId: workspace.id,
         workspaceName: workspace.name,

@@ -70,6 +70,46 @@ async function activeWorkspaceIds(): Promise<Set<string>> {
   return new Set(workspaces.entries.map((entry) => entry.id));
 }
 
+test("moving a workspace to a project preserves its directory, identity, and sibling workspace", async () => {
+  const cwd = makeTempDir("workspace-project-membership-");
+  const workspaceId = await createLocalWorkspace(cwd, "Moved task");
+  const siblingId = await createLocalWorkspace(cwd, "Sibling task");
+  const before = (await ctx.client.fetchWorkspaces()).entries.find(
+    (entry) => entry.id === workspaceId,
+  );
+  const membership = { key: "remote:github.com/another/project", name: "Another project" };
+
+  await ctx.client.setWorkspaceProject({ workspaceId, membership });
+  const after = (await ctx.client.fetchWorkspaces()).entries;
+  expect(after.find((entry) => entry.id === workspaceId)).toMatchObject({
+    id: workspaceId,
+    projectId: before?.projectId,
+    workspaceDirectory: cwd,
+    name: "Moved task",
+    projectMembership: membership,
+  });
+  expect(after.find((entry) => entry.id === siblingId)?.projectMembership).toBeUndefined();
+  expect(existsSync(cwd)).toBe(true);
+  await expect(
+    ctx.client.setWorkspaceProject({ workspaceId: "missing", membership }),
+  ).rejects.toThrow("Workspace not found");
+  await ctx.client.setWorkspaceProject({ workspaceId, membership: null });
+  expect(
+    (await ctx.client.fetchWorkspaces()).entries.find((entry) => entry.id === workspaceId)
+      ?.projectMembership,
+  ).toBeNull();
+  await ctx.client.setWorkspaceProject({ workspaceId, membership });
+  if (!before) throw new Error("Expected source workspace");
+  await ctx.client.removeProject(before.projectId);
+  expect((await ctx.client.fetchWorkspaces()).entries.map((entry) => entry.id)).toEqual([
+    workspaceId,
+  ]);
+  expect((await ctx.client.fetchWorkspaces()).entries[0]).toMatchObject({
+    workspaceDirectory: cwd,
+    projectMembership: membership,
+  });
+});
+
 async function activeAgentIds(): Promise<Set<string>> {
   const agents = await ctx.client.fetchAgents();
   return new Set(agents.entries.map((entry) => entry.agent.id));

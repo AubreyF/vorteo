@@ -4,6 +4,7 @@ import {
   AgentStatusSchema,
   AgentTimelineItemPayloadSchema,
   WorkspaceGitHubRuntimePayloadSchema,
+  WorkspaceProjectMembershipSchema,
 } from "@getpaseo/protocol/messages";
 import { AgentProviderSchema } from "@getpaseo/protocol/provider-manifest";
 import type { PluginTimelineData } from "@getpaseo/plugin";
@@ -302,6 +303,7 @@ const WorkspaceGitRuntimeSchema = z
 const StoredWorkspaceSchema = z.strictObject({
   id: z.string(),
   projectId: z.string(),
+  projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
   projectDisplayName: z.string(),
   projectCustomName: z.string().nullable(),
   projectCustomIconRevision: z.string().nullable(),
@@ -702,6 +704,7 @@ function serializeWorkspace(workspace: WorkspaceDescriptor): StoredWorkspace {
   return {
     id: workspace.id,
     projectId: workspace.projectId,
+    projectMembership: workspace.projectMembership,
     projectDisplayName: workspace.projectDisplayName,
     projectCustomName: workspace.projectCustomName ?? null,
     projectCustomIconRevision: workspace.projectCustomIconRevision ?? null,

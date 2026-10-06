@@ -22,6 +22,7 @@ import {
 } from "lucide-react-native";
 import { isWeb } from "@/constants/platform";
 import { useVortonMode } from "@/vorton-mode";
+import { useProjectMoveRequest } from "@/workspace/project-move/request";
 import { useWorkspaceRenameDoubleClick } from "./workspace-rename-press";
 import { getForgePresentation, normalizeForge } from "@/git/forge";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
@@ -156,6 +157,10 @@ function SidebarWorkspaceMenuItems({
   openInFileManagerPath,
 }: SidebarWorkspaceMenuItemsProps & { surface: MenuSurface }): ReactNode {
   const { t } = useTranslation();
+  const vorton = useVortonMode();
+  const moveProject = useCallback(() => {
+    if (serverId && workspaceId) useProjectMoveRequest.getState().open({ serverId, workspaceId });
+  }, [serverId, workspaceId]);
   const archiveTrailing = useMemo(
     () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
     [archiveShortcutKeys],
@@ -195,6 +200,15 @@ function SidebarWorkspaceMenuItems({
           onSelect={onRename}
         >
           {t("sidebar.workspace.actions.rename")}
+        </WorkspaceMenuItem>
+      ) : null}
+      {vorton && serverId && workspaceId ? (
+        <WorkspaceMenuItem
+          surface={surface}
+          testID={`sidebar-workspace-menu-move-project-${workspaceKey}`}
+          onSelect={moveProject}
+        >
+          Move to project
         </WorkspaceMenuItem>
       ) : null}
       {onMarkAsRead ? (

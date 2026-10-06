@@ -25,7 +25,7 @@ export type ProjectRemoveOutcome =
   | { kind: "host_disconnected"; serverIds: string[] }
   | { kind: "failed"; serverIds: string[] };
 
-type ProjectRemoveClient = Pick<DaemonClient, "removeProject">;
+type ProjectRemoveClient = Pick<DaemonClient, "removeProject" | "archiveWorkspace">;
 
 export function getProjectRemoveReadiness(input: {
   project: ProjectRemoveProject;
@@ -64,10 +64,19 @@ export function getCurrentProjectRemoveReadiness(
 
 export async function removeProjectFromHosts(input: {
   targets: readonly ProjectRemoveTarget[];
+  workspaces?: readonly { serverId: string; workspaceId: string }[];
   getClient: (serverId: string) => ProjectRemoveClient | null;
 }): Promise<ProjectRemoveOutcome> {
   const clients: Array<{ serverId: string; projectId: string; client: ProjectRemoveClient }> = [];
   const disconnectedServerIds: string[] = [];
+  const workspaceClients = (input.workspaces ?? []).map((workspace) => ({
+    serverId: workspace.serverId,
+    workspaceId: workspace.workspaceId,
+    client: input.getClient(workspace.serverId),
+  }));
+  for (const workspace of workspaceClients) {
+    if (!workspace.client) disconnectedServerIds.push(workspace.serverId);
+  }
 
   for (const target of input.targets) {
     const client = input.getClient(target.serverId);
@@ -80,6 +89,12 @@ export async function removeProjectFromHosts(input: {
 
   if (disconnectedServerIds.length > 0) {
     return { kind: "host_disconnected", serverIds: disconnectedServerIds };
+  }
+
+  for (const workspace of workspaceClients) {
+    if (!workspace.client) continue;
+    const result = await workspace.client.archiveWorkspace(workspace.workspaceId);
+    if (result.error) return { kind: "failed", serverIds: [workspace.serverId] };
   }
 
   const results = await Promise.allSettled(

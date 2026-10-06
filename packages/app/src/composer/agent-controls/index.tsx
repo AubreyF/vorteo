@@ -137,6 +137,7 @@ interface ControlledAgentControlsProps {
 }
 
 export interface DraftAgentControlsProps {
+  project?: DraftAgentProfileControls["project"];
   selectedProfileId?: string;
   providerDefinitions: AgentProviderDefinition[];
   selectedProvider: AgentProvider | null;
@@ -1897,6 +1898,7 @@ export function DraftAgentControls({
   selectedThinkingOptionId,
   onSelectThinkingOption,
   onApplyAgentProfile,
+  project,
   features,
   onSetFeature,
   onDropdownClose,
@@ -1936,9 +1938,10 @@ export function DraftAgentControls({
       kind: "draft",
       controls: {
         applyProfile: onApplyAgentProfile,
+        project,
       },
     }),
-    [onApplyAgentProfile],
+    [onApplyAgentProfile, project],
   );
   const agentProfiles = useAgentProfilePicker({
     serverId: modelSelectorServerId,

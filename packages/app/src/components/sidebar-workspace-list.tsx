@@ -1,8 +1,8 @@
 import {
-  ProjectRecreationProvider,
+  ProjectMoveProvider,
   ProjectDropTarget,
   useWorkspaceProjectDrop,
-} from "@/workspace/project-recreation/drop-context";
+} from "@/workspace/project-move/drop-context";
 import { SidebarCountBadge } from "@/components/sidebar/sidebar-count-badge";
 import { useSidebarRowDensity } from "@/components/sidebar/use-sidebar-row-density";
 import { useVortonMode } from "@/vorton-mode";
@@ -1801,6 +1801,7 @@ function ProjectBlock({
 
       void removeProjectFromHosts({
         targets: readiness.targets,
+        workspaces: project.workspaces,
         getClient: (serverId) => getHostRuntimeStore().getClient(serverId),
       })
         .then((outcome) => {
@@ -1822,7 +1823,7 @@ function ProjectBlock({
           setIsRemovingProject(false);
         });
     })();
-  }, [isRemovingProject, displayName, t, toast, project.hosts]);
+  }, [isRemovingProject, displayName, t, toast, project.hosts, project.workspaces]);
 
   const handleToggleCollapsed = useCallback(() => {
     onToggleCollapsed(project.viewKey);
@@ -2170,9 +2171,9 @@ function SidebarGroupedModeList({
 
 function ProjectModeList(props: Parameters<typeof ProjectModeListContent>[0]) {
   return (
-    <ProjectRecreationProvider projects={props.projects}>
+    <ProjectMoveProvider projects={props.projects}>
       <ProjectModeListContent {...props} />
-    </ProjectRecreationProvider>
+    </ProjectMoveProvider>
   );
 }
 
