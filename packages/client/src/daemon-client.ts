@@ -3139,6 +3139,22 @@ export class DaemonClient {
     if (!payload.accepted) throw new Error(payload.error ?? "Failed to move workspace");
   }
 
+  async setWorkspaceLifecycle(
+    options: Omit<
+      Extract<SessionInboundMessage, { type: "workspace.lifecycle.set.request" }>,
+      "type" | "requestId"
+    >,
+  ): Promise<void> {
+    if (this.lastServerInfoMessage?.features?.workspaceLifecycle !== true) {
+      throw new Error("Update this host to manage Standing and Protected workspaces.");
+    }
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.lifecycle.set.response">({
+        message: { type: "workspace.lifecycle.set.request", ...options },
+      });
+    if (!payload.accepted) throw new Error(payload.error ?? "Failed to update workspace");
+  }
+
   async setWorkspacePinned(
     workspaceId: string,
     pinned: boolean,

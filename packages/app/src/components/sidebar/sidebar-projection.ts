@@ -1,3 +1,4 @@
+import { splitStandingWorkspaces } from "@/workspace/lifecycle/grouping";
 import { buildStatusGroups } from "@/hooks/sidebar-status-view-model";
 import {
   splitPinnedSidebarGroups,
@@ -68,10 +69,16 @@ export function buildSidebarProjection(input: SidebarProjectionInput): SidebarPr
   }
   if (input.groupMode === "project") {
     sections.push(
-      ...pinnedGroups.unpinnedProjects.map((project) => ({
-        workspaces: project.workspaces,
-        collapsed: input.collapsedProjectKeys.has(project.viewKey),
-      })),
+      ...pinnedGroups.unpinnedProjects.flatMap((project) => {
+        const collapsed = input.collapsedProjectKeys.has(project.viewKey);
+        const groups = splitStandingWorkspaces(project.workspaces, input.workspaceEntriesByKey);
+        const standingCollapsed =
+          collapsed || input.collapsedWorkspaceGroupKeys.has(`standing:${project.viewKey}`);
+        return [
+          { workspaces: groups.work, collapsed },
+          { workspaces: groups.standing, collapsed: standingCollapsed },
+        ];
+      }),
     );
   } else {
     sections.push(

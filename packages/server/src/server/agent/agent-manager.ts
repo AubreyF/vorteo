@@ -362,6 +362,7 @@ export interface CreateAgentOptions {
 export interface AgentManagerOptions {
   getSharedProviderConfig?: () => MutableDaemonConfig;
   installationSettingsReader?: InstallationSettingsReader;
+  assertWorkspaceArchiveAllowed?: (workspaceId: string) => Promise<void>;
   pluginLifecycle?: PluginLifecycle;
   clients?: ProviderClientMap;
   providerDefinitions?: ProviderEnabledMap;
@@ -1191,9 +1192,12 @@ export class AgentManager {
   private readonly getSharedProviderConfig?: () => MutableDaemonConfig;
   private readonly installationSettingsReader?: InstallationSettingsReader;
 
+  private readonly assertWorkspaceArchiveAllowed?: AgentManagerOptions["assertWorkspaceArchiveAllowed"];
+
   constructor(options: AgentManagerOptions) {
     this.getSharedProviderConfig = options.getSharedProviderConfig;
     this.installationSettingsReader = options.installationSettingsReader;
+    this.assertWorkspaceArchiveAllowed = options.assertWorkspaceArchiveAllowed;
     this.now = options.now ?? Date.now;
     this.idFactory = options.idFactory ?? (() => randomUUID());
     this.registry = options.registry;
@@ -2586,6 +2590,8 @@ export class AgentManager {
   }
 
   async archiveAgent(agentId: string): Promise<{ archivedAt: string }> {
+    const agent = this.requireAgent(agentId);
+    if (agent.workspaceId) await this.assertWorkspaceArchiveAllowed?.(agent.workspaceId);
     await this.messageQueueControl?.pause(agentId);
     return this.runLifecycleMutation(agentId, () => this.archiveAgentUnlocked(agentId));
   }
@@ -2595,6 +2601,7 @@ export class AgentManager {
     requestedArchivedAt?: string,
   ): Promise<{ archivedAt: string }> {
     const agent = this.requireAgent(agentId);
+    if (agent.workspaceId) await this.assertWorkspaceArchiveAllowed?.(agent.workspaceId);
     await this.assertControllerSettled(agent);
     if (!this.registry) {
       throw new Error("Agent storage is not configured");
@@ -3161,6 +3168,8 @@ export class AgentManager {
   }
 
   async archiveSnapshot(agentId: string, archivedAt: string): Promise<StoredAgentRecord> {
+    const record = await this.requireRegistry().get(agentId);
+    if (record?.workspaceId) await this.assertWorkspaceArchiveAllowed?.(record.workspaceId);
     await this.messageQueueControl?.pause(agentId);
     return this.runLifecycleMutation(agentId, () =>
       this.archiveSnapshotUnlocked(agentId, archivedAt),
@@ -3186,6 +3195,7 @@ export class AgentManager {
       throw new Error(`Agent not found: ${agentId}`);
     }
 
+    if (record.workspaceId) await this.assertWorkspaceArchiveAllowed?.(record.workspaceId);
     const nextRecord = await this.persistArchivedRecord(record, { archivedAt });
 
     await this.syncNativeArchiveState(record.provider, record.persistence, "archive");

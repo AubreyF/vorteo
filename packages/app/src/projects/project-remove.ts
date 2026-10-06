@@ -1,3 +1,4 @@
+import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { useSessionStore } from "@/stores/session-store";
 import { selectHostFeature } from "@/runtime/host-features";
@@ -62,11 +63,35 @@ export function getCurrentProjectRemoveReadiness(
   });
 }
 
-export async function removeProjectFromHosts(input: {
+interface ProjectRemoveInput {
   targets: readonly ProjectRemoveTarget[];
   workspaces?: readonly { serverId: string; workspaceId: string }[];
   getClient: (serverId: string) => ProjectRemoveClient | null;
-}): Promise<ProjectRemoveOutcome> {
+}
+
+function assertProjectUnprotected(input: ProjectRemoveInput): void {
+  const sessionState = useSessionStore.getState();
+  const protectionError =
+    "This project contains a protected workspace. Remove protection before removing the project.";
+  for (const workspace of input.workspaces ?? []) {
+    if (selectWorkspace(sessionState, workspace.serverId, workspace.workspaceId)?.protected) {
+      throw new Error(protectionError);
+    }
+  }
+  // Project removal also archives native members hidden by sidebar filters.
+  for (const target of input.targets) {
+    const workspaces = sessionState.sessions[target.serverId]?.workspaces.values() ?? [];
+    for (const workspace of workspaces) {
+      const nativeMember = workspace.projectId === target.projectId && !workspace.projectMembership;
+      if (nativeMember && workspace.protected) throw new Error(protectionError);
+    }
+  }
+}
+
+export async function removeProjectFromHosts(
+  input: ProjectRemoveInput,
+): Promise<ProjectRemoveOutcome> {
+  assertProjectUnprotected(input);
   const clients: Array<{ serverId: string; projectId: string; client: ProjectRemoveClient }> = [];
   const disconnectedServerIds: string[] = [];
   const workspaceClients = (input.workspaces ?? []).map((workspace) => ({

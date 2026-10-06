@@ -9361,6 +9361,40 @@ test("acknowledged cancellation settles a pending run before it has a turn id", 
   }
 });
 
+test("workspace protection rejects live and stored chat archives while allowing runtime shutdown", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-workspace-protection-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  let protectedWorkspace = true;
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+    assertWorkspaceArchiveAllowed: async () => {
+      if (protectedWorkspace) throw new Error("Workspace is protected");
+    },
+  });
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: "standing",
+    });
+    await expect(manager.archiveAgent(agent.id)).rejects.toThrow("protected");
+    expect(manager.getAgent(agent.id)).not.toBeNull();
+    expect((await storage.get(agent.id))?.archivedAt).toBeFalsy();
+    await manager.closeAgent(agent.id);
+    await expect(manager.archiveSnapshot(agent.id, new Date().toISOString())).rejects.toThrow(
+      "protected",
+    );
+    expect((await storage.get(agent.id))?.archivedAt).toBeFalsy();
+    protectedWorkspace = false;
+    await manager.archiveSnapshot(agent.id, new Date().toISOString());
+    expect((await storage.get(agent.id))?.archivedAt).toEqual(expect.any(String));
+  } finally {
+    await manager.flush();
+    await storage.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("archiveAgent persists archivedAt and updatedAt before emitting closed state", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-archive-"));
   const storagePath = join(workdir, "agents");

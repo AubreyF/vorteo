@@ -1,4 +1,5 @@
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
+import { assertWorkspaceUnprotected, setWorkspaceLifecycle } from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
 import {
   planProviderRemoval,
@@ -3077,6 +3078,8 @@ export class Session {
         return this.handleWorkspaceTitleSetRequest(msg.workspaceId, msg.title, msg.requestId);
       case "workspace.project.set.request":
         return this.handleWorkspaceProjectSetRequest(msg);
+      case "workspace.lifecycle.set.request":
+        return this.handleWorkspaceLifecycleSetRequest(msg);
       case "workspace.pin.set.request":
         return this.handleWorkspacePinSetRequest(msg.workspaceId, msg.pinned, msg.requestId);
       default:
@@ -3857,6 +3860,11 @@ export class Session {
         .filter((workspace) => !workspace.archivedAt && !workspace.projectMembership)
         .map((workspace) => workspace.workspaceId);
 
+      // Preflight all children before stopping any work in a project removal.
+      for (const workspace of projectWorkspaces) {
+        if (!workspace.archivedAt && !workspace.projectMembership)
+          assertWorkspaceUnprotected(workspace);
+      }
       if (activeWorkspaceIds.length > 0) {
         this.markWorkspaceArchiving(activeWorkspaceIds, new Date().toISOString());
         await this.emitWorkspaceUpdatesForWorkspaceIds(activeWorkspaceIds);
@@ -4086,6 +4094,30 @@ export class Session {
     }
     this.emit({
       type: "workspace.project.set.response",
+      payload: {
+        requestId: msg.requestId,
+        workspaceId: msg.workspaceId,
+        accepted: error === null,
+        error,
+      },
+    });
+    if (error === null) await this.emitWorkspaceUpdatesForWorkspaceIds([msg.workspaceId]);
+  }
+
+  private async handleWorkspaceLifecycleSetRequest(
+    msg: Extract<SessionInboundMessage, { type: "workspace.lifecycle.set.request" }>,
+  ): Promise<void> {
+    let error: string | null = null;
+    try {
+      const updated = await this.workspaceRegistry.update(msg.workspaceId, (workspace) =>
+        setWorkspaceLifecycle(workspace, msg),
+      );
+      if (!updated) error = "Workspace not found";
+    } catch (cause) {
+      error = getErrorMessageOr(cause, "Failed to update workspace");
+    }
+    this.emit({
+      type: "workspace.lifecycle.set.response",
       payload: {
         requestId: msg.requestId,
         workspaceId: msg.workspaceId,
@@ -6161,6 +6193,8 @@ export class Session {
       name: resolveWorkspaceDisplayName(workspace),
       title: workspace.title,
       pinnedAt: workspace.pinnedAt,
+      standing: workspace.standing === true,
+      protected: workspace.protected === true,
       ...(workspace.labels && workspace.labels.length > 0 ? { labels: workspace.labels } : {}),
       archivingAt: null,
       status: "done",
@@ -6253,6 +6287,8 @@ export class Session {
       }),
       title: result.workspace.title,
       pinnedAt: result.workspace.pinnedAt,
+      standing: result.workspace.standing === true,
+      protected: result.workspace.protected === true,
       ...(result.workspace.labels && result.workspace.labels.length > 0
         ? { labels: result.workspace.labels }
         : {}),
@@ -6500,6 +6536,7 @@ export class Session {
         worktreeRoot: workspace.worktreeRoot,
         isPaseoOwnedWorktree: workspace.isPaseoOwnedWorktree,
         mainRepoRoot: workspace.mainRepoRoot,
+        protected: workspace.protected,
       }));
   }
 

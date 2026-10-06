@@ -1,3 +1,4 @@
+import { removeProjectFromHosts } from "@/projects/project-remove";
 import { seedSessionHosts } from "@/test/seed-session";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
@@ -150,7 +151,46 @@ describe("archiveWorkspaceOptimistically", () => {
   });
 });
 
+it.each([true, false])(
+  "preflights project protection before archiving ordinary members (visible: %s)",
+  async (visible) => {
+    const protectedWorkspace = workspace({ protected: true });
+    const ordinary = workspace({ id: "workspace-2" });
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [protectedWorkspace, ordinary]);
+    const archiveWorkspace = vi.fn(async (workspaceId: string) => archivePayload({ workspaceId }));
+    const removeProject = vi.fn(async () => ({ removedWorkspaceIds: [] }));
+    await expect(
+      removeProjectFromHosts({
+        targets: [{ serverId: SERVER_ID, projectId: "project-1" }],
+        workspaces: visible
+          ? [target({ workspaceId: ordinary.id }), target()]
+          : [target({ workspaceId: ordinary.id })],
+        getClient: () => ({ archiveWorkspace, removeProject }),
+      }),
+    ).rejects.toThrow("protected workspace");
+    expect(archiveWorkspace).not.toHaveBeenCalled();
+    expect(removeProject).not.toHaveBeenCalled();
+  },
+);
+
 describe("archiveWorkspacesOptimistically", () => {
+  it("keeps protected workspaces visible and skips their daemon calls in a bulk archive", async () => {
+    const protectedWorkspace = workspace({ protected: true });
+    const ordinary = workspace({ id: "workspace-2" });
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [protectedWorkspace, ordinary]);
+    const archive = vi.fn(async (workspaceId: string) => archivePayload({ workspaceId }));
+    const failures = await archiveWorkspacesOptimistically({
+      getClient: () => createClient(archive),
+      workspaces: [target(), target({ workspaceId: ordinary.id })],
+    });
+    expect(archive).toHaveBeenCalledExactlyOnceWith(ordinary.id);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.workspaceId).toBe(protectedWorkspace.id);
+    expect(storedWorkspace(protectedWorkspace.id)).toEqual(protectedWorkspace);
+    expect(isWorkspaceArchivePending(target())).toBe(false);
+    expect(storedWorkspace(ordinary.id)).toBeUndefined();
+  });
+
   it("returns failures and restores only the workspaces whose archive failed", async () => {
     const first = workspace({ id: "workspace-1" });
     const second = workspace({

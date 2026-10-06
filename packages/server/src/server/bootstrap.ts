@@ -1,3 +1,4 @@
+import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
 import express from "express";
@@ -977,6 +978,10 @@ export async function createPaseoDaemon(
   const initialAgentManagerState = providerSnapshotManager.getAgentManagerProviderState();
   const agentManager = new AgentManager({
     getSharedProviderConfig: () => daemonConfigStore.get(),
+    assertWorkspaceArchiveAllowed: async (workspaceId) => {
+      const workspace = await workspaceRegistry.get(workspaceId);
+      if (workspace) assertWorkspaceUnprotected(workspace);
+    },
     pluginLifecycle: pluginRuntime,
     clients: initialAgentManagerState.clients,
     providerDefinitions: initialAgentManagerState.providerDefinitions,
@@ -1105,6 +1110,7 @@ export async function createPaseoDaemon(
         worktreeRoot: workspace.worktreeRoot,
         isPaseoOwnedWorktree: workspace.isPaseoOwnedWorktree,
         mainRepoRoot: workspace.mainRepoRoot,
+        protected: workspace.protected,
       }));
   };
   const markWorkspaceArchivingExternal = (workspaceIds: Iterable<string>, archivingAt: string) => {
