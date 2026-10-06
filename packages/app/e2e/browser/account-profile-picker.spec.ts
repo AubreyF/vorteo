@@ -66,6 +66,22 @@ test("profile cards use border selection, a separate activation action, and comp
     await expect(chosenProfile).toHaveCSS("border-radius", accountRadius);
     await expect(chosenProfile).not.toHaveCSS("border-left-color", "rgba(0, 0, 0, 0)");
     await expect(chosenProfile.locator("svg")).toHaveCount(0);
+    for (const tile of [
+      environmentTile,
+      page.getByTestId("preset-account-mock"),
+      chosenProfile,
+      page.getByTestId("preset-row-shared-workflow/mock/account-medium"),
+    ]) {
+      await page.mouse.move(0, 0);
+      const restColor = await tile.evaluate((element) => getComputedStyle(element).backgroundColor);
+      const restBounds = await tile.boundingBox();
+      await tile.hover();
+      await expect(tile).not.toHaveCSS("background-color", restColor);
+      expect(await tile.boundingBox()).toEqual(restBounds);
+      await page.mouse.move(0, 0);
+      await expect(tile).toHaveCSS("background-color", restColor);
+    }
+
     await expect(page.getByTestId("preset-use-profile")).toHaveText("Activate Profile");
     await waitForSettledPosition(page.getByTestId("preset-use-profile"));
     const firstProfile = await page

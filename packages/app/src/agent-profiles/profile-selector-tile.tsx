@@ -71,6 +71,9 @@ export function ProfileSelectorTile({
       selectionPlacement="none"
       leadingSlot={leading}
       style={[profileTileStyles.tile, selected && profileTileStyles.selected, style]}
+      interactionStyle={
+        selected ? profileTileStyles.selectedInteraction : profileTileStyles.interaction
+      }
       labelSlot={labelContent}
     />
   );
@@ -78,17 +81,20 @@ export function ProfileSelectorTile({
 
 export const profileTileStyles = StyleSheet.create((theme) => ({
   tile: {
-    height: Math.ceil(theme.fontSize.base * 1.4) * 2 + theme.spacing[2] + theme.spacing[3] * 2 + 2,
-    paddingHorizontal: theme.spacing[3],
+    height: Math.ceil(theme.fontSize.base * 1.25) * 2 + theme.spacing[1] + theme.spacing[3] * 2 + 2,
+    paddingLeft: theme.spacing[3],
+    paddingRight: theme.spacing[1.5],
     paddingVertical: theme.spacing[3],
     borderRadius: theme.borderRadius.xl,
     borderWidth: 1,
     borderColor: "transparent",
   },
   selected: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surface3 },
-  lines: { gap: theme.spacing[2], minWidth: 0 },
+  interaction: { backgroundColor: theme.colors.surface3 },
+  selectedInteraction: { backgroundColor: theme.colors.surface4 },
+  lines: { gap: theme.spacing[1], minWidth: 0 },
   line: {
-    height: Math.ceil(theme.fontSize.base * 1.4),
+    height: Math.ceil(theme.fontSize.base * 1.25),
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
@@ -100,14 +106,14 @@ export const profileTileStyles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.medium,
-    lineHeight: Math.ceil(theme.fontSize.base * 1.4),
+    lineHeight: Math.ceil(theme.fontSize.base * 1.25),
   },
   subtitle: {
     flex: 1,
     minWidth: 0,
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
-    lineHeight: Math.ceil(theme.fontSize.base * 1.4),
+    lineHeight: Math.ceil(theme.fontSize.base * 1.25),
   },
   loading: {
     flexDirection: "row",

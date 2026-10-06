@@ -242,6 +242,8 @@ export interface ComboboxItemProps {
   labelStyle?: StyleProp<TextStyle>;
   labelNumberOfLines?: number;
   style?: StyleProp<ViewStyle>;
+  /** Hover/press styling applied after the custom resting style, except when disabled. */
+  interactionStyle?: StyleProp<ViewStyle>;
   descriptionSlot?: ReactNode;
   description?: string;
   descriptionPlacement?: "inline" | "below";
@@ -266,6 +268,7 @@ export function ComboboxItem({
   labelStyle,
   labelNumberOfLines,
   style,
+  interactionStyle,
   descriptionSlot,
   description,
   descriptionPlacement = "inline",
@@ -309,8 +312,9 @@ export function ComboboxItem({
       active && styles.comboboxItemActive,
       disabled && styles.comboboxItemDisabled,
       style,
+      !disabled && (hovered || pressed) && interactionStyle,
     ],
-    [elevated, active, disabled, style],
+    [elevated, active, disabled, style, interactionStyle],
   );
 
   const itemContentStyle = useMemo(

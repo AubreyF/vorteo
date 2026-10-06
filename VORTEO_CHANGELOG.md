@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.141 - 2026-10-06
+
+### Changed
+
+- Restore hover and pressed feedback on selected and unselected profile chooser tiles
+- Tighten line spacing, retain equal tile heights, and halve the tiles' right padding
+
 ## 0.11.0-beta.3.vorteo.140 - 2026-10-06
 
 ### Fixed

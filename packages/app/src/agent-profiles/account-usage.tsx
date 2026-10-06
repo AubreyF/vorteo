@@ -106,7 +106,7 @@ const styles = StyleSheet.create((theme) => ({
   badge: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1], flexShrink: 0 },
   remaining: {
     fontSize: theme.fontSize.sm,
-    lineHeight: Math.ceil(theme.fontSize.base * 1.4),
+    lineHeight: Math.ceil(theme.fontSize.base * 1.25),
     color: theme.colors.foregroundMuted,
   },
   critical: { color: theme.colors.destructive },
@@ -114,10 +114,10 @@ const styles = StyleSheet.create((theme) => ({
     width: 32,
     height: 4,
     borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.surface4,
+    backgroundColor: theme.colors.foregroundExtraMuted,
     overflow: "hidden",
   },
   fill: { height: "100%", backgroundColor: theme.colors.accent },
   criticalFill: { backgroundColor: theme.colors.destructive },
-  reset: { justifyContent: "center", height: Math.ceil(theme.fontSize.base * 1.4), flexShrink: 0 },
+  reset: { justifyContent: "center", height: Math.ceil(theme.fontSize.base * 1.25), flexShrink: 0 },
 }));
