@@ -289,6 +289,11 @@ async function install(planFile) {
       endpoint: `127.0.0.1:${plan.hostPort}`,
       password: hostPassword,
       launchdService: `gui/${uid}/${name}.host`,
+      startupValidation: {
+        node: process.execPath,
+        entrypoint: path.join(release, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+        home: hostHome,
+      },
     },
     container: { endpoint: `127.0.0.1:${plan.containerPort}`, password: containerPassword },
   };

@@ -58,6 +58,43 @@ export async function connectInstallationDaemon(
   }
 }
 
+export async function validateHostStartup(config: InstallationConfig): Promise<void> {
+  const validation = config.host.startupValidation;
+  if (!validation) return;
+  try {
+    await execFileAsync(validation.node, [validation.entrypoint], {
+      env: { ...process.env, PASEO_HOME: validation.home, PASEO_VALIDATE_STARTUP: "1" },
+      timeout: 15_000,
+      maxBuffer: 8192,
+    });
+  } catch (error) {
+    let fields = "";
+    if (error instanceof Error && "stderr" in error && typeof error.stderr === "string") {
+      const match = error.stderr.match(/^Invalid configuration fields: ([a-zA-Z0-9_., -]+)$/);
+      if (match) fields = ` Invalid fields: ${match[1]}.`;
+    }
+    throw new Error(
+      `Host startup preflight failed. No restart was dispatched.${fields} Repair configuration or restore a validated backup, then request a new restart.`,
+      { cause: error },
+    );
+  }
+}
+
+async function reportRestartTimeout(
+  config: InstallationConfig,
+  target: RestartJob["target"],
+): Promise<never> {
+  if (target === "host") {
+    await validateHostStartup(config);
+    throw new Error(
+      "Host replacement was not ready within two minutes. Startup configuration passed validation. Inspect the host service log for a worker crash, missing dependency, port conflict or identity mismatch. Preserve state and restore a validated launcher if needed, then request a new restart. No restart was replayed.",
+    );
+  }
+  throw new Error(
+    "Dev container replacement was not ready within two minutes. Inspect the existing supervisor log and verify its identity and credentials. Preserve the container and state, then request a new restart. No restart was replayed.",
+  );
+}
+
 export function createInstallationRestartExecutor(config: InstallationConfig): RestartExecutor {
   async function restart(target: RestartJob["target"], whenIdle = false): Promise<string | null> {
     const kind = target === "host" ? "host" : "container";
@@ -131,9 +168,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
         await client?.close();
       }
     }
-    throw new Error(
-      "Replacement was not confirmed within two minutes. Inspect the target before requesting another restart.",
-    );
+    return reportRestartTimeout(config, target);
   }
   return {
     async inspect(target): Promise<RestartImpact> {
@@ -189,10 +224,14 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
       }
     },
     async restart(target) {
+      if (target === "host") await validateHostStartup(config);
       const detail = await restart(target);
       if (detail === null) throw new Error("Restart was not dispatched");
       return detail;
     },
-    restartWhenIdle: (target) => restart(target, true),
+    async restartWhenIdle(target) {
+      if (target === "host") await validateHostStartup(config);
+      return restart(target, true);
+    },
   };
 }

@@ -29,6 +29,13 @@ export const InstallationConfigSchema = z.strictObject({
   containerAgentTokenHash: z.string().regex(/^[a-f0-9]{64}$/),
   host: DaemonConnectionSchema.extend({
     launchdService: z.string().regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+$/),
+    startupValidation: z
+      .strictObject({
+        node: z.string().startsWith("/"),
+        entrypoint: z.string().startsWith("/"),
+        home: z.string().startsWith("/"),
+      })
+      .optional(),
   }),
   container: DaemonConnectionSchema,
 });
