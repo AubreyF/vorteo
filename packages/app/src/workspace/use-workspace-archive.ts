@@ -1,3 +1,5 @@
+import { useSessionStore } from "@/stores/session-store";
+import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -80,6 +82,13 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
 
   const archive = useCallback(() => {
     void (async () => {
+      const workspace = selectWorkspace(useSessionStore.getState(), serverId, workspaceId);
+      if (workspace?.protected) {
+        toast.error(
+          "This workspace is protected. Remove protection from its menu before archiving.",
+        );
+        return;
+      }
       if (workspaceKind === "worktree") {
         const confirmed = await confirmRiskyWorktreeArchive(
           {
@@ -97,6 +106,9 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
       await archiveWorkspaceRecord();
     })();
   }, [
+    serverId,
+    workspaceId,
+    toast,
     aheadOfOrigin,
     archiveWorkspaceRecord,
     diffStat,

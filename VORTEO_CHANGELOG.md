@@ -2,6 +2,14 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.153 - 2026-10-06
+
+### Added
+
+- Mark ongoing workspaces Standing and keep them in a collapsible section within each project.
+- Protect workspaces against accidental workspace, chat, and project archives. Standing enables protection automatically; remove protection explicitly when the work is finished.
+- See a simple Scheduled badge on workspaces targeted by agent schedules, including paused schedules, and open Schedules from the badge.
+
 ## 0.11.0-beta.3.vorteo.152 - 2026-10-06
 
 ### Fixed

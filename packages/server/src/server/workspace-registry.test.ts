@@ -66,6 +66,42 @@ describe("workspace registries", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  test("protected workspaces survive archive attempts and retain protection after reload", async () => {
+    const record = createPersistedWorkspaceRecord({
+      workspaceId: "standing",
+      projectId: "project",
+      cwd: tmpDir,
+      kind: "directory",
+      displayName: "Standing task",
+      createdAt: "2026-10-06T00:00:00.000Z",
+      updatedAt: "2026-10-06T00:00:00.000Z",
+    });
+    await workspaceRegistry.upsert({ ...record, standing: true, protected: true });
+    await expect(workspaceRegistry.archive(record.workspaceId, record.updatedAt)).rejects.toThrow(
+      "protected",
+    );
+    await expect(workspaceRegistry.remove(record.workspaceId)).rejects.toThrow("protected");
+    const reloaded = new FileBackedWorkspaceRegistry(
+      path.join(tmpDir, "projects", "workspaces.json"),
+      logger,
+    );
+    expect(await reloaded.get(record.workspaceId)).toMatchObject({
+      standing: true,
+      protected: true,
+      archivedAt: null,
+    });
+    await workspaceRegistry.update(record.workspaceId, (current) => ({
+      ...current,
+      protected: false,
+    }));
+    await workspaceRegistry.archive(record.workspaceId, record.updatedAt);
+    expect(await workspaceRegistry.get(record.workspaceId)).toMatchObject({
+      standing: true,
+      protected: false,
+      archivedAt: record.updatedAt,
+    });
+  });
+
   test("creates, updates, archives, deletes, and lists project records", async () => {
     await projectRegistry.initialize();
     await projectRegistry.upsert(

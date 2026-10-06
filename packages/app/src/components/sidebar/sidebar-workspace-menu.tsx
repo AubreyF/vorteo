@@ -1,3 +1,4 @@
+import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
 import {
   useCallback,
   useMemo,
@@ -208,6 +209,9 @@ function SidebarWorkspaceMenuItems({
         >
           Move to project
         </WorkspaceMenuItem>
+      ) : null}
+      {serverId && workspaceId ? (
+        <WorkspaceLifecycleMenuItems serverId={serverId} workspaceId={workspaceId} />
       ) : null}
       {onMarkAsRead ? (
         <WorkspaceMenuItem

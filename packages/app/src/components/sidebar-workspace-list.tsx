@@ -1,3 +1,5 @@
+import { splitStandingWorkspaces } from "@/workspace/lifecycle/grouping";
+import { ScheduledWorkspaceProvider } from "@/workspace/lifecycle/scheduled";
 import {
   ProjectMoveProvider,
   ProjectDropTarget,
@@ -1671,12 +1673,30 @@ function ProjectBlock({
     [project.viewKey, workspaceEntriesByKey],
   );
   const showTaskSummary = collapsed;
+  const groups = useMemo(
+    () => splitStandingWorkspaces(project.workspaces, workspaceEntriesByKey),
+    [project.workspaces, workspaceEntriesByKey],
+  );
+  const ordinaryWorkspaces = groups.work;
+  const standingKey = `standing:${project.viewKey}`;
+  const standingCollapsed = useSidebarCollapsedSectionsStore((state) =>
+    state.collapsedWorkspaceGroupKeys.has(standingKey),
+  );
+  const toggleGroupCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.toggleWorkspaceGroupCollapsed,
+  );
+  const toggleStanding = useCallback(
+    () => toggleGroupCollapsed(standingKey),
+    [toggleGroupCollapsed, standingKey],
+  );
+  const standingGroup = useLimitedSidebarGroup(groups.standing);
+
   const {
     visibleItems: visibleWorkspaces,
     expanded: workspacesExpanded,
     canToggle: canToggleWorkspaces,
     toggleExpanded: toggleWorkspacesExpanded,
-  } = useLimitedSidebarGroup(project.workspaces);
+  } = useLimitedSidebarGroup(ordinaryWorkspaces);
   const rowModel = useMemo(
     () =>
       buildSidebarProjectRowModel({
@@ -1854,6 +1874,42 @@ function ProjectBlock({
               onPress={toggleWorkspacesExpanded}
               testID={`sidebar-project-show-more-${project.viewKey}`}
             />
+          ) : null}
+          {groups.standing.length > 0 ? (
+            <>
+              <PinnedSectionHeader
+                title={`Standing · ${groups.standing.length}`}
+                indented
+                testID={`sidebar-standing-section-${project.viewKey}`}
+                collapsed={standingCollapsed}
+                onToggle={toggleStanding}
+              />
+              {!standingCollapsed ? (
+                <>
+                  <DraggableList
+                    testID={`sidebar-standing-list-${project.viewKey}`}
+                    data={standingGroup.visibleItems}
+                    keyExtractor={workspaceKeyExtractor}
+                    renderItem={renderWorkspace}
+                    onDragEnd={handleWorkspaceDragEnd}
+                    extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+                    scrollEnabled={false}
+                    useDragHandle
+                    nestable={useNestable}
+                    simultaneousGestureRef={parentGestureRef}
+                    gestureHostPresented={dragGestureHostActive}
+                    containerStyle={styles.workspaceListContainer}
+                  />
+                  {standingGroup.canToggle ? (
+                    <SidebarGroupToggleRow
+                      expanded={standingGroup.expanded}
+                      onPress={standingGroup.toggleExpanded}
+                      testID={`sidebar-standing-show-more-${project.viewKey}`}
+                    />
+                  ) : null}
+                </>
+              ) : null}
+            </>
           ) : null}
         </>
       );
@@ -2091,7 +2147,7 @@ export function SidebarWorkspaceList({
       />
     );
 
-  return content;
+  return <ScheduledWorkspaceProvider>{content}</ScheduledWorkspaceProvider>;
 }
 
 /**

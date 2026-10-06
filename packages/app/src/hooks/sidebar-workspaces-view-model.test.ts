@@ -1,3 +1,4 @@
+import { splitStandingWorkspaces } from "@/workspace/lifecycle/grouping";
 import { describe, expect, it } from "vitest";
 import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceStructureProject } from "@/projects/workspace-structure";
@@ -1324,5 +1325,28 @@ describe("managed worker sidebar placement", () => {
         sessions: [fixture.session],
       }),
     ).toEqual([]);
+  });
+});
+
+it("keeps standing work separate without inferring Standing from protection or titles", () => {
+  const base = workspaceWithForge(undefined, "https://github.com/acme/repo/pull/42");
+  const standing = createSidebarWorkspaceEntry({
+    serverId: "one",
+    workspace: { ...base, id: "standing", standing: true, protected: true },
+  });
+  const protectedWork = createSidebarWorkspaceEntry({
+    serverId: "one",
+    workspace: { ...base, id: "protected", protected: true, name: "Recurring" },
+  });
+  const ordinary = createSidebarWorkspaceEntry({
+    serverId: "two",
+    workspace: { ...base, id: "standing" },
+  });
+  const entries = new Map(
+    [standing, protectedWork, ordinary].map((entry) => [entry.workspaceKey, entry]),
+  );
+  expect(splitStandingWorkspaces([protectedWork, standing, ordinary], entries)).toEqual({
+    work: [protectedWork, ordinary],
+    standing: [standing],
   });
 });

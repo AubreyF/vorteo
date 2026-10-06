@@ -539,3 +539,31 @@ test("keeps the worktree on disk when a sibling workspace still references it", 
   expect(remaining.has(siblingWorkspaceId)).toBe(true);
   expect(existsSync(worktreeDir)).toBe(true);
 }, 60000);
+
+test("Standing protects workspace and project archives before terminal teardown", async () => {
+  const cwd = makeTempDir("standing-protection-");
+  const workspaceId = await createLocalWorkspace(cwd, "Standing responsibility");
+  const siblingId = await createLocalWorkspace(cwd, "Ordinary work");
+  const terminal = await ctx.client.createTerminal(cwd, "Retained terminal", undefined, {
+    workspaceId,
+  });
+  if (!terminal.terminal) throw new Error("Expected terminal");
+  await ctx.client.setWorkspaceLifecycle({ workspaceId, standing: true });
+  const workspace = (await ctx.client.fetchWorkspaces()).entries.find(
+    (entry) => entry.id === workspaceId,
+  );
+  expect(workspace).toMatchObject({ standing: true, protected: true });
+  if (!workspace) throw new Error("Expected workspace");
+  expect((await ctx.client.archiveWorkspace(workspaceId)).error).toContain("protected");
+  await expect(ctx.client.removeProject(workspace.projectId)).rejects.toThrow("protected");
+  expect(await activeWorkspaceIds()).toEqual(new Set([workspaceId, siblingId]));
+  expect(await terminalIdsForWorkspace(cwd, workspaceId)).toContain(terminal.terminal.id);
+  await ctx.client.setWorkspaceLifecycle({ workspaceId, standing: false });
+  expect((await ctx.client.archiveWorkspace(workspaceId)).error).toContain("protected");
+  await ctx.client.setWorkspaceLifecycle({ workspaceId, protected: false });
+  expect((await ctx.client.archiveWorkspace(workspaceId)).error).toBeNull();
+  expect(await activeWorkspaceIds()).toEqual(new Set([siblingId]));
+  await expect(
+    ctx.client.setWorkspaceLifecycle({ workspaceId: "missing", standing: true }),
+  ).rejects.toThrow("Workspace not found");
+});

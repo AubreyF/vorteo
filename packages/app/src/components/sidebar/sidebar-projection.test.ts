@@ -174,3 +174,18 @@ describe("buildSidebarProjection", () => {
     ]);
   });
 });
+
+it("keeps shortcuts in Standing section order and excludes collapsed standing work", () => {
+  const input = twoProjectInput("project");
+  const standing = makeWorkspace("standing");
+  standing.entry.standing = true;
+  input.workspaceEntriesByKey.set(standing.entry.workspaceKey, standing.entry);
+  input.projects[0].workspaces.unshift(standing.placement);
+  expect(
+    buildSidebarProjection(input).shortcutModel.shortcutTargets.map((w) => w.workspaceId),
+  ).toEqual(["first", "standing", "second"]);
+  input.collapsedWorkspaceGroupKeys.add("standing:project");
+  expect(
+    buildSidebarProjection(input).shortcutModel.shortcutTargets.map((w) => w.workspaceId),
+  ).toEqual(["first", "second"]);
+});

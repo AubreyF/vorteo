@@ -37,6 +37,8 @@ When an older Claude Code version hides newer models, Vorteo shows an update war
 
 - **Move workspaces between projects.** Choose **Move to project** from a workspace’s menu, or drag it onto a project on web and desktop. All its chats move together, preserving their history, environment and working directory. Moved worker workspaces stay in the project you choose instead of regrouping under their parent task. Updated daemons are required. Empty projects stay available in the project sidebar after their workspaces are archived, including when connected to older daemons.
 
+- **Keep ongoing work separate.** Mark a workspace **Standing** to put it in a collapsible Standing section within its project. Standing enables **Protected**, which blocks workspace and chat archives until you remove protection. A **Scheduled** badge identifies workspaces targeted by a schedule, including paused schedules.
+
 - **Read custom release notes.** Open **Settings → General → What's new** for Vorteo and Paseo notes in one timeline, newest first, with a shared Show more control. Vorteo version counters continue across upstream Paseo updates. Custom notes remain available when the upstream feed cannot be reached.
 
 - **Keep your place in long conversations.** Web and desktop timelines preserve the surrounding text while image sizes settle as you scroll through earlier messages.
