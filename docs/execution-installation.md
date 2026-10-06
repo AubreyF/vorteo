@@ -63,6 +63,32 @@ Keep `installation.json`, `coordinator.json`, `owner-password`, logs and generat
 
 `status --root <installation-root>` reports launchd registration separately from authenticated daemon and coordinator readiness. Complete phone and workstation acceptance before describing setup as delivered.
 
+### macOS desktop permissions
+
+Include this check in every native host installation's acceptance. Record whether desktop automation is enabled or intentionally unavailable. Container-only installations do not need these host permissions. A working web interface and full filesystem access do not establish access to the macOS screen or application controls.
+
+Identify the responsible executable before asking the owner to grant access. The installer writes its Node executable into the host supervisor LaunchAgent's `ProgramArguments`. Agents launched through that supervisor can be attributed to **node** by macOS, even when the child provider is inside another application's bundle. Do not choose ChatGPT, CodexCLI, Safari or the terminal from the child process name alone, and do not assume that the current shell's `node` is the installed runtime.
+
+Inspect the installed supervisor plist and confirm attribution after a desktop permission probe. The macOS TCC log's `responsible_path` identifies the executable to show the owner; `requesting` may be a child helper instead:
+
+```sh
+plutil -extract ProgramArguments json -o - /absolute/path/to/host-supervisor.plist
+/usr/bin/log show --last 5m --style compact \
+  --predicate 'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "AUTHREQ_ATTRIBUTION"'
+```
+
+Match the relevant request and process ancestry; unrelated applications also appear in this log. Keep the discovered path and permission evidence in the private installation record. Supply the owner with the exact executable path and the following steps:
+
+1. Open **System Settings → Privacy & Security → Accessibility**, click **+**, then press **Command-Shift-G** in the file picker and paste the executable path. Add and enable it.
+2. Repeat under **Screen & System Audio Recording** (called **Screen Recording** on some macOS versions). The entry may be named **node**.
+3. If the task uses Apple Events, allow its requests to control Safari or System Events. These grants appear separately under **Privacy & Security → Automation**.
+
+These permissions apply to the responsible executable, not an individual agent preset. The owner grants them through macOS; the installer must not edit the TCC database or disable system protections. An executable path or signing identity change can require fresh acceptance after an update.
+
+Verify from an agent launched by the installed host supervisor, rather than an unrelated Terminal session. Check screen-capture and Accessibility permission status, capture a disposable screenshot, and read an application UI element. Remove the test capture after inspection. Record the individual results; a browser screenshot alone does not prove that native Safari or Dock capture works. With no active graphical session, leave desktop acceptance pending even if permissions are enabled.
+
+If macOS requires the responsible service to reopen, preserve active work and use the [owner-approved restart workflow](#restart-and-recovery). Permission setup does not authorize killing or restarting the host daemon. Repeat the probes after the approved restart before marking desktop automation ready.
+
 ## Restart and recovery
 
 Both environments receive the installation-maintenance skill. Agents can submit a reason and target, then observe their request's status. They cannot approve it with their request credential. In General settings, the Installation section contains owner access, a latest-request status row for each environment, and inline restart controls. Pending and running requests remain visible; older history and shared workflows expand in place. Review restart shows the full reason and interruption warning inline, with separate Restart now, Approve restart when idle and Cancel actions. No modal or browser confirmation is used. New requests refresh the section without opening a dialog or moving away from the current task. A direct link to `/settings/general?installation=1` opens the same controls without restoring the last conversation. The installer generates the owner password automatically and saves it in `owner-password` inside the private installation directory on the host. The owner does not choose it during setup. Saved daemon connection credentials do not unlock these controls: owner access approves restarts and resolves shared workflow conflicts. The interface shows the exact recovery file path supplied by the coordinator. Owner access lasts seven days in the current browser and survives reloads through an HttpOnly, SameSite Strict cookie. HTTPS cookies are Secure. Select Lock controls to revoke the session immediately. The server persists token hashes, never the password or raw tokens. The password remains the initial setup and recovery credential. Native agents with full host-account access can read that file; this boundary separates container and daemon credentials from owner approval, not the owner from trusted host processes. Unlocking does not approve a restart. The owner reviews the target, reason and disruption warning and approves that exact request. Requests never expire. The approval queue contains at most one active request per target across all requesters and shows an empty state when no approval is pending. Requests cannot duplicate a target while its restart is approved or running. Restart history is collapsed by default and retains rejected and completed receipts.
