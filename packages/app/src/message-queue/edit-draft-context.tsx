@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useFetchQuery } from "@/data/query";
 import type { QueueItem } from "@getpaseo/protocol/message-queue";
-import { useVortonMode } from "@/vorton-mode";
+
 import { queueEditDraftSession, queueEditDraftStorage } from "./edit-draft-runtime";
 import type { QueueEditDraft } from "./edit-draft";
 
@@ -21,7 +21,6 @@ export function QueueEditDraftProvider({
   agentId: string;
   children: ReactNode;
 }) {
-  const enabled = useVortonMode();
   const query = useFetchQuery<QueueEditDraft[]>({
     dataShape: "value",
     staleTimeMs: 0,
@@ -30,7 +29,7 @@ export function QueueEditDraftProvider({
       (await queueEditDraftStorage.list()).filter(
         (draft) => draft.serverId === serverId && draft.agentId === agentId,
       ),
-    enabled,
+    enabled: true,
     retry: false,
     refetchOnWindowFocus: true,
   });

@@ -580,7 +580,10 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     resolveCallerContext,
     logger,
   } = options;
-  const childLogger = logger.child({ module: "agent", component: "paseo-tool-catalog" });
+  const childLogger = logger.child({
+    module: "agent",
+    component: "paseo-tool-catalog",
+  });
   const callerContext = callerAgentId ? (resolveCallerContext?.(callerAgentId) ?? null) : null;
 
   const parseToolInput = async (tool: PaseoToolDefinition, input: unknown): Promise<unknown> => {
@@ -871,7 +874,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           return false;
         }
       },
-      { message: "provider must be provider or provider/model, for example codex/gpt-5.4" },
+      {
+        message: "provider must be provider or provider/model, for example codex/gpt-5.4",
+      },
     );
   const CreateAgentSettingsInputSchema = z
     .object({
@@ -1250,6 +1255,24 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     });
   }
 
+  async function resolveWorkspaceOwnership(projectId: string | undefined) {
+    if (projectId || !callerAgentId)
+      return { ownerProjectId: projectId, inheritedMembership: undefined };
+    const caller = resolveCallerAgent();
+    const parentWorkspace = caller?.workspaceId
+      ? await options.workspaceRegistry?.get(caller.workspaceId)
+      : null;
+    if (!parentWorkspace || parentWorkspace.archivedAt) {
+      throw new Error(
+        "An active caller workspace is required to inherit project ownership. Supply projectId explicitly.",
+      );
+    }
+    return {
+      ownerProjectId: parentWorkspace.projectId,
+      inheritedMembership: parentWorkspace.projectMembership,
+    };
+  }
+
   registerTool(
     "create_workspace",
     {
@@ -1264,7 +1287,12 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           .describe(
             "Local directory or source checkout. Defaults to your current workspace. Local isolation adopts an existing directory and never creates one.",
           ),
-        projectId: z.string().optional().describe("Existing project id to own the workspace."),
+        projectId: z
+          .string()
+          .optional()
+          .describe(
+            "Existing project id to own the workspace. Defaults to the caller agent's project.",
+          ),
         title: z.string().trim().min(1).optional(),
         mode: z
           .enum(["branch-off", "checkout-branch", "checkout-pr"])
@@ -1312,6 +1340,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       prNumber,
       forge,
     }) => {
+      const { ownerProjectId, inheritedMembership } = await resolveWorkspaceOwnership(projectId);
       let workspace: PersistedWorkspaceRecord;
       if (isolation === "local") {
         const cwd = resolveScopedCwd(path, { required: true });
@@ -1333,7 +1362,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         if (!options.createDirectoryWorkspace) {
           throw new Error("Workspace provisioning is not configured");
         }
-        workspace = await options.createDirectoryWorkspace(cwd, title, projectId);
+        workspace = await options.createDirectoryWorkspace(cwd, title, ownerProjectId);
       } else {
         let cwd =
           path !== undefined || !projectId ? resolveScopedCwd(path, { required: true }) : null;
@@ -1360,7 +1389,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           },
           {
             cwd,
-            ...(projectId ? { projectId } : {}),
+            ...(ownerProjectId ? { projectId: ownerProjectId } : {}),
             ...(worktreeSlug ? { worktreeSlug } : {}),
             ...worktreeTarget,
             ...(title ? { title } : {}),
@@ -1370,6 +1399,12 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           throw result.cause;
         }
         workspace = result.createdWorktree.workspace;
+      }
+
+      if (inheritedMembership) {
+        if (!options.workspaceRegistry) throw new Error("Workspace registry is not configured");
+        workspace = { ...workspace, projectMembership: inheritedMembership };
+        await options.workspaceRegistry.upsert(workspace);
       }
 
       return {
@@ -2349,7 +2384,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       }
       return {
         content: [],
-        structuredContent: ensureValidJson({ scripts: await workspaceScripts.list(workspaceId) }),
+        structuredContent: ensureValidJson({
+          scripts: await workspaceScripts.list(workspaceId),
+        }),
       };
     },
   );
@@ -3199,7 +3236,10 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       const result = await setAgentModeCommand({ agentManager }, { agentId, modeId });
       return {
         content: [],
-        structuredContent: ensureValidJson({ success: true, newMode: result.modeId }),
+        structuredContent: ensureValidJson({
+          success: true,
+          newMode: result.modeId,
+        }),
       };
     },
   );

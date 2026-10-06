@@ -2,11 +2,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardTranslateView } from "@/keyboard/shift";
 import { useMobileComposerLayout } from "@/composer/mobile-layout";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { useVortonMode } from "@/vorton-mode";
+
 import { Keyboard, ScrollView, StyleSheet as RNStyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
-import { ComposerDock } from "@/composer/dock";
+
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
 import invariant from "tiny-invariant";
 import { Composer } from "@/composer";
@@ -138,16 +138,13 @@ function resolveDraftModeId(input: {
 }
 
 function resolveLaunchProfile(
-  vortonMode: boolean,
   autoSubmitConfig: AutoSubmitConfig | null,
   selectedProfileId?: string,
 ) {
-  if (!vortonMode) return undefined;
   return autoSubmitConfig ? autoSubmitConfig.profileId : selectedProfileId;
 }
 
 async function submitDraftCreateRequest(input: {
-  vortonMode: boolean;
   attempt: Pick<DraftCreateAttempt, "clientMessageId" | "goal">;
   draftId: string;
   text: string;
@@ -200,11 +197,7 @@ async function submitDraftCreateRequest(input: {
   });
   const config = buildWorkspaceDraftAgentConfig({
     provider,
-    profileId: resolveLaunchProfile(
-      input.vortonMode,
-      autoSubmitConfig,
-      composerState.selectedProfileId,
-    ),
+    profileId: resolveLaunchProfile(autoSubmitConfig, composerState.selectedProfileId),
     cwd,
     ...modeIdOverride,
     model: autoSubmitConfig?.model ?? (composerState.effectiveModelId || undefined),
@@ -347,7 +340,6 @@ export function WorkspaceDraftAgentTab({
   onOpenWorkspaceFile,
   onOpenImportSheet,
 }: WorkspaceDraftAgentTabProps) {
-  const vortonMode = useVortonMode();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const mobileComposer = useMobileComposerLayout();
@@ -394,9 +386,7 @@ export function WorkspaceDraftAgentTab({
   const draftThinkingOptions = composerState.availableThinkingOptions;
   const draftSelectedThinkingId = composerState.selectedThinkingOptionId;
   const draftSetThinkingOption = composerState.setThinkingOptionFromUser;
-  const draftModeOptions = composerState.modeOptions;
-  const draftSelectedMode = composerState.selectedMode;
-  const draftSetMode = composerState.setModeFromUser;
+
   const draftFeatures = composerState.agentControls.features;
   const draftOnSetFeature = composerState.agentControls.onSetFeature;
 
@@ -518,7 +508,6 @@ export function WorkspaceDraftAgentTab({
       }
       return submitDraftCreateRequest({
         draftId,
-        vortonMode,
         attempt,
         text,
         images,
@@ -563,13 +552,7 @@ export function WorkspaceDraftAgentTab({
         selectedId: draftSelectedThinkingId,
         select: draftSetThinkingOption,
       },
-      modes: vortonMode
-        ? undefined
-        : {
-            options: draftModeOptions,
-            selectedId: draftSelectedMode,
-            select: draftSetMode,
-          },
+      modes: undefined,
       features: {
         list: draftFeatures,
         set: draftOnSetFeature,
@@ -687,10 +670,10 @@ export function WorkspaceDraftAgentTab({
     </View>
   );
 
-  const InputArea = vortonMode ? KeyboardTranslateView : View;
+  const InputArea = KeyboardTranslateView;
   const composer = (
     <InputArea
-      style={[animatedStaticStyles.inputAreaWrapper, vortonMode && inputAreaWrapperStyle]}
+      style={[animatedStaticStyles.inputAreaWrapper, inputAreaWrapperStyle]}
       onLayout={onInputAreaLayout}
     >
       {importPillPress ? (
@@ -704,7 +687,7 @@ export function WorkspaceDraftAgentTab({
         agentId={tabId}
         serverId={serverId}
         workspaceId={workspaceId}
-        externalKeyboardShift={vortonMode}
+        externalKeyboardShift={true}
         onSubmitGoal={handleCreateFromInput}
         isPaneFocused={isPaneFocused}
         onSubmitMessage={handleCreateFromInput}
@@ -741,20 +724,14 @@ function WorkspaceDraftLayout({
 }: {
   children: [ReactNode, ReactNode];
 }) {
-  const vortonMode = useVortonMode();
   return (
     <FileDropZone style={styles.container}>
-      {vortonMode ? (
+      {
         <>
           {content}
           {composer}
         </>
-      ) : (
-        <ComposerDock>
-          {content}
-          {composer}
-        </ComposerDock>
-      )}
+      }
     </FileDropZone>
   );
 }

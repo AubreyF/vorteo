@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { ProviderReconnectControl } from "./reconnect-control";
 import { useMemo } from "react";
 import { Text, View } from "react-native";
@@ -49,8 +48,7 @@ export function ProviderUsageCard({
   compact?: boolean;
   serverId?: string;
 }) {
-  const vortonMode = useVortonMode();
-  const disconnected = vortonMode && Boolean(usage.authRecovery);
+  const disconnected = Boolean(usage.authRecovery);
   const status = disconnected ? null : statusText(usage);
   const footer = footerText(usage);
   const balances = usage.balances ?? [];

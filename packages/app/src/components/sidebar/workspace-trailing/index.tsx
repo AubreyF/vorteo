@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { Text } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { DiffStat } from "@/components/diff-stat";
@@ -44,13 +43,12 @@ export function SidebarWorkspaceTrailingContent({
   workspace: SidebarWorkspaceEntry;
   trailing: SidebarWorkspaceTrailing;
 }) {
-  const vorton = useVortonMode();
   if (trailing === "diff" && workspace.diffStat) {
     return (
       <DiffStat
         additions={workspace.diffStat.additions}
         deletions={workspace.diffStat.deletions}
-        hideZero={vorton}
+        hideZero={true}
       />
     );
   }

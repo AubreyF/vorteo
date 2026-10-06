@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react-native";
 import { useFileDownload } from "@/hooks/use-file-download";
-import { useVortonMode } from "@/vorton-mode";
+
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
   useCallback,
@@ -389,7 +389,6 @@ function FilePanePresentation({
   navigationRevision: number;
   imagePreviewUri: string | null;
 }) {
-  const vortonMode = useVortonMode();
   const downloadFile = useFileDownload({
     serverId,
     workspaceRoot: readTarget?.cwd ?? "",
@@ -399,7 +398,7 @@ function FilePanePresentation({
       downloadFile({ fileName: filename, path: readTarget.path });
     }
   }, [downloadFile, filename, readTarget]);
-  const canDownload = vortonMode && readTarget !== null;
+  const canDownload = readTarget !== null;
 
   if (!client && readTarget) {
     return (

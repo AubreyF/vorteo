@@ -176,7 +176,7 @@ it("requires managed deletion before a legacy config patch can remove a Claude a
       providers: {},
     }),
   );
-  const { providerId } = createClaudeAccount({
+  const { providerId } = await createClaudeAccount({
     paseoHome: f.paseoHome,
     store,
     name: "Work",
@@ -202,3 +202,27 @@ for (const providerId of ["antigravity", "muse"]) {
     expect(existsSync(path.join(f.home, "auth.json"))).toBe(true);
   });
 }
+
+it("retains deletion confirmation across policy projection but rejects account identity changes", () => {
+  const f = fixture();
+  const plan = planProviderRemoval(f);
+  f.providers[f.providerId].enabled = false;
+  f.providers[f.providerId].models = [{ id: "new-model", label: "New model" }];
+  f.providers.unrelated = {
+    extends: "codex",
+    label: "Unrelated",
+    env: { CODEX_HOME: path.join(f.paseoHome, "unrelated") },
+  };
+  expect(planProviderRemoval(f).revision).toBe(plan.revision);
+  f.providers[f.providerId].installationAccountId = "799c2e5f-63c0-4776-90f6-d094a4b718c5";
+  expect(() => deleteManagedProviderCredentials(f, plan.revision)).toThrow("changed");
+  expect(existsSync(path.join(f.home, "auth.json"))).toBe(true);
+  delete f.providers[f.providerId].installationAccountId;
+  f.providers[f.providerId].env!.EXTRA_TOKEN = "changed credential";
+  expect(() => deleteManagedProviderCredentials(f, plan.revision)).toThrow("changed");
+  expect(existsSync(path.join(f.home, "auth.json"))).toBe(true);
+  delete f.providers[f.providerId].env!.EXTRA_TOKEN;
+  f.providers[f.providerId].label = "Different account name";
+  expect(() => deleteManagedProviderCredentials(f, plan.revision)).toThrow("changed");
+  expect(existsSync(path.join(f.home, "auth.json"))).toBe(true);
+});

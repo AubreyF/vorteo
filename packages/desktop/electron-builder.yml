@@ -1,5 +1,5 @@
 npmRebuild: false
-appId: sh.paseo.desktop
+appId: com.vorteo.desktop
 productName: Vorteo
 executableName: Paseo
 protocols:
@@ -37,8 +37,8 @@ extraResources:
     to: editor-target-icons
 publish:
   provider: github
-  owner: getpaseo
-  repo: paseo
+  owner: AubreyF
+  repo: vorteo
 mac:
   artifactName: "Paseo-${version}-${arch}.${ext}"
   minimumSystemVersion: "13.0.0"

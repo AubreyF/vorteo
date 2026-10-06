@@ -41,13 +41,11 @@ describe("resolveSidebarNavItems", () => {
       section: "header",
       pluginGroups: [],
       preferences,
-      vorton: true,
     });
     const footer = resolveSidebarNavItems({
       section: "footer",
       pluginGroups: [],
       preferences,
-      vorton: true,
     });
     expect(header.find((item) => item.key === "history")?.visible).toBe(true);
     expect(header.find((item) => item.key === "schedules")?.visible).toBe(true);
@@ -62,9 +60,9 @@ describe("resolveSidebarNavItems", () => {
       pluginGroups: [],
       preferences,
     });
-    expect(standardHeader.find((item) => item.key === "history")?.visible).toBe(false);
-    expect(standardHeader.find((item) => item.key === "schedules")?.visible).toBe(false);
-    expect(standardFooter.find((item) => item.key === "usage")?.visible).toBe(true);
+    expect(standardHeader.find((item) => item.key === "history")?.visible).toBe(true);
+    expect(standardHeader.find((item) => item.key === "schedules")?.visible).toBe(true);
+    expect(standardFooter.find((item) => item.key === "usage")?.visible).toBe(false);
   });
 
   it("yields builtins then plugins, all visible, when nothing is stored", () => {
@@ -136,27 +134,27 @@ describe("resolveSidebarNavItems", () => {
       section: "header",
       pluginGroups: [],
       preferences: [
-        { key: "history", visible: false },
-        { key: "history", visible: true },
+        { key: "search", visible: false },
+        { key: "search", visible: true },
       ],
     });
 
     expect(summarize(items)).toEqual([
-      { key: "history", visible: false },
+      { key: "search", visible: false },
       { key: "new-workspace", visible: true },
-      { key: "search", visible: true },
+      { key: "history", visible: true },
       { key: "schedules", visible: true },
     ]);
   });
 });
 
 describe("resolveSidebarNavItems for the Usage item", () => {
-  it("hides the Usage item until it is turned on", () => {
+  it("keeps the standalone Usage item hidden", () => {
     const resolve = (preferences: SidebarNavPreference[]) =>
       summarize(resolveSidebarNavItems({ section: "footer", pluginGroups: [], preferences }));
 
     expect(resolve([])).toEqual([{ key: "usage", visible: false }]);
-    expect(resolve([{ key: "usage", visible: true }])).toEqual([{ key: "usage", visible: true }]);
+    expect(resolve([{ key: "usage", visible: true }])).toEqual([{ key: "usage", visible: false }]);
   });
 });
 
@@ -205,8 +203,8 @@ describe("setSidebarNavItemVisible", () => {
     const previous: SidebarNavPreference[] = [
       { key: "new-workspace", visible: true },
       { key: notesKey, visible: false },
-      { key: "history", visible: true },
       { key: "search", visible: true },
+      { key: "history", visible: true },
       { key: "schedules", visible: true },
     ];
     const items = resolveSidebarNavItems({
@@ -215,13 +213,13 @@ describe("setSidebarNavItemVisible", () => {
       preferences: previous,
     });
 
-    const next = setSidebarNavItemVisible({ items, key: "history", visible: false, previous });
+    const next = setSidebarNavItemVisible({ items, key: "search", visible: false, previous });
 
     expect(next).toEqual([
       { key: "new-workspace", visible: true },
       { key: notesKey, visible: false },
-      { key: "history", visible: false },
-      { key: "search", visible: true },
+      { key: "search", visible: false },
+      { key: "history", visible: true },
       { key: "schedules", visible: true },
     ]);
     expect(

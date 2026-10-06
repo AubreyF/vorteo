@@ -3,6 +3,8 @@ import { resolveProfileLaunch } from "./profile.js";
 import { MutableDaemonConfigSchema } from "@getpaseo/protocol/messages";
 import { planProviderPreferencesMigration } from "../provider-preferences/migration.js";
 import { sharedWorkflowProfileId } from "@getpaseo/protocol/provider-preferences";
+import { ProviderDefaultsSchema } from "@getpaseo/protocol/provider-preferences";
+import { AgentProfileSchema } from "@getpaseo/protocol/messages";
 
 it("shares workflow permissions across accounts while freezing explicit reasoning and team selection", () => {
   const profiles = [
@@ -233,4 +235,101 @@ it("rejects a migrated workflow selected from another account", () => {
       settings,
     ),
   ).toThrow("The selected workflow belongs to another account.");
+});
+
+it("stores exclusions only on individual profiles and preserves explicit clearing", () => {
+  expect(ProviderDefaultsSchema.parse({ model: "astra", excludedEnvironments: ["host"] })).toEqual({
+    model: "astra",
+  });
+  expect(
+    AgentProfileSchema.parse({
+      id: "review",
+      name: "Review",
+      provider: "codex",
+      excludedEnvironments: [],
+    }).excludedEnvironments,
+  ).toEqual([]);
+});
+
+it("rejects excluded profiles and worker teams before freezing a launch", () => {
+  const worker = {
+    id: "worker",
+    name: "Worker",
+    provider: "codex",
+    model: "astra",
+    excludedEnvironments: ["host" as const],
+  };
+  const team = {
+    id: "team",
+    name: "Team",
+    provider: "codex",
+    model: "astra",
+    workerProfileId: "worker",
+  };
+  expect(() =>
+    resolveProfileLaunch(
+      { provider: "codex", profileId: "worker" },
+      [worker],
+      0,
+      undefined,
+      "host",
+    ),
+  ).toThrow("excluded from the host");
+  expect(() =>
+    resolveProfileLaunch(
+      { provider: "codex", profileId: "team" },
+      [team, worker],
+      0,
+      undefined,
+      "host",
+    ),
+  ).toThrow("excluded from the host");
+  const launch = resolveProfileLaunch(
+    { provider: "codex", profileId: "worker" },
+    [worker],
+    0,
+    undefined,
+    "container",
+  );
+  expect(launch.profileLaunch?.profile.id).toBe("worker");
+  expect(resolveProfileLaunch(launch, [], 1, undefined, "host")).toEqual(launch);
+});
+
+it("canonical installation profiles ignore local model and reasoning edits", () => {
+  const profiles = [
+    { id: "review", name: "Review", provider: "codex", model: "astra", thinkingOptionId: "medium" },
+  ];
+  const preferences = planProviderPreferencesMigration({ profiles, providers: {} }).preferences;
+  preferences.providers.codex.workflows[0].thinkingOptionId = "medium";
+  preferences.installation = {
+    installationId: "00000000-0000-4000-8000-000000000001",
+    environment: "host",
+    serverId: "host",
+    revision: 1,
+  };
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    sharedProviderPreferences: preferences,
+  });
+  const launch = resolveProfileLaunch(
+    {
+      provider: "codex",
+      profileId: sharedWorkflowProfileId("codex", "review"),
+      model: "other",
+      thinkingOptionId: "ultra",
+    },
+    [],
+    0,
+    settings,
+  );
+  expect(launch.model).toBe("astra");
+  expect(launch.thinkingOptionId).toBe("medium");
+  expect(() =>
+    resolveProfileLaunch(
+      { provider: "codex", cwd: "/work", profileId: "local-only" },
+      [{ id: "local-only", name: "Cache edit", provider: "codex", model: "other" }],
+      0,
+      settings,
+    ),
+  ).toThrow("not found");
 });

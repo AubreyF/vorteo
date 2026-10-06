@@ -55,7 +55,7 @@ import { formatShortcut, type ShortcutKey } from "@/utils/format-shortcut";
 import { getShortcutOs } from "@/utils/shortcut-platform";
 import type { MessageInputKeyboardActionKind } from "@/keyboard/actions";
 import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
-import { useVortonMode } from "@/vorton-mode";
+
 import { useSubmitModifier } from "./submit-modifier";
 import {
   supportsSubmitModifiers,
@@ -1282,7 +1282,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const mode = resolveComposerInputMode(inputMode);
     const { t } = useTranslation();
     const isCompact = useIsCompactFormFactor();
-    const vortonMode = useVortonMode();
+
     const touch = useVortonTouch();
     const mobileComposer = useMobileComposerLayout();
     const showMobileQueue = useMemo(
@@ -1290,7 +1290,6 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [mobileComposer.enabled, isAgentRunning, onQueue, readOnly],
     );
     const showSubmitModifiers = supportsSubmitModifiers({
-      vortonMode,
       isWeb,
       inputMode,
       readOnly,
@@ -1762,7 +1761,6 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       isAgentRunning,
       isSubmitLoading,
       isSubmitDisabled,
-      vortonMode,
       inputMode,
       readOnly,
     });
@@ -1902,7 +1900,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const inputWrapperCombinedStyle = useMemo(
       () => [
         styles.inputWrapper,
-        vortonMode && taskCardStyles.surface,
+        taskCardStyles.surface,
         mobileComposer.enabled && { paddingBottom: mobileComposer.bottomPadding },
         readOnly && styles.inputWrapperReadOnly,
         inputWrapperStyle,
@@ -1912,7 +1910,6 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       ],
       [
         inputWrapperStyle,
-        vortonMode,
         readOnly,
         surfacePresentation.input.opacity,
         mobileComposer.enabled,

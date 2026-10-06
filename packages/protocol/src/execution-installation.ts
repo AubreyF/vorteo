@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  ProviderPreferencesSchema,
+  SharedProviderPreferencesSchema,
+} from "./provider-preferences.js";
 
 export const ExecutionEnvironmentKindSchema = z.enum(["container", "host"]);
 export type ExecutionEnvironmentKind = z.infer<typeof ExecutionEnvironmentKindSchema>;
@@ -123,3 +127,22 @@ export const ProfileSharingStatusSchema = z.object({
   ),
 });
 export type ProfileSharingStatus = z.infer<typeof ProfileSharingStatusSchema>;
+
+export const InstallationProfilesSnapshotSchema = ProfileSharingStatusSchema.extend({
+  providers: z.record(z.string(), ProviderPreferencesSchema),
+});
+export type InstallationProfilesSnapshot = z.infer<typeof InstallationProfilesSnapshotSchema>;
+
+export const InstallationProfilesPatchSchema = z.strictObject({
+  expectedRevision: z.number().int().positive(),
+  providers: z.record(z.string(), ProviderPreferencesSchema),
+});
+export type InstallationProfilesPatch = z.infer<typeof InstallationProfilesPatchSchema>;
+
+export const InstallationProfilesAdmissionSchema = z.strictObject({
+  installationId: z.string().uuid(),
+  environment: ExecutionEnvironmentKindSchema,
+  serverId: z.string().min(1),
+  preferences: SharedProviderPreferencesSchema,
+});
+export type InstallationProfilesAdmission = z.infer<typeof InstallationProfilesAdmissionSchema>;

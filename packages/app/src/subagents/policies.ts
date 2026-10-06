@@ -7,3 +7,7 @@
 // non-RN infrastructure code; otherwise prefer `@/subagents`.
 export { resolveCloseAgentTabPolicy, type CloseAgentTabPolicy } from "./close-tab-policy";
 export { isWorkspaceRootAgent } from "./workspace-root-policy";
+
+export { resolveAgentPresentation, type AgentPresentation } from "./workspace-root-policy";
+
+export { getAgentPresentationIndex } from "./workspace-root-policy";

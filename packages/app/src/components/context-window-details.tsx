@@ -3,7 +3,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { AgentUsage } from "@/usage";
 import { VortonAgentUsage } from "@/provider-usage/tooltip-section";
-import { useVortonMode } from "@/vorton-mode";
+
 import { formatTokenCount } from "./context-window-meter.utils";
 
 interface ContextWindowDetailsProps {
@@ -34,7 +34,7 @@ export function ContextWindowDetails({
   refreshable,
 }: ContextWindowDetailsProps) {
   const { t } = useTranslation();
-  const vortonMode = useVortonMode();
+
   return (
     <>
       <View style={styles.summary}>
@@ -51,7 +51,7 @@ export function ContextWindowDetails({
         ) : null}
       </View>
       <AgentUsage serverId={serverId} agentId={agentId} refreshable={refreshable} />
-      {vortonMode ? <VortonAgentUsage serverId={serverId} agentId={agentId} /> : null}
+      {<VortonAgentUsage serverId={serverId} agentId={agentId} />}
     </>
   );
 }

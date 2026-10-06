@@ -507,6 +507,18 @@ export const SETTINGS_SECTION_SLUGS = [
   "permissions",
   "diagnostics",
   "skills",
+  "projects",
+  "connections",
+  "pair-device",
+  "agents",
+  "metadata",
+  "workspaces",
+  "providers",
+  "profiles",
+  "usage",
+  "terminals",
+  "plugins",
+  "environments",
 ] as const;
 
 export type SettingsSectionSlug = (typeof SETTINGS_SECTION_SLUGS)[number];

@@ -11,18 +11,34 @@ import { FakeCreateAgentPreferenceStorage } from "./test-utils/fake-preference-s
 
 describe("create agent preferences", () => {
   it.each([null, {}, { presetMode: true }, { vortonMode: undefined }])(
-    "defaults Vorton Mode on when no choice is saved: %j",
+    "loads preferences without a product mode: %j",
     async (stored) => {
       const storage = new FakeCreateAgentPreferenceStorage({ stored });
-      expect((await new CreateAgentPreferencesService(storage).load()).vortonMode).toBe(true);
-      expect(DEFAULT_FORM_PREFERENCES.vortonMode).toBe(true);
+      expect(await new CreateAgentPreferencesService(storage).load()).not.toHaveProperty(
+        "vortonMode",
+      );
+      expect(DEFAULT_FORM_PREFERENCES).toEqual({});
     },
   );
-  it.each([true, false])("preserves an explicit saved Vorton choice: %s", async (vortonMode) => {
-    const storage = new FakeCreateAgentPreferenceStorage({ stored: { vortonMode } });
-    expect((await new CreateAgentPreferencesService(storage).load()).vortonMode).toBe(vortonMode);
-  });
-  it("persists Vorton Mode without losing model or permission preferences", async () => {
+  it.each([true, false])(
+    "discards legacy mode flags without losing saved launch preferences: %s",
+    async (vortonMode) => {
+      const expected = {
+        provider: "codex",
+        providerPreferences: {
+          codex: { model: "gpt-5.5", mode: "auto-review", thinkingByModel: { "gpt-5.5": "high" } },
+        },
+        isolation: "worktree",
+        launchTarget: { kind: "terminal", profileId: "saved-shell" },
+        favoriteModels: [{ provider: "codex", modelId: "gpt-5.5" }],
+      };
+      const storage = new FakeCreateAgentPreferenceStorage({
+        stored: { ...expected, vortonMode, presetMode: true },
+      });
+      expect(await new CreateAgentPreferencesService(storage).load()).toEqual(expected);
+    },
+  );
+  it("ignores legacy product updates without losing model or permission preferences", async () => {
     const storage = new FakeCreateAgentPreferenceStorage();
     const service = new CreateAgentPreferencesService(storage);
     for (const vortonMode of [true, false, true]) {
@@ -38,7 +54,7 @@ describe("create agent preferences", () => {
       storage.finishOldestWrite();
       await saving;
       const reloaded = await new CreateAgentPreferencesService(storage).load();
-      expect(reloaded.vortonMode).toBe(vortonMode);
+      expect(reloaded).not.toHaveProperty("vortonMode");
       expect(reloaded.providerPreferences?.codex).toMatchObject({
         model: "gpt-5.5",
         mode: "auto-review",
@@ -75,7 +91,6 @@ describe("create agent preferences", () => {
     await modeWrite;
 
     expect(storage.savedPreferences()).toEqual({
-      vortonMode: true,
       provider: "codex",
       providerPreferences: {
         codex: {
@@ -96,14 +111,14 @@ describe("create agent preferences", () => {
     storage.failOldestWrite(new Error("disk full"));
     await expect(failedWrite).rejects.toThrow("disk full");
 
-    expect(await preferences.load()).toEqual({ vortonMode: true });
+    expect(await preferences.load()).toEqual({});
 
     const successfulWrite = preferences.update({ isolation: "worktree" });
     await storage.nextWrite();
     storage.finishOldestWrite();
     await successfulWrite;
 
-    expect(storage.savedPreferences()).toEqual({ vortonMode: true, isolation: "worktree" });
+    expect(storage.savedPreferences()).toEqual({ isolation: "worktree" });
   });
 
   it("flushes the full create-agent selection into provider preferences", async () => {
@@ -126,7 +141,6 @@ describe("create agent preferences", () => {
     await saveSelection;
 
     expect(storage.savedPreferences()).toEqual({
-      vortonMode: true,
       provider: "codex",
       providerPreferences: {
         codex: {
@@ -217,9 +231,7 @@ describe("create agent preferences", () => {
   });
 
   it("loads invalid stored preferences as default preferences", () => {
-    expect(parseFormPreferences({ providerPreferences: { codex: { mode: 42 } } })).toEqual({
-      vortonMode: true,
-    });
+    expect(parseFormPreferences({ providerPreferences: { codex: { mode: 42 } } })).toEqual({});
   });
 
   it("strips the explicitly supported legacy location fields", () => {
@@ -237,7 +249,6 @@ describe("create agent preferences", () => {
         serverId: "old-host",
       }),
     ).toEqual({
-      vortonMode: true,
       provider: "codex",
       providerPreferences: {
         codex: {
@@ -250,9 +261,7 @@ describe("create agent preferences", () => {
   });
 
   it("rejects unknown persisted fields outside the explicit legacy shape", () => {
-    expect(parseFormPreferences({ provider: "codex", surprise: true })).toEqual({
-      vortonMode: true,
-    });
+    expect(parseFormPreferences({ provider: "codex", surprise: true })).toEqual({});
   });
 
   it("persists and reloads the workspace isolation choice", async () => {
@@ -264,9 +273,8 @@ describe("create agent preferences", () => {
     storage.finishOldestWrite();
     await save;
 
-    expect(storage.savedPreferences()).toEqual({ vortonMode: true, isolation: "worktree" });
+    expect(storage.savedPreferences()).toEqual({ isolation: "worktree" });
     expect(await new CreateAgentPreferencesService(storage).load()).toEqual({
-      vortonMode: true,
       isolation: "worktree",
     });
   });
@@ -282,7 +290,6 @@ describe("create agent preferences", () => {
     await save;
 
     expect(storage.savedPreferences()).toEqual({
-      vortonMode: true,
       favoriteModels,
       isolation: "worktree",
     });
@@ -293,9 +300,7 @@ describe("create agent preferences", () => {
   });
 
   it("rejects an unknown isolation value as invalid stored preferences", () => {
-    expect(parseFormPreferences({ provider: "codex", isolation: "sandbox" })).toEqual({
-      vortonMode: true,
-    });
+    expect(parseFormPreferences({ provider: "codex", isolation: "sandbox" })).toEqual({});
   });
 
   it("persists and reloads a terminal launch target", async () => {
@@ -308,11 +313,9 @@ describe("create agent preferences", () => {
     await save;
 
     expect(storage.savedPreferences()).toEqual({
-      vortonMode: true,
       launchTarget: { kind: "terminal", profileId: "claude" },
     });
     expect(await new CreateAgentPreferencesService(storage).load()).toEqual({
-      vortonMode: true,
       launchTarget: { kind: "terminal", profileId: "claude" },
     });
   });
@@ -322,12 +325,10 @@ describe("create agent preferences", () => {
   });
 
   it("rejects a terminal launch target missing a profileId as invalid stored preferences", () => {
-    expect(parseFormPreferences({ launchTarget: { kind: "terminal" } })).toEqual({
-      vortonMode: true,
-    });
+    expect(parseFormPreferences({ launchTarget: { kind: "terminal" } })).toEqual({});
   });
 
   it("rejects an unknown launch target kind as invalid stored preferences", () => {
-    expect(parseFormPreferences({ launchTarget: { kind: "shell" } })).toEqual({ vortonMode: true });
+    expect(parseFormPreferences({ launchTarget: { kind: "shell" } })).toEqual({});
   });
 });

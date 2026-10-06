@@ -3,9 +3,9 @@ import { navigateToLastWorkspace } from "@/stores/navigation-active-workspace-st
 import {
   buildOpenProjectRoute,
   buildProjectSettingsRoute,
-  buildProjectsSettingsRoute,
   buildSettingsHostSectionRoute,
   buildSettingsRoute,
+  buildSettingsSectionRoute,
   type HostSectionSlug,
   type SettingsSectionSlug,
 } from "@/utils/host-routes";
@@ -34,7 +34,7 @@ export function returnFromSettings(view: SettingsView): void {
   }
 
   let parent: Href = buildSettingsRoute();
-  if (view.kind === "plugin") parent = buildSettingsHostSectionRoute(view.serverId, "plugins");
-  if (view.kind === "project") parent = buildProjectsSettingsRoute(view.serverId);
+  if (view.kind === "plugin") parent = buildSettingsSectionRoute("plugins");
+  if (view.kind === "project") parent = buildSettingsSectionRoute("projects");
   router.dismissTo(parent as Href);
 }

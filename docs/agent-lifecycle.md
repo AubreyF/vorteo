@@ -190,7 +190,7 @@ agent worked in it just now, which rewrites the sidebar timestamp permanently â€
 
 ## The subagents track
 
-In Standard mode, the subagents track is a pill above the composer that opens a popover on wide screens or a sheet on compact ones. In Vorteo mode, the same rows and actions live in a card at the bottom of the scrolling conversation. Plugin pills come first, followed by agents, task progress, queued messages, and goals. Plugin pills scroll with the cards. The cards share their frame and header styles through `packages/app/src/agent-stream/task-card-styles.ts`. Provider-owned child timelines use the same scrolling agents card.
+Subagent rows and actions live in a card at the bottom of the scrolling conversation. Plugin pills come first, followed by agents, task progress, queued messages, and goals. Plugin pills scroll with the cards. The cards share their frame and header styles through `packages/app/src/agent-stream/task-card-styles.ts`. Provider-owned child timelines use the same scrolling agents card.
 
 The rows combine two kinds of children:
 

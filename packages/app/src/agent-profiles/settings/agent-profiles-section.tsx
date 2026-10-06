@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Alert, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -37,9 +36,8 @@ export function AgentProfilesSection({
   serverId: string;
   provider?: string;
 }): ReactElement {
-  const vorton = useVortonMode();
   const { supportsSharedPreferences } = useAgentProfiles(serverId);
-  if (vorton && supportsSharedPreferences && provider) {
+  if (supportsSharedPreferences && provider) {
     return <SharedProviderSection serverId={serverId} provider={provider} />;
   }
   return <LegacyAgentProfilesSection serverId={serverId} provider={provider} />;
@@ -52,7 +50,6 @@ function LegacyAgentProfilesSection({
   serverId: string;
   provider?: string;
 }): ReactElement {
-  const vorton = useVortonMode();
   const { t } = useTranslation();
   const isConnected = useHostRuntimeIsConnected(serverId);
   const { legacyProfiles: profiles, isSupported, saveProfiles } = useAgentProfiles(serverId);
@@ -236,24 +233,22 @@ function LegacyAgentProfilesSection({
         trailing={addButton}
         testID="agent-profiles-section"
       >
-        {vorton ? (
-          <>
-            <SelectField
-              label="Default configuration"
-              value={defaultId}
-              selectedDisplay={defaultOptions.find((option) => option.value === defaultId) ?? null}
-              options={defaultOptions}
-              onChange={selectDefault}
-              disabled={!profiles?.length || savingDefault}
-              placeholder="No configurations available"
-              emptyText="No configurations available"
-            />
-            <Text style={styles.emptyText}>
-              Used for new Vorteo chats on this host. Existing chats and their accounts stay
-              unchanged. The first available configuration is selected when no default is set.
-            </Text>
-          </>
-        ) : null}
+        <>
+          <SelectField
+            label="Default configuration"
+            value={defaultId}
+            selectedDisplay={defaultOptions.find((option) => option.value === defaultId) ?? null}
+            options={defaultOptions}
+            onChange={selectDefault}
+            disabled={!profiles?.length || savingDefault}
+            placeholder="No configurations available"
+            emptyText="No configurations available"
+          />
+          <Text style={styles.emptyText}>
+            Used for new Vorteo chats on this host. Existing chats and their accounts stay
+            unchanged. The first available configuration is selected when no default is set.
+          </Text>
+        </>
         <View style={settingsStyles.card} testID="agent-profiles-card">
           {visibleProfiles.length > 0 ? (
             visibleProfiles.map((profile, index) => (

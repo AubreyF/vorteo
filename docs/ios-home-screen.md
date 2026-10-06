@@ -10,7 +10,7 @@ Open the current site in Safari and use Share, Add to Home Screen with Open as W
 
 ## Mechanism and acceptance
 
-WebKit calls the native effect a scroll pocket. Its fixed color extension can suppress the top effect when the status bar belongs to the platform. Vorteo requests the default status bar before installation and provides a full-width, fixed, empty 11px element at the top. Its computed background supplies a theme color; `background-clip: text` prevents the empty element painting a visible stripe. It reserves no document space, intercepts no taps and is hidden from accessibility. Standard mode disables the element and retains its original metadata.
+WebKit calls the native effect a scroll pocket. Its fixed color extension can suppress the top effect when the status bar belongs to the platform. Vorteo requests the default status bar before installation and provides a full-width, fixed, empty 11px element at the top. Its computed background supplies a theme color; `background-clip: text` prevents the empty element painting a visible stripe. It reserves no document space, intercepts no taps and is hidden from accessibility.
 
 The dimensions come from WebKit's 10px minimum for a fixed background candidate, not a visual padding estimate. This is an implementation workaround rather than a public browser API. Recheck it against each new iOS release.
 
@@ -18,4 +18,4 @@ The document uses the dynamic viewport height. With the default status bar, iOS 
 
 Original investigations: [Urushi's device and WebKit analysis](https://zenn.dev/uakihir0/articles/260920-ios27-pwa-blur), [FallingNikochan's resolution](https://qiita.com/na-trium-144/items/0add98a80ca2391e3f17).
 
-Acceptance must use a Home Screen app in an iOS simulator or on a physical device. Desktop WebKit and Safari tabs do not prove native scroll-pocket behavior. Compare the original translucent install, a fresh default install, reload and cold relaunch. Toggle the fixed element to confirm that the native blur changes without moving the toolbar. Check portrait, landscape, keyboard dismissal, sidebar and explorer panels, both themes and Standard mode. Keep native screenshots and installation diagnostics outside Git.
+Acceptance must use a Home Screen app in an iOS simulator or on a physical device. Desktop WebKit and Safari tabs do not prove native scroll-pocket behavior. Compare the original translucent install, a fresh default install, reload and cold relaunch. Toggle the fixed element to confirm that the native blur changes without moving the toolbar. Check portrait, landscape, keyboard dismissal, sidebar and explorer panels, both themes. Keep native screenshots and installation diagnostics outside Git.

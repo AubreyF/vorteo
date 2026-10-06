@@ -5,7 +5,7 @@ import {
 } from "@/workspace/project-move/drop-context";
 import { SidebarCountBadge } from "@/components/sidebar/sidebar-count-badge";
 import { useSidebarRowDensity } from "@/components/sidebar/use-sidebar-row-density";
-import { useVortonMode } from "@/vorton-mode";
+
 import { useSidebarActionSize } from "./sidebar/use-sidebar-action-size";
 import { DiffStat } from "@/components/diff-stat";
 import { aggregateProjectTasks, type ProjectTaskSummary } from "./sidebar/project-task-summary";
@@ -443,12 +443,12 @@ function ProjectRowTrailingActions({
   removeProjectStatus: "idle" | "pending" | "success";
 }) {
   const vortonTouch = useVortonTouch();
-  const vorton = useVortonMode();
-  const persistActions = vorton && expanded;
+
+  const persistActions = expanded;
   const menuVisible = isHovered || platformIsNative || isMobileBreakpoint || vortonTouch;
   const actionsVisible = persistActions || menuVisible;
   return (
-    <View style={[styles.projectTrailingActions, vorton && styles.projectTrailingActionsVorton]}>
+    <View style={[styles.projectTrailingActions, styles.projectTrailingActionsVorton]}>
       {worktreeTarget ? (
         <NewWorktreeButton
           displayName={displayName}
@@ -1665,13 +1665,12 @@ function ProjectBlock({
   supportsPinningByServerId: ReadonlyMap<string, boolean>;
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
 }) {
-  const vorton = useVortonMode();
   const externalDrop = useWorkspaceProjectDrop(project.viewKey);
   const taskSummary = useMemo(
     () => aggregateProjectTasks(project.viewKey, workspaceEntriesByKey),
     [project.viewKey, workspaceEntriesByKey],
   );
-  const showTaskSummary = vorton && collapsed;
+  const showTaskSummary = collapsed;
   const {
     visibleItems: visibleWorkspaces,
     expanded: workspacesExpanded,
@@ -1872,11 +1871,7 @@ function ProjectBlock({
 
   return (
     <ProjectDropTarget projectKey={project.viewKey}>
-      <View
-        role="group"
-        accessibilityLabel={displayName}
-        style={projectChildren && !vorton ? styles.projectBlockExpanded : undefined}
-      >
+      <View role="group" accessibilityLabel={displayName} style={undefined}>
         <ProjectHeaderRow
           taskSummary={showTaskSummary ? taskSummary : undefined}
           project={project}
@@ -2620,9 +2615,6 @@ const styles = StyleSheet.create((theme) => ({
   // Padding on the block rather than margin, and only while it has children: the gap belongs to
   // the rows underneath the header, so a collapsed project gives it back and a column of collapsed
   // headers closes up to the pitch of a list instead of staying spaced for content that is gone.
-  projectBlockExpanded: {
-    paddingBottom: theme.spacing[3],
-  },
   workspaceRowIndented: { paddingLeft: theme.spacing[4] },
   workspaceListContainer: {},
   // Kept in step with `workspaceRow` above. It stands in a project's list where a workspace row

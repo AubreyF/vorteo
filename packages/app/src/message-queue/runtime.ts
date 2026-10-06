@@ -6,7 +6,7 @@ import { createOutboxStorage } from "./outbox-storage";
 import { notifyOutboxChange, watchOutboxChanges } from "./outbox-notifications";
 import { QueueOutbox } from "./outbox";
 import { useSessionStore } from "@/stores/session-store";
-import { isLegacyImportPending, legacyImportOperationId, withLegacyQueueLane } from "./legacy";
+import { legacyImportOperationId } from "./legacy";
 
 export const messageQueueKey = (serverId: string, agentId: string) =>
   ["messageQueue", serverId, agentId] as const;
@@ -17,20 +17,6 @@ const running = new Map<string, Promise<void>>();
 const requested = new Set<string>();
 const refreshGenerations = new Map<string, number>();
 const watched = new Map<string, Map<string, number>>();
-
-export function runLegacyQueueAction<T>(
-  serverId: string,
-  agentId: string,
-  messageId: string,
-  run: () => Promise<T>,
-): Promise<T> {
-  return withLegacyQueueLane(serverId, agentId, async () => {
-    if (isLegacyImportPending(await messageOutbox.list(), serverId, agentId, messageId)) {
-      throw new Error("This message is being imported. Use the shared queue in Vorteo mode.");
-    }
-    return run();
-  });
-}
 
 export async function readSharedQueue(serverId: string, agentId: string): Promise<QueueSnapshot> {
   const result = await requireQueueClient(serverId).readMessageQueue(agentId);

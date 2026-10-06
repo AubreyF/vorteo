@@ -114,7 +114,6 @@ vi.mock("@/components/ui/button", () => ({
   ),
 }));
 vi.mock("@/vorton-touch", () => ({ useVortonTouch: () => false }));
-vi.mock("@/vorton-mode", () => ({ useVortonMode: () => true }));
 vi.mock("@/goals/use-goal-elapsed", () => ({ useGoalElapsed: () => 0 }));
 vi.mock("@/goals/use-agent-goal", () => ({
   useAgentGoal: () => ({

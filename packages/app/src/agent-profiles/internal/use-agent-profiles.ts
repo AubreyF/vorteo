@@ -5,7 +5,6 @@ import type { AgentProfile } from "@getpaseo/protocol/messages";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useSessionStore } from "@/stores/session-store";
 import { supportsAgentProfiles } from "./capabilities";
-import { useVortonMode } from "@/vorton-mode";
 import { ensureDefaultProfile } from "./default-profile";
 
 export interface UseAgentProfilesResult {
@@ -21,7 +20,6 @@ export interface UseAgentProfilesResult {
 }
 
 export function useAgentProfiles(serverId: string | null): UseAgentProfilesResult {
-  const vorton = useVortonMode();
   const { config, patchConfig } = useDaemonConfig(serverId);
   const { entries } = useProvidersSnapshot(serverId, { cwd: null });
   const supportsSharedPreferences = useSessionStore(
@@ -30,7 +28,7 @@ export function useAgentProfiles(serverId: string | null): UseAgentProfilesResul
   );
   const profiles = useMemo(() => {
     if (!config) return null;
-    if (vorton && supportsSharedPreferences && config.sharedProviderPreferences) {
+    if (supportsSharedPreferences && config.sharedProviderPreferences) {
       const providerIds = entries?.map((entry) => entry.provider) ?? Object.keys(config.providers);
       return materializeSharedProfiles({
         preferences: config.sharedProviderPreferences,
@@ -39,7 +37,7 @@ export function useAgentProfiles(serverId: string | null): UseAgentProfilesResul
       });
     }
     return config.agentProfiles ?? [];
-  }, [config, entries, supportsSharedPreferences, vorton]);
+  }, [config, entries, supportsSharedPreferences]);
   const supportsLaunch = useSessionStore(
     (state) => state.sessions[serverId ?? ""]?.serverInfo?.features?.agentProfileLaunch === true,
   );
@@ -50,11 +48,11 @@ export function useAgentProfiles(serverId: string | null): UseAgentProfilesResul
   const saveProfiles = useCallback(
     async (next: AgentProfile[]) => {
       await patchConfig({
-        agentProfiles: vorton ? ensureDefaultProfile(next) : next,
+        agentProfiles: ensureDefaultProfile(next),
         ...(supportsLaunch ? { expectedAgentProfiles: config?.agentProfiles ?? [] } : {}),
       });
     },
-    [patchConfig, config, supportsLaunch, vorton],
+    [patchConfig, config, supportsLaunch],
   );
 
   return {

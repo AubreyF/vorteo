@@ -9,3 +9,7 @@ export {
   type ArchiveFinishedStatus,
   type UseArchiveFinishedSubagentsInput,
 } from "./use-archive-finished";
+
+export { resolveAgentPresentation, type AgentPresentation } from "./workspace-root-policy";
+
+export { getAgentPresentationIndex } from "./workspace-root-policy";

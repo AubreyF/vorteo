@@ -2522,6 +2522,86 @@ test("sends plugin source identifiers unchanged for daemon-host resolution", asy
   await expect(installPromise).resolves.toMatchObject({ id: "review", status: "running" });
 });
 
+test.each([false, true])(
+  "pinned plugin calls require capability and retain the resolved recipe (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "pinned-plugin",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({ features: { pluginPinnedInstallation: supported } });
+    await connecting;
+    const resolved = {
+      kind: "git" as const,
+      id: "review",
+      identity: {
+        kind: "git" as const,
+        remote: "https://example.test/plugin.git",
+        pluginPath: "plugins/review",
+      },
+      target: { kind: "git" as const, commit: "a".repeat(40) },
+    };
+    if (!supported) {
+      const sent = mock.sent.length;
+      await expect(client.resolvePluginSource({ source: "owner/repo" })).rejects.toThrow(
+        "Update the daemon",
+      );
+      await expect(
+        client.installResolvedPluginSource({ resolved, enabled: false }),
+      ).rejects.toThrow("Update the daemon");
+      expect(mock.sent.length).toBe(sent);
+      return;
+    }
+    const resolving = client.resolvePluginSource({ source: "owner/repo", ref: "stable" });
+    const resolveRequest = parseSentFrame(mock.sent.at(-1));
+    expect(resolveRequest).toMatchObject({
+      type: "plugin.source.resolve.request",
+      source: "owner/repo",
+      ref: "stable",
+    });
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "plugin.source.resolve.response",
+        payload: { requestId: resolveRequest.requestId, resolved },
+      }),
+    );
+    await expect(resolving).resolves.toEqual(resolved);
+    const installing = client.installResolvedPluginSource({
+      resolved,
+      id: "review-shared",
+      enabled: false,
+    });
+    const installRequest = parseSentFrame(mock.sent.at(-1));
+    expect(installRequest).toMatchObject({
+      type: "plugin.source.install_resolved.request",
+      resolved,
+      id: "review-shared",
+      enabled: false,
+    });
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "plugin.source.install_resolved.response",
+        payload: {
+          requestId: installRequest.requestId,
+          plugin: {
+            id: "review-shared",
+            path: "/plugins/review",
+            enabled: false,
+            status: "disabled",
+          },
+        },
+      }),
+    );
+    await expect(installing).resolves.toMatchObject({ id: "review-shared", status: "disabled" });
+  },
+);
+
 test("a connection loss rejects an in-flight file context action", async () => {
   const mock = createMockTransport();
   const client = new DaemonClient({
@@ -7435,6 +7515,15 @@ test.each([false, true])(
         expectedProviderPreferencesRevision: 1,
       }),
     ).rejects.toThrow("Update the host");
+    await expect(
+      client.patchDaemonConfig({
+        installationResourceBindings: { terminalProfiles: [], metadataProviders: [] },
+        expectedInstallationResourceRevision: "stale",
+      }),
+    ).rejects.toThrow("Update this environment before applying shared resource exclusions.");
+    await expect(client.previewAgentSkillsSelection({ mode: "all" })).rejects.toThrow(
+      "Update the daemon",
+    );
     expect(mock.sent).toEqual([]);
   },
 );
@@ -7660,4 +7749,121 @@ test("usage request timeout detaches its update listener", async () => {
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("skill selection preview sends a read-only request and returns the proposed removal list", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "skill-preview",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { skillSelectionPreview: true } });
+  await connecting;
+  const selection = { mode: "custom", skills: [] } as const;
+  const pending = client.previewAgentSkillsSelection({ mode: "custom", skills: [] });
+  const request = z
+    .object({
+      message: z.object({
+        type: z.literal("agent.skills.save_selection.request"),
+        requestId: z.string(),
+        preview: z.literal(true),
+      }),
+    })
+    .parse(JSON.parse(assertStr(mock.sent[0])));
+  expect(mock.sent).toHaveLength(1);
+  const result = {
+    state: "drift",
+    available: ["paseo"],
+    installed: ["paseo"],
+    ops: [{ kind: "delete", name: "paseo" }],
+    selection,
+    confirmationRequired: { removals: ["paseo"] },
+  };
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent.skills.save_selection.response",
+      payload: { requestId: request.message.requestId, ...result },
+    }),
+  );
+  await expect(pending).resolves.toEqual({ requestId: request.message.requestId, ...result });
+});
+
+test.each([false, true])(
+  "directory bindings require capability and retain their expected path (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "directory-binding",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({ features: { pluginDirectoryBindings: supported } });
+    await connecting;
+    const input = { id: "local", path: "/new/path", expectedPath: "/old/path", enabled: false };
+    if (!supported) {
+      const sent = mock.sent.length;
+      await expect(client.bindDirectoryPlugin(input)).rejects.toThrow("Update the daemon");
+      expect(mock.sent.length).toBe(sent);
+      return;
+    }
+    const saving = client.bindDirectoryPlugin(input);
+    const request = parseSentFrame(mock.sent.at(-1));
+    expect(request).toEqual({
+      type: "plugin.directory.install.request",
+      requestId: expect.any(String),
+      id: input.id,
+      path: input.path,
+      binding: { expectedPath: input.expectedPath, enabled: false },
+    });
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "plugin.directory.install.response",
+        payload: {
+          requestId: request.requestId,
+          plugin: { id: input.id, path: input.path, enabled: false, status: "disabled" },
+        },
+      }),
+    );
+    await expect(saving).resolves.toMatchObject({ id: input.id, path: input.path, enabled: false });
+  },
+);
+
+test("skill package transfers refuse older environments before sending a request", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "skill-transfer",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { skillLibrary: true } });
+  await connecting;
+  const sent = mock.sent.length;
+  await expect(client.readSkillLibrary({ kind: "package", id: "personal" })).rejects.toThrow(
+    "Update this environment",
+  );
+  await expect(
+    client.changeSkillLibrary({
+      kind: "preview_import",
+      package: {
+        name: "personal",
+        sha256: "a".repeat(64),
+        source: null,
+        files: [{ path: "SKILL.md", content: "", executable: false }],
+      },
+    }),
+  ).rejects.toThrow("Update this environment");
+  expect(mock.sent.length).toBe(sent);
 });

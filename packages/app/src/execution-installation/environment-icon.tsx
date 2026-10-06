@@ -1,7 +1,6 @@
 import { Box, Monitor, KeyRound } from "lucide-react-native";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import { useVortonMode } from "@/vorton-mode";
 import { EXECUTION_ENVIRONMENT_COLORS, ICON_SIZE } from "@/styles/theme";
 import { findInstallationEnvironment, readExecutionInstallation } from "./policy";
 
@@ -12,9 +11,9 @@ export function ExecutionEnvironmentIcon({
   serverId: string | null;
   hostOnly?: boolean;
 }) {
-  const enabled = useVortonMode();
-  const environment =
-    enabled && serverId ? findInstallationEnvironment(readExecutionInstallation(), serverId) : null;
+  const environment = serverId
+    ? findInstallationEnvironment(readExecutionInstallation(), serverId)
+    : null;
   if (!environment || (hostOnly && environment.kind !== "host")) return null;
   const size = ICON_SIZE.sm;
   const color = EXECUTION_ENVIRONMENT_COLORS[environment.kind];
@@ -43,10 +42,7 @@ export function ExecutionEnvironmentIcon({
 }
 
 export function useHasExecutionEnvironment(serverId: string | null) {
-  const enabled = useVortonMode();
-  return Boolean(
-    enabled && serverId && findInstallationEnvironment(readExecutionInstallation(), serverId),
-  );
+  return Boolean(serverId && findInstallationEnvironment(readExecutionInstallation(), serverId));
 }
 
 const styles = StyleSheet.create((theme) => ({

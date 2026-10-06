@@ -42,21 +42,6 @@ export const openSettings = async (page: Page) => {
   await expect(page).toHaveURL(/\/settings\/general$/);
 };
 
-export const setVortonMode = async (page: Page, enabled: boolean) => {
-  const returnUrl = page.url();
-  await openSettings(page);
-  const button = page.getByTestId("settings-vorton-mode").getByRole("button", {
-    name: enabled ? "Vorteo mode" : "Standard mode",
-    exact: true,
-  });
-  await button.click();
-  await expect(button).toHaveCSS("background-color", "rgb(49, 70, 58)");
-  await expect(button).toBeEnabled();
-  // Stay in the app: a document navigation reruns the fixture preference seed.
-  await page.goBack();
-  await expect(page).toHaveURL(returnUrl);
-};
-
 export const setWorkingDirectory = async (page: Page, directory: string) => {
   const workingDirectorySelect = page
     .locator('[data-testid="working-directory-select"]:visible')

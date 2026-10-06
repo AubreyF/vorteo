@@ -11,6 +11,65 @@ afterEach(() => {
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
 
+test("installation profile caches reject local redefinition, detachment and downgrade", () => {
+  const home = mkdtempSync(join(tmpdir(), "installation-profile-cache-"));
+  homes.push(home);
+  const initial = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    agentProfiles: [{ id: "review", name: "Review", provider: "codex", model: "astra" }],
+  });
+  const store = new DaemonConfigStore(home, initial);
+  const migrated = store.initializeProviderPreferences().sharedProviderPreferences;
+  if (!migrated) throw new Error("missing migration");
+  const projection = structuredClone(migrated);
+  projection.installation = {
+    installationId: "00000000-0000-4000-8000-000000000001",
+    environment: "host",
+    serverId: "host",
+    revision: 1,
+  };
+  store.patch({
+    sharedProviderPreferences: projection,
+    expectedProviderPreferencesRevision: migrated.revision,
+  });
+  const saved = structuredClone(store.get().sharedProviderPreferences);
+  if (!saved) throw new Error("missing projection");
+  const edited = structuredClone(saved);
+  edited.providers.codex.defaults.model = "other";
+  expect(() =>
+    store.patch({
+      sharedProviderPreferences: edited,
+      expectedProviderPreferencesRevision: saved.revision,
+    }),
+  ).toThrow("installation coordinator");
+  const detached = structuredClone(saved);
+  delete detached.installation;
+  expect(() =>
+    store.patch({
+      sharedProviderPreferences: detached,
+      expectedProviderPreferencesRevision: saved.revision,
+    }),
+  ).toThrow("cannot be replaced");
+  expect(() => store.patch({ agentProfiles: [] })).toThrow("installation coordinator");
+  expect(store.get().sharedProviderPreferences).toEqual(saved);
+  expect(loadPersistedConfig(home).daemon?.sharedProviderPreferences).toEqual(saved);
+  const next = structuredClone(saved);
+  if (!next.installation) throw new Error("missing installation");
+  next.installation.revision = 2;
+  next.providers.codex.defaults.model = "next";
+  store.patch({
+    sharedProviderPreferences: next,
+    expectedProviderPreferencesRevision: saved.revision,
+  });
+  expect(store.get().sharedProviderPreferences?.providers.codex.defaults.model).toBe("next");
+  expect(() =>
+    store.patch({
+      sharedProviderPreferences: saved,
+      expectedProviderPreferencesRevision: saved.revision + 1,
+    }),
+  ).toThrow("cannot be replaced or downgraded");
+});
+
 test("migration backs up first, survives restart, and rejects concurrent edits without losing deletions", () => {
   const home = mkdtempSync(join(tmpdir(), "provider-preferences-"));
   homes.push(home);

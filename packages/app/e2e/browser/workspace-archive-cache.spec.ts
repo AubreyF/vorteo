@@ -1,5 +1,5 @@
 import { expect, test } from "../support/fixtures";
-import { gotoAppShell, setVortonMode } from "../support/helpers/app";
+import { gotoAppShell } from "../support/helpers/app";
 import { waitForWorkspaceInReplicaCache } from "../support/helpers/replica-cache-storage";
 import { seedWorkspace, type SeededWorkspace } from "../support/helpers/seed-client";
 import {
@@ -52,36 +52,31 @@ test.describe("Workspace archive cache coherence", () => {
     }
   });
 
-  for (const vortonMode of [false, true]) {
-    test(`an external archive leaves the selected workspace in ${vortonMode ? "Vorton" : "Paseo"} mode`, async ({
-      page,
-    }) => {
-      const workspace = await seedWorkspace({ repoPrefix: "archive-cache-" });
+  test("an external archive leaves the selected workspace", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "archive-cache-" });
 
-      try {
-        await gotoAppShell(page);
-        await waitForSidebarHydration(page);
-        await setVortonMode(page, vortonMode);
-        await selectWorkspaceInSidebar(page, workspace.workspaceId);
-        await waitForWorkspaceInReplicaCache(page, workspace.workspaceId);
+    try {
+      await gotoAppShell(page);
+      await waitForSidebarHydration(page);
+      await selectWorkspaceInSidebar(page, workspace.workspaceId);
+      await waitForWorkspaceInReplicaCache(page, workspace.workspaceId);
 
-        await archiveWorkspaceOutsideTheApp(workspace);
+      await archiveWorkspaceOutsideTheApp(workspace);
 
-        await expectWorkspaceAbsentFromSidebar(page, workspace.workspaceId);
-        await expect(page).toHaveURL(/\/new\?/, { timeout: 30_000 });
-        await expect(page.getByText("Workspace unavailable", { exact: true })).toHaveCount(0);
-        await expect(page.getByTestId("new-workspace-project-picker-trigger")).toBeVisible();
-        await test.info().attach("after-archive", {
-          body: await page.screenshot(),
-          contentType: "image/png",
-        });
-        await page.reload();
-        await waitForSidebarHydration(page);
-        await expectWorkspaceAbsentFromSidebar(page, workspace.workspaceId);
-        await expect(page.getByTestId("new-workspace-project-picker-trigger")).toBeVisible();
-      } finally {
-        await workspace.cleanup();
-      }
-    });
-  }
+      await expectWorkspaceAbsentFromSidebar(page, workspace.workspaceId);
+      await expect(page).toHaveURL(/\/new\?/, { timeout: 30_000 });
+      await expect(page.getByText("Workspace unavailable", { exact: true })).toHaveCount(0);
+      await expect(page.getByTestId("new-workspace-project-picker-trigger")).toBeVisible();
+      await test.info().attach("after-archive", {
+        body: await page.screenshot(),
+        contentType: "image/png",
+      });
+      await page.reload();
+      await waitForSidebarHydration(page);
+      await expectWorkspaceAbsentFromSidebar(page, workspace.workspaceId);
+      await expect(page.getByTestId("new-workspace-project-picker-trigger")).toBeVisible();
+    } finally {
+      await workspace.cleanup();
+    }
+  });
 });

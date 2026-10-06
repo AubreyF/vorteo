@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { OwnerAccessExpired } from "./client";
 import { InstallationPanelModel } from "./panel-model";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 
@@ -185,4 +186,29 @@ test("the approval queue retains old requests, excludes completed requests and k
   for (const job of jobs) job.expiresAt = "2020-01-01T00:00:00.000Z";
   await model.refresh();
   expect(model.getState().pendingJobs.map((job) => job.id)).toEqual(["host-new"]);
+});
+
+test("owner expiry during session restoration does not navigate away from an open editor", async () => {
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => {
+      throw new OwnerAccessExpired("Unlock controls to continue.");
+    },
+    passwordFile: null,
+    sessionsSupported: true,
+    lock: async () => {},
+    unlock: async () => {},
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    listRestarts: async () => [],
+    decide: async () => {},
+  });
+  await model.initialize();
+  expect(model.getState()).toMatchObject({
+    initialized: true,
+    busy: false,
+    unlocked: false,
+    visible: false,
+    error: "Unlock controls to continue.",
+  });
 });

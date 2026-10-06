@@ -206,9 +206,7 @@ async function tapHelpNearTargetEdge(page: Page): Promise<void> {
   await button.tap({ position: { x: 40, y: 40 } });
 }
 
-test("interleaves Vorteo and Paseo notes with one Show more and preserves Standard mode", async ({
-  page,
-}) => {
+test("interleaves Vorteo and upstream notes with one Show more", async ({ page }) => {
   await serveChangelog(page, [
     "## 9.2.0 - 2026-10-06",
     "",
@@ -224,10 +222,6 @@ test("interleaves Vorteo and Paseo notes with one Show more and preserves Standa
   ]);
   await gotoAppShell(page);
   await openSettings(page);
-  await page
-    .getByTestId("settings-vorton-mode")
-    .getByRole("button", { name: "Vorteo mode", exact: true })
-    .click();
   await page.getByTestId("settings-whats-new").click();
   const sheet = page.getByTestId("changelog-sheet");
   const entries = sheet.locator('[data-testid^="changelog-release-"]');
@@ -251,14 +245,7 @@ test("interleaves Vorteo and Paseo notes with one Show more and preserves Standa
   await page.getByTestId("settings-whats-new").click();
   await expect(entries).toHaveCount(5);
   await closeSheet(page, "changelog-sheet");
-  await page
-    .getByTestId("settings-vorton-mode")
-    .getByRole("button", { name: "Standard mode", exact: true })
-    .click();
-  await page.getByTestId("settings-whats-new").click();
-  await expect(entries).toHaveCount(3);
-  await expect(sheet.getByText("Vorteo", { exact: true })).toHaveCount(0);
-  await expect(sheet.getByText("Newest upstream feature")).toBeVisible();
+  await expect(page.getByTestId("settings-vorton-mode")).toHaveCount(0);
 });
 
 test("keeps Vorteo notes readable when Paseo fails and retries upstream", async ({ page }) => {
@@ -266,10 +253,6 @@ test("keeps Vorteo notes readable when Paseo fails and retries upstream", async 
   await page.route(url, (route) => route.fulfill({ status: 503, body: "Unavailable" }));
   await gotoAppShell(page);
   await openSettings(page);
-  await page
-    .getByTestId("settings-vorton-mode")
-    .getByRole("button", { name: "Vorteo mode", exact: true })
-    .click();
   await page.getByTestId("settings-whats-new").click();
   const sheet = page.getByTestId("changelog-sheet");
   await expect(sheet).toBeVisible();

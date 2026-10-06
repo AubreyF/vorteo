@@ -8,7 +8,6 @@ import {
 } from "../support/helpers/file-explorer";
 import type { WithWorkspace } from "../support/helpers/with-workspace";
 import { installDaemonWebSocketGate } from "../support/helpers/daemon-websocket-gate";
-import { setVortonMode } from "../support/helpers/app";
 import {
   expectFileCalloutWasRendered,
   expectNoFileCalloutWasRendered,
@@ -145,7 +144,7 @@ test.describe("Workspace file change conflicts", () => {
       filePane(page).getByText("Binary preview unavailable", { exact: true }),
     ).toBeVisible();
     await expect(button).toHaveCount(0);
-    await setVortonMode(page, true);
+
     await expect(button).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("binary-download-desktop.png") });
     const downloading = page.waitForEvent("download");

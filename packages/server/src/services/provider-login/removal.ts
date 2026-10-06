@@ -85,7 +85,9 @@ export function planProviderRemoval(input: RemovalInput): ProviderRemovalPlan {
   const baseProvider = provider.extends === "claude" ? "claude" : "codex";
   const homeVariable = baseProvider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
   const defaultHome = baseProvider === "claude" ? input.defaultClaudeHome : input.defaultCodexHome;
+  const name = provider.label ?? input.providerId;
   const sharedWith: string[] = [];
+  const sharedProviderIds: string[] = [];
   let credentials: ProviderRemovalPlan["credentials"] = "external";
   let canonicalHome: string | null = null;
   if (home) {
@@ -102,20 +104,44 @@ export function planProviderRemoval(input: RemovalInput): ProviderRemovalPlan {
       const candidateHome = candidate.env?.[homeVariable];
       const usesDefault = id === baseProvider || candidate.extends === baseProvider;
       const otherHome = candidateHome ?? (usesDefault ? defaultHome : null);
-      if (otherHome && overlaps(canonicalHome, canonicalPath(otherHome)))
+      if (otherHome && overlaps(canonicalHome, canonicalPath(otherHome))) {
         sharedWith.push(candidate.label ?? id);
+        sharedProviderIds.push(id);
+      }
     }
     // Built-ins may be absent from the override map while still using the host's CLI home.
-    if (!input.providers[baseProvider] && overlaps(canonicalHome, canonicalPath(defaultHome)))
+    if (!input.providers[baseProvider] && overlaps(canonicalHome, canonicalPath(defaultHome))) {
       sharedWith.push({ claude: "Claude", codex: "Codex" }[baseProvider]);
+      sharedProviderIds.push(baseProvider);
+    }
     if (sharedWith.length > 0) credentials = "shared";
   }
+  // A policy projection can disable the connection after confirmation. Runtime
+  // credentials and ownership must still match the reviewed deletion target.
   const revision = createHash("sha256")
-    .update(JSON.stringify({ providers: input.providers, canonicalHome, credentials, sharedWith }))
+    .update(
+      JSON.stringify({
+        providerId: input.providerId,
+        providerType: provider.extends,
+        accountId: provider.installationAccountId,
+        runtime: {
+          command: provider.command,
+          env: provider.env,
+          options: provider.options,
+          params: provider.params,
+          removed: provider.removed,
+        },
+        name,
+        canonicalHome,
+        credentials,
+        sharedWith,
+        sharedProviderIds,
+      }),
+    )
     .digest("hex");
   return {
     providerId: input.providerId,
-    name: provider.label ?? input.providerId,
+    name,
     credentials,
     sharedWith,
     revision,

@@ -10,7 +10,7 @@ For an existing instance, read its private handoff, [preset instructions](../ski
 
 On the destination, read repository instructions and [agent presets](agent-presets.md). Inspect installed tools, model endpoints, provider identities and mounted state. A label or previous host's successful test is not evidence that the destination works.
 
-Authenticate accounts independently and transfer private state only through a reviewed private process. Preserve existing services. Coordinate any interruption, take consistent backups and retain rollback artifacts. Verify Vorteo off/on behavior, actual model calls, bounded workers, private remote access, persistence and physical-device features. Do not automatically resume old schedules or interrupted tasks from a handoff document.
+Authenticate accounts independently and transfer private state only through a reviewed private process. Preserve existing services. Coordinate any interruption, take consistent backups and retain rollback artifacts. Verify shared settings, environment exclusions, actual model calls, bounded workers, private remote access, persistence and physical-device features. Do not automatically resume old schedules or interrupted tasks from a handoff document.
 
 ## Acceptance
 
@@ -18,7 +18,7 @@ Record pass, fail or not tested for each row, with the tested revision and priva
 
 - Identify the serving daemon, immutable image, mounted home, web receipt and entry scripts. Reconcile [source feature status](agent-presets.md#implementation-and-deployment-status) against this release.
 - Authenticate distinct provider accounts and run a real model call. Configure agent-tool injection, launch a supervisor using its preset and verify a bounded worker uses the configured `profileId`. Check failure when required tools are unavailable.
-- Compare Vorteo off and on. Saved accounts, profiles and running work must survive switching. Verify permission selection in the profile editor and Standard mode controls when off.
+- Verify shared profiles and their environment exclusions on Host and Dev. Saved accounts, profile references and running work must survive migration. Verify permission selection in the profile editor.
 - Verify private HTTPS, password authentication, WebSocket continuity, intended-user access and denied-user access. Keep node identity and control state inaccessible to the agent user.
 - If the optional preview broker is installed, start, repeat-start, stop and restart a preview. Verify its rendered application and stable frontend port. In a disposable instance or approved maintenance window, verify a daemon restart requires explicit preview start and does not undo a deliberate stop.
 - Test home, credential and web persistence through disposable-container recreation. If installed, verify per-instance broker and recovery installation, rollback and removal preserve sibling instances. Test cold boot separately during an approved window.

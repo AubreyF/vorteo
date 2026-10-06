@@ -1,6 +1,6 @@
-import type { Agent } from "@/stores/session-store";
+import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceTabSnapshot } from "@/stores/workspace-layout-actions";
-import { isWorkspaceRootAgent } from "@/subagents/policies";
+import { getAgentPresentationIndex } from "@/subagents/policies";
 import { normalizeWorkspaceOpaqueId } from "@/utils/workspace-identity";
 
 export interface WorkspaceAgentVisibility {
@@ -8,18 +8,15 @@ export interface WorkspaceAgentVisibility {
   autoOpenAgentIds: Set<string>;
 }
 
-function agentBelongsToWorkspace(agent: Agent, workspaceId: string): boolean {
-  return normalizeWorkspaceOpaqueId(agent.workspaceId) === workspaceId;
-}
-
 export function deriveWorkspaceAgentVisibility(input: {
   sessionAgents: Map<string, Agent> | undefined;
   agentDetails?: Map<string, Agent> | undefined;
   workspaceId: string | null | undefined;
+  workspaces?: Map<string, WorkspaceDescriptor>;
 }): WorkspaceAgentVisibility {
-  const { sessionAgents, agentDetails } = input;
+  const { sessionAgents } = input;
   const workspaceId = normalizeWorkspaceOpaqueId(input.workspaceId);
-  if ((!sessionAgents && !agentDetails) || !workspaceId) {
+  if (!sessionAgents || !workspaceId) {
     return {
       activeAgentIds: new Set<string>(),
       autoOpenAgentIds: new Set<string>(),
@@ -28,18 +25,15 @@ export function deriveWorkspaceAgentVisibility(input: {
 
   const activeAgentIds = new Set<string>();
   const autoOpenAgentIds = new Set<string>();
-  const agentsById = new Map<string, Agent>([
-    ...(agentDetails?.entries() ?? []),
-    ...(sessionAgents?.entries() ?? []),
-  ]);
-  for (const agent of sessionAgents?.values() ?? []) {
-    if (!agentBelongsToWorkspace(agent, workspaceId)) {
+  const presentations = getAgentPresentationIndex(sessionAgents, input.workspaces);
+  for (const agent of sessionAgents.values()) {
+    const presentation = presentations.get(agent.id);
+    if (presentation?.workspaceId !== workspaceId) {
       continue;
     }
     if (!agent.archivedAt) {
       activeAgentIds.add(agent.id);
-      const parentAgent = agent.parentAgentId ? agentsById.get(agent.parentAgentId) : undefined;
-      if (isWorkspaceRootAgent(agent, parentAgent)) {
+      if (presentation.rootAgentId === agent.id) {
         autoOpenAgentIds.add(agent.id);
       }
     }

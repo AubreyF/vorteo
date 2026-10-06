@@ -2,13 +2,13 @@ import { KeyboardTranslateView } from "@/keyboard/shift";
 import { ProfilePermissionWarning } from "@/agent-profiles/permission-warning";
 import { commitComposerQueue } from "@/message-queue/commit-composer";
 import { LegacyQueueImport } from "@/message-queue/legacy-import";
-import { runLegacyQueueAction } from "@/message-queue/runtime";
+
 import { splitComposerAttachmentsForSubmit } from "@/composer/attachments/submit";
 import { useMobileComposerLayout, MOBILE_COMPOSER_MARGIN } from "./mobile-layout";
 import { GoalBar } from "@/goals/goal-bar";
 import { GoalDetails } from "@/goals/goal-details";
 import { useAgentGoal } from "@/goals/use-agent-goal";
-import { useFormPreferences } from "@/hooks/use-form-preferences";
+
 import type { ComposerTextSource } from "./text-source";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useStore } from "zustand";
@@ -16,7 +16,6 @@ import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import {
   View,
-  Pressable,
   Text,
   StyleSheet as RNStyleSheet,
   type PressableStateCallbackType,
@@ -42,9 +41,7 @@ import { useVortonTouch } from "@/vorton-touch";
 import { useHasFinePointer } from "@/hooks/use-fine-pointer";
 import { useShallow } from "zustand/shallow";
 import {
-  ArrowUp,
   Square,
-  Pencil,
   AudioLines,
   CircleDot,
   FileText,
@@ -81,19 +78,14 @@ import { focusWithRetries } from "@/utils/web-focus";
 import {
   cancelComposerAgent,
   dispatchComposerAgentMessage,
-  editQueuedComposerMessage,
   findForgeItemByOption,
   isAttachmentSelectedForForgeItem,
   openComposerAttachment,
   pickAndPersistImages,
-  queueComposerMessage,
   removeComposerAttachmentAtIndex,
-  sendQueuedComposerMessageNow,
   toggleForgeAttachmentFromPicker,
   uploadFileAttachments,
   type AttachmentPersister,
-  type QueueWriter,
-  type QueuedComposerMessage,
 } from "@/composer/actions";
 import { useVoiceOptional } from "@/contexts/voice-context";
 import { useToast } from "@/contexts/toast-context";
@@ -121,7 +113,7 @@ import {
 } from "@/attachments/service";
 import { resolveAgentControlsMode } from "@/composer/agent-controls/mode";
 import { resolveComposerInputMode, type ComposerInputMode } from "@/composer/input-mode";
-import { resolveActiveSendBehavior, resolveImmediateSendBehavior } from "./input/state";
+
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
 import type { MessageInputKeyboardActionKind } from "@/keyboard/actions";
@@ -184,8 +176,6 @@ const composerImageAttachmentPersister: Pick<
   persistFromDataUrl: persistAttachmentFromDataUrl,
   persistFromFileUri: persistAttachmentFromFileUri,
 };
-
-type QueuedMessage = QueuedComposerMessage;
 
 type AttachmentListUpdater =
   | UserComposerAttachment[]
@@ -406,34 +396,6 @@ function renderAttachmentTray(args: RenderAttachmentTrayArgs): ReactElement | nu
             subtitle={getFileTypeLabel(file.fileName) ?? ""}
           />
         </AttachmentFrame>
-      ))}
-    </View>
-  );
-}
-
-interface RenderQueueTrackArgs {
-  queuedMessages: readonly QueuedMessage[];
-  handleEditQueuedMessage: (id: string) => void;
-  handleSendQueuedNow: (id: string) => Promise<void>;
-  editLabel: string;
-  sendNowLabel: string;
-}
-
-function renderQueueTrack(args: RenderQueueTrackArgs): ReactElement | null {
-  const { queuedMessages, handleEditQueuedMessage, handleSendQueuedNow, editLabel, sendNowLabel } =
-    args;
-  if (queuedMessages.length === 0) return null;
-  return (
-    <View style={styles.queueTrack} testID="composer-queued-messages">
-      {queuedMessages.map((item) => (
-        <QueuedMessageRow
-          key={item.id}
-          item={item}
-          onEdit={handleEditQueuedMessage}
-          onSendNow={handleSendQueuedNow}
-          editLabel={editLabel}
-          sendNowLabel={sendNowLabel}
-        />
       ))}
     </View>
   );
@@ -697,54 +659,6 @@ function resolveMessageInputPassthroughAction(
     default:
       return null;
   }
-}
-
-interface QueuedMessageRowProps {
-  item: QueuedMessage;
-  onEdit: (id: string) => void;
-  onSendNow: (id: string) => void;
-  editLabel: string;
-  sendNowLabel: string;
-}
-
-function QueuedMessageRow({
-  item,
-  onEdit,
-  onSendNow,
-  editLabel,
-  sendNowLabel,
-}: QueuedMessageRowProps) {
-  const handleEdit = useCallback(() => {
-    onEdit(item.id);
-  }, [onEdit, item.id]);
-  const handleSendNow = useCallback(() => {
-    onSendNow(item.id);
-  }, [onSendNow, item.id]);
-  return (
-    <View style={styles.queueItem}>
-      <Text style={styles.queueText} numberOfLines={2} ellipsizeMode="tail">
-        {item.text}
-      </Text>
-      <View style={styles.queueActions}>
-        <Pressable
-          onPress={handleEdit}
-          style={styles.queueActionButton}
-          accessibilityLabel={editLabel}
-          accessibilityRole="button"
-        >
-          <ThemedPencil size={ICON_SIZE.sm} uniProps={iconForegroundMapping} />
-        </Pressable>
-        <Pressable
-          onPress={handleSendNow}
-          style={[styles.queueActionButton, styles.queueSendButton]}
-          accessibilityLabel={sendNowLabel}
-          accessibilityRole="button"
-        >
-          <ThemedArrowUp size={ICON_SIZE.sm} uniProps={iconAccentForegroundMapping} />
-        </Pressable>
-      </View>
-    </View>
-  );
 }
 
 interface ImageAttachmentPillProps {
@@ -1025,7 +939,6 @@ interface ComposerProps {
   placeholder?: string;
 }
 
-const EMPTY_ARRAY: readonly QueuedMessage[] = [];
 const StableMessageInput = memo(MessageInput);
 
 function resolveContextWindowValues(
@@ -1330,13 +1243,6 @@ function ComposerContentImpl({
 
   const agentState = useSessionStore(useShallow(buildAgentStateSelector(serverId, agentId)));
 
-  const queuedMessagesRaw = useSessionStore((state) =>
-    state.sessions[serverId]?.queuedMessages?.get(agentId),
-  );
-  const queuedMessages = queuedMessagesRaw ?? EMPTY_ARRAY;
-
-  const setQueuedMessages = useSessionStore((state) => state.setQueuedMessages);
-
   const isCompactFormFactor = useIsCompactFormFactor();
   const touch = useVortonTouch();
   const isCompactLayout = resolveCompactLayout(isCompactLayoutOverride, isCompactFormFactor);
@@ -1433,12 +1339,9 @@ function ComposerContentImpl({
     workspaceId,
     agentId,
   });
-  const { preferences: formPreferences } = useFormPreferences();
+
   const configurationRequired = Boolean(
-    mode.showAgentControls &&
-    agentControls &&
-    formPreferences.vortonMode &&
-    !agentControls.selectedProfileId,
+    mode.showAgentControls && agentControls && !agentControls.selectedProfileId,
   );
   const submitDisabledReason = configurationRequired
     ? "Select a configuration before submitting."
@@ -1586,14 +1489,9 @@ function ComposerContentImpl({
       if (!sendAgentMessageRef.current) {
         throw new Error(t("workspace.terminal.hostDisconnected"));
       }
-      await sendAgentMessageRef.current(
-        agentIdRef.current,
-        text,
-        submitAttachments,
-        resolveImmediateSendBehavior(appSettings.sendBehavior, formPreferences.vortonMode),
-      );
+      await sendAgentMessageRef.current(agentIdRef.current, text, submitAttachments, "steer");
     },
-    [appSettings.sendBehavior, cwd, onMessageSent, t, formPreferences.vortonMode],
+    [cwd, onMessageSent, t],
   );
 
   useEffect(() => {
@@ -1644,51 +1542,22 @@ function ComposerContentImpl({
     (state) => selectAgentTurnPresentation(state.sessions[serverId], agentId).isCancelling,
   );
   const isAgentRunning = hasActiveTurn;
-  // Queueing behind a permission prompt would strand the message: the turn is
-  // parked until the request is answered.
-  const hasPendingPermission = useSessionStore((state) => {
-    const pendingPermissions = state.sessions[serverId]?.pendingPermissions;
-    if (!pendingPermissions) return false;
-    for (const permission of pendingPermissions.values()) {
-      if (permission.agentId === agentId) return true;
-    }
-    return false;
-  });
-  const activeSendBehavior = resolveActiveSendBehavior(
-    appSettings.sendBehavior,
-    hasPendingPermission,
-    formPreferences.vortonMode,
-  );
-  const hasAgent = agentState.status !== null;
 
-  const queueWriter = useMemo<QueueWriter>(
-    () => ({
-      read: (id) => useSessionStore.getState().sessions[serverId]?.queuedMessages?.get(id) ?? [],
-      write: (updater) => setQueuedMessages(serverId, updater),
-    }),
-    [serverId, setQueuedMessages],
-  );
+  const activeSendBehavior = "queue";
+  const hasAgent = agentState.status !== null;
 
   const queueMessage = useCallback(
     async (queuedMessage: string, queuedAttachments: ComposerAttachment[]) => {
       if (!queuedMessage.trim() && queuedAttachments.length === 0) return;
-      if (formPreferences.vortonMode) {
-        if (!supportsMessageQueue) throw new Error("Update the host to use shared message queues.");
-        await commitComposerQueue({
-          serverId,
-          agentId,
-          cwd,
-          text: queuedMessage.trim(),
-          attachments: queuedAttachments,
-        });
-      } else {
-        queueComposerMessage({
-          agentId,
-          text: queuedMessage,
-          attachments: queuedAttachments,
-          queue: queueWriter,
-        });
-      }
+
+      if (!supportsMessageQueue) throw new Error("Update the host to use shared message queues.");
+      await commitComposerQueue({
+        serverId,
+        agentId,
+        cwd,
+        text: queuedMessage.trim(),
+        attachments: queuedAttachments,
+      });
 
       replaceUserInput("");
       setSelectedAttachments([]);
@@ -1699,10 +1568,8 @@ function ComposerContentImpl({
       agentId,
       serverId,
       cwd,
-      formPreferences.vortonMode,
       supportsMessageQueue,
       clearSentAttachments,
-      queueWriter,
       resetSuppression,
       setSelectedAttachments,
       replaceUserInput,
@@ -2032,51 +1899,6 @@ function ComposerContentImpl({
       toastErrorRef,
     });
   }, [agentId, hasAgent, isConnected, serverId, voice]);
-
-  const handleEditQueuedMessage = useCallback(
-    async (id: string) => {
-      try {
-        await runLegacyQueueAction(serverId, agentId, id, async () => {
-          const result = editQueuedComposerMessage({
-            agentId,
-            messageId: id,
-            queue: queueWriter,
-          });
-          if (!result) return;
-          replaceUserInput(result.text);
-          setSelectedAttachments(result.attachments);
-        });
-      } catch (error) {
-        setSendError(error instanceof Error ? error.message : "Could not edit the queued message.");
-      }
-    },
-    [serverId, agentId, queueWriter, replaceUserInput, setSelectedAttachments],
-  );
-
-  const handleSendQueuedNow = useCallback(
-    async (id: string) => {
-      if (!sendAgentMessageRef.current && !onSubmitMessageRef.current) return;
-      try {
-        await runLegacyQueueAction(serverId, agentId, id, async () => {
-          // Reuse the regular send path; server-side send atomically interrupts any active run.
-          const result = await sendQueuedComposerMessageNow({
-            agentId,
-            messageId: id,
-            queue: queueWriter,
-            submitMessage: ({ text, attachments: queuedAttachments }) =>
-              submitMessage(text, queuedAttachments),
-            failedToSendMessage: t("composer.errors.failedToSend"),
-          });
-          if (result.status === "failed") {
-            setSendError(result.errorMessage);
-          }
-        });
-      } catch (error) {
-        setSendError(error instanceof Error ? error.message : "Could not send the queued message.");
-      }
-    },
-    [serverId, agentId, queueWriter, submitMessage, t],
-  );
 
   const handleQueue = useCallback(
     async (payload: MessagePayload) => {
@@ -2471,20 +2293,6 @@ function ComposerContentImpl({
     ],
   );
 
-  const queueList = useMemo(
-    () =>
-      formPreferences.vortonMode
-        ? null
-        : renderQueueTrack({
-            queuedMessages,
-            handleEditQueuedMessage,
-            handleSendQueuedNow,
-            editLabel: t("composer.attachments.editQueuedMessage"),
-            sendNowLabel: t("composer.attachments.sendQueuedMessageNow"),
-          }),
-    [formPreferences.vortonMode, handleEditQueuedMessage, handleSendQueuedNow, queuedMessages, t],
-  );
-
   const autocompleteConfiguration = useMemo(
     () => ({
       setUserInput: replaceUserInput,
@@ -2557,23 +2365,17 @@ function ComposerContentImpl({
       />
       <KeyboardTranslateView
         style={animatedStaticStyles.container}
-        enabled={formPreferences.vortonMode && !externalKeyboardShift}
+        enabled={!externalKeyboardShift}
       >
         <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
-        {mobileComposer.enabled && queueList ? (
-          <View style={styles.mobileQueueArea}>{queueList}</View>
-        ) : null}
         {/* Input area */}
         <View style={inputAreaContainerStyle} testID="composer-input-area">
-          <View
-            style={[styles.inputAreaContent, formPreferences.vortonMode && styles.bottomCardStack]}
-          >
-            {!mobileComposer.enabled ? queueList : null}
+          <View style={[styles.inputAreaContent, styles.bottomCardStack]}>
             {sendErrorNode}
-            {formPreferences.vortonMode && !agentControls && agentId ? (
+            {!agentControls && agentId ? (
               <ProfilePermissionWarning serverId={serverId} agentId={agentId} />
             ) : null}
-            {formPreferences.vortonMode && !taskCardsInHistory ? (
+            {!taskCardsInHistory ? (
               <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
             ) : null}
             {!taskCardsInHistory ? (
@@ -2838,8 +2640,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
 
 const ThemedTarget = withUnistyles(Target);
 const ThemedAttachmentSpinner = withUnistyles(LoadingSpinner);
-const ThemedPencil = withUnistyles(Pencil);
-const ThemedArrowUp = withUnistyles(ArrowUp);
+
 const ThemedGitPullRequest = withUnistyles(GitPullRequest);
 const ThemedCircleDot = withUnistyles(CircleDot);
 const ThemedAudioLines = withUnistyles(AudioLines);
@@ -2849,7 +2650,6 @@ const ThemedClipboardPaste = withUnistyles(ClipboardPaste);
 const ThemedFileText = withUnistyles(FileText);
 const iconForegroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const iconForegroundMutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
-const iconAccentForegroundMapping = (theme: Theme) => ({ color: theme.colors.accentForeground });
 
 function renderForgeAttachmentIcon(icon: string): ReactElement {
   return (

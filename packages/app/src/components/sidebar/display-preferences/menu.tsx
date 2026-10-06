@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import {
   useCallback,
   useMemo,
@@ -176,9 +175,9 @@ export function SidebarDisplayPreferencesMenu({
 } = {}): ReactElement {
   const { t } = useTranslation();
   const preferences = useSidebarDisplayPreferences();
-  const vorton = useVortonMode();
-  const triggerLabel = t(vorton ? "sidebar.display.viewPreferences" : "sidebar.display.trigger");
-  const heading = t(vorton ? "sidebar.display.viewPreferences" : "sidebar.display.heading");
+
+  const triggerLabel = t("sidebar.display.viewPreferences");
+  const heading = t("sidebar.display.viewPreferences");
   const hosts = useHosts();
   // `allProjects`, never `projects`: the model's `projects` is already filtered, so a picker fed
   // from it would lose the row that undoes the filter as soon as the filter narrowed to one.
@@ -566,8 +565,8 @@ function OptionList<Value extends string>({
  */
 function ShowPage({ preferences }: { preferences: Preferences }): ReactElement {
   const { t } = useTranslation();
-  const vorton = useVortonMode();
-  const rowItems = SIDEBAR_ROW_ITEMS.filter((item) => vorton || item !== "activityBadges");
+
+  const rowItems = SIDEBAR_ROW_ITEMS;
   return (
     <>
       {rowItems.map((item) => (

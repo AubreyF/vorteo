@@ -1,3 +1,5 @@
+import { SharedSkillCatalog } from "./shared-catalog";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import { useFetchQuery } from "@/data/query";
 import { useCallback, useMemo, useReducer, useState } from "react";
 import { Text, View } from "react-native";
@@ -17,17 +19,16 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { useHosts, useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
 import { settingsStyles } from "@/styles/settings";
-import { useVortonMode } from "@/vorton-mode";
+
 import { copyToClipboard } from "@/utils/copy-to-clipboard";
 
 import { groupSkillLocations, findSkillLocations, type SkillGroup } from "./library-groups";
 
 export function SkillLibraryButton() {
-  const vortonMode = useVortonMode();
   const [open, setOpen] = useState(false);
   const show = useCallback(() => setOpen(true), []);
   const hide = useCallback(() => setOpen(false), []);
-  if (!vortonMode) return null;
+
   return (
     <>
       <Button variant="outline" onPress={show}>
@@ -47,6 +48,22 @@ function Library({ onClose }: { onClose: () => void }) {
 }
 
 export function SkillLibraryContent() {
+  const installation = readExecutionInstallation();
+  const [inspect, setInspect] = useState(false);
+  const toggle = useCallback(() => setInspect((value) => !value), []);
+  if (!installation) return <EnvironmentInventory />;
+  return (
+    <View style={styles.content}>
+      <SharedSkillCatalog />
+      <Button variant="outline" onPress={toggle}>
+        {inspect ? "Hide environment inventory" : "Inspect environment inventory"}
+      </Button>
+      {inspect ? <EnvironmentInventory /> : null}
+    </View>
+  );
+}
+
+function EnvironmentInventory() {
   const hosts = useHosts();
   const [search, setSearch] = useState("");
   const [cwd, setCwd] = useState("");
@@ -151,9 +168,11 @@ function EnvironmentLibrary({
         <Button variant="outline" disabled={!online || query.isFetching} onPress={refetch}>
           Refresh
         </Button>
-        <Button variant="outline" disabled={!online} onPress={install}>
-          Install
-        </Button>
+        {!readExecutionInstallation() ? (
+          <Button variant="outline" disabled={!online} onPress={install}>
+            Install
+          </Button>
+        ) : null}
         <Button variant="outline" disabled={!online} onPress={history}>
           History
         </Button>
@@ -388,7 +407,7 @@ function SkillDetail({
             </Button>
           </View>
         ) : null}
-        {skill.managed ? (
+        {skill.managed && !readExecutionInstallation() ? (
           <Button variant="outline" disabled={change.isPending} onPress={remove}>
             Preview removal
           </Button>
@@ -551,7 +570,7 @@ function SkillHistory({
                   {"\n"}
                   {entry.target}
                 </Text>
-                {entry.beforeHash ? (
+                {entry.beforeHash && !readExecutionInstallation() ? (
                   <RestoreButton id={entry.id} pending={change.isPending} mutate={change.mutate} />
                 ) : null}
               </View>

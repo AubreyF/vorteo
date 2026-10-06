@@ -1,3 +1,5 @@
+import { readInstallationSettings } from "../execution-installation/settings/projection.js";
+import type { InstallationSettingsAdmission } from "../execution-installation/settings/admission.js";
 import { randomUUID } from "node:crypto";
 import {
   cp,
@@ -179,6 +181,144 @@ function createPluginSelectivePausedRuntime(pausedPluginId: string) {
 }
 
 describe("PluginService", () => {
+  it("keeps a running directory binding and private settings when replacement activation fails", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "plugin-directory-recovery-"));
+    roots.push(home);
+    const directory = await createPlugin("local", "export default function() { return () => {}; }");
+    const broken = await createPlugin(
+      "local",
+      "export default function() { throw new Error('replacement failed'); }",
+    );
+    const settingsDirectory = path.join(home, "settings");
+    await mkdir(path.join(settingsDirectory, "saved-local"), { recursive: true });
+    const privateFile = path.join(settingsDirectory, "saved-local", "values.json");
+    await writeFile(privateFile, "private fixture settings");
+    const service = createService(
+      home,
+      {},
+      { managedSources: new ManagedPluginSources(home), settingsDirectory },
+    );
+    await service.start();
+    try {
+      await service.installDirectory({ path: directory, id: "saved-local" });
+      await expect(
+        service.installDirectory({
+          path: broken,
+          id: "saved-local",
+          binding: { expectedPath: directory, enabled: true },
+        }),
+      ).rejects.toThrow("replacement failed");
+      expect(await service.listPlugins()).toMatchObject([
+        { id: "saved-local", path: directory, enabled: true, status: "running" },
+      ]);
+      expect(await readFile(privateFile, "utf8")).toBe("private fixture settings");
+      await expect(stat(broken)).resolves.toMatchObject({});
+      await expect(
+        service.installDirectory({
+          path: broken,
+          id: "new-local",
+          binding: { expectedPath: null, enabled: true },
+        }),
+      ).rejects.toThrow("replacement failed");
+      expect((await service.listPlugins()).map((plugin) => plugin.id)).toEqual(["saved-local"]);
+    } finally {
+      await service.stopAllPlugins();
+    }
+  });
+
+  it("rejects a directory binding changed during candidate validation", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "plugin-directory-race-"));
+    roots.push(home);
+    const directory = await createPlugin("local", "export default function() { return () => {}; }");
+    const concurrent = await createPlugin(
+      "local",
+      "export default function() { return () => {}; }",
+    );
+    const store = createStore(home);
+    const paused = createPausedRuntime();
+    const runtime = {
+      ...paused.runtime,
+      validatePlugin: async () => {
+        store.patch({
+          plugins: { local: { source: "directory", path: concurrent, enabled: false } },
+        });
+      },
+    };
+    const service = new PluginService(pino({ level: "silent" }), store, "0.4.0", {
+      runtime,
+      managedSources: new ManagedPluginSources(home),
+    });
+    await service.start();
+    try {
+      await expect(
+        service.installDirectory({
+          path: directory,
+          binding: { expectedPath: null, enabled: false },
+        }),
+      ).rejects.toThrow("binding changed");
+      expect(await service.listPlugins()).toMatchObject([
+        { id: "local", path: concurrent, enabled: false },
+      ]);
+    } finally {
+      await service.stopAllPlugins();
+    }
+  });
+
+  it("binds disabled directories without activation and rejects stale replacement paths", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "plugin-directory-binding-"));
+    roots.push(home);
+    const marker = path.join(home, "started");
+    const directory = await createPlugin(
+      "local",
+      `import { writeFileSync } from "node:fs"; export default function() { writeFileSync(${JSON.stringify(marker)}, "started"); return () => {}; }`,
+    );
+    const replacement = await createPlugin(
+      "local",
+      "export default function() { return () => {}; }",
+    );
+    const service = createService(home, {}, { managedSources: new ManagedPluginSources(home) });
+    await service.start();
+    try {
+      const installed = await service.installDirectory({
+        path: directory,
+        id: "saved-local",
+        binding: { expectedPath: null, enabled: false },
+      });
+      expect(installed).toMatchObject({
+        id: "saved-local",
+        path: directory,
+        enabled: false,
+        status: "disabled",
+      });
+      await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        service.installDirectory({
+          path: replacement,
+          id: "saved-local",
+          binding: { expectedPath: null, enabled: false },
+        }),
+      ).rejects.toThrow("binding changed");
+      expect((await service.listPlugins())[0].path).toBe(directory);
+      const rebound = await service.installDirectory({
+        path: replacement,
+        id: "saved-local",
+        binding: { expectedPath: directory, enabled: false },
+      });
+      expect(rebound).toMatchObject({
+        id: "saved-local",
+        path: replacement,
+        enabled: false,
+        status: "disabled",
+      });
+      await expect(stat(directory)).resolves.toMatchObject({});
+      await expect(
+        service.installDirectory({ path: directory, id: "saved-local" }),
+      ).rejects.toThrow("already configured");
+    } finally {
+      await service.stopAllPlugins();
+    }
+  });
+
   it.each([
     { shadow: false, runtime: "subprocess" },
     { shadow: true, runtime: "subprocess" },
@@ -276,6 +416,9 @@ describe("PluginService", () => {
 
     expect(service.getProviderRegistrations()).toMatchObject([
       { id: "plugin-agent", icon: iconSvg, getCatalogCacheKey: expect.any(Function) },
+    ]);
+    expect((await service.listPlugins())[0].providers).toEqual([
+      { id: "plugin-agent", label: "Plugin agent" },
     ]);
     const provider = service.getProviderRegistrations()[0]!;
     expect(await provider.getCatalogCacheKey!({ scope: "workspace", cwd: "/project-a" })).toBe(
@@ -619,6 +762,209 @@ export default function contribute(server: PluginServerContext) {
     30_000,
   );
 
+  it("enforces shared plugin choices before local changes and keeps running plugins intact offline", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "shared-plugin-authority-"));
+    roots.push(home);
+    const directory = await createPlugin(
+      "shared-local",
+      "export default function contribute() { return () => undefined; }",
+    );
+    const initial = createStore(home).get();
+    const binding = {
+      installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+      serverId: "host",
+      environment: "host" as const,
+      revision: 1,
+    };
+    const admission: InstallationSettingsAdmission = {
+      ...binding,
+      installationInstructions: "",
+      settings: { ...readInstallationSettings(initial), plugins: [] },
+    };
+    let offline = false;
+    const store = new DaemonConfigStore(
+      home,
+      {
+        ...initial,
+        sharedProviderPreferences: {
+          version: 1,
+          revision: 1,
+          providers: {},
+          legacyProfiles: {},
+          installation: binding,
+        },
+      },
+      undefined,
+      {
+        installationSettingsReader: {
+          read: async () => {
+            if (offline) throw new Error("coordinator offline");
+            return structuredClone(admission);
+          },
+        },
+      },
+    );
+    const service = bindTestSessionHost(
+      new PluginService(pino({ level: "silent" }), store, "0.4.0", {
+        managedSources: new ManagedPluginSources(home),
+      }),
+    );
+    try {
+      await service.start();
+      await expect(service.installDirectory({ path: directory })).rejects.toThrow("coordinator");
+      expect(await service.listPlugins()).toEqual([]);
+      admission.settings.plugins = [
+        { id: "shared-local", source: { kind: "directory" }, enabled: true },
+      ];
+      expect(await service.installDirectory({ path: directory })).toMatchObject({
+        status: "running",
+      });
+      await expect(service.disablePlugin("shared-local")).rejects.toThrow("coordinator");
+      await expect(service.removePlugin("shared-local")).rejects.toThrow("coordinator");
+      await expect(store.patchFromClient({ plugins: {} })).rejects.toThrow(
+        "shared plugin controls",
+      );
+      expect(await service.listPlugins()).toMatchObject([{ status: "running", path: directory }]);
+      admission.settings.resourceExclusions.host = {
+        terminalProfileIds: [],
+        metadataProviderIds: [],
+        pluginIds: ["shared-local"],
+      };
+      expect(await service.disablePlugin("shared-local")).toMatchObject({ status: "disabled" });
+      await expect(service.enablePlugin("shared-local")).rejects.toThrow("coordinator");
+      delete admission.settings.resourceExclusions.host;
+      expect(await service.enablePlugin("shared-local")).toMatchObject({ status: "running" });
+      offline = true;
+      await expect(service.reloadPlugin("shared-local")).rejects.toThrow("offline");
+      expect(await service.listPlugins()).toMatchObject([{ status: "running", path: directory }]);
+    } finally {
+      await service.stopAllPlugins();
+    }
+  }, 30_000);
+
+  it("rejects an unapproved shared plugin before executing its build", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "shared-plugin-build-admission-"));
+    roots.push(home);
+    const marker = path.join(home, "build-executed");
+    const repository = await createPlugin("unapproved", "export default () => () => {};\n");
+    await writeFile(
+      path.join(repository, "paseo-plugin.json"),
+      JSON.stringify({
+        id: "unapproved",
+        build: [
+          [
+            process.execPath,
+            "-e",
+            `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "executed")`,
+          ],
+        ],
+      }),
+    );
+    for (const args of [
+      ["init", "-b", "main"],
+      ["add", "."],
+      ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "initial"],
+    ])
+      await runGitCommand(args, { cwd: repository });
+    const initial = createStore(home).get();
+    const binding = {
+      installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+      serverId: "host",
+      environment: "host" as const,
+      revision: 1,
+    };
+    const admission: InstallationSettingsAdmission = {
+      ...binding,
+      installationInstructions: "",
+      settings: { ...readInstallationSettings(initial), plugins: [] },
+    };
+    const store = new DaemonConfigStore(
+      home,
+      {
+        ...initial,
+        sharedProviderPreferences: {
+          version: 1,
+          revision: 1,
+          providers: {},
+          legacyProfiles: {},
+          installation: binding,
+        },
+      },
+      undefined,
+      { installationSettingsReader: { read: async () => admission } },
+    );
+    const guarded = bindTestSessionHost(
+      new PluginService(pino({ level: "silent" }), store, "0.4.0", {
+        managedSources: new ManagedPluginSources(home),
+      }),
+    );
+    try {
+      const resolved = await guarded.resolveSource({ source: pathToFileURL(repository).href });
+      await expect(guarded.installResolvedSource({ resolved, enabled: true })).rejects.toThrow(
+        "coordinator",
+      );
+      await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await guarded.listPlugins()).toEqual([]);
+      expect(await readdir(path.join(home, "plugins", ".staging"))).toEqual([]);
+    } finally {
+      await guarded.stopAllPlugins();
+    }
+  }, 30_000);
+
+  it("installs a resolved revision without starting a disabled plugin", async () => {
+    const repository = await createPlugin(
+      "shared-pinned",
+      "export default function contribute() {}",
+    );
+    await runGitCommand(["init", "-b", "main"], { cwd: repository });
+    await runGitCommand(["config", "user.name", "Paseo Tests"], { cwd: repository });
+    await runGitCommand(["config", "user.email", "paseo@example.test"], { cwd: repository });
+    await runGitCommand(["add", "-A"], { cwd: repository });
+    await runGitCommand(["commit", "-m", "initial"], { cwd: repository });
+    const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-pinned-"));
+    roots.push(home);
+    const managedSources = new ManagedPluginSources(home);
+    const resolved = await managedSources.resolveInstall({
+      source: pathToFileURL(repository).href,
+    });
+    await writeFile(path.join(repository, "later.txt"), "not part of the selected revision");
+    await runGitCommand(["add", "-A"], { cwd: repository });
+    await runGitCommand(["commit", "-m", "later"], { cwd: repository });
+    const starts: string[] = [];
+    const runtime = createPausedRuntime().runtime;
+    runtime.validatePlugin = async () => undefined;
+    runtime.startPlugin = async (id) => {
+      starts.push(id);
+    };
+    const store = createStore(home);
+    const service = bindTestSessionHost(
+      new PluginService(pino({ level: "silent" }), store, "0.4.0", {
+        managedSources,
+        runtime,
+      }),
+    );
+    try {
+      const installed = await service.installResolvedSource({ resolved, enabled: false });
+      expect(installed).toMatchObject({ id: "shared-pinned", status: "disabled" });
+      expect(starts).toEqual([]);
+      expect(store.get().plugins?.["shared-pinned"]?.enabled).toBe(false);
+      expect(resolved.kind).toBe("git");
+      if (resolved.kind === "git") expect(installed.commit).toBe(resolved.target.commit);
+      await expect(stat(path.join(installed.path, "later.txt"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      await expect(service.installResolvedSource({ resolved, enabled: true })).rejects.toThrow(
+        "already configured",
+      );
+      expect(store.get().plugins?.["shared-pinned"]?.enabled).toBe(false);
+      expect(await readdir(path.join(home, "plugins", ".staging"))).toEqual([]);
+      await service.enablePlugin("shared-pinned");
+      expect(starts).toEqual(["shared-pinned"]);
+    } finally {
+      await service.stopAllPlugins();
+    }
+  }, 30_000);
+
   it("keeps the running commit when a Git update build command fails", async () => {
     const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-home-"));
     roots.push(home);
@@ -845,9 +1191,14 @@ export default function contribute(server: PluginServerContext) {
     await service.stopAllPlugins();
   }, 30_000);
 
-  it.each([false, true])(
-    "cleans a failed update when restoration also fails=%s",
-    async (failRestore) => {
+  it.each([
+    { failRestore: false, shared: false },
+    { failRestore: true, shared: false },
+    { failRestore: false, shared: true },
+    { failRestore: true, shared: true },
+  ])(
+    "cleans a failed update with recovery options %j",
+    async ({ failRestore, shared }) => {
       const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-recovery-"));
       roots.push(home);
       const repository = await createPlugin("recovery", "export default () => () => {};\n");
@@ -877,11 +1228,53 @@ export default function contribute(server: PluginServerContext) {
         subscribe: () => () => undefined,
         bindPaseoSessionHost: () => undefined,
       };
-      const service = createService(
+      const managedSources = new ManagedPluginSources(home);
+      const initial = createStore(home).get();
+      const binding = {
+        installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+        serverId: "host",
+        environment: "host" as const,
+        revision: 1,
+      };
+      const admission: InstallationSettingsAdmission = {
+        ...binding,
+        installationInstructions: "",
+        settings: {
+          ...readInstallationSettings(initial),
+          plugins: [
+            {
+              id: "recovery",
+              enabled: true,
+              source: await managedSources.resolveInstall({
+                source: pathToFileURL(repository).href,
+              }),
+            },
+          ],
+        },
+      };
+      const store = new DaemonConfigStore(
         home,
-        {},
-        { runtime, managedSources: new ManagedPluginSources(home) },
+        {
+          ...initial,
+          ...(shared
+            ? {
+                sharedProviderPreferences: {
+                  version: 1 as const,
+                  revision: 1,
+                  providers: {},
+                  legacyProfiles: {},
+                  installation: binding,
+                },
+              }
+            : {}),
+        },
+        undefined,
+        { installationSettingsReader: { read: async () => structuredClone(admission) } },
       );
+      const service = new PluginService(pino({ level: "silent" }), store, "0.4.0", {
+        runtime,
+        managedSources,
+      });
       await service.start();
       const installed = await service.installSource({ source: pathToFileURL(repository).href });
       await writeFile(path.join(repository, "revision.txt"), "new");
@@ -890,6 +1283,13 @@ export default function contribute(server: PluginServerContext) {
         ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "update"],
       ])
         await runGitCommand(args, { cwd: repository });
+      admission.settings.plugins = [
+        {
+          id: "recovery",
+          enabled: true,
+          source: await managedSources.resolveInstall({ source: pathToFileURL(repository).href }),
+        },
+      ];
       const result = await applyReviewedUpdate(service, "recovery");
       expect(result).toMatchObject([
         {

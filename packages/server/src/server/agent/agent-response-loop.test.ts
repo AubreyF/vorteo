@@ -1,4 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { MutableDaemonConfigSchema } from "@getpaseo/protocol/messages";
+import { createTestLogger } from "../../test-utils/test-logger.js";
+import { createTestAgentClients } from "../test-utils/fake-agent-client.js";
+import { readInstallationSettings } from "../execution-installation/settings/projection.js";
+import { readInstallationProviders } from "../execution-installation/settings/providers.js";
 import { z } from "zod";
 import {
   getStructuredAgentResponse,
@@ -7,7 +12,7 @@ import {
   StructuredAgentResponseError,
   type AgentCaller,
 } from "./agent-response-loop.js";
-import type { AgentManager } from "./agent-manager.js";
+import { AgentManager } from "./agent-manager.js";
 
 function createScriptedCaller(responses: string[]) {
   const prompts: string[] = [];
@@ -277,5 +282,105 @@ describe("generateStructuredAgentResponseWithFallback", () => {
         },
       }),
     ).rejects.toBeInstanceOf(StructuredAgentFallbackError);
+  });
+});
+
+describe("installation metadata admission", () => {
+  it.each([
+    { scenario: "excluded", expected: "excluded from this environment", sessions: 0 },
+    { scenario: "offline", expected: "authority offline", sessions: 0 },
+    { scenario: "metadata-excluded", expected: "excluded from metadata generation", sessions: 0 },
+    { scenario: "rebound", expected: "changed during launch", sessions: 0 },
+    { scenario: "allowed", expected: "provider session reached", sessions: 2 },
+  ])("checks every metadata fallback when authority is $scenario", async (testCase) => {
+    const binding = {
+      installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+      serverId: "host",
+      environment: "host" as const,
+      revision: 1,
+    };
+    let settings = MutableDaemonConfigSchema.parse({
+      mcp: { injectIntoAgents: false },
+      providers: { codex: { enabled: true }, claude: { enabled: true } },
+      sharedProviderPreferences: {
+        version: 1,
+        revision: 1,
+        providers: {},
+        legacyProfiles: {},
+        installation: binding,
+      },
+    });
+    const definitions = readInstallationProviders("host", settings.providers);
+    let sessions = 0;
+    let prompts = 0;
+    let authorityReads = 0;
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients({
+        beforeCreateSession: async () => {
+          sessions += 1;
+          throw new Error("provider session reached");
+        },
+        onStartTurn: () => {
+          prompts += 1;
+        },
+      }),
+      getSharedProviderConfig: () => settings,
+      installationSettingsReader: {
+        async read() {
+          authorityReads += 1;
+          if (testCase.scenario === "offline") throw new Error("authority offline");
+          if (testCase.scenario === "rebound") {
+            settings = MutableDaemonConfigSchema.parse({
+              ...settings,
+              providers: {
+                ...settings.providers,
+                codex: { ...settings.providers.codex, env: { CODEX_HOME: "/changed-account" } },
+              },
+            });
+          }
+          return {
+            ...binding,
+            revision: 2,
+            installationInstructions: "",
+            settings: {
+              ...readInstallationSettings(settings),
+              skillLibrary: [],
+              providerDefinitions: definitions,
+              resourceExclusions: {
+                host: {
+                  terminalProfileIds: [],
+                  metadataProviderIds:
+                    testCase.scenario === "metadata-excluded" ? ["codex", "claude"] : [],
+                  providerIds:
+                    testCase.scenario === "excluded" ? definitions.map((entry) => entry.id) : [],
+                },
+              },
+            },
+          };
+        },
+      },
+    });
+    try {
+      await expect(
+        generateStructuredAgentResponseWithFallback({
+          manager,
+          cwd: process.cwd(),
+          prompt: "Private task content",
+          schema: z.object({ title: z.string() }),
+          providers: [{ provider: "codex" }, { provider: "claude" }],
+          agentConfigOverrides: { internal: true },
+          persistSession: false,
+          maxRetries: 0,
+        }),
+      ).rejects.toThrow(testCase.expected);
+      expect(authorityReads).toBe(2);
+      expect(sessions).toBe(testCase.sessions);
+      expect(prompts).toBe(0);
+      expect(manager.listAgents()).toEqual([]);
+    } finally {
+      manager.prepareForShutdown();
+      await manager.flushForShutdown();
+    }
   });
 });

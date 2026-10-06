@@ -127,15 +127,15 @@ test("opens Skills from compact settings and a direct link", async ({ page }) =>
   await expect(page.getByPlaceholder("Name, provider, ownership, or environment")).toBeVisible();
 });
 
-test.describe("Standard mode", () => {
+test.describe("Legacy product preference migration", () => {
   test.use({ vortonMode: false });
-  test("keeps the skill library out of Standard controls", async ({ page }) => {
+  test("keeps the skill library available with a legacy disabled preference", async ({ page }) => {
     await gotoAppShell(page);
     await openSettings(page);
-    await expect(page.getByRole("button", { name: "Skills", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Skills", exact: true })).toBeVisible();
     await openSettingsHost(page, getServerId());
     await page.getByRole("button", { name: "Agents", exact: true }).click();
     await expect(page.getByText("Orchestration skills", { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Skill library", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Skill library", exact: true })).toBeVisible();
   });
 });

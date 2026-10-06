@@ -28,8 +28,8 @@ The app runs on iOS, Android, browser web and Electron. Default to cross-platfor
 
 ## Vorteo behavior and delivery
 
-- Gate fork-specific rendering, styles and handlers with `useVortonMode`; use `useVortonTouch` for touch enhancements. Host capabilities, width and saved profiles do not replace the mode gate. Follow the [mode contract](../../docs/agent-presets.md#review-boundaries).
-- Turning Vorteo off must restore Standard mode controls, appearance and navigation without changing saved settings, credentials, accounts or running tasks. Keep the mode selector available.
+- Vorteo has one product behavior. Do not add Paseo or Standard mode switches, saved product-mode preferences, or alternate rendering branches. Preserve runtime capability checks, permissions and platform differences.
+- Settings belong to the installation. Profiles and other shared resource definitions are independent of environments; explicit exclusions control where they are available. Credentials, paths and running work retain their environment ownership.
 - Detect touch independently of width. Keep essential actions visible without hover, primary targets at least 44 CSS pixels, and hover cards from intercepting navigation taps. Preserve pinch zoom, keyboard focus, scrolling and independently selectable permissions.
-- Verify mode off and on, run focused tests and deliver authorized interface changes to the existing primary installation through [instance continuity](../../docs/instance-continuity.md). Respect the root restart-permission rule and the user's requested delivery stage.
+- Verify the single product behavior on desktop and compact layouts, run focused tests and deliver authorized interface changes to the existing primary installation through [instance continuity](../../docs/instance-continuity.md). Respect the root restart-permission rule and the user's requested delivery stage.
 - Ask for physical-device verification when emulation cannot prove behavior. Never launch macOS Playwright WebKit.

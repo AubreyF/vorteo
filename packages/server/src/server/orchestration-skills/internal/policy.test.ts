@@ -38,11 +38,11 @@ async function setup() {
 }
 it("freezes selections independently and refuses changed package contents", async () => {
   const { home, directory, config } = await setup();
-  await captureSkillPolicy(config, "claude", home);
+  await captureSkillPolicy(config, "claude", { home });
   expect(await verifySkillSnapshot(config)).toEqual(["example"]);
   const second = structuredClone(config);
   second.profileLaunch!.profile.skillPolicy = { mode: "none" };
-  await captureSkillPolicy(second, "claude", home);
+  await captureSkillPolicy(second, "claude", { home });
   expect(await verifySkillSnapshot(second)).toEqual([]);
   expect(await verifySkillSnapshot(config)).toEqual(["example"]);
   await writeFile(path.join(directory, "script.sh"), "Changed code");
@@ -50,9 +50,9 @@ it("freezes selections independently and refuses changed package contents", asyn
 });
 it("refuses unsupported providers and missing selected identities", async () => {
   const { home, config } = await setup();
-  await expect(captureSkillPolicy(config, "unknown", home)).rejects.toThrow("no verified");
+  await expect(captureSkillPolicy(config, "unknown", { home })).rejects.toThrow("no verified");
   config.profileLaunch!.profile.skillPolicy = { mode: "selected", skills: ["unavailable"] };
-  await expect(captureSkillPolicy(config, "claude", home)).rejects.toThrow("unavailable");
+  await expect(captureSkillPolicy(config, "claude", { home })).rejects.toThrow("unavailable");
 });
 it("excludes equivalent packages without relying on display names", async () => {
   const { home, config, skill } = await setup();
@@ -61,7 +61,7 @@ it("excludes equivalent packages without relying on display names", async () => 
     include: [],
     exclude: [skill.identity],
   };
-  await captureSkillPolicy(config, "claude", home);
+  await captureSkillPolicy(config, "claude", { home });
   expect(await verifySkillSnapshot(config)).toEqual([]);
 });
 it("maps native Codex paths to an explicit session allowlist", () => {
@@ -92,14 +92,14 @@ it("does not enable installed packages that the provider disabled by default", a
     include: [],
     exclude: ["another-identity"],
   };
-  await captureSkillPolicy(config, "claude", home, []);
+  await captureSkillPolicy(config, "claude", { home, nativeDefaults: [] });
   expect(await verifySkillSnapshot(config)).toEqual([]);
   config.profileLaunch!.profile.skillPolicy = {
     mode: "inherit",
     include: [skill.identity],
     exclude: [],
   };
-  await captureSkillPolicy(config, "claude", home, []);
+  await captureSkillPolicy(config, "claude", { home, nativeDefaults: [] });
   expect(await verifySkillSnapshot(config)).toEqual(["example"]);
 });
 
@@ -123,6 +123,80 @@ it("excludes identical copies even when only one has source provenance", async (
     include: [],
     exclude: [installed.identity],
   };
-  await captureSkillPolicy(config, "claude", home, ["example"]);
+  await captureSkillPolicy(config, "claude", { home, nativeDefaults: ["example"] });
   expect(await verifySkillSnapshot(config)).toEqual([]);
+});
+
+it("applies installation exclusions without a profile and keeps an older task's frozen selection", async () => {
+  const { home, skill, config } = await setup();
+  delete config.profileLaunch;
+  const definition = {
+    name: "example",
+    identity: skill.identity,
+    sha256: skill.sha256!,
+    source: null,
+  };
+  await captureSkillPolicy(config, "claude", {
+    home,
+    nativeDefaults: ["example"],
+    installation: { definitions: [definition], excludedIdentities: [] },
+  });
+  expect(config.skillSnapshot).toBeUndefined();
+  const restricted = structuredClone(config);
+  await captureSkillPolicy(restricted, "claude", {
+    home,
+    nativeDefaults: ["example"],
+    installation: { definitions: [definition], excludedIdentities: [skill.identity] },
+  });
+  expect(restricted.profileLaunch).toBeUndefined();
+  expect(await verifySkillSnapshot(restricted)).toEqual([]);
+  await captureSkillPolicy(config, "claude", {
+    home,
+    nativeDefaults: ["example"],
+    installation: { definitions: [definition], excludedIdentities: [] },
+  });
+  expect(await verifySkillSnapshot(restricted)).toEqual([]);
+  const selected = structuredClone(config);
+  selected.profileLaunch = {
+    profile: {
+      id: "selected",
+      name: "Selected",
+      provider: "claude",
+      skillPolicy: { mode: "selected", skills: [skill.identity] },
+    },
+  };
+  await expect(
+    captureSkillPolicy(selected, "claude", {
+      home,
+      installation: { definitions: [definition], excludedIdentities: [skill.identity] },
+    }),
+  ).rejects.toThrow("unavailable");
+});
+
+it("does not admit unshared personal packages and refuses missing canonical contents", async () => {
+  const { home, skill, config } = await setup();
+  delete config.profileLaunch;
+  await captureSkillPolicy(config, "claude", {
+    home,
+    nativeDefaults: ["example"],
+    installation: { definitions: [], excludedIdentities: [] },
+  });
+  expect(await verifySkillSnapshot(config)).toEqual([]);
+  await expect(
+    captureSkillPolicy(config, "claude", {
+      home,
+      installation: {
+        definitions: [
+          { name: "example", identity: skill.identity, sha256: "0".repeat(64), source: null },
+        ],
+        excludedIdentities: [],
+      },
+    }),
+  ).rejects.toThrow("verified shared content");
+  await expect(
+    captureSkillPolicy(config, "unknown", {
+      home,
+      installation: { definitions: [], excludedIdentities: [skill.identity] },
+    }),
+  ).rejects.toThrow("no verified");
 });

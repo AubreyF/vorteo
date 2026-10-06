@@ -1,4 +1,7 @@
-import { verifySkillSnapshot } from "../../orchestration-skills/internal/policy.js";
+import {
+  verifySkillSnapshot,
+  sessionSkillSnapshot,
+} from "../../orchestration-skills/internal/policy.js";
 import { codexSkillFilter } from "../../orchestration-skills/internal/codex-policy.js";
 import { validateProviderOptions } from "../provider-options.js";
 import {
@@ -3728,7 +3731,7 @@ export class CodexAppServerAgentSession implements AgentSession {
       this.threadRollbackAvailable = codexServerHasThreadRollback(initialized?.userAgent);
       await verifySkillSnapshot(this.config);
       if (
-        this.config.profileLaunch?.skillSnapshot &&
+        sessionSkillSnapshot(this.config) &&
         (typeof initialized?.userAgent !== "string" ||
           !codexVersionAtLeast(initialized.userAgent, [0, 159, 2]))
       ) {
@@ -3955,7 +3958,7 @@ export class CodexAppServerAgentSession implements AgentSession {
       const response = toObjectRecord(
         await this.client.request("skills/list", {
           cwds: [this.config.cwd],
-          forceReload: Boolean(this.config.profileLaunch?.skillSnapshot),
+          forceReload: Boolean(sessionSkillSnapshot(this.config)),
         }),
       );
       const entries = Array.isArray(response?.data) ? response.data : [];
@@ -3966,7 +3969,7 @@ export class CodexAppServerAgentSession implements AgentSession {
         allSkills.push(...list);
       }
       this.cachedSkills = enabledCodexSkills(allSkills);
-      const snapshot = this.config.profileLaunch?.skillSnapshot;
+      const snapshot = sessionSkillSnapshot(this.config);
       if (snapshot) {
         await verifySkillSnapshot(this.config);
         const catalog = allSkills
@@ -4005,7 +4008,7 @@ export class CodexAppServerAgentSession implements AgentSession {
         },
         "provider.codex.metadata.skills_failed",
       );
-      if (this.config.profileLaunch?.skillSnapshot) throw error;
+      if (sessionSkillSnapshot(this.config)) throw error;
       this.cachedSkills = null;
     }
   }
@@ -4692,7 +4695,7 @@ export class CodexAppServerAgentSession implements AgentSession {
         throw new Error("Codex client not initialized");
       }
 
-      if (this.config.profileLaunch?.skillSnapshot) await this.loadSkills();
+      if (sessionSkillSnapshot(this.config)) await this.loadSkills();
       const slashCommand = await this.resolveSlashCommandInvocation(prompt);
       const effectivePrompt = slashCommand
         ? await this.buildCommandPromptInput(slashCommand.commandName, slashCommand.args)

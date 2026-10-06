@@ -36,6 +36,7 @@ export interface SkillsController {
   uninstall(): Promise<SkillsSnapshot>;
   autoUpdate(): Promise<SkillsSnapshot>;
   save(request: unknown): Promise<SkillsSaveResult>;
+  preview(selection: SkillSelection): Promise<SkillsSaveResult>;
   importLegacySelectionIfUnset(selection: unknown): Promise<{
     imported: boolean;
     selection: SkillSelection;
@@ -80,6 +81,17 @@ export function createSkillsController({
     const selection = await selectionStore.get();
     await recoverInterruptedSkillTransactions(resolveTargets(), selection);
     return { ...(await apply(resolveTargets(), selection)), selection };
+  }
+
+  async function previewSelection(selection: SkillSelection): Promise<SkillsSaveResult> {
+    const next = coerceSkillSelection(selection);
+    const status = await getSkillsStatus(resolveTargets(), next);
+    const removals = status.ops.filter((op) => op.kind === "delete").map((op) => op.name);
+    return {
+      ...status,
+      selection: next,
+      confirmationRequired: removals.length ? { removals } : null,
+    };
   }
 
   async function saveSelection(request: unknown): Promise<SkillsSaveResult> {
@@ -167,6 +179,7 @@ export function createSkillsController({
     uninstall: () => serialize(() => converge(uninstallSkills)),
     autoUpdate: () => serialize(() => converge(autoUpdateInstalledSkills)),
     save: (selection) => serialize(() => saveSelection(selection)),
+    preview: (selection) => serialize(() => previewSelection(selection)),
     importLegacySelectionIfUnset: (selection) =>
       serialize(() => importLegacySelectionIfUnset(selection)),
   };

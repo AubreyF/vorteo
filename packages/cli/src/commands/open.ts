@@ -7,8 +7,8 @@ import { buildAgentDeepLink, type AgentDeepLinkTarget } from "@getpaseo/protocol
 function findDesktopApp(): string | null {
   if (process.platform === "darwin") {
     const candidates = [
-      "/Applications/Paseo.app",
-      path.join(homedir(), "Applications", "Paseo.app"),
+      "/Applications/Vorteo.app",
+      path.join(homedir(), "Applications", "Vorteo.app"),
     ];
 
     for (const candidate of candidates) {
@@ -22,9 +22,9 @@ function findDesktopApp(): string | null {
 
   if (process.platform === "linux") {
     const candidates = [
-      "/usr/bin/Paseo",
-      "/opt/Paseo/Paseo",
-      path.join(homedir(), "Applications", "Paseo.AppImage"),
+      "/usr/bin/vorteo",
+      "/opt/Vorteo/Paseo",
+      path.join(homedir(), "Applications", "Vorteo.AppImage"),
     ];
 
     for (const candidate of candidates) {
@@ -42,7 +42,7 @@ function findDesktopApp(): string | null {
       return null;
     }
 
-    const candidate = path.join(localAppData, "Programs", "Paseo", "Paseo.exe");
+    const candidate = path.join(localAppData, "Programs", "Vorteo", "Paseo.exe");
     return existsSync(candidate) ? candidate : null;
   }
 
@@ -76,7 +76,7 @@ function launchDesktop(args: string[]): void {
   const desktopApp = findDesktopApp();
   if (!desktopApp) {
     throw new Error(
-      "Vorteo desktop app not found. Install it from https://github.com/getpaseo/paseo/releases",
+      "Vorteo desktop app not found. Install it from https://github.com/AubreyF/vorteo/releases",
     );
   }
 

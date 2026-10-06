@@ -476,7 +476,7 @@ export function useAgentFormState(options: UseAgentFormStateOptions): UseAgentFo
   return useMemo(
     () => ({
       selectedServerId: serverId,
-      selectedProfileId: preferences.vortonMode === true ? formState.profileId : undefined,
+      selectedProfileId: formState.profileId,
       selectedProvider: formState.provider,
       selectedMode: formState.modeId,
       setModeFromUser,
@@ -513,7 +513,6 @@ export function useAgentFormState(options: UseAgentFormStateOptions): UseAgentFo
       formState.model,
       formState.thinkingOptionId,
       formState.profileId,
-      preferences.vortonMode,
       workingDir,
       setModeFromUser,
       setModelFromUser,

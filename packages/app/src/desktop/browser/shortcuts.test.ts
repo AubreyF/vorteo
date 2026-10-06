@@ -7,13 +7,13 @@ import {
 import { buildEffectiveBindings, resolveKeyboardShortcut } from "../../keyboard/keyboard-shortcuts";
 
 describe("buildBrowserKeyboardPolicy", () => {
-  it("forwards Opt+Space from embedded browsers only in Vorteo on Mac", () => {
+  it("forwards Opt+Space from embedded browsers on Mac", () => {
     const bindings = buildEffectiveBindings({});
     const input = { bindings, isMac: true, isDesktop: true };
-    const enabled = buildBrowserKeyboardPolicy({ ...input, isVorton: true });
-    const standard = buildBrowserKeyboardPolicy({ ...input, isVorton: false });
+    const enabled = buildBrowserKeyboardPolicy({ ...input });
+    const nonMac = buildBrowserKeyboardPolicy({ ...input, isMac: false });
     expect(enabled.prefixes).toContainEqual(expect.objectContaining({ code: "Space", alt: true }));
-    expect(standard.prefixes).not.toContainEqual(
+    expect(nonMac.prefixes).not.toContainEqual(
       expect.objectContaining({ code: "Space", alt: true }),
     );
   });

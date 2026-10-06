@@ -2,7 +2,7 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import type { Locator } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
-import { gotoAppShell, setVortonMode } from "../support/helpers/app";
+import { gotoAppShell } from "../support/helpers/app";
 import { projectEquivalenceViewKey } from "../support/helpers/project-view-key";
 import { getServerId } from "../support/helpers/server-id";
 import { seedWorkspace } from "../support/helpers/seed-client";
@@ -134,7 +134,6 @@ test("cancelling a workspace move preserves its project and chats", async ({ pag
     await destination.client.archiveWorkspace(destination.workspaceId);
     await gotoAppShell(page);
     await waitForSidebarHydration(page);
-    await setVortonMode(page, true);
     const row = page.getByTestId(`sidebar-workspace-row-${getServerId()}:${source.workspaceId}`);
     const target = page.getByTestId(
       `sidebar-project-row-${projectEquivalenceViewKey(destination.projectKey)}`,
@@ -187,7 +186,6 @@ test("the workspace menu moves every chat together and preserves membership afte
     )!;
     await gotoAppShell(page);
     await waitForSidebarHydration(page);
-    await setVortonMode(page, true);
     const workspaceKey = `${getServerId()}:${source.workspaceId}`;
     const row = page.getByTestId(`sidebar-workspace-row-${workspaceKey}`);
     await row.hover();
@@ -217,7 +215,6 @@ test("the workspace menu moves every chat together and preserves membership afte
     expect(chats.map((agent) => agent.cwd)).toEqual([source.repoPath, source.repoPath]);
     await page.reload();
     await waitForSidebarHydration(page);
-    await setVortonMode(page, true);
     await expect(row).toBeVisible();
     await expect.poll(() => sidebarProjectForWorkspace(row)).toBe(destinationRowId);
     expect(
@@ -239,7 +236,6 @@ test("a failed move stays open with a visible error", async ({ page }) => {
   try {
     await gotoAppShell(page);
     await waitForSidebarHydration(page);
-    await setVortonMode(page, true);
     const row = page.getByTestId(`sidebar-workspace-row-${getServerId()}:${source.workspaceId}`);
     const target = page.getByTestId(
       `sidebar-project-row-${projectEquivalenceViewKey(destination.projectKey)}`,
@@ -256,26 +252,6 @@ test("a failed move stays open with a visible error", async ({ page }) => {
       .getByRole("button", { name: "Cancel", exact: true })
       .click();
     await expect(page.getByTestId("project-move-modal")).toHaveCount(0);
-  } finally {
-    await source.cleanup();
-    await destination.cleanup();
-  }
-});
-
-test("cross-project drops do not open the move dialog in Standard mode", async ({ page }) => {
-  const source = await seedWorkspace({ repoPrefix: "standard-drop-source-" });
-  const destination = await seedWorkspace({ repoPrefix: "standard-drop-destination-" });
-  try {
-    await gotoAppShell(page);
-    await waitForSidebarHydration(page);
-    await setVortonMode(page, false);
-    const row = page.getByTestId(`sidebar-workspace-row-${getServerId()}:${source.workspaceId}`);
-    const target = page.getByTestId(
-      `sidebar-project-row-${projectEquivalenceViewKey(destination.projectKey)}`,
-    );
-    await dragWorkspaceToProject(row, target);
-    await expect(page.getByTestId("project-move-modal")).toHaveCount(0);
-    await expect(row).toBeVisible();
   } finally {
     await source.cleanup();
     await destination.cleanup();

@@ -1,3 +1,5 @@
+import { assertInstallationSkillChange } from "../execution-installation/settings/skill-admission.js";
+import { InstallationSettingsAdmissionError } from "../execution-installation/settings/admission.js";
 import { SkillLibrary } from "./internal/library.js";
 import { resolvePaseoHome } from "../paseo-home.js";
 import path from "node:path";
@@ -16,6 +18,7 @@ import { createSkillSelectionStore } from "./internal/selection-store.js";
 export interface OrchestrationSkills {
   library: Pick<SkillLibrary, "read" | "change">;
   getStatus(): Promise<SkillsSnapshot>;
+  previewSelection(selection: AgentSkillSelection): Promise<SkillsSaveResult>;
   reconcile(): Promise<SkillsSnapshot>;
   uninstall(): Promise<SkillsSnapshot>;
   saveSelection(
@@ -37,13 +40,26 @@ export function createOrchestrationSkills(
     resolveTargets,
     selectionStore: createSkillSelectionStore(configStore),
   });
-  const library = new SkillLibrary(path.join(resolvePaseoHome(), "skill-library"));
+  const library = new SkillLibrary(
+    path.join(resolvePaseoHome(), "skill-library"),
+    undefined,
+    undefined,
+    async (preview) => {
+      const admission = await configStore.readInstallationSettingsAuthority();
+      if (admission) assertInstallationSkillChange(admission, preview);
+      else if (process.env.VORTEO_INSTALLATION_CLIENT_CONFIG)
+        throw new InstallationSettingsAdmissionError(
+          "Complete installation migration before changing personal skills.",
+        );
+    },
+  );
   return {
     library: {
       read: (request) => controller.runExclusive(() => library.read(request)),
       change: (request) => controller.runExclusive(() => library.change(request)),
     },
     getStatus: () => controller.status(),
+    previewSelection: (selection) => controller.preview(selection),
     reconcile: () => controller.update(),
     uninstall: () => controller.uninstall(),
     saveSelection: (selection, confirmedRemovals = []) =>

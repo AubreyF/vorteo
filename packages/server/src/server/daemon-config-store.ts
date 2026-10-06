@@ -1,4 +1,21 @@
 import {
+  changesInstallationProviders,
+  assertInstallationProviderProjection,
+} from "./execution-installation/settings/provider-admission.js";
+import {
+  projectInstallationProviders,
+  persistInstallationProviders,
+} from "./execution-installation/settings/providers.js";
+import {
+  assertInstallationSettingsProjection,
+  changesInstallationSettings,
+  createInstallationSettingsReader,
+  InstallationSettingsAdmissionError,
+  type InstallationSettingsReader,
+  type InstallationSettingsAdmission,
+} from "./execution-installation/settings/admission.js";
+import { installationResourceRevision } from "./execution-installation/settings/resource-bindings.js";
+import {
   loadPersistedConfig,
   savePersistedConfig,
   type PersistedConfig,
@@ -27,6 +44,7 @@ type MutableDaemonConfigPatch = import("@getpaseo/protocol/messages").MutableDae
 type ProviderOverride = import("./agent/provider-launch-config.js").ProviderOverride;
 
 interface SupportedMutableConfigPatch {
+  replaceProviders?: MutableDaemonConfig["providers"];
   relay?: { enabled?: boolean };
   mcp?: { injectIntoAgents?: boolean };
   browserTools?: { enabled?: boolean };
@@ -37,6 +55,7 @@ interface SupportedMutableConfigPatch {
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
   terminalProfiles?: MutableDaemonConfig["terminalProfiles"];
+  installationResourceBindings?: MutableDaemonConfig["installationResourceBindings"];
   agentProfiles?: MutableDaemonConfig["agentProfiles"];
   sharedProviderPreferences?: MutableDaemonConfig["sharedProviderPreferences"];
   skills?: MutableDaemonConfig["skills"];
@@ -206,6 +225,7 @@ const RELOADABLE_PATHS = [
   "daemon.enableTerminalAgentHooks",
   "daemon.appendSystemPrompt",
   "daemon.terminalProfiles",
+  "daemon.installationResourceBindings",
   "daemon.agentProfiles",
   "daemon.sharedProviderPreferences",
   "app.baseUrl",
@@ -230,6 +250,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["daemon.enableTerminalAgentHooks", "enableTerminalAgentHooks"],
   ["daemon.appendSystemPrompt", "appendSystemPrompt"],
   ["daemon.terminalProfiles", "terminalProfiles"],
+  ["daemon.installationResourceBindings", "installationResourceBindings"],
   ["daemon.agentProfiles", "agentProfiles"],
   ["daemon.sharedProviderPreferences", "sharedProviderPreferences"],
   ["app.baseUrl", "app.baseUrl"],
@@ -285,6 +306,7 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
       ? { browserTools: { enabled: patch.browserTools.enabled } }
       : {}),
     ...(patch.providers !== undefined ? { providers: patch.providers } : {}),
+    skills: patch.skills,
     ...(patch.removeProviders !== undefined ? { removeProviders: patch.removeProviders } : {}),
     ...(patch.metadataGeneration?.providers !== undefined
       ? { metadataGeneration: { providers: patch.metadataGeneration.providers } }
@@ -299,6 +321,9 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
       ? { appendSystemPrompt: patch.appendSystemPrompt }
       : {}),
     ...(patch.terminalProfiles !== undefined ? { terminalProfiles: patch.terminalProfiles } : {}),
+    ...(patch.installationResourceBindings !== undefined
+      ? { installationResourceBindings: patch.installationResourceBindings }
+      : {}),
     ...(patch.agentProfiles !== undefined ? { agentProfiles: patch.agentProfiles } : {}),
     ...(patch.sharedProviderPreferences !== undefined
       ? { sharedProviderPreferences: patch.sharedProviderPreferences }
@@ -339,6 +364,8 @@ export function applyMutableProviderConfigToOverrides(
 
 export class DaemonConfigStore {
   private current: MutableDaemonConfig;
+  private registeredProviderDefaults: MutableDaemonConfig["providers"] = {};
+  private installationSettingsReader: InstallationSettingsReader | undefined;
   private readonly paseoHome: string;
   private readonly logger: LoggerLike | undefined;
   private readonly changeListeners = new Set<ConfigListener>();
@@ -354,12 +381,14 @@ export class DaemonConfigStore {
     initial: MutableDaemonConfig,
     logger?: LoggerLike,
     options: {
+      installationSettingsReader?: InstallationSettingsReader;
       relayEnabledMutable?: boolean;
       reloadSource?: DaemonConfigReloadSource;
       startupPersisted?: PersistedConfig;
     } = {},
   ) {
     this.paseoHome = paseoHome;
+    this.installationSettingsReader = options.installationSettingsReader;
     this.logger = getLogger(logger);
     this.current = MutableDaemonConfigSchema.parse({
       ...initial,
@@ -371,12 +400,113 @@ export class DaemonConfigStore {
     this.lastKnownPersisted = this.startupPersisted;
   }
 
+  public registerProviderDefaults(providerIds: readonly string[]): void {
+    const defaults = Object.fromEntries(
+      providerIds.filter((id) => !Object.hasOwn(this.current.providers, id)).map((id) => [id, {}]),
+    );
+    this.registeredProviderDefaults = { ...this.registeredProviderDefaults, ...defaults };
+    this.current = { ...this.current, providers: { ...defaults, ...this.current.providers } };
+  }
+
   public get(): MutableDaemonConfig {
     return this.current;
   }
 
   public patch(partial: MutableDaemonConfigPatch): MutableDaemonConfig {
+    return this.applyPatch(partial);
+  }
+
+  public async createProviderAccountBinding(
+    providerId: string,
+    provider: MutableDaemonConfig["providers"][string],
+  ): Promise<MutableDaemonConfig> {
+    const admission = await this.readInstallationSettingsAuthority();
+    if (!admission) return this.patch({ providers: { [providerId]: provider } });
+    const definitions = admission.settings.providerDefinitions?.filter(
+      (definition) => definition.bindings[admission.serverId] === providerId,
+    );
+    if (!definitions || definitions.length !== 1 || definitions[0].accountId)
+      throw new InstallationSettingsAdmissionError(
+        "Create this account through the shared provider catalog first.",
+      );
+    if (
+      admission.settings.resourceExclusions[admission.serverId]?.providerIds?.includes(
+        definitions[0].id,
+      )
+    )
+      throw new InstallationSettingsAdmissionError(
+        "This account is excluded from this environment.",
+      );
+    const projected = projectInstallationProviders(
+      definitions,
+      admission.serverId,
+      { [providerId]: provider },
+      admission.settings.resourceExclusions[admission.serverId]?.providerIds ?? [],
+    );
+    return this.applyPatch({ providers: projected }, admission);
+  }
+
+  public async patchFromClient(partial: MutableDaemonConfigPatch): Promise<MutableDaemonConfig> {
     const parsed = MutableDaemonConfigPatchSchema.parse(partial);
+    const before = this.current;
+    const binding = before.sharedProviderPreferences?.installation;
+    if (binding && parsed.plugins !== undefined && !isEqualValue(parsed.plugins, before.plugins))
+      throw new InstallationSettingsAdmissionError(
+        "Use the shared plugin controls and environment binding operations to change plugins.",
+      );
+    if (
+      !binding ||
+      (!changesInstallationSettings(before, parsed) &&
+        !changesInstallationProviders(before, parsed))
+    )
+      return this.patch(parsed);
+    const admission = await this.readInstallationSettingsAuthority();
+    if (this.current !== before)
+      throw new InstallationSettingsAdmissionError(
+        "Daemon settings changed while verifying installation authority. Read them again before retrying.",
+      );
+    return this.applyPatch(parsed, admission ?? undefined);
+  }
+
+  public async readInstallationSettingsAuthority(): Promise<InstallationSettingsAdmission | null> {
+    const before = this.current;
+    const binding = before.sharedProviderPreferences?.installation;
+    if (!binding) return null;
+    this.installationSettingsReader ??= createInstallationSettingsReader(
+      process.env.VORTEO_INSTALLATION_CLIENT_CONFIG,
+    );
+    const admission = await this.installationSettingsReader.read(binding);
+    if (this.current !== before)
+      throw new InstallationSettingsAdmissionError(
+        "Daemon settings changed while verifying installation authority. Read them again before retrying.",
+      );
+    if (
+      admission.installationId !== binding.installationId ||
+      admission.serverId !== binding.serverId ||
+      admission.environment !== binding.environment
+    )
+      throw new InstallationSettingsAdmissionError(
+        "Settings authority returned a different installation or environment.",
+      );
+    return admission;
+  }
+
+  private applyPatch(
+    partial: MutableDaemonConfigPatch,
+    admission?: InstallationSettingsAdmission,
+  ): MutableDaemonConfig {
+    const parsed = MutableDaemonConfigPatchSchema.parse(partial);
+    if (
+      parsed.installationResourceBindings !== undefined &&
+      parsed.expectedInstallationResourceRevision !== installationResourceRevision(this.current)
+    ) {
+      throw new Error(
+        "Environment resource bindings changed. Read them again before projecting settings.",
+      );
+    }
+    assertInstallationProviderProjection(this.current, parsed, admission);
+    assertInstallationSettingsProjection({ current: this.current, patch: parsed, admission });
+    this.validateInstallationProjection(parsed);
     if (parsed.sharedProviderPreferences) {
       const revision = this.current.sharedProviderPreferences?.revision ?? null;
       if (parsed.expectedProviderPreferencesRevision !== revision) {
@@ -427,7 +557,46 @@ export class DaemonConfigStore {
     }
     this.preserveLegacyProfileEdits(parsed);
     const parsedPatch = pickSupportedPatchFields(parsed);
+    if (parsed.installationProviderPolicy) {
+      const policy = parsed.installationProviderPolicy;
+      const serverId = this.current.sharedProviderPreferences!.installation!.serverId;
+      parsedPatch.replaceProviders = projectInstallationProviders(
+        policy.definitions,
+        serverId,
+        this.current.providers,
+        policy.excludedIds,
+      );
+    }
     return this.applySupportedPatch(parsedPatch);
+  }
+
+  private validateInstallationProjection(patch: MutableDaemonConfigPatch): void {
+    const installation = this.current.sharedProviderPreferences?.installation;
+    if (installation) {
+      if (patch.agentProfiles && !isEqualValue(patch.agentProfiles, this.current.agentProfiles))
+        throw new Error(
+          "Installation profiles must be edited through the installation coordinator.",
+        );
+      const target = patch.sharedProviderPreferences;
+      if (target) {
+        const binding = target.installation;
+        if (
+          !binding ||
+          binding.installationId !== installation.installationId ||
+          binding.serverId !== installation.serverId ||
+          binding.environment !== installation.environment ||
+          binding.revision < installation.revision
+        )
+          throw new Error("Installation profile cache identity cannot be replaced or downgraded.");
+        if (
+          binding.revision === installation.revision &&
+          !isEqualValue(target.providers, this.current.sharedProviderPreferences?.providers)
+        )
+          throw new Error(
+            "Installation profiles must be edited through the installation coordinator.",
+          );
+      }
+    }
   }
 
   private preserveLegacyProfileEdits(patch: MutableDaemonConfigPatch): void {
@@ -472,8 +641,8 @@ export class DaemonConfigStore {
     });
   }
 
-  public setAgentSkillSelection(selection: AgentSkillSelection): MutableDaemonConfig {
-    return this.applySupportedPatch({ skills: { selection } });
+  public setAgentSkillSelection(selection: AgentSkillSelection): Promise<MutableDaemonConfig> {
+    return this.patchFromClient({ skills: { selection } });
   }
 
   private applySupportedPatch(parsedPatch: SupportedMutableConfigPatch): MutableDaemonConfig {
@@ -484,6 +653,13 @@ export class DaemonConfigStore {
     }
     const { removeProviders = [], ...configPatch } = parsedPatch;
     const removedProviders = Array.from(new Set(removeProviders));
+    const installationOwned = Boolean(this.current.sharedProviderPreferences?.installation);
+    if (
+      installationOwned &&
+      removedProviders.length > 0 &&
+      configPatch.metadataGeneration === undefined
+    )
+      configPatch.metadataGeneration = this.current.metadataGeneration;
     assertProviderConfigRemoval({
       paseoHome: this.paseoHome,
       providers: this.current.providers,
@@ -491,16 +667,20 @@ export class DaemonConfigStore {
       ...defaultProviderAccountHomes(),
     });
     const merged = deepMerge(this.current, configPatch);
+    delete merged.replaceProviders;
+    if (parsedPatch.replaceProviders) merged.providers = parsedPatch.replaceProviders;
     if (parsedPatch.skills?.selection !== undefined) {
       merged.skills = { selection: parsedPatch.skills.selection };
     }
     if (parsedPatch.plugins !== undefined) merged.plugins = parsedPatch.plugins;
     Object.assign(merged, replacementProviderPreferences(parsedPatch));
     const next = MutableDaemonConfigSchema.parse(
-      omitMetadataGenerationProvidersFromConfig(
-        omitProvidersFromConfig(merged, removedProviders),
-        removedProviders,
-      ),
+      installationOwned
+        ? omitProvidersFromConfig(merged, removedProviders)
+        : omitMetadataGenerationProvidersFromConfig(
+            omitProvidersFromConfig(merged, removedProviders),
+            removedProviders,
+          ),
     );
 
     const configChanged = !isEqualValue(this.current, next);
@@ -540,8 +720,20 @@ export class DaemonConfigStore {
     // restart. The global switch is independently reloadable.
     const desired = MutableDaemonConfigSchema.parse({
       ...resolved.mutable,
+      providers: { ...this.registeredProviderDefaults, ...resolved.mutable.providers },
       plugins: this.current.plugins,
+      ...(this.current.sharedProviderPreferences?.installation
+        ? {
+            agentProfiles: this.current.agentProfiles,
+            sharedProviderPreferences: this.current.sharedProviderPreferences,
+          }
+        : {}),
     });
+    assertInstallationProviderProjection(this.current, {
+      ...desired,
+      removeProviders: Object.keys(this.current.providers).filter((id) => !desired.providers[id]),
+    });
+    assertInstallationSettingsProjection({ current: this.current, patch: desired });
     const changedSinceLastApply = diffPaths(this.lastKnownPersisted, persisted);
     const overrideControlledPaths = compactOwnedPaths(
       changedSinceLastApply.filter((path) =>
@@ -728,6 +920,7 @@ function mergeMutableAgentPatch(
 ): PersistedConfig["agents"] {
   if (
     patch.providers === undefined &&
+    patch.replaceProviders === undefined &&
     patch.metadataGeneration === undefined &&
     patch.skills === undefined &&
     removeProviders.length === 0
@@ -740,10 +933,10 @@ function mergeMutableAgentPatch(
     persistedAgents?.providers as Record<string, ProviderOverride> | undefined,
     removeProviders,
   );
-  const providerOverrides = applyMutableProviderConfigToOverrides(
-    persistedProviderOverrides,
-    patch.providers,
-  );
+  const providerOverrides =
+    patch.replaceProviders === undefined
+      ? applyMutableProviderConfigToOverrides(persistedProviderOverrides, patch.providers)
+      : persistInstallationProviders(persistedProviderOverrides, patch.replaceProviders);
   if (providerOverrides) next["providers"] = providerOverrides;
   else delete next["providers"];
 
@@ -788,6 +981,8 @@ function mergeMutableDaemonPatch(
   }
   if (patch.appendSystemPrompt !== undefined) next.appendSystemPrompt = patch.appendSystemPrompt;
   if (patch.terminalProfiles !== undefined) next.terminalProfiles = patch.terminalProfiles;
+  if (patch.installationResourceBindings !== undefined)
+    next.installationResourceBindings = patch.installationResourceBindings;
   if (patch.agentProfiles !== undefined) next.agentProfiles = patch.agentProfiles;
   if (patch.sharedProviderPreferences !== undefined)
     next.sharedProviderPreferences = patch.sharedProviderPreferences;

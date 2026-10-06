@@ -14,7 +14,6 @@ import {
   goBackInSettings,
   openCompactSettings,
   openHostSection,
-  selectSettingsHost,
 } from "./settings";
 
 type AgentSkillsClient = Pick<
@@ -134,7 +133,6 @@ export async function openAgentSkillsSettings(
     port: sandbox.daemon.port,
   });
   if (options.compact) await goBackInSettings(page);
-  await selectSettingsHost(page, sandbox.daemon.serverId);
   await openHostSection(page, sandbox.daemon.serverId, "agents");
   await expect(page.getByTestId("host-agent-skills-card")).toBeVisible();
 }

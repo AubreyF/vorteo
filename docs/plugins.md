@@ -115,6 +115,42 @@ the bundled integration; an entry with `extends` shadows it with a custom provid
 [provider contributions](#contribute-a-provider) for the contract and
 [Muse Code](../public-docs/muse-code.md) for setup, per-agent options, and version limitations.
 
+## Install an exact source in multiple environments
+
+For a managed Host and Dev installation, Settings shows one plugin catalog. Source review
+resolves an immutable artifact without building or activating it. Saving writes the shared
+catalog before either environment installs it. Enablement is global; environment exceptions
+can exclude individual plugins. Runtime status, logs, reloads and private plugin settings
+remain attached to each environment. Removing a shared definition disables its local copies
+and retains their files and private settings.
+
+Existing journals acquire plugin catalogs only after both environments have been read. A
+catalog difference requires review and preserves every unique definition in each candidate.
+This upgrade never imports later changes to scalar daemon settings. An expired owner session
+or revision conflict keeps the plugin form and source review open.
+
+Daemons advertising `pluginPinnedInstallation` support `plugin.source.resolve.request` and
+`plugin.source.install_resolved.request`. Resolve a source once to obtain its manifest ID,
+source identity and immutable artifact. Git recipes carry the commit; npm recipes carry the
+version, artifact URL and integrity. Resolution does not build, register or start the plugin.
+
+Send the same recipe to each destination with its desired `enabled` value. Installation
+verifies the artifact and manifest ID, runs the normal compatibility and build checks, and
+preserves the existing rollback behavior. A disabled installation is built and validated but
+never started. These calls require `daemon.manage`; they do not grant installation authority
+or copy registry credentials. Local directory paths remain environment bindings.
+
+For shared directory plugins, edit each path in Settings > Environments. The directory binding
+call requires the last observed path, or `null` for a new binding, and the effective enabled
+state. A stale path is rejected. Excluded plugins accept disabled bindings but cannot activate.
+The daemon validates the candidate before replacing a running copy and restores the previous
+binding if activation fails. Directory contents and private plugin settings are retained.
+Managed Git and npm sources cannot be replaced through this local path control.
+
+The client gates the optional `binding` field on `plugin.directory.install.request` with
+`pluginDirectoryBindings`. Older directory installs keep their collision checks and original
+behavior. Local paths never enter the installation catalog or its journal.
+
 ## Install from a registry
 
 Registry installs are off by default. Set `pluginRegistryEnabled: true` in daemon config or
@@ -128,6 +164,8 @@ selection is unavailable for registry installs; install an explicit source to se
 
 Use `host/owner/slug` for a registry at `https://host`, or set
 `PASEO_PLUGIN_REGISTRY` to change the default base (including a path prefix).
+Use `registry:https://plugins.example/internal/owner/slug` to retain a specific scheme and
+base path when reviewing or updating a shared source. Keep credentials in daemon config.
 Private registry credentials live in daemon config under
 `pluginRegistries: { "host": { "authorization": "Bearer token" } }`.
 Restart your daemon after changing these startup settings. Credentials go only to the registry,

@@ -10,13 +10,11 @@ import { useHostProjects } from "@/projects/host-projects";
 import { useWorkspaceDirectoryServerIds } from "@/stores/session-store-hooks";
 import { useHostRuntimeClient, useHosts } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
-import { useVortonMode } from "@/vorton-mode";
 import { useProjectMoveRequest } from "./request";
 
 export function ProjectMoveModalHost() {
   const request = useProjectMoveRequest((state) => state.request);
-  const enabled = useVortonMode();
-  return enabled && request ? (
+  return request ? (
     <ProjectMoveModal key={`${request.serverId}:${request.workspaceId}`} {...request} />
   ) : null;
 }

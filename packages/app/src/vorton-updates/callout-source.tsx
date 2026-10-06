@@ -3,23 +3,17 @@ import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
 import { useSidebarCallouts } from "@/contexts/sidebar-callout-context";
 import { buildSettingsSectionRoute } from "@/utils/host-routes";
-import { useVortonMode } from "@/vorton-mode";
+
 import { useVortonUpdate } from "./use-update";
 
 export function VortonUpdateCalloutSource() {
-  const vorton = useVortonMode();
   const { t } = useTranslation();
   const update = useVortonUpdate(true);
   const callouts = useSidebarCallouts();
   const router = useRouter();
   const review = useCallback(() => router.push(buildSettingsSectionRoute("general")), [router]);
   useEffect(() => {
-    if (
-      !vorton ||
-      update.isError ||
-      !update.data ||
-      !["available", "diverged"].includes(update.data.status)
-    )
+    if (update.isError || !update.data || !["available", "diverged"].includes(update.data.status))
       return;
     return callouts.show({
       id: "vorton-source-update",
@@ -34,6 +28,6 @@ export function VortonUpdateCalloutSource() {
       ],
       testID: "vorton-update-notice",
     });
-  }, [vorton, update.data, update.isError, callouts, review, t]);
+  }, [update.data, update.isError, callouts, review, t]);
   return null;
 }

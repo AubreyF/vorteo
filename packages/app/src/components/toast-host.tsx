@@ -1,6 +1,6 @@
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { isConnectionToast } from "@/components/connection-toast";
-import { useVortonMode } from "@/vorton-mode";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -20,11 +20,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import { AlertTriangle, CheckCircle2, Info } from "lucide-react-native";
 import { getOverlayRoot, OVERLAY_Z } from "@/lib/overlay-root";
-import {
-  HEADER_INNER_HEIGHT,
-  HEADER_INNER_HEIGHT_MOBILE,
-  getHeaderTopPadding,
-} from "@/constants/layout";
+import { HEADER_INNER_HEIGHT, HEADER_INNER_HEIGHT_MOBILE } from "@/constants/layout";
 
 export type ToastVariant = "default" | "info" | "success" | "warning" | "error";
 
@@ -136,12 +132,8 @@ interface ToastViewportProps {
 }
 
 export function ToastViewport({ toast, onDismiss, placement }: ToastViewportProps) {
-  const vortonMode = useVortonMode();
   const presentation = useMemo(() => {
-    if (
-      !toast ||
-      !isConnectionToast({ vortonMode, content: toast.content, testID: toast.testID })
-    ) {
+    if (!toast || !isConnectionToast({ content: toast.content, testID: toast.testID })) {
       return toast;
     }
     return {
@@ -155,7 +147,7 @@ export function ToastViewport({ toast, onDismiss, placement }: ToastViewportProp
         </Text>
       ),
     };
-  }, [toast, vortonMode]);
+  }, [toast]);
 
   return <ToastViewportContent toast={presentation} onDismiss={onDismiss} placement={placement} />;
 }
@@ -169,7 +161,6 @@ function ToastViewportContent({
   onDismiss: () => void;
   placement?: ToastViewportPlacement;
 }) {
-  const vortonMode = useVortonMode();
   const insets = useSafeAreaInsets();
   const isMobile = useIsCompactFormFactor();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -224,7 +215,7 @@ function ToastViewportContent({
   }, [clearTimer, durationMs, scheduleDismiss, toastId]);
 
   const headerHeight = isMobile ? HEADER_INNER_HEIGHT_MOBILE : HEADER_INNER_HEIGHT;
-  const headerTopPadding = getHeaderTopPadding({ compact: isMobile, vorton: vortonMode });
+  const headerTopPadding = 0;
   const topOffset = placement === "app-shell" ? insets.top + headerTopPadding + headerHeight : 0;
 
   const content = (

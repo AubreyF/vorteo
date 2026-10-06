@@ -5,10 +5,8 @@ import { useHosts, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { useSessionStore } from "@/stores/session-store";
 import { openHostOverview } from "@/navigation/settings-navigation";
-import { useVortonMode } from "@/vorton-mode";
 
 export function useVortonCompatibilityCallout() {
-  const enabled = useVortonMode();
   const params = useGlobalSearchParams<{ serverId?: string }>();
   const selection = useActiveWorkspaceSelection();
   const hosts = useHosts();
@@ -21,7 +19,7 @@ export function useVortonCompatibilityCallout() {
     connected && serverInfo != null && serverInfo.features?.agentProfileLaunch !== true;
 
   useEffect(() => {
-    if (!enabled || !unsupported) return;
+    if (!unsupported) return;
     return callouts.show({
       id: "vorton-host-compatibility",
       title: "Vorteo is not fully available",
@@ -34,5 +32,5 @@ export function useVortonCompatibilityCallout() {
       ],
       testID: "sidebar-vorton-compatibility",
     });
-  }, [enabled, unsupported, serverId, callouts]);
+  }, [unsupported, serverId, callouts]);
 }

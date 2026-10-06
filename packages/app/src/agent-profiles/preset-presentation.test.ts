@@ -1,9 +1,8 @@
 import { expect, it } from "vitest";
 import { generatedPresetNickname, presetNickname } from "./nickname";
-import { permissionCaption } from "./permission-caption";
 import { selectedPresetPresentation } from "./selected-preset-presentation";
 
-it.each([false, true])("gates selected nicknames and quota rings with Vorton %s", (vortonMode) => {
+it("shows selected nicknames and quota rings", () => {
   const result = selectedPresetPresentation({
     selectedProfileId: "secondary",
     selectedProfileName: "Codex 2 Astra Medium",
@@ -16,7 +15,6 @@ it.each([false, true])("gates selected nicknames and quota rings with Vorton %s"
         provider: "codex-secondary",
       },
     ],
-    vortonMode,
     now: 100,
     view: {
       kind: "ready",
@@ -36,9 +34,9 @@ it.each([false, true])("gates selected nicknames and quota rings with Vorton %s"
       },
     },
   });
-  expect(result.triggerLabel).toBe(vortonMode ? "C2-AM" : "Codex 2 Astra Medium");
-  expect(result.showRing).toBe(vortonMode);
-  if (vortonMode) expect(result.accessibilityLabel).toContain("50 percent remaining");
+  expect(result.triggerLabel).toBe("C2-AM");
+  expect(result.showRing).toBe(true);
+  expect(result.accessibilityLabel).toContain("50 percent remaining");
 });
 
 it("generates nicknames and preserves separately editable overrides", () => {
@@ -46,16 +44,4 @@ it("generates nicknames and preserves separately editable overrides", () => {
   expect(generatedPresetNickname("Local Fast")).toBe("LF");
   expect(presetNickname({ name: "Codex 2 Astra Medium", nickname: " My coder " })).toBe("My coder");
   expect(presetNickname({ name: "Codex 2 Astra Medium", nickname: " " })).toBe("C2-AM");
-});
-
-it.each([
-  ["Auto-review", "Auto"],
-  ["Full access", "Full"],
-  ["Default permissions", "Default"],
-  ["Read only", "Read only"],
-])("shortens %s only in Vorton", (label, expected) => {
-  expect(permissionCaption(label, true)).toBe(expected);
-  expect(permissionCaption(label, false)).toBe(label);
-  expect(permissionCaption(label, true, true)).toBe(expected.slice(0, 1).toUpperCase());
-  expect(permissionCaption(label, false, true)).toBe(label);
 });

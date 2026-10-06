@@ -21,13 +21,12 @@ export function resolveAgentControlsMode(agentControls?: DraftAgentControlsProps
 }
 
 export function resolveLiveAgentModes(input: {
-  vortonMode: boolean;
   availableModes: AgentMode[];
   supportsDynamicModes: boolean;
   provider: string;
   snapshotEntries: ProviderSnapshotEntry[] | undefined;
 }): AgentMode[] {
-  if (!input.vortonMode || input.availableModes.length > 0 || input.supportsDynamicModes) {
+  if (input.availableModes.length > 0 || input.supportsDynamicModes) {
     return input.availableModes;
   }
   // Cached and stored agents omit session modes. Fixed-mode providers can use

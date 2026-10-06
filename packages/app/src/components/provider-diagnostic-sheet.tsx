@@ -1,6 +1,5 @@
 import { AgentProfilesSection } from "@/agent-profiles/settings/agent-profiles-section";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { useVortonMode } from "@/vorton-mode";
 import { CliUpdateWarning } from "@/provider-selection/cli-update-warning";
 import * as Clipboard from "expo-clipboard";
 import { AlertTriangle, Copy, FileText, Plus, RotateCw, Trash2 } from "lucide-react-native";
@@ -220,6 +219,7 @@ function AddCustomModelSubSheet({
         <AdaptiveTextInput
           initialValue={input}
           resetKey={`add-custom-${visible}`}
+          testID="custom-model-id"
           onChangeText={setInput}
           onSubmitEditing={handleAdd}
           placeholder={t("settings.providers.models.modelIdPlaceholder")}
@@ -235,7 +235,13 @@ function AddCustomModelSubSheet({
           <Button variant="secondary" size="sm" onPress={onClose} disabled={saving}>
             {t("common.actions.cancel")}
           </Button>
-          <Button variant="default" size="sm" onPress={handleAdd} disabled={!canAdd || saving}>
+          <Button
+            variant="default"
+            size="sm"
+            onPress={handleAdd}
+            disabled={!canAdd || saving}
+            testID="custom-model-save"
+          >
             {saving ? t("settings.providers.models.adding") : t("settings.providers.models.add")}
           </Button>
         </View>
@@ -596,15 +602,15 @@ export function ProviderDiagnosticSheet({
   onClose,
   serverId,
 }: ProviderDiagnosticSheetProps) {
-  const vortonMode = useVortonMode();
   const [tab, setTab] = useState<string>(initialTab);
-  const showingProfiles = vortonMode && tab === "profiles";
+  const toast = useToast();
+  const showingProfiles = tab === "profiles";
   const { t } = useTranslation();
   const { theme } = useUnistyles();
   const isCompact = useIsCompactFormFactor();
   const { entries: snapshotEntries, refresh, isRefreshing } = useProvidersSnapshot(serverId);
   const { config, patchConfig } = useDaemonConfig(serverId);
-  const showClaudeSignIn = vortonMode && provider === "claude";
+  const showClaudeSignIn = provider === "claude";
   const [query, setQuery] = useState("");
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [diagSheetOpen, setDiagSheetOpen] = useState(false);
@@ -676,11 +682,16 @@ export function ProviderDiagnosticSheet({
         },
       })
         .then(() => refresh([provider]))
+        .catch((error) =>
+          toast.error(
+            error instanceof Error ? error.message : "Unable to remove the custom model.",
+          ),
+        )
         .finally(() => {
           setDeletingModelId((current) => (current === modelId ? null : current));
         });
     },
-    [additionalModels, patchConfig, provider, refresh],
+    [additionalModels, patchConfig, provider, refresh, toast],
   );
 
   const sheetHeader = useMemo<SheetHeader>(
@@ -745,7 +756,7 @@ export function ProviderDiagnosticSheet({
           </View>
         ) : null}
         <CliUpdateWarning update={providerEntry?.cliUpdate} />
-        {vortonMode ? (
+        {
           <View style={sheetStyles.tabs}>
             <SegmentedControl
               options={PROVIDER_TABS}
@@ -755,7 +766,7 @@ export function ProviderDiagnosticSheet({
               testID="provider-settings-tabs"
             />
           </View>
-        ) : null}
+        }
         {showingProfiles ? (
           <AgentProfilesSection serverId={serverId} provider={provider} />
         ) : (

@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { legacyImportOperationId } from "./legacy";
 import { QueueOutbox, type QueueOutboxPort } from "./outbox";
 import { encodeOutboxKey, type OutboxRecord, type OutboxStorage } from "./outbox-record";
 import type { QueueOperation } from "@getpaseo/protocol/message-queue";
@@ -109,40 +110,43 @@ it("allows deletion to free a full queue while preserving the rejected enqueue",
   expect(await outbox.list()).toMatchObject([{ operation, error: { code: "full" } }]);
 });
 
-it("retains the exact operation across reload after a lost acknowledgement", async () => {
-  const storage = memoryStorage();
-  const sent: QueueOperation[] = [];
-  const cleaned: string[] = [];
-  const first = new QueueOutbox(storage, {
-    ...port,
-    acknowledged: async (record) => {
-      cleaned.push(record.operation.operationId);
-    },
-    mutate: async (_host, _agent, request) => {
-      sent.push(request);
-      throw new Error("Disconnected after durable host commit");
-    },
-  });
-  await first.commit(input);
-  await expect(first.flush("host")).rejects.toThrow("Disconnected");
-  expect(await first.list()).toHaveLength(1);
-  expect(cleaned).toEqual([]);
-  const reloaded = new QueueOutbox(storage, {
-    ...port,
-    acknowledged: async (record) => {
-      expect(await storage.list()).toEqual([]);
-      cleaned.push(record.operation.operationId);
-    },
-    mutate: async (_host, _agent, request) => {
-      sent.push(request);
-      return { snapshot, error: null };
-    },
-  });
-  await reloaded.flush("host");
-  expect(sent).toEqual([operation, operation]);
-  expect(await reloaded.list()).toEqual([]);
-  expect(cleaned).toEqual(["op"]);
-});
+it.each([operation, { ...operation, operationId: legacyImportOperationId(operation.messageId) }])(
+  "retains the exact operation across reload after a lost acknowledgement: %j",
+  async (savedOperation) => {
+    const storage = memoryStorage();
+    const sent: QueueOperation[] = [];
+    const cleaned: string[] = [];
+    const first = new QueueOutbox(storage, {
+      ...port,
+      acknowledged: async (record) => {
+        cleaned.push(record.operation.operationId);
+      },
+      mutate: async (_host, _agent, request) => {
+        sent.push(request);
+        throw new Error("Disconnected after durable host commit");
+      },
+    });
+    await first.commit({ ...input, operation: savedOperation });
+    await expect(first.flush("host")).rejects.toThrow("Disconnected");
+    expect(await first.list()).toHaveLength(1);
+    expect(cleaned).toEqual([]);
+    const reloaded = new QueueOutbox(storage, {
+      ...port,
+      acknowledged: async (record) => {
+        expect(await storage.list()).toEqual([]);
+        cleaned.push(record.operation.operationId);
+      },
+      mutate: async (_host, _agent, request) => {
+        sent.push(request);
+        return { snapshot, error: null };
+      },
+    });
+    await reloaded.flush("host");
+    expect(sent).toEqual([savedOperation, savedOperation]);
+    expect(await reloaded.list()).toEqual([]);
+    expect(cleaned).toEqual([savedOperation.operationId]);
+  },
+);
 
 it("does not acknowledge a local commit when storage fails", async () => {
   const storage = memoryStorage();

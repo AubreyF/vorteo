@@ -24,7 +24,7 @@ Vorteo native metadata reserves 100,000 build numbers per upstream major/minor/p
 
 The initial baseline covers custom behavior through `0.9.0-beta.2.vorton.40`; it is a cumulative summary, not a claim that every feature first shipped in that commit. New versions use `vorteo` while version parsing accepts legacy `vorton` parents and preserves their counter and native build numbering.
 
-Expo bundles the custom changelog with each build. What's new interleaves it with the independently fetched Paseo changelog by date, newest first, in Vorteo mode. Entries identify their source and share one Show more control. Equal dates retain authored order within each source, with Vorteo entries first; undated entries appear last. Upstream loading or failure does not hide bundled custom notes. Standard mode retains the Paseo view. The external link opens Paseo's full upstream history; newer upstream notes do not imply those changes are installed locally.
+Expo bundles the custom changelog with each build. What's new interleaves it with the independently fetched Paseo changelog by date, newest first. Entries identify their source and share one Show more control. Equal dates retain authored order within each source, with Vorteo entries first; undated entries appear last. Upstream loading or failure does not hide bundled custom notes. The external link opens Paseo's full upstream history; newer upstream notes do not imply those changes are installed locally.
 
 ## Upstream release procedure
 

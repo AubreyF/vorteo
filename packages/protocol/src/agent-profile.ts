@@ -14,6 +14,7 @@ export const AgentProfileSchema = z
   .object({
     id: z.string(),
     name: z.string(),
+    excludedEnvironments: z.array(z.enum(["host", "container"])).optional(),
     nickname: z.string().optional(),
     quotaReservePolicy: QuotaReservePolicySchema.optional(),
     /** A key into the client's icon registry, not a glyph. Unknown keys draw the default. */

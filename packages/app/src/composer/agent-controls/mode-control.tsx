@@ -13,7 +13,7 @@ import { getAgentControlHintKey } from "@/composer/agent-controls/utils";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
-import { useVortonMode } from "@/vorton-mode";
+
 import { resolveLiveAgentModes, resolveNextAgentModeId } from "@/composer/agent-controls/mode";
 import { useComposerKeyboardScope } from "@/composer/keyboard-scope";
 import { useComposerControlLayout } from "@/composer/agent-controls/layout-context";
@@ -247,7 +247,6 @@ export function useLiveAgentModeControl(
   serverId: string,
   agentId: string,
 ): AgentModeControlValue | null {
-  const vortonMode = useVortonMode();
   const slice = useSessionStore(
     useShallow((state) => {
       const agent = state.sessions[serverId]?.agents?.get(agentId);
@@ -302,7 +301,6 @@ export function useLiveAgentModeControl(
   return useMemo(() => {
     if (!slice) return null;
     const modeOptions = resolveLiveAgentModes({
-      vortonMode,
       availableModes,
       supportsDynamicModes: slice.supportsDynamicModes,
       provider: slice.provider,
@@ -317,15 +315,7 @@ export function useLiveAgentModeControl(
       onSelectMode: handleSelectMode,
       disabled: !client,
     };
-  }, [
-    availableModes,
-    client,
-    handleSelectMode,
-    providerDefinitions,
-    slice,
-    snapshotEntries,
-    vortonMode,
-  ]);
+  }, [availableModes, client, handleSelectMode, providerDefinitions, slice, snapshotEntries]);
 }
 
 const styles = StyleSheet.create((theme) => ({

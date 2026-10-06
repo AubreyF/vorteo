@@ -1955,6 +1955,8 @@ export class VoiceAssistantWebSocketServer {
         pluginManagement: true,
         pluginGitManagement: true,
         pluginSourceInstallation: true,
+        pluginPinnedInstallation: true,
+        pluginDirectoryBindings: true,
         pluginSourceUpdates: true,
         pluginLogs: true,
         // COMPAT(pluginThemes): added in v0.5.0, remove gate after 2027-08-20.
@@ -1963,7 +1965,9 @@ export class VoiceAssistantWebSocketServer {
         pluginTimelineItems: true,
         // COMPAT(skillManagement): added in v0.4.0, remove gate after 2027-08-16.
         skillManagement: true,
+        skillSelectionPreview: true,
         skillLibrary: true,
+        skillPackageTransfer: true,
         // COMPAT(terminalRestoreModes): added in v0.1.81, remove gate after 2026-11-23.
         "terminal-restore-modes": true,
         // COMPAT(terminalInputModeReplay): added in v0.2.6, remove gate after 2027-02-02.
@@ -2074,6 +2078,11 @@ export class VoiceAssistantWebSocketServer {
         agentProfileLaunch: true,
         sharedProviderPreferences: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         profileWorkflowAliases: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
+        installationProfileAuthority: Boolean(
+          this.daemonConfigStore.get().sharedProviderPreferences,
+        ),
+        installationResourceBindings: true,
+        installationSettingsAuthority: true,
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: true,
       },

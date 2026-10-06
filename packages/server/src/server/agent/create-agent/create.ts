@@ -1,4 +1,9 @@
-import { captureSkillPolicy, isRestricted } from "../../orchestration-skills/internal/policy.js";
+import { assertInstallationProviderLaunch } from "../../execution-installation/settings/provider-admission.js";
+import {
+  readInstallationSettingsForLaunch,
+  type InstallationSettingsReader,
+} from "../../execution-installation/settings/admission.js";
+import { captureSkillPolicy } from "../../orchestration-skills/internal/policy.js";
 import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
 import { setAgentGoalWithContext } from "../agent-goal.js";
 import type { Logger } from "pino";
@@ -30,6 +35,10 @@ import {
 } from "../timeline-append.js";
 import { resolveCreateAgentIntent } from "./intent.js";
 import { resolveProfileLaunch } from "./profile.js";
+import {
+  readInstallationProfileConfig,
+  type InstallationProfileReader,
+} from "../../execution-installation/profiles/admission.js";
 import type { AgentProfile, MutableDaemonConfig } from "@getpaseo/protocol/messages";
 
 export interface CreateAgentSessionWorktreeResult {
@@ -43,6 +52,8 @@ export interface CreateAgentSessionWorktreeResult {
 export interface CreateAgentCommandDependencies {
   getAgentProfiles?: () => readonly AgentProfile[];
   getSharedProviderConfig?: () => MutableDaemonConfig;
+  installationProfileReader?: InstallationProfileReader;
+  installationSettingsReader?: InstallationSettingsReader;
   validateSharedConfiguration?: ProviderSnapshotManager["validateAgentConfiguration"];
   agentManager: AgentManager;
   agentStorage: AgentStorage;
@@ -194,21 +205,68 @@ async function validateSharedLaunch(
   if (issues.length) throw new Error(issues.map((issue) => issue.message).join(" "));
 }
 
+async function admitProfileDependencies(
+  dependencies: CreateAgentCommandDependencies,
+  input: CreateAgentCommandInput,
+): Promise<CreateAgentCommandDependencies> {
+  const profileId = input.kind === "session" ? input.config.profileId : input.profileId;
+  if (profileId && dependencies.getSharedProviderConfig) {
+    const settings = await readInstallationProfileConfig(
+      dependencies.getSharedProviderConfig(),
+      dependencies.installationProfileReader,
+    );
+    dependencies = { ...dependencies, getSharedProviderConfig: () => settings };
+  }
+  return dependencies;
+}
+
+function observeLaunchBindings(dependencies: CreateAgentCommandDependencies) {
+  const readLocalConfig = dependencies.getSharedProviderConfig;
+  let admittedLocalConfig: MutableDaemonConfig | undefined;
+  if (readLocalConfig) {
+    dependencies = {
+      ...dependencies,
+      getSharedProviderConfig: () => {
+        const current = readLocalConfig();
+        admittedLocalConfig ??= current;
+        return current;
+      },
+    };
+  }
+  return {
+    dependencies,
+    assertCurrent() {
+      if (
+        admittedLocalConfig?.sharedProviderPreferences?.installation &&
+        readLocalConfig?.() !== admittedLocalConfig
+      ) {
+        throw new Error(
+          "Local account or settings bindings changed during launch. Retry with the current configuration.",
+        );
+      }
+    },
+  };
+}
+
 export async function createAgentCommand(
   dependencies: CreateAgentCommandDependencies,
   input: CreateAgentCommandInput,
 ): Promise<CreateAgentCommandResult> {
+  const bindings = observeLaunchBindings(dependencies);
+  dependencies = await admitProfileDependencies(bindings.dependencies, input);
   const resolved =
     input.kind === "session"
       ? await resolveSessionCreateAgent(dependencies, input)
       : await resolveMcpCreateAgent(dependencies, input);
 
   await validateSharedLaunch(dependencies, resolved.config);
-  await captureLaunchSkills(dependencies, resolved.config);
+  await captureLaunchPolicy(dependencies, resolved.config);
 
   if (resolved.config.quotaReserve) {
     await dependencies.agentManager.checkQuotaReserveLaunch(resolved.config);
   }
+
+  bindings.assertCurrent();
 
   const snapshot = await dependencies.agentManager.createAgent(
     resolved.config,
@@ -379,6 +437,46 @@ function inheritWorkerRevision(config: AgentSessionConfig, caller: ManagedAgent 
   }
 }
 
+interface McpProfileSelection {
+  dependencies: CreateAgentCommandDependencies;
+  input: CreateAgentFromMcpInput;
+  worker: AgentProfile | undefined;
+  caller: ManagedAgent | null;
+}
+
+function resolveMcpProfileSelection({
+  dependencies,
+  input,
+  worker,
+  caller,
+}: McpProfileSelection): AgentSessionConfig {
+  const settings = dependencies.getSharedProviderConfig?.();
+  if (worker && settings?.sharedProviderPreferences?.installation) {
+    // Frozen workers keep their values, but every new dispatch checks current exclusions.
+    resolveProfileLaunch(
+      { provider: worker.provider, cwd: input.cwd ?? "", profileId: worker.id },
+      [],
+      Date.now(),
+      settings,
+    );
+  }
+  const profiles = worker ? [worker] : (dependencies.getAgentProfiles?.() ?? []);
+  const resolved = resolveProfileLaunch(
+    {
+      ...input.config,
+      provider: resolveProviderModel(input.provider).provider,
+      cwd: input.cwd ?? "",
+      profileId: input.profileId,
+    },
+    profiles,
+    Date.now(),
+    worker ? undefined : dependencies.getSharedProviderConfig?.(),
+    settings?.sharedProviderPreferences?.installation?.environment,
+  );
+  if (worker) inheritWorkerRevision(resolved, caller);
+  return resolved;
+}
+
 function resolveMcpProfileInput(
   dependencies: CreateAgentCommandDependencies,
   input: CreateAgentFromMcpInput,
@@ -393,19 +491,7 @@ function resolveMcpProfileInput(
   if (worker && input.detached)
     throw new Error("Managed workers cannot be detached from their supervisor.");
   if (input.profileId) {
-    const profiles = worker ? [worker] : (dependencies.getAgentProfiles?.() ?? []);
-    const resolved = resolveProfileLaunch(
-      {
-        ...input.config,
-        provider: resolveProviderModel(input.provider).provider,
-        cwd: input.cwd ?? "",
-        profileId: input.profileId,
-      },
-      profiles,
-      Date.now(),
-      worker ? undefined : dependencies.getSharedProviderConfig?.(),
-    );
-    if (worker) inheritWorkerRevision(resolved, caller);
+    const resolved = resolveMcpProfileSelection({ dependencies, input, worker, caller });
     if (!resolved.model) throw new Error("MCP launches require a preset with an explicit model.");
     if (resolveProviderModel(input.provider).provider !== resolved.provider) {
       throw new Error("The requested provider must match the preset provider.");
@@ -725,24 +811,32 @@ async function createMcpWorktree(
   }
 }
 
-async function captureLaunchSkills(
+async function captureLaunchPolicy(
   dependencies: CreateAgentCommandDependencies,
   config: AgentSessionConfig,
 ): Promise<void> {
   const settings = dependencies.getSharedProviderConfig?.();
   const provider = resolveProviderType(config.provider, settings?.providers ?? {});
-  const policy = config.profileLaunch?.profile.skillPolicy;
-  let defaults: string[] | undefined;
-  if (
-    policy?.mode === "inherit" &&
-    isRestricted(policy) &&
-    (provider === "claude" || provider === "codex")
-  ) {
-    const catalog = await dependencies.agentManager.listDraftCommands({
-      ...config,
-      profileLaunch: undefined,
-    });
-    defaults = catalog.filter((command) => command.kind === "skill").map((command) => command.name);
-  }
-  await captureSkillPolicy(config, provider, undefined, defaults);
+  const authority = settings
+    ? await readInstallationSettingsForLaunch(settings, dependencies.installationSettingsReader)
+    : null;
+  if (authority && settings) assertInstallationProviderLaunch(settings, config.provider, authority);
+  const installation = authority
+    ? {
+        definitions: authority.settings.skillLibrary ?? [],
+        excludedIdentities:
+          authority.settings.resourceExclusions[authority.serverId]?.skillIdentities ?? [],
+      }
+    : undefined;
+  await captureSkillPolicy(config, provider, {
+    installation,
+    nativeDefaults: async () => {
+      const catalog = await dependencies.agentManager.listDraftCommands({
+        ...config,
+        profileLaunch: undefined,
+        skillSnapshot: undefined,
+      });
+      return catalog.filter((command) => command.kind === "skill").map((command) => command.name);
+    },
+  });
 }

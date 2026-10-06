@@ -15,7 +15,7 @@ import type { Theme } from "@/styles/theme";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { EditingTextInput as TextInput } from "@/components/ui/text-input";
 import { AddCodexAccountButton, AddClaudeAccountButton } from "@/provider-usage/add-account";
-import { useVortonMode } from "@/vorton-mode";
+
 import { ClaudeIcon as ClaudeMark } from "@/components/icons/claude-icon";
 import { CodexIcon as CodexMark } from "@/components/icons/codex-icon";
 
@@ -131,15 +131,13 @@ export function ProviderCatalogList({
   installingProviderId,
   onInstall,
 }: ProviderCatalogListProps) {
-  const vortonMode = useVortonMode();
   const { t } = useTranslation();
   const { entries: catalogEntries } = useAcpProviderCatalog();
   const { entries: providerEntries } = useProvidersSnapshot(serverId);
   const [search, setSearch] = useState("");
-  const showCodex =
-    vortonMode && "codex openai chatgpt account".includes(search.trim().toLowerCase());
+  const showCodex = "codex openai chatgpt account".includes(search.trim().toLowerCase());
 
-  const showClaude = vortonMode && "claude account anthropic".includes(search.trim().toLowerCase());
+  const showClaude = "claude account anthropic".includes(search.trim().toLowerCase());
   const installedIds = useMemo(
     () => new Set(providerEntries?.map((entry) => entry.provider) ?? []),
     [providerEntries],

@@ -1,3 +1,11 @@
+import { installationProviderReference } from "@getpaseo/protocol/installation-settings";
+import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
+import {
+  readInstallationSettingsForLaunch,
+  InstallationSettingsAdmissionError,
+  type InstallationSettingsReader,
+} from "../execution-installation/settings/admission.js";
+import { assertInstallationProviderLaunch } from "../execution-installation/settings/provider-admission.js";
 import { mergeQueueHistory } from "../message-queue/history.js";
 import {
   pauseGoalForQueue,
@@ -241,6 +249,7 @@ function buildStoredAgentConfig(record: StoredAgentRecord): AgentSessionConfig {
     config.systemPrompt = record.config.systemPrompt;
   }
   if (record.config.profileLaunch) config.profileLaunch = record.config.profileLaunch;
+  if (record.config.skillSnapshot) config.skillSnapshot = record.config.skillSnapshot;
   if (record.config.controllerExecutionId)
     config.controllerExecutionId = record.config.controllerExecutionId;
   if (record.config.quotaPausedAt) config.quotaPausedAt = record.config.quotaPausedAt;
@@ -351,6 +360,8 @@ export interface CreateAgentOptions {
 }
 
 export interface AgentManagerOptions {
+  getSharedProviderConfig?: () => MutableDaemonConfig;
+  installationSettingsReader?: InstallationSettingsReader;
   pluginLifecycle?: PluginLifecycle;
   clients?: ProviderClientMap;
   providerDefinitions?: ProviderEnabledMap;
@@ -1177,8 +1188,12 @@ export class AgentManager {
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
   private readonly beforeSteerUnavailableFallback?: AgentManagerOptions["beforeSteerUnavailableFallback"];
   private acceptingAgentRegistrations = true;
+  private readonly getSharedProviderConfig?: () => MutableDaemonConfig;
+  private readonly installationSettingsReader?: InstallationSettingsReader;
 
   constructor(options: AgentManagerOptions) {
+    this.getSharedProviderConfig = options.getSharedProviderConfig;
+    this.installationSettingsReader = options.installationSettingsReader;
     this.now = options.now ?? Date.now;
     this.idFactory = options.idFactory ?? (() => randomUUID());
     this.registry = options.registry;
@@ -1956,6 +1971,7 @@ export class AgentManager {
         internal: config.internal,
         profileId: config.profileId,
         profileLaunch: config.profileLaunch,
+        skillSnapshot: config.skillSnapshot,
         quotaReservePolicy: config.quotaReservePolicy,
         quotaReserve: config.quotaReserve,
         quotaPausedAt: config.quotaPausedAt,
@@ -1981,12 +1997,40 @@ export class AgentManager {
     return { config, options };
   }
 
+  private async admitInternalAgent(config: AgentSessionConfig): Promise<() => void> {
+    // Metadata tasks bypass createAgentCommand, but share its installation provider policy.
+    const settings = config.internal ? this.getSharedProviderConfig?.() : undefined;
+    if (!settings) return () => {};
+    const authority = await readInstallationSettingsForLaunch(
+      settings,
+      this.installationSettingsReader,
+    );
+    if (!authority) return () => {};
+    assertInstallationProviderLaunch(settings, config.provider, authority);
+    const metadataExclusions =
+      authority.settings.resourceExclusions[authority.serverId]?.metadataProviderIds ?? [];
+    const reference = installationProviderReference(config.provider, settings.providers);
+    if (metadataExclusions.includes(reference)) {
+      throw new InstallationSettingsAdmissionError(
+        "The shared provider is excluded from metadata generation in this environment.",
+      );
+    }
+    return () => {
+      if (this.getSharedProviderConfig?.() !== settings) {
+        throw new InstallationSettingsAdmissionError(
+          "Local account or settings bindings changed during launch. Retry with the current configuration.",
+        );
+      }
+    };
+  }
+
   private async createAgentInternal(
     config: AgentSessionConfig,
     agentId: string | undefined,
     options: CreateAgentOptions,
   ): Promise<ManagedAgent> {
     this.assertAcceptingAgentRegistrations();
+    const assertInternalBindings = await this.admitInternalAgent(config);
     const resolvedAgentId = validateAgentId(agentId ?? this.idFactory(), "createAgent");
     ({ config, options } = await this.applyCreatePluginDefaults(config, options));
     if (
@@ -2016,6 +2060,7 @@ export class AgentManager {
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
     const createOptions = this.buildCreateSessionOptions(options);
+    assertInternalBindings();
     const session = await client.createSession(providerLaunchConfig, launchContext, createOptions);
     await this.requireExternalMcpSupport(session, storedConfig);
     const parentId = options.labels?.[PARENT_AGENT_ID_LABEL];

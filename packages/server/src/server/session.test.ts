@@ -458,6 +458,7 @@ test("routes host-scoped agent skills requests through the daemon owner", async 
     reconcile: vi.fn(async () => status),
     uninstall: vi.fn(async () => status),
     saveSelection: vi.fn(async () => ({ ...status, confirmationRequired: null })),
+    previewSelection: vi.fn(async () => ({ ...status, confirmationRequired: null })),
     importLegacySelectionIfUnset: vi.fn(async (selection) => ({
       imported: true,
       selection,
@@ -465,6 +466,22 @@ test("routes host-scoped agent skills requests through the daemon owner", async 
     autoUpdate: vi.fn(async () => status),
   };
   const session = createSessionForTest({ messages, orchestrationSkills });
+
+  await session.handleMessage({
+    type: "agent.skills.save_selection.request",
+    requestId: "preview-skills",
+    selection: { mode: "custom", skills: ["paseo"] },
+    preview: true,
+  });
+  expect(orchestrationSkills.previewSelection).toHaveBeenCalledWith({
+    mode: "custom",
+    skills: ["paseo"],
+  });
+  expect(orchestrationSkills.saveSelection).not.toHaveBeenCalled();
+  expect(messages).toContainEqual({
+    type: "agent.skills.save_selection.response",
+    payload: { requestId: "preview-skills", ...status, confirmationRequired: null },
+  });
 
   await session.handleMessage({
     type: "agent.skills.save_selection.request",
@@ -495,6 +512,18 @@ test("routes plugin requests and releases its owned catalog subscription on clea
     enabled: true,
     status: "running" as const,
   };
+  const resolved = {
+    kind: "git" as const,
+    id: "example",
+    identity: { kind: "git" as const, remote: "https://example.test/plugin.git", pluginPath: "" },
+    target: { kind: "git" as const, commit: "a".repeat(40) },
+  };
+  const resolveSource = vi.fn(async () => resolved);
+  const installResolvedSource = vi.fn(async () => ({
+    ...plugin,
+    enabled: false,
+    status: "disabled" as const,
+  }));
   const pluginRuntime: NonNullable<SessionOptions["pluginRuntime"]> = {
     before: async (_name, request) => {
       return request;
@@ -509,6 +538,8 @@ test("routes plugin requests and releases its owned catalog subscription on clea
         message: "ready",
       },
     ],
+    resolveSource,
+    installResolvedSource,
     installDirectory: async () => plugin,
     inspectDirectory: async () => ({ id: "example" }),
     reloadPlugin: async () => plugin,
@@ -530,6 +561,28 @@ test("routes plugin requests and releases its owned catalog subscription on clea
     type: "session.events.set_subscription.request",
     requestId: "catalog",
     events: ["status.plugin_catalog_changed"],
+  });
+  messages.length = 0;
+  await session.handleMessage({
+    type: "plugin.source.resolve.request",
+    requestId: "resolve",
+    source: "owner/repo",
+  });
+  await session.handleMessage({
+    type: "plugin.source.install_resolved.request",
+    requestId: "pinned",
+    resolved,
+    enabled: false,
+  });
+  expect(resolveSource).toHaveBeenCalledWith({ source: "owner/repo", ref: undefined });
+  expect(installResolvedSource).toHaveBeenCalledWith({ resolved, id: undefined, enabled: false });
+  expect(messages).toContainEqual({
+    type: "plugin.source.resolve.response",
+    payload: { requestId: "resolve", resolved },
+  });
+  expect(messages).toContainEqual({
+    type: "plugin.source.install_resolved.response",
+    payload: { requestId: "pinned", plugin: { ...plugin, enabled: false, status: "disabled" } },
   });
   messages.length = 0;
   await session.handleMessage({ type: "plugin.list.request", requestId: "list" });
@@ -573,6 +626,28 @@ test("routes plugin requests and releases its owned catalog subscription on clea
     type: "status",
     payload: { status: "plugin_catalog_changed", pluginId: "example" },
   });
+  session.setPermissions(["daemon.read"]);
+  for (const request of [
+    {
+      type: "plugin.source.resolve.request" as const,
+      requestId: "denied-resolve",
+      source: "owner/repo",
+    },
+    {
+      type: "plugin.source.install_resolved.request" as const,
+      requestId: "denied-install",
+      resolved,
+      enabled: true,
+    },
+  ]) {
+    await session.handleMessage(request);
+    expect(messages.at(-1)).toMatchObject({
+      type: "rpc_error",
+      payload: { requestId: request.requestId, code: "access_denied" },
+    });
+  }
+  expect(resolveSource).toHaveBeenCalledTimes(1);
+  expect(installResolvedSource).toHaveBeenCalledTimes(1);
   await session.cleanup();
   expect(listeners.size).toBe(0);
   expect(releasePluginSubscription).toHaveBeenCalledOnce();

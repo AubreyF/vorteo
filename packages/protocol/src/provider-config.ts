@@ -50,6 +50,7 @@ export const ProviderProfileModelSchema = z.object({
 
 export const ProviderOverrideSchema = z.object({
   extends: z.string().optional(),
+  installationAccountId: z.string().uuid().optional(),
   label: z.string().optional(),
   description: z.string().optional(),
   command: z.array(z.string().min(1)).min(1).optional(),

@@ -118,8 +118,6 @@ import { capAssistantMessageForRender, getUtf8ByteLength } from "./assistant-mes
 export type { InlinePathTarget } from "@/assistant-file-links";
 export type { AssistantForkTarget };
 
-import { useVortonMode } from "@/vorton-mode";
-
 interface UserMessageProps {
   queue?: QueuePresentation;
   queueMessageId?: string;
@@ -449,7 +447,6 @@ export const UserMessage = memo(function UserMessage({
   isPending = false,
   disableOuterSpacing,
 }: UserMessageProps) {
-  const vorton = useVortonMode();
   const isCompact = useIsCompactFormFactor();
   const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
@@ -565,7 +562,7 @@ export const UserMessage = memo(function UserMessage({
             </Text>
           ) : null}
         </View>
-        {vorton && intent === "goal" ? (
+        {intent === "goal" ? (
           <Text style={userMessageStylesheet.timestampText} testID="user-message-goal">
             Sent as goal
           </Text>

@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation } from "@tanstack/react-query";
-import { useVortonMode } from "@/vorton-mode";
+
 import { WorkspaceTitleSuggestions } from "@/components/workspace-title-suggestions";
 import { AdaptiveRenameModal } from "@/components/rename-modal";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -37,37 +37,18 @@ export function WorkspaceRenameModal({
   onClose,
   testID,
 }: WorkspaceRenameModalProps) {
-  const vortonMode = useVortonMode();
-  if (vortonMode) {
-    return visible ? (
-      <WorkspaceRenameDialog
-        key={workspace.workspaceId}
-        visible
-        workspace={workspace}
-        onClose={onClose}
-        testID={testID}
-        suggestions
-      />
-    ) : null;
-  }
-  return (
+  return visible ? (
     <WorkspaceRenameDialog
-      visible={visible}
+      key={workspace.workspaceId}
+      visible
       workspace={workspace}
       onClose={onClose}
       testID={testID}
-      suggestions={false}
     />
-  );
+  ) : null;
 }
 
-function WorkspaceRenameDialog({
-  visible,
-  workspace,
-  onClose,
-  testID,
-  suggestions,
-}: WorkspaceRenameModalProps & { suggestions: boolean }) {
+function WorkspaceRenameDialog({ visible, workspace, onClose, testID }: WorkspaceRenameModalProps) {
   const { t } = useTranslation();
   const [openingTitle] = useState(workspace.title ?? workspace.name);
   const renderSuggestions = useCallback(
@@ -99,13 +80,13 @@ function WorkspaceRenameDialog({
     <AdaptiveRenameModal
       visible={visible}
       title={t("sidebar.workspace.rename.title")}
-      initialValue={suggestions ? openingTitle : (workspace.title ?? workspace.name)}
+      initialValue={openingTitle}
       placeholder={workspace.name}
       submitLabel={t("sidebar.workspace.rename.submit")}
       onClose={onClose}
       onSubmit={handleSubmit}
       testID={testID}
-      renderSuggestions={suggestions ? renderSuggestions : undefined}
+      renderSuggestions={renderSuggestions}
     />
   );
 }

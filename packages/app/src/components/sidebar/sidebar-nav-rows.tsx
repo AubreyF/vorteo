@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { useOpenNewWorkspace } from "@/hooks/use-open-new-workspace";
 import { router, usePathname } from "expo-router";
 import { CalendarClock, History, Plus, Search } from "lucide-react-native";
@@ -33,10 +32,10 @@ interface SidebarNavRowsProps extends SidebarNavRowProps {
  */
 export function SidebarNavRows({ style, onBeforeNavigate }: SidebarNavRowsProps) {
   const { items } = useSidebarNavItems("header");
-  const vorton = useVortonMode();
+
   const visibleItems = useMemo(
-    () => items.filter((item) => item.visible && !(vorton && item.kind === "builtin")),
-    [items, vorton],
+    () => items.filter((item) => item.visible && !(item.kind === "builtin")),
+    [items],
   );
   const groupRef = useRef<View | null>(null);
 

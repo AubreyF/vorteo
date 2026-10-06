@@ -5,7 +5,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { WorkspaceScriptPayload } from "@getpaseo/protocol/messages";
 import type { Theme } from "@/styles/theme";
 import { isWeb } from "@/constants/platform";
-import { useVortonMode } from "@/vorton-mode";
+
 import { resolveWorkspaceScriptLink } from "@/utils/workspace-script-links";
 import { openExternalUrl } from "@/utils/open-external-url";
 
@@ -20,8 +20,6 @@ function rowStyle({ hovered }: { hovered?: boolean }) {
 }
 
 export function WorkspacePreviewRows({ scripts }: { scripts: WorkspaceScriptPayload[] }) {
-  const vorton = useVortonMode();
-  if (!vorton) return null;
   return (
     <>
       {scripts.map((script) => (

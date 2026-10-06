@@ -28,7 +28,6 @@ async function seedPoisonedModelessPreference(page: Page): Promise<void> {
       localStorage.setItem(
         preferencesKey,
         JSON.stringify({
-          vortonMode: false,
           provider,
           providerPreferences: {
             [provider]: { model, mode: "full-access" },

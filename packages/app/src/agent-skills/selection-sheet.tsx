@@ -36,7 +36,7 @@ function isSkillSelected(draft: SkillSelection, name: string): boolean {
 
 /**
  * Draft form state only. The saved selection, the convergence across agent skill
- * directories, and the resulting status all belong to the selected host.
+ * directories, and the resulting status belong to the settings authority.
  */
 export function SkillSelectionSheet({
   visible,
@@ -52,7 +52,7 @@ export function SkillSelectionSheet({
   const wasVisible = useRef(visible);
 
   // Seeded when the sheet opens, not whenever a background status refresh hands
-  // back a new selection object — that would throw away edits in progress.
+  // back a new selection object, since that would throw away edits in progress.
   useEffect(() => {
     const opening = visible && !wasVisible.current;
     wasVisible.current = visible;
@@ -107,8 +107,8 @@ export function SkillSelectionSheet({
           }
         }
         onClose();
-      } catch {
-        setSaveError(t("settings.host.skills.saveFailed"));
+      } catch (cause) {
+        setSaveError(cause instanceof Error ? cause.message : t("settings.host.skills.saveFailed"));
       }
     })();
   }, [draft, onClose, onSave, t]);

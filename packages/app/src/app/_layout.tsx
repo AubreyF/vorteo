@@ -482,7 +482,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
     isCompact: isCompactLayout,
   });
   const usesCompactExplorerHost = explorerSidebarPresentation !== "pane";
-  useCompactWebViewportZoomLock(isCompactLayout);
+  useCompactWebViewportZoomLock();
   const pathname = usePathname();
   const isWorkspaceRoute = parseHostWorkspaceRouteFromPathname(pathname) !== null;
   const isWorkspaceFocusModeEnabled = isWorkspaceRoute && isFocusModeEnabled;

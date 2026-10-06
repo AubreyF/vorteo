@@ -68,7 +68,6 @@ async function seedCodexDefaultPreferences(page: Page): Promise<void> {
       localStorage.setItem(
         preferencesKey,
         JSON.stringify({
-          vortonMode: false,
           provider: "codex",
           providerPreferences: {
             codex: {

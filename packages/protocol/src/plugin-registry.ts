@@ -63,6 +63,7 @@ export function parsePluginRegistryReference(
   source: string,
   defaultUrl = "https://plugins.paseo.sh",
 ): PluginRegistryIdentity | null {
+  if (source.startsWith("registry:")) return parseExplicitRegistryReference(source.slice(9));
   const segments = source.split("/");
   if (segments.length === 2 && PluginRegistryIdSchema.safeParse(source).success)
     return { url: defaultUrl.replace(/\/+$/, ""), id: source };
@@ -72,4 +73,25 @@ export function parsePluginRegistryReference(
   if (!PluginRegistryIdSchema.safeParse(id).success) return null;
   const url = new URL(`https://${host}`);
   return { url: url.origin, id };
+}
+
+function parseExplicitRegistryReference(reference: string): PluginRegistryIdentity | null {
+  let url: URL;
+  try {
+    url = new URL(reference);
+  } catch {
+    return null;
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    return null;
+  const id = url.pathname.split("/").slice(-2).join("/");
+  if (!PluginRegistryIdSchema.safeParse(id).success) return null;
+  const prefix = url.pathname.slice(0, -(id.length + 1));
+  return { url: `${url.origin}${prefix}`, id };
 }

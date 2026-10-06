@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Text, View } from "react-native";
+import { Text, View } from "react-native";
+import { Alert } from "@/components/ui/alert";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
@@ -29,6 +30,7 @@ export function MetadataGenerationPage({ serverId }: { serverId: string }) {
   const savedMode: SelectionMode = configuredProvider ? "preferred" : "automatic";
   const [draftMode, setDraftMode] = useState<SelectionMode | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const mode = draftMode ?? savedMode;
 
   useEffect(() => {
@@ -37,28 +39,34 @@ export function MetadataGenerationPage({ serverId }: { serverId: string }) {
 
   const modeOptions = useMemo(
     () => [
-      { value: "automatic" as const, label: t("settings.metadataGeneration.automatic") },
-      { value: "preferred" as const, label: t("settings.metadataGeneration.preferred") },
+      {
+        value: "automatic" as const,
+        label: t("settings.metadataGeneration.automatic"),
+        disabled: isSaving,
+      },
+      {
+        value: "preferred" as const,
+        label: t("settings.metadataGeneration.preferred"),
+        disabled: isSaving,
+      },
     ],
-    [t],
+    [t, isSaving],
   );
 
   const saveProviders = useCallback(
     async (providersPatch: { provider: string; model?: string }[]) => {
       setIsSaving(true);
+      setSaveError(null);
       try {
         await patchConfig({ metadataGeneration: { providers: providersPatch } });
       } catch (error) {
         setDraftMode(null);
-        Alert.alert(
-          t("settings.metadataGeneration.saveError"),
-          error instanceof Error ? error.message : String(error),
-        );
+        setSaveError(error instanceof Error ? error.message : String(error));
       } finally {
         setIsSaving(false);
       }
     },
-    [patchConfig, t],
+    [patchConfig],
   );
 
   const handleModeChange = useCallback(
@@ -114,6 +122,14 @@ export function MetadataGenerationPage({ serverId }: { serverId: string }) {
       trailing={docsLink}
       testID="metadata-generation-settings"
     >
+      {saveError ? (
+        <Alert
+          variant="error"
+          title={t("settings.metadataGeneration.saveError")}
+          description={saveError}
+          testID="metadata-generation-save-error"
+        />
+      ) : null}
       <View style={settingsStyles.card}>
         <View style={settingsStyles.row}>
           <View style={settingsStyles.rowContent}>

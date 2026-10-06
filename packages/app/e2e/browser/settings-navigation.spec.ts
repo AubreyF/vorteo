@@ -2,7 +2,6 @@ import { test, expect } from "../support/fixtures";
 import {
   buildHostWorkspaceRoute,
   buildOpenProjectRoute,
-  buildSettingsHostSectionRoute,
   buildSettingsRoute,
   buildSettingsSectionRoute,
 } from "@/utils/host-routes";
@@ -36,8 +35,6 @@ import {
   expectGeneralContent,
   expectAppearanceContent,
   seedSavedSettingsHosts,
-  selectSettingsHost,
-  expectSettingsHostPickerLabel,
   openSettingsHostSection,
   removeCurrentHostFromSettings,
 } from "../support/helpers/settings";
@@ -128,11 +125,11 @@ test.describe("Settings sidebar navigation", () => {
 
     await test.step("a modal owns Escape", async () => {
       await openAddHostFlow(page);
-      await expect(page.getByText("Add connection", { exact: true })).toBeVisible();
+      await expect(page.getByRole("dialog").filter({ hasText: "Add connection" })).toBeVisible();
 
       await page.keyboard.press("Escape");
 
-      await expect(page.getByText("Add connection", { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("dialog").filter({ hasText: "Add connection" })).toHaveCount(0);
       await expect(page).toHaveURL(/\/settings(\/|$)/);
     });
 
@@ -176,7 +173,7 @@ test.describe("Settings — compact master-detail", () => {
     });
   });
 
-  test("host picker settings opens Overview and backs through the settings list", async ({
+  test("environment settings returns through the settings list to the original workspace", async ({
     page,
     withWorkspace,
   }) => {
@@ -184,12 +181,10 @@ test.describe("Settings — compact master-detail", () => {
     const workspaceRoute = buildHostWorkspaceRoute(getServerId(), workspace.workspaceId);
 
     await openWorkspace(page, workspace);
-    await page.getByRole("button", { name: "Open menu", exact: true }).click();
-    await page.getByTestId("sidebar-hosts-trigger").click();
-    await page.getByRole("button", { name: /Open .* settings/ }).click();
-
-    await expectAppRoute(page, buildSettingsHostSectionRoute(getServerId(), "host"));
-    await expect(page.getByText("Overview", { exact: true })).toBeVisible();
+    await openCompactSettings(page, workspaceRoute);
+    await openSettingsHostSection(page, getServerId(), "host");
+    await expectAppRoute(page, buildSettingsSectionRoute("environments"));
+    await expect(page.getByTestId(`settings-environment-${getServerId()}`)).toBeVisible();
 
     await goBackInSettings(page);
     await expectCompactSettingsList(page);
@@ -198,7 +193,7 @@ test.describe("Settings — compact master-detail", () => {
     await expectAppRoute(page, workspaceRoute);
   });
 
-  test("switching the host picker on the settings list scopes host rows without navigating", async ({
+  test("one Connections section displays both environments without a host picker", async ({
     page,
   }) => {
     const primaryServerId = getServerId();
@@ -213,13 +208,18 @@ test.describe("Settings — compact master-detail", () => {
     await gotoAppShell(page);
     await openCompactSettings(page, buildOpenProjectRoute());
 
-    await selectSettingsHost(page, secondaryServerId);
+    await expect(page.getByTestId("settings-host-picker")).toHaveCount(0);
 
     await expectAppRoute(page, buildSettingsRoute());
     await expectSettingsSidebarVisible(page);
-    await expectSettingsHostPickerLabel(page, secondaryHostLabel);
 
     await openSettingsHostSection(page, secondaryServerId, "connections");
+    await expect(page.getByTestId(`settings-environment-${primaryServerId}`)).toContainText(
+      "First horse",
+    );
+    await expect(page.getByTestId(`settings-environment-${secondaryServerId}`)).toContainText(
+      secondaryHostLabel,
+    );
   });
 
   test("removing the last active host returns to welcome after settings closes", async ({

@@ -11,8 +11,7 @@ import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-bad
 import { SidebarCallout } from "@/components/sidebar-callout";
 import { Button } from "@/components/ui/button";
 
-import { getHostRuntimeStore, useHostRegistryLoaded, useHosts } from "@/runtime/host-runtime";
-import { useVortonMode } from "@/vorton-mode";
+import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
 import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
@@ -47,28 +46,10 @@ function getInstallationPanel(registryLoaded: boolean): InstallationPanelModel |
   return panelModel;
 }
 
-export function InstallationControls({
-  focused = false,
-  requestId = null,
-}: {
-  focused?: boolean;
-  requestId?: string | null;
-}) {
-  const vortonMode = useVortonMode();
+export function InstallationControls({ requestId = null }: { requestId?: string | null }) {
   const registryLoaded = useHostRegistryLoaded();
   const model = getInstallationPanel(registryLoaded);
-  const hosts = useHosts();
-  const installation = readExecutionInstallation();
-  const needsSetup = installation && !hasInstallationConnections(installation, hosts);
   if (!model) return null;
-  if (!vortonMode && !needsSetup)
-    return focused ? (
-      <SettingsSection title="Installation">
-        <Text style={styles.text}>
-          Enable Vorteo mode below to review installation restart requests.
-        </Text>
-      </SettingsSection>
-    ) : null;
   return requestId ? (
     <LinkedInstallationPanel key={requestId} model={model} requestId={requestId} />
   ) : (
@@ -98,7 +79,8 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
   useEffect(() => {
     if (!state.initialized || state.busy || !state.visible) return;
     model.close();
-    if (pathname !== "/settings/general") router.replace("/settings/general");
+    const inSettings = pathname === "/settings" || pathname.startsWith("/settings/");
+    if (!inSettings) router.replace("/settings/general");
   }, [model, pathname, router, state.busy, state.initialized, state.visible]);
   return null;
 }
@@ -711,9 +693,8 @@ function RestartActivity({ job }: { job: RestartJob }) {
 }
 
 export function InstallationRestartBanner() {
-  const enabled = useVortonMode();
   const model = getInstallationPanel(useHostRegistryLoaded());
-  return enabled && model ? <RestartBanner model={model} /> : null;
+  return model ? <RestartBanner model={model} /> : null;
 }
 
 function RestartBanner({ model }: { model: InstallationPanelModel }) {

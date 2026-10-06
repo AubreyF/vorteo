@@ -1,16 +1,56 @@
-import type { ProfileSharingStatus } from "@getpaseo/protocol/execution-installation";
+import type {
+  InstallationProfilesSnapshot,
+  InstallationProfilesPatch,
+  ProfileSharingStatus,
+} from "@getpaseo/protocol/execution-installation";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
   ProviderPreferencesSchema,
+  SharedProviderPreferencesSchema,
   type MutableDaemonConfig,
   type MutableDaemonConfigPatch,
 } from "@getpaseo/protocol/messages";
-import { importEnvironmentProfiles, projectEnvironmentProfiles } from "./migration.js";
-import { mergeProfileEdits, ProfileSharingConflict } from "./merge.js";
+import {
+  importEnvironmentProfiles,
+  projectEnvironmentProfiles,
+  prepareEnvironmentProfiles,
+  canonicalizeWorkerReferences,
+  shareWorkerAccountBindings,
+} from "./migration.js";
+import { ProfileSharingConflict } from "./merge.js";
+import { validateProviderPreferences } from "../../agent/provider-preferences/validation.js";
+import type { SharedProviderPreferences } from "@getpaseo/protocol/messages";
 
 const ProvidersSchema = z.record(z.string(), ProviderPreferencesSchema);
+
+function assertRetainedWorkflow(
+  state: ProfileSharingState,
+  type: string,
+  id: string,
+  reference: string,
+): void {
+  if (state.providers[type]?.workflows.some((workflow) => workflow.id === id)) return;
+  const field = `profiles.${type}.workflows.${id}`;
+  throw new ProfileSharingConflict(
+    [field],
+    [{ field, sharedValue: `Retained by ${reference}`, environmentValue: "Deleted" }],
+  );
+}
+
+function assertWorkerReference(
+  state: ProfileSharingState,
+  reference: string | undefined,
+  owner: string,
+): void {
+  if (!reference) return;
+  const parts = reference.split("/");
+  if (parts.length !== 3 || parts[0] !== "shared-workflow") return;
+  assertRetainedWorkflow(state, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]), owner);
+}
+
 const SourceSchema = z.object({
+  projection: SharedProviderPreferencesSchema.optional(),
   base: ProvidersSchema,
   workflowIds: z.record(z.string(), z.record(z.string(), z.string())),
   error: z.string().nullable(),
@@ -31,6 +71,7 @@ export type ProfileSharingState = z.infer<typeof ProfileSharingStateSchema>;
 
 export interface ProfileEnvironment {
   serverId: string;
+  kind: "host" | "container";
   read(): Promise<MutableDaemonConfig>;
   patch(patch: MutableDaemonConfigPatch): Promise<MutableDaemonConfig>;
 }
@@ -53,6 +94,7 @@ export class InstallationProfiles {
   constructor(
     private readonly journal: ProfileSharingJournal,
     private readonly environments: ProfileEnvironment[],
+    private readonly installationId: string,
   ) {
     this.state = journal.read();
   }
@@ -90,59 +132,99 @@ export class InstallationProfiles {
     return operation;
   }
 
+  snapshot(): InstallationProfilesSnapshot | null {
+    const status = this.status();
+    if (
+      !status ||
+      !this.state ||
+      Object.values(this.state.sources).some((source) => !source.projection)
+    )
+      return null;
+    return { ...status, providers: structuredClone(this.state.providers) };
+  }
+
+  patch(input: InstallationProfilesPatch): Promise<InstallationProfilesSnapshot> {
+    const operation = this.queue.then(() => this.patchCanonical(input));
+    this.queue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  private patchCanonical(input: InstallationProfilesPatch): InstallationProfilesSnapshot {
+    const state = this.state;
+    if (!this.snapshot() || !state || state.revision !== input.expectedRevision)
+      throw new ProfileSharingConflict(["revision"]);
+    const next = structuredClone(state);
+    next.providers = ProvidersSchema.parse(input.providers);
+    this.validateRetainedWorkflows(next);
+    validateProviderPreferences({
+      preferences: {
+        version: 1,
+        revision: next.revision,
+        providers: next.providers,
+        legacyProfiles: {},
+      },
+      providers: {},
+      legacyProfiles: [],
+    });
+    if (!isDeepStrictEqual(state.providers, next.providers)) this.commit(next);
+    const saved = this.snapshot();
+    if (!saved) throw new Error("Missing installation profiles");
+    return saved;
+  }
+
+  admission(serverId: string): SharedProviderPreferences {
+    const state = this.state;
+    const projection = state?.sources[serverId]?.projection;
+    if (!state || !projection) throw new Error("Installation profile migration is incomplete");
+    return {
+      ...structuredClone(projection),
+      revision: state.revision,
+      providers: structuredClone(state.providers),
+    };
+  }
+
   private async resolveConflict(input: {
     serverId: string;
     expectedRevision: number;
     choice: "shared" | "environment";
   }): Promise<void> {
-    const state = this.state;
-    if (!state || state.revision !== input.expectedRevision)
+    if (!this.state || this.state.revision !== input.expectedRevision)
       throw new ProfileSharingConflict(["revision"]);
-    const environment = this.environments.find((item) => item.serverId === input.serverId);
-    const source = state.sources[input.serverId];
-    if (!environment || !source || !source.conflicts.length)
-      throw new Error("No conflicting environment was found");
-    const config = await environment.read();
-    const preferences = config.sharedProviderPreferences;
-    if (!preferences) throw new Error("Update the daemon before sharing profiles");
-    if (preferences.revision !== source.conflictRevision)
-      throw new ProfileSharingConflict(["environment revision"]);
-    const next = structuredClone(state);
-    next.providers = ProvidersSchema.parse(
-      mergeProfileEdits(source.base, state.providers, preferences.providers, input.choice),
-    );
-    this.validateRetainedWorkflows(next);
-    next.sources[input.serverId].base = structuredClone(preferences.providers);
-    next.sources[input.serverId].conflicts = [];
-    next.sources[input.serverId].conflictValues = [];
-    next.sources[input.serverId].conflictRevision = null;
-    next.sources[input.serverId].error = null;
-    this.commit(next);
+    if (input.choice === "environment")
+      throw new ProfileSharingConflict([
+        "Environment profiles are read-only projections. Edit installation profiles instead.",
+      ]);
     await this.reconcile();
   }
 
   private validateRetainedWorkflows(state: ProfileSharingState): void {
     for (const source of Object.values(state.sources)) {
-      for (const [type, ids] of Object.entries(source.retainedWorkflows)) {
-        for (const id of ids) {
-          if (state.providers[type]?.workflows.some((workflow) => workflow.id === id)) continue;
-          throw new ProfileSharingConflict(
-            [`profiles.${type}.workflows.${id}`],
-            [
-              {
-                field: `profiles.${type}.workflows.${id}`,
-                sharedValue: "Retained for legacy launches in another environment",
-                environmentValue: "Deleted",
-              },
-            ],
-          );
-        }
+      const projection = source.projection;
+      if (!projection) throw new ProfileSharingConflict(["migration"]);
+      for (const [id, binding] of Object.entries(projection.legacyProfiles))
+        assertRetainedWorkflow(
+          state,
+          binding.providerType,
+          binding.workflowId,
+          `legacy profile ${id}`,
+        );
+      for (const [type, aliases] of Object.entries(projection.workflowAliases ?? {})) {
+        for (const [id, target] of Object.entries(aliases))
+          assertRetainedWorkflow(state, type, target, `legacy workflow alias ${id}`);
       }
+    }
+    for (const [type, group] of Object.entries(state.providers)) {
+      assertWorkerReference(state, group.defaults.workerProfileId, `${type} default worker`);
+      for (const workflow of group.workflows)
+        assertWorkerReference(state, workflow.workerProfileId, `worker for ${workflow.id}`);
     }
   }
 
-  private commit(state: ProfileSharingState): void {
-    state.revision = (this.state?.revision ?? 0) + 1;
+  private commit(state: ProfileSharingState, canonicalChange = true): void {
+    state.revision = (this.state?.revision ?? 0) + Number(canonicalChange);
     this.journal.write(state);
     this.state = state;
   }
@@ -165,7 +247,11 @@ export class InstallationProfiles {
           throw new Error(
             "Update every daemon to shared provider preferences before importing profiles",
           );
-        return { serverId, preferences };
+        return {
+          serverId,
+          preferences: prepareEnvironmentProfiles(configs[serverId], serverId),
+          providers: configs[serverId].providers,
+        };
       });
       const imported = importEnvironmentProfiles(imports);
       const backups: Parameters<ProfileSharingJournal["backup"]>[0] = {};
@@ -173,7 +259,7 @@ export class InstallationProfiles {
       for (const { serverId, preferences } of imports) {
         backups[serverId] = {
           agentProfiles: configs[serverId].agentProfiles,
-          sharedProviderPreferences: preferences,
+          sharedProviderPreferences: configs[serverId].sharedProviderPreferences,
         };
         const retainedWorkflows: Record<string, string[]> = {};
         for (const binding of Object.values(preferences.legacyProfiles)) {
@@ -182,6 +268,11 @@ export class InstallationProfiles {
           retainedWorkflows[binding.providerType].push(id);
         }
         sources[serverId] = {
+          projection: projectEnvironmentProfiles({
+            config: { ...configs[serverId], sharedProviderPreferences: preferences },
+            providers: imported.providers,
+            workflowIds: imported.workflowIds[serverId],
+          }),
           base: preferences.providers,
           workflowIds: imported.workflowIds[serverId],
           error: null,
@@ -191,12 +282,88 @@ export class InstallationProfiles {
           retainedWorkflows,
         };
       }
+      shareWorkerAccountBindings(
+        imports.map(({ serverId }) => {
+          const preferences = sources[serverId].projection;
+          if (!preferences) throw new Error("Missing imported profile projection");
+          return { preferences, providers: configs[serverId].providers };
+        }),
+      );
+      validateProviderPreferences({
+        preferences: { version: 1, revision: 1, providers: imported.providers, legacyProfiles: {} },
+        providers: {},
+        legacyProfiles: [],
+      });
       this.journal.backup(backups);
       this.commit({ version: 1, revision: 1, providers: imported.providers, sources });
+    }
+    if (Object.values(this.state?.sources ?? {}).some((source) => !source.projection)) {
+      this.upgradeLegacyJournal(configs);
     }
     for (const [index, observation] of observations.entries()) {
       await this.reconcileEnvironment(this.environments[index], observation);
     }
+  }
+
+  private upgradeLegacyJournal(configs: Record<string, MutableDaemonConfig>): void {
+    if (!this.state) throw new Error("Missing profile journal");
+    if (Object.keys(configs).length !== this.environments.length)
+      throw new Error("Connect every environment before migrating installation profile authority");
+    const next = structuredClone(this.state);
+    const backups: Parameters<ProfileSharingJournal["backup"]>[0] = {};
+    for (const { serverId } of this.environments) {
+      const config = configs[serverId];
+      const preferences = config.sharedProviderPreferences;
+      if (!preferences)
+        throw new Error("Update every daemon before migrating installation profiles");
+      backups[serverId] = {
+        agentProfiles: config.agentProfiles,
+        sharedProviderPreferences: preferences,
+      };
+      const source = next.sources[serverId];
+      if (!source) throw new Error("Installation environment identity changed");
+      const remapped = structuredClone(preferences);
+      remapped.providers = structuredClone(next.providers);
+      for (const binding of Object.values(remapped.legacyProfiles))
+        binding.workflowId =
+          source.workflowIds[binding.providerType]?.[binding.workflowId] ?? binding.workflowId;
+      const normalized = prepareEnvironmentProfiles(
+        { ...config, sharedProviderPreferences: remapped },
+        serverId,
+      );
+      source.projection = projectEnvironmentProfiles({
+        config: { ...config, sharedProviderPreferences: normalized },
+        providers: normalized.providers,
+        workflowIds: source.workflowIds,
+      });
+      canonicalizeWorkerReferences(source.projection, config.providers);
+      next.providers = source.projection.providers;
+      for (const binding of Object.values(normalized.legacyProfiles)) {
+        source.retainedWorkflows[binding.providerType] ??= [];
+        if (!source.retainedWorkflows[binding.providerType].includes(binding.workflowId))
+          source.retainedWorkflows[binding.providerType].push(binding.workflowId);
+      }
+    }
+    shareWorkerAccountBindings(
+      this.environments.map(({ serverId }) => {
+        const preferences = next.sources[serverId].projection;
+        if (!preferences) throw new Error("Missing upgraded profile projection");
+        return { preferences, providers: configs[serverId].providers };
+      }),
+    );
+    this.validateRetainedWorkflows(next);
+    validateProviderPreferences({
+      preferences: {
+        version: 1,
+        revision: next.revision,
+        providers: next.providers,
+        legacyProfiles: {},
+      },
+      providers: {},
+      legacyProfiles: [],
+    });
+    this.journal.backup(backups);
+    this.commit(next);
   }
 
   private async reconcileEnvironment(
@@ -213,34 +380,36 @@ export class InstallationProfiles {
       );
     if (observation.status === "rejected") {
       source.error =
-        "Environment is offline. Its saved edits will be reconciled after reconnecting.";
-      if (!isDeepStrictEqual(state, next)) this.commit(next);
+        "Environment is offline. New profile launches require the coordinator; this cache will refresh after reconnecting.";
+      if (!isDeepStrictEqual(state, next)) this.commit(next, false);
       return;
     }
     const config = observation.value;
     const preferences = config.sharedProviderPreferences;
     if (!preferences) {
       source.error = "Update this daemon before synchronizing profiles.";
-      if (!isDeepStrictEqual(state, next)) this.commit(next);
+      if (!isDeepStrictEqual(state, next)) this.commit(next, false);
       return;
     }
     try {
-      next.providers = ProvidersSchema.parse(
-        mergeProfileEdits(source.base, next.providers, preferences.providers),
-      );
-      this.validateRetainedWorkflows(next);
-      source.base = structuredClone(preferences.providers);
+      if (!source.projection) throw new Error("Installation profile migration is incomplete");
       source.error = null;
       source.conflicts = [];
       source.conflictValues = [];
       source.conflictRevision = null;
-      // Persist an imported edit even if the subsequent replica write loses its reply.
-      if (!isDeepStrictEqual(state, next)) this.commit(next);
-      const target = projectEnvironmentProfiles({
-        config,
-        providers: next.providers,
-        workflowIds: source.workflowIds,
-      });
+      const target = {
+        ...structuredClone(source.projection),
+        revision: preferences.revision,
+        providers: structuredClone(state.providers),
+      };
+      target.installation = {
+        installationId: this.installationId,
+        environment: environment.kind,
+        serverId: environment.serverId,
+        revision: state.revision,
+      };
+      source.projection = structuredClone(target);
+      if (!isDeepStrictEqual(state, next)) this.commit(next, false);
       if (isDeepStrictEqual(target, preferences)) return;
       const saved = await environment.patch({
         sharedProviderPreferences: target,
@@ -251,7 +420,7 @@ export class InstallationProfiles {
       const acknowledged = structuredClone(this.state);
       if (!acknowledged) throw new Error("Missing profile sharing journal");
       acknowledged.sources[environment.serverId].base = saved.sharedProviderPreferences.providers;
-      this.commit(acknowledged);
+      this.commit(acknowledged, false);
     } catch (error) {
       const failed = structuredClone(this.state);
       if (!failed) throw error;
@@ -263,9 +432,9 @@ export class InstallationProfiles {
         failedSource.error = error.message;
       } else {
         failedSource.error =
-          "Profile synchronization failed. Edits are retained; synchronization will retry with the current daemon revision.";
+          "Profile cache refresh failed. Canonical profiles are retained; refresh will retry with the current daemon revision.";
       }
-      if (!isDeepStrictEqual(this.state, failed)) this.commit(failed);
+      if (!isDeepStrictEqual(this.state, failed)) this.commit(failed, false);
     }
   }
 }

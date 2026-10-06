@@ -10,13 +10,12 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { settingsStyles } from "@/styles/settings";
 import { useFormPreferences } from "@/hooks/use-form-preferences";
-import { useVortonMode } from "@/vorton-mode";
+
 import { UPSTREAM_SYNC, UPSTREAM_UPDATE_PROMPT, upstreamSyncStatus } from "./upstream";
 
 export function UpstreamUpdatesSection() {
-  const enabled = useVortonMode();
   const { isLoading } = useFormPreferences();
-  if (!enabled || isLoading) return null;
+  if (isLoading) return null;
   return <UpstreamUpdatesContent />;
 }
 

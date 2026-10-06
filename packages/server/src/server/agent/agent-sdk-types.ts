@@ -1,3 +1,4 @@
+import type { SkillSnapshot } from "@getpaseo/protocol/skill-library";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { ProviderLoginSession } from "../../services/provider-login/session.js";
 import type {
@@ -625,6 +626,7 @@ export interface AgentSessionConfig {
   profileId?: string;
   quotaReservePolicy?: QuotaReserveLaunchPolicy;
   profileLaunch?: AgentProfileLaunch;
+  skillSnapshot?: SkillSnapshot;
   quotaPausedAt?: string;
   quotaResetAt?: string;
   quotaReserve?: QuotaReserveConfig;

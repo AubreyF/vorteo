@@ -377,6 +377,7 @@ async function install(planFile) {
     HOME: os.homedir(),
     PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     PASEO_HOME: hostHome,
+    VORTEO_INSTALLATION_CLIENT_CONFIG: hostClientFile,
   };
   privateWrite(
     hostPlist,

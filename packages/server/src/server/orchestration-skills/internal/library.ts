@@ -1,9 +1,14 @@
+import { downloadSkill } from "../source.js";
+export { downloadSkill } from "../source.js";
+import { decodeSkillPackage } from "../package.js";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import {
+  SkillPackageSchema,
+  type SkillPackage,
   SkillAuditSchema,
   SkillPreviewSchema,
   type SkillAudit,
@@ -13,16 +18,14 @@ import {
   type SkillLibraryResult,
   type SkillPreview,
   type SkillInventory,
+  type SkillInstallation,
 } from "@getpaseo/protocol/skill-library";
 import {
   inventorySkills,
-  MAX_FILES,
-  MAX_PACKAGE_BYTES,
   missing,
   packageHash,
   readPackage,
   RECEIPT,
-  skillMetadata,
   SkillLibraryError,
   type SkillFiles,
 } from "./inventory.js";
@@ -32,88 +35,7 @@ const PreviewRecord = z.object({
   canonical: z.string().nullable(),
   canonicalHash: z.string().nullable(),
 });
-const Tree = z.object({
-  truncated: z.boolean(),
-  tree: z.array(
-    z.object({ path: z.string(), type: z.string(), mode: z.string(), size: z.number().optional() }),
-  ),
-});
 const safeName = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
-function relativeName(value: string): boolean {
-  return value.split("/").every((part) => safeName.test(part) && part !== ".." && part !== ".");
-}
-async function fetchBytes(url: string): Promise<Buffer> {
-  const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(30_000) });
-  if (!response.ok)
-    throw new SkillLibraryError("download", `Source request failed (${response.status})`);
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  if (!response.body) throw new SkillLibraryError("download", "Source response has no body");
-  const reader = response.body.getReader();
-  try {
-    for (;;) {
-      const { value: chunk, done } = await reader.read();
-      if (done) break;
-      length += chunk.length;
-      if (length > MAX_PACKAGE_BYTES)
-        throw new SkillLibraryError("package_limit", "Source response exceeds limit");
-      chunks.push(chunk);
-    }
-  } finally {
-    await reader.cancel();
-  }
-  return Buffer.concat(chunks);
-}
-export async function downloadSkill(source: SkillSource): Promise<SkillFiles> {
-  const parts = source.repository.split("/");
-  if (
-    parts.length !== 2 ||
-    !parts.every((part) => safeName.test(part)) ||
-    !relativeName(source.directory)
-  )
-    throw new SkillLibraryError("source", "Use an owner/repository and a relative skill directory");
-  const tree = Tree.parse(
-    JSON.parse(
-      (
-        await fetchBytes(
-          `https://api.github.com/repos/${source.repository}/git/trees/${source.revision}?recursive=1`,
-        )
-      ).toString("utf8"),
-    ),
-  );
-  if (tree.truncated) throw new SkillLibraryError("source", "Repository tree is incomplete");
-  const prefix = `${source.directory}/`;
-  const entries = tree.tree.filter(
-    (entry) => entry.path.startsWith(prefix) && entry.type !== "tree",
-  );
-  if (entries.length > MAX_FILES)
-    throw new SkillLibraryError("package_limit", "Too many skill files");
-  const files: SkillFiles = new Map<string, Buffer>();
-  files.executables = new Set();
-  let bytes = 0;
-  for (const entry of entries) {
-    const name = entry.path.slice(prefix.length);
-    if (
-      !relativeName(name) ||
-      entry.type !== "blob" ||
-      !["100644", "100755"].includes(entry.mode) ||
-      name === RECEIPT
-    )
-      throw new SkillLibraryError("unsafe_package", "Source contains unsupported paths or links");
-    const content = await fetchBytes(
-      `https://raw.githubusercontent.com/${source.repository}/${source.revision}/${entry.path}`,
-    );
-    bytes += content.length;
-    if (bytes > MAX_PACKAGE_BYTES)
-      throw new SkillLibraryError("package_limit", "Skill exceeds size limit");
-    files.set(name, content);
-    if (entry.mode === "100755") files.executables.add(name);
-  }
-  const instructions = files.get("SKILL.md");
-  if (!instructions) throw new SkillLibraryError("metadata", "Source directory has no SKILL.md");
-  skillMetadata(instructions);
-  return files;
-}
 async function writeFiles(directory: string, files: SkillFiles): Promise<void> {
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   for (const [name, bytes] of files) {
@@ -134,24 +56,90 @@ async function durableJson(file: string, value: unknown): Promise<void> {
   }
   await fs.rename(temporary, file);
 }
+
 export class SkillLibrary {
   private queue: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly state: string,
     private readonly home = os.homedir(),
     private readonly download = downloadSkill,
+    private readonly authorizeChange?: (preview: SkillPreview) => Promise<void>,
   ) {}
 
   async read(request: SkillLibraryRead): Promise<SkillLibraryResult> {
     if (request.kind === "audit") return { kind: "audit", entries: await this.audit() };
-    const inventory = await this.inventory(request.cwd);
+    const cwd = request.kind === "package" ? undefined : request.cwd;
+    const inventory = await this.inventory(cwd);
     if (request.kind === "inventory") return { kind: "inventory", inventory };
     const skill = inventory.skills.find((entry) => entry.id === request.id);
     if (!skill) throw new SkillLibraryError("missing", "Skill is no longer in this inventory");
+    if (request.kind === "package") return this.exportPackage(skill);
     const pkg = await readPackage(skill.path);
     const instructions = pkg.files.get("SKILL.md");
     if (!instructions) throw new SkillLibraryError("metadata", "Missing instructions");
     return { kind: "detail", skill, instructions: instructions.toString("utf8") };
+  }
+
+  private async exportPackage(skill: SkillInstallation): Promise<SkillLibraryResult> {
+    if (skill.owner !== "personal" || skill.issues.length || !skill.sha256)
+      throw new SkillLibraryError("ownership", "Only inspected personal packages can be shared");
+    const pkg = await readPackage(skill.path);
+    if (pkg.hash !== skill.sha256)
+      throw new SkillLibraryError("conflict", "Skill changed during export; inspect it again");
+    return {
+      kind: "package",
+      package: {
+        name: path.basename(skill.path),
+        sha256: pkg.hash,
+        source: skill.source,
+        files: [...pkg.files].map(([name, bytes]) => ({
+          path: name,
+          content: bytes.toString("base64"),
+          executable: pkg.files.executables?.has(name) === true,
+        })),
+      },
+    };
+  }
+
+  private async prepareImport(input: SkillPackage, inventory: SkillInventory) {
+    const pkg = SkillPackageSchema.parse(input);
+    const files = decodeSkillPackage(pkg);
+    const target = path.join(this.home, ".agents/skills", pkg.name);
+    const stat = await fs.lstat(target).catch((error: unknown) => {
+      if (missing(error)) return null;
+      throw error;
+    });
+    if (stat) {
+      const existing = inventory.skills.find((skill) => skill.path === target);
+      const history = await this.audit();
+      if (!existing || existing.owner !== "personal" || stat.isSymbolicLink())
+        throw new SkillLibraryError(
+          "ownership",
+          "Preserve the existing package before sharing this definition",
+        );
+      const recorded = history.some(
+        (entry) => entry.target === target && entry.afterHash === existing.sha256,
+      );
+      const unchangedAdoption = existing.sha256 === pkg.sha256;
+      if (!recorded && !unchangedAdoption)
+        throw new SkillLibraryError(
+          "conflict",
+          "Skill changed locally; review its changes before replacing it",
+        );
+      if (
+        existing.source?.repository !== pkg.source?.repository ||
+        existing.source?.directory !== pkg.source?.directory
+      )
+        throw new SkillLibraryError("ownership", "Existing skill has a different source identity");
+    }
+    return {
+      files,
+      source: pkg.source,
+      target,
+      action: "install" as const,
+      canonical: null,
+      canonicalHash: null,
+    };
   }
 
   change(request: SkillLibraryChange): Promise<SkillLibraryResult> {
@@ -242,7 +230,9 @@ export class SkillLibrary {
       if (
         skill.owner === "personal" &&
         history.some(
-          (entry) => entry.target === skill.path && ["link", "consolidate"].includes(entry.action),
+          (entry) =>
+            entry.target === skill.path &&
+            ["link", "consolidate", "install", "restore"].includes(entry.action),
         )
       )
         skill.managed = true;
@@ -438,7 +428,9 @@ export class SkillLibrary {
     if (request.kind === "apply") return this.apply(request.previewId);
     const inventory = await this.inventory();
     let prepared;
-    if (request.kind === "preview_install")
+    if (request.kind === "preview_import")
+      prepared = await this.prepareImport(request.package, inventory);
+    else if (request.kind === "preview_install")
       prepared = await this.prepareInstall(request.source, inventory);
     else if (request.kind === "preview_restore")
       prepared = await this.prepareRestore(request.auditId);
@@ -484,6 +476,7 @@ export class SkillLibrary {
     const { preview, canonical, canonicalHash } = PreviewRecord.parse(
       JSON.parse(await fs.readFile(path.join(staging, "preview.json"), "utf8")),
     );
+    await this.authorizeChange?.(preview);
     const current = await this.current(preview.target);
     if ((current?.hash ?? null) !== preview.beforeHash)
       throw new SkillLibraryError(

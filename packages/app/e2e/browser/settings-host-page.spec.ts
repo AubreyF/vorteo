@@ -19,7 +19,6 @@ import {
   expectRetiredSidebarSectionsAbsent,
   expectHostPageVisible,
   seedSavedSettingsHosts,
-  selectSettingsHost,
   expectHostRejectedWithReAddGuidance,
   expectNoHostPasswordControls,
   removeHostFromHostPage,
@@ -118,7 +117,6 @@ test.describe("Settings host page", () => {
       ]);
       await page.reload();
       await openSettings(page);
-      await selectSettingsHost(page, daemon.serverId);
       await openHostSection(page, daemon.serverId, "host");
 
       await test.step("the host page shows the reason and the re-add guidance, with no password UI", async () => {

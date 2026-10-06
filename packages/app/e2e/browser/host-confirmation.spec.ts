@@ -6,7 +6,7 @@ import {
   cancelHostConfirmation,
   connectToConfirmedHost,
   expectHostConfirmationFor,
-  expectHostInHostPicker,
+  expectHostInConnections,
   hostConfirmation,
   openPairingLink,
   saveLinkedHostBeforeLoad,
@@ -28,7 +28,7 @@ test("a pairing link for a new host asks before saving it", async ({ page }) => 
     await expectHostConfirmationFor(page, linkedHost);
     await cancelHostConfirmation(page);
     await expectAppRoute(page, "/settings/general");
-    await expectHostInHostPicker(page, linkedHost.serverId, "not listed");
+    await expectHostInConnections(page, linkedHost.serverId, "not listed");
   });
 
   await test.step("Connect saves the host and opens a project", async () => {
@@ -37,7 +37,7 @@ test("a pairing link for a new host asks before saving it", async ({ page }) => 
     await connectToConfirmedHost(page);
     await expectAppRoute(page, "/open-project");
     await openSettings(page);
-    await expectHostInHostPicker(page, linkedHost.serverId, "listed");
+    await expectHostInConnections(page, linkedHost.serverId, "listed");
   });
 });
 

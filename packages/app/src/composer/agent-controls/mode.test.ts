@@ -72,7 +72,6 @@ const snapshotEntries: ProviderSnapshotEntry[] = [
   { provider: "codex-secondary", status: "ready", enabled: true, modes: MODES },
 ];
 const cachedModeInput = {
-  vortonMode: true,
   availableModes: [],
   supportsDynamicModes: false,
   provider: "codex-secondary",
@@ -80,9 +79,8 @@ const cachedModeInput = {
 };
 
 describe("resolveLiveAgentModes", () => {
-  it("restores fixed permission choices from the configured host catalog in Vorton", () => {
+  it("restores fixed permission choices from the configured host catalog for fixed providers", () => {
     expect(resolveLiveAgentModes(cachedModeInput)).toBe(MODES);
-    expect(resolveLiveAgentModes({ ...cachedModeInput, vortonMode: false })).toEqual([]);
   });
   it("keeps session modes authoritative and never substitutes dynamic session choices", () => {
     const availableModes = [PLAN_MODE];

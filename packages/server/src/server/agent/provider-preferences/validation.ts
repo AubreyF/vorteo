@@ -63,7 +63,16 @@ export function validateProviderPreferences(input: {
   const providerIds = [
     ...new Set([...Object.keys(providers), ...Object.keys(preferences.providers)]),
   ];
-  const sharedProfiles = materializeSharedProfiles({ preferences, providers, providerIds });
+  // Validate shared definitions independently of environment account readiness.
+  // Launch resolution still requires the actual worker account binding.
+  const definitions = preferences.installation
+    ? { ...preferences, workflowWorkerBindings: undefined }
+    : preferences;
+  const sharedProfiles = materializeSharedProfiles({
+    preferences: definitions,
+    providers,
+    providerIds,
+  });
   const profiles = [
     ...materializeLegacyProfiles(preferences, providers),
     ...input.legacyProfiles,

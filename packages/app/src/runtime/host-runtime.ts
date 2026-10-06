@@ -66,19 +66,15 @@ import type { TurnLivenessTransition } from "@/timeline/turn-liveness";
 import { useWorkspaceSetupStore } from "@/stores/workspace-setup-store";
 import { invalidateCheckoutGitQueriesForServer } from "@/git/query-keys";
 import { queryClient } from "@/data/query-client";
-import { messageOutbox, mountMessageQueueClient } from "@/message-queue/runtime";
-import { isLegacyImportPending, withLegacyQueueLane } from "@/message-queue/legacy";
-import { createAgentPreferencesService } from "@/create-agent-preferences/service";
+import { mountMessageQueueClient } from "@/message-queue/runtime";
+
 import {
   invalidateServerDataQueriesAfterReconnect,
   mountServerDataPushRouter,
 } from "@/data/push-router";
 import { mountBrowserAutomationDaemonClientHandler } from "@/desktop/browser/automation/handler";
 import { schedulesQueryBaseKey } from "@/schedules/aggregated-schedules";
-import { dispatchComposerAgentMessage, sendQueuedComposerMessageNow } from "@/composer/actions";
-import { createMessageSubmissionWriter } from "@/composer/submission/writer";
-import { resolveComposerAttachmentSubmitFormat } from "@/composer/attachments/submit";
-import { encodeImages } from "@/utils/encode-images";
+
 import { DirectorySync, type RefreshAgentDirectoryResult } from "@/runtime/directory-sync";
 import { ReplicaCache } from "@/runtime/replica-cache";
 import type { ReplicaRowStore } from "@/runtime/replica-cache/row-store";
@@ -1515,7 +1511,6 @@ export class HostRuntimeStore {
   private deps: HostRuntimeControllerDeps;
   private lastConnectionStatusByServer = new Map<string, HostRuntimeConnectionStatus>();
   private connectionStatusStartedAtByServer = new Map<string, number>();
-  private queuedAgentDrainInFlight = new Set<string>();
   private directorySyncByServer = new Map<string, DirectorySync>();
   private nextCancellationRequestId = 0;
   private timelineReplicaByServer = new Map<string, TimelineReplica>();
@@ -1797,7 +1792,7 @@ export class HostRuntimeStore {
     const directory = new DirectorySync(
       newServerId,
       {
-        onAgentStoppedRunning: (agentId) => this.drainQueuedAgentMessage(newServerId, agentId),
+        onAgentStoppedRunning: () => {},
         markAgentLoading: () => controller.markAgentDirectorySyncLoading(),
         markAgentReady: () => controller.markAgentDirectorySyncReady(),
         markAgentError: (error) => controller.markAgentDirectorySyncError(error),
@@ -2342,7 +2337,7 @@ export class HostRuntimeStore {
       const directory = new DirectorySync(
         host.serverId,
         {
-          onAgentStoppedRunning: (agentId) => this.drainQueuedAgentMessage(host.serverId, agentId),
+          onAgentStoppedRunning: () => {},
           markAgentLoading: () => controller.markAgentDirectorySyncLoading(),
           markAgentReady: () => controller.markAgentDirectorySyncReady(),
           markAgentError: (error) => controller.markAgentDirectorySyncError(error),
@@ -2442,70 +2437,6 @@ export class HostRuntimeStore {
       invalidateServerDataQueriesAfterReconnect({ queryClient, serverId });
       void queryClient.invalidateQueries({ queryKey: schedulesQueryBaseKey });
     }
-  }
-
-  drainQueuedAgentMessage(serverId: string, agentId: string): void {
-    const drainKey = `${serverId}:${agentId}`;
-    if (this.queuedAgentDrainInFlight.has(drainKey)) return;
-    this.queuedAgentDrainInFlight.add(drainKey);
-    void withLegacyQueueLane(serverId, agentId, async () => {
-      if ((await createAgentPreferencesService.load()).vortonMode) return;
-      const first = useSessionStore.getState().sessions[serverId]?.queuedMessages.get(agentId)?.[0];
-      if (!first) return;
-      if (isLegacyImportPending(await messageOutbox.list(), serverId, agentId, first.id)) return;
-      if ((await createAgentPreferencesService.load()).vortonMode) return;
-      await this.drainLegacyAgentMessage(serverId, agentId);
-    })
-      .catch((error: unknown) => {
-        console.error("[HostRuntime] Could not verify legacy queue ownership", error);
-      })
-      .finally(() => {
-        this.queuedAgentDrainInFlight.delete(drainKey);
-      });
-  }
-
-  private async drainLegacyAgentMessage(serverId: string, agentId: string): Promise<void> {
-    const store = useSessionStore.getState();
-    const session = store.sessions[serverId];
-    const queue = session?.queuedMessages.get(agentId);
-    const client = session?.client;
-    if (!client || !queue?.length || session.initializingAgents.get(agentId) === true) {
-      return;
-    }
-    const next = queue[0];
-    await sendQueuedComposerMessageNow({
-      agentId,
-      messageId: next.id,
-      queue: {
-        read: (queuedAgentId) =>
-          useSessionStore.getState().sessions[serverId]?.queuedMessages.get(queuedAgentId) ?? [],
-        write: (update) => useSessionStore.getState().setQueuedMessages(serverId, update),
-      },
-      submitMessage: async ({ text, attachments }) => {
-        const supportsForgeAttachments =
-          useSessionStore.getState().sessions[serverId]?.serverInfo?.features?.forgeSearch === true;
-        await dispatchComposerAgentMessage({
-          client,
-          agentId,
-          text,
-          attachments,
-          attachmentSubmitFormat: resolveComposerAttachmentSubmitFormat({
-            supportsForgeAttachments,
-          }),
-          encodeImages,
-          submission: createMessageSubmissionWriter(serverId),
-        });
-      },
-    }).then((result) => {
-      if (result.status === "failed") {
-        console.error("[HostRuntime] failed to drain queued agent message", {
-          serverId,
-          agentId,
-          error: result.errorMessage,
-        });
-      }
-      return result;
-    });
   }
 
   applyAgentTurnLiveness(
@@ -2711,7 +2642,6 @@ export class HostRuntimeStore {
       serverId,
       replica,
       replaceDemandedAgentIds: (agentIds) => directory.setAgentRouteDemand(agentIds),
-      drainQueuedAgentMessage: (agentId) => this.drainQueuedAgentMessage(serverId, agentId),
       ports,
     });
   }

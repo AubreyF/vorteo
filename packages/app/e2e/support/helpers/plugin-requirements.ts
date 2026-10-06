@@ -7,7 +7,7 @@ import { expect, test as base, type Page } from "../fixtures";
 import { connectDaemonClient } from "./daemon-client-loader";
 import { addConnectedHostAndReload } from "./hosts";
 import { gotoAppShell, openSettings } from "./app";
-import { openHostSection, selectSettingsHost } from "./settings";
+import { openHostSection } from "./settings";
 import { pluginRequirements } from "./plugin-fixture";
 
 export const test = base.extend<{
@@ -88,7 +88,6 @@ export async function openRequirementHost(page: Page, host: { serverId: string; 
   await gotoAppShell(page);
   await addConnectedHostAndReload(page, { ...host, label: "Plugin requirements" });
   await openSettings(page);
-  await selectSettingsHost(page, host.serverId);
   await openHostSection(page, host.serverId, "plugins");
 }
 

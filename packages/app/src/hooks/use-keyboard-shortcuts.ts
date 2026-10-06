@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { usePathname, useRouter } from "expo-router";
 import { getIsElectronRuntime } from "@/constants/layout";
@@ -60,7 +59,6 @@ export function useKeyboardShortcuts({
   exitFocusMode: () => void;
   cycleTheme?: () => void;
 }) {
-  const isVorton = useVortonMode();
   const keyboardActionDispatcher = useKeyboardActionDispatcher();
   const pathname = usePathname();
   const router = useRouter();
@@ -87,13 +85,12 @@ export function useKeyboardShortcuts({
               bindings,
               chordState,
               isMac,
-              isVorton,
               isDesktop: isDesktopApp,
             })
           : { menuPrefixes: [], prefixes: [] };
       void getDesktopHost()?.browser?.setShortcutPolicy?.(policy);
     },
-    [bindings, enabled, isDesktopApp, isMac, isVorton, shortcutsAvailable],
+    [bindings, enabled, isDesktopApp, isMac, shortcutsAvailable],
   );
 
   useEffect(() => {
@@ -259,7 +256,6 @@ export function useKeyboardShortcuts({
       event: input.event,
       context: {
         isMac,
-        isVorton,
         isDesktop: isDesktopApp,
         focusScope: input.focusScope,
         commandCenterOpen: store.commandCenterOpen,

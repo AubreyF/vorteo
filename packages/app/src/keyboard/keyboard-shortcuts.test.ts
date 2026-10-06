@@ -255,13 +255,13 @@ describe("keyboard-shortcuts", () => {
     {
       name: "matches Cmd+K alongside Opt+Space in Vorteo on Mac",
       event: { key: "k", code: "KeyK", metaKey: true },
-      context: { isMac: true, isVorton: true },
+      context: { isMac: true },
       action: "command-center.toggle",
     },
     {
       name: "matches Opt+Space even when macOS reports a nonbreaking space",
       event: { key: "\u00a0", code: "Space", altKey: true },
-      context: { isMac: true, isVorton: true },
+      context: { isMac: true },
       action: "command-center.toggle",
     },
     {
@@ -901,12 +901,13 @@ describe("keyboard-shortcut help sections", () => {
     expect(unplaced).toEqual([]);
   });
 
-  it("leads the general section with the command center and file search", () => {
+  it("leads the general section with both command center shortcuts and file search", () => {
     const sections = buildKeyboardShortcutHelpSections({ isMac: true, isDesktop: true });
 
     expect(sections[0]?.id).toBe("general");
-    expect(sections[0]?.rows.slice(0, 2).map((row) => row.id)).toEqual([
+    expect(sections[0]?.rows.slice(0, 3).map((row) => row.id)).toEqual([
       "toggle-command-center",
+      "toggle-command-center-alternate",
       "search-files",
     ]);
   });
@@ -1276,14 +1277,13 @@ describe("direct new-tab target shortcuts", () => {
 });
 
 describe("Mac alternate command palette shortcut", () => {
-  it("leaves Standard mode and other platforms unchanged", () => {
+  it("keeps the alternate shortcut restricted to Mac", () => {
     const event = { key: " ", code: "Space", altKey: true };
-    expectNoShortcutResolution({ event, context: { isMac: true, isVorton: false } });
-    expectNoShortcutResolution({ event, context: { isMac: false, isVorton: true } });
+    expectNoShortcutResolution({ event, context: { isMac: false } });
   });
 
   it("shows each binding's configured shortcut independently", () => {
-    const platform = { isMac: true, isDesktop: true, isVorton: true };
+    const platform = { isMac: true, isDesktop: true };
     expect(resolveShortcutKeysForAction("toggle-command-center", {}, platform)).toEqual([
       ["mod", "K"],
     ]);

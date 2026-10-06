@@ -2,11 +2,9 @@ import type { ProviderCliUpdate } from "@getpaseo/protocol/messages";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { Alert } from "@/components/ui/alert";
-import { useVortonMode } from "@/vorton-mode";
 
 export function CliUpdateWarning({ update }: { update: ProviderCliUpdate | undefined }) {
-  const vortonMode = useVortonMode();
-  if (!vortonMode || !update) return null;
+  if (!update) return null;
   return (
     <Alert variant="warning" title={`${update.cli} update needed`} testID="provider-cli-update">
       <View style={styles.content}>

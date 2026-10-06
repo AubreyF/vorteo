@@ -8425,3 +8425,35 @@ test("concurrent first goal mutations create only one native thread", async () =
     await session.close();
   }
 });
+
+test("restores a profileless task's frozen skill exclusions into Codex thread config", async () => {
+  const session = createSession({
+    skillSnapshot: { capturedAt: "now", provider: "codex", skills: [] },
+  });
+  const skillPath = "/tmp/excluded-personal/SKILL.md";
+  const request = vi.fn(async (method: string) => {
+    if (method === "skills/list")
+      return {
+        data: [
+          {
+            cwd: "/tmp/codex-question-test",
+            skills: [{ name: "excluded-personal", path: skillPath, enabled: true }],
+            errors: [],
+          },
+        ],
+      };
+    if (method === "thread/loaded/list") return { data: [] };
+    if (method === "thread/resume" || method === "turn/start") return {};
+    throw new Error(`Unexpected request: ${method}`);
+  });
+  session.activeForegroundTurnId = null;
+  session.client = createStub<CodexClientLike>({ request });
+  await session.startTurn("Use the frozen task configuration");
+  const resumed = request.mock.calls.find(([method]) => method === "thread/resume");
+  expect(resumed?.[1]).toMatchObject({
+    config: { skills: { config: [{ path: skillPath, enabled: false }] } },
+  });
+  await expect(session.listCommands()).resolves.not.toContainEqual(
+    expect.objectContaining({ name: "excluded-personal" }),
+  );
+});

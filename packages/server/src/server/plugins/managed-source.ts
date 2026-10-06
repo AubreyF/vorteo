@@ -3,6 +3,7 @@ import {
   parsePluginRegistryReference,
 } from "@getpaseo/protocol/plugin-registry";
 import { resolveRegistryPlugin, type RegistryOptions } from "./managed-source/registry.js";
+import type { ResolvedPluginSource } from "@getpaseo/protocol/plugin-installation";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, realpath, rename, rm } from "node:fs/promises";
@@ -42,7 +43,8 @@ export interface ManagedPluginCandidate {
   directory: string;
   record: ManagedPluginRecord;
   versionRoot: string;
-  target?: PluginUpdateTarget;
+  target: PluginUpdateTarget;
+  identity: ResolvedPluginSource["identity"];
 }
 interface InstallInput {
   source: string;
@@ -135,6 +137,35 @@ export class ManagedPluginSources {
     }
   }
 
+  async readResolvedSource(
+    pluginId: string,
+    configuredPath: string,
+  ): Promise<ResolvedPluginSource | null> {
+    if (!this.records[pluginId]) return null;
+    const location = this.locate(pluginId, configuredPath);
+    await assertRealContainment(this.root, location.versionRoot);
+    await assertRealContainment(location.versionRoot, configuredPath);
+    const { id } = await readPluginManifest(configuredPath);
+    if (location.identity.kind === "git")
+      return {
+        kind: "git",
+        id,
+        identity: location.identity,
+        target: { kind: "git", commit: await revParse(location.sourceRoot, "HEAD") },
+      };
+    if (location.identity.kind === "npm")
+      return {
+        kind: "npm",
+        id,
+        identity: location.identity,
+        target: {
+          kind: "npm",
+          ...(await readNpmArtifact(location.versionRoot, location.identity.packageName)),
+        },
+      };
+    throw new Error("Managed plugin source identity is unavailable");
+  }
+
   private async revision(location: OwnedLocation, configuredPath: string): Promise<string> {
     await assertRealContainment(this.root, location.versionRoot);
     await assertRealContainment(location.versionRoot, configuredPath);
@@ -155,13 +186,22 @@ export class ManagedPluginSources {
         throw new Error("Registry sources use their reviewed artifact path and revision");
       const resolved = await resolveRegistryPlugin(registry, this.registryOptions, true);
       const candidate = await this.prepareInstall(resolved.input, resolved.target);
-      return { ...candidate, record: { ...candidate.record, registry } };
+      return {
+        ...candidate,
+        identity: { ...candidate.identity, registry },
+        record: { ...candidate.record, registry },
+      };
+    }
+    if (input.source.startsWith("registry:")) {
+      throw new Error("Enable plugin registry sources and provide a valid registry reference");
     }
     const pluginPath = normalizePluginPath(input.pluginPath);
     const versionRoot = await this.createStagingRoot();
     try {
       let record: ManagedPluginRecord;
       let sourceRoot: string;
+      let identity: ResolvedPluginSource["identity"];
+      let resolvedTarget: PluginUpdateTarget;
       if (isNpmSource(input.source)) {
         if (input.ref)
           throw new Error(
@@ -174,6 +214,13 @@ export class ManagedPluginSources {
         );
         sourceRoot = path.join(versionRoot, "node_modules", artifact.packageName);
         record = { kind: "npm" };
+        identity = { kind: "npm", packageName: artifact.packageName, pluginPath };
+        resolvedTarget = {
+          kind: "npm",
+          version: artifact.version,
+          resolved: artifact.resolved,
+          integrity: artifact.integrity,
+        };
       } else {
         const remote = normalizeGitSource(input.source, !this.registryOptions.enabled);
         sourceRoot = path.join(versionRoot, "checkout");
@@ -183,16 +230,69 @@ export class ManagedPluginSources {
           throw new Error("Git target changed since review");
         await checkout(sourceRoot, commit);
         record = { kind: "git", remote };
+        identity = { kind: "git", remote: redactRemoteCredentials(remote), pluginPath };
+        resolvedTarget = { kind: "git", commit };
       }
       const directory = path.resolve(sourceRoot, pluginPath);
       assertPluginPath(sourceRoot, directory);
       await assertRealContainment(sourceRoot, directory);
       const { id: defaultId, build } = await readPluginManifest(directory);
-      return { build, defaultId, directory, record, versionRoot, ...(target ? { target } : {}) };
+      return { build, defaultId, directory, record, versionRoot, identity, target: resolvedTarget };
     } catch (error) {
       await rm(versionRoot, { recursive: true, force: true });
       throw error;
     }
+  }
+
+  /** Resolve an immutable installation recipe without building, registering or starting a plugin. */
+  async resolveInstall(input: InstallInput): Promise<ResolvedPluginSource> {
+    const candidate = await this.prepareInstall(input);
+    try {
+      if (candidate.identity.kind === "git" && candidate.target.kind === "git")
+        return {
+          kind: "git",
+          id: candidate.defaultId,
+          identity: candidate.identity,
+          target: candidate.target,
+        };
+      if (candidate.identity.kind === "npm" && candidate.target.kind === "npm")
+        return {
+          kind: "npm",
+          id: candidate.defaultId,
+          identity: candidate.identity,
+          target: candidate.target,
+        };
+      throw new Error("Resolved plugin source and artifact do not match");
+    } finally {
+      await this.discard(candidate);
+    }
+  }
+
+  async prepareResolvedInstall(resolved: ResolvedPluginSource): Promise<ManagedPluginCandidate> {
+    let input: InstallInput;
+    if (resolved.kind === "git") {
+      input = {
+        source: `git:${resolved.identity.remote}`,
+        ref: resolved.target.commit,
+        pluginPath: resolved.identity.pluginPath,
+      };
+    } else {
+      input = {
+        source: `npm:${resolved.identity.packageName}@${resolved.target.version}`,
+        pluginPath: resolved.identity.pluginPath,
+      };
+    }
+    const candidate = await this.prepareInstall(input, resolved.target);
+    if (candidate.defaultId !== resolved.id) {
+      await this.discard(candidate);
+      throw new Error("Plugin manifest identity changed after source resolution");
+    }
+    const registry = resolved.identity.registry;
+    return {
+      ...candidate,
+      identity: resolved.identity,
+      record: { ...candidate.record, ...(registry ? { registry } : {}) },
+    };
   }
 
   async place(

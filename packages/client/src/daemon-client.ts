@@ -1,4 +1,8 @@
 import type {
+  PluginDirectoryBinding,
+  ResolvedPluginSource,
+} from "@getpaseo/protocol/plugin-installation";
+import type {
   SkillLibraryRead,
   SkillLibraryChange,
   SkillLibraryResult,
@@ -5351,6 +5355,12 @@ export class DaemonClient {
     config: MutableDaemonConfigPatch,
     requestId?: string,
   ): Promise<{ requestId: string; config: MutableDaemonConfig }> {
+    if (
+      config.installationResourceBindings !== undefined &&
+      this.lastServerInfoMessage?.features?.installationResourceBindings !== true
+    ) {
+      throw new Error("Update this environment before applying shared resource exclusions.");
+    }
     this.requireSkillPolicySupport(config);
     if (config.sharedProviderPreferences) this.requireSharedProviderPreferences();
     if (
@@ -5695,6 +5705,11 @@ export class DaemonClient {
   }
 
   async readSkillLibrary(request: SkillLibraryRead): Promise<SkillLibraryResult> {
+    if (
+      request.kind === "package" &&
+      this.lastServerInfoMessage?.features?.skillPackageTransfer !== true
+    )
+      throw new Error("Update this environment before sharing skill packages");
     if (this.lastServerInfoMessage?.features?.skillLibrary !== true)
       throw new Error("This environment does not support the skill library");
     const requestId = this.createRequestId();
@@ -5706,6 +5721,11 @@ export class DaemonClient {
   }
 
   async changeSkillLibrary(request: SkillLibraryChange): Promise<SkillLibraryResult> {
+    if (
+      request.kind === "preview_import" &&
+      this.lastServerInfoMessage?.features?.skillPackageTransfer !== true
+    )
+      throw new Error("Update this environment before sharing skill packages");
     if (this.lastServerInfoMessage?.features?.skillLibrary !== true)
       throw new Error("This environment does not support the skill library");
     const requestId = this.createRequestId();
@@ -5737,6 +5757,18 @@ export class DaemonClient {
     return this.sendCorrelatedSessionRequest({
       message: { type: "agent.skills.uninstall.request", requestId },
       responseType: "agent.skills.uninstall.response",
+    });
+  }
+
+  async previewAgentSkillsSelection(
+    selection: AgentSkillSelection,
+  ): Promise<AgentSkillsSaveResult> {
+    if (this.lastServerInfoMessage?.features?.skillSelectionPreview !== true)
+      throw new Error("Update the daemon before previewing shared skill changes.");
+    const requestId = this.createRequestId();
+    return this.sendCorrelatedSessionRequest({
+      message: { type: "agent.skills.save_selection.request", requestId, selection, preview: true },
+      responseType: "agent.skills.save_selection.response",
     });
   }
 
@@ -5781,6 +5813,28 @@ export class DaemonClient {
     return payload.plugin;
   }
 
+  async bindDirectoryPlugin(
+    input: PluginDirectoryBinding & { id: string; path: string },
+  ): Promise<PluginListItem> {
+    // COMPAT(pluginDirectoryBindings): added in v131; remove gate after 2027-10-06.
+    if (this.getLastServerInfoMessage()?.features?.pluginDirectoryBindings !== true)
+      throw new Error("Update the daemon to edit local plugin bindings.");
+    const requestId = this.createRequestId();
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "plugin.directory.install.request",
+        requestId,
+        id: input.id,
+        path: input.path,
+        binding: { expectedPath: input.expectedPath, enabled: input.enabled },
+      },
+      responseType: "plugin.directory.install.response",
+      timeout: 5 * 60 * 1000,
+    });
+    return payload.plugin;
+  }
+
   async installPluginSource(input: {
     source: string;
     id?: string;
@@ -5801,6 +5855,43 @@ export class DaemonClient {
         ...(input.ref ? { ref: input.ref } : {}),
       },
       responseType: "plugin.source.install.response",
+      timeout: 5 * 60 * 1000,
+    });
+    return payload.plugin;
+  }
+
+  private requirePinnedPluginInstallation(): void {
+    // COMPAT(pluginPinnedInstallation): added in v131; remove gate after 2027-10-06.
+    if (this.getLastServerInfoMessage()?.features?.pluginPinnedInstallation !== true)
+      throw new Error("Update the daemon to install pinned plugin sources.");
+  }
+
+  async resolvePluginSource(input: {
+    source: string;
+    ref?: string;
+  }): Promise<ResolvedPluginSource> {
+    this.requirePinnedPluginInstallation();
+    const requestId = this.createRequestId();
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "plugin.source.resolve.request", requestId, ...input },
+      responseType: "plugin.source.resolve.response",
+      timeout: 5 * 60 * 1000,
+    });
+    return payload.resolved;
+  }
+
+  async installResolvedPluginSource(input: {
+    resolved: ResolvedPluginSource;
+    id?: string;
+    enabled: boolean;
+  }): Promise<PluginListItem> {
+    this.requirePinnedPluginInstallation();
+    const requestId = this.createRequestId();
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "plugin.source.install_resolved.request", requestId, ...input },
+      responseType: "plugin.source.install_resolved.response",
       timeout: 5 * 60 * 1000,
     });
     return payload.plugin;

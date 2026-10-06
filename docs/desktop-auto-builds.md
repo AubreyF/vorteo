@@ -48,7 +48,7 @@ Desktop distribution still needs its separate app identity and private feed, exp
 - [ ] Implement immutable uploads, publication serialization, complete manifests, and stale-build rejection.
 - [ ] On each supported platform, install A, publish B, verify automatic download and installation, check version and source revision, preserve settings, and confirm remote agents remain running.
 - [ ] Test interrupted downloads, unavailable feeds, recovery releases, and local daemon ownership during quit and restart.
-- [ ] For interface changes, verify Vorteo off/on behavior and publish the tested private web export. Obtain physical-device acceptance where emulation cannot establish behavior; never launch macOS Playwright WebKit.
+- [ ] For interface changes, verify shared settings and environment selection, then publish the tested private web export. Obtain physical-device acceptance where emulation cannot establish behavior; never launch macOS Playwright WebKit.
 - [ ] Record private installation and recovery instructions, then enable unattended publication after acceptance and authorization.
 
 ## Estimated effort

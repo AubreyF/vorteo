@@ -1,4 +1,4 @@
-import { readExecutionInstallation } from "@/execution-installation/policy";
+import { useInstallationProfiles } from "@/execution-installation/profiles";
 import { PreferredChoicesField } from "./preferred-choices-field";
 import { sharedChoiceState } from "../shared-choices";
 import { useCallback, useMemo, useState } from "react";
@@ -36,18 +36,42 @@ export function SharedProviderSection({
   provider: string;
 }) {
   const { config, patchConfig } = useDaemonConfig(serverId);
+  const {
+    installation,
+    data: sharedSnapshot,
+    save: saveInstallation,
+    error: installationError,
+  } = useInstallationProfiles();
   const { entries } = useProvidersSnapshot(serverId, { cwd: null });
   const [editor, setEditor] = useState<EditTarget | null>(null);
   const [operation, setOperation] = useState<
     { status: "idle" } | { status: "saving" } | { status: "error"; message: string }
   >({ status: "idle" });
-  const shared = config?.sharedProviderPreferences;
+  const shared = useMemo(() => {
+    const local = config?.sharedProviderPreferences;
+    if (!installation) return local;
+    if (!sharedSnapshot) return undefined;
+    return {
+      ...local,
+      version: 1 as const,
+      revision: sharedSnapshot.revision,
+      providers: sharedSnapshot.providers,
+      legacyProfiles: local?.legacyProfiles ?? {},
+    };
+  }, [config, installation, sharedSnapshot]);
   const providerType = resolveProviderType(provider, config?.providers ?? {});
   const group = shared?.providers[providerType];
   const close = useCallback(() => setEditor(null), []);
 
   const saveGroup = useCallback(
     async (snapshot: SharedProviderPreferences, next: ProviderPreferences) => {
+      if (installation) {
+        await saveInstallation({
+          expectedRevision: snapshot.revision,
+          providers: { ...snapshot.providers, [providerType]: next },
+        });
+        return;
+      }
       const saved = await patchConfig({
         expectedProviderPreferencesRevision: snapshot.revision,
         sharedProviderPreferences: {
@@ -66,7 +90,7 @@ export function SharedProviderSection({
       });
       if (!saved) throw new Error("Reconnect to the host before saving.");
     },
-    [patchConfig, providerType],
+    [patchConfig, providerType, installation, saveInstallation],
   );
 
   const openDefaults = useCallback(() => {
@@ -115,6 +139,7 @@ export function SharedProviderSection({
           icon: _icon,
           color: _color,
           notes: _notes,
+          excludedEnvironments: _excludedEnvironments,
           ...defaults
         } = value;
         next.defaults = defaults;
@@ -301,11 +326,14 @@ export function SharedProviderSection({
   return (
     <>
       <SettingsSection title="Shared provider settings" testID="shared-provider-settings">
-        {readExecutionInstallation()?.profileSharing ? (
+        {installation ? (
           <Text style={settingsStyles.rowHint}>
-            Shared across all environments in this installation. Account credentials and available
-            models remain local. Review synchronization status in Installation controls.
+            Profiles belong to this installation and are available in every environment unless
+            excluded. Account credentials and available models remain local.
           </Text>
+        ) : null}
+        {installationError ? (
+          <Alert variant="error" description={installationError.message} />
         ) : null}
         <View style={settingsStyles.card}>
           <View style={settingsStyles.row}>

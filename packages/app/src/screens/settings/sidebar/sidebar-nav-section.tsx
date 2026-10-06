@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { useCallback, useMemo, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -158,10 +157,9 @@ const SECTION_COPY = {
 
 function SidebarItemsCard({ section }: { section: SidebarSection }): ReactElement {
   const { t } = useTranslation();
-  const vorton = useVortonMode();
   const { items, setVisible, move } = useSidebarNavItems(
     section,
-    vorton && section === "header" ? VORTON_TOOLBAR_ITEMS : undefined,
+    section === "header" ? VORTON_TOOLBAR_ITEMS : undefined,
   );
 
   return (

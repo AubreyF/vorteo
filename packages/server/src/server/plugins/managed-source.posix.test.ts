@@ -1,4 +1,4 @@
-import { mkdir, rename, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { runGitCommand } from "../../utils/run-git-command.js";
 import { ManagedPluginSources } from "./managed-source.js";
+import { formatPluginIdentity } from "@getpaseo/protocol/plugin-source-reference";
 
 const roots: string[] = [];
 
@@ -56,6 +57,56 @@ async function withGitHubFixture(repository: string, run: () => Promise<void>): 
 }
 
 describe("managed Git plugin sources", () => {
+  it("resolves one immutable recipe without building or registering the plugin", async () => {
+    const repository = await createRepository();
+    const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-resolve-"));
+    roots.push(home);
+    const marker = path.join(home, "unexpected-build");
+    await writeFile(
+      path.join(repository, "paseo-plugin.json"),
+      JSON.stringify({
+        id: "managed-example",
+        build: [
+          [
+            process.execPath,
+            "-e",
+            `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed')`,
+          ],
+        ],
+      }),
+    );
+    const commit = await commitAll(repository, "build declaration");
+    const remote = pathToFileURL(repository).href;
+    const sources = new ManagedPluginSources(home);
+    const resolved = await sources.resolveInstall({ source: `git:${remote}` });
+    if (resolved.kind !== "git") throw new Error("Expected Git recipe");
+    expect(resolved).toEqual({
+      kind: "git",
+      id: "managed-example",
+      identity: { kind: "git", remote, pluginPath: "." },
+      target: { kind: "git", commit },
+    });
+    expect(await readdir(home)).toEqual(["plugins"]);
+    expect(await readdir(path.join(home, "plugins"))).toEqual([".staging"]);
+    expect(await readdir(path.join(home, "plugins", ".staging"))).toEqual([]);
+    await writeFile(path.join(repository, "later.txt"), "later");
+    const next = await commitAll(repository, "advance");
+    expect(next).not.toBe(commit);
+    const otherHome = await mkdtemp(path.join(tmpdir(), "paseo-plugin-second-environment-"));
+    roots.push(otherHome);
+    const otherSources = new ManagedPluginSources(otherHome);
+    const pinned = await sources.prepareResolvedInstall(resolved);
+    const other = await otherSources.prepareResolvedInstall(resolved);
+    expect(pinned.target).toEqual(resolved.target);
+    expect(other.target).toEqual(resolved.target);
+    expect(await readFile(path.join(pinned.directory, "paseo-plugin.json"), "utf8")).toBe(
+      await readFile(path.join(other.directory, "paseo-plugin.json"), "utf8"),
+    );
+    expect(await readdir(other.directory)).not.toContain("later.txt");
+    await otherSources.discard(other);
+    await sources.discard(pinned);
+  });
+
   it("does not expose Git URL credentials when cloning fails", async () => {
     const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-git-home-"));
     roots.push(home);
@@ -298,6 +349,11 @@ describe("registry plugin sources", () => {
         const sources = new ManagedPluginSources(home, {
           defaultUrl: `http://127.0.0.1:${address.port}`,
         });
+        await expect(
+          sources.prepareInstall({
+            source: `registry:http://127.0.0.1:${address.port}/fixture/repository`,
+          }),
+        ).rejects.toThrow("Enable plugin registry sources and provide a valid registry reference");
         const candidate = await sources.prepareInstall({ source: "fixture/repository" });
         expect(candidate.record).toEqual({
           kind: "git",
@@ -388,6 +444,17 @@ describe("registry plugin sources", () => {
         pluginPath: "packages/example",
         registry: { url, id: "acme/example" },
       });
+      if (!preview.current) throw new Error("Missing installed registry identity");
+      const source = formatPluginIdentity(preview.current.identity);
+      expect(source).toBe(`registry:${url}/acme/example`);
+      const reviewer = new ManagedPluginSources(home, {
+        enabled: true,
+        defaultUrl: "https://unrelated.example",
+        registries: { [host]: { authorization: "Bearer test" } },
+      });
+      const reviewed = await reviewer.resolveInstall({ source });
+      expect(reviewed.identity).toEqual(preview.current.identity);
+      expect(reviewed.target).toEqual({ kind: "git", commit });
       expect(requests).toEqual([
         { path: "/internal/plugins/acme/example.json", intent: "1", authorization: "Bearer test" },
         {
@@ -395,6 +462,7 @@ describe("registry plugin sources", () => {
           intent: undefined,
           authorization: "Bearer test",
         },
+        { path: "/internal/plugins/acme/example.json", intent: "1", authorization: "Bearer test" },
       ]);
     } finally {
       await new Promise<void>((resolve, reject) =>
@@ -447,9 +515,11 @@ it("installs and updates only the npm artifacts pinned by the plugin registry", 
   const options = { enabled: true, defaultUrl: `http://127.0.0.1:${address.port}` };
   try {
     const sources = new ManagedPluginSources(home, options);
+    const resolved = await sources.resolveInstall({ source: "acme/example" });
+    expect(resolved.identity.registry).toEqual({ url: options.defaultUrl, id: "acme/example" });
     const candidate = await sources.place(
       "example",
-      await sources.prepareInstall({ source: "acme/example" }),
+      await sources.prepareResolvedInstall(resolved),
     );
     await sources.verifyCandidate("example", candidate);
     sources.commit("example", candidate.record);
@@ -479,3 +549,39 @@ it("installs and updates only the npm artifacts pinned by the plugin registry", 
     else process.env.npm_config_userconfig = previous;
   }
 }, 30_000);
+
+it("resolves an npm recipe with its acquired integrity and removes staging files", async () => {
+  const { startNpmRegistry, npmPluginPackages } =
+    await import("../../../../../scripts/test-support/npm-registry.mjs");
+  const registry = await startNpmRegistry(npmPluginPackages());
+  const previous = process.env.npm_config_userconfig;
+  process.env.npm_config_userconfig = registry.userconfig;
+  const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-npm-resolve-"));
+  roots.push(home);
+  try {
+    const sources = new ManagedPluginSources(home);
+    const resolved = await sources.resolveInstall({ source: "npm:paseo-fixture-plugin@1.0.0" });
+    expect(resolved.kind).toBe("npm");
+    if (resolved.kind !== "npm") throw new Error("Expected npm recipe");
+    expect(resolved.identity).toEqual({
+      kind: "npm",
+      packageName: "paseo-fixture-plugin",
+      pluginPath: ".",
+    });
+    expect(resolved.target.version).toBe("1.0.0");
+    expect(resolved.target.integrity).toMatch(/^sha512-/);
+    expect(await readdir(path.join(home, "plugins", ".staging"))).toEqual([]);
+    const pinned = await sources.prepareResolvedInstall(resolved);
+    expect(pinned.target).toEqual(resolved.target);
+    const installed = await sources.place("saved-alias", pinned);
+    sources.commit("saved-alias", installed.record);
+    expect(
+      await new ManagedPluginSources(home).readResolvedSource("saved-alias", installed.directory),
+    ).toEqual(resolved);
+    await sources.discard(installed);
+  } finally {
+    if (previous === undefined) delete process.env.npm_config_userconfig;
+    else process.env.npm_config_userconfig = previous;
+    await registry.close();
+  }
+});

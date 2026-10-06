@@ -7,7 +7,7 @@ import { AttachmentLightbox } from "@/components/attachment-lightbox";
 import { Button } from "@/components/ui/button";
 import { useHosts } from "@/runtime/host-runtime";
 import { useDownloadStore } from "@/stores/download-store";
-import { useVortonMode } from "@/vorton-mode";
+
 import { presentQueueContext, type QueueContext } from "./context-presentation";
 import { requireQueueClient } from "./runtime";
 
@@ -22,9 +22,7 @@ export function SharedQueueAttachments({
   messageId?: string;
   presentation?: QueuePresentation;
 }) {
-  const vorton = useVortonMode();
   if (
-    !vorton ||
     !serverId ||
     !agentId ||
     !messageId ||

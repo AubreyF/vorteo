@@ -29,6 +29,13 @@ export XDG_DATA_HOME
 export XDG_STATE_HOME
 export XDG_CACHE_HOME
 
+# The installation owns this credential file. Profiles use its fixed coordinator
+# endpoint for admission; a profile definition cannot select another authority.
+installation_client_config="${HOME}/.local/share/vorteo-installation-client/client.json"
+if [[ -f "$installation_client_config" ]]; then
+  export VORTEO_INSTALLATION_CLIENT_CONFIG="$installation_client_config"
+fi
+
 ensure_dir() {
   local dir="$1"
   mkdir -p "$dir"

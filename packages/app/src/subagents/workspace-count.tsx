@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useShallow } from "zustand/shallow";
 import { useSessionStore } from "@/stores/session-store";
 import { usePendingArchiveAgentIds } from "@/hooks/use-archive-agent";
+import { getAgentPresentationIndex } from "./workspace-root-policy";
 import { CountBadge } from "@/components/ui/count-badge";
 import { selectSubagentsForParent, selectProviderSubagentsForParent } from "./select";
 import { refreshProviderSubagents, useProviderSubagentStore } from "./provider-store";
@@ -15,15 +16,23 @@ export function WorkspaceSubagentCount({
 }) {
   const pending = usePendingArchiveAgentIds(serverId);
   const parents = useSessionStore(
-    useShallow((state) =>
-      [...(state.sessions[serverId]?.agents.values() ?? [])]
+    useShallow((state) => {
+      const session = state.sessions[serverId];
+      if (!session) return [];
+      const presentations = getAgentPresentationIndex(
+        session.agents,
+        session.hasHydratedWorkspaces ? session.workspaces : undefined,
+      );
+      return [...session.agents.values()]
         .filter(
           (agent) =>
-            agent.workspaceId === workspaceId && !agent.archivedAt && !pending.has(agent.id),
+            !agent.archivedAt &&
+            !pending.has(agent.id) &&
+            presentations.get(agent.id)?.workspaceId === workspaceId,
         )
         .map((agent) => agent.id)
-        .sort(),
-    ),
+        .sort();
+    }),
   );
   const supported = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.providerSubagents === true,

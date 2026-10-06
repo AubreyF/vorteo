@@ -8,6 +8,50 @@ import {
 } from "./messages.js";
 
 describe("plugin protocol compatibility", () => {
+  it("accepts pinned source operations and rejects mismatched artifacts", () => {
+    const resolved = {
+      kind: "npm",
+      id: "review",
+      identity: { kind: "npm", packageName: "review-plugin", pluginPath: "." },
+      target: {
+        kind: "npm",
+        version: "1.2.3",
+        resolved: "https://registry.example.test/review.tgz",
+        integrity: "sha512-example",
+      },
+    };
+    const request = {
+      type: "plugin.source.install_resolved.request",
+      requestId: "install",
+      resolved,
+      enabled: false,
+    };
+    expect(SessionInboundMessageSchema.parse(request)).toEqual(request);
+    expect(
+      SessionInboundMessageSchema.safeParse({
+        ...request,
+        resolved: { ...resolved, target: { kind: "git", commit: "a".repeat(40) } },
+      }).success,
+    ).toBe(false);
+    expect(
+      SessionInboundMessageSchema.safeParse({
+        ...request,
+        resolved: { ...resolved, target: { ...resolved.target, integrity: "" } },
+      }).success,
+    ).toBe(false);
+    expect(
+      SessionInboundMessageSchema.parse({
+        type: "plugin.source.resolve.request",
+        requestId: "resolve",
+        source: "npm:review-plugin",
+      }).type,
+    ).toBe("plugin.source.resolve.request");
+    const response = {
+      type: "plugin.source.resolve.response",
+      payload: { requestId: "resolve", resolved },
+    };
+    expect(SessionOutboundMessageSchema.parse(response)).toEqual(response);
+  });
   it.each([undefined, { paseo: ">=0.8.0" }])(
     "parses plugin catalogs with requirements %j",
     (requirements) => {
@@ -327,4 +371,22 @@ it("npm metadata leaves legacy plugin rows parseable without extending their clo
     type: "plugin.list.response",
     payload: { requestId: "npm", plugins: [plugin] },
   });
+});
+
+it("requires an explicit expected path and enabled state for directory bindings without changing legacy installs", () => {
+  const legacy = {
+    type: "plugin.directory.install.request",
+    requestId: "directory",
+    path: "/local/plugin",
+    id: "local",
+  };
+  expect(SessionInboundMessageSchema.parse(legacy)).toEqual(legacy);
+  const request = { ...legacy, binding: { expectedPath: null, enabled: false } };
+  expect(SessionInboundMessageSchema.parse(request)).toEqual(request);
+  expect(() =>
+    SessionInboundMessageSchema.parse({ ...legacy, binding: { enabled: false } }),
+  ).toThrow();
+  expect(() =>
+    SessionInboundMessageSchema.parse({ ...legacy, binding: { expectedPath: "/old/plugin" } }),
+  ).toThrow();
 });

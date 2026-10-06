@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { useVortonTouch } from "@/vorton-touch";
 
 const desktopRow = {
@@ -11,8 +10,7 @@ const desktopRow = {
 const touchRow = { ...desktopRow, minHeight: 44 };
 
 export function useSidebarRowDensity() {
-  const vorton = useVortonMode();
   const touch = useVortonTouch();
-  if (!vorton) return undefined;
+
   return touch ? touchRow : desktopRow;
 }

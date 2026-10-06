@@ -6,12 +6,10 @@ import { beforeEach, afterEach, expect, test, vi } from "vitest";
 import { WorkspaceRenameModal } from "./workspace-rename-modal";
 
 const state = vi.hoisted(() => ({
-  mode: true,
   supported: true,
   suggest: vi.fn<() => Promise<string[]>>(),
   save: vi.fn<() => Promise<void>>(),
 }));
-vi.mock("@/vorton-mode", () => ({ useVortonMode: () => state.mode }));
 vi.mock("@/runtime/host-features", () => ({ useHostFeature: () => state.supported }));
 vi.mock("@/runtime/host-runtime", () => ({
   getHostRuntimeStore: () => ({
@@ -102,7 +100,6 @@ beforeEach(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   }))
     vi.stubGlobal(key, value);
-  state.mode = true;
   state.supported = true;
   state.suggest.mockReset().mockResolvedValue(titles);
   state.save.mockReset().mockResolvedValue();
@@ -218,13 +215,6 @@ test("save failure preserves the chosen title and keeps the dialog open", async 
   });
   expect(input().value).toBe(titles[1]);
   expect(close).not.toHaveBeenCalled();
-});
-test("Paseo mode shows the baseline dialog and never requests suggestions", () => {
-  state.mode = false;
-  render();
-  expect(input().value).toBe("Original title");
-  expect(host.textContent).not.toContain("Suggested titles");
-  expect(state.suggest).not.toHaveBeenCalled();
 });
 test("older hosts explain availability and retain ordinary rename", () => {
   state.supported = false;

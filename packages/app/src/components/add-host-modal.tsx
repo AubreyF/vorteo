@@ -22,7 +22,6 @@ import { PairingTargetTracker } from "./pair-link-credentials";
 import { hostedConnectionDefaults } from "@/utils/hosted-connection-defaults";
 import { isWeb } from "@/constants/platform";
 import { isElectronRuntime } from "@/desktop/host";
-import { useVortonMode } from "@/vorton-mode";
 
 const FLEX_ONE_STYLE = { flex: 1 } as const;
 
@@ -318,13 +317,10 @@ function AddHostModalContent({ visible, onClose, onCancel, onSaved }: AddHostMod
   const [linkPairing] = useState(() => beginLinkPairing());
   const isMobile = useIsCompactFormFactor();
 
-  const isVortonMode = useVortonMode();
   const initialConnection = useMemo(
     () =>
-      isVortonMode && isWeb && !isElectronRuntime()
-        ? hostedConnectionDefaults(window.location.href)
-        : undefined,
-    [isVortonMode],
+      isWeb && !isElectronRuntime() ? hostedConnectionDefaults(window.location.href) : undefined,
+    [],
   );
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");

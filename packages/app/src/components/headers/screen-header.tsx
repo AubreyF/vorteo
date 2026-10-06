@@ -1,5 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
-import { ComposerDockBackground } from "@/composer/dock";
 import { useMemo, type ReactNode } from "react";
 import type { LayoutChangeEvent } from "react-native";
 import { View, type StyleProp, type ViewStyle } from "react-native";
@@ -9,7 +7,6 @@ import {
   HEADER_INNER_HEIGHT,
   VORTON_HEADER_HEIGHT,
   HEADER_INNER_HEIGHT_MOBILE,
-  getHeaderTopPadding,
   useIsCompactFormFactor,
 } from "@/constants/layout";
 import { WindowChromeSafeArea } from "@/utils/desktop-window";
@@ -39,9 +36,9 @@ export function ScreenHeader({
   const { theme } = useUnistyles();
   const insets = useSafeAreaInsets();
   const isMobile = useIsCompactFormFactor();
-  const vorton = useVortonMode();
+
   // The row already provides the touch target; Vorton needs only the system safe area.
-  const topPadding = getHeaderTopPadding({ compact: isMobile, vorton: vorton });
+  const topPadding = 0;
   const baseHorizontalPadding = isMobile ? theme.spacing[2] : theme.spacing[3];
 
   const innerStyle = useMemo(
@@ -49,13 +46,13 @@ export function ScreenHeader({
     [insets.top, topPadding],
   );
   const rowStyle = useMemo(
-    () => [styles.row, vorton && !isMobile && styles.vortonRow, borderless && styles.borderless],
-    [borderless, vorton, isMobile],
+    () => [styles.row, !isMobile && styles.vortonRow, borderless && styles.borderless],
+    [borderless, isMobile],
   );
   const leftCombinedStyle = useMemo(() => [styles.left, leftStyle], [leftStyle]);
   const rightCombinedStyle = useMemo(() => [styles.right, rightStyle], [rightStyle]);
 
-  const HeaderBackground = vorton ? View : ComposerDockBackground;
+  const HeaderBackground = View;
   return (
     <HeaderBackground style={styles.header} testID="screen-header">
       <View style={innerStyle}>

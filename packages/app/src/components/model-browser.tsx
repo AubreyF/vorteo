@@ -61,7 +61,6 @@ import {
 } from "@/provider-usage/compact-summary";
 import type { ProviderUsage } from "@/provider-usage/types";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
-import { useVortonMode } from "@/vorton-mode";
 import { CliUpdateWarning } from "@/provider-selection/cli-update-warning";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import {
@@ -1076,8 +1075,7 @@ function GroupProviderButton({
     [stateNode, serverId, provider.id, provider.label],
   );
   const usageSummary = formatProviderUsageSummary(usage);
-  const vortonMode = useVortonMode();
-  const description = vortonMode && provider.cliUpdate ? "CLI update needed" : usageSummary;
+  const description = provider.cliUpdate ? "CLI update needed" : usageSummary;
 
   return (
     <ModelBrowserRow
@@ -1388,16 +1386,15 @@ function ProviderModelBrowserContent({
     ],
   );
 
-  const vortonMode = useVortonMode();
   const listHeader = useMemo(() => {
-    if (!vortonMode || !provider?.cliUpdate) return profileHeader;
+    if (!provider?.cliUpdate) return profileHeader;
     return (
       <View>
         <CliUpdateWarning update={provider.cliUpdate} />
         {profileHeader}
       </View>
     );
-  }, [profileHeader, provider?.cliUpdate, vortonMode]);
+  }, [profileHeader, provider?.cliUpdate]);
   if (!provider) return <ModelSearchEmptyState />;
   const selection = provider.modelSelection;
   if (selection.kind === "loading") {
@@ -1421,7 +1418,7 @@ function ProviderModelBrowserContent({
     );
   }
   if (visibleRows.length === 0) {
-    if (!vortonMode || !provider.cliUpdate) return profileHeader ?? <ModelSearchEmptyState />;
+    if (!provider.cliUpdate) return profileHeader ?? <ModelSearchEmptyState />;
     return (
       <IndependentProviderList>
         {listHeader}
@@ -1470,16 +1467,16 @@ function ModelBrowserContent({
 }: ModelBrowserContentProps) {
   const { t } = useTranslation();
   const normalizedQuery = useMemo(() => normalizeSearchQuery(searchQuery), [searchQuery]);
-  const vortonMode = useVortonMode();
-  const { view: providerUsageView } = useProviderUsage(serverId, { enabled: vortonMode });
+
+  const { view: providerUsageView } = useProviderUsage(serverId, { enabled: true });
   const usageByProviderId = useMemo<ReadonlyMap<string, ProviderUsage>>(
     () =>
       new Map(
-        vortonMode && providerUsageView.kind === "ready"
+        providerUsageView.kind === "ready"
           ? providerUsageView.payload.providers.map((usage) => [usage.providerId, usage] as const)
           : [],
       ),
-    [providerUsageView, vortonMode],
+    [providerUsageView],
   );
   const profiledLookup = useMemo(
     () => groupProfilesByProviderModel(profiles?.rows ?? []),
@@ -1539,7 +1536,7 @@ function ModelBrowserContent({
         </Text>
       </View>
     );
-    const hasCliUpdates = vortonMode && providers.some((provider) => provider.cliUpdate);
+    const hasCliUpdates = providers.some((provider) => provider.cliUpdate);
     return hasCliUpdates ? (
       <IndependentProviderList>{emptyState}</IndependentProviderList>
     ) : (

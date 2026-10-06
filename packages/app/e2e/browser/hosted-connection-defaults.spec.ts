@@ -1,21 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function expectConnectionDefaults(page: Page, enabled: boolean) {
+async function expectConnectionDefaults(page: Page) {
   const url = new URL(page.url());
-  await expect(page.getByTestId("direct-host-input")).toHaveValue(enabled ? url.hostname : "");
+  await expect(page.getByTestId("direct-host-input")).toHaveValue(url.hostname);
   await expect(page.getByTestId("direct-port-input")).toHaveValue(
-    enabled ? url.port || (url.protocol === "https:" ? "443" : "80") : "6767",
+    url.port || (url.protocol === "https:" ? "443" : "80"),
   );
   await expect(page.getByTestId("direct-ssl-toggle-checked")).toHaveCount(
-    enabled && url.protocol === "https:" ? 1 : 0,
+    url.protocol === "https:" ? 1 : 0,
   );
   await expect(page.getByTestId("direct-password-input")).toHaveValue("");
 }
 
 for (const vortonMode of [false, true]) {
-  test(`real startup and both connection forms with Vorton ${vortonMode ? "on" : "off"}`, async ({
-    page,
-  }) => {
+  test(`hosted defaults ignore legacy product preference ${vortonMode}`, async ({ page }) => {
     // Deny daemon transport while keeping Metro's development sockets alive;
     // closing those sockets reloads the page when a lazy bundle registers.
     await page.routeWebSocket(
@@ -31,35 +29,31 @@ for (const vortonMode of [false, true]) {
     await page.goto("/");
     await expect(page.getByTestId("welcome-screen")).toBeVisible({ timeout: 15000 });
     await page.getByTestId("welcome-direct-connection").click();
-    await expectConnectionDefaults(page, vortonMode);
+    await expectConnectionDefaults(page);
     await page.getByTestId("direct-host-input").fill("another-host.example.com");
     await page.getByTestId("direct-password-input").fill("discard-on-cancel");
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByTestId("welcome-direct-connection").click();
-    await expectConnectionDefaults(page, vortonMode);
+    await expectConnectionDefaults(page);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByTestId("welcome-open-settings").click();
     await page.getByTestId("settings-add-host").click();
     await page.getByTestId("add-host-method-direct").click();
-    await expectConnectionDefaults(page, vortonMode);
+    await expectConnectionDefaults(page);
     await page.getByTestId("direct-host-input").fill("settings-edit.example.com");
     await page.getByTestId("direct-password-input").fill("discard-on-back");
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByTestId("add-host-method-direct").click();
-    await expectConnectionDefaults(page, vortonMode);
+    await expectConnectionDefaults(page);
     expect(
       await page.evaluate(() => JSON.parse(localStorage.getItem("@paseo:daemon-registry") ?? "[]")),
     ).toEqual([]);
 
     // Safari can restore this URL, and Settings Back can also navigate here.
     await page.goto("/open-project");
-    if (vortonMode) {
-      await expect(page.getByTestId("welcome-screen")).toBeVisible();
-      await page.getByTestId("welcome-direct-connection").click();
-      await expectConnectionDefaults(page, true);
-    } else {
-      await expect(page.getByTestId("open-project-submit")).toBeVisible();
-    }
+    await expect(page.getByTestId("welcome-screen")).toBeVisible();
+    await page.getByTestId("welcome-direct-connection").click();
+    await expectConnectionDefaults(page);
   });
 }
 

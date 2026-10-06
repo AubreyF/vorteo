@@ -7,6 +7,8 @@ import {
   applyStoredOrdering,
   buildSidebarWorkspaceEntries,
   buildSidebarWorkspacePlacementModel,
+  collectManagedWorkspacePlacements,
+  type SidebarHierarchySession,
   buildSidebarProjectsFromStructure,
   computeSidebarOrderUpdates,
   createSidebarWorkspaceEntry,
@@ -940,5 +942,207 @@ describe("deriveProjectStatusBucket", () => {
         },
       }),
     ).toBe("done");
+  });
+});
+
+function workerSidebarFixture() {
+  const origin = projectWorkspace("origin", "done");
+  origin.projectId = "origin-project";
+  const execution = projectWorkspace("execution", "running");
+  execution.projectId = "worker-project";
+  execution.workspaceDirectory = "/isolated/worker";
+  const parent = agent({ id: "parent", workspaceId: origin.id, status: "idle" });
+  const worker = agent({
+    id: "worker",
+    workspaceId: execution.id,
+    status: "running",
+    parentAgentId: parent.id,
+  });
+  const agents = new Map([
+    [parent.id, parent],
+    [worker.id, worker],
+  ]);
+  const session: SidebarHierarchySession = {
+    serverId: "srv",
+    agents,
+    workspaces: new Map([
+      [origin.id, origin],
+      [execution.id, execution],
+    ]),
+    hasHydratedAgents: true,
+    client: null,
+    isConnected: false,
+    supportsWorkspaceTerminals: true,
+  };
+  const projects = [
+    project({ projectKey: "origin-project", workspaceKeys: ["srv:origin"] }),
+    project({ projectKey: "worker-project", workspaceKeys: ["srv:execution"] }),
+  ];
+  return { session, projects, origin, execution, parent, worker, agents };
+}
+
+describe("managed worker sidebar placement", () => {
+  it("folds a confirmed worker-only worktree beneath its originating task and project", () => {
+    const fixture = workerSidebarFixture();
+    const managedWorkspaces = collectManagedWorkspacePlacements({
+      projects: fixture.projects,
+      sessions: [fixture.session],
+    });
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces,
+      terminalPresence: new Map([["srv:execution", false]]),
+    });
+    expect(model.projects.map((entry) => entry.viewKey)).toEqual(["origin-project"]);
+    expect(model.workspaces.map((entry) => entry.workspaceKey)).toEqual(["srv:origin"]);
+    expect(model.workspaces[0]?.managedWorkspaceIds).toEqual(["execution"]);
+    expect(fixture.session.agents.get("worker")).toBe(fixture.worker);
+    expect(fixture.worker.workspaceId).toBe("execution");
+    expect(fixture.session.workspaces.get("execution")?.workspaceDirectory).toBe(
+      "/isolated/worker",
+    );
+    const activity = buildWorkspaceAgentActivityIndex(fixture.session.agents);
+    const entries = buildSidebarWorkspaceEntries({
+      placements: model.workspaces,
+      sessions: [
+        {
+          serverId: "srv",
+          workspaces: fixture.session.workspaces,
+          workspaceAgentActivity: activity,
+        },
+      ],
+    });
+    expect(entries.get("srv:origin")?.statusBucket).toBe("running");
+    expect(
+      deriveProjectStatusBucket({
+        workspaces: model.workspaces,
+        sessions: {
+          srv: { workspaces: fixture.session.workspaces, workspaceAgentActivity: activity },
+        },
+      }),
+    ).toBe("running");
+  });
+  it.each([true, undefined])("retains terminal access when presence is %s", (presence) => {
+    const fixture = workerSidebarFixture();
+    const managedWorkspaces = collectManagedWorkspacePlacements({
+      projects: fixture.projects,
+      sessions: [fixture.session],
+    });
+    const terminalPresence = new Map<string, boolean>();
+    if (presence !== undefined) terminalPresence.set("srv:execution", presence);
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces,
+      terminalPresence,
+    });
+    expect(model.projects.map((entry) => entry.viewKey)).toEqual(["origin-project"]);
+    expect(model.workspaces.map((entry) => entry.workspaceKey)).toEqual([
+      "srv:origin",
+      "srv:execution",
+    ]);
+    expect(model.workspaces[1]?.workspaceId).toBe("execution");
+    expect(model.workspaces[1]?.projectViewKey).toBe("origin-project");
+  });
+  it("retains an open independent surface even with a confirmed empty terminal inventory", () => {
+    const fixture = workerSidebarFixture();
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces: collectManagedWorkspacePlacements({
+        projects: fixture.projects,
+        sessions: [fixture.session],
+      }),
+      terminalPresence: new Map([["srv:execution", false]]),
+      preservedWorkspaceKeys: new Set(["srv:execution"]),
+    });
+    expect(model.workspaces.map((entry) => entry.workspaceKey)).toEqual([
+      "srv:origin",
+      "srv:execution",
+    ]);
+  });
+  it("does not hide or relocate an independent task sharing the worker's physical workspace", () => {
+    const fixture = workerSidebarFixture();
+    fixture.agents.set(
+      "independent",
+      agent({ id: "independent", workspaceId: "execution", status: "idle" }),
+    );
+    const managedWorkspaces = collectManagedWorkspacePlacements({
+      projects: fixture.projects,
+      sessions: [fixture.session],
+    });
+    expect(managedWorkspaces).toEqual([]);
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces,
+      terminalPresence: new Map([["srv:execution", false]]),
+    });
+    expect(model.projects.map((entry) => entry.viewKey)).toEqual([
+      "origin-project",
+      "worker-project",
+    ]);
+    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin", "execution"]);
+  });
+  it.each(["missing", "archived", "workspace-missing"])(
+    "preserves visibility when the parent is %s",
+    (state) => {
+      const fixture = workerSidebarFixture();
+      if (state === "missing") fixture.agents.delete("parent");
+      if (state === "archived") fixture.parent.archivedAt = new Date(1);
+      if (state === "workspace-missing") fixture.session.workspaces.delete("origin");
+      expect(
+        collectManagedWorkspacePlacements({
+          projects: fixture.projects,
+          sessions: [fixture.session],
+        }),
+      ).toEqual([]);
+      expect(
+        buildSidebarWorkspacePlacementModel({ projects: fixture.projects }).workspaces.map(
+          (entry) => entry.workspaceId,
+        ),
+      ).toContain("execution");
+    },
+  );
+  it("folds nested execution workspaces beneath the same originating task", () => {
+    const fixture = workerSidebarFixture();
+    const nested = projectWorkspace("nested", "running");
+    nested.projectId = "nested-project";
+    fixture.session.workspaces.set(nested.id, nested);
+    fixture.agents.set(
+      "grandchild",
+      agent({
+        id: "grandchild",
+        workspaceId: nested.id,
+        status: "running",
+        parentAgentId: "worker",
+      }),
+    );
+    fixture.projects.push(project({ projectKey: "nested-project", workspaceKeys: ["srv:nested"] }));
+    const managedWorkspaces = collectManagedWorkspacePlacements({
+      projects: fixture.projects,
+      sessions: [fixture.session],
+    });
+    expect(managedWorkspaces.map((entry) => entry.parentWorkspaceKey)).toEqual([
+      "srv:origin",
+      "srv:origin",
+    ]);
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces,
+      terminalPresence: new Map([
+        ["srv:execution", false],
+        ["srv:nested", false],
+      ]),
+    });
+    expect(model.projects.map((entry) => entry.viewKey)).toEqual(["origin-project"]);
+    expect(model.workspaces[0]?.managedWorkspaceIds).toEqual(["execution", "nested"]);
+  });
+  it("does not fold a workspace while the agent directory is incomplete", () => {
+    const fixture = workerSidebarFixture();
+    fixture.session.hasHydratedAgents = false;
+    expect(
+      collectManagedWorkspacePlacements({
+        projects: fixture.projects,
+        sessions: [fixture.session],
+      }),
+    ).toEqual([]);
   });
 });

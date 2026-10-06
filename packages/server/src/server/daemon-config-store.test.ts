@@ -1,3 +1,10 @@
+import { readInstallationProviders } from "./execution-installation/settings/providers.js";
+import {
+  readInstallationSettings,
+  projectInstallationSettings,
+} from "./execution-installation/settings/projection.js";
+import type { InstallationSettingsAdmission } from "./execution-installation/settings/admission.js";
+import { installationResourceRevision } from "./execution-installation/settings/resource-bindings.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -96,6 +103,472 @@ describe("DaemonConfigStore", () => {
     for (const dir of tempDirs) {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("provider authority replaces portable fields durably without replacing local credentials", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-provider-authority-"));
+    tempDirs.push(home);
+    const binding = {
+      installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+      serverId: "host",
+      environment: "host" as const,
+      revision: 1,
+    };
+    const initial = {
+      ...reloadableConfig({}),
+      providers: {
+        codex: {
+          label: "Before",
+          models: [{ id: "old", label: "Old" }],
+          env: { PRIVATE: "retained" },
+          command: ["/local/codex"],
+        },
+      },
+    };
+    writeFileSync(
+      path.join(home, "config.json"),
+      JSON.stringify({ agents: { providers: initial.providers } }),
+    );
+    const definitions = readInstallationProviders("host", initial.providers);
+    definitions[0].policy = { label: "Shared name", enabled: true };
+    const admission: InstallationSettingsAdmission = {
+      ...binding,
+      installationInstructions: "",
+      settings: { ...readInstallationSettings(initial), providerDefinitions: definitions },
+    };
+    let read = async () => admission;
+    const store = new DaemonConfigStore(
+      home,
+      {
+        ...initial,
+        sharedProviderPreferences: {
+          version: 1,
+          revision: 1,
+          providers: {},
+          legacyProfiles: {},
+          installation: binding,
+        },
+      },
+      undefined,
+      {
+        installationSettingsReader: { read: () => read() },
+        reloadSource: {
+          resolve: (persisted) => ({
+            mutable: reloadableConfig(persisted),
+            overrideControlledPaths: [],
+          }),
+        },
+      },
+    );
+    expect(() => store.patch({ providers: { codex: { label: "Independent" } } })).toThrow(
+      "installation coordinator",
+    );
+    await expect(
+      store.patchFromClient({ providers: { codex: { label: "Independent" } } }),
+    ).rejects.toThrow("installation coordinator");
+    store.patch({ providers: { codex: { env: { PRIVATE: "retained", LOCAL: "new" } } } });
+    const policy = { definitions, excludedIds: [] };
+    await store.patchFromClient({ installationProviderPolicy: policy });
+    expect(store.get().providers.codex).toMatchObject({
+      label: "Shared name",
+      env: { PRIVATE: "retained", LOCAL: "new" },
+      command: ["/local/codex"],
+    });
+    expect(store.get().providers.codex.models).toBeUndefined();
+    const persisted = loadPersistedConfig(home);
+    expect(persisted.agents?.providers?.codex).toMatchObject({
+      label: "Shared name",
+      env: { PRIVATE: "retained", LOCAL: "new" },
+      command: ["/local/codex"],
+    });
+    expect(persisted.agents?.providers?.codex.models).toBeUndefined();
+    const changed = structuredClone(persisted);
+    changed.agents!.providers!.codex.label = "Disk drift";
+    writeFileSync(path.join(home, "config.json"), JSON.stringify(changed));
+    expect(() => store.reload()).toThrow("installation coordinator");
+    expect(store.get().providers.codex.label).toBe("Shared name");
+    writeFileSync(path.join(home, "config.json"), JSON.stringify(persisted));
+    await expect(
+      store.patchFromClient({
+        installationProviderPolicy: { definitions, excludedIds: [definitions[0].id] },
+      }),
+    ).rejects.toThrow("does not match");
+    read = async () => {
+      throw new Error("offline authority");
+    };
+    await expect(store.patchFromClient({ installationProviderPolicy: policy })).rejects.toThrow(
+      "offline authority",
+    );
+    expect(loadPersistedConfig(home)).toEqual(persisted);
+  });
+
+  test("a catalog runtime installs only after enrollment and persists its local command and credentials", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-catalog-enrollment-"));
+    tempDirs.push(home);
+    const binding = {
+      installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+      serverId: "host",
+      environment: "host" as const,
+      revision: 1,
+    };
+    const initial = reloadableConfig({});
+    const admission: InstallationSettingsAdmission = {
+      ...binding,
+      installationInstructions: "",
+      settings: { ...readInstallationSettings(initial), providerDefinitions: [] },
+    };
+    const store = new DaemonConfigStore(
+      home,
+      {
+        ...initial,
+        sharedProviderPreferences: {
+          version: 1,
+          revision: 1,
+          providers: {},
+          legacyProfiles: {},
+          installation: binding,
+        },
+      },
+      undefined,
+      { installationSettingsReader: { read: async () => admission } },
+    );
+    const runtime = {
+      extends: "acp",
+      label: "Shared runtime",
+      command: ["/local/runtime"],
+      env: { PRIVATE_TOKEN: "local-only" },
+    };
+    await expect(
+      store.patchFromClient({ providers: { "catalog-runtime": runtime } }),
+    ).rejects.toThrow("installation coordinator");
+    admission.settings.providerDefinitions = [
+      {
+        id: "catalog/acp/catalog-runtime",
+        providerType: "catalog-runtime",
+        bindings: { host: "catalog-runtime" },
+        policy: { label: "Shared runtime" },
+      },
+      {
+        id: "unrelated-pending",
+        providerType: "codex",
+        bindings: { host: "missing-account" },
+        policy: { label: "Pending account" },
+      },
+    ];
+    await store.patchFromClient({ providers: { "catalog-runtime": runtime } });
+    expect(store.get().providers["catalog-runtime"]).toEqual(runtime);
+    expect(loadPersistedConfig(home).agents?.providers?.["catalog-runtime"]).toEqual(runtime);
+    expect(JSON.stringify(admission.settings)).not.toContain("PRIVATE_TOKEN");
+    await expect(
+      store.patchFromClient({ providers: { "catalog-runtime": { label: "Independent" } } }),
+    ).rejects.toThrow("installation coordinator");
+    expect(store.get().providers["catalog-runtime"]).toEqual(runtime);
+  });
+
+  test("fresh account exclusions reject delayed binding creation before persistence", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-excluded-account-"));
+    tempDirs.push(home);
+    const binding = {
+      installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+      serverId: "host",
+      environment: "host" as const,
+      revision: 1,
+    };
+    const initial = reloadableConfig({});
+    const definition = {
+      id: "shared-account",
+      providerType: "codex",
+      bindings: { host: "local-account" },
+      policy: { label: "Shared", enabled: true },
+    };
+    const admission: InstallationSettingsAdmission = {
+      ...binding,
+      installationInstructions: "",
+      settings: { ...readInstallationSettings(initial), providerDefinitions: [definition] },
+    };
+    const store = new DaemonConfigStore(
+      home,
+      {
+        ...initial,
+        sharedProviderPreferences: {
+          version: 1,
+          revision: 1,
+          providers: {},
+          legacyProfiles: {},
+          installation: binding,
+        },
+      },
+      undefined,
+      { installationSettingsReader: { read: async () => admission } },
+    );
+    const before = loadPersistedConfig(home);
+    admission.settings.resourceExclusions.host = {
+      providerIds: [definition.id],
+      terminalProfileIds: [],
+      metadataProviderIds: [],
+    };
+    await expect(
+      store.createProviderAccountBinding("local-account", {
+        extends: "codex",
+        label: "Shared",
+        enabled: true,
+        env: { CODEX_HOME: path.join(home, "account") },
+      }),
+    ).rejects.toThrow("excluded from this environment");
+    expect(store.get().providers["local-account"]).toBeUndefined();
+    expect(loadPersistedConfig(home)).toEqual(before);
+  });
+
+  test("installation settings reject independent daemon edits but retain local terminal bindings", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-settings-authority-"));
+    tempDirs.push(home);
+    const terminal = { id: "shell", name: "Shell", command: "sh", cwd: "/before" };
+    const store = new DaemonConfigStore(home, {
+      ...reloadableConfig({}),
+      terminalProfiles: [terminal],
+      sharedProviderPreferences: {
+        version: 1,
+        revision: 1,
+        providers: {},
+        legacyProfiles: {},
+        installation: {
+          installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+          serverId: "host",
+          environment: "host",
+          revision: 1,
+        },
+      },
+    });
+    expect(() => store.patch({ appendSystemPrompt: "independent edit" })).toThrow(
+      "installation coordinator",
+    );
+    expect(() => store.patch({ terminalProfiles: [{ ...terminal, command: "bash" }] })).toThrow(
+      "installation coordinator",
+    );
+    store.patch({ terminalProfiles: [{ ...terminal, cwd: "/after" }] });
+    expect(store.get().terminalProfiles).toEqual([{ ...terminal, cwd: "/after" }]);
+    expect(store.get().appendSystemPrompt).toBe("");
+  });
+
+  test("shared policy accepts verified coordinator values, rejects divergence and offline writes, and preserves concurrent local edits", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-settings-admission-"));
+    tempDirs.push(home);
+    const initial = {
+      ...reloadableConfig({}),
+      terminalProfiles: [{ id: "shell", name: "Shell", command: "sh", cwd: "/local" }],
+    };
+    const binding = {
+      installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+      serverId: "host",
+      environment: "host" as const,
+      revision: 1,
+    };
+    const admission: InstallationSettingsAdmission = {
+      ...binding,
+      settings: { ...readInstallationSettings(initial), appendSystemPrompt: "Canonical" },
+      installationInstructions: "",
+    };
+    let read = async () => admission;
+    const store = new DaemonConfigStore(
+      home,
+      {
+        ...initial,
+        sharedProviderPreferences: {
+          version: 1,
+          revision: 1,
+          providers: {},
+          legacyProfiles: {},
+          installation: binding,
+        },
+      },
+      undefined,
+      { installationSettingsReader: { read: () => read() } },
+    );
+    await expect(store.patchFromClient({ appendSystemPrompt: "Independent" })).rejects.toThrow(
+      "installation coordinator",
+    );
+    await expect(store.setAgentSkillSelection({ mode: "custom", skills: [] })).rejects.toThrow(
+      "installation coordinator",
+    );
+    await store.patchFromClient(
+      projectInstallationSettings(admission.settings, "host", store.get()),
+    );
+    expect(store.get().appendSystemPrompt).toBe("Canonical");
+    expect(loadPersistedConfig(home).daemon?.appendSystemPrompt).toBe("Canonical");
+    expect(store.get().terminalProfiles?.[0].cwd).toBe("/local");
+    admission.settings.skills = { selection: { mode: "custom", skills: ["alpha"] } };
+    await store.setAgentSkillSelection(admission.settings.skills.selection);
+    expect(store.get().skills).toEqual(admission.settings.skills);
+    expect(loadPersistedConfig(home).agents?.skills).toEqual(admission.settings.skills);
+    read = async () => {
+      throw new Error("coordinator offline");
+    };
+    await expect(store.patchFromClient({ pluginsEnabled: true })).rejects.toThrow(
+      "coordinator offline",
+    );
+    await store.patchFromClient({
+      terminalProfiles: [{ ...initial.terminalProfiles[0], cwd: "/offline-local-edit" }],
+    });
+    expect(store.get().terminalProfiles?.[0].cwd).toBe("/offline-local-edit");
+    const pending = Promise.withResolvers<InstallationSettingsAdmission>();
+    read = () => pending.promise;
+    const projection = store.patchFromClient({ appendSystemPrompt: "New canonical" });
+    store.patch({ providers: { codex: { env: { LOCAL_BINDING: "retained" } } } });
+    pending.resolve({
+      ...admission,
+      settings: { ...admission.settings, appendSystemPrompt: "New canonical" },
+    });
+    await expect(projection).rejects.toThrow("changed while verifying");
+    expect(store.get().appendSystemPrompt).toBe("Canonical");
+    expect(store.get().providers.codex.env).toEqual({ LOCAL_BINDING: "retained" });
+    read = async () => ({ ...admission, serverId: "another-daemon" });
+    await expect(store.patchFromClient({ pluginsEnabled: true })).rejects.toThrow(
+      "different installation",
+    );
+  });
+
+  test("installation reload rejects independently edited policy without applying unrelated changes", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-settings-reload-"));
+    tempDirs.push(home);
+    const store = new DaemonConfigStore(
+      home,
+      {
+        ...reloadableConfig({}),
+        sharedProviderPreferences: {
+          version: 1,
+          revision: 1,
+          providers: {},
+          legacyProfiles: {},
+          installation: {
+            installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+            serverId: "host",
+            environment: "host",
+            revision: 1,
+          },
+        },
+      },
+      undefined,
+      {
+        reloadSource: {
+          resolve: (persisted) => ({
+            mutable: reloadableConfig(persisted),
+            overrideControlledPaths: [],
+          }),
+        },
+      },
+    );
+    writeFileSync(
+      path.join(home, "config.json"),
+      JSON.stringify({
+        daemon: { appendSystemPrompt: "Local drift", browserTools: { enabled: true } },
+      }),
+    );
+    expect(() => store.reload()).toThrow("installation coordinator");
+    expect(store.get().appendSystemPrompt).toBe("");
+    expect(store.get().browserTools.enabled).toBe(false);
+  });
+
+  test("removing a local account retains canonical metadata choices for other environments", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-settings-account-"));
+    tempDirs.push(home);
+    const metadataGeneration = {
+      providers: [{ provider: "local-account", model: "saved-choice" }],
+    };
+    const store = new DaemonConfigStore(home, {
+      ...reloadableConfig({}),
+      providers: { "local-account": { extends: "codex" } },
+      metadataGeneration,
+      sharedProviderPreferences: {
+        version: 1,
+        revision: 1,
+        providers: {},
+        legacyProfiles: {},
+        installation: {
+          installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+          serverId: "host",
+          environment: "host",
+          revision: 1,
+        },
+      },
+    });
+    store.patch({ removeProviders: ["local-account"] });
+    expect(store.get().providers).toEqual({});
+    expect(store.get().metadataGeneration).toEqual(metadataGeneration);
+    expect(loadPersistedConfig(home).agents?.metadataGeneration).toEqual(metadataGeneration);
+  });
+
+  test("shared resource projection preserves excluded bindings durably and rejects stale local values", () => {
+    const paseoHome = mkdtempSync(path.join(tmpdir(), "paseo-resource-bindings-"));
+    tempDirs.push(paseoHome);
+    const profile = {
+      id: "shell",
+      name: "Shell",
+      command: "sh",
+      cwd: "/original",
+      env: { KEY: "local-only" },
+    };
+    const store = new DaemonConfigStore(paseoHome, {
+      ...reloadableConfig({}),
+      terminalProfiles: [profile],
+    });
+    const revision = installationResourceRevision(store.get());
+    store.patch({ terminalProfiles: [{ ...profile, cwd: "/new-local-path" }] });
+    const projection = {
+      terminalProfiles: [],
+      installationResourceBindings: { terminalProfiles: [profile], metadataProviders: [] },
+      expectedInstallationResourceRevision: revision,
+    };
+    expect(() => store.patch(projection)).toThrow("resource bindings changed");
+    expect(store.get().terminalProfiles?.[0].cwd).toBe("/new-local-path");
+    const current = store.get().terminalProfiles ?? [];
+    store.patch({
+      ...projection,
+      expectedInstallationResourceRevision: installationResourceRevision(store.get()),
+      installationResourceBindings: { terminalProfiles: current, metadataProviders: [] },
+    });
+    expect(store.get().terminalProfiles).toEqual([]);
+    const persisted = loadPersistedConfig(paseoHome);
+    expect(persisted.daemon?.installationResourceBindings?.terminalProfiles).toEqual(current);
+    const restarted = new DaemonConfigStore(paseoHome, {
+      ...reloadableConfig(persisted),
+      installationResourceBindings: persisted.daemon?.installationResourceBindings,
+    });
+    expect(restarted.get().installationResourceBindings?.terminalProfiles).toEqual(current);
+  });
+
+  test("account bindings persist and invalidate a metadata projection prepared before rebinding", () => {
+    const paseoHome = mkdtempSync(path.join(tmpdir(), "paseo-account-bindings-"));
+    tempDirs.push(paseoHome);
+    const initial = reloadableConfig({
+      agents: { metadataGeneration: { providers: [{ provider: "codex", model: "chosen" }] } },
+    });
+    initial.sharedProviderPreferences = {
+      version: 1,
+      revision: 1,
+      providers: {},
+      legacyProfiles: {},
+      installation: {
+        installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+        serverId: "host",
+        environment: "host",
+        revision: 1,
+      },
+    };
+    const store = new DaemonConfigStore(paseoHome, initial);
+    const first = "71fca551-79a4-4af9-b9e6-9ec7222f9e1d";
+    store.patch({ providers: { codex: { installationAccountId: first } } });
+    expect(loadPersistedConfig(paseoHome).agents?.providers?.codex.installationAccountId).toBe(
+      first,
+    );
+    const policy = readInstallationSettings(store.get());
+    const projection = projectInstallationSettings(policy, "host", store.get());
+    store.patch({
+      providers: { codex: { installationAccountId: "8cba85c0-d92b-4fa4-a9e8-773a9f1f01cc" } },
+    });
+    expect(() => store.patch(projection)).toThrow("resource bindings changed");
+    expect(store.get().metadataGeneration.providers).toEqual([
+      { provider: "codex", model: "chosen" },
+    ]);
   });
 
   test("patch persists relay state and emits its field change", () => {
@@ -1225,4 +1698,36 @@ describe("DaemonConfigStore reload", () => {
       overrideControlledPaths: [],
     });
   });
+});
+
+test("registered provider defaults remain visible to migration and reload without persisting runtime inventory", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "provider-inventory-"));
+  try {
+    const store = new DaemonConfigStore(home, reloadableConfig({}), undefined, {
+      reloadSource: {
+        resolve: (persisted) => ({
+          mutable: reloadableConfig(persisted),
+          overrideControlledPaths: [],
+        }),
+      },
+    });
+    store.registerProviderDefaults(["codex", "plugin-provider"]);
+    expect(
+      readInstallationProviders("host", store.get().providers).map((entry) => entry.bindings.host),
+    ).toEqual(["codex", "plugin-provider"]);
+    expect(loadPersistedConfig(home).agents?.providers).toBeUndefined();
+    store.patch({ providers: { codex: { label: "Keep my name", enabled: false } } });
+    store.registerProviderDefaults(["codex", "plugin-provider", "new-plugin"]);
+    store.reload();
+    expect(store.get().providers).toEqual({
+      codex: { label: "Keep my name", enabled: false },
+      "plugin-provider": {},
+      "new-plugin": {},
+    });
+    expect(loadPersistedConfig(home).agents?.providers).toEqual({
+      codex: { label: "Keep my name", enabled: false },
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });

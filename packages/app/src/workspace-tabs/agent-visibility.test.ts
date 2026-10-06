@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import type { Agent } from "@/stores/session-store";
+import { describe, expect, it, vi } from "vitest";
+import { getAgentPresentationIndex } from "@/subagents/policies";
+import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import {
   buildWorkspaceTabSnapshot,
   deriveWorkspaceAgentVisibility,
@@ -129,29 +130,30 @@ describe("workspace agent visibility", () => {
     expect(result.autoOpenAgentIds).toEqual(new Set(["parent-agent"]));
   });
 
-  it("auto-opens a subagent whose parent belongs to another workspace", () => {
-    const parent = makeAgent({
-      id: "parent-agent",
-      cwd: "/repo",
-      workspaceId: "ws-parent",
-    });
+  it("presents an isolated worker beneath its parent without changing execution identity", () => {
+    const parent = makeAgent({ id: "parent", cwd: "/repo", workspaceId: "parent-workspace" });
     const child = makeAgent({
-      id: "child-agent",
-      cwd: "/repo/worktree",
-      workspaceId: WORKSPACE_ID,
+      id: "worker",
+      cwd: "/isolated/worktree",
+      workspaceId: "worker-workspace",
       parentAgentId: parent.id,
     });
-
-    const result = deriveWorkspaceAgentVisibility({
-      sessionAgents: new Map<string, Agent>([
-        [parent.id, parent],
-        [child.id, child],
-      ]),
-      workspaceId: WORKSPACE_ID,
+    const sessionAgents = new Map([
+      [parent.id, parent],
+      [child.id, child],
+    ]);
+    const parentView = deriveWorkspaceAgentVisibility({
+      sessionAgents,
+      workspaceId: parent.workspaceId,
     });
-
-    expect(result.activeAgentIds).toEqual(new Set(["child-agent"]));
-    expect(result.autoOpenAgentIds).toEqual(new Set(["child-agent"]));
+    expect(parentView.activeAgentIds).toEqual(new Set(["parent", "worker"]));
+    expect(parentView.autoOpenAgentIds).toEqual(new Set(["parent"]));
+    expect(
+      deriveWorkspaceAgentVisibility({ sessionAgents, workspaceId: child.workspaceId })
+        .activeAgentIds,
+    ).toEqual(new Set());
+    expect(child.workspaceId).toBe("worker-workspace");
+    expect(child.cwd).toBe("/isolated/worktree");
   });
 
   it("excludes archived agents from the active directory", () => {
@@ -385,4 +387,191 @@ describe("workspace agent visibility", () => {
       expect(workspaceAgentVisibilityEqual(a, b)).toBe(true);
     });
   });
+});
+
+describe("managed worker presentation", () => {
+  it("keeps nested descendants in the originating task with independent tasks alongside them", () => {
+    const parent = makeAgent({ id: "parent", workspaceId: "origin", cwd: "/repo" });
+    const child = makeAgent({
+      id: "child",
+      workspaceId: "worktree-one",
+      cwd: "/worktrees/one",
+      parentAgentId: "parent",
+    });
+    const grandchild = makeAgent({
+      id: "grandchild",
+      workspaceId: "worktree-two",
+      cwd: "/worktrees/two",
+      parentAgentId: "child",
+    });
+    const independent = makeAgent({
+      id: "independent",
+      workspaceId: "worktree-one",
+      cwd: "/worktrees/one",
+    });
+    const sessionAgents = new Map(
+      [parent, child, grandchild, independent].map((entry) => [entry.id, entry]),
+    );
+    const origin = deriveWorkspaceAgentVisibility({ sessionAgents, workspaceId: "origin" });
+    expect(origin.activeAgentIds).toEqual(new Set(["parent", "child", "grandchild"]));
+    expect(origin.autoOpenAgentIds).toEqual(new Set(["parent"]));
+    const worktree = deriveWorkspaceAgentVisibility({ sessionAgents, workspaceId: "worktree-one" });
+    expect(worktree.activeAgentIds).toEqual(new Set(["independent"]));
+    expect(worktree.autoOpenAgentIds).toEqual(new Set(["independent"]));
+    expect(grandchild.cwd).toBe("/worktrees/two");
+    expect(grandchild.workspaceId).toBe("worktree-two");
+  });
+  it.each(["missing", "archived"])("keeps a worker visible when its parent is %s", (state) => {
+    const child = makeAgent({
+      id: "child",
+      workspaceId: "worktree",
+      cwd: "/worktree",
+      parentAgentId: "parent",
+    });
+    const sessionAgents = new Map([[child.id, child]]);
+    if (state === "archived")
+      sessionAgents.set(
+        "parent",
+        makeAgent({ id: "parent", workspaceId: "origin", cwd: "/repo", archivedAt: new Date(1) }),
+      );
+    const result = deriveWorkspaceAgentVisibility({ sessionAgents, workspaceId: "worktree" });
+    expect(result.activeAgentIds).toEqual(new Set(["child"]));
+    expect(result.autoOpenAgentIds).toEqual(new Set(["child"]));
+  });
+  it("keeps descendants with the nearest live ancestor when the originating parent is absent", () => {
+    const child = makeAgent({
+      id: "child",
+      workspaceId: "worktree",
+      cwd: "/worktree",
+      parentAgentId: "absent",
+    });
+    const grandchild = makeAgent({
+      id: "grandchild",
+      workspaceId: "nested",
+      cwd: "/nested",
+      parentAgentId: "child",
+    });
+    const result = deriveWorkspaceAgentVisibility({
+      sessionAgents: new Map([
+        [child.id, child],
+        [grandchild.id, grandchild],
+      ]),
+      workspaceId: "worktree",
+    });
+    expect(result.activeAgentIds).toEqual(new Set(["child", "grandchild"]));
+    expect(result.autoOpenAgentIds).toEqual(new Set(["child"]));
+  });
+  it("does not hide workers whose parent metadata contains a cycle", () => {
+    const one = makeAgent({
+      id: "one",
+      workspaceId: "one-workspace",
+      cwd: "/one",
+      parentAgentId: "two",
+    });
+    const two = makeAgent({
+      id: "two",
+      workspaceId: "two-workspace",
+      cwd: "/two",
+      parentAgentId: "one",
+    });
+    const sessionAgents = new Map([
+      [one.id, one],
+      [two.id, two],
+    ]);
+    expect(
+      deriveWorkspaceAgentVisibility({ sessionAgents, workspaceId: one.workspaceId })
+        .autoOpenAgentIds,
+    ).toEqual(new Set(["one"]));
+    expect(
+      deriveWorkspaceAgentVisibility({ sessionAgents, workspaceId: two.workspaceId })
+        .autoOpenAgentIds,
+    ).toEqual(new Set(["two"]));
+  });
+});
+
+it("keeps a worker accessible if its parent workspace is no longer in the active directory", () => {
+  const parent = makeAgent({ id: "parent", workspaceId: "gone", cwd: "/repo" });
+  const child = makeAgent({
+    id: "child",
+    workspaceId: "execution",
+    cwd: "/worktree",
+    parentAgentId: "parent",
+  });
+  const sessionAgents = new Map([
+    [parent.id, parent],
+    [child.id, child],
+  ]);
+  const result = deriveWorkspaceAgentVisibility({
+    sessionAgents,
+    workspaceId: "execution",
+    workspaces: new Map(),
+  });
+  expect(result.activeAgentIds).toEqual(new Set(["child"]));
+  expect(result.autoOpenAgentIds).toEqual(new Set(["child"]));
+});
+it("reuses ancestry indexes without rescanning unchanged metadata and separates workspace availability contexts", () => {
+  const parent = makeAgent({ id: "parent", workspaceId: "origin", cwd: "/repo" });
+  const child = makeAgent({
+    id: "child",
+    workspaceId: "execution",
+    cwd: "/worktree",
+    parentAgentId: "parent",
+  });
+  const agents = new Map([
+    [parent.id, parent],
+    [child.id, child],
+  ]);
+  const withoutDirectory = getAgentPresentationIndex(agents);
+  const unavailableWorkspaces = new Map<string, WorkspaceDescriptor>();
+  const withDirectory = getAgentPresentationIndex(agents, unavailableWorkspaces);
+  expect(withoutDirectory.get("child")?.workspaceId).toBe("origin");
+  expect(withDirectory.get("child")?.workspaceId).toBe("execution");
+  const scanning = vi.spyOn(agents, "values").mockImplementation(() => {
+    throw new Error("Unexpected ancestry rescan");
+  });
+  try {
+    expect(getAgentPresentationIndex(agents)).toBe(withoutDirectory);
+    expect(getAgentPresentationIndex(agents, unavailableWorkspaces)).toBe(withDirectory);
+  } finally {
+    scanning.mockRestore();
+  }
+  const archived = new Map(agents);
+  archived.set(parent.id, { ...parent, archivedAt: new Date(1) });
+  expect(getAgentPresentationIndex(archived).get("child")?.workspaceId).toBe("execution");
+});
+
+it("keeps execution-workspace recovery when the parent workspace remains available", () => {
+  const parent = makeAgent({ id: "parent", workspaceId: "origin", cwd: "/repo" });
+  const child = makeAgent({
+    id: "child",
+    workspaceId: "execution",
+    cwd: "/worktree",
+    parentAgentId: "parent",
+  });
+  const origin: WorkspaceDescriptor = {
+    id: "origin",
+    projectId: "project",
+    projectDisplayName: "project",
+    projectRootPath: "/repo",
+    workspaceDirectory: "/repo",
+    projectKind: "git",
+    workspaceKind: "local_checkout",
+    name: "origin",
+    status: "done",
+    statusEnteredAt: null,
+    archivingAt: null,
+    diffStat: null,
+    scripts: [],
+  };
+  const sessionAgents = new Map([
+    [parent.id, parent],
+    [child.id, child],
+  ]);
+  const result = deriveWorkspaceAgentVisibility({
+    sessionAgents,
+    workspaceId: "execution",
+    workspaces: new Map([[origin.id, origin]]),
+  });
+  expect(result.activeAgentIds).toEqual(new Set(["child"]));
+  expect(result.autoOpenAgentIds).toEqual(new Set(["child"]));
 });

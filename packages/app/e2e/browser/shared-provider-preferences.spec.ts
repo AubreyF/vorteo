@@ -10,7 +10,6 @@ import {
   submitDraftAgent,
   waitForDraftComposer,
 } from "../support/helpers/command-center-agent-controls";
-import { setVortonMode } from "../support/helpers/app";
 import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 
@@ -77,7 +76,7 @@ test("shared choices survive account changes, reject unavailable reasoning, and 
   try {
     await openAgentRoute(page, workspace);
     await expectComposerVisible(page);
-    await setVortonMode(page, true);
+
     await page.getByTestId("agent-preset-selector").click();
     await page.getByTestId("preset-account-shared-one").click();
     await page.getByTestId("shared-thinking-trigger").click();
@@ -152,8 +151,7 @@ test("shared choices survive account changes, reject unavailable reasoning, and 
     await expect(page.getByTestId("preset-manage-profiles")).toHaveCount(0);
     await page.setViewportSize({ width: 1280, height: 900 });
     await expect(page.getByTestId("sidebar-footer-overflow")).toBeVisible();
-    await setVortonMode(page, false);
-    await expect(page.getByTestId("agent-preset-selector")).toHaveCount(0);
+    await expect(page.getByTestId("agent-preset-selector")).toBeVisible();
   } finally {
     await workspace.cleanup();
     const current = (await client.getDaemonConfig()).config.sharedProviderPreferences!;
@@ -226,7 +224,7 @@ test("shared launch freezes permissions and recreation uses the updated workflow
     expect((await client.fetchAgent(agent.id))!.agent.currentModeId).toBe("load-test");
     await openAgentRoute(page, { workspaceId: workspace.workspaceId, agentId: agent.id });
     await expectComposerVisible(page);
-    await setVortonMode(page, true);
+
     await expect(page.getByTestId("profile-permission-warning")).toContainText(
       "saved profile uses Approval Test",
     );

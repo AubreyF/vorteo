@@ -6,7 +6,7 @@ Use the [team handoff guide](host-handoff.md) to choose fresh installation, exis
 
 ## Updates from the app
 
-In Vorteo mode, the app checks public `AubreyF/paseo` main every 30 minutes while open. Settings → General shows the comparison with the interface's build commit. This checks source commits, not tested releases or the running daemon version. Unpublished commits and builds without provenance show an unknown comparison instead of claiming an update is available.
+The app checks public `AubreyF/paseo` main every 30 minutes while open. Settings → General shows the comparison with the interface's build commit. This checks source commits, not tested releases or the running daemon version. Unpublished commits and builds without provenance show an unknown comparison instead of claiming an update is available.
 
 In the optional [host and container installation](execution-installation.md), **Prepare host update task** opens a separate editable draft targeting the trusted native host. Select the Vorteo source project and an agent preset, review the task, and send it. The task preserves local changes and requires approval before an installation restart. It does not run Git or start an agent until you send the draft. Updating a checkout alone does not update the served application.
 
@@ -47,4 +47,4 @@ All publishers must use this guarded script. Retire old script copies and direct
 
 The persistent web directory must be mounted and selected by `PASEO_WEB_UI_DIST_DIR`. Do not substitute a lone index file that references stale bundles. Web publication does not require a daemon restart. Do not restart the primary daemon without explicit permission. Server or protocol changes require a separately tested daemon build and coordinated interruption; web publication cannot activate them.
 
-For interface changes, compare Vorteo off and on and follow [the touch audit](vorton-touch-audit.md). Record physical-device acceptance privately. Do not call source-only changes deployed or infer provider authentication from configuration names.
+For interface changes, follow [the touch audit](vorton-touch-audit.md). Record physical-device acceptance privately. Do not call source-only changes deployed or infer provider authentication from configuration names.

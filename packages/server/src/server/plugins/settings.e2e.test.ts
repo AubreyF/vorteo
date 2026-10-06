@@ -1,3 +1,9 @@
+import {
+  projectInstallationPlugins,
+  readInstallationPlugins,
+} from "../execution-installation/settings/plugins.js";
+import { pathToFileURL } from "node:url";
+import { runGitCommand } from "../../utils/run-git-command.js";
 import { resolveDaemonVersion } from "../daemon-version.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -188,3 +194,147 @@ export default function(server) {
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("two daemons install the same pinned source through the client without starting disabled copies", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "shared-plugin-source-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const repository = path.join(root, "repository");
+  const marker = path.join(root, "started");
+  await mkdir(repository);
+  await writeFile(
+    path.join(repository, "paseo-plugin.json"),
+    JSON.stringify({
+      id: "shared-source",
+      requirements: { paseo: `>=${resolveDaemonVersion(import.meta.url)}` },
+    }),
+  );
+  await writeFile(
+    path.join(repository, "index.server.ts"),
+    `import { writeFileSync } from "node:fs";
+export default function contribute() { writeFileSync(${JSON.stringify(marker)}, "started"); return () => undefined; }`,
+  );
+  await runGitCommand(["init", "-b", "main"], { cwd: repository });
+  await runGitCommand(["config", "user.name", "Paseo Tests"], { cwd: repository });
+  await runGitCommand(["config", "user.email", "paseo@example.test"], { cwd: repository });
+  await runGitCommand(["add", "-A"], { cwd: repository });
+  await runGitCommand(["commit", "-m", "initial"], { cwd: repository });
+  const first = await createTestPaseoDaemon({ pluginsEnabled: true });
+  onTestFinished(() => first.close());
+  const second = await createTestPaseoDaemon({ pluginsEnabled: true });
+  onTestFinished(() => second.close());
+  const host = new DaemonClient({ url: `ws://127.0.0.1:${first.port}/ws` });
+  const dev = new DaemonClient({ url: `ws://127.0.0.1:${second.port}/ws` });
+  onTestFinished(() => host.close());
+  onTestFinished(() => dev.close());
+  await Promise.all([host.connect(), dev.connect()]);
+  const resolved = await host.resolvePluginSource({ source: pathToFileURL(repository).href });
+  expect(resolved.kind).toBe("git");
+  await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await host.listPlugins()).toEqual([]);
+  await writeFile(path.join(repository, "later.txt"), "not selected");
+  await runGitCommand(["add", "-A"], { cwd: repository });
+  await runGitCommand(["commit", "-m", "later"], { cwd: repository });
+  const disabled = await host.installResolvedPluginSource({ resolved, enabled: false });
+  expect(disabled.status).toBe("disabled");
+  await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  const enabled = await dev.installResolvedPluginSource({ resolved, enabled: true });
+  expect(enabled.status).toBe("running");
+  expect(await readFile(marker, "utf8")).toBe("started");
+  if (resolved.kind === "git") {
+    expect(disabled.commit).toBe(resolved.target.commit);
+    expect(enabled.commit).toBe(resolved.target.commit);
+  }
+  for (const installed of [disabled, enabled]) {
+    await expect(readFile(path.join(installed.path, "later.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  }
+  const shared = [{ id: resolved.id, source: resolved, enabled: true }];
+  expect(readInstallationPlugins(await dev.listPlugins())).toEqual(shared);
+  await projectInstallationPlugins(dev, shared, [resolved.id]);
+  expect(await dev.listPlugins()).toMatchObject([
+    { path: enabled.path, enabled: false, status: "disabled" },
+  ]);
+  await rm(marker);
+  await projectInstallationPlugins(dev, shared, [resolved.id]);
+  await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  await projectInstallationPlugins(dev, shared, []);
+  expect(await readFile(marker, "utf8")).toBe("started");
+  expect(await dev.listPlugins()).toMatchObject([
+    { path: enabled.path, enabled: true, status: "running" },
+  ]);
+  await projectInstallationPlugins(host, shared, []);
+  expect(await host.listPlugins()).toMatchObject([
+    { path: disabled.path, enabled: true, status: "running" },
+  ]);
+  const updatedSource = await host.resolvePluginSource({ source: pathToFileURL(repository).href });
+  const updated = [{ id: resolved.id, source: updatedSource, enabled: true }];
+  await projectInstallationPlugins(dev, updated, []);
+  expect(readInstallationPlugins(await dev.listPlugins())).toEqual(updated);
+  const devUpdated = (await dev.listPlugins())[0];
+  expect(await readFile(path.join(devUpdated.path, "later.txt"), "utf8")).toBe("not selected");
+  expect(readInstallationPlugins(await host.listPlugins())).toEqual(shared);
+}, 60_000);
+
+test("directory binding RPC preserves disabled state and rejects stale replacement paths", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "directory-binding-rpc-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const directories = [path.join(root, "original"), path.join(root, "replacement")];
+  const marker = path.join(root, "started");
+  for (const directory of directories) {
+    await mkdir(directory);
+    await writeFile(
+      path.join(directory, "paseo-plugin.json"),
+      JSON.stringify({
+        id: "local",
+        requirements: { paseo: `>=${resolveDaemonVersion(import.meta.url)}` },
+      }),
+    );
+    await writeFile(
+      path.join(directory, "index.server.ts"),
+      `import { writeFileSync } from "node:fs"; export default function() { writeFileSync(${JSON.stringify(marker)}, "started"); return () => {}; }`,
+    );
+  }
+  const daemon = await createTestPaseoDaemon({ pluginsEnabled: true });
+  onTestFinished(() => daemon.close());
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
+  onTestFinished(() => client.close());
+  await client.connect();
+  const installed = await client.bindDirectoryPlugin({
+    id: "stable-id",
+    path: directories[0],
+    expectedPath: null,
+    enabled: false,
+  });
+  expect(installed).toMatchObject({
+    id: "stable-id",
+    path: directories[0],
+    enabled: false,
+    status: "disabled",
+  });
+  await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(
+    client.bindDirectoryPlugin({
+      id: "stable-id",
+      path: directories[1],
+      expectedPath: null,
+      enabled: false,
+    }),
+  ).rejects.toThrow("binding changed");
+  const replaced = await client.bindDirectoryPlugin({
+    id: "stable-id",
+    path: directories[1],
+    expectedPath: directories[0],
+    enabled: false,
+  });
+  expect(replaced).toMatchObject({
+    id: "stable-id",
+    path: directories[1],
+    enabled: false,
+    status: "disabled",
+  });
+  await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readFile(path.join(directories[0], "paseo-plugin.json"), "utf8")).toContain(
+    '"id":"local"',
+  );
+});

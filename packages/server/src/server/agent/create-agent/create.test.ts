@@ -1,3 +1,5 @@
+import { readInstallationSettings } from "../../execution-installation/settings/projection.js";
+import { readInstallationProviders } from "../../execution-installation/settings/providers.js";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +15,7 @@ import { createAgentCommand } from "./create.js";
 import { QuotaReservePolling } from "../quota-reserve/polling.js";
 import { ProviderUsageService } from "../../../services/quota-fetcher/service.js";
 import type { ManagedAgent } from "../agent-manager.js";
+import { MutableDaemonConfigSchema } from "@getpaseo/protocol/messages";
 
 const logger = createTestLogger();
 
@@ -645,7 +648,7 @@ test("a quota drop during creation reports the created agent for cleanup and nev
   }
 });
 
-test("a shared supervisor validates its frozen worker without rereading current preferences", async () => {
+test("a shared supervisor retains frozen worker values after inspecting installation context", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "shared-worker-test-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
   const agentManager = createRealAgentManager(storage);
@@ -672,7 +675,10 @@ test("a shared supervisor validates its frozen worker without rereading current 
       { workspaceId: "ws-shared-worker", owner: { kind: "user" } },
     );
     const getSharedProviderConfig = vi.fn(() => {
-      throw new Error("Must use the frozen snapshot");
+      return MutableDaemonConfigSchema.parse({
+        mcp: { injectIntoAgents: false },
+        agentProfiles: [{ ...worker, model: "changed-model" }],
+      });
     });
     const validateSharedConfiguration = vi
       .fn()
@@ -698,7 +704,7 @@ test("a shared supervisor validates its frozen worker without rereading current 
         },
       ),
     ).rejects.toThrow("Frozen worker model is unavailable");
-    expect(getSharedProviderConfig).not.toHaveBeenCalled();
+    expect(getSharedProviderConfig).toHaveBeenCalledTimes(1);
     expect(validateSharedConfiguration).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "gpt-5.4",
@@ -707,6 +713,304 @@ test("a shared supervisor validates its frozen worker without rereading current 
       }),
     );
     expect(agentManager.listAgents()).toHaveLength(1);
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
+test("new managed worker dispatch checks current installation exclusions and fails closed offline", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "installation-worker-admission-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+  try {
+    const worker = {
+      id: "shared-workflow/codex/worker",
+      name: "Worker",
+      provider: "codex",
+      model: "gpt-5.4",
+    };
+    const parent = await agentManager.createAgent(
+      {
+        provider: "codex",
+        cwd: workdir,
+        profileLaunch: {
+          profile: { id: "team", name: "Team", provider: "codex", workerProfileId: worker.id },
+          worker,
+        },
+      },
+      undefined,
+      { workspaceId: "worker-admission-workspace", owner: { kind: "user" } },
+    );
+    const cached = MutableDaemonConfigSchema.parse({
+      mcp: { injectIntoAgents: false },
+      sharedProviderPreferences: {
+        version: 1,
+        revision: 1,
+        legacyProfiles: {},
+        providers: {},
+        installation: {
+          installationId: "00000000-0000-4000-8000-000000000001",
+          environment: "host",
+          serverId: "host",
+          revision: 1,
+        },
+      },
+    });
+    const canonical = MutableDaemonConfigSchema.parse({
+      ...cached,
+      sharedProviderPreferences: {
+        ...cached.sharedProviderPreferences,
+        version: 1,
+        revision: 2,
+        legacyProfiles: {},
+        providers: {
+          codex: {
+            defaults: {},
+            preferredModels: [],
+            preferredThinkingOptions: [],
+            defaultWorkflowId: null,
+            workflows: [{ ...worker, id: "worker", excludedEnvironments: ["host"] }],
+          },
+        },
+      },
+    }).sharedProviderPreferences;
+    if (!canonical) throw new Error("missing canonical profiles");
+    let offline = false;
+    let reads = 0;
+    const dependencies: Parameters<typeof createAgentCommand>[0] = {
+      agentManager,
+      agentStorage: storage,
+      logger,
+      providerSnapshotManager: {
+        resolveCreateConfig: async () => {
+          throw new Error("Unexpected provider preparation");
+        },
+      },
+      getSharedProviderConfig: () => cached,
+      installationProfileReader: {
+        read: async () => {
+          reads++;
+          if (offline) throw new Error("coordinator offline");
+          return canonical;
+        },
+      },
+    };
+    const input: Parameters<typeof createAgentCommand>[1] = {
+      kind: "mcp",
+      provider: "codex/gpt-5.4",
+      profileId: worker.id,
+      callerAgentId: parent.id,
+      title: "Worker",
+      background: true,
+      notifyOnFinish: false,
+    };
+    await expect(createAgentCommand(dependencies, input)).rejects.toThrow("excluded from the host");
+    offline = true;
+    await expect(createAgentCommand(dependencies, input)).rejects.toThrow("coordinator offline");
+    expect(reads).toBe(2);
+    expect(agentManager.listAgents().map((agent) => agent.id)).toEqual([parent.id]);
+    expect(agentManager.getAgent(parent.id)?.config.profileLaunch?.worker).toEqual(worker);
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
+test("profileless installation tasks require fresh settings authority before registration", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "shared-skills-launch-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+  const binding = {
+    installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+    serverId: "host",
+    environment: "host" as const,
+    revision: 1,
+  };
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    sharedProviderPreferences: {
+      version: 1,
+      revision: 1,
+      providers: {},
+      legacyProfiles: {},
+      installation: binding,
+    },
+  });
+  let reads = 0;
+  try {
+    await expect(
+      createAgentCommand(
+        {
+          agentManager,
+          agentStorage: storage,
+          logger,
+          providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+          getSharedProviderConfig: () => settings,
+          installationSettingsReader: {
+            async read(received) {
+              expect(received).toEqual(binding);
+              reads++;
+              throw new Error("Coordinator offline");
+            },
+          },
+        },
+        {
+          kind: "session",
+          config: { provider: "codex", cwd: workdir },
+          workspaceId: "shared-skills",
+          initialPrompt: "Do not start",
+          labels: {},
+          provisionalTitle: null,
+          firstAgentContext: { attachments: [] },
+          buildSessionConfig: async (config) => ({ sessionConfig: config }),
+        },
+      ),
+    ).rejects.toThrow("Coordinator offline");
+    expect(reads).toBe(1);
+    expect(agentManager.listAgents()).toEqual([]);
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
+test("direct task creation cannot bypass an excluded provider using stale enabled local settings", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "shared-provider-launch-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+  const binding = {
+    installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+    serverId: "host",
+    environment: "host" as const,
+    revision: 1,
+  };
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    providers: { codex: { enabled: true } },
+    sharedProviderPreferences: {
+      version: 1,
+      revision: 1,
+      providers: {},
+      legacyProfiles: {},
+      installation: binding,
+    },
+  });
+  const definitions = readInstallationProviders("host", settings.providers);
+  try {
+    await expect(
+      createAgentCommand(
+        {
+          agentManager,
+          agentStorage: storage,
+          logger,
+          providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+          getSharedProviderConfig: () => settings,
+          installationSettingsReader: {
+            async read() {
+              return {
+                ...binding,
+                revision: 2,
+                installationInstructions: "",
+                settings: {
+                  ...readInstallationSettings(settings),
+                  skillLibrary: [],
+                  providerDefinitions: definitions,
+                  resourceExclusions: {
+                    host: {
+                      terminalProfileIds: [],
+                      metadataProviderIds: [],
+                      providerIds: [definitions[0].id],
+                    },
+                  },
+                },
+              };
+            },
+          },
+        },
+        {
+          kind: "session",
+          config: { provider: "codex", cwd: workdir },
+          workspaceId: "shared-provider",
+          initialPrompt: "Do not start",
+          labels: {},
+          provisionalTitle: null,
+          firstAgentContext: { attachments: [] },
+          buildSessionConfig: async (config) => ({ sessionConfig: config }),
+        },
+      ),
+    ).rejects.toThrow("excluded from this environment");
+    expect(agentManager.listAgents()).toEqual([]);
+    expect(settings.providers.codex.enabled).toBe(true);
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
+test("account rebinding during authority lookup rejects the task before registration", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "shared-provider-launch-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+  const binding = {
+    installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+    serverId: "host",
+    environment: "host" as const,
+    revision: 1,
+  };
+  let settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    providers: { codex: { enabled: true } },
+    sharedProviderPreferences: {
+      version: 1,
+      revision: 1,
+      providers: {},
+      legacyProfiles: {},
+      installation: binding,
+    },
+  });
+  const definitions = readInstallationProviders("host", settings.providers);
+  try {
+    await expect(
+      createAgentCommand(
+        {
+          agentManager,
+          agentStorage: storage,
+          logger,
+          providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+          getSharedProviderConfig: () => settings,
+          installationSettingsReader: {
+            async read() {
+              settings = MutableDaemonConfigSchema.parse({
+                ...settings,
+                providers: {
+                  ...settings.providers,
+                  codex: { ...settings.providers.codex, env: { CODEX_HOME: "/different-account" } },
+                },
+              });
+              return {
+                ...binding,
+                revision: 2,
+                installationInstructions: "",
+                settings: {
+                  ...readInstallationSettings(settings),
+                  skillLibrary: [],
+                  providerDefinitions: definitions,
+                },
+              };
+            },
+          },
+        },
+        {
+          kind: "session",
+          config: { provider: "codex", cwd: workdir },
+          workspaceId: "shared-provider",
+          initialPrompt: "Do not start",
+          labels: {},
+          provisionalTitle: null,
+          firstAgentContext: { attachments: [] },
+          buildSessionConfig: async (config) => ({ sessionConfig: config }),
+        },
+      ),
+    ).rejects.toThrow("changed during launch");
+    expect(agentManager.listAgents()).toEqual([]);
+    expect(settings.providers.codex.env).toEqual({ CODEX_HOME: "/different-account" });
   } finally {
     await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
   }

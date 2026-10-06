@@ -1,6 +1,17 @@
+import {
+  SkillSourceSchema,
+  InstallationSkillSchema,
+  SkillPackageSchema,
+} from "@getpaseo/protocol/skill-library";
+import { InstallationSkillPackages } from "./settings/skill-packages.js";
+import {
+  PluginSourceResolutionInputSchema,
+  ResolvedPluginSourceSchema,
+} from "@getpaseo/protocol/plugin-installation";
 import { OwnerSessions, OWNER_SESSION_MAX_AGE } from "./owner-sessions.js";
 import { createInstallationProfiles } from "./profiles/runtime.js";
 import { ProfileSharingConflict } from "./profiles/merge.js";
+import { ProviderPreferencesValidationError } from "../agent/provider-preferences/validation.js";
 import type { InstallationProfiles } from "./profiles/service.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, mkdirSync, openSync, fsyncSync, closeSync } from "node:fs";
@@ -13,6 +24,7 @@ import {
   type RestartJob,
   RestartRequestSchema,
   RestartDecisionSchema,
+  InstallationProfilesPatchSchema,
 } from "@getpaseo/protocol/execution-installation";
 import { extractHttpBearerToken, isBearerTokenValidAsync } from "../auth.js";
 import { writePrivateFileAtomicSync } from "../private-files.js";
@@ -21,6 +33,20 @@ import { InstallationRestarts, RestartRequestError, type RestartExecutor } from 
 import type { InstallationConfig } from "./config.js";
 import { connectInstallationDaemon } from "./daemon.js";
 import { delegateToContainer, DelegationRequestSchema } from "./delegation.js";
+import { InstallationSettingsUpdateSchema } from "@getpaseo/protocol/installation-settings";
+import { AgentSkillSelectionSchema } from "@getpaseo/protocol/messages";
+import {
+  createInstallationSettings,
+  installationHostInstructions,
+  resolveInstallationPluginSource,
+  type InstallationPluginSourceResolver,
+} from "./settings/runtime.js";
+import {
+  InstallationSettingsConflict,
+  InstallationSettingsInvalidUpdate,
+  InstallationSettingsNotInitialized,
+  type InstallationSettingsService,
+} from "./settings/service.js";
 
 function matchesToken(token: string | null, hash: string): boolean {
   if (!token) return false;
@@ -46,6 +72,9 @@ export function createInstallationServer(
   executor: RestartExecutor,
   logger: Logger,
   profiles: InstallationProfiles = createInstallationProfiles(config),
+  settings: InstallationSettingsService = createInstallationSettings(config),
+  resolvePluginSource: InstallationPluginSourceResolver = (input) =>
+    resolveInstallationPluginSource(config, input),
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const journal = path.join(config.stateDir, "restart-jobs.json");
@@ -126,7 +155,7 @@ export function createInstallationServer(
     res.setHeader("Cache-Control", "no-store");
     next();
   });
-  app.use(express.json({ limit: "16kb" }));
+  app.use(express.json({ limit: "1mb" }));
   app.get("/api/installation/health", (_req, res) =>
     res.json({ installationId: config.public.installationId }),
   );
@@ -138,6 +167,54 @@ export function createInstallationServer(
       requested: jobs.filter((job) => job.status === "pending").length,
       queued: jobs.filter((job) => job.status === "approved").length,
       running: jobs.filter((job) => job.status === "running").length,
+    });
+  });
+
+  app.get("/api/installation/profiles/admission", (req, res) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    let kind: "host" | "container";
+    if (matchesToken(token, config.hostAgentTokenHash)) kind = "host";
+    else if (matchesToken(token, config.containerAgentTokenHash)) kind = "container";
+    else {
+      res.sendStatus(401);
+      return;
+    }
+    const environment = config.public.environments.find((item) => item.kind === kind);
+    if (!environment || !profiles.snapshot()) {
+      res.sendStatus(503);
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      installationId: config.public.installationId,
+      environment: kind,
+      serverId: environment.serverId,
+      preferences: profiles.admission(environment.serverId),
+    });
+  });
+
+  app.get("/api/installation/settings/admission", (req, res) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    let kind: "host" | "container";
+    if (matchesToken(token, config.hostAgentTokenHash)) kind = "host";
+    else if (matchesToken(token, config.containerAgentTokenHash)) kind = "container";
+    else {
+      res.sendStatus(401);
+      return;
+    }
+    const environment = config.public.environments.find((item) => item.kind === kind);
+    const snapshot = settings.snapshot();
+    if (!environment || !snapshot.settings) {
+      res.sendStatus(503);
+      return;
+    }
+    res.json({
+      installationId: config.public.installationId,
+      serverId: environment.serverId,
+      environment: kind,
+      revision: snapshot.revision,
+      settings: snapshot.settings,
+      installationInstructions: kind === "host" ? installationHostInstructions(config) : "",
     });
   });
 
@@ -263,6 +340,66 @@ export function createInstallationServer(
     sendConnections(req, res);
   });
   app.post("/api/installation/owner/profiles/query", (_req, res) => res.json(profiles.status()));
+  app.post("/api/installation/owner/settings/read", (_req, res) => {
+    res.json(settings.snapshot());
+  });
+  app.post("/api/installation/owner/settings/plugins/resolve", (req, res, next) => {
+    const input = PluginSourceResolutionInputSchema.parse(req.body);
+    void resolvePluginSource(input)
+      .then((resolved) => ResolvedPluginSourceSchema.parse(resolved))
+      .then((resolved) => res.json(resolved), next);
+  });
+  app.post("/api/installation/owner/settings/skills/package", (req, res) => {
+    const input = z.strictObject({ definition: InstallationSkillSchema }).parse(req.body);
+    const packages = new InstallationSkillPackages(
+      path.join(config.stateDir, "shared-settings/skill-packages"),
+    );
+    res.json({ package: packages.read(input.definition) });
+  });
+  app.post("/api/installation/owner/settings/skills/prepare", (req, res, next) => {
+    const input = z.strictObject({ source: SkillSourceSchema }).parse(req.body);
+    const packages = new InstallationSkillPackages(
+      path.join(config.stateDir, "shared-settings/skill-packages"),
+    );
+    void packages
+      .prepare(input.source)
+      .then((prepared) =>
+        z
+          .strictObject({
+            definition: InstallationSkillSchema,
+            package: SkillPackageSchema,
+          })
+          .parse(prepared),
+      )
+      .then((prepared) => res.json(prepared), next);
+  });
+  app.post("/api/installation/owner/settings/skills/preview", (req, res, next) => {
+    const input = z.strictObject({ selection: AgentSkillSelectionSchema }).parse(req.body);
+    void settings.previewSkills(input.selection).then((sources) => res.json({ sources }), next);
+  });
+  app.patch("/api/installation/owner/settings", (req, res, next) => {
+    const input = InstallationSettingsUpdateSchema.parse(req.body);
+    void settings.update(input).then((snapshot) => res.json(snapshot), next);
+  });
+  const readProfiles = (_req: Request, res: Response) => {
+    const snapshot = profiles.snapshot();
+    if (!snapshot) {
+      res.sendStatus(503);
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(snapshot);
+  };
+  app.get("/api/installation/owner/profiles", readProfiles);
+  app.post("/api/installation/owner/profiles/read", readProfiles);
+  app.patch("/api/installation/owner/profiles", (req, res, next) => {
+    const input = InstallationProfilesPatchSchema.parse(req.body);
+    if (!profiles.snapshot()) {
+      res.sendStatus(503);
+      return;
+    }
+    void profiles.patch(input).then((snapshot) => res.json(snapshot), next);
+  });
   app.post("/api/installation/owner/profiles/synchronize", (_req, res, next) => {
     void profiles.synchronize().then(() => res.json(profiles.status()), next);
   });
@@ -319,6 +456,21 @@ export function createInstallationServer(
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: "Invalid request" });
+      return;
+    }
+    if (error instanceof ProviderPreferencesValidationError) {
+      res.status(400).json({ error: error.message, reference: error.reference });
+      return;
+    }
+    if (error instanceof InstallationSettingsInvalidUpdate) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    if (
+      error instanceof InstallationSettingsConflict ||
+      error instanceof InstallationSettingsNotInitialized
+    ) {
+      res.status(409).json({ error: error.message });
       return;
     }
     if (error instanceof ProfileSharingConflict || error instanceof RestartRequestError) {

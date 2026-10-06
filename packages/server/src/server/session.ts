@@ -1,3 +1,4 @@
+import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
 import {
   planProviderRemoval,
@@ -509,12 +510,22 @@ export interface SessionOptions {
     installDirectory(input: {
       path: string;
       id?: string;
+      binding?: import("@getpaseo/protocol/plugin-installation").PluginDirectoryBinding;
     }): Promise<import("@getpaseo/protocol/messages").PluginListItem>;
     inspectDirectory(path: string): Promise<{ id: string }>;
     installSource(input: {
       source: string;
       id?: string;
       ref?: string;
+    }): Promise<import("@getpaseo/protocol/messages").PluginListItem>;
+    resolveSource(input: {
+      source: string;
+      ref?: string;
+    }): Promise<import("@getpaseo/protocol/plugin-installation").ResolvedPluginSource>;
+    installResolvedSource(input: {
+      resolved: import("@getpaseo/protocol/plugin-installation").ResolvedPluginSource;
+      id?: string;
+      enabled: boolean;
     }): Promise<import("@getpaseo/protocol/messages").PluginListItem>;
     statusSources(
       pluginId?: string,
@@ -2444,16 +2455,18 @@ export class Session {
           msg.requestId,
           this.orchestrationSkills.uninstall(),
         );
-      case "agent.skills.save_selection.request":
-        return this.orchestrationSkills
-          .saveSelection(msg.selection, msg.confirmedRemovals)
-          .then((result) => {
-            this.emit({
-              type: "agent.skills.save_selection.response",
-              payload: { requestId: msg.requestId, ...result },
-            });
-            return undefined;
+      case "agent.skills.save_selection.request": {
+        const operation = msg.preview
+          ? this.orchestrationSkills.previewSelection(msg.selection)
+          : this.orchestrationSkills.saveSelection(msg.selection, msg.confirmedRemovals);
+        return operation.then((result) => {
+          this.emit({
+            type: "agent.skills.save_selection.response",
+            payload: { requestId: msg.requestId, ...result },
           });
+          return undefined;
+        });
+      }
       case "agent.skills.import_legacy_selection.request":
         return this.orchestrationSkills
           .importLegacySelectionIfUnset(msg.selection)
@@ -2553,6 +2566,34 @@ export class Session {
     return undefined;
   }
 
+  private dispatchPluginPinnedMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    if (msg.type === "plugin.source.resolve.request") {
+      if (!this.pluginRuntime) throw new Error("Plugin service is unavailable");
+      return this.pluginRuntime
+        .resolveSource({ source: msg.source, ref: msg.ref })
+        .then((resolved) => {
+          this.emit({
+            type: "plugin.source.resolve.response",
+            payload: { requestId: msg.requestId, resolved },
+          });
+          return undefined;
+        });
+    }
+    if (msg.type === "plugin.source.install_resolved.request") {
+      if (!this.pluginRuntime) throw new Error("Plugin service is unavailable");
+      return this.pluginRuntime
+        .installResolvedSource({ resolved: msg.resolved, id: msg.id, enabled: msg.enabled })
+        .then((plugin) => {
+          this.emit({
+            type: "plugin.source.install_resolved.response",
+            payload: { requestId: msg.requestId, plugin },
+          });
+          return undefined;
+        });
+    }
+    return undefined;
+  }
+
   private dispatchPluginDirectoryMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     if (msg.type === "plugin.source.install.request") {
       if (!this.pluginRuntime) throw new Error("Plugin service is unavailable");
@@ -2615,13 +2656,15 @@ export class Session {
     }
     if (msg.type === "plugin.directory.install.request") {
       if (!this.pluginRuntime) throw new Error("Plugin service is unavailable");
-      return this.pluginRuntime.installDirectory({ path: msg.path, id: msg.id }).then((plugin) => {
-        this.emit({
-          type: "plugin.directory.install.response",
-          payload: { requestId: msg.requestId, plugin },
+      return this.pluginRuntime
+        .installDirectory({ path: msg.path, id: msg.id, binding: msg.binding })
+        .then((plugin) => {
+          this.emit({
+            type: "plugin.directory.install.response",
+            payload: { requestId: msg.requestId, plugin },
+          });
+          return undefined;
         });
-        return undefined;
-      });
     }
     if (msg.type === "plugin.directory.inspect.request") {
       if (!this.pluginRuntime) throw new Error("Plugin service is unavailable");
@@ -2633,7 +2676,7 @@ export class Session {
         return undefined;
       });
     }
-    return undefined;
+    return this.dispatchPluginPinnedMessage(msg);
   }
 
   private subscribeToPluginChanges(
@@ -2856,20 +2899,20 @@ export class Session {
           msg.type === "provider.claude.create_account.request"
             ? createClaudeAccount
             : createCodexAccount;
-        const account = createAccount({
+        return createAccount({
           paseoHome: this.paseoHome,
           store: this.daemonConfigStore,
           creationId: msg.creationId,
           name: msg.name,
+        }).then((account) => {
+          return this.emit({
+            type:
+              msg.type === "provider.claude.create_account.request"
+                ? "provider.claude.create_account.response"
+                : "provider.codex.create_account.response",
+            payload: { requestId: msg.requestId, ...account },
+          });
         });
-        this.emit({
-          type:
-            msg.type === "provider.claude.create_account.request"
-              ? "provider.claude.create_account.response"
-              : "provider.codex.create_account.response",
-          payload: { requestId: msg.requestId, ...account },
-        });
-        return undefined;
       }
       default:
         return undefined;
@@ -2911,14 +2954,12 @@ export class Session {
       case "daemon.update.request":
         return this.daemonSession.handleUpdateRequest(msg);
       case "set_daemon_config_request":
-        this.emit({
-          type: "set_daemon_config_response",
-          payload: {
-            requestId: msg.requestId,
-            config: this.daemonConfigStore.patch(msg.config),
-          },
+        return this.daemonConfigStore.patchFromClient(msg.config).then((config) => {
+          return this.emit({
+            type: "set_daemon_config_response",
+            payload: { requestId: msg.requestId, config },
+          });
         });
-        return undefined;
       case "read_project_config_request":
         return this.projectConfigSession.handleReadProjectConfigRequest(msg);
       case "write_project_config_request":
@@ -3120,45 +3161,57 @@ export class Session {
     }
   }
 
+  private async handleProviderRemoval(
+    msg: Extract<
+      SessionInboundMessage,
+      { type: "provider.connection.preview_remove.request" | "provider.connection.remove.request" }
+    >,
+  ): Promise<void> {
+    if (msg.type === "provider.connection.remove.request") {
+      const admission = await this.daemonConfigStore.readInstallationSettingsAuthority();
+      if (admission) assertInstallationProviderRemoval(msg.providerId, admission);
+    }
+    this.assertProviderCanBeRemoved(msg.providerId);
+    if (!this.providerSnapshotManager.hasProvider(msg.providerId)) {
+      throw new ProviderRemovalError(
+        "This provider was already removed. Refresh the provider list.",
+      );
+    }
+    const providers = this.daemonConfigStore.get().providers;
+    const configured = providers[msg.providerId] ?? {
+      label: this.providerSnapshotManager.getProviderLabel(msg.providerId),
+    };
+    const input = {
+      paseoHome: this.paseoHome,
+      providers: { ...providers, [msg.providerId]: configured },
+      providerId: msg.providerId,
+      ...defaultProviderAccountHomes(),
+    };
+    if (msg.type === "provider.connection.preview_remove.request") {
+      this.emit({
+        type: "provider.connection.preview_remove.response",
+        payload: { requestId: msg.requestId, plan: planProviderRemoval(input) },
+      });
+    } else {
+      const plan = deleteManagedProviderCredentials(input, msg.revision);
+      await this.daemonConfigStore.patchFromClient(
+        this.daemonConfigStore.get().sharedProviderPreferences?.installation ||
+          this.providerSnapshotManager.isPluginProvider(msg.providerId)
+          ? { providers: { [msg.providerId]: { removed: true, enabled: false } } }
+          : { removeProviders: [msg.providerId] },
+      );
+      this.emit({
+        type: "provider.connection.remove.response",
+        payload: { requestId: msg.requestId, plan },
+      });
+    }
+  }
+
   private dispatchProviderMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "provider.connection.preview_remove.request":
-      case "provider.connection.remove.request": {
-        this.assertProviderCanBeRemoved(msg.providerId);
-        if (!this.providerSnapshotManager.hasProvider(msg.providerId)) {
-          throw new ProviderRemovalError(
-            "This provider was already removed. Refresh the provider list.",
-          );
-        }
-        const providers = this.daemonConfigStore.get().providers;
-        const configured = providers[msg.providerId] ?? {
-          label: this.providerSnapshotManager.getProviderLabel(msg.providerId),
-        };
-        const input = {
-          paseoHome: this.paseoHome,
-          providers: { ...providers, [msg.providerId]: configured },
-          providerId: msg.providerId,
-          ...defaultProviderAccountHomes(),
-        };
-        if (msg.type === "provider.connection.preview_remove.request") {
-          this.emit({
-            type: "provider.connection.preview_remove.response",
-            payload: { requestId: msg.requestId, plan: planProviderRemoval(input) },
-          });
-        } else {
-          const plan = deleteManagedProviderCredentials(input, msg.revision);
-          this.daemonConfigStore.patch(
-            this.providerSnapshotManager.isPluginProvider(msg.providerId)
-              ? { providers: { [msg.providerId]: { removed: true, enabled: false } } }
-              : { removeProviders: [msg.providerId] },
-          );
-          this.emit({
-            type: "provider.connection.remove.response",
-            payload: { requestId: msg.requestId, plan },
-          });
-        }
-        return this.dispatchProviderAccountMessage(msg);
-      }
+      case "provider.connection.remove.request":
+        return this.handleProviderRemoval(msg);
       case "list_provider_models_request":
         return this.providerCatalogSession.handleListProviderModelsRequest(msg);
       case "list_provider_modes_request":

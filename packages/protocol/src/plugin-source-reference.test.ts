@@ -1,6 +1,6 @@
 import { parsePluginRegistryReference } from "./plugin-registry.js";
 import { describe, expect, it } from "vitest";
-import { parsePluginSourceReference } from "./plugin-source-reference.js";
+import { formatPluginIdentity, parsePluginSourceReference } from "./plugin-source-reference.js";
 
 describe("plugin source references", () => {
   it.each([
@@ -60,4 +60,27 @@ it("addresses default and private registries without treating explicit sources a
   });
   expect(parsePluginRegistryReference("github:acme/plugin")).toBeNull();
   expect(parsePluginRegistryReference("npm:@acme/plugin")).toBeNull();
+});
+
+it("round trips registry scheme and base path for source review", () => {
+  const registry = { url: "http://127.0.0.1:8123/internal", id: "acme/example" };
+  const reference = formatPluginIdentity({
+    kind: "git",
+    remote: "https://example.test/source.git",
+    pluginPath: ".",
+    registry,
+  });
+  expect(reference).toBe("registry:http://127.0.0.1:8123/internal/acme/example");
+  expect(parsePluginRegistryReference(reference, "https://unrelated.example")).toEqual(registry);
+  expect(parsePluginSourceReference(reference)).toEqual({
+    source: reference,
+    pluginPath: undefined,
+  });
+  expect(
+    parsePluginRegistryReference("registry:https://user:secret@example.test/acme/example"),
+  ).toBeNull();
+  expect(
+    parsePluginRegistryReference("registry:https://example.test/acme/example?token=value"),
+  ).toBeNull();
+  expect(parsePluginRegistryReference("registry:file:///internal/acme/example")).toBeNull();
 });

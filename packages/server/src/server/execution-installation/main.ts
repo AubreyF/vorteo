@@ -3,6 +3,7 @@ import pino from "pino";
 import { readInstallationConfig } from "./config.js";
 import { createInstallationServer } from "./server.js";
 import { createInstallationRestartExecutor } from "./daemon.js";
+import { createInstallationSettings, startSettingsReconciliation } from "./settings/runtime.js";
 
 const configFile = process.argv[2];
 if (!configFile) throw new Error("Usage: installation-entrypoint <private-config-file>");
@@ -10,11 +11,14 @@ const config = readInstallationConfig(configFile);
 const logger = pino({ name: "vorteo-installation" });
 const profiles = createInstallationProfiles(config);
 const stopProfileSynchronization = startProfileSynchronization(profiles, logger);
+const settings = createInstallationSettings(config);
+const stopSettingsReconciliation = startSettingsReconciliation(settings, logger);
 const app = createInstallationServer(
   config,
   createInstallationRestartExecutor(config),
   logger,
   profiles,
+  settings,
 );
 const restartTimer = setInterval(() => {
   void app.drainRestarts();
@@ -31,5 +35,6 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     clearInterval(restartTimer);
     stopProfileSynchronization();
+    stopSettingsReconciliation();
     server.close();
   });

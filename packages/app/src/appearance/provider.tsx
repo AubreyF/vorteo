@@ -1,6 +1,6 @@
 import { vortonAppearance } from "./vorton-appearance";
 import { useVortonTouch } from "@/vorton-touch";
-import { useFormPreferences } from "@/hooks/use-form-preferences";
+
 import { applyVortonWeb } from "./vorton-web";
 import {
   createContext,
@@ -62,9 +62,8 @@ function applyTheme({ preference, contributedTheme }: ApplyThemeInput): void {
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const { settings, updateSettings, isLoading } = useAppSettings();
   const touch = useVortonTouch();
-  const { preferences } = useFormPreferences();
-  const vorton = preferences.vortonMode === true;
-  useEffect(() => applyVortonWeb(vorton, touch), [vorton, touch]);
+
+  useEffect(() => applyVortonWeb(touch), [touch]);
   const [hasAppliedAppearance, setHasAppliedAppearance] = useState(false);
   const options = usePluginThemeCatalog();
   const selected = useMemo(() => {

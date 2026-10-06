@@ -13,8 +13,6 @@ export interface ProviderPreferences {
 export type LaunchTarget = { kind: "chat" } | { kind: "terminal"; profileId: string };
 
 export interface FormPreferences {
-  vortonMode?: boolean;
-  presetMode?: boolean;
   provider?: string;
   providerPreferences?: Record<string, ProviderPreferences>;
   favoriteModels?: Array<{ provider: string; modelId: string }>;
@@ -35,8 +33,6 @@ const launchTargetSchema: z.ZodType<LaunchTarget> = z.discriminatedUnion("kind",
 ]);
 
 export const FormPreferencesSchema = z.strictObject({
-  vortonMode: z.boolean().optional(),
-  presetMode: z.boolean().optional(),
   provider: z.string().optional(),
   providerPreferences: z.record(z.string(), providerPreferencesSchema).optional(),
   // COMPAT(agentProfileFavoriteMigration): favourites were removed in v0.3.2.
@@ -56,6 +52,13 @@ export const FormPreferencesSchema = z.strictObject({
   launchTarget: launchTargetSchema.optional(),
 }) satisfies z.ZodType<FormPreferences>;
 
+const LegacyModePreferencesSchema = FormPreferencesSchema.extend({
+  vortonMode: z.boolean().optional(),
+  presetMode: z.boolean().optional(),
+}).transform(
+  ({ vortonMode: _productMode, presetMode: _presetMode, ...preferences }) => preferences,
+);
+
 const LegacyProviderPreferencesSchema = z.strictObject({
   model: z.string().optional(),
   mode: z.string().optional(),
@@ -65,6 +68,8 @@ const LegacyProviderPreferencesSchema = z.strictObject({
 const LegacyFormPreferencesSchema = z
   .strictObject({
     workingDir: z.string().optional(),
+    vortonMode: z.boolean().optional(),
+    presetMode: z.boolean().optional(),
     provider: z.string().optional(),
     serverId: z.string().optional(),
     providerPreferences: z.record(z.string(), LegacyProviderPreferencesSchema).optional(),
@@ -91,15 +96,16 @@ const LegacyFormPreferencesSchema = z
 
 export const StoredFormPreferencesSchema: z.ZodType<FormPreferences> = z.union([
   FormPreferencesSchema,
+  LegacyModePreferencesSchema,
   LegacyFormPreferencesSchema,
 ]);
 
-export const DEFAULT_FORM_PREFERENCES: FormPreferences = { vortonMode: true };
+export const DEFAULT_FORM_PREFERENCES: FormPreferences = {};
 
 export function parseFormPreferences(value: unknown): FormPreferences {
   const result = StoredFormPreferencesSchema.safeParse(value);
   if (!result.success) return DEFAULT_FORM_PREFERENCES;
-  return { ...result.data, vortonMode: result.data.vortonMode ?? true };
+  return result.data;
 }
 
 function mergeDefinedRecord<T>(

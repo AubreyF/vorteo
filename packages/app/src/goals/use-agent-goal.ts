@@ -6,7 +6,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useAgentCommandsQuery, type DraftCommandConfig } from "@/hooks/use-agent-commands-query";
-import { useVortonMode } from "@/vorton-mode";
+
 import { goalQueryConfirmed } from "./goal-presentation";
 
 type GoalAction = { kind: "set"; input: AgentGoalSetInput } | { kind: "clear" };
@@ -24,7 +24,6 @@ interface DraftGoalOptions {
 const EMPTY_GOAL = { status: "ready" as const, goal: null, observedAt: new Date(0).toISOString() };
 
 export function useAgentGoal(serverId: string, agentId: string, draft?: DraftGoalOptions) {
-  const vorton = useVortonMode();
   const active = useRetainedPanelActive();
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
@@ -44,13 +43,13 @@ export function useAgentGoal(serverId: string, agentId: string, draft?: DraftGoa
     serverId: serverId,
     agentId: agentId,
     draftConfig: draft?.config,
-    enabled: vorton && !!draft?.create && !!draft.config,
+    enabled: !!draft?.create && !!draft.config,
   });
   const isDraft = !!draft?.create;
   const providerSupported = isDraft
     ? draftCommands.commands.some((command) => command.name === "goal")
     : snapshot.providerSupported;
-  const supported = vorton && snapshot.daemonSupported && providerSupported;
+  const supported = snapshot.daemonSupported && providerSupported;
   const enabled = supported && active && connected && !!agentId;
   const query = useFetchQuery({
     dataShape: "value",

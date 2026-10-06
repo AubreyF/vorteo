@@ -2,6 +2,22 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.135 - 2026-10-06
+
+### Changed
+
+- Use one Settings navigation and one shared profile catalog for Host and Dev container, with explicit profile and resource exclusions
+- Share provider policy, instructions, metadata choices, terminal definitions, skills, plugins and browser-tool defaults while preserving local credentials and paths
+- Remove the alternate Paseo mode and its behavior switches; installing Vorteo does not install a separate Paseo application
+- Keep delegated agents under their originating task and project when they run in separate worktrees
+
+### Fixed
+
+- Preserve existing account and worker references during profile consolidation, including accounts initially present in only one environment
+- Enforce current environment exclusions for new tasks and internal metadata generation, while existing tasks retain their saved launch configuration
+- Keep instruction drafts after failed or conflicting saves and show retryable errors for shared settings
+- Route managed environment maintenance to the installation's existing restart approval controls
+
 ## 0.11.0-beta.3.vorteo.134 - 2026-10-05
 
 ### Changed

@@ -1,3 +1,6 @@
+import { createSharedAccountDefinition } from "@/execution-installation/account-creation";
+import { requestInstallationSettings } from "@/execution-installation/settings";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -12,7 +15,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { refreshAndApplyProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { daemonConfigQueryKey } from "@/data/daemon-config";
-import { useVortonMode } from "@/vorton-mode";
+
 import { ProviderLoginPanel } from "./login-panel";
 import { openAccountForm, suggestedAccountName, type CreatedCodexAccount } from "./account-form";
 
@@ -37,11 +40,10 @@ function AddAccountButton({
   style,
   ...props
 }: AddAccountProps & { catalog?: boolean; style?: StyleProp<ViewStyle> }) {
-  const vortonMode = useVortonMode();
   const [open, setOpen] = useState(false);
   const show = useCallback(() => setOpen(true), []);
   const close = useCallback(() => setOpen(false), []);
-  if (!vortonMode) return null;
+
   return (
     <>
       <Button
@@ -115,6 +117,22 @@ function useAccountForm({
       async create(creationId, name) {
         const current = live.current.client;
         if (!current) throw new Error("Reconnect to the host and try again.");
+        const installation = readExecutionInstallation();
+        if (installation?.environments.some((environment) => environment.serverId === serverId)) {
+          const shared = await createSharedAccountDefinition(
+            {
+              creationId,
+              name,
+              provider,
+              serverIds: installation.environments.map((environment) => environment.serverId),
+            },
+            { read: () => requestInstallationSettings(), save: requestInstallationSettings },
+          );
+          name = shared.name;
+          await cache.invalidateQueries({
+            queryKey: ["installation-settings", installation.installationId],
+          });
+        }
         const account =
           provider === "claude"
             ? await current.createClaudeAccount(creationId, name)
@@ -149,6 +167,12 @@ function AccountForm({
     return (
       <>
         <Text style={styles.text}>{state.account.name} added.</Text>
+        {readExecutionInstallation() ? (
+          <Text style={styles.text}>
+            Shared across environments. Sign in below for this environment; other environments show
+            their own sign-in status.
+          </Text>
+        ) : null}
         <ProviderLoginPanel
           serverId={props.serverId}
           providerId={state.account.providerId}

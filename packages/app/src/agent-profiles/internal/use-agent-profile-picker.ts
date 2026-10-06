@@ -135,8 +135,8 @@ export function useAgentProfilePicker(
     isRefreshing,
     isLoading,
   } = useProvidersSnapshot(serverId, { cwd: null });
-  const { preferences, updatePreferences } = useFormPreferences();
-  const supportsLaunch = hostSupportsLaunch && preferences.vortonMode === true;
+  const { updatePreferences } = useFormPreferences();
+  const supportsLaunch = hostSupportsLaunch;
   const client = useSessionStore((state) => state.sessions[serverId ?? ""]?.client ?? null);
   const toast = useToast();
   const [isApplying, setIsApplying] = useState(false);

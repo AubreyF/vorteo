@@ -62,7 +62,7 @@ describe("resolveNavigateToAgent", () => {
     ]);
   });
 
-  it("uses the input workspaceId without reading the nav target", () => {
+  it("uses the input workspaceId when the cached target is unavailable", () => {
     const readTargets: { serverId: string; agentId: string }[] = [];
     const { deps, tabNavigations } = createFakeNavigators({ agentWorkspaceId: null });
     deps.readAgentNavTarget = (input) => {
@@ -75,7 +75,7 @@ describe("resolveNavigateToAgent", () => {
       deps,
     );
 
-    expect(readTargets).toEqual([]);
+    expect(readTargets).toEqual([{ serverId: SERVER_ID, agentId: AGENT_ID }]);
     expect(tabNavigations).toEqual([
       {
         serverId: SERVER_ID,
@@ -97,4 +97,24 @@ describe("resolveNavigateToAgent", () => {
     expect(hostNavigations).toEqual([{ route: "/h/server-1/agent/missing-agent" }]);
     expect(tabNavigations).toEqual([]);
   });
+});
+
+it("opens the original task workspace even when a worker execution workspace was supplied", () => {
+  const { deps, tabNavigations } = createFakeNavigators({
+    agentWorkspaceId: "execution-worktree",
+    presentationWorkspaceId: "origin-task",
+  });
+  const route = resolveNavigateToAgent(
+    { serverId: SERVER_ID, agentId: "worker", workspaceId: "execution-worktree", pin: true },
+    deps,
+  );
+  expect(route).toBe("/h/server-1/workspace/origin-task");
+  expect(tabNavigations).toEqual([
+    {
+      serverId: SERVER_ID,
+      workspaceId: "origin-task",
+      target: { kind: "agent", agentId: "worker" },
+      pin: true,
+    },
+  ]);
 });

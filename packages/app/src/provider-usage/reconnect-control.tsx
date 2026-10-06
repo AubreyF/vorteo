@@ -8,7 +8,7 @@ import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { CompactAccountButton } from "./compact-account-button";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import { useVortonMode } from "@/vorton-mode";
+
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { accountProviderKind, providerConnectionAction } from "./connection-action";
 import { providerUsageQueryKey } from "./use-provider-usage";
@@ -37,11 +37,9 @@ export function ProviderReconnectControl({
   name: string;
   providerId?: string;
 }) {
-  const vortonMode = useVortonMode();
   const { config } = useDaemonConfig(serverId);
   const claude = accountProviderKind(providerId, config?.providers) === "claude";
   const action = providerConnectionAction({
-    vortonMode,
     providerId,
     providers: config?.providers,
     usage,
@@ -86,7 +84,7 @@ export function ProviderReconnectControl({
     [usage?.authRecovery],
   );
   const close = useCallback(() => setRecovery(null), []);
-  if (!vortonMode) return null;
+
   return (
     <>
       {action ? (

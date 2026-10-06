@@ -9,7 +9,7 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { settingsStyles } from "@/styles/settings";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { useFormPreferences } from "@/hooks/use-form-preferences";
-import { useVortonMode } from "@/vorton-mode";
+
 import { buildUpdatePrompt, VORTON_REPOSITORY, type VortonUpdate } from "./check";
 import { useVortonUpdate, VORTON_BUILD_COMMIT } from "./use-update";
 import { UpdateSuccessBadge } from "./success-badge";
@@ -20,7 +20,6 @@ function statusText(update: VortonUpdate | undefined, t: TFunction): string {
 }
 
 export function VortonUpdatesSection() {
-  const vorton = useVortonMode();
   const { isLoading: preferencesLoading } = useFormPreferences();
   const { t } = useTranslation();
   const update = useVortonUpdate();
@@ -37,7 +36,7 @@ export function VortonUpdatesSection() {
         : `${VORTON_REPOSITORY}/commits/main`;
     void openExternalUrl(url);
   }, [update.data]);
-  if (!vorton || preferencesLoading) return null;
+  if (preferencesLoading) return null;
   let message = statusText(update.data, t);
   if (!VORTON_BUILD_COMMIT) message = t("settings.about.vortonUpdates.unknown");
   else if (checking) message = t("settings.about.vortonUpdates.checking");

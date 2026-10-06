@@ -1,3 +1,6 @@
+import { InstallationProviderProjectionSchema } from "./installation-provider.js";
+import { PluginDirectoryBindingSchema, ResolvedPluginSourceSchema } from "./plugin-installation.js";
+import { InstallationResourceBindingsSchema } from "./installation-settings.js";
 import {
   SkillLibraryReadSchema,
   SkillLibraryChangeSchema,
@@ -71,7 +74,18 @@ import {
   ProviderLoginCancelResponseSchema,
   ProviderLoginSubmitResponseSchema,
 } from "./provider-login.js";
-import { PluginRegistryIdentitySchema } from "./plugin-registry.js";
+import {
+  PluginSourceIdentitySchema,
+  PluginInstallationSchema,
+  PluginUpdateTargetSchema,
+} from "./plugin-installation.js";
+export {
+  PluginSourceIdentitySchema,
+  PluginInstallationSchema,
+  PluginUpdateTargetSchema,
+  type PluginInstallation,
+  type PluginUpdateTarget,
+} from "./plugin-installation.js";
 import { AgentProfileSchema, AgentSkillSelectionSchema } from "./agent-profile.js";
 export {
   AgentProfileSchema,
@@ -233,6 +247,7 @@ const MutableDaemonProviderModelSchema = z
 const MutableDaemonProviderConfigSchema = z
   .object({
     extends: z.string().optional(),
+    installationAccountId: z.string().uuid().optional(),
     paseoTools: ProviderPaseoToolsPolicySchema.optional(),
     enabled: z.boolean().optional(),
     additionalModels: z.array(MutableDaemonProviderModelSchema).optional(),
@@ -307,6 +322,7 @@ export const MutableDaemonConfigSchema = z
     enableTerminalAgentHooks: z.boolean().default(false),
     appendSystemPrompt: z.string().default(""),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
+    installationResourceBindings: InstallationResourceBindingsSchema.optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     sharedProviderPreferences: SharedProviderPreferencesSchema.optional(),
     skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
@@ -317,6 +333,9 @@ export const MutableDaemonConfigSchema = z
 
 export const MutableDaemonConfigPatchSchema = z
   .object({
+    installationProviderPolicy: InstallationProviderProjectionSchema.optional(),
+    skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
+    expectedInstallationResourceRevision: z.string().optional(),
     expectedAgentProfiles: z.array(AgentProfileSchema).optional(),
     expectedProviderPreferencesRevision: z.number().int().nonnegative().nullable().optional(),
     sharedProviderPreferences: SharedProviderPreferencesSchema.optional(),
@@ -332,6 +351,7 @@ export const MutableDaemonConfigPatchSchema = z
     enableTerminalAgentHooks: z.boolean().optional(),
     appendSystemPrompt: z.string().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
+    installationResourceBindings: InstallationResourceBindingsSchema.optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     pluginsEnabled: z.boolean().optional(),
     plugins: z.record(PluginIdSchema, PluginSourceSchema).optional(),
@@ -1487,6 +1507,7 @@ export const PluginDirectoryInstallRequestSchema = z.object({
   requestId: z.string(),
   path: z.string().min(1),
   id: PluginIdSchema.optional(),
+  binding: PluginDirectoryBindingSchema.optional(),
 });
 
 export const PluginDirectoryInspectRequestSchema = z.object({
@@ -1505,36 +1526,20 @@ export const PluginSourceInstallRequestSchema = z.object({
   pluginPath: z.string().min(1).optional(),
 });
 
-export const PluginSourceIdentitySchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("directory"), path: z.string() }),
-  z.object({
-    kind: z.literal("git"),
-    remote: z.string(),
-    pluginPath: z.string(),
-    registry: PluginRegistryIdentitySchema.optional(),
-  }),
-  z.object({
-    kind: z.literal("npm"),
-    packageName: z.string(),
-    pluginPath: z.string(),
-    registry: PluginRegistryIdentitySchema.optional(),
-  }),
-]);
-export const PluginInstallationSchema = z.object({
-  identity: PluginSourceIdentitySchema,
-  currentRevision: z.string().optional(),
+export const PluginSourceResolveRequestSchema = z.object({
+  type: z.literal("plugin.source.resolve.request"),
+  requestId: z.string(),
+  source: z.string().min(1),
+  ref: z.string().min(1).optional(),
 });
-export type PluginInstallation = z.infer<typeof PluginInstallationSchema>;
-export const PluginUpdateTargetSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("git"), commit: z.string().regex(/^[0-9a-f]{40,64}$/) }),
-  z.object({
-    kind: z.literal("npm"),
-    version: z.string().min(1),
-    resolved: z.string().url(),
-    integrity: z.string().min(1),
-  }),
-]);
-export type PluginUpdateTarget = z.infer<typeof PluginUpdateTargetSchema>;
+export const PluginSourceInstallResolvedRequestSchema = z.object({
+  type: z.literal("plugin.source.install_resolved.request"),
+  requestId: z.string(),
+  resolved: ResolvedPluginSourceSchema,
+  id: PluginIdSchema.optional(),
+  enabled: z.boolean(),
+});
+
 export const PluginUpdateProposalSchema = z.object({
   id: PluginIdSchema,
   expected: z.object({
@@ -1666,6 +1671,7 @@ export const AgentSkillsSaveSelectionRequestSchema = z
     requestId: z.string(),
     selection: AgentSkillSelectionSchema,
     confirmedRemovals: z.array(z.string()).optional(),
+    preview: z.boolean().optional(),
   })
   .strict();
 export const AgentSkillsImportLegacySelectionRequestSchema = z
@@ -3320,6 +3326,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   PluginDirectoryInstallRequestSchema,
   PluginDirectoryInspectRequestSchema,
   PluginSourceInstallRequestSchema,
+  PluginSourceResolveRequestSchema,
+  PluginSourceInstallResolvedRequestSchema,
   PluginSourceStatusRequestSchema,
   PluginSourceUpdateRequestSchema,
   PluginUpdatePreviewRequestSchema,
@@ -3735,6 +3743,10 @@ export const ServerInfoStatusPayloadSchema = z
         pluginGitManagement: z.boolean().optional(),
         // COMPAT(pluginSourceInstallation): added in v0.8.0; remove gate after 2027-03-16 once daemon floor supports source identifiers.
         pluginSourceInstallation: z.boolean().optional(),
+        // COMPAT(pluginPinnedInstallation): added in v131; remove gate after 2027-10-06.
+        pluginPinnedInstallation: z.boolean().optional(),
+        // COMPAT(pluginDirectoryBindings): added in v131; remove gate after 2027-10-06.
+        pluginDirectoryBindings: z.boolean().optional(),
         // COMPAT(pluginSourceUpdates): added in v0.8.0; remove gate after 2027-03-16 once daemon floor supports reviewed updates.
         pluginSourceUpdates: z.boolean().optional(),
         // COMPAT(pluginThemes): added in v0.5.0, remove gate after 2027-08-20.
@@ -3745,7 +3757,9 @@ export const ServerInfoStatusPayloadSchema = z
         pluginTimelineItems: z.boolean().optional(),
         // COMPAT(skillManagement): added in v0.4.0, remove gate after 2027-08-16.
         skillManagement: z.boolean().optional(),
+        skillSelectionPreview: z.boolean().optional(),
         skillLibrary: z.boolean().optional(),
+        skillPackageTransfer: z.boolean().optional(),
         // COMPAT(terminalRestoreModes): added in v0.1.81, remove gate after 2026-11-23.
         "terminal-restore-modes": z.boolean().optional(),
         // COMPAT(terminalInputModeReplay): added in v0.2.6, remove gate after 2027-02-02.
@@ -3863,6 +3877,9 @@ export const ServerInfoStatusPayloadSchema = z
         agentProfileLaunch: z.boolean().optional(),
         sharedProviderPreferences: z.boolean().optional(),
         profileWorkflowAliases: z.boolean().optional(),
+        installationProfileAuthority: z.boolean().optional(),
+        installationResourceBindings: z.boolean().optional(),
+        installationSettingsAuthority: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: z.boolean().optional(),
       })
@@ -6790,6 +6807,7 @@ export const PluginNpmInstallationSchema = z.object({
 });
 
 export const PluginListItemSchema = z.object({
+  providers: z.array(z.object({ id: AgentProviderSchema, label: z.string() })).optional(),
   id: PluginIdSchema,
   description: z.string().optional(),
   path: z.string(),
@@ -6798,6 +6816,7 @@ export const PluginListItemSchema = z.object({
   source: z.enum(["directory", "git"]).optional(),
   npm: PluginNpmInstallationSchema.optional(),
   installation: PluginInstallationSchema.optional(),
+  resolvedSource: ResolvedPluginSourceSchema.optional(),
   remote: z.string().optional(),
   ref: z.string().optional(),
   commit: z.string().optional(),
@@ -6839,6 +6858,15 @@ export const PluginDirectoryInspectResponseSchema = z.object({
 
 export const PluginSourceInstallResponseSchema = z.object({
   type: z.literal("plugin.source.install.response"),
+  payload: z.object({ requestId: z.string(), plugin: PluginListItemSchema }),
+});
+
+export const PluginSourceResolveResponseSchema = z.object({
+  type: z.literal("plugin.source.resolve.response"),
+  payload: z.object({ requestId: z.string(), resolved: ResolvedPluginSourceSchema }),
+});
+export const PluginSourceInstallResolvedResponseSchema = z.object({
+  type: z.literal("plugin.source.install_resolved.response"),
   payload: z.object({ requestId: z.string(), plugin: PluginListItemSchema }),
 });
 
@@ -6980,6 +7008,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   PluginDirectoryInstallResponseSchema,
   PluginDirectoryInspectResponseSchema,
   PluginSourceInstallResponseSchema,
+  PluginSourceResolveResponseSchema,
+  PluginSourceInstallResolvedResponseSchema,
   PluginSourceStatusResponseSchema,
   PluginSourceUpdateResponseSchema,
   PluginUpdatePreviewResponseSchema,

@@ -30,6 +30,26 @@ export const SkillSourceSchema = z.object({
   directory: z.string(),
 });
 export type SkillSource = z.infer<typeof SkillSourceSchema>;
+export const SkillPackageSchema = z.strictObject({
+  name: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  source: SkillSourceSchema.nullable(),
+  files: z
+    .array(
+      z.strictObject({
+        path: z.string().min(1),
+        content: z.string().max(5592408),
+        executable: z.boolean(),
+      }),
+    )
+    .min(1)
+    .max(256),
+});
+export type SkillPackage = z.infer<typeof SkillPackageSchema>;
+export const InstallationSkillSchema = SkillPackageSchema.omit({ files: true }).extend({
+  identity: z.string().min(1),
+});
+export type InstallationSkill = z.infer<typeof InstallationSkillSchema>;
 export const SkillInstallationSchema = z.object({
   id: z.string(),
   identity: z.string(),
@@ -89,11 +109,13 @@ export const SkillAuditSchema = z.object({
 export type SkillAudit = z.infer<typeof SkillAuditSchema>;
 
 export const SkillLibraryReadSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("package"), id: z.string() }),
   z.object({ kind: z.literal("inventory"), cwd: z.string().optional() }),
   z.object({ kind: z.literal("detail"), id: z.string(), cwd: z.string().optional() }),
   z.object({ kind: z.literal("audit") }),
 ]);
 export const SkillLibraryChangeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("preview_import"), package: SkillPackageSchema }),
   z.object({
     kind: z.literal("preview_link"),
     id: z.string(),
@@ -108,6 +130,7 @@ export const SkillLibraryChangeSchema = z.discriminatedUnion("kind", [
 export type SkillLibraryRead = z.infer<typeof SkillLibraryReadSchema>;
 export type SkillLibraryChange = z.infer<typeof SkillLibraryChangeSchema>;
 export const SkillLibraryResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("package"), package: SkillPackageSchema }),
   z.object({ kind: z.literal("inventory"), inventory: SkillInventorySchema }),
   z.object({ kind: z.literal("detail"), skill: SkillInstallationSchema, instructions: z.string() }),
   z.object({ kind: z.literal("audit"), entries: z.array(SkillAuditSchema) }),

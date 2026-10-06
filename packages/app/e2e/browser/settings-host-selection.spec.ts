@@ -1,4 +1,4 @@
-import { test } from "../support/fixtures";
+import { test, expect } from "../support/fixtures";
 import { openSettings } from "../support/helpers/app";
 import { getE2EDaemonPort, wsRoutePatternForPort } from "../support/helpers/daemon-port";
 import { startIsolatedHostDaemon } from "../support/helpers/isolated-host-daemon";
@@ -13,7 +13,9 @@ import { switchWorkspaceViaSidebar } from "../support/helpers/workspace-ui";
 test.describe("Settings host selection", () => {
   test.describe.configure({ timeout: 180_000 });
 
-  test("entering Settings from a remote workspace selects that remote host", async ({ page }) => {
+  test("entering Settings from a remote workspace keeps one shared Connections section", async ({
+    page,
+  }) => {
     const remoteDaemon = await startIsolatedHostDaemon("settings-host-selection-remote");
     const remoteWorkspace = await seedWorkspace({
       port: remoteDaemon.port,
@@ -44,6 +46,8 @@ test.describe("Settings host selection", () => {
       await openSettings(page);
 
       await openSettingsHostSection(page, remoteDaemon.serverId, "connections");
+      await expect(page.getByTestId(`settings-environment-${remoteDaemon.serverId}`)).toBeVisible();
+      await expect(page.getByTestId("settings-host-picker")).toHaveCount(0);
     } finally {
       await remoteWorkspace.cleanup().catch(() => undefined);
       await remoteDaemon.close().catch(() => undefined);

@@ -50,7 +50,7 @@ describe("composer submit action", () => {
       }),
     ).toEqual({ action: "newline", queues: false });
   });
-  it("preserves Paseo buttons even with Shift held and default queue enabled", () => {
+  it("preserves controls when modifiers are unavailable even with Shift held and default queue enabled", () => {
     expect(
       resolveSubmitAction({
         ...running,
@@ -61,7 +61,6 @@ describe("composer submit action", () => {
     ).toEqual({ action: "default", queues: false });
   });
   it.each([
-    { vortonMode: false },
     { isWeb: false },
     { inputMode: "terminal" as const },
     { readOnly: true },
@@ -69,7 +68,6 @@ describe("composer submit action", () => {
   ])("preserves baseline controls outside editable Vorton web chats: %j", (override) => {
     expect(
       supportsSubmitModifiers({
-        vortonMode: true,
         isWeb: true,
         inputMode: "chat",
         readOnly: false,
@@ -81,7 +79,6 @@ describe("composer submit action", () => {
   it("enables modifier controls in editable Vorton web chats", () => {
     expect(
       supportsSubmitModifiers({
-        vortonMode: true,
         isWeb: true,
         inputMode: "chat",
         readOnly: false,
@@ -97,7 +94,6 @@ const emptyComposer = {
   isAgentRunning: false,
   isSubmitLoading: false,
   isSubmitDisabled: false,
-  vortonMode: true,
   inputMode: "chat",
   readOnly: false,
 } as const;
@@ -133,7 +129,7 @@ describe("empty composer submit button", () => {
       resolvePrimaryAction({ ...emptyComposer, hasSendableContent: true, isSubmitDisabled: true }),
     ).toEqual({ kind: "send", isSubmitDisabled: true });
   });
-  it.each([{ vortonMode: false }, { inputMode: "terminal" as const }, { readOnly: true }])(
+  it.each([{ inputMode: "terminal" as const }, { readOnly: true }])(
     "preserves baseline controls outside editable Vorton chat: %j",
     (override) => {
       expect(resolvePrimaryAction({ ...emptyComposer, ...override })).toEqual({

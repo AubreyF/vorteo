@@ -7,26 +7,23 @@ describe("connection toast presentation", () => {
     "Transport closed",
     "Transport not connected",
     "Transport not connected (status: connecting)",
-  ])("uses the quiet connection chip for %s only in Vorton", (content) => {
-    expect(isConnectionToast({ vortonMode: true, content })).toBe(true);
-    expect(isConnectionToast({ vortonMode: false, content })).toBe(false);
+  ])("uses the quiet connection chip for %s", (content) => {
+    expect(isConnectionToast({ content })).toBe(true);
   });
 
   it("recognizes the persistent reconnect notice independently of its translation", () => {
     expect(
       isConnectionToast({
-        vortonMode: true,
         content: "Reconnexion",
         testID: "agent-reconnecting-toast",
       }),
     ).toBe(true);
     expect(
       isConnectionToast({
-        vortonMode: false,
         content: "Reconnexion",
         testID: "agent-reconnecting-toast",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it.each([
@@ -36,6 +33,6 @@ describe("connection toast presentation", () => {
     "Provider unavailable",
     null,
   ])("preserves unrelated errors: %s", (content) => {
-    expect(isConnectionToast({ vortonMode: true, content })).toBe(false);
+    expect(isConnectionToast({ content })).toBe(false);
   });
 });

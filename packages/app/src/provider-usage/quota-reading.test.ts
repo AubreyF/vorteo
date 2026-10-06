@@ -27,7 +27,6 @@ it.each([0, 300_001, 86_400_000])("keeps ring and menu aligned at age %s", (now)
   const ring = selectedPresetPresentation({
     view,
     now,
-    vortonMode: true,
     selectedProfileId: "preset",
     definitions: [{ id: "preset", name: "Secondary", provider: "secondary" }],
   });

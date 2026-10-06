@@ -25,10 +25,11 @@ export function createInstallationProfiles(config: InstallationConfig): Installa
   const file = path.join(directory, "state.json");
   const environments: ProfileEnvironment[] = config.public.environments.map((environment) => ({
     serverId: environment.serverId,
+    kind: environment.kind,
     async read() {
       const client = await connectInstallationDaemon(config, environment.kind);
       try {
-        if (client.getLastServerInfoMessage()?.features?.profileWorkflowAliases !== true)
+        if (client.getLastServerInfoMessage()?.features?.installationProfileAuthority !== true)
           throw new Error("Update the daemon to preserve shared profile identities");
         return (await client.getDaemonConfig()).config;
       } finally {
@@ -63,6 +64,7 @@ export function createInstallationProfiles(config: InstallationConfig): Installa
       },
     },
     environments,
+    config.public.installationId,
   );
 }
 

@@ -28,7 +28,7 @@ filter models, using the version of the resolved executable in that environment.
 account wrappers preserve the warning. A successful refresh replaces it, so upgrading clears
 the warning without reconnecting the account or restarting the daemon.
 
-Vorteo mode shows these warnings in provider settings, profile choices and the model browser.
+Vorteo shows these warnings in provider settings, profile choices and the model browser.
 The optional snapshot field also survives compact encoding; older clients ignore it and older
 daemons can omit it. This check describes known model compatibility, not whether every installed
 CLI matches its vendor's latest release. An unreadable version does not establish that a CLI is

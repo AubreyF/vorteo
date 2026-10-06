@@ -9,7 +9,6 @@ import type { ProviderUsageView } from "@/provider-usage/types";
 import { ProviderResetControl } from "@/provider-usage/reset-control";
 import { providerConnectionAction } from "@/provider-usage/connection-action";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
-import { useVortonMode } from "@/vorton-mode";
 
 function resetLabel(resetsAt: string | null | undefined): string {
   return (
@@ -41,15 +40,13 @@ export function PresetUsageRail({
 }) {
   const { window, usage, statusLabel } = quotaReading(view, providerId, now);
   const { config } = useDaemonConfig(serverId);
-  const vortonMode = useVortonMode();
   const connectionAction = providerConnectionAction({
-    vortonMode,
     providerId,
     providers: config?.providers,
     usage,
   });
   const critical = Boolean(window && window.remainingPct < 5);
-  const showStatusBelow = vortonMode && Boolean(window && statusLabel);
+  const showStatusBelow = Boolean(window && statusLabel);
   const remaining = window?.remainingPct ?? 0;
   const fill = useMemo(
     () => [
@@ -95,7 +92,7 @@ export function PresetUsageRail({
           {formatProviderUsageSummary(usage) ?? statusLabel}
         </Text>
       )}
-      <UsageControlSlot visible={showResetControl} vortonMode={vortonMode}>
+      <UsageControlSlot visible={showResetControl}>
         <UsageControls
           connectionAction={connectionAction}
           showConnectionActions={showConnectionActions}
@@ -108,7 +105,7 @@ export function PresetUsageRail({
       </UsageControlSlot>
     </>
   );
-  const rail = <View style={[styles.rail, vortonMode && styles.railVorton]}>{content}</View>;
+  const rail = <View style={[styles.rail, styles.railVorton]}>{content}</View>;
   if (!showStatusBelow) return rail;
   return (
     <View style={styles.statusStack}>
@@ -117,17 +114,9 @@ export function PresetUsageRail({
     </View>
   );
 }
-function UsageControlSlot({
-  visible,
-  vortonMode,
-  children,
-}: {
-  visible?: boolean;
-  vortonMode: boolean;
-  children: ReactNode;
-}) {
+function UsageControlSlot({ visible, children }: { visible?: boolean; children: ReactNode }) {
   if (visible === false) return null;
-  return <View style={[styles.resets, vortonMode && styles.resetsVorton]}>{children}</View>;
+  return <View style={[styles.resets, styles.resetsVorton]}>{children}</View>;
 }
 function UsageControls({
   connectionAction,

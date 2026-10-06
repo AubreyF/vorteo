@@ -10,7 +10,7 @@ const usage: ProviderUsage = {
   planLabel: null,
   windows: [],
 };
-const input = { vortonMode: true, providerId: "christian", providers, usage };
+const input = { providerId: "christian", providers, usage };
 
 it("offers initial connection for a Codex alias without inventing an auth failure", () => {
   expect(providerConnectionAction(input)).toBe("Connect");
@@ -38,17 +38,6 @@ it("uses configured provider identity, including built-in Codex, rather than nam
     providerConnectionAction({
       ...input,
       providers: { christian: { extends: "codex", enabled: false } },
-    }),
-  ).toBeNull();
-});
-
-it("keeps Vorteo mode unchanged for both new and rejected accounts", () => {
-  expect(providerConnectionAction({ ...input, vortonMode: false })).toBeNull();
-  expect(
-    providerConnectionAction({
-      ...input,
-      vortonMode: false,
-      usage: { ...usage, authRecovery: { instructions: "Sign in" } },
     }),
   ).toBeNull();
 });

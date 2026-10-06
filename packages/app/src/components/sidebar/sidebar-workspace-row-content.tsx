@@ -6,7 +6,7 @@ import { WorkspaceGoalBadge } from "@/goals/workspace-goal-badge";
 import { WorkspaceQueueCount } from "@/message-queue/workspace-queue-count";
 import { WorkspaceSubagentCount } from "@/subagents/workspace-count";
 import { useVortonTouch, VORTON_ACTION_SLOT } from "@/vorton-touch";
-import { useVortonMode } from "@/vorton-mode";
+
 import { useSidebarActionSize } from "./use-sidebar-action-size";
 import { memo, useMemo, useCallback, useState, type ReactNode } from "react";
 import { Text, View, type ViewStyle } from "react-native";
@@ -128,7 +128,6 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   hostBadge,
   leadingProjectName = null,
   leadingProjectIconDataUri = null,
-  serviceSummary = null,
   backdrop,
   isHovered,
   isLoading,
@@ -159,10 +158,10 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
     settings: { workspaceTitleSource, sidebarRowItems },
   } = useAppSettings();
   const workspaceLabel = resolveSidebarWorkspacePrimaryLabel({ workspace, workspaceTitleSource });
-  const vorton = useVortonMode();
+
   const installedEnvironment = useHasExecutionEnvironment(workspace.serverId);
   const actionSize = useSidebarActionSize();
-  const inlineService = vorton ? selectWorkspaceServiceSummary(workspace.scripts) : null;
+  const inlineService = selectWorkspaceServiceSummary(workspace.scripts);
   // The workspace carries label names; their colors live in its host's catalog, so the row is
   // where the two meet — the meta line is handed finished definitions.
   const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
@@ -177,7 +176,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
 
   return (
     <View style={styles.workspaceRowContent}>
-      <View style={[styles.workspaceRowMain, vorton && styles.alignedRow]}>
+      <View style={[styles.workspaceRowMain, styles.alignedRow]}>
         {leadingProjectName ? (
           <ProjectStatusIndicator
             iconDataUri={leadingProjectIconDataUri}
@@ -197,25 +196,25 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
           />
         )}
         <View style={styles.workspaceContentColumn}>
-          <View style={[styles.workspaceTitleRow, vorton && styles.alignedRow]}>
+          <View style={[styles.workspaceTitleRow, styles.alignedRow]}>
             <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />
             <Text style={workspaceBranchTextStyle} numberOfLines={1}>
               {workspaceLabel}
             </Text>
-            <View style={[sidebarWorkspaceRowStyles.rowRight, vorton && styles.alignedActions]}>
-              {vorton && inlineService ? (
+            <View style={[sidebarWorkspaceRowStyles.rowRight, styles.alignedActions]}>
+              {inlineService ? (
                 <View style={[styles.serviceSlot, actionSize]}>
                   <ServiceItem summary={inlineService} iconOnly />
                 </View>
               ) : null}
               {children}
-              {vorton && (
+              {
                 <WorkspaceActivityBadges
                   serverId={workspace.serverId}
                   workspaceId={workspace.workspaceId}
                   visible={sidebarRowItems.activityBadges}
                 />
-              )}
+              }
             </View>
           </View>
           <WorkspaceMetaRow
@@ -223,7 +222,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             projectName={leadingProjectName}
             hostBadge={visibleHostBadge(installedEnvironment, hostBadge)}
             prHint={workspace.prHint}
-            serviceSummary={vorton ? null : serviceSummary}
+            serviceSummary={null}
             labels={labels}
           />
         </View>

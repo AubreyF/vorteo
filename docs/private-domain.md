@@ -50,7 +50,7 @@ For the separate Vorton application, merge `externalOrigin` into its private `lo
 }
 ```
 
-Replace the example broker address with the actual stable frontend. Preserve other configuration fields. Use the application's managed lifecycle to apply the change and verify that its companion also accepts the exact new origin. This configuration belongs to the separate Vorton application, not Paseo's Vorton mode.
+Replace the example broker address with the actual stable frontend. Preserve other configuration fields. Use the application's managed lifecycle to apply the change and verify that its companion also accepts the exact new origin. This configuration belongs to the separate Vorton application.
 
 ## Start and verify
 

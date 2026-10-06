@@ -9,27 +9,18 @@ it.each([false, true])("uses composer width for the profile caption: narrow=%s",
       { id: "secondary", name: "Codex 2 Astra Medium", nickname: "C2-AM", provider: "codex" },
     ],
     compactName,
-    vortonMode: true,
     view: { kind: "loading" },
     now: 0,
   });
   expect(result.triggerLabel).toBe(compactName ? "C2-AM" : "Codex 2 Astra Medium");
 });
 
-it.each([
-  { vortonMode: true, caption: "Choose profile", accessibility: "Choose profile" },
-  {
-    vortonMode: false,
-    caption: "Select configuration",
-    accessibility: "Profile (Select configuration, Select configuration)",
-  },
-])("shows the unselected caption in mode $vortonMode", ({ vortonMode, caption, accessibility }) => {
+it("shows the unselected profile caption", () => {
   const result = selectedPresetPresentation({
     definitions: [],
-    vortonMode,
     view: { kind: "loading" },
     now: 0,
   });
-  expect(result.triggerLabel).toBe(caption);
-  expect(result.accessibilityLabel).toBe(accessibility);
+  expect(result.triggerLabel).toBe("Choose profile");
+  expect(result.accessibilityLabel).toBe("Choose profile");
 });

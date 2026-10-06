@@ -1,6 +1,5 @@
 import { expect, test } from "../support/fixtures";
 import { seedAgentProfiles } from "../support/helpers/agent-profiles";
-import { setVortonMode } from "../support/helpers/app";
 import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute } from "../support/helpers/mock-agent";
 import { seedWorkspace } from "../support/helpers/seed-client";
@@ -28,7 +27,7 @@ test("profile edits warn legacy chats and recreation uses the updated permission
   try {
     await openAgentRoute(page, workspace);
     await expectComposerVisible(page);
-    await setVortonMode(page, true);
+
     await expect(page.getByTestId("preset-permission-trigger")).toHaveCount(0);
     await expect(page.getByTestId("profile-permission-warning")).toHaveCount(0);
     const update = await seedAgentProfiles([{ ...profile, modeId: "approval-test" }]);
@@ -78,7 +77,6 @@ test("profile edits warn legacy chats and recreation uses the updated permission
         model: "e2e-fast-stream",
         modeId: "load-test",
       });
-      await setVortonMode(page, false);
       await expect(
         page.getByRole("button", { name: "Select agent mode (Approval test)" }),
       ).toBeVisible();

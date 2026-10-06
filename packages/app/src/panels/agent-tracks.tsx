@@ -3,11 +3,9 @@ import { StyleSheet } from "react-native-unistyles";
 import { useSubagentsForParent, useArchiveFinishedSubagents } from "@/subagents";
 import { useHasPluginComposerPills } from "@/plugins";
 import { memo, useCallback, type ReactElement } from "react";
-import { useVortonMode } from "@/vorton-mode";
-import { WorkspaceDiffStatPill } from "@/composer/diff-stat-pill";
-import { useWorkspaceHasDiffStat } from "@/composer/workspace-diff-stat";
+
 import { AgentTaskList } from "@/composer/task-list";
-import { ComposerTrackBar } from "@/composer/tracks";
+
 import { supportsDesktopPaneSplits, useIsCompactFormFactor } from "@/constants/layout";
 import { usePaneContext } from "@/panels/pane-context";
 import { useSettings } from "@/hooks/use-settings";
@@ -21,28 +19,21 @@ import {
 } from "@/subagents";
 import { SubagentsTrack } from "@/subagents/track";
 import type { TodoEntry } from "@/types/stream";
+import { resolveAgentPresentation } from "@/subagents/policies";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { openPreferredWorkspaceTarget } from "@/workspace-tabs/open-beside";
-import { openComposerChanges } from "@/workspace-tabs/open-supporting-view";
 
-/**
- * Paseo keeps the composer pill rail. Vorton renders the same context and actions in
- * the conversation footer, so navigation and lifecycle behavior have one owner.
- */
 export const AgentTracks = memo(function AgentTracks({
   serverId,
   workspaceId,
   agentId,
-  cwd,
   subagentRows,
   tasks,
   archiveFinishedStatus,
   onArchiveFinished,
   hasPluginComposerPills,
-  inline = false,
 }: {
-  inline?: boolean;
   serverId: string;
   workspaceId: string;
   agentId: string;
@@ -54,8 +45,7 @@ export const AgentTracks = memo(function AgentTracks({
   hasPluginComposerPills: boolean;
 }): ReactElement | null {
   const { tabId, openTab } = usePaneContext();
-  const vortonMode = useVortonMode();
-  const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
+
   const isCompact = useIsCompactFormFactor();
   const canSplit = supportsDesktopPaneSplits() && !isCompact;
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
@@ -69,7 +59,15 @@ export const AgentTracks = memo(function AgentTracks({
     (subagentId: string) => {
       const session = useSessionStore.getState().sessions[serverId];
       const agent = session?.agents.get(subagentId) ?? session?.agentDetails.get(subagentId);
-      if (agent?.workspaceId && agent.workspaceId !== workspaceId) {
+      const presentation =
+        agent && session
+          ? resolveAgentPresentation({
+              agent,
+              agents: session.agents,
+              workspaces: session.hasHydratedWorkspaces ? session.workspaces : undefined,
+            })
+          : null;
+      if (presentation?.workspaceId && presentation.workspaceId !== workspaceId) {
         navigateToAgent({ serverId, agentId: subagentId });
         return;
       }
@@ -105,22 +103,8 @@ export const AgentTracks = memo(function AgentTracks({
     },
     [canSplit, isCompact, openInSidePane, openTab, tabId, workspaceKey],
   );
-  const handleOpenChanges = useCallback(() => {
-    if (!workspaceKey) {
-      return;
-    }
-    openComposerChanges({
-      isCompact,
-      workspaceKey,
-      checkout: { serverId, cwd, isGit: true },
-      preferences: openInSidePane,
-    });
-  }, [cwd, isCompact, openInSidePane, serverId, workspaceKey]);
-
-  if (vortonMode !== inline) return null;
 
   if (
-    (inline || !hasWorkspaceDiffStat) &&
     !hasAgentTracks({
       subagentRows,
       tasks,
@@ -131,39 +115,20 @@ export const AgentTracks = memo(function AgentTracks({
     return null;
   }
 
-  if (inline) {
-    return (
-      <>
-        {hasPluginComposerPills ? (
-          <View style={styles.pills} testID="agent-history-plugin-pills">
-            <PluginComposerPills
-              serverId={serverId}
-              workspaceId={workspaceId}
-              agentId={agentId}
-              compact={isCompact}
-            />
-          </View>
-        ) : null}
-        <SubagentsTrack
-          inline
-          serverId={serverId}
-          rows={subagentRows}
-          onOpenSubagent={handleOpenSubagent}
-          onOpenProviderSubagent={handleOpenProviderSubagent}
-          onArchiveSubagent={archiveSubagent}
-          onArchiveFinished={onArchiveFinished}
-          archiveFinishedStatus={archiveFinishedStatus}
-          onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
-        />
-        <AgentTaskList inline tasks={tasks} />
-      </>
-    );
-  }
-
   return (
-    <ComposerTrackBar>
-      <AgentTaskList tasks={tasks} />
+    <>
+      {hasPluginComposerPills ? (
+        <View style={styles.pills} testID="agent-history-plugin-pills">
+          <PluginComposerPills
+            serverId={serverId}
+            workspaceId={workspaceId}
+            agentId={agentId}
+            compact={isCompact}
+          />
+        </View>
+      ) : null}
       <SubagentsTrack
+        inline
         serverId={serverId}
         rows={subagentRows}
         onOpenSubagent={handleOpenSubagent}
@@ -173,20 +138,8 @@ export const AgentTracks = memo(function AgentTracks({
         archiveFinishedStatus={archiveFinishedStatus}
         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
       />
-      <PluginComposerPills
-        serverId={serverId}
-        workspaceId={workspaceId}
-        agentId={agentId}
-        compact={isCompact}
-      />
-      {!vortonMode && (
-        <WorkspaceDiffStatPill
-          serverId={serverId}
-          workspaceId={workspaceId}
-          onPress={handleOpenChanges}
-        />
-      )}
-    </ComposerTrackBar>
+      <AgentTaskList inline tasks={tasks} />
+    </>
   );
 });
 
@@ -230,7 +183,6 @@ export function AgentHistoryTracks({
   const hasPluginComposerPills = useHasPluginComposerPills(serverId, workspaceId, agentId);
   return (
     <AgentTracks
-      inline
       serverId={serverId}
       workspaceId={workspaceId}
       agentId={agentId}

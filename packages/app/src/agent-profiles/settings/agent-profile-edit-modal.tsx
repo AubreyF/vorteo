@@ -128,7 +128,8 @@ function toSelectOptions(options: AgentProfileFormOption[]): SelectFieldOption<s
   }));
 }
 
-import { useVortonMode } from "@/vorton-mode";
+import { EnvironmentAvailabilityField } from "@/execution-installation/environment-availability-field";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 
 interface ProfileLaunchFieldsProps {
   serverId: string;
@@ -153,7 +154,6 @@ function ProfileLaunchFields({
   controlSize,
 }: ProfileLaunchFieldsProps) {
   const { profiles, legacyProfiles, supportsLaunch } = useAgentProfiles(serverId);
-  const vortonMode = useVortonMode();
   const workerOptions = useMemo(
     () => [
       { id: "none", value: "", label: "No workers" },
@@ -172,7 +172,7 @@ function ProfileLaunchFields({
   );
   const selectedLimit =
     WORKER_LIMIT_OPTIONS.find((entry) => entry.value === state.maxWorkers) ?? null;
-  if (!supportsLaunch || !vortonMode) return null;
+  if (!supportsLaunch) return null;
   return (
     <>
       {!defaults ? (
@@ -290,10 +290,6 @@ function profileTitleKey(mode: "create" | "edit") {
   return mode === "edit"
     ? "settings.host.agentProfiles.editProfileTitle"
     : "settings.host.agentProfiles.addProfileTitle";
-}
-
-function profileActionPlacement(fixed: boolean, actions: ReactElement) {
-  return { footer: fixed ? actions : undefined, inline: fixed ? null : actions };
 }
 
 function ProfileIdentityFields({
@@ -438,43 +434,40 @@ function OpenAgentProfileEditModal({
     onClose();
   }, [onClose, state.isSubmitting]);
 
-  const vortonMode = useVortonMode();
-  const actions = (
-    <View style={styles.actionPanel}>
-      {state.submitError ? (
-        <Text style={styles.submitError} testID="agent-profile-submit-error">
-          {state.submitError}
-        </Text>
-      ) : null}
-      <View
-        style={[styles.actions, vortonMode && styles.fixedActions]}
-        testID="agent-profile-actions"
-      >
-        <Button
-          variant="secondary"
-          style={styles.actionButton}
-          onPress={handleCancel}
-          disabled={state.isSubmitting}
-          testID="agent-profile-cancel-button"
-        >
-          {t("common.actions.cancel")}
-        </Button>
-        <Button
-          variant="default"
-          style={styles.actionButton}
-          onPress={handleSavePress}
-          disabled={!state.canSubmit}
-          testID="agent-profile-save-button"
-        >
-          {state.isSubmitting
-            ? t("settings.host.agentProfiles.saving")
-            : t("settings.host.agentProfiles.save")}
-        </Button>
+  const actions = useMemo(
+    () => (
+      <View style={styles.actionPanel}>
+        {state.submitError ? (
+          <Text style={styles.submitError} testID="agent-profile-submit-error">
+            {state.submitError}
+          </Text>
+        ) : null}
+        <View style={[styles.actions, styles.fixedActions]} testID="agent-profile-actions">
+          <Button
+            variant="secondary"
+            style={styles.actionButton}
+            onPress={handleCancel}
+            disabled={state.isSubmitting}
+            testID="agent-profile-cancel-button"
+          >
+            {t("common.actions.cancel")}
+          </Button>
+          <Button
+            variant="default"
+            style={styles.actionButton}
+            onPress={handleSavePress}
+            disabled={!state.canSubmit}
+            testID="agent-profile-save-button"
+          >
+            {state.isSubmitting
+              ? t("settings.host.agentProfiles.saving")
+              : t("settings.host.agentProfiles.save")}
+          </Button>
+        </View>
       </View>
-    </View>
+    ),
+    [state.submitError, state.isSubmitting, state.canSubmit, handleCancel, handleSavePress, t],
   );
-
-  const actionPlacement = profileActionPlacement(vortonMode, actions);
 
   return (
     <AdaptiveModalSheet
@@ -482,8 +475,8 @@ function OpenAgentProfileEditModal({
       header={sheetHeader}
       onClose={handleCancel}
       onDismiss={onDismiss}
-      footer={actionPlacement.footer}
-      sizeContentToCurrentSnapPoint={vortonMode}
+      footer={actions}
+      sizeContentToCurrentSnapPoint
       desktopMaxWidth={520}
       testID="agent-profile-edit-modal"
     >
@@ -588,6 +581,13 @@ function OpenAgentProfileEditModal({
           state={state}
           controlSize={controlSize}
         />
+        {sharedScope?.kind === "workflow" && readExecutionInstallation() ? (
+          <EnvironmentAvailabilityField
+            excludedEnvironments={state.excludedEnvironments}
+            onChange={model.setExcludedEnvironments}
+            disabled={state.isSubmitting}
+          />
+        ) : null}
         {!editingDefaults ? (
           <Field
             label={t("settings.host.agentProfiles.notesLabel")}
@@ -608,8 +608,6 @@ function OpenAgentProfileEditModal({
             />
           </Field>
         ) : null}
-
-        {actionPlacement.inline}
       </View>
     </AdaptiveModalSheet>
   );

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useReducer, useRef, useState } from "react";
 import { Text, type GestureResponderEvent } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useQueryClient } from "@tanstack/react-query";
-import { useVortonMode } from "@/vorton-mode";
+
 import { useFetchQuery } from "@/data/query";
 import type { ProviderResetView } from "@getpaseo/protocol/provider-reset";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
@@ -31,7 +31,7 @@ function useResetControl({
   const hostId = serverId ?? "";
   const client = useHostRuntimeClient(hostId);
   const connected = useHostRuntimeIsConnected(hostId);
-  const vortonMode = useVortonMode();
+
   const hostSupported = useSessionStore(
     (state) => state.sessions[hostId]?.serverInfo?.features?.providerResetManagement === true,
   );
@@ -39,7 +39,7 @@ function useResetControl({
     (state) => state.sessions[hostId]?.serverInfo?.features?.providerResetCreditSelection === true,
   );
   const cache = useQueryClient();
-  const supported = vortonMode && hostSupported;
+  const supported = hostSupported;
   const clientGeneration = useSessionStore((state) => state.sessions[hostId]?.clientGeneration);
   const queryOptions = useMemo(
     () =>

@@ -38,18 +38,16 @@ test("Vorteo checks main and requires a connected installation host before prepa
   });
   await page.goto("/settings/about");
   await expect(page.getByText("This device", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("vorton-updates-section")).toHaveCount(0);
-  await expect(page.getByTestId("settings-sidebar-version")).toHaveCount(0);
-  expect(requests).toBe(0);
-
-  await page.goto("/settings/general");
-  await page.getByTestId("settings-vorton-mode").getByLabel("Vorteo mode", { exact: true }).click();
-  // Client navigation retains the selected mode; the initialization above only applies to document loads.
+  // A saved legacy false value no longer disables the Vorteo interface.
+  await expect(page.getByTestId("vorton-updates-section")).toHaveCount(1);
+  await expect(page.getByTestId("settings-vorton-mode")).toHaveCount(0);
+  await expect(page.getByTestId("settings-sidebar-version")).toHaveCount(1);
   await page.getByTestId("settings-sidebar-version").click();
   await expect(page).toHaveURL(/\/settings\/general$/);
   await expect(page.getByTestId("vorton-update-status")).toHaveText(
     "3 new commits are available on main.",
   );
+  expect(requests).toBeGreaterThan(0);
   await page.getByTestId("vorton-help-update").click();
   await expect(
     page.getByText("Connect this installation's host environment before preparing an update task."),

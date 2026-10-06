@@ -264,6 +264,29 @@ describe("skills controller", () => {
     await rm(harness.root, { recursive: true, force: true });
   });
 
+  it("previews additions and removals without changing installed files or the saved selection", async () => {
+    const proposed: SkillSelection = { mode: "custom", skills: ["paseo"] };
+    const additions = await harness.controller.preview(proposed);
+    expect(additions.selection).toEqual(proposed);
+    expect(additions.ops).toEqual([{ kind: "add", name: "paseo" }]);
+    expect(additions.confirmationRequired).toBeNull();
+    expect(await harness.selectionStore.get()).toEqual({ mode: "all" });
+    expect(await installedEverywhere(harness.targets)).toEqual([[], [], []]);
+    await harness.controller.install();
+    await writeUserFile(harness.targets, "paseo-loop", "personal.txt", "Keep this until confirmed");
+    const before = await installedEverywhere(harness.targets);
+    const removal = await harness.controller.preview(proposed);
+    expect(removal.confirmationRequired).toEqual({ removals: ["paseo-advisor", "paseo-loop"] });
+    expect(await installedEverywhere(harness.targets)).toEqual(before);
+    expect(await readUserFile(harness.targets, "paseo-loop", "personal.txt")).toEqual([
+      "Keep this until confirmed",
+      "Keep this until confirmed",
+      "Keep this until confirmed",
+    ]);
+    expect(await harness.selectionStore.get()).toEqual({ mode: "all" });
+    expect(await backupArtifacts(harness.targets)).toEqual([[], [], []]);
+  });
+
   it("reports one snapshot with catalog, selection, status, and pending work", async () => {
     expect(await harness.controller.status()).toEqual({
       state: "not-installed",

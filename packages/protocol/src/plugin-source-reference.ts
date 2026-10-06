@@ -58,7 +58,13 @@ function isPortableRelativePluginPath(pluginPath: string): boolean {
 
 export function formatPluginIdentity(identity: PluginInstallation["identity"]): string {
   if (identity.kind === "directory") return identity.path;
-  if (identity.registry) return `${new URL(identity.registry.url).host}/${identity.registry.id}`;
+  if (identity.registry) {
+    const url = new URL(identity.registry.url);
+    const needsExplicitBase = url.protocol !== "https:" || url.pathname !== "/";
+    if (needsExplicitBase)
+      return `registry:${identity.registry.url.replace(/\/+$/, "")}/${identity.registry.id}`;
+    return `${url.host}/${identity.registry.id}`;
+  }
   const source = identity.kind === "npm" ? `npm:${identity.packageName}` : `git:${identity.remote}`;
   return identity.pluginPath === "." ? source : `${source}:${identity.pluginPath}`;
 }

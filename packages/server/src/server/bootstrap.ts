@@ -418,6 +418,7 @@ export interface PaseoDaemonConfig {
   terminalProfiles?: TerminalProfile[];
   agentProfiles?: AgentProfile[];
   sharedProviderPreferences?: MutableDaemonConfig["sharedProviderPreferences"];
+  installationResourceBindings?: MutableDaemonConfig["installationResourceBindings"];
   skillSelection?: AgentSkillSelection;
   pluginsEnabled?: boolean;
   plugins?: Record<string, PluginSource>;
@@ -576,6 +577,7 @@ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDae
     plugins: config.plugins ?? {},
     skills: { selection: config.skillSelection },
     sharedProviderPreferences: config.sharedProviderPreferences,
+    installationResourceBindings: config.installationResourceBindings,
   };
 
   if (config.terminalProfiles !== undefined) {
@@ -960,6 +962,7 @@ export async function createPaseoDaemon(
     },
   });
   const providerSnapshotManager = agentProviderRuntime.snapshotManager;
+  daemonConfigStore.registerProviderDefaults(providerSnapshotManager.listRegisteredProviderIds());
   daemonConfigStore.onFieldChange("catalogRefreshTimeoutMs", (value) => {
     providerSnapshotManager.setRefreshTimeoutMs(typeof value === "number" ? value : undefined);
   });
@@ -973,6 +976,7 @@ export async function createPaseoDaemon(
   });
   const initialAgentManagerState = providerSnapshotManager.getAgentManagerProviderState();
   const agentManager = new AgentManager({
+    getSharedProviderConfig: () => daemonConfigStore.get(),
     pluginLifecycle: pluginRuntime,
     clients: initialAgentManagerState.clients,
     providerDefinitions: initialAgentManagerState.providerDefinitions,
@@ -990,6 +994,7 @@ export async function createPaseoDaemon(
     agentManager.updateProviderRegistry(
       providerSnapshotManager.replacePluginProviders(pluginRuntime.getProviderRegistrations()),
     );
+    daemonConfigStore.registerProviderDefaults(providerSnapshotManager.listRegisteredProviderIds());
   };
   const unsubscribePluginProviders =
     pluginRuntime.subscribeProviderRegistrations(syncPluginProviders);

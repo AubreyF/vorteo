@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { useVortonMode } from "@/vorton-mode";
+
 import { memo, useCallback, useMemo } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { ExternalLink, Gift } from "lucide-react-native";
@@ -49,15 +49,11 @@ interface ChangelogSheetProps {
 
 export function ChangelogSheet({ visible, onClose }: ChangelogSheetProps) {
   const { t } = useTranslation();
-  const vorteoMode = useVortonMode();
+
   const { state, reload } = useChangelog(visible);
   const releases = useMemo(
-    () =>
-      mergeChangelogReleases(
-        vorteoMode ? customReleases : [],
-        state.status === "ready" ? state.releases : [],
-      ),
-    [vorteoMode, state],
+    () => mergeChangelogReleases(customReleases, state.status === "ready" ? state.releases : []),
+    [state],
   );
   const hasReleases = visible && releases.length > 0;
   const { count, showMore } = useRevealedReleases(hasReleases);
@@ -100,12 +96,7 @@ export function ChangelogSheet({ visible, onClose }: ChangelogSheetProps) {
       testID="changelog-sheet"
     >
       <View style={styles.releaseList}>
-        <ChangelogBody
-          releases={releases}
-          showSource={vorteoMode}
-          shownReleases={count}
-          onShowMore={showMore}
-        />
+        <ChangelogBody releases={releases} shownReleases={count} onShowMore={showMore} />
         <ChangelogStatus state={state} onRetry={reload} />
       </View>
     </AdaptiveModalSheet>
@@ -153,12 +144,11 @@ function ChangelogStatus({ state, onRetry }: ChangelogStatusProps) {
 
 interface ChangelogBodyProps {
   releases: ChangelogTimelineRelease[];
-  showSource: boolean;
   shownReleases: number;
   onShowMore: () => void;
 }
 
-function ChangelogBody({ releases, showSource, shownReleases, onShowMore }: ChangelogBodyProps) {
+function ChangelogBody({ releases, shownReleases, onShowMore }: ChangelogBodyProps) {
   const { t } = useTranslation();
   const appVersion = useMemo(() => resolveAppVersion()?.replace(/^v/i, "") ?? null, []);
   const visibleReleases = releases.slice(0, shownReleases);
@@ -169,7 +159,6 @@ function ChangelogBody({ releases, showSource, shownReleases, onShowMore }: Chan
         <ReleaseView
           key={`${release.source}:${release.version}:${release.date}`}
           release={release}
-          showSource={showSource}
           isCurrent={release.version === appVersion}
         />
       ))}
@@ -189,21 +178,16 @@ function ChangelogBody({ releases, showSource, shownReleases, onShowMore }: Chan
 
 interface ReleaseViewProps {
   release: ChangelogTimelineRelease;
-  showSource: boolean;
   isCurrent: boolean;
 }
 
-const ReleaseView = memo(function ReleaseView({
-  release,
-  showSource,
-  isCurrent,
-}: ReleaseViewProps) {
+const ReleaseView = memo(function ReleaseView({ release, isCurrent }: ReleaseViewProps) {
   const { t } = useTranslation();
   const date = formatChangelogDate(release.date);
 
   return (
     <View style={styles.release} testID={`changelog-release-${release.version}`}>
-      {showSource ? <Text style={styles.sourceTitle}>{release.source}</Text> : null}
+      <Text style={styles.sourceTitle}>{release.source}</Text>
       <View style={styles.releaseHeading}>
         <Text style={styles.version}>{release.version}</Text>
         {isCurrent ? <StatusBadge label={t("changelog.installed")} /> : null}

@@ -6,7 +6,6 @@ import type { WorkspaceScriptPayload } from "@getpaseo/protocol/messages";
 import { WorkspacePreviewRows } from "./workspace-preview-rows";
 
 const state = vi.hoisted(() => ({
-  enabled: true,
   open: vi.fn(),
   theme: {
     spacing: { 1.5: 6, 3: 12 },
@@ -20,7 +19,6 @@ const state = vi.hoisted(() => ({
     },
   },
 }));
-vi.mock("@/vorton-mode", () => ({ useVortonMode: () => state.enabled }));
 vi.mock("@/utils/open-external-url", () => ({ openExternalUrl: state.open }));
 vi.mock("react-native-unistyles", () => ({
   StyleSheet: { create: (factory: (theme: typeof state.theme) => unknown) => factory(state.theme) },
@@ -54,7 +52,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   cleanup();
-  state.enabled = true;
   state.open.mockReset();
 });
 describe("workspace preview rows", () => {
@@ -88,9 +85,8 @@ describe("workspace preview rows", () => {
     );
     expect(screen.queryAllByRole("link")).toHaveLength(0);
   });
-  it("preserves standard Paseo mode", () => {
-    state.enabled = false;
+  it("shows previews independently of legacy mode preferences", () => {
     render(<WorkspacePreviewRows scripts={[script("web")]} />);
-    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.queryAllByRole("link")).toHaveLength(1);
   });
 });

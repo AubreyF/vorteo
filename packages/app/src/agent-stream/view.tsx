@@ -2,7 +2,7 @@ import { taskCardStyles } from "./task-card-styles";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
 import { AgentTaskCards } from "./task-cards";
 import { JumpToLatest } from "./jump-to-latest";
-import { useVortonMode } from "@/vorton-mode";
+
 import { isQuotaExhaustionMessage } from "./quota-notice";
 import { ChatFind, ChatFindExpansion } from "@/agent-stream/chat-find";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -114,20 +114,17 @@ import { useStreamHistoryWindow } from "./use-stream-history-window";
 import { PluginTimelineItemView, useInstalledTimelineTransform } from "@/plugins/timeline";
 
 function StreamJumpButton({
-  vorton,
   serverId,
   agentId,
   onPress,
   label,
 }: {
-  vorton: boolean;
   serverId?: string;
   agentId: string;
   onPress: () => void;
   label: string;
 }) {
-  if (vorton && serverId)
-    return <JumpToLatest serverId={serverId} agentId={agentId} onPress={onPress} />;
+  if (serverId) return <JumpToLatest serverId={serverId} agentId={agentId} onPress={onPress} />;
   return (
     <Pressable
       style={stylesheet.scrollToBottomButton}
@@ -141,12 +138,8 @@ function StreamJumpButton({
   );
 }
 
-function shouldRenderTaskCards(
-  show: boolean | undefined,
-  vorton: boolean,
-  serverId: string | undefined,
-): boolean {
-  return !!show && vorton && !!serverId;
+function shouldRenderTaskCards(show: boolean | undefined, serverId: string | undefined): boolean {
+  return !!show && !!serverId;
 }
 
 function renderLiveAuxiliaryNode(input: {
@@ -154,7 +147,6 @@ function renderLiveAuxiliaryNode(input: {
   turnFooter: ReactNode;
   bottomOverlayInset: number;
   taskCards: ReactNode;
-  vortonMode: boolean;
 }): ReactNode {
   if (
     !input.pendingPermissions &&
@@ -168,10 +160,7 @@ function renderLiveAuxiliaryNode(input: {
     <>
       {input.turnFooter}
       <View
-        style={[
-          stylesheet.contentWrapper,
-          input.vortonMode ? stylesheet.bottomCardStack : stylesheet.permissionsContainer,
-        ]}
+        style={[stylesheet.contentWrapper, stylesheet.bottomCardStack]}
         testID={input.taskCards ? "agent-history-task-cards" : undefined}
       >
         {input.pendingPermissions}
@@ -774,10 +763,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       [context.capabilities, agentId, client, pendingClientMessageIds, resolvedServerId],
     );
 
-    const vortonMode = useVortonMode();
     const renderAssistantMessageItem = useCallback(
       (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "assistant_message" }>) => {
-        if (vortonMode && isQuotaExhaustionMessage(item.text)) {
+        if (isQuotaExhaustionMessage(item.text)) {
           return (
             <Notification
               level="warning"
@@ -811,7 +799,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           </AssistantFileLinkResolverProvider>
         );
       },
-      [agentId, client, handleInlinePathPress, resolvedServerId, toast, workspaceRoot, vortonMode],
+      [agentId, client, handleInlinePathPress, resolvedServerId, toast, workspaceRoot],
     );
 
     const renderThoughtItem = useCallback(
@@ -1133,7 +1121,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         turnFooter: auxiliary.turnFooter,
         taskCards:
           trailingCards ??
-          (shouldRenderTaskCards(showTaskCards, vortonMode, serverId) ? (
+          (shouldRenderTaskCards(showTaskCards, serverId) ? (
             <AgentTaskCards
               serverId={serverId!}
               agentId={agentId}
@@ -1142,7 +1130,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             />
           ) : null),
         bottomOverlayInset,
-        vortonMode,
       });
     }, [
       auxiliary.pendingPermissions,
@@ -1150,7 +1137,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       bottomOverlayTailClearance,
       showTaskCards,
       trailingCards,
-      vortonMode,
       serverId,
       agentId,
       context.cwd,
@@ -1238,7 +1224,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               <View style={scrollToBottomContainerStyle} pointerEvents="box-none">
                 <Animated.View entering={scrollIndicatorFadeIn} exiting={scrollIndicatorFadeOut}>
                   <StreamJumpButton
-                    vorton={vortonMode}
                     serverId={serverId}
                     agentId={agentId}
                     onPress={scrollToBottom}
@@ -1505,7 +1490,6 @@ function PermissionRequestCard({
 }) {
   const { t } = useTranslation();
   const isMobile = useIsCompactFormFactor();
-  const vortonMode = useVortonMode();
 
   const { request } = permission;
   const isPlanRequest = request.kind === "plan";
@@ -1692,11 +1676,7 @@ function PermissionRequestCard({
 
   return (
     <View
-      style={[
-        taskCardStyles.surface,
-        permissionStyles.container,
-        vortonMode && permissionStyles.bottomCard,
-      ]}
+      style={[taskCardStyles.surface, permissionStyles.container, permissionStyles.bottomCard]}
       testID="permission-request-card"
     >
       <Text style={permissionStyles.title}>{title}</Text>
@@ -1758,9 +1738,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: theme.spacing[12],
-  },
-  permissionsContainer: {
-    gap: theme.spacing[2],
   },
   bottomCardStack: {
     gap: theme.spacing[4],

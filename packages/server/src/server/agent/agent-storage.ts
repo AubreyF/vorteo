@@ -1,3 +1,4 @@
+import { SkillSnapshotSchema } from "@getpaseo/protocol/skill-library";
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -36,6 +37,7 @@ const SERIALIZABLE_CONFIG_SCHEMA = z
       .optional(),
     systemPrompt: z.string().nullable().optional(),
     profileLaunch: AgentProfileLaunchSchema.optional(),
+    skillSnapshot: SkillSnapshotSchema.optional(),
     quotaPausedAt: z.string().optional(),
     quotaResetAt: z.string().optional(),
     quotaReserve: QuotaReserveConfigSchema.optional(),
@@ -110,6 +112,7 @@ export type SerializableAgentConfig = Pick<
   | "toolPolicy"
   | "systemPrompt"
   | "profileLaunch"
+  | "skillSnapshot"
   | "quotaPausedAt"
   | "quotaResetAt"
   | "quotaReserve"

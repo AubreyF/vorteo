@@ -222,6 +222,7 @@ export class InstallationPanelModel {
     if (error instanceof OwnerAccessExpired)
       this.publish({
         unlocked: false,
+        visible: false,
         lastUpdatedAt: null,
         password: "",
         jobs: [],

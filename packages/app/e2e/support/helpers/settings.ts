@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { buildCreateAgentPreferences, buildSeededHost, TEST_HOST_LABEL } from "./daemon-registry";
+import { buildCreateAgentPreferences, buildSeededHost } from "./daemon-registry";
 import { getServerId } from "./server-id";
 import { expectAppRoute } from "./route-assertions";
 import {
@@ -56,20 +56,21 @@ export async function openSettingsSection(page: Page, section: SettingsSection):
 }
 
 export async function openSettingsHost(page: Page, serverId: string): Promise<void> {
-  // Host sections are now flat top-level rows under the Host group. Navigate by
-  // clicking the Connections section row; the picker only matters when >1 host.
-  await page.getByTestId("settings-host-section-connections").click();
-  await expectHostSettingsUrl(page, serverId);
-  await expect(page.getByTestId("host-page-connections-card")).toBeVisible();
+  await openSettingsHostSection(page, serverId, "connections");
+  await expect(
+    page.getByTestId(`settings-environment-${serverId}`).getByTestId("host-page-connections-card"),
+  ).toBeVisible();
 }
 
 export async function openSettingsHostSection(
   page: Page,
-  serverId: string,
+  _serverId: string,
   section: HostSection,
 ): Promise<void> {
-  await page.getByTestId(`settings-host-section-${section}`).click();
-  await expectAppRoute(page, buildSettingsHostSectionRoute(serverId, section));
+  const sharedSection = section === "host" ? "environments" : section;
+  await page.getByTestId(`settings-section-${sharedSection}`).click();
+  await expectAppRoute(page, buildSettingsSectionRoute(sharedSection));
+  await expect(page.getByTestId("settings-host-picker")).toHaveCount(0);
 }
 
 export async function expectSettingsHeader(page: Page, title: string): Promise<void> {
@@ -77,11 +78,13 @@ export async function expectSettingsHeader(page: Page, title: string): Promise<v
 }
 
 export async function openAddHostFlow(page: Page): Promise<void> {
-  // "Add host" is now an item inside the host picker (a Combobox); open the
-  // picker first, then pick it. The picker renders whenever a host exists.
-  await page.getByTestId("settings-host-picker").click();
+  if (!(await page.getByTestId("settings-add-host").isVisible())) {
+    const section = page.getByTestId("settings-section-connections");
+    if (!(await section.isVisible())) await goBackInSettings(page);
+    await section.click();
+  }
   await page.getByTestId("settings-add-host").click();
-  await expect(page.getByText("Add connection", { exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog").filter({ hasText: "Add connection" })).toBeVisible();
 }
 
 export async function selectHostConnectionType(
@@ -104,7 +107,9 @@ export async function addDirectHostFromSettings(
     await page.getByTestId("direct-password-input").fill(input.password);
   }
   await page.getByTestId("direct-host-submit").click();
-  await expect(page.getByTestId("add-host-modal")).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByRole("dialog").filter({ hasText: "Add connection" })).toHaveCount(0, {
+    timeout: 30_000,
+  });
 }
 
 export async function toggleHostAdvanced(page: Page): Promise<void> {
@@ -164,17 +169,6 @@ export async function seedSavedSettingsHosts(
   );
 }
 
-export async function selectSettingsHost(page: Page, serverId: string): Promise<void> {
-  await page.locator('[data-testid="settings-host-picker"]:visible').click();
-  await page.locator(`[data-testid="settings-host-picker-item-${serverId}"]:visible`).click();
-}
-
-export async function expectSettingsHostPickerLabel(page: Page, label: string): Promise<void> {
-  await expect(
-    page.getByTestId("settings-host-picker").getByText(label, { exact: true }),
-  ).toBeVisible();
-}
-
 export async function expectCompactSettingsList(page: Page): Promise<void> {
   await expectAppRoute(page, buildSettingsRoute());
   await expect(page.getByTestId("settings-sidebar")).toBeVisible();
@@ -227,8 +221,8 @@ export async function clickSettingsBackToWorkspace(page: Page): Promise<void> {
   await page.getByTestId("settings-back-to-workspace").click();
 }
 
-export async function expectHostSettingsUrl(page: Page, serverId: string): Promise<void> {
-  await expectAppRoute(page, buildSettingsHostSectionRoute(serverId, "connections"));
+export async function expectHostSettingsUrl(page: Page, _serverId: string): Promise<void> {
+  await expectAppRoute(page, buildSettingsSectionRoute("connections"));
 }
 
 export async function verifyLegacyHostSettingsRedirect(page: Page): Promise<void> {
@@ -329,6 +323,11 @@ export async function openHostSection(
   serverId: string,
   section: HostSection,
 ): Promise<void> {
+  if (section === "host") {
+    await page.goto(buildSettingsHostSectionRoute(serverId, "host"));
+    await expect(page.getByTestId("host-page-identity")).toBeVisible();
+    return;
+  }
   await openSettingsHostSection(page, serverId, section);
 }
 
@@ -395,16 +394,16 @@ export async function expectRetiredSidebarSectionsAbsent(page: Page): Promise<vo
   await expect(sidebar.getByRole("button", { name: "About", exact: true })).toHaveCount(0);
   await expect(sidebar.getByRole("button", { name: "Daemon", exact: true })).toHaveCount(0);
 
-  // Host group rows are now flat top-level sections (no drill-in).
-  await expect(sidebar.getByTestId("settings-host-section-connections")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-host-section-projects")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-host-section-agents")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-host-section-workspaces")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-host-section-providers")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-host-section-usage")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-host-section-host")).toBeVisible();
+  // Shared sections have a single entry for the whole installation.
+  await expect(sidebar.getByTestId("settings-section-connections")).toBeVisible();
+  await expect(sidebar.getByTestId("settings-section-projects")).toBeVisible();
+  await expect(sidebar.getByTestId("settings-section-agents")).toBeVisible();
+  await expect(sidebar.getByTestId("settings-section-workspaces")).toBeVisible();
+  await expect(sidebar.getByTestId("settings-section-providers")).toBeVisible();
+  await expect(sidebar.getByTestId("settings-section-usage")).toBeVisible();
+  await expect(sidebar.getByTestId("settings-section-environments")).toBeVisible();
 
-  // The old per-host entry rows are replaced by the host picker.
+  // No host selection changes the meaning of these settings.
   await expect(sidebar.locator('[data-testid^="settings-host-entry-"]')).toHaveCount(0);
 }
 
@@ -413,16 +412,9 @@ export async function expectHostPageVisible(page: Page, _serverId: string): Prom
 }
 
 export async function expectLocalHostEntryFirst(page: Page, _serverId: string): Promise<void> {
-  const sidebar = page.getByTestId("settings-sidebar");
-  await expect(sidebar).toBeVisible({ timeout: 15_000 });
-
-  // Single-host fixture: the picker is a non-interactive chip (no dropdown to
-  // open) that surfaces the local host by its label. The per-row connection
-  // endpoint only appears on dropdown rows in the multi-host case, which this
-  // fixture does not exercise.
-  const picker = sidebar.getByTestId("settings-host-picker");
-  await expect(picker).toBeVisible();
-  await expect(picker.getByText(TEST_HOST_LABEL, { exact: true })).toBeVisible();
+  await expect(page.getByTestId("settings-sidebar")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("settings-host-picker")).toHaveCount(0);
+  await expect(page.getByTestId("settings-section-connections")).toBeVisible();
 }
 
 export async function expectHostRejectedWithReAddGuidance(

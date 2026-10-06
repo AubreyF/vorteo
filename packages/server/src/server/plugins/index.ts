@@ -15,6 +15,15 @@ import {
   type PluginUpdatePreview,
   type PluginUpdateResult,
 } from "@getpaseo/protocol/messages";
+import {
+  ResolvedPluginSourceSchema,
+  type ResolvedPluginSource,
+  type PluginDirectoryBinding,
+} from "@getpaseo/protocol/plugin-installation";
+import {
+  assertInstallationPluginAction,
+  type InstallationPluginAction,
+} from "../execution-installation/settings/plugin-admission.js";
 import { parsePluginSourceReference } from "@getpaseo/protocol/plugin-source-reference";
 import { assertPluginCompatibility } from "@getpaseo/protocol/plugin-requirements";
 import { BUILTIN_PROVIDER_IDS } from "@getpaseo/protocol/provider-manifest";
@@ -34,6 +43,14 @@ import {
 import type { PluginUsageSourceMetadata } from "./plugin-process-protocol.js";
 
 const BUILTIN_PROVIDER_ID_SET: ReadonlySet<string> = new Set(BUILTIN_PROVIDER_IDS);
+
+interface DirectoryBindingRecovery {
+  pluginId: string;
+  directory: string;
+  previous: PluginSource | undefined;
+  replaced: boolean;
+  wasRunning: boolean;
+}
 
 interface PluginRuntimePort {
   emit?: PluginLifecycle["emit"];
@@ -208,6 +225,10 @@ export class PluginService {
           id,
           path: source.path,
           enabled,
+          providers:
+            this.runtime
+              .getProviderRegistrations?.(id)
+              .map(({ id: providerId, label }) => ({ id: providerId, label })) ?? [],
           status: resolvePluginStatus({
             enabled,
             globallyEnabled: config.pluginsEnabled === true,
@@ -219,6 +240,10 @@ export class PluginService {
         item.installation = await this.managedSources
           ?.describe(id, source.path)
           .catch(() => undefined);
+        const resolvedSource = await this.managedSources
+          ?.readResolvedSource(id, source.path)
+          .catch(() => undefined);
+        if (resolvedSource) item.resolvedSource = resolvedSource;
         if (!this.managedSources)
           item.installation = { identity: { kind: "directory", path: path.resolve(source.path) } };
         if (item.installation?.identity.kind === "git") {
@@ -245,7 +270,13 @@ export class PluginService {
     return this.runtime.catalog();
   }
 
-  async installDirectory(input: { path: string; id?: string }): Promise<PluginListItem> {
+  async installDirectory(input: {
+    path: string;
+    id?: string;
+    binding?: PluginDirectoryBinding;
+  }): Promise<PluginListItem> {
+    if (input.binding)
+      return this.bindDirectory({ path: input.path, id: input.id, binding: input.binding });
     return this.enqueue(async () => {
       const directory = path.resolve(input.path);
       const manifest = await readPluginManifest(directory);
@@ -259,6 +290,13 @@ export class PluginService {
           `Plugin ID "${pluginId}" is already configured; choose another ID with --id`,
         );
       }
+      (
+        await this.checkInstallationPlugin(pluginId, {
+          kind: "configure",
+          source: { kind: "directory" },
+          enabled: true,
+        })
+      )();
       const sources = {
         ...this.configStore.get().plugins,
         [pluginId]: { source: "directory" as const, path: directory, enabled: true },
@@ -272,6 +310,105 @@ export class PluginService {
       }
       return installed;
     });
+  }
+
+  private bindDirectory(input: {
+    path: string;
+    id?: string;
+    binding: PluginDirectoryBinding;
+  }): Promise<PluginListItem> {
+    return this.enqueue(async () => {
+      const directory = path.resolve(input.path);
+      const manifest = await readPluginManifest(directory);
+      assertPluginCompatibility({ ...manifest, version: this.daemonVersion, runtime: "daemon" });
+      const pluginId = PluginIdSchema.parse(input.id ?? manifest.id);
+      if (this.builtinPluginIds.has(pluginId))
+        throw new Error(`Plugin ID "${pluginId}" is reserved for a built-in plugin`);
+      const previous = this.configStore.get().plugins?.[pluginId];
+      const assertBinding = () => {
+        const current = this.configStore.get().plugins?.[pluginId];
+        if (current !== previous || (current?.path ?? null) !== input.binding.expectedPath)
+          throw new Error(
+            "Plugin directory binding changed. Reload its current path before retrying.",
+          );
+      };
+      assertBinding();
+      if (previous) {
+        const installed = await this.requireManagedSources().describe(pluginId, previous.path);
+        if (installed.identity.kind !== "directory")
+          throw new Error(
+            "Managed plugin sources cannot be replaced with a local directory binding.",
+          );
+      }
+      const action: InstallationPluginAction = {
+        kind: "bind-directory",
+        enabled: input.binding.enabled,
+      };
+      (await this.checkInstallationPlugin(pluginId, action))();
+      if (!this.runtime.validatePlugin)
+        throw new Error("Plugin runtime cannot validate directory bindings");
+      await this.runtime.validatePlugin(directory);
+      const assertAuthority = await this.checkInstallationPlugin(pluginId, action);
+      assertAuthority();
+      assertBinding();
+      const wasRunning = this.runtime.catalog().some((plugin) => plugin.id === pluginId);
+      let replaced = false;
+      try {
+        if (wasRunning) await this.stopPlugin(pluginId);
+        assertAuthority();
+        assertBinding();
+        this.patchSource(pluginId, {
+          source: "directory",
+          path: directory,
+          enabled: input.binding.enabled,
+        });
+        replaced = true;
+        this.errors.delete(pluginId);
+        if (this.canPublish(pluginId)) await this.startExplicit(pluginId, directory);
+      } catch (error) {
+        try {
+          await this.restoreDirectoryBinding({
+            pluginId,
+            directory,
+            previous,
+            replaced,
+            wasRunning,
+          });
+        } catch (restoreError) {
+          throw new Error(
+            `Binding failed: ${error instanceof Error ? error.message : String(error)}; restoring the previous plugin also failed: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+            { cause: restoreError },
+          );
+        } finally {
+          this.notify(pluginId);
+        }
+        throw error;
+      }
+      this.notify(pluginId);
+      return this.requireItem(pluginId);
+    });
+  }
+
+  private async restoreDirectoryBinding(input: DirectoryBindingRecovery): Promise<void> {
+    const { pluginId, directory, previous, replaced, wasRunning } = input;
+    const current = this.configStore.get().plugins?.[pluginId];
+    if (replaced && current?.path === directory) {
+      await this.stopPlugin(pluginId);
+      const latest = this.configStore.get().plugins?.[pluginId];
+      if (latest?.path === directory) {
+        if (previous) this.patchSource(pluginId, { ...previous, enabled: latest.enabled });
+        else {
+          const sources = { ...this.configStore.get().plugins };
+          delete sources[pluginId];
+          this.configStore.patch({ plugins: sources });
+        }
+      }
+    }
+    this.errors.delete(pluginId);
+    const stillOriginal =
+      previous && this.configStore.get().plugins?.[pluginId]?.path === previous.path;
+    if (wasRunning && stillOriginal && this.canPublish(pluginId))
+      await this.startExplicit(pluginId, previous.path);
   }
 
   async inspectDirectory(configuredPath: string): Promise<{ id: string }> {
@@ -301,12 +438,50 @@ export class PluginService {
       return this.installDirectory({ path: pluginDirectory, id: input.id });
     }
     const managedSources = this.requireManagedSources();
-    return this.enqueue(async () => {
-      let candidate = await managedSources.prepareInstall({
+    return this.installManaged({
+      id: input.id,
+      enabled: true,
+      prepare: () =>
+        managedSources.prepareInstall({
+          ...input,
+          source: reference.source,
+          pluginPath: reference.pluginPath,
+        }),
+    });
+  }
+
+  resolveSource(input: { source: string; ref?: string }): Promise<ResolvedPluginSource> {
+    const reference = parsePluginSourceReference(input.source);
+    return this.enqueue(() =>
+      this.requireManagedSources().resolveInstall({
         ...input,
         source: reference.source,
         pluginPath: reference.pluginPath,
-      });
+      }),
+    );
+  }
+
+  async installResolvedSource(input: {
+    resolved: ResolvedPluginSource;
+    id?: string;
+    enabled: boolean;
+  }): Promise<PluginListItem> {
+    const managedSources = this.requireManagedSources();
+    return this.installManaged({
+      id: input.id ?? input.resolved.id,
+      enabled: input.enabled,
+      prepare: () => managedSources.prepareResolvedInstall(input.resolved),
+    });
+  }
+
+  private installManaged(input: {
+    id?: string;
+    enabled: boolean;
+    prepare: () => Promise<ManagedPluginCandidate>;
+  }): Promise<PluginListItem> {
+    const managedSources = this.requireManagedSources();
+    return this.enqueue(async () => {
+      let candidate = await input.prepare();
       let pluginId: string;
       try {
         await this.checkRequirements(candidate.directory);
@@ -319,17 +494,36 @@ export class PluginService {
             `Plugin ID "${pluginId}" is already configured; choose another ID with --id`,
           );
         }
+        (
+          await this.checkInstallationPlugin(pluginId, {
+            kind: "configure",
+            source: resolvedCandidate(candidate),
+            enabled: input.enabled,
+          })
+        )();
         await runPluginBuild(candidate.directory, candidate.build, this.logger);
         candidate = await managedSources.place(pluginId, candidate);
         await this.validateCandidate(candidate);
         await managedSources.verifyCandidate(pluginId, candidate);
+        (
+          await this.checkInstallationPlugin(pluginId, {
+            kind: "configure",
+            source: resolvedCandidate(candidate),
+            enabled: input.enabled,
+          })
+        )();
       } catch (error) {
         await managedSources.discard(candidate);
         throw error;
       }
-      this.patchSource(pluginId, { source: "directory", path: candidate.directory, enabled: true });
+      this.patchSource(pluginId, {
+        source: "directory",
+        path: candidate.directory,
+        enabled: input.enabled,
+      });
       try {
-        if (this.canPublish(pluginId)) await this.startExplicit(pluginId, candidate.directory);
+        if (this.canPublish(pluginId))
+          await this.startExplicit(pluginId, candidate.directory, resolvedCandidate(candidate));
         managedSources.commit(pluginId, candidate.record);
       } catch (error) {
         await this.stopPlugin(pluginId);
@@ -414,6 +608,7 @@ export class PluginService {
 
   async reloadPlugin(pluginId: string): Promise<PluginListItem> {
     return this.enqueue(async () => {
+      (await this.checkInstallationPlugin(pluginId, { kind: "enable" }))();
       const source = this.requireEnabledSource(pluginId);
       if (this.configStore.get().pluginsEnabled !== true) {
         throw new Error("Plugins are globally disabled");
@@ -427,6 +622,8 @@ export class PluginService {
   }
 
   async enablePlugin(pluginId: string): Promise<PluginListItem> {
+    if (this.configStore.get().sharedProviderPreferences?.installation)
+      (await this.checkInstallationPlugin(pluginId, { kind: "enable" }))();
     const source = this.requireSource(pluginId);
     this.patchSource(pluginId, { ...source, enabled: true });
     this.errors.delete(pluginId);
@@ -441,6 +638,8 @@ export class PluginService {
   }
 
   async disablePlugin(pluginId: string): Promise<PluginListItem> {
+    if (this.configStore.get().sharedProviderPreferences?.installation)
+      (await this.checkInstallationPlugin(pluginId, { kind: "disable" }))();
     const source = this.requireSource(pluginId);
     this.patchSource(pluginId, { ...source, enabled: false });
     const stopping = this.stopPlugin(pluginId);
@@ -453,6 +652,8 @@ export class PluginService {
   }
 
   async removePlugin(pluginId: string): Promise<void> {
+    if (this.configStore.get().sharedProviderPreferences?.installation)
+      (await this.checkInstallationPlugin(pluginId, { kind: "remove" }))();
     this.requireSource(pluginId);
     const stopping = this.stopPlugin(pluginId);
     const sources = { ...this.configStore.get().plugins };
@@ -515,9 +716,14 @@ export class PluginService {
     }
   }
 
-  private async startExplicit(pluginId: string, sourcePath: string): Promise<void> {
+  private async startExplicit(
+    pluginId: string,
+    sourcePath: string,
+    resolved?: ResolvedPluginSource,
+    action: "activate" | "restore" = "activate",
+  ): Promise<void> {
     try {
-      await this.startPlugin(pluginId, sourcePath);
+      await this.startPlugin(pluginId, sourcePath, resolved, action);
     } catch (error) {
       if (this.canPublish(pluginId)) {
         this.recordFailure(pluginId, error);
@@ -537,7 +743,19 @@ export class PluginService {
     );
   }
 
-  private async startPlugin(pluginId: string, sourcePath: string): Promise<void> {
+  private async startPlugin(
+    pluginId: string,
+    sourcePath: string,
+    resolved?: ResolvedPluginSource,
+    action: "activate" | "restore" = "activate",
+  ): Promise<void> {
+    if (this.configStore.get().sharedProviderPreferences?.installation) {
+      const source = resolved ??
+        (await this.managedSources?.readResolvedSource(pluginId, sourcePath)) ?? {
+          kind: "directory" as const,
+        };
+      (await this.checkInstallationPlugin(pluginId, { kind: action, source }))();
+    }
     await this.runtime.startPlugin(pluginId, sourcePath, () => this.canPublish(pluginId));
     try {
       await this.publishProviderRegistrations(pluginId, sourcePath);
@@ -698,11 +916,25 @@ export class PluginService {
     let candidate = await managedSources.prepareUpdate(proposal, source.path);
     try {
       await this.checkRequirements(candidate.directory);
+      (
+        await this.checkInstallationPlugin(pluginId, {
+          kind: "configure",
+          source: resolvedCandidate(candidate),
+          enabled: this.requireSource(pluginId).enabled !== false,
+        })
+      )();
       await runPluginBuild(candidate.directory, candidate.build, this.logger);
       candidate = await managedSources.place(pluginId, candidate);
       await this.validateCandidate(candidate);
       await managedSources.verifyCandidate(pluginId, candidate, proposal.target);
       await managedSources.assertCurrent(proposal, this.requireSource(pluginId).path);
+      (
+        await this.checkInstallationPlugin(pluginId, {
+          kind: "configure",
+          source: resolvedCandidate(candidate),
+          enabled: this.requireSource(pluginId).enabled !== false,
+        })
+      )();
     } catch (error) {
       await managedSources.discard(candidate);
       throw error;
@@ -715,13 +947,14 @@ export class PluginService {
     if (shouldActivate) {
       if (isRunning) await this.stopPlugin(pluginId);
       try {
-        await this.startExplicit(pluginId, candidate.directory);
+        await this.startExplicit(pluginId, candidate.directory, resolvedCandidate(candidate));
       } catch (error) {
         let recoveryError: unknown;
         try {
           this.errors.delete(pluginId);
           if (isRunning && this.canPublish(pluginId))
-            await this.startExplicit(pluginId, source.path);
+            // Roll back the previously running revision while the desired update stays pending.
+            await this.startExplicit(pluginId, source.path, undefined, "restore");
         } catch (restoreError) {
           recoveryError = restoreError;
         } finally {
@@ -756,6 +989,26 @@ export class PluginService {
       outcome: "updated",
       plugin: await this.requireItem(pluginId),
       ...(warning ? { warning } : {}),
+    };
+  }
+
+  private async checkInstallationPlugin(
+    pluginId: string,
+    action: InstallationPluginAction,
+  ): Promise<() => void> {
+    const before = this.configStore.get();
+    const admission = await this.configStore.readInstallationSettingsAuthority();
+    if (admission) assertInstallationPluginAction(admission, pluginId, action);
+    return () => {
+      const current = this.configStore.get();
+      if (
+        (before.sharedProviderPreferences?.installation ||
+          current.sharedProviderPreferences?.installation) &&
+        current !== before
+      )
+        throw new Error(
+          "Plugin settings changed while verifying installation authority. Retry with current settings.",
+        );
     };
   }
 
@@ -810,4 +1063,13 @@ function resolveLocalPluginPath(directory: string, pluginPath: string | undefine
     relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
   if (escapesSource) throw new Error("Plugin path must stay inside the source directory");
   return pluginDirectory;
+}
+
+function resolvedCandidate(candidate: ManagedPluginCandidate): ResolvedPluginSource {
+  return ResolvedPluginSourceSchema.parse({
+    kind: candidate.identity.kind,
+    id: candidate.defaultId,
+    identity: candidate.identity,
+    target: candidate.target,
+  });
 }

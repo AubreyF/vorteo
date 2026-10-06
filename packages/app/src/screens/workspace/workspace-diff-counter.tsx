@@ -9,7 +9,7 @@ import { useVisibleWorkspaceDiffStat } from "@/composer/workspace-diff-stat";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useSettings } from "@/hooks/use-settings";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
-import { useVortonMode } from "@/vorton-mode";
+
 import { useVortonTouch } from "@/vorton-touch";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { openComposerChanges } from "@/workspace-tabs/open-supporting-view";
@@ -22,7 +22,7 @@ export function WorkspaceDiffCounter({
   workspaceId: string;
 }) {
   const { t } = useTranslation();
-  const vortonMode = useVortonMode();
+
   const touch = useVortonTouch();
   const isCompact = useIsCompactFormFactor();
   const diffStat = useVisibleWorkspaceDiffStat(serverId, workspaceId);
@@ -45,7 +45,7 @@ export function WorkspaceDiffCounter({
     if (!diffStat) return null;
     return <DiffStat additions={diffStat.additions} deletions={diffStat.deletions} />;
   }, [diffStat]);
-  if (!vortonMode || !diffStat || !cwd) return null;
+  if (!diffStat || !cwd) return null;
 
   if (isCompact) {
     return (

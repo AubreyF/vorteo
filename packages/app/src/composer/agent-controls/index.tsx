@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { defaultProfile } from "@/agent-profiles/internal/default-profile";
 import {
   memo,
@@ -203,18 +202,6 @@ function findOptionLabel(
   return selected?.label ?? fallback;
 }
 
-function toCommandCenterModes(
-  modeControl: AgentModeControlValue | null,
-  vortonMode: boolean | undefined,
-) {
-  if (vortonMode || !modeControl) return undefined;
-  return {
-    options: modeControl.modeOptions,
-    selectedId: modeControl.selectedModeId,
-    select: modeControl.onSelectMode,
-  };
-}
-
 function getModeProviderDefinitions(modeControl: AgentModeControlValue | null) {
   return modeControl?.providerDefinitions ?? EMPTY_AGENT_PROVIDER_DEFINITIONS;
 }
@@ -288,11 +275,10 @@ function useEditAgentProfilesNavigation(
   serverId: string | null,
   isSupported: boolean,
 ): (() => void) | undefined {
-  const vortonMode = useVortonMode();
   const handleEdit = useCallback(() => {
     if (!serverId) return;
-    router.push(buildSettingsHostSectionRoute(serverId, vortonMode ? "providers" : "agents"));
-  }, [serverId, vortonMode]);
+    router.push(buildSettingsHostSectionRoute(serverId, "providers"));
+  }, [serverId]);
   return serverId && isSupported ? handleEdit : undefined;
 }
 
@@ -1576,7 +1562,7 @@ export const AgentControls = memo(function AgentControls({
   onDropdownClose,
   isCompactLayout,
 }: AgentControlsProps) {
-  const { preferences, updatePreferences } = useFormPreferences();
+  const { updatePreferences } = useFormPreferences();
   const { supportsLaunch } = useAgentProfiles(serverId);
   const selectedProfileId = useSessionStore(
     (state) => state.sessions[serverId]?.agents.get(agentId)?.profile?.id,
@@ -1593,7 +1579,7 @@ export const AgentControls = memo(function AgentControls({
   const client = useSessionStore((state) => state.sessions[serverId]?.client ?? null);
   const toast = useToast();
   const modeControl = useLiveAgentModeControl(serverId, agentId);
-  const commandCenterModes = toCommandCenterModes(modeControl, preferences.vortonMode);
+  const commandCenterModes = undefined;
   const modeProviderDefinitions = getModeProviderDefinitions(modeControl);
 
   const {
@@ -1703,7 +1689,7 @@ export const AgentControls = memo(function AgentControls({
   });
   const handleEditAgentProfiles = useEditAgentProfilesNavigation(serverId, agentProfiles !== null);
   const presetPicker = activePresetPicker({
-    enabled: preferences.vortonMode,
+    enabled: true,
     supported: supportsLaunch,
     picker: agentProfiles,
   });
@@ -1910,7 +1896,6 @@ export function DraftAgentControls({
   modelSelectorServerId = null,
   isCompactLayout,
 }: DraftAgentControlsProps) {
-  const { preferences } = useFormPreferences();
   const { supportsLaunch, profiles: savedProfiles } = useAgentProfiles(modelSelectorServerId);
   const mappedThinkingOptions = useMemo<AgentControlOption[]>(() => {
     return toThinkingControlOptions(thinkingOptions);
@@ -1955,7 +1940,7 @@ export function DraftAgentControls({
   );
   const profileEditor = useAgentProfileEditor(modelSelectorServerId);
   const presetPicker = activePresetPicker({
-    enabled: preferences.vortonMode,
+    enabled: true,
     supported: supportsLaunch,
     picker: agentProfiles,
   });

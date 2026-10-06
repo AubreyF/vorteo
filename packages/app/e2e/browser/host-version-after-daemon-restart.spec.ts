@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
 import { addConnectedHostAndReload } from "../support/helpers/hosts";
-import { openHostSection, selectSettingsHost } from "../support/helpers/settings";
+import { openHostSection } from "../support/helpers/settings";
 import { getServerId } from "../support/helpers/server-id";
 import {
   startRestartableHostDaemon,
@@ -83,7 +83,6 @@ async function expectHelpHostVersion(page: Page, serverId: string, version: stri
 
 async function openHostPage(page: Page, host: RestartableHostDaemon): Promise<void> {
   await openSettings(page);
-  await selectSettingsHost(page, host.serverId);
   await openHostSection(page, host.serverId, "host");
 }
 

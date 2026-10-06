@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useFetchQueries } from "@/data/query";
+import { workspaceTerminalsPushRoute } from "@/data/push-router";
+import {
+  buildTerminalsQueryKey,
+  TERMINALS_QUERY_STALE_TIME,
+  type ListTerminalsPayload,
+} from "@/screens/workspace/terminals/state";
+import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+import { collectAllTabs } from "@/stores/workspace-layout-actions";
+import { resolveAgentPresentation } from "@/subagents/policies";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -10,6 +20,10 @@ import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import {
   buildSidebarWorkspacePlacementModel,
+  collectManagedWorkspacePlacements,
+  selectSidebarHierarchySessions,
+  sidebarHierarchySessionsEqual,
+  type ManagedWorkspacePlacement,
   computeSidebarOrderUpdates,
   createSidebarWorkspaceEntry,
   deriveProjectStatusBucket,
@@ -140,12 +154,135 @@ export function useSidebarWorkspacesList(options?: {
 
   const hostProjects = useHostProjects(directoryServerIds);
 
+  const hierarchySessions = useStoreWithEqualityFn(
+    useSessionStore,
+    (state) => selectSidebarHierarchySessions(state.sessions, directoryServerIds),
+    sidebarHierarchySessionsEqual,
+  );
+  const previousManaged = useRef<ManagedWorkspacePlacement[]>([]);
+  const managedWorkspaces = useMemo(() => {
+    const next = collectManagedWorkspacePlacements({
+      projects: hostProjects,
+      sessions: hierarchySessions,
+    });
+    const previous = previousManaged.current;
+    const unchanged =
+      next.length === previous.length &&
+      next.every((placement, index) => {
+        const old = previous[index];
+        return (
+          old !== undefined &&
+          placement.workspaceKey === old.workspaceKey &&
+          placement.parentWorkspaceKey === old.parentWorkspaceKey &&
+          placement.workspace.workspaceDirectory === old.workspace.workspaceDirectory &&
+          placement.workspace.scripts.length === old.workspace.scripts.length &&
+          placement.workspace.archivingAt === old.workspace.archivingAt
+        );
+      });
+    if (unchanged) return previous;
+    previousManaged.current = next;
+    return next;
+  }, [hostProjects, hierarchySessions]);
+  const terminalQueries = useFetchQueries<ListTerminalsPayload>(
+    managedWorkspaces.map((placement) => {
+      const session = hierarchySessions.find((entry) => entry.serverId === placement.serverId);
+      const client = session?.client;
+      const enabled =
+        isActive &&
+        session?.isConnected === true &&
+        session.supportsWorkspaceTerminals &&
+        !!placement.workspace.workspaceDirectory;
+      return {
+        dataShape: "value",
+        staleTimeMs: TERMINALS_QUERY_STALE_TIME,
+        queryKey: [
+          ...buildTerminalsQueryKey(
+            placement.serverId,
+            placement.workspace.workspaceDirectory,
+            placement.workspace.id,
+          ),
+          "sidebar-hierarchy",
+        ],
+        enabled,
+        retry: false,
+        meta: workspaceTerminalsPushRoute({
+          enabled,
+          serverId: placement.serverId,
+          cwd: placement.workspace.workspaceDirectory,
+          workspaceId: placement.workspace.id,
+        }),
+        queryFn: async () => {
+          if (!client) throw new Error("The host is disconnected.");
+          return client.listTerminals(placement.workspace.workspaceDirectory, undefined, {
+            workspaceId: placement.workspace.id,
+          });
+        },
+      };
+    }),
+  );
+  const layouts = useWorkspaceLayoutStore((state) => state.layoutByWorkspace);
+  const pendingCreates = useCreateFlowStore((state) => state.pendingByDraftId);
+  const previousPreserved = useRef(new Set<string>());
+  const preservedWorkspaceKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const placement of managedWorkspaces) {
+      const layout = layouts[placement.workspaceKey];
+      const session = hierarchySessions.find((entry) => entry.serverId === placement.serverId);
+      if (!layout || !session) continue;
+      const hasIndependentSurface = collectAllTabs(layout.root).some((tab) => {
+        if (tab.target.kind === "new_tab") return false;
+        if (tab.target.kind !== "agent") return true;
+        const agent = session.agents.get(tab.target.agentId);
+        return (
+          !agent ||
+          resolveAgentPresentation({
+            agent,
+            agents: session.agents,
+            workspaces: session.workspaces,
+          }).workspaceId === placement.workspace.id
+        );
+      });
+      if (hasIndependentSurface) keys.add(placement.workspaceKey);
+    }
+    for (const pending of Object.values(pendingCreates)) {
+      if (pending.workspaceId && pending.lifecycle !== "abandoned")
+        keys.add(`${pending.serverId}:${pending.workspaceId}`);
+    }
+    const previous = previousPreserved.current;
+    if (keys.size === previous.size && [...keys].every((key) => previous.has(key))) return previous;
+    previousPreserved.current = keys;
+    return keys;
+  }, [managedWorkspaces, layouts, hierarchySessions, pendingCreates]);
+  const nextTerminalPresence = new Map<string, boolean>();
+  for (const [index, placement] of managedWorkspaces.entries()) {
+    const query = terminalQueries[index];
+    const session = hierarchySessions.find((entry) => entry.serverId === placement.serverId);
+    if (
+      session?.isConnected &&
+      session.supportsWorkspaceTerminals &&
+      query?.isSuccess &&
+      !query.isFetching &&
+      query.data
+    ) {
+      nextTerminalPresence.set(placement.workspaceKey, query.data.terminals.length > 0);
+    }
+  }
+  const previousTerminalPresence = useRef(new Map<string, boolean>());
+  const previous = previousTerminalPresence.current;
+  const terminalPresenceUnchanged =
+    nextTerminalPresence.size === previous.size &&
+    [...nextTerminalPresence].every(([key, value]) => previous.get(key) === value);
+  const terminalPresence = terminalPresenceUnchanged ? previous : nextTerminalPresence;
+  previousTerminalPresence.current = terminalPresence;
   const sidebarModel = useMemo(
     () =>
       buildSidebarWorkspacePlacementModel({
         projects: hostProjects,
+        managedWorkspaces,
+        terminalPresence,
+        preservedWorkspaceKeys,
       }),
-    [hostProjects],
+    [hostProjects, managedWorkspaces, terminalPresence, preservedWorkspaceKeys],
   );
 
   const projects = sidebarModel.projects.length > 0 ? sidebarModel.projects : EMPTY_PROJECTS;

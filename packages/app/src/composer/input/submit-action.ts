@@ -9,11 +9,11 @@ export function resolvePrimaryAction(input: {
   isAgentRunning: boolean;
   isSubmitLoading: boolean;
   isSubmitDisabled: boolean;
-  vortonMode: boolean;
+
   inputMode: ComposerInputMode;
   readOnly: boolean;
 }): { kind: PrimaryActionKind; isSubmitDisabled: boolean } {
-  const showEmptySubmit = input.vortonMode && input.inputMode === "chat" && !input.readOnly;
+  const showEmptySubmit = input.inputMode === "chat" && !input.readOnly;
   const hasSubmission = input.hasSendableContent || input.allowEmptySubmit;
   const disableEmptySubmit = showEmptySubmit && !hasSubmission && !input.isSubmitLoading;
   const isSubmitDisabled = input.isSubmitDisabled || disableEmptySubmit;
@@ -26,19 +26,12 @@ export function resolvePrimaryAction(input: {
 }
 
 export function supportsSubmitModifiers(input: {
-  vortonMode: boolean;
   isWeb: boolean;
   inputMode: ComposerInputMode;
   readOnly: boolean;
   isSubmitLoading: boolean;
 }): boolean {
-  return (
-    input.vortonMode &&
-    input.isWeb &&
-    input.inputMode === "chat" &&
-    !input.readOnly &&
-    !input.isSubmitLoading
-  );
+  return input.isWeb && input.inputMode === "chat" && !input.readOnly && !input.isSubmitLoading;
 }
 
 export function resolveSubmitAction(input: {

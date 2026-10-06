@@ -1,12 +1,12 @@
 import { expect, test } from "../support/fixtures";
 import { seedWorkspace } from "../support/helpers/seed-client";
-import { gotoAppShell, setVortonMode } from "../support/helpers/app";
+import { gotoAppShell } from "../support/helpers/app";
 
 test("Vorton toolbar keeps navigation and sidebar actions above the projects", async ({ page }) => {
   const seeded = await seedWorkspace({ repoPrefix: "toolbar-layout-" });
   try {
     await page.goto("/open-project");
-    await setVortonMode(page, true);
+
     const toolbar = page.getByTestId("sidebar-toolbar");
     const more = toolbar.getByTestId("sidebar-footer-overflow");
     await expect(more).toBeVisible();
@@ -51,9 +51,8 @@ test("Vorton toolbar keeps navigation and sidebar actions above the projects", a
     await more.click();
     await page.getByTestId("sidebar-global-new-workspace").click();
     await expect(page).toHaveURL(/\/new(?:\?|$)/);
-    await setVortonMode(page, false);
-    await expect(page.getByTestId("sidebar-footer-overflow")).toHaveCount(0);
-    await expect(page.getByText("Workspaces", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("sidebar-footer-overflow")).toBeVisible();
+    await expect(page.getByText("Workspaces", { exact: true })).toHaveCount(0);
     await expect(page.getByTestId("sidebar-settings")).toBeVisible();
   } finally {
     await seeded.cleanup();

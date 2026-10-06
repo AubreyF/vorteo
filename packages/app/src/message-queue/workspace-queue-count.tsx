@@ -3,7 +3,7 @@ import { useFetchQueries } from "@/data/query";
 import { useShallow } from "zustand/shallow";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import { useVortonMode } from "@/vorton-mode";
+
 import { SidebarCountBadge } from "@/components/sidebar/sidebar-count-badge";
 import { messageQueueKey, readSharedQueue, watchSharedQueue } from "./runtime";
 
@@ -16,12 +16,11 @@ export function WorkspaceQueueCount({
   serverId: string;
   workspaceId: string;
 }) {
-  const vorton = useVortonMode();
   const connected = useHostRuntimeIsConnected(serverId);
   const agentIds = useSessionStore(
     useShallow((state) => {
       const session = state.sessions[serverId];
-      if (!vorton || !session?.serverInfo?.features?.durableMessageQueue) return [];
+      if (!session?.serverInfo?.features?.durableMessageQueue) return [];
       return [...session.agents.values()]
         .filter((agent) => agent.workspaceId === workspaceId && !agent.archivedAt)
         .map((agent) => agent.id)

@@ -5,7 +5,7 @@ import type { QueueOperation } from "@getpaseo/protocol/message-queue";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useRetainedPanelActive } from "@/components/retained-panel";
-import { useVortonMode } from "@/vorton-mode";
+
 import { generateMessageId } from "@/types/stream";
 import type { OutboxRecord } from "./outbox-record";
 import {
@@ -30,7 +30,6 @@ export interface MessageOutboxState {
 }
 
 export function useMessageQueue(serverId: string, agentId: string) {
-  const vorton = useVortonMode();
   const active = useRetainedPanelActive();
   const connected = useHostRuntimeIsConnected(serverId);
   const supported = useSessionStore(
@@ -43,7 +42,7 @@ export function useMessageQueue(serverId: string, agentId: string) {
     const turn = state.sessions[serverId]?.agents.get(agentId)?.turn;
     return turn?.phase === "open" ? turn.turnId : null;
   });
-  const enabled = vorton && active && supported && connected && !!agentId;
+  const enabled = active && supported && connected && !!agentId;
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const reconnectError = useFetchQuery<string | null>({
     dataShape: "value",
@@ -71,7 +70,7 @@ export function useMessageQueue(serverId: string, agentId: string) {
   const outbox = useFetchQuery<MessageOutboxState>({
     dataShape: "value",
     queryKey: messageOutboxKey(serverId),
-    enabled: vorton && active,
+    enabled: active,
     queryFn: async () => ({
       records: (await messageOutbox.list()).filter((record) => record.serverId === serverId),
       error: null,
@@ -98,7 +97,7 @@ export function useMessageQueue(serverId: string, agentId: string) {
     retry: false,
   });
   return {
-    visible: vorton,
+    visible: true,
     supported,
     connected,
     activeTurnId,

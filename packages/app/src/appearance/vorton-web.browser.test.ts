@@ -24,7 +24,7 @@ afterEach(() => {
 
 describe("Home Screen chrome layout", () => {
   it("suppresses the native edge with an empty fixed element without reserving toolbar space", () => {
-    stop = applyVortonWeb(true, true);
+    stop = applyVortonWeb(true);
     // Supply the standalone presentation to exercise its CSS in Chromium.
     // Native scroll-pocket acceptance is verified separately on iOS.
     document.documentElement.dataset.vortonIosStandalone = "true";
@@ -46,17 +46,13 @@ describe("Home Screen chrome layout", () => {
     expect(root.getBoundingClientRect().toJSON()).toEqual(before);
   });
 
-  it("restores Standard mode and does not accumulate styles across repeated mode changes", () => {
+  it("does not accumulate styles across repeated mounts", () => {
     const initial = document.head.querySelectorAll("style[data-vorton-styles]").length;
     for (let i = 0; i < 3; i++) {
-      stop = applyVortonWeb(true, true);
+      stop = applyVortonWeb(true);
       document.documentElement.dataset.vortonIosStandalone = "true";
       stop();
-      stop = applyVortonWeb(false, true);
-      const strip = document.getElementById("vorton-ios-status-strip");
-      if (!strip) throw new Error("Missing status strip");
-      expect(getComputedStyle(strip).display).toBe("none");
-      expect(document.documentElement.dataset.vortonMode).toBe("false");
+      stop = applyVortonWeb(false);
       expect(document.head.querySelectorAll("style[data-vorton-styles]").length).toBe(initial + 1);
       stop();
     }

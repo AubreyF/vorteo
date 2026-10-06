@@ -9,11 +9,12 @@ import { useProjects, type ProjectHostError } from "@/hooks/use-projects";
 import { useProjectIcons } from "@/projects/icons";
 import { createProjectIconTarget } from "@/projects/icon-target";
 import { settingsStyles } from "@/styles/settings";
+import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { openProjectSettings } from "@/navigation/settings-navigation";
 import type { ProjectHostEntry, ProjectSummary } from "@/utils/projects";
 
 interface ProjectsScreenProps {
-  serverId: string;
+  serverId?: string;
 }
 
 interface HostProject {
@@ -28,12 +29,14 @@ export default function ProjectsScreen({ serverId }: ProjectsScreenProps) {
     () =>
       projects.flatMap((project) =>
         project.hosts
-          .filter((host) => host.serverId === serverId)
+          .filter((host) => serverId === undefined || host.serverId === serverId)
           .map((host) => ({ project, host })),
       ),
     [projects, serverId],
   );
-  const scopedErrors = hostErrors.filter((error) => error.serverId === serverId);
+  const scopedErrors = hostErrors.filter(
+    (error) => serverId === undefined || error.serverId === serverId,
+  );
   const iconTargets = useMemo(
     () =>
       hostProjects.flatMap(({ project, host }) => {
@@ -60,7 +63,32 @@ export default function ProjectsScreen({ serverId }: ProjectsScreenProps) {
   if (hostProjects.length === 0) {
     return (
       <View style={styles.centered} testID="projects-list">
+        {scopedErrors.length > 0 ? <HostErrorsBanner errors={scopedErrors} /> : null}
         <Text style={styles.emptyText}>{t("sidebar.project.empty.title")}</Text>
+      </View>
+    );
+  }
+
+  if (serverId === undefined) {
+    return (
+      <View testID="projects-list">
+        {scopedErrors.length > 0 ? <HostErrorsBanner errors={scopedErrors} /> : null}
+        {projects.map((project) => (
+          <SettingsSection key={project.viewKey} title={project.projectName}>
+            <View style={settingsStyles.card}>
+              {project.hosts.map((host, index) => (
+                <ProjectRow
+                  key={`${host.serverId}:${host.projectId}`}
+                  project={project}
+                  host={host}
+                  isFirst={index === 0}
+                  showEnvironment
+                  iconDataUri={iconDataByProjectViewKey.get(project.viewKey) ?? null}
+                />
+              ))}
+            </View>
+          </SettingsSection>
+        ))}
       </View>
     );
   }
@@ -71,7 +99,7 @@ export default function ProjectsScreen({ serverId }: ProjectsScreenProps) {
       <View style={settingsStyles.card}>
         {hostProjects.map(({ project, host }, index) => (
           <ProjectRow
-            key={host.projectId}
+            key={`${host.serverId}:${host.projectId}`}
             project={project}
             host={host}
             isFirst={index === 0}
@@ -104,9 +132,16 @@ interface ProjectRowProps {
   host: ProjectHostEntry;
   isFirst: boolean;
   iconDataUri: string | null;
+  showEnvironment?: boolean;
 }
 
-function ProjectRow({ project, host, isFirst, iconDataUri }: ProjectRowProps) {
+function ProjectRow({
+  project,
+  host,
+  isFirst,
+  iconDataUri,
+  showEnvironment = false,
+}: ProjectRowProps) {
   const { t } = useTranslation();
   const { theme } = useUnistyles();
   const { viewKey } = project;
@@ -131,8 +166,14 @@ function ProjectRow({ project, host, isFirst, iconDataUri }: ProjectRowProps) {
       style={rowStyle}
       onPress={handleNavigate}
       accessibilityRole="button"
-      accessibilityLabel={t("settings.projectList.editProject", { projectName })}
-      testID={`project-row-${viewKey}`}
+      accessibilityLabel={t("settings.projectList.editProject", {
+        projectName,
+      })}
+      testID={
+        project.hosts.length > 1
+          ? `project-row-${viewKey}-${host.serverId}`
+          : `project-row-${viewKey}`
+      }
     >
       <View style={styles.rowMain}>
         <View style={styles.leading}>
@@ -143,7 +184,7 @@ function ProjectRow({ project, host, isFirst, iconDataUri }: ProjectRowProps) {
           />
         </View>
         <Text style={settingsStyles.rowTitle} numberOfLines={1}>
-          {projectName}
+          {showEnvironment ? host.serverName : projectName}
         </Text>
       </View>
       <ChevronRight size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />

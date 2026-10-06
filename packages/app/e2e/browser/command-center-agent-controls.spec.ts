@@ -25,7 +25,6 @@ async function seedMockDraftPreferences(page: import("@playwright/test").Page): 
       localStorage.setItem(
         preferencesKey,
         JSON.stringify({
-          vortonMode: false,
           provider: "mock",
           providerPreferences: {
             mock: {

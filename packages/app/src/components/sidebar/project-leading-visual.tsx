@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { ActivityIndicator, View, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ChevronDown, ChevronRight, CircleAlert } from "lucide-react-native";
@@ -228,9 +227,8 @@ function ProjectIcon({
   placeholderInitial: string;
   projectViewKey: string;
 }) {
-  const vorton = useVortonMode();
   return (
-    <View style={vorton ? styles.monochromeIcon : undefined}>
+    <View style={styles.monochromeIcon}>
       <ProjectIconView
         iconDataUri={iconDataUri}
         initial={placeholderInitial}

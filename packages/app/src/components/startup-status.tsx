@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { useVortonMode } from "@/vorton-mode";
 
 const Spinner = withUnistyles(LoadingSpinner, (theme) => ({
   color: theme.colors.foregroundMuted,
@@ -19,18 +18,15 @@ const labels = {
   workspace: "Loading workspace",
 };
 
-export function StartupStatus({ phase, children }: StartupStatusProps) {
-  const enabled = useVortonMode();
+export function StartupStatus({ phase }: StartupStatusProps) {
   const [delayed, setDelayed] = useState(false);
 
   useEffect(() => {
     setDelayed(false);
-    if (!enabled) return;
+
     const timer = setTimeout(() => setDelayed(true), 10_000);
     return () => clearTimeout(timer);
-  }, [enabled]);
-
-  if (!enabled) return children;
+  }, []);
 
   return (
     <View style={styles.content} testID="startup-status">

@@ -1,3 +1,6 @@
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import {
   ArrowDown,
   ArrowUp,
@@ -16,14 +19,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
-import type { TerminalProfile } from "@getpaseo/protocol/messages";
+import type { TerminalProfile, MutableDaemonConfigPatch } from "@getpaseo/protocol/messages";
 import {
   getTerminalProfileIcon,
   DEFAULT_TERMINAL_PROFILES,
 } from "@getpaseo/protocol/terminal-profiles";
 import { ProviderUsageSettingsSection } from "@/provider-usage/settings-section";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
-import { AgentProfilesSection } from "@/agent-profiles";
 import { AgentSkillsSection } from "@/agent-skills";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import { SettingsTextAreaCard } from "@/components/settings-textarea";
@@ -41,7 +43,6 @@ import { useDaemonStatus } from "@/desktop/hooks/use-daemon-status";
 import { useDesktopSettings } from "@/desktop/settings/desktop-settings";
 import { PairDeviceModal } from "@/desktop/components/pair-device-modal";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
-import { useVortonMode } from "@/vorton-mode";
 import { useIsLocalDaemon } from "@/hooks/use-is-local-daemon";
 import {
   getHostRuntimeStore,
@@ -278,10 +279,9 @@ export function HostPairDevicePage({ serverId }: { serverId: string }) {
 }
 
 export function HostAgentsPage({ serverId }: { serverId: string }) {
-  const vortonMode = useVortonMode();
   const { t } = useTranslation();
   const host = useHostProfile(serverId);
-  const isConnected = useHostRuntimeIsConnected(serverId);
+  const isConnected = useSettingsAvailable(serverId);
 
   if (!host) {
     return <HostNotFound />;
@@ -301,7 +301,6 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
         </View>
       )}
       <AgentSkillsSection serverId={serverId} />
-      {!vortonMode ? <AgentProfilesSection serverId={serverId} /> : null}
     </View>
   );
 }
@@ -309,7 +308,7 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
 export function HostWorkspacesPage({ serverId }: { serverId: string }) {
   const { t } = useTranslation();
   const host = useHostProfile(serverId);
-  const isConnected = useHostRuntimeIsConnected(serverId);
+  const isConnected = useSettingsAvailable(serverId);
 
   if (!host) {
     return <HostNotFound />;
@@ -345,9 +344,8 @@ export function HostProvidersPage({ serverId }: { serverId: string }) {
 }
 
 export function HostUsagePage({ serverId }: { serverId: string }) {
-  const vortonMode = useVortonMode();
   const { view: providerUsageView, refresh: refreshProviderUsage } = useProviderUsage(serverId, {
-    enabled: vortonMode,
+    enabled: true,
   });
   const handleRefresh = useCallback(() => {
     void refreshProviderUsage();
@@ -360,13 +358,11 @@ export function HostUsagePage({ serverId }: { serverId: string }) {
 
   return (
     <View>
-      {vortonMode ? (
-        <ProviderUsageSettingsSection
-          view={providerUsageView}
-          onRefresh={handleRefresh}
-          serverId={serverId}
-        />
-      ) : null}
+      <ProviderUsageSettingsSection
+        view={providerUsageView}
+        onRefresh={handleRefresh}
+        serverId={serverId}
+      />
       <HostUsageSection serverId={serverId} />
     </View>
   );
@@ -381,6 +377,15 @@ export function HostSettingsPage({
 }) {
   const host = useHostProfile(serverId);
   const isLocalDaemon = useIsLocalDaemon(serverId);
+  const router = useRouter();
+  const installationOwned = Boolean(
+    readExecutionInstallation()?.environments.some(
+      (environment) => environment.serverId === serverId,
+    ),
+  );
+  const openInstallationControls = useCallback(() => {
+    router.push("/settings/general?installation=1");
+  }, [router]);
 
   if (!host) {
     return <HostNotFound />;
@@ -393,11 +398,36 @@ export function HostSettingsPage({
 
       <HostAppearanceSection host={host} />
 
-      {isLocalDaemon ? <LocalDaemonSection /> : null}
+      {installationOwned ? (
+        <View style={settingsStyles.card}>
+          <View style={settingsStyles.row}>
+            <View style={settingsStyles.rowContent}>
+              <Text style={settingsStyles.rowTitle}>Installation maintenance</Text>
+              <Text style={settingsStyles.rowHint}>
+                Review updates and approve restarts in General settings.
+              </Text>
+            </View>
+            <Button
+              variant="outline"
+              onPress={openInstallationControls}
+              testID={`installation-maintenance-${serverId}`}
+            >
+              Open controls
+            </Button>
+          </View>
+        </View>
+      ) : null}
+      {!installationOwned && isLocalDaemon ? <LocalDaemonSection /> : null}
+      {!installationOwned && !isLocalDaemon ? (
+        <UpdateDaemonCard key={host.serverId} host={host} />
+      ) : null}
 
-      {!isLocalDaemon ? <UpdateDaemonCard key={host.serverId} host={host} /> : null}
-
-      <RemoveHostSection host={host} isLocalDaemon={isLocalDaemon} onRemoved={onHostRemoved} />
+      <RemoveHostSection
+        host={host}
+        isLocalDaemon={isLocalDaemon && !installationOwned}
+        allowRestart={!installationOwned}
+        onRemoved={onHostRemoved}
+      />
     </View>
   );
 }
@@ -877,20 +907,49 @@ function UpdateDaemonCard({ host }: { host: HostProfile }) {
   );
 }
 
+function useSettingsAvailable(serverId: string): boolean {
+  const connected = useHostRuntimeIsConnected(serverId);
+  return (
+    connected ||
+    Boolean(
+      readExecutionInstallation()?.environments.some(
+        (environment) => environment.serverId === serverId,
+      ),
+    )
+  );
+}
+
+function useSettingsMutation(serverId: string) {
+  const { config, patchConfig } = useDaemonConfig(serverId);
+  const mutation = useMutation({
+    mutationFn: async (patch: MutableDaemonConfigPatch) => {
+      const saved = await patchConfig(patch);
+      if (!saved) throw new Error("The environment disconnected. Reconnect and retry.");
+      return saved;
+    },
+  });
+  return { config, mutation };
+}
+
+function SettingsSaveStatus({ pending, error }: { pending: boolean; error: Error | null }) {
+  return (
+    <>
+      {pending ? <Text style={settingsStyles.rowHint}>Saving settings...</Text> : null}
+      {error ? <InlineAlert variant="error" description={error.message} /> : null}
+    </>
+  );
+}
+
 function InjectPaseoToolsCard({ serverId }: { serverId: string }) {
   const { t } = useTranslation();
-  const isConnected = useHostRuntimeIsConnected(serverId);
-  const { config, patchConfig } = useDaemonConfig(serverId);
+  const isConnected = useSettingsAvailable(serverId);
+  const { config, mutation } = useSettingsMutation(serverId);
 
   const handleValueChange = useCallback(
     (next: boolean) => {
-      void patchConfig({
-        mcp: {
-          injectIntoAgents: next,
-        },
-      });
+      mutation.mutate({ mcp: { injectIntoAgents: next } });
     },
-    [patchConfig],
+    [mutation],
   );
 
   if (!isConnected) return null;
@@ -909,28 +968,24 @@ function InjectPaseoToolsCard({ serverId }: { serverId: string }) {
         <Switch
           value={config?.mcp.injectIntoAgents !== false}
           onValueChange={handleValueChange}
+          disabled={mutation.isPending}
           accessibilityLabel={t("settings.host.orchestration.enableTools.accessibilityLabel")}
         />
       </View>
+      <SettingsSaveStatus pending={mutation.isPending} error={mutation.error} />
     </View>
   );
 }
 
 function AutoArchiveMergedWorkspacesCard({ serverId }: { serverId: string }) {
-  const isConnected = useHostRuntimeIsConnected(serverId);
-  const { config, patchConfig } = useDaemonConfig(serverId);
+  const isConnected = useSettingsAvailable(serverId);
+  const { config, mutation } = useSettingsMutation(serverId);
 
   const handleValueChange = useCallback(
     (next: boolean) => {
-      void patchConfig({ autoArchiveAfterMerge: next }).catch((error) => {
-        console.error("[HostPage] Failed to update auto-archive after merge", error);
-        Alert.alert(
-          "Unable to update workspaces",
-          error instanceof Error ? error.message : String(error),
-        );
-      });
+      mutation.mutate({ autoArchiveAfterMerge: next });
     },
-    [patchConfig],
+    [mutation],
   );
 
   if (!isConnected) return null;
@@ -947,29 +1002,25 @@ function AutoArchiveMergedWorkspacesCard({ serverId }: { serverId: string }) {
         <Switch
           value={config?.autoArchiveAfterMerge === true}
           onValueChange={handleValueChange}
+          disabled={mutation.isPending}
           accessibilityLabel="Archive merged PR workspaces"
           testID="host-page-auto-archive-merged-workspaces-switch"
         />
       </View>
+      <SettingsSaveStatus pending={mutation.isPending} error={mutation.error} />
     </View>
   );
 }
 
 function EnableTerminalAgentHooksCard({ serverId }: { serverId: string }) {
-  const isConnected = useHostRuntimeIsConnected(serverId);
-  const { config, patchConfig } = useDaemonConfig(serverId);
+  const isConnected = useSettingsAvailable(serverId);
+  const { config, mutation } = useSettingsMutation(serverId);
 
   const handleValueChange = useCallback(
     (next: boolean) => {
-      void patchConfig({ enableTerminalAgentHooks: next }).catch((error) => {
-        console.error("[HostPage] Failed to update terminal agent hooks", error);
-        Alert.alert(
-          "Unable to update terminal agent hooks",
-          error instanceof Error ? error.message : String(error),
-        );
-      });
+      mutation.mutate({ enableTerminalAgentHooks: next });
     },
-    [patchConfig],
+    [mutation],
   );
 
   if (!isConnected) return null;
@@ -987,40 +1038,38 @@ function EnableTerminalAgentHooksCard({ serverId }: { serverId: string }) {
         <Switch
           value={config?.enableTerminalAgentHooks === true}
           onValueChange={handleValueChange}
+          disabled={mutation.isPending}
           accessibilityLabel="Enable terminal agent hooks"
           testID="host-page-terminal-agent-hooks-switch"
         />
       </View>
+      <SettingsSaveStatus pending={mutation.isPending} error={mutation.error} />
     </View>
   );
 }
 
 function AppendSystemPromptCard({ serverId }: { serverId: string }) {
   const { t } = useTranslation();
-  const vortonMode = useVortonMode();
-  const isConnected = useHostRuntimeIsConnected(serverId);
-  const { config, patchConfig } = useDaemonConfig(serverId);
+  const isConnected = useSettingsAvailable(serverId);
+  const { config, mutation } = useSettingsMutation(serverId);
   const persistedPrompt = config?.appendSystemPrompt ?? "";
-  const showPromptPreview = vortonMode && persistedPrompt.trim().length > 0;
+  const showPromptPreview = persistedPrompt.trim().length > 0;
   const promptHint = t("settings.host.orchestration.systemPrompt.hint");
   const [draft, setDraft] = useState(persistedPrompt);
   const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const isSaving = mutation.isPending;
   const header = useMemo<SheetHeader>(
     () => ({ title: t("settings.host.orchestration.systemPrompt.sheetTitle") }),
     [t],
   );
 
-  useEffect(() => {
-    setDraft(persistedPrompt);
-  }, [persistedPrompt]);
-
   const hasChanges = draft !== persistedPrompt;
 
   const handleOpen = useCallback(() => {
+    mutation.reset();
     setDraft(persistedPrompt);
     setIsEditing(true);
-  }, [persistedPrompt]);
+  }, [persistedPrompt, mutation]);
 
   const handleClose = useCallback(() => {
     if (isSaving) return;
@@ -1029,17 +1078,8 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
   }, [isSaving, persistedPrompt]);
 
   const handleSave = useCallback(() => {
-    setIsSaving(true);
-    void patchConfig({ appendSystemPrompt: draft })
-      .then(() => {
-        setIsEditing(false);
-        return;
-      })
-      .catch((error) => {
-        console.error("[HostPage] Failed to save append system prompt", error);
-      })
-      .finally(() => setIsSaving(false));
-  }, [draft, patchConfig]);
+    mutation.mutate({ appendSystemPrompt: draft }, { onSuccess: () => setIsEditing(false) });
+  }, [draft, mutation]);
 
   const handleReset = useCallback(() => {
     setDraft(persistedPrompt);
@@ -1087,8 +1127,10 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
             accessibilityLabel={t("settings.host.orchestration.systemPrompt.accessibilityLabel")}
             value={draft}
             onChangeText={setDraft}
+            editable={!isSaving}
             placeholder={t("settings.host.orchestration.systemPrompt.placeholder")}
           />
+          <SettingsSaveStatus pending={isSaving} error={mutation.error} />
           <View style={styles.appendPromptActions}>
             <Button
               variant="ghost"
@@ -1153,10 +1195,12 @@ function PairDeviceRow({ serverId }: { serverId: string }) {
 function RemoveHostSection({
   host,
   isLocalDaemon,
+  allowRestart,
   onRemoved,
 }: {
   host: HostProfile;
   isLocalDaemon: boolean;
+  allowRestart: boolean;
   onRemoved?: () => void;
 }) {
   const { t } = useTranslation();
@@ -1264,7 +1308,7 @@ function RemoveHostSection({
       title={t("settings.host.daemon.dangerZone")}
       testID="host-page-remove-host-card"
     >
-      <RestartDaemonCard host={host} />
+      {allowRestart ? <RestartDaemonCard host={host} /> : null}
 
       <View style={settingsStyles.card}>
         <View style={settingsStyles.row}>
@@ -1452,7 +1496,7 @@ function TerminalProfileRow({
 
 function TerminalProfilesSection({ serverId }: { serverId: string }) {
   const { t } = useTranslation();
-  const isConnected = useHostRuntimeIsConnected(serverId);
+  const isConnected = useSettingsAvailable(serverId);
   const { config, patchConfig } = useDaemonConfig(serverId);
   const [editingProfile, setEditingProfile] = useState<{
     id: string;

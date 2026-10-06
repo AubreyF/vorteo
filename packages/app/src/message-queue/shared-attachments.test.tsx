@@ -3,23 +3,38 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { SharedQueueAttachments } from "./shared-attachments";
+import { LegacyQueueImport } from "./legacy-import";
+import { legacyImportOperationId } from "./legacy";
+import { useSessionStore } from "@/stores/session-store";
+import type { OutboxRecord } from "./outbox-record";
+import type { commitComposerQueue } from "./commit-composer";
 
-const state = vi.hoisted(() => ({
-  vorton: true,
-  get: vi.fn(),
-  read: vi.fn(),
-  token: vi.fn(),
-  download: vi.fn(),
-}));
-vi.mock("@/vorton-mode", () => ({ useVortonMode: () => state.vorton }));
+const state = vi.hoisted(() => {
+  const imports: OutboxRecord[] = [];
+  return {
+    imports,
+    commit: vi.fn(),
+    flush: vi.fn(),
+    get: vi.fn(),
+    read: vi.fn(),
+    token: vi.fn(),
+    download: vi.fn(),
+  };
+});
+vi.mock("./commit-composer", () => ({ commitComposerQueue: state.commit }));
 vi.mock("./runtime", () => ({
+  messageOutbox: { list: async () => state.imports },
+  flushMessageOutbox: state.flush,
   requireQueueClient: () => ({
     getMessageQueueAttachment: state.get,
     readFile: state.read,
     requestDownloadToken: state.token,
   }),
 }));
-vi.mock("@/runtime/host-runtime", () => ({ useHosts: () => [{ serverId: "host" }] }));
+vi.mock("@/runtime/host-runtime", () => ({
+  useHosts: () => [{ serverId: "host" }],
+  useHostRuntimeIsConnected: () => true,
+}));
 vi.mock("@/stores/download-store", () => ({
   useDownloadStore: { getState: () => ({ startDownload: state.download }) },
 }));
@@ -75,7 +90,8 @@ beforeEach(() => {
   vi.stubGlobal("React", React);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
-  state.vorton = true;
+  state.imports.length = 0;
+  state.flush.mockResolvedValue(undefined);
   state.get.mockResolvedValue({
     file: { attachment, cwd: "/captured", path: "content" },
     error: null,
@@ -97,12 +113,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("hides shared controls in Vorteo mode and restores them without fetching", async () => {
-  state.vorton = false;
-  await render();
-  expect(container.textContent).toBe("");
-  expect(state.get).not.toHaveBeenCalled();
-  state.vorton = true;
+it("shows captured attachments without fetching until opened", async () => {
   await render();
   expect(container.textContent).toContain("photo.png");
   expect(state.get).not.toHaveBeenCalled();
@@ -180,4 +191,68 @@ it("shows captured context without requiring a file attachment or host request",
   await act(async () => container.querySelector("button")!.click());
   expect(container.textContent).toContain("Captured selection");
   expect(state.get).not.toHaveBeenCalled();
+});
+
+it("imports old pending messages once across remounts and preserves them until acknowledgement", async () => {
+  const store = useSessionStore.getState();
+  store.initializeSession("legacy-host", null, 1);
+  store.updateSessionServerInfo("legacy-host", {
+    serverId: "legacy-host",
+    hostname: null,
+    version: "test",
+    features: { durableMessageQueue: true },
+  });
+  const oldMessages = [
+    { id: "old-one", text: "Continue old work", attachments: [] },
+    { id: "old-two", text: "Then run the checks", attachments: [] },
+  ];
+  store.setQueuedMessages("legacy-host", new Map([["agent", oldMessages]]));
+  state.commit.mockImplementation(async (input: Parameters<typeof commitComposerQueue>[0]) => {
+    if (!input.identity) throw new Error("Missing import identity");
+    state.imports.push({
+      version: 1,
+      serverId: input.serverId,
+      agentId: input.agentId,
+      revision: 0,
+      createdAt: 1,
+      localAttachments: [],
+      prepared: null,
+      error: null,
+      operation: { kind: "enqueue", ...input.identity, text: input.text, attachments: [] },
+    });
+  });
+  state.flush.mockRejectedValueOnce(new Error("Connection lost before acknowledgement"));
+  try {
+    await act(async () =>
+      root.render(<LegacyQueueImport serverId="legacy-host" agentId="agent" cwd="/repo" />),
+    );
+    await act(async () => container.querySelector("button")!.click());
+    expect(container.textContent).toContain("Connection lost before acknowledgement");
+    expect(state.commit).toHaveBeenCalledTimes(2);
+    expect(state.imports.map(({ operation }) => operation)).toEqual(
+      oldMessages.map((message) => ({
+        kind: "enqueue",
+        operationId: legacyImportOperationId(message.id),
+        messageId: message.id,
+        text: message.text,
+        attachments: [],
+      })),
+    );
+    expect(useSessionStore.getState().sessions["legacy-host"]?.queuedMessages.get("agent")).toEqual(
+      oldMessages,
+    );
+    await act(async () => root.render(null));
+    await act(async () =>
+      root.render(<LegacyQueueImport serverId="legacy-host" agentId="agent" cwd="/repo" />),
+    );
+    await act(async () => container.querySelector("button")!.click());
+    expect(state.commit).toHaveBeenCalledTimes(2);
+    expect(state.flush).toHaveBeenCalledTimes(2);
+    expect(useSessionStore.getState().sessions["legacy-host"]?.queuedMessages.get("agent")).toEqual(
+      oldMessages,
+    );
+  } finally {
+    await act(async () => root.render(null));
+    store.clearSession("legacy-host");
+  }
 });

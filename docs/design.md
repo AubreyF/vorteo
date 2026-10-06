@@ -293,7 +293,7 @@ New status pills use `<StatusBadge>`. Identity, shortcut, and interactive link b
 
 ## Brand icon
 
-Vorteo uses the centered hidden-turn V signature. The approved color and white raster masters live in `packages/app/assets/brand/`. Keep their contours and loop shading intact. The dark treatment preserves the silhouette for light surfaces. Both Vorteo and Standard mode use the Vorteo signature. Mode settings affect controls while branding stays consistent.
+Vorteo uses the centered hidden-turn V signature. The approved color and white raster masters live in `packages/app/assets/brand/`. Keep their contours and loop shading intact. The dark treatment preserves the silhouette for light surfaces. Vorteo uses one product interface and the same signature across supported platforms.
 
 Run `node scripts/generate-vorteo-icons.mjs` with ImageMagick and Potrace installed to regenerate app, browser status, website, Apple touch, PWA, Android and desktop assets. On macOS, the script also uses the system `iconutil` to package the desktop icon. Desktop backgrounds have rounded corners; mobile and web app backgrounds let the operating system apply its mask.
 

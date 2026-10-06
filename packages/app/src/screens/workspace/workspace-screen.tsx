@@ -1,3 +1,4 @@
+import { useAgentPresentationNavigation } from "@/subagents/use-agent-presentation-navigation";
 import { useWorkspaceArchiveRedirect } from "@/workspace/use-workspace-archive-redirect";
 import { StartupStatus } from "@/components/startup-status";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -1690,6 +1691,9 @@ function WorkspaceScreenContent({
         sessionAgents: state.sessions[normalizedServerId]?.agents,
         agentDetails: state.sessions[normalizedServerId]?.agentDetails,
         workspaceId: normalizedWorkspaceId,
+        workspaces: state.sessions[normalizedServerId]?.hasHydratedWorkspaces
+          ? state.sessions[normalizedServerId]?.workspaces
+          : undefined,
       }),
     workspaceAgentVisibilityEqual,
   );
@@ -2037,8 +2041,15 @@ function WorkspaceScreenContent({
     [openWorkspaceTabFocused, openWorkspaceTabInBackground, persistenceKey],
   );
 
+  const isMovingManagedAgent = useAgentPresentationNavigation({
+    serverId: normalizedServerId,
+    workspaceId: normalizedWorkspaceId,
+    tab: focusedPaneTabState.activeTab,
+    isRouteFocused,
+  });
+
   useLayoutEffect(() => {
-    if (!isRouteFocused) {
+    if (!isRouteFocused || isMovingManagedAgent) {
       return;
     }
     if (!normalizedServerId || !normalizedWorkspaceId || !persistenceKey) {
@@ -2071,6 +2082,7 @@ function WorkspaceScreenContent({
     );
   }, [
     hasHydratedAgents,
+    isMovingManagedAgent,
     hasHydratedWorkspaceLayoutStore,
     pendingTerminalCreateInput,
     createTerminalMutation.isPending,

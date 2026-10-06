@@ -2,7 +2,8 @@ import type { PrHint } from "@/git/pr-hint";
 import { selectPrHintFromStatus } from "@/git/pr-hint";
 import { type HostProjectListItem } from "@/projects/host-project-model";
 import type { PendingCreateAttempt } from "@/stores/create-flow-store";
-import type { WorkspaceDescriptor } from "@/stores/session-store";
+import { getAgentPresentationIndex } from "@/subagents/policies";
+import type { Agent, SessionState, WorkspaceDescriptor } from "@/stores/session-store";
 import type {
   WorkspaceStructureHostPlacement,
   WorkspaceStructureProject,
@@ -11,7 +12,10 @@ import { projectDisplayNameFromProjectId } from "@/utils/project-display-name";
 import { aggregateSidebarStateBuckets } from "@/utils/sidebar-agent-state";
 import { shortenPath } from "@/utils/shorten-path";
 import type { WorkspaceAgentActivity } from "@/utils/workspace-agent-activity";
-import { resolveWorkspaceMapKeyByIdentity } from "@/utils/workspace-identity";
+import {
+  normalizeWorkspaceOpaqueId,
+  resolveWorkspaceMapKeyByIdentity,
+} from "@/utils/workspace-identity";
 
 const EMPTY_PROJECTS: SidebarProjectEntry[] = [];
 
@@ -21,6 +25,7 @@ export interface SidebarWorkspacePlacement {
   workspaceKey: string;
   serverId: string;
   workspaceId: string;
+  managedWorkspaceIds?: readonly string[];
   projectViewKey: string;
   projectName: string;
   projectRootPath?: string;
@@ -255,9 +260,12 @@ export function deriveProjectStatusBucket(input: {
   for (const placement of input.workspaces) {
     const existing = workspaceIdsByServer.get(placement.serverId);
     if (existing) {
-      existing.push(placement.workspaceId);
+      existing.push(placement.workspaceId, ...(placement.managedWorkspaceIds ?? []));
     } else {
-      workspaceIdsByServer.set(placement.serverId, [placement.workspaceId]);
+      workspaceIdsByServer.set(placement.serverId, [
+        placement.workspaceId,
+        ...(placement.managedWorkspaceIds ?? []),
+      ]);
     }
   }
 
@@ -286,10 +294,168 @@ export function deriveProjectStatusBucket(input: {
   return aggregateSidebarStateBuckets(buckets);
 }
 
+export interface SidebarHierarchySession {
+  serverId: string;
+  agents: ReadonlyMap<string, Agent>;
+  workspaces: Map<string, WorkspaceDescriptor>;
+  hasHydratedAgents: boolean;
+  client: SessionState["client"];
+  isConnected: boolean;
+  supportsWorkspaceTerminals: boolean;
+}
+
+type HierarchySessionSource = Pick<
+  SessionState,
+  "agents" | "workspaces" | "hasHydratedAgents" | "client" | "serverInfo"
+>;
+
+export function selectSidebarHierarchySessions(
+  sessions: Record<string, HierarchySessionSource | undefined>,
+  serverIds: readonly string[],
+): SidebarHierarchySession[] {
+  return serverIds.flatMap((serverId) => {
+    const session = sessions[serverId];
+    if (!session) return [];
+    return [
+      {
+        serverId,
+        agents: session.agents,
+        workspaces: session.workspaces,
+        hasHydratedAgents: session.hasHydratedAgents,
+        client: session.client,
+        isConnected: session.client?.isConnected === true,
+        supportsWorkspaceTerminals: session.serverInfo?.features?.workspaceTerminals === true,
+      },
+    ];
+  });
+}
+
+export function sidebarHierarchySessionsEqual(
+  left: SidebarHierarchySession[],
+  right: SidebarHierarchySession[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((session, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        session.serverId === other.serverId &&
+        session.agents === other.agents &&
+        session.workspaces === other.workspaces &&
+        session.hasHydratedAgents === other.hasHydratedAgents &&
+        session.client === other.client &&
+        session.isConnected === other.isConnected &&
+        session.supportsWorkspaceTerminals === other.supportsWorkspaceTerminals
+      );
+    })
+  );
+}
+
+export interface ManagedWorkspacePlacement {
+  workspaceKey: string;
+  serverId: string;
+  workspace: WorkspaceDescriptor;
+  parentWorkspaceKey: string;
+}
+
+export function collectManagedWorkspacePlacements(input: {
+  projects: readonly HostProjectListItem[];
+  sessions: readonly SidebarHierarchySession[];
+}): ManagedWorkspacePlacement[] {
+  const available = new Set(input.projects.flatMap((project) => project.workspaceKeys));
+  const placements: ManagedWorkspacePlacement[] = [];
+  for (const session of input.sessions) {
+    if (!session.hasHydratedAgents) continue;
+    const presentations = getAgentPresentationIndex(session.agents, session.workspaces);
+    const agentsByWorkspace = new Map<string, Agent[]>();
+    for (const agent of session.agents.values()) {
+      const workspaceId = normalizeWorkspaceOpaqueId(agent.workspaceId);
+      if (agent.archivedAt || !workspaceId) continue;
+      const list = agentsByWorkspace.get(workspaceId) ?? [];
+      list.push(agent);
+      agentsByWorkspace.set(workspaceId, list);
+    }
+    for (const workspace of session.workspaces.values()) {
+      const workspaceKey = `${session.serverId}:${workspace.id}`;
+      if (!available.has(workspaceKey)) continue;
+      const agents = agentsByWorkspace.get(workspace.id);
+      if (!agents?.length) continue;
+      const owners = agents.map((agent) => presentations.get(agent.id));
+      const ownerId = owners[0]?.workspaceId;
+      if (
+        !ownerId ||
+        ownerId === workspace.id ||
+        owners.some((owner) => owner?.workspaceId !== ownerId)
+      )
+        continue;
+      const parentWorkspaceKey = `${session.serverId}:${ownerId}`;
+      if (!available.has(parentWorkspaceKey)) continue;
+      placements.push({ workspaceKey, serverId: session.serverId, workspace, parentWorkspaceKey });
+    }
+  }
+  return placements;
+}
+
 export function buildSidebarWorkspacePlacementModel(input: {
   projects: readonly HostProjectListItem[];
+  managedWorkspaces?: readonly ManagedWorkspacePlacement[];
+  terminalPresence?: ReadonlyMap<string, boolean>;
+  preservedWorkspaceKeys?: ReadonlySet<string>;
 }): SidebarWorkspacePlacementModel {
-  const projects = buildSidebarProjectsFromHostProjects({ projects: input.projects });
+  let projects = buildSidebarProjectsFromHostProjects({ projects: input.projects });
+  const managed = input.managedWorkspaces ?? [];
+  if (managed.length) {
+    const projectByWorkspace = new Map(
+      projects.flatMap((project) =>
+        project.workspaces.map((workspace) => [workspace.workspaceKey, project] as const),
+      ),
+    );
+    const projectedKeys = new Set<string>();
+    const added = new Map<string, SidebarWorkspacePlacement[]>();
+    const descendants = new Map<string, string[]>();
+    for (const placement of managed) {
+      const source = projectByWorkspace.get(placement.workspaceKey);
+      const parent = projectByWorkspace.get(placement.parentWorkspaceKey);
+      const workspace = source?.workspaces.find(
+        (entry) => entry.workspaceKey === placement.workspaceKey,
+      );
+      if (!source || !parent || !workspace) continue;
+      const children = descendants.get(placement.parentWorkspaceKey) ?? [];
+      children.push(placement.workspace.id);
+      descendants.set(placement.parentWorkspaceKey, children);
+      const hasOtherSurface = input.preservedWorkspaceKeys?.has(placement.workspaceKey) === true;
+      const canFold =
+        input.terminalPresence?.get(placement.workspaceKey) === false &&
+        placement.workspace.scripts.length === 0 &&
+        !placement.workspace.archivingAt &&
+        !hasOtherSurface;
+      if (!canFold && source.viewKey === parent.viewKey) continue;
+      projectedKeys.add(placement.workspaceKey);
+      if (!canFold) {
+        const rows = added.get(parent.viewKey) ?? [];
+        rows.push({
+          ...workspace,
+          projectViewKey: parent.viewKey,
+          projectName: parent.projectName,
+        });
+        added.set(parent.viewKey, rows);
+      }
+    }
+    projects = projects.flatMap((project) => {
+      const retained = project.workspaces.filter(
+        (workspace) => !projectedKeys.has(workspace.workspaceKey),
+      );
+      const workspaces = [...retained, ...(added.get(project.viewKey) ?? [])].map((workspace) => {
+        const managedWorkspaceIds = descendants.get(workspace.workspaceKey);
+        return managedWorkspaceIds
+          ? Object.assign({}, workspace, { managedWorkspaceIds })
+          : workspace;
+      });
+      const wasWorkerOnly = project.workspaces.length > 0 && workspaces.length === 0;
+      return wasWorkerOnly ? [] : [{ ...project, workspaces }];
+    });
+  }
   return {
     projects,
     workspaces: projects.flatMap((project) => project.workspaces),
@@ -393,6 +559,25 @@ export function buildSidebarWorkspaceEntries(input: {
       pendingCreateAttempts: input.pendingCreateAttempts,
       workspaceAgentActivity: session.workspaceAgentActivity,
     });
+    const statuses: EffectiveWorkspaceStatus[] = [
+      { status: entry.statusBucket, enteredAt: entry.statusEnteredAt },
+    ];
+    for (const workspaceId of placement.managedWorkspaceIds ?? []) {
+      const managedWorkspace = session.workspaces.get(workspaceId);
+      if (managedWorkspace)
+        statuses.push(
+          deriveEffectiveWorkspaceStatus({
+            serverId: placement.serverId,
+            workspace: managedWorkspace,
+            pendingCreateAttempts: input.pendingCreateAttempts,
+            workspaceAgentActivity: session.workspaceAgentActivity,
+          }),
+        );
+    }
+    const status = aggregateSidebarStateBuckets(statuses.map((value) => value.status));
+    const winner = statuses.find((value) => value.status === status);
+    entry.statusBucket = status;
+    entry.statusEnteredAt = winner?.enteredAt ?? null;
     const previousEntry = input.previousEntries?.get(placement.workspaceKey);
     entries.set(
       placement.workspaceKey,

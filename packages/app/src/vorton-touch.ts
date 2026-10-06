@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
-import { useFormPreferences } from "@/hooks/use-form-preferences";
 
 // Capability, not viewport width: a wide iPad can have both touch and a trackpad.
 const TOUCH_QUERY = "(any-pointer: coarse)";
@@ -18,11 +17,10 @@ function serverSnapshot() {
   return !isWeb;
 }
 export function useVortonTouch() {
-  const { preferences } = useFormPreferences();
   const compact = useIsCompactFormFactor();
   const touch = useSyncExternalStore(subscribe, getSnapshot, serverSnapshot);
   // Narrow desktop windows need the same controls as phones, even with a mouse.
-  return preferences.vortonMode === true && (compact || touch);
+  return compact || touch;
 }
 
 export const VORTON_ACTION_SLOT = { vortonActionSlot: "true" };

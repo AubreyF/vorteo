@@ -1,4 +1,5 @@
 import type { SkillPolicy } from "@getpaseo/protocol/skill-library";
+import type { InstallationEnvironment } from "@getpaseo/protocol/execution-installation";
 import type {
   AgentFeature,
   AgentMode,
@@ -84,6 +85,7 @@ export interface AgentProfileFormState {
   nickname: string;
   color: string;
   notes: string;
+  excludedEnvironments: InstallationEnvironment["kind"][];
   instructions: string;
   skillPolicy: SkillPolicy | undefined;
   workerProfileId: string;
@@ -131,6 +133,7 @@ export interface AgentProfileFormModel {
   setNickname: (value: string) => void;
   setAppearance: (value: { icon: string; color: string }) => void;
   setNotes: (value: string) => void;
+  setExcludedEnvironments: (value: InstallationEnvironment["kind"][]) => void;
   setSkillPolicy: (value: SkillPolicy | undefined) => void;
   setInstructions: (value: string) => void;
   setWorkerProfileId: (value: string) => void;
@@ -365,6 +368,7 @@ function buildSubmitValue(state: AgentProfileFormState): AgentProfileValue | nul
     ...(Object.keys(state.featureValues).length > 0 ? { featureValues: state.featureValues } : {}),
     ...(notes ? { notes } : {}),
     instructions: state.instructions.trim(),
+    excludedEnvironments: [...state.excludedEnvironments],
     ...(state.skillPolicy ? { skillPolicy: state.skillPolicy } : {}),
     workerProfileId: state.workerProfileId,
     maxWorkers: state.maxWorkers,
@@ -405,6 +409,7 @@ function buildInitialState(snapshot: AgentProfileFormSnapshot): AgentProfileForm
     icon: profile.icon ?? "",
     color: profile.color ?? "",
     notes: profile.notes ?? "",
+    excludedEnvironments: [...(profile.excludedEnvironments ?? [])],
     instructions: profile.instructions ?? "",
     skillPolicy: profile.skillPolicy,
     workerProfileId: profile.workerProfileId ?? "",
@@ -576,6 +581,8 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
     setAppearance: (value) =>
       publish((current) => ({ ...current, icon: value.icon, color: value.color })),
     setNotes: (value) => publish((current) => ({ ...current, notes: value })),
+    setExcludedEnvironments: (value) =>
+      publish((current) => ({ ...current, excludedEnvironments: [...value] })),
     setSkillPolicy: (value) => publish((current) => ({ ...current, skillPolicy: value })),
     setInstructions: (value) => publish((current) => ({ ...current, instructions: value })),
     setWorkerProfileId: (value) => publish((current) => ({ ...current, workerProfileId: value })),

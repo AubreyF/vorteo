@@ -3,7 +3,6 @@ import { seedWorkspace } from "../support/helpers/seed-client";
 import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 import { expect, test } from "../support/fixtures";
 import { seedAgentProfiles } from "../support/helpers/agent-profiles";
-import { setVortonMode } from "../support/helpers/app";
 import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 
@@ -36,7 +35,7 @@ test("profile cards use border selection, a separate activation action, and comp
     );
     await openAgentRoute(page, workspace);
     await expectComposerVisible(page);
-    await setVortonMode(page, true);
+
     await expect(page.getByTestId("agent-preset-selector")).toContainText("Choose profile");
     await page.getByTestId("agent-preset-selector").click();
     await expect(
@@ -124,8 +123,7 @@ test("profile cards use border selection, a separate activation action, and comp
     await expect(page.getByTestId("preset-handoff-modal")).toBeVisible();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.setViewportSize({ width: 1280, height: 720 });
-    await setVortonMode(page, false);
-    await expect(page.getByTestId("agent-preset-selector")).toHaveCount(0);
+    await expect(page.getByTestId("agent-preset-selector")).toBeVisible();
   } finally {
     await workspace.cleanup();
     await seed.restore();
@@ -145,7 +143,6 @@ test("active profile hides the action until a different profile is selected", as
     });
     await openAgentRoute(page, { ...workspace, agentId: agent.id });
     await expectComposerVisible(page);
-    await setVortonMode(page, true);
     await expect(page.getByTestId("agent-preset-selector")).toContainText("Astra Medium");
     await page.getByTestId("agent-preset-selector").click();
     await expect(page.getByTestId("preset-row-shared-workflow/mock/account-medium")).toBeVisible();
@@ -226,7 +223,6 @@ test("chooser opens while usage is pending and refreshes within the account tile
     );
     await openAgentRoute(page, workspace);
     await expectComposerVisible(page);
-    await setVortonMode(page, true);
     await expect.poll(() => pending.length).toBeGreaterThan(0);
     await page.getByTestId("agent-preset-selector").click();
     await expect(page.getByTestId("account-preset-menu")).toBeVisible({ timeout: 1000 });

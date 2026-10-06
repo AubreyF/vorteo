@@ -54,6 +54,33 @@ const DISABLED: ProviderSnapshotEntry = {
 
 const ENTRIES = [CLAUDE, CODEX, DISABLED];
 
+it("keeps profile availability independent of the environment catalog and allows clearing exclusions", () => {
+  const model = openAgentProfileForm({
+    mode: "edit",
+    profile: {
+      id: "shared-review",
+      name: "Review",
+      provider: "codex",
+      excludedEnvironments: ["container"],
+    },
+  });
+  model.applyProviderCatalog(ENTRIES);
+  expect(model.getState().submitValue?.excludedEnvironments).toEqual(["container"]);
+  model.setExcludedEnvironments(["host"]);
+  model.applyProviderCatalog([CLAUDE]);
+  expect(model.getState().submitValue?.excludedEnvironments).toEqual(["host"]);
+  model.setExcludedEnvironments([]);
+  expect(model.getState().submitValue?.excludedEnvironments).toEqual([]);
+});
+
+it("makes new profiles available in every environment", () => {
+  const model = openAgentProfileForm({
+    mode: "create",
+    seed: { provider: "codex", name: "Review" },
+  });
+  expect(model.getState().submitValue?.excludedEnvironments).toEqual([]);
+});
+
 it("preserves nickname edits separately from the full name and supports clearing the override", () => {
   const model = openAgentProfileForm({
     mode: "edit",
@@ -196,6 +223,7 @@ describe("openAgentProfileForm", () => {
     // Codex declares no thinking options, so that key is genuinely absent —
     // model and mode are seeded, never left for the host to decide.
     expect(model.getState().submitValue).toEqual({
+      excludedEnvironments: [],
       instructions: "",
       workerProfileId: "",
       maxWorkers: 2,

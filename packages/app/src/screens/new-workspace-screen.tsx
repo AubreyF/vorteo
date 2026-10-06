@@ -4,7 +4,7 @@ import {
   findInstallationEnvironment,
 } from "@/execution-installation/policy";
 import { confirmDialog } from "@/utils/confirm-dialog";
-import { useVortonMode } from "@/vorton-mode";
+
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardTranslateView } from "@/keyboard/shift";
 import { HEADER_INNER_HEIGHT } from "@/constants/layout";
@@ -26,14 +26,12 @@ import { createNameId } from "mnemonic-id";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Folder, FolderPlus, GitBranch, GitPullRequest } from "lucide-react-native";
 import { Composer } from "@/composer";
-import { ComposerDock } from "@/composer/dock";
+
 import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import {
   resolveComposerAttachmentSubmitFormat,
   splitComposerAttachmentsForSubmit,
 } from "@/composer/attachments/submit";
-import { HostStatusDot } from "@/components/host-status-dot";
-import { HostPicker } from "@/components/hosts/host-picker";
 import { ProjectIconView } from "@/components/project-icon-view";
 import { Combobox, ComboboxItem } from "@/components/ui/combobox";
 import type { ComboboxOption as ComboboxOptionType, ComboboxProps } from "@/components/ui/combobox";
@@ -637,10 +635,6 @@ function AddProjectPickerAction({ onPress }: { onPress: () => void }) {
       trailingSlot={shortcut}
     />
   );
-}
-
-function newWorkspaceHostOptionTestID(serverId: string): string {
-  return `new-workspace-host-picker-option-${serverId}`;
 }
 
 function IsolationPickerTrigger({
@@ -1450,12 +1444,8 @@ interface NewWorkspaceFormStackInput {
 function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactElement {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
-  const { isCompact, isPending, project, host, isolation, base, launch } = input;
+  const { isCompact, isPending, project, isolation, base, launch } = input;
 
-  const selectedHostLabel =
-    host.allHosts.find((h) => h.serverId === host.selectedServerId)?.label ?? "Host";
-  const vortonMode = useVortonMode();
-  const showHostControl = !vortonMode && host.allHosts.length > 1;
   const isolationTriggerLabel = isolationLabel(t, isolation.effectiveIsolation);
   const addProjectAction = useMemo(
     () => <AddProjectPickerAction onPress={project.onAddProject} />,
@@ -1510,49 +1500,6 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
       />
     </View>
   );
-
-  const hostControl = showHostControl ? (
-    <View style={desktopControlStyle}>
-      <HostPicker
-        hosts={host.allHosts}
-        value={host.selectedServerId}
-        onSelect={host.onSelect}
-        open={host.openState}
-        onOpenChange={host.onOpenChange}
-        anchorRef={host.anchorRef}
-        searchable={false}
-        title="Host"
-        desktopPlacement="bottom-start"
-        desktopMinWidth={200}
-        hostOptionTestID={newWorkspaceHostOptionTestID}
-      >
-        <Tooltip>
-          <TooltipTrigger asChild triggerRefProp="ref">
-            <Pressable
-              ref={host.anchorRef}
-              accessibilityRole="button"
-              accessibilityLabel="Host"
-              onPress={host.open}
-              disabled={isPending || host.allHosts.length === 0}
-              style={badgePressableStyle}
-              testID="host-picker-trigger"
-            >
-              <View style={styles.badgeIconBox}>
-                <HostStatusDot serverId={host.selectedServerId} />
-              </View>
-              <Text style={styles.badgeText} numberOfLines={1}>
-                {selectedHostLabel}
-              </Text>
-              {metaChevron}
-            </Pressable>
-          </TooltipTrigger>
-          <TooltipContent side="top" align="center" offset={8}>
-            <Text style={styles.tooltipText}>{t("newWorkspace.tooltips.host")}</Text>
-          </TooltipContent>
-        </Tooltip>
-      </HostPicker>
-    </View>
-  ) : null;
 
   const isolationControl = isolation.canCreateWorktree ? (
     <View style={desktopControlStyle}>
@@ -1627,7 +1574,6 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
   return isCompact ? (
     <View testID="new-workspace-ref-picker-row" style={styles.formStack} pointerEvents="box-none">
       <FormRow>{projectControl}</FormRow>
-      {hostControl ? <FormRow>{hostControl}</FormRow> : null}
       {isolationControl ? <FormRow>{isolationControl}</FormRow> : null}
       {baseControl ? <FormRow>{baseControl}</FormRow> : null}
       <FormRow>{launchControl}</FormRow>
@@ -1642,7 +1588,6 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
       pointerEvents="box-none"
     >
       {projectControl}
-      {hostControl}
       {isolationControl}
       {baseControl}
       <View style={styles.launchSpacer} pointerEvents="none" />
@@ -2144,7 +2089,7 @@ export function NewWorkspaceScreen({
     async (payload: MessagePayload) => {
       try {
         setErrorMessage(null);
-        if (formPreferences.vortonMode && !composerState?.selectedProfileId) {
+        if (!composerState?.selectedProfileId) {
           throw new Error("Select a configuration before starting a Vorteo chat.");
         }
         await composerState?.persistFormPreferences();
@@ -2207,7 +2152,6 @@ export function NewWorkspaceScreen({
       draftContextScopeKey,
       creationIdentity,
       chatDraft.clear,
-      formPreferences.vortonMode,
       draftKey,
       ensureWorkspace,
       forkDraftSetup,
@@ -2416,7 +2360,7 @@ export function NewWorkspaceScreen({
   const composer = isTerminalLaunch ? (
     <Composer
       key="terminal"
-      externalKeyboardShift={formPreferences.vortonMode}
+      externalKeyboardShift={true}
       inputMode="terminal"
       readOnly={!terminalTakesPrompt}
       placeholder={terminalPlaceholder}
@@ -2444,7 +2388,7 @@ export function NewWorkspaceScreen({
   ) : (
     <Composer
       key="chat"
-      externalKeyboardShift={formPreferences.vortonMode}
+      externalKeyboardShift={true}
       agentId={draftKey}
       serverId={selectedServerId}
       isPaneFocused={true}
@@ -2507,7 +2451,6 @@ function NewWorkspaceLayout({
   onImportSession: () => void;
   children: ReactNode;
 }) {
-  const vortonMode = useVortonMode();
   const insets = useSafeAreaInsets();
   // At the top of the screen on compact layouts, under the composer otherwise.
   const importSessionButton = <ImportSessionButton compact={isCompact} onPress={onImportSession} />;
@@ -2520,32 +2463,22 @@ function NewWorkspaceLayout({
       {formStack}
     </>
   );
-  if (vortonMode) {
-    return (
-      <View
-        style={[
-          styles.content,
-          styles.vortonContent,
-          isCompact
-            ? [styles.contentCompact, { paddingBottom: insets.bottom }]
-            : styles.contentCentered,
-        ]}
-      >
-        <KeyboardTranslateView style={styles.centered}>
-          {setupFields}
-          {children}
-        </KeyboardTranslateView>
-      </View>
-    );
-  }
+
   return (
-    <ComposerDock centered={!isCompact}>
-      {setupFields}
-      <>
+    <View
+      style={[
+        styles.content,
+        styles.vortonContent,
+        isCompact
+          ? [styles.contentCompact, { paddingBottom: insets.bottom }]
+          : styles.contentCentered,
+      ]}
+    >
+      <KeyboardTranslateView style={styles.centered}>
+        {setupFields}
         {children}
-        {isCompact ? null : importSessionButton}
-      </>
-    </ComposerDock>
+      </KeyboardTranslateView>
+    </View>
   );
 }
 

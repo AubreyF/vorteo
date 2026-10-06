@@ -8,6 +8,7 @@ import { ArrowUpRight, Blocks, Check, Settings2 } from "lucide-react-native";
 import type { AgentSkillOperation, AgentSkillsStatus } from "@getpaseo/protocol/messages";
 import type { TFunction } from "i18next";
 import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { settingsStyles } from "@/styles/settings";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -36,6 +37,20 @@ function formatUpdateMessage(ops: readonly AgentSkillOperation[], t: TFunction):
     .join("\n");
 }
 
+function skillDisplayState({
+  status,
+  managed,
+}: {
+  status: AgentSkillsStatus | null;
+  managed: boolean;
+}): AgentSkillsStatus["state"] | null {
+  if (!status) return null;
+  if (managed) return status.state;
+  if (status.state === "drift" && status.ops.every((op) => op.kind === "delete"))
+    return "up-to-date";
+  return status.state;
+}
+
 export function AgentSkillsSection({ serverId }: { serverId: string }) {
   const { t } = useTranslation();
   const skills = useAgentSkills(serverId);
@@ -53,10 +68,7 @@ export function AgentSkillsSection({ serverId }: { serverId: string }) {
     () => skills.status?.ops.filter((op) => op.kind !== "delete") ?? [],
     [skills.status?.ops],
   );
-  const state =
-    skills.status?.state === "drift" && maintenanceOps.length === 0
-      ? "up-to-date"
-      : (skills.status?.state ?? null);
+  const state = skillDisplayState({ status: skills.status, managed: skills.managed });
   const hasSelected =
     (skills.status?.selection.mode === "all" && skills.status.available.length > 0) ||
     (skills.status?.selection.mode === "custom" &&
@@ -76,6 +88,10 @@ export function AgentSkillsSection({ serverId }: { serverId: string }) {
   }, [maintenanceOps, skills, t]);
   const handleUninstall = useCallback(async () => {
     if (skills.isWorking) return;
+    if (skills.managed) {
+      await skills.uninstall();
+      return;
+    }
     const confirmed = await confirmDialog({
       title: t("settings.host.skills.uninstallTitle"),
       message: t("settings.host.skills.uninstallMessage"),
@@ -134,6 +150,7 @@ export function AgentSkillsSection({ serverId }: { serverId: string }) {
   return (
     <SettingsSection title={t("settings.host.skills.sectionTitle")} trailing={trailing}>
       <SkillLibraryButton />
+      {skills.error ? <Alert variant="error" description={skills.error.message} /> : null}
       <View style={settingsStyles.card} testID="host-agent-skills-card">
         <View style={settingsStyles.row}>
           <View style={settingsStyles.rowContent}>

@@ -19,22 +19,11 @@
           /iPad|iPhone|iPod/.test(navigator.userAgent) ||
           (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
         if (!appleHandheld) return;
-        let enabled = true;
-        try {
-          const preferences = JSON.parse(
-            localStorage.getItem("@paseo:create-agent-preferences") || "null",
-          );
-          enabled = preferences?.vortonMode !== false;
-        } catch {
-          // Unreadable preferences use the same Vorton default as the app.
-        }
-        document.documentElement.dataset.vortonMode = String(enabled);
         document.documentElement.dataset.vortonIosStandalone = String(
           navigator.standalone === true,
         );
-        if (enabled)
-          document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content =
-            "default";
+        document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content =
+          "default";
       })();
     </script>
     <meta
@@ -88,7 +77,7 @@
       /* WebKit samples fixed backgrounds to suppress its native scroll pocket.
          11px exceeds its 10px threshold; clipping an empty element paints no pixels.
          https://zenn.dev/uakihir0/articles/260920-ios27-pwa-blur */
-      html[data-vorton-mode="true"][data-vorton-ios-standalone="true"] #vorton-ios-status-strip {
+      html[data-vorton-ios-standalone="true"] #vorton-ios-status-strip {
         display: block;
         position: fixed;
         top: 0;
@@ -102,7 +91,7 @@
         background-clip: text;
       }
       @media (prefers-color-scheme: dark) {
-        html[data-vorton-mode="true"][data-vorton-ios-standalone="true"] #vorton-ios-status-strip {
+        html[data-vorton-ios-standalone="true"] #vorton-ios-status-strip {
           background-color: var(--colors-surface-sidebar, #141716);
         }
       }
@@ -204,21 +193,11 @@
       }
     </style>
     <script>
-      // Preferences must be read before the application bundle is available.
-      try {
-        var bootPreferences = JSON.parse(
-          localStorage.getItem("@paseo:create-agent-preferences") || "{}",
-        );
-        if (bootPreferences.vortonMode === true) {
-          document.getElementById("boot-status").hidden = false;
-          setTimeout(function () {
-            var help = document.getElementById("boot-help");
-            if (help) help.hidden = false;
-          }, 10000);
-        }
-      } catch (_) {
-        // Unavailable or invalid storage retains the default Paseo presentation.
-      }
+      document.getElementById("boot-status").hidden = false;
+      setTimeout(function () {
+        var help = document.getElementById("boot-help");
+        if (help) help.hidden = false;
+      }, 10000);
     </script>
   </body>
 </html>

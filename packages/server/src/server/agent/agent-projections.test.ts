@@ -1,3 +1,4 @@
+import { parseStoredAgentRecord } from "./agent-storage.js";
 import { describe, expect, it } from "vitest";
 
 import { AGENT_LIFECYCLE_STATUSES } from "./agent-manager.js";
@@ -547,4 +548,18 @@ describe("toRecentProviderSessionDescriptorPayload", () => {
       lastPromptPreview: null,
     });
   });
+});
+
+it("persists installation skill selections without fabricating a profile", () => {
+  const snapshot = {
+    capturedAt: "now",
+    provider: "codex",
+    skills: [
+      { identity: "shared", name: "Shared", path: "/private/frozen", sha256: "a".repeat(64) },
+    ],
+  };
+  const agent = createManagedAgent({ config: { skillSnapshot: snapshot } });
+  const stored = parseStoredAgentRecord(toStoredAgentRecord(agent));
+  expect(stored.config?.skillSnapshot).toEqual(snapshot);
+  expect(stored.config?.profileLaunch).toBeUndefined();
 });

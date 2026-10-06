@@ -10,7 +10,6 @@ const MAX_TRANSIENT_DETACHED_PANES = 2;
 const SETTINGS_DESTINATIONS = [
   "General",
   "Appearance",
-  "Sidebar",
   "Chat",
   "Terminal",
   "Browser",
@@ -20,7 +19,7 @@ const SETTINGS_DESTINATIONS = [
   "Notifications",
   "Permissions",
   "Diagnostics",
-  "Overview",
+  "Environments",
   "Projects",
   "Connections",
   "Pair device",
@@ -28,6 +27,7 @@ const SETTINGS_DESTINATIONS = [
   "Metadata",
   "Workspaces",
   "Providers",
+  "Profiles",
   "Usage",
   "Terminals",
   "Plugins",
@@ -57,15 +57,6 @@ async function openSettingsDestination(page, title) {
 async function rotateSettings(page) {
   await openSettings(page);
   await openSettingsDestination(page, "General");
-  // Standard mode exposes the Sidebar page included in this retention sweep.
-  await page
-    .getByTestId("settings-vorton-mode")
-    .getByRole("button", {
-      name: "Standard mode",
-      exact: true,
-    })
-    .click();
-
   for (const title of SETTINGS_DESTINATIONS) {
     await openSettingsDestination(page, title);
   }

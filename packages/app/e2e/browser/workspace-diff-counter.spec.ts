@@ -3,7 +3,6 @@ import path from "node:path";
 import { expect, test } from "../support/fixtures";
 import { openAgentRoute } from "../support/helpers/mock-agent";
 import { seedWorkspace } from "../support/helpers/seed-client";
-import { setVortonMode } from "../support/helpers/app";
 
 test("diff counter moves between the toolbar and composer with Vorteo mode", async ({ page }) => {
   const workspace = await seedWorkspace({
@@ -34,7 +33,7 @@ test("diff counter moves between the toolbar and composer with Vorteo mode", asy
       })
       .toEqual({ additions: 2, deletions: 1 });
     await openAgentRoute(page, { workspaceId: workspace.workspaceId, agentId: agent.id });
-    await setVortonMode(page, true);
+
     const counter = page.getByTestId("workspace-diff-counter");
     const floater = page.getByTestId("composer-diff-stat-pill");
     await expect(counter).toBeVisible({ timeout: 30000 });

@@ -10,6 +10,7 @@ interface SettingsTextAreaProps {
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
+  editable?: boolean;
   testID?: string;
   style?: StyleProp<TextStyle>;
 }
@@ -19,6 +20,7 @@ export function SettingsTextArea({
   value,
   onChangeText,
   placeholder,
+  editable,
   testID,
   style,
 }: SettingsTextAreaProps) {
@@ -30,6 +32,7 @@ export function SettingsTextArea({
       testID={testID}
       accessibilityLabel={accessibilityLabel}
       multiline
+      editable={editable}
       initialValue={value}
       onChangeText={onChangeText}
       placeholder={placeholder}

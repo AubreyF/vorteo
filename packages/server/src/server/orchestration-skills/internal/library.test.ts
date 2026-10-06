@@ -1,5 +1,6 @@
 import {
   mkdtemp,
+  stat,
   mkdir,
   readFile,
   writeFile,
@@ -195,4 +196,136 @@ it("restores relative discovery links without resolving them from the backup dir
     ),
   });
   expect(await realpath(alias.path)).toBe(await realpath(target));
+});
+
+it("shares a personal package without changing its bytes, executable files, or source identity", async () => {
+  const origin = await harness();
+  const destination = await harness();
+  await origin.library.change({
+    kind: "apply",
+    previewId: previewId(await origin.library.change({ kind: "preview_install", source })),
+  });
+  await writeFile(path.join(origin.target, "run.sh"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  const binary = Buffer.from([0, 255, 128, 1]);
+  await writeFile(path.join(origin.target, "data.bin"), binary);
+  const skill = (await inventorySkills({ home: origin.home })).skills[0];
+  const exported = await origin.library.read({ kind: "package", id: skill.id });
+  if (exported.kind !== "package") throw new Error("Expected package");
+  expect(JSON.stringify(exported)).not.toContain(origin.home);
+  const preview = await destination.library.change({
+    kind: "preview_import",
+    package: exported.package,
+  });
+  expect((await inventorySkills({ home: destination.home })).skills).toEqual([]);
+  await destination.library.change({ kind: "apply", previewId: previewId(preview) });
+  const copied = (await inventorySkills({ home: destination.home })).skills[0];
+  expect(copied).toMatchObject({ identity: skill.identity, sha256: skill.sha256, source });
+  expect(await readFile(path.join(destination.target, "data.bin"))).toEqual(binary);
+  expect((await stat(path.join(destination.target, "run.sh"))).mode & 0o111).toBe(0o100);
+  await writeFile(path.join(destination.target, "local.txt"), "Preserve this");
+  await expect(
+    destination.library.change({ kind: "preview_import", package: exported.package }),
+  ).rejects.toThrow("changed locally");
+  expect(await readFile(path.join(destination.target, "local.txt"), "utf8")).toBe("Preserve this");
+});
+
+it("rejects unsafe and corrupted transfers before writing a skill package", async () => {
+  const origin = await harness();
+  const destination = await harness();
+  await mkdir(origin.target, { recursive: true });
+  await writeFile(path.join(origin.target, "SKILL.md"), files().get("SKILL.md")!);
+  const original = (await inventorySkills({ home: origin.home })).skills[0];
+  const exported = await origin.library.read({ kind: "package", id: original.id });
+  if (exported.kind !== "package") throw new Error("Expected package");
+  for (const unsafePath of [
+    "../escape",
+    "/absolute",
+    "nested/../escape",
+    ".vorteo-skill-source.json",
+  ]) {
+    const pkg = structuredClone(exported.package);
+    pkg.files[0].path = unsafePath;
+    await expect(
+      destination.library.change({ kind: "preview_import", package: pkg }),
+    ).rejects.toThrow("unsafe or duplicate");
+  }
+  const corrupt = structuredClone(exported.package);
+  corrupt.files[0].content = Buffer.from("different contents").toString("base64");
+  await expect(
+    destination.library.change({ kind: "preview_import", package: corrupt }),
+  ).rejects.toThrow("reviewed hash");
+  expect((await inventorySkills({ home: destination.home })).skills).toEqual([]);
+  await mkdir(destination.target, { recursive: true });
+  await writeFile(path.join(destination.target, "SKILL.md"), files().get("SKILL.md")!);
+  const pending = await destination.library.change({
+    kind: "preview_import",
+    package: exported.package,
+  });
+  await destination.library.change({ kind: "apply", previewId: previewId(pending) });
+  const inventory = await destination.library.read({ kind: "inventory" });
+  if (inventory.kind !== "inventory") throw new Error("Expected inventory");
+  expect(inventory.inventory.skills[0]).toMatchObject({
+    identity: original.identity,
+    sha256: original.sha256,
+    source: null,
+    managed: true,
+  });
+  const removal = await destination.library.change({
+    kind: "preview_remove",
+    id: inventory.inventory.skills[0].id,
+  });
+  await destination.library.change({ kind: "apply", previewId: previewId(removal) });
+  expect((await inventorySkills({ home: destination.home })).skills).toEqual([]);
+  await mkdir(destination.target, { recursive: true });
+  await writeFile(path.join(destination.target, "SKILL.md"), files().get("SKILL.md")!);
+  await writeFile(path.join(destination.target, ".paseo-managed-files.json"), "{}");
+  await expect(
+    destination.library.change({ kind: "preview_import", package: exported.package }),
+  ).rejects.toThrow("Preserve the existing package");
+});
+
+it("keeps provider-owned skills out of personal package transfers", async () => {
+  const { home, library } = await harness();
+  const providerSkill = path.join(home, ".codex/skills/.system/example");
+  await mkdir(providerSkill, { recursive: true });
+  await writeFile(path.join(providerSkill, "SKILL.md"), files().get("SKILL.md")!);
+  const skill = (await inventorySkills({ home })).skills[0];
+  expect(skill.owner).toBe("provider");
+  await expect(library.read({ kind: "package", id: skill.id })).rejects.toThrow(
+    "Only inspected personal packages",
+  );
+});
+
+it("rechecks skill authority at apply and preserves a retryable preview when authority is unavailable", async () => {
+  const { home, target } = await harness();
+  let authorized = false;
+  let editDuringAdmission = false;
+  let checks = 0;
+  const library = new SkillLibrary(
+    path.join(home, "state"),
+    home,
+    async () => files(),
+    async () => {
+      checks++;
+      if (!authorized) throw new Error("Shared authority unavailable");
+      if (editDuringAdmission) await writeFile(path.join(target, "notes.txt"), "Keep local work");
+    },
+  );
+  const pending = await library.change({ kind: "preview_install", source });
+  expect(checks).toBe(0);
+  await expect(library.change({ kind: "apply", previewId: previewId(pending) })).rejects.toThrow(
+    "authority unavailable",
+  );
+  expect((await inventorySkills({ home })).skills).toEqual([]);
+  expect(await library.read({ kind: "audit" })).toEqual({ kind: "audit", entries: [] });
+  authorized = true;
+  await library.change({ kind: "apply", previewId: previewId(pending) });
+  expect(checks).toBe(2);
+  expect(await readFile(path.join(target, "SKILL.md"), "utf8")).toContain("Instructions");
+  editDuringAdmission = true;
+  const stale = await library.change({ kind: "preview_install", source });
+  await expect(library.change({ kind: "apply", previewId: previewId(stale) })).rejects.toThrow(
+    "changed since preview",
+  );
+  expect(await readFile(path.join(target, "notes.txt"), "utf8")).toBe("Keep local work");
 });

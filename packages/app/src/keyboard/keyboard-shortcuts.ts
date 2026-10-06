@@ -19,7 +19,6 @@ export type { KeyCombo } from "@/keyboard/shortcut-string";
 export interface KeyboardShortcutContext {
   isMac: boolean;
   isDesktop: boolean;
-  isVorton?: boolean;
   focusScope: KeyboardFocusScope;
   commandCenterOpen: boolean;
 }
@@ -65,11 +64,9 @@ export interface KeyboardShortcutHelpSection {
 interface KeyboardShortcutPlatformContext {
   isMac: boolean;
   isDesktop: boolean;
-  isVorton?: boolean;
 }
 
 interface ShortcutWhen {
-  vorton?: true;
   /** true = mac only, false = non-mac only */
   mac?: boolean;
   /** true = desktop only, false = web only */
@@ -882,7 +879,7 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     action: "command-center.toggle",
     combo: "Alt+Space",
     repeat: false,
-    when: { mac: true, vorton: true },
+    when: { mac: true },
     help: {
       id: "toggle-command-center-alternate",
       section: "general",
@@ -1339,7 +1336,7 @@ export function matchesKeyboardShortcutContext(
   context: KeyboardShortcutContext,
 ): boolean {
   if (!when) return true;
-  if (when.vorton && !context.isVorton) return false;
+
   if (when.mac !== undefined && when.mac !== context.isMac) return false;
   if (when.desktop !== undefined && when.desktop !== context.isDesktop) return false;
   if (
@@ -1405,7 +1402,6 @@ function helpMatchesPlatform(
   when: ShortcutWhen | undefined,
   context: KeyboardShortcutPlatformContext,
 ): boolean {
-  if (when?.vorton && !context.isVorton) return false;
   if (when?.mac !== undefined && when.mac !== context.isMac) return false;
   if (when?.desktop !== undefined && when.desktop !== context.isDesktop) return false;
   return true;

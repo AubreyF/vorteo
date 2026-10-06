@@ -17,6 +17,34 @@ Provider definitions live under `agents.providers` in config.json:
 
 Provider IDs must be lowercase alphanumeric with hyphens (`/^[a-z][a-z0-9-]*$/`).
 
+## Installation-owned provider policy
+
+On a managed host and container installation, the coordinator owns provider names, descriptions,
+model overrides, tool restrictions, ordering and enablement. Its catalog binds each shared
+definition to local provider IDs. Migration joins accounts only through a verified account ID;
+matching names do not establish identity. Conflicting portable values require review, and every
+candidate retains definitions from both environments.
+
+Credentials, account homes, commands, environment variables and native options remain local.
+Provider projection replaces portable fields rather than merging them, so clearing a model override
+also removes its persisted value. Independent portable edits, including edits loaded from disk,
+are rejected. Removing a local account retains the shared definition and its references. Removing
+a shared definition disables its local copies and retains their private configuration.
+
+The canonical save is durable before delivery. Offline environments remain pending and retry when
+available. Catalog presence does not prove authentication or model availability; those come from
+each environment's provider snapshot.
+
+New managed accounts keep a durable setup record in the shared catalog. Each environment creates
+its own account home using the same stable request ID. Reconciliation retries offline environments
+and lost replies without allocating duplicate accounts. Account setup does not copy credentials
+or establish authentication; sign-in remains an environment operation.
+
+New task creation checks fresh coordinator policy, including direct requests without a profile.
+Excluded, disabled, missing or changed account bindings cannot start a new task. A pending local
+policy must finish applying before launch, so stale model or tool overrides cannot bypass the
+shared policy. Existing tasks retain their captured configuration.
+
 Each provider catalog refresh waits up to 2 minutes. If a provider loads many plugins or a large
 agent catalog during startup, raise the limit in milliseconds:
 
@@ -290,11 +318,11 @@ You can create multiple entries that extend the same built-in provider. Each get
 
 "Profile" here means a provider alias, and it is not an **Agent profile** — that is a named bundle of provider, model, mode, thinking option and features, stored under `daemon.agentProfiles`. See [glossary.md](glossary.md) for all four senses of the word.
 
-In Vorteo mode, use **Settings > your host > Providers > Add provider**, search for **Codex**, and select **Add**, or **Add Codex account** in the preset editor. Name the account, create it, then start sign-in. Codex stays in search so you can add another account. Use **Rename** or **Delete** beside an existing custom provider; built-in providers can be renamed or disabled. Each account gets a separate credential directory under the daemon's Vorteo home. Back up that directory with the host configuration.
+Use **Settings > Providers > Add provider**, search for **Codex**, and select **Add**, or **Add Codex account** in the preset editor. Name the account, create it, then start sign-in. Codex stays in search so you can add another account. Use **Rename** or **Delete** beside an existing custom provider; built-in providers can be renamed or disabled. Each account gets a separate credential directory under the daemon's Vorteo home. Back up that directory with the host configuration.
 
 Deleting a connection removes its exclusively owned, app-managed account directory and saved credentials. The confirmation identifies shared credentials or external CLI credentials that will remain. Archive the provider's open tasks and cancel active sign-in before deletion. This flow requires `providerCredentialRemoval` on the host.
 
-Select the account in a preset's **Provider** field. Creating an account inside the editor selects it without saving the preset. Connect remains available in the editor, provider list, and quick preset switcher when usage is unavailable. Unavailable usage alone does not prove rejected credentials. Account creation requires a host advertising `codexAccountCreation`; sign-in uses `providerAccountLogin`. Turning Vorteo off keeps accounts and presets intact.
+Select the account in a preset's **Provider** field. Creating an account inside the editor selects it without saving the preset. Connect remains available in the editor, provider list, and quick preset switcher when usage is unavailable. Unavailable usage alone does not prove rejected credentials. Account creation requires a host advertising `codexAccountCreation`; sign-in uses `providerAccountLogin`.
 
 Example: two different Anthropic accounts as separate profiles:
 

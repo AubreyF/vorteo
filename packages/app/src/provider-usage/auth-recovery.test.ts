@@ -46,17 +46,16 @@ it("shows rejection instead of cached usage and clears it after recovery", () =>
   expect(quotaReading({ ...view, payload: recovered }, "account-one", 0).remaining).toBe(80);
   expect(recovered.providers[0].authRecovery).toBeUndefined();
 });
-it.each([true, false])("gates the selected account warning with Vorton %s", (vortonMode) => {
+it("shows the selected account warning in Vorteo", () => {
   const result = selectedPresetPresentation({
     view: { kind: "ready", payload: rejected, isRefreshing: false },
     now: 0,
-    vortonMode,
     selectedProfileId: "one",
     definitions: [{ id: "one", name: "One", provider: "account-one" }],
   });
-  expect(result.showWarning).toBe(vortonMode);
+  expect(result.showWarning).toBe(true);
   expect(result.showRing).toBe(false);
-  expect(result.accessibilityLabel.includes("account disconnected")).toBe(vortonMode);
+  expect(result.accessibilityLabel.includes("account disconnected")).toBe(true);
 });
 it("does not mistake transient failure or missing usage for an account disconnect", () => {
   const unavailable: ProviderUsageListPayload = {

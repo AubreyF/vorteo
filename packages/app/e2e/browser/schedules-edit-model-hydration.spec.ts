@@ -1,5 +1,5 @@
 import { expect, test } from "../support/fixtures";
-import { gotoAppShell, setVortonMode } from "../support/helpers/app";
+import { gotoAppShell } from "../support/helpers/app";
 import {
   addScheduleHostAndReload,
   createScheduleHost,
@@ -84,47 +84,40 @@ test.describe("Schedules", () => {
     cleanupTasks.length = 0;
   });
 
-  for (const vortonMode of [false, true]) {
-    test(`stale schedule edits preserve the draft in Vorton ${vortonMode ? "on" : "off"}`, async ({
-      page,
-    }, testInfo) => {
-      const workspace = await seedWorkspace({ repoPrefix: "schedule-revision-" });
-      cleanupTasks.push(() => workspace.cleanup());
-      const scheduleId = await seedMockSchedule(workspace, "Revision review");
-      cleanupTasks.push(() => deleteSeededSchedule(workspace, scheduleId));
-      const paused = await (workspace.client as unknown as ScheduleSeedClient).schedulePause({
-        id: scheduleId,
-      });
-      expect(paused.error).toBeNull();
-      await page.goto(buildSchedulesRoute());
-      await setVortonMode(page, vortonMode);
-      const row = page.getByTestId(`schedule-row-${scheduleId}`);
-      await expect(row).toBeVisible({ timeout: 30_000 });
-      await row.click();
-      const form = page.getByTestId("schedule-form-sheet");
-      await expect(form).toBeVisible();
-      const name = page.getByTestId("schedule-name-input");
-      await name.fill("Owner draft");
-      const client = workspace.client as unknown as ScheduleSeedClient;
-      const changed = await client.scheduleUpdate({ id: scheduleId, name: "Other editor" });
-      expect(changed.error).toBeNull();
-      await page.getByTestId("schedule-form-submit").click();
-      await expect(
-        form.getByText("Schedule configuration changed. Reload it before saving your edits."),
-      ).toBeVisible();
-      await expect(name).toHaveValue("Owner draft");
-      expect((await client.scheduleInspect({ id: scheduleId })).schedule?.name).toBe(
-        "Other editor",
-      );
-      await page.screenshot({ path: testInfo.outputPath(`revision-vorton-${vortonMode}.png`) });
-      await form
-        .getByText("Schedule configuration changed. Reload it before saving your edits.")
-        .scrollIntoViewIfNeeded();
-      await page.screenshot({
-        path: testInfo.outputPath(`revision-conflict-vorton-${vortonMode}.png`),
-      });
+  test("stale schedule edits preserve the draft", async ({ page }, testInfo) => {
+    const workspace = await seedWorkspace({ repoPrefix: "schedule-revision-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const scheduleId = await seedMockSchedule(workspace, "Revision review");
+    cleanupTasks.push(() => deleteSeededSchedule(workspace, scheduleId));
+    const paused = await (workspace.client as unknown as ScheduleSeedClient).schedulePause({
+      id: scheduleId,
     });
-  }
+    expect(paused.error).toBeNull();
+    await page.goto(buildSchedulesRoute());
+    const row = page.getByTestId(`schedule-row-${scheduleId}`);
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await row.click();
+    const form = page.getByTestId("schedule-form-sheet");
+    await expect(form).toBeVisible();
+    const name = page.getByTestId("schedule-name-input");
+    await name.fill("Owner draft");
+    const client = workspace.client as unknown as ScheduleSeedClient;
+    const changed = await client.scheduleUpdate({ id: scheduleId, name: "Other editor" });
+    expect(changed.error).toBeNull();
+    await page.getByTestId("schedule-form-submit").click();
+    await expect(
+      form.getByText("Schedule configuration changed. Reload it before saving your edits."),
+    ).toBeVisible();
+    await expect(name).toHaveValue("Owner draft");
+    expect((await client.scheduleInspect({ id: scheduleId })).schedule?.name).toBe("Other editor");
+    await page.screenshot({ path: testInfo.outputPath("revision.png") });
+    await form
+      .getByText("Schedule configuration changed. Reload it before saving your edits.")
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath("revision-conflict.png"),
+    });
+  });
 
   test("edit form hydrates the scheduled model selection", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "schedule-model-hydration-" });

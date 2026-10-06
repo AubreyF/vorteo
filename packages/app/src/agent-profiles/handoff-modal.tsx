@@ -1,7 +1,6 @@
 import { createDestinationWorkspace } from "./internal/destination-workspaces";
 import { generateMessageId } from "@/types/stream";
 import { useHostFeature } from "@/runtime/host-features";
-import { useVortonMode } from "@/vorton-mode";
 import type { WorkspaceDescriptorPayload } from "@getpaseo/protocol/messages";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useCallback, useMemo, useReducer, useState } from "react";
@@ -66,9 +65,8 @@ export function ProfileHandoffModal({
   const connected = useHostRuntimeIsConnected(destinationServerId ?? "");
   const receipts = useHostFeature(destinationServerId, "workspaceRequestReceipts");
   const multiplicity = useHostFeature(destinationServerId, "workspaceMultiplicity");
-  const vorton = useVortonMode();
   const membership = useHostFeature(destinationServerId, "workspaceProjectMembership");
-  const canCreate = receipts && multiplicity && membership && vorton;
+  const canCreate = receipts && multiplicity && membership;
   const [destination, setDestination] = useState(() => ({
     directory: destinationDirectory ?? "",
     creationId: generateMessageId(),

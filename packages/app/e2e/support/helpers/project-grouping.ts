@@ -2,9 +2,8 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import { gotoAppShell } from "./app";
 import { addConnectedHostsAndReload, waitForConnectedHost } from "./hosts";
 import { openProjectSettings } from "./project-settings";
-import { selectSettingsHost } from "./settings";
+import { openSettingsHostSection } from "./settings";
 import { waitForSidebarHydration } from "./workspace-ui";
-import { buildProjectsSettingsRoute } from "@/utils/host-routes";
 
 const PROJECT_VISIBILITY_TIMEOUT = 30_000;
 
@@ -114,9 +113,7 @@ export async function openGroupedProjectSettings(
 ): Promise<void> {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page).toHaveURL(/\/settings\/general$/);
-  await selectSettingsHost(page, input.serverId);
-  await page.locator('[data-testid="settings-host-section-projects"]:visible').click();
-  await expect(page).toHaveURL(/\/settings\/hosts\/[^/]+\/projects$/);
+  await openSettingsHostSection(page, input.serverId, "projects");
   await openProjectSettings(page, input.projectName);
 }
 
@@ -124,8 +121,7 @@ export async function openProjectsForSettingsHost(
   page: Page,
   input: { serverId: string; projectName: string },
 ): Promise<void> {
-  await selectSettingsHost(page, input.serverId);
-  await expect(page).toHaveURL(buildProjectsSettingsRoute(input.serverId));
+  await openSettingsHostSection(page, input.serverId, "projects");
   await openProjectSettings(page, input.projectName);
 }
 

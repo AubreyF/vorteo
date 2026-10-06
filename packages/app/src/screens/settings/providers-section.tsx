@@ -9,7 +9,6 @@ import { AdaptiveRenameModal } from "@/components/rename-modal";
 import { ProviderReconnectControl } from "@/provider-usage/reconnect-control";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
 import type { ProviderUsage } from "@/provider-usage/types";
-import { useVortonMode } from "@/vorton-mode";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -18,8 +17,8 @@ import {
   Pressable,
   Text,
   View,
-  type GestureResponderEvent,
   type PressableStateCallbackType,
+  type GestureResponderEvent,
 } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -28,6 +27,8 @@ import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-
 import { useHostFeature } from "@/runtime/host-features";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
+import { useInstallationSettings } from "@/execution-installation/settings";
+import { sharedCatalogProviderEnrollment } from "@/execution-installation/settings-policy";
 import { buildProviderDefinitions } from "@/utils/provider-definitions";
 import {
   buildAcpProviderConfigPatch,
@@ -37,17 +38,12 @@ import { ProviderCatalogList } from "@/components/provider-catalog-list";
 import { useProviderIcon } from "@/components/provider-icons";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Switch } from "@/components/ui/switch";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Alert as InlineAlert } from "@/components/ui/alert";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { filterSelectableModels } from "@/provider-selection/model-catalog";
-import { ChevronRight, GripVertical, MoreHorizontal, Trash2 } from "lucide-react-native";
+import { ChevronRight, GripVertical } from "lucide-react-native";
 
 type ProviderDefinition = ReturnType<typeof buildProviderDefinitions>[number];
 type ProviderEntry = NonNullable<ReturnType<typeof useProvidersSnapshot>["entries"]>[number];
@@ -108,83 +104,6 @@ interface ProviderRowProps {
   onRename: (provider: ProviderDefinition) => void;
 }
 
-function stopPressInPropagation(event: GestureResponderEvent) {
-  event.stopPropagation();
-}
-
-interface ProviderActionsMenuProps {
-  providerId: string;
-  providerLabel: string;
-  isRemoving: boolean;
-  iconSize: number;
-  foregroundColor: string;
-  foregroundMutedColor: string;
-  dangerColor: string;
-  onRemove: (providerId: string, providerLabel: string) => void;
-}
-
-function ProviderActionsMenu({
-  providerId,
-  providerLabel,
-  isRemoving,
-  iconSize,
-  foregroundColor,
-  foregroundMutedColor,
-  dangerColor,
-  onRemove,
-}: ProviderActionsMenuProps) {
-  const { t } = useTranslation();
-  const handleRemove = useCallback(() => {
-    onRemove(providerId, providerLabel);
-  }, [onRemove, providerId, providerLabel]);
-  const triggerStyle = useCallback(
-    ({
-      pressed,
-      hovered,
-      open,
-    }: PressableStateCallbackType & { hovered?: boolean; open?: boolean }) => [
-      styles.menuButton,
-      (hovered || open) && styles.menuButtonHovered,
-      pressed && styles.menuButtonPressed,
-    ],
-    [],
-  );
-  const trashLeading = useMemo(() => <Trash2 size={16} color={dangerColor} />, [dangerColor]);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        disabled={isRemoving}
-        hitSlop={8}
-        onPressIn={stopPressInPropagation}
-        style={triggerStyle}
-        accessibilityRole="button"
-        accessibilityLabel={t("settings.providers.actions.menu", { name: providerLabel })}
-        testID={`provider-actions-${providerId}`}
-      >
-        {({ hovered, open }) => (
-          <MoreHorizontal
-            size={iconSize}
-            color={hovered || open ? foregroundColor : foregroundMutedColor}
-          />
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" width={220}>
-        <DropdownMenuItem
-          destructive
-          leading={trashLeading}
-          onSelect={handleRemove}
-          status={isRemoving ? "pending" : "idle"}
-          pendingLabel={t("settings.providers.actions.removing")}
-          testID={`provider-remove-${providerId}`}
-        >
-          {t("settings.providers.actions.remove")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 function ProviderRow({
   usage,
   serverId,
@@ -204,7 +123,6 @@ function ProviderRow({
   onRemove,
   onRename,
 }: ProviderRowProps) {
-  const vortonMode = useVortonMode();
   const { t } = useTranslation();
   const { theme } = useUnistyles();
   const isCompact = useIsCompactFormFactor();
@@ -217,7 +135,7 @@ function ProviderRow({
       ? entry.error.trim()
       : null;
   const modelCount = filterSelectableModels(entry.models ?? null)?.length ?? 0;
-  const needsCliUpdate = vortonMode && enabled && Boolean(entry.cliUpdate);
+  const needsCliUpdate = enabled && Boolean(entry.cliUpdate);
   const visibleStatus = useMemo<ProviderStatus>(() => {
     const status = getProviderStatus(entry.status, enabled, modelCount, t);
     return needsCliUpdate ? { ...status, tone: "warning", label: "CLI update needed" } : status;
@@ -250,11 +168,11 @@ function ProviderRow({
     ({ pressed, hovered }: PressableStateCallbackType & { hovered?: boolean }) => [
       settingsStyles.row,
       styles.row,
-      vortonMode && isCompact && styles.compactRow,
+      isCompact && styles.compactRow,
       hovered && styles.rowHovered,
       pressed && styles.rowPressed,
     ],
-    [vortonMode, isCompact],
+    [isCompact],
   );
 
   return (
@@ -309,8 +227,8 @@ function ProviderRow({
                 ) : null}
               </View>
             </View>
-            <View style={[styles.trailingControls, vortonMode && styles.vortonTrailingControls]}>
-              {vortonMode && entry.source === "custom" ? (
+            <View style={[styles.trailingControls, styles.vortonTrailingControls]}>
+              {entry.source === "custom" ? (
                 <>
                   <CompactAccountButton
                     onPress={handleRename}
@@ -343,22 +261,6 @@ function ProviderRow({
                 disabled={isToggling || isRemoving}
                 accessibilityLabel={t("settings.providers.enableProvider", { name: def.label })}
               />
-              {!vortonMode ? (
-                <View style={styles.menuSlot}>
-                  {canRemove ? (
-                    <ProviderActionsMenu
-                      providerId={def.id}
-                      providerLabel={def.label}
-                      isRemoving={isRemoving}
-                      iconSize={theme.iconSize.sm}
-                      foregroundColor={theme.colors.foreground}
-                      foregroundMutedColor={theme.colors.foregroundMuted}
-                      dangerColor={theme.colors.statusDanger}
-                      onRemove={onRemove}
-                    />
-                  ) : null}
-                </View>
-              ) : null}
             </View>
           </>
         )}
@@ -416,11 +318,68 @@ function StatusIndicator({ status, compact }: { status: ProviderStatus; compact:
 
 export interface ProvidersSectionProps {
   serverId: string;
+  runtimeOnly?: boolean;
 }
 
-export function ProvidersSection({ serverId }: ProvidersSectionProps) {
-  const vortonMode = useVortonMode();
-  const { view } = useProviderUsage(serverId, { enabled: vortonMode });
+function ProviderCatalogInstallation({ serverId }: { serverId: string }) {
+  const shared = useInstallationSettings();
+  const client = useHostRuntimeClient(serverId);
+  const { patchConfig } = useDaemonConfig(serverId);
+  const { refresh } = useProvidersSnapshot(serverId);
+  const install = useMutation({
+    mutationFn: async (entry: AcpProviderCatalogItem) => {
+      const patch = buildAcpProviderConfigPatch(entry);
+      const managed = shared.installation?.environments.some(
+        (environment) => environment.serverId === serverId,
+      );
+      if (managed) {
+        if (!client || !shared.data?.settings || shared.data.conflicts)
+          throw new Error(
+            "Connect this environment and resolve shared settings migration before installing a runtime.",
+          );
+        const enrollment = sharedCatalogProviderEnrollment(entry.id, patch.providers![entry.id]!, {
+          settings: shared.data.settings,
+          serverId,
+        });
+        if (enrollment.settings)
+          await shared.save({
+            expectedRevision: shared.data.revision,
+            settings: enrollment.settings,
+          });
+        await client.patchDaemonConfig(enrollment.patch);
+      } else {
+        await patchConfig(patch);
+      }
+      await refresh([entry.id]);
+    },
+  });
+  const handleInstall = useCallback(
+    (entry: AcpProviderCatalogItem) => {
+      if (!install.isPending) install.mutate(entry);
+    },
+    [install],
+  );
+  const installingProviderId = install.isPending ? install.variables.id : null;
+  return (
+    <>
+      {install.isError ? (
+        <InlineAlert
+          variant="error"
+          description={install.error.message}
+          testID="provider-install-error"
+        />
+      ) : null}
+      <ProviderCatalogList
+        serverId={serverId}
+        installingProviderId={installingProviderId}
+        onInstall={handleInstall}
+      />
+    </>
+  );
+}
+
+export function ProvidersSection({ serverId, runtimeOnly = false }: ProvidersSectionProps) {
+  const { view } = useProviderUsage(serverId, { enabled: true });
   const usageByProvider = useMemo(
     () =>
       new Map(
@@ -448,7 +407,7 @@ export function ProvidersSection({ serverId }: ProvidersSectionProps) {
       )
       .map((entry) => entry.provider) ?? [];
   const claudeEnabled = claudeProviders.length > 0;
-  const monitorClaude = vortonMode && panelActive && isConnected && claudeEnabled;
+  const monitorClaude = panelActive && isConnected && claudeEnabled;
   useFetchQuery({
     dataShape: "value",
     queryKey: ["claude-authentication-monitor", serverId],
@@ -466,7 +425,6 @@ export function ProvidersSection({ serverId }: ProvidersSectionProps) {
   const [pendingProviderId, setPendingProviderId] = useState<string | null>(null);
   const [removingProviderId, setRemovingProviderId] = useState<string | null>(null);
   const removingProviderIdRef = useRef<string | null>(null);
-  const [installingProviderId, setInstallingProviderId] = useState<string | null>(null);
   const [renamingProvider, setRenamingProvider] = useState<ProviderDefinition | null>(null);
   const toast = useToast();
 
@@ -514,113 +472,71 @@ export function ProvidersSection({ serverId }: ProvidersSectionProps) {
       removingProviderIdRef.current = providerId;
       setRemovingProviderId(providerId);
       try {
-        let message = t("settings.providers.remove.confirmMessage");
-        let revision: string | null = null;
-        if (vortonMode) {
-          if (!supportsCredentialRemoval)
-            throw new Error(
-              "Update this host to delete connections and their managed credentials.",
-            );
-          if (!client) throw new Error("Reconnect to the host and try again.");
-          const { plan } = await client.previewProviderRemoval(providerId);
-          revision = plan.revision;
-          if (plan.credentials === "managed")
-            message =
-              "Delete this connection and its saved credentials? Its local account data will also be permanently removed.";
-          else if (plan.credentials === "shared")
-            message = `Delete this connection? Credentials shared with ${plan.sharedWith.join(", ")} will remain for those connections.`;
-          else
-            message =
-              "Delete this connection? Credentials stored by an external CLI will remain. Sign out using that CLI to remove them.";
-        }
+        if (!supportsCredentialRemoval)
+          throw new Error("Update this host to delete connections and their managed credentials.");
+        if (!client) throw new Error("Reconnect to the host and try again.");
+        const { plan } = await client.previewProviderRemoval(providerId);
+        let message: string;
+        if (plan.credentials === "managed")
+          message =
+            "Delete this connection and its saved credentials? Its local account data will also be permanently removed.";
+        else if (plan.credentials === "shared")
+          message = `Delete this connection? Credentials shared with ${plan.sharedWith.join(", ")} will remain for those connections.`;
+        else
+          message =
+            "Delete this connection? Credentials stored by an external CLI will remain. Sign out using that CLI to remove them.";
         const confirmed = await confirmDialog({
           title: t("settings.providers.remove.confirmTitle", { name: providerLabel }),
           message,
           confirmLabel: t("settings.providers.remove.confirm"),
           destructive: true,
         });
-        if (!confirmed) {
-          return;
-        }
-
-        if (vortonMode) {
-          if (!client || !revision)
-            throw new Error("Reconnect to the host and review deletion again.");
-          await client.removeProvider(providerId, revision);
-        } else {
-          const result = await patchConfig({ removeProviders: [providerId] });
-          if (!result) throw new Error("Reconnect to the host and try again.");
-        }
+        if (!confirmed) return;
+        await client.removeProvider(providerId, plan.revision);
       } catch (error) {
-        if (vortonMode) {
-          toast.error(error instanceof Error ? error.message : String(error));
-        } else {
-          Alert.alert(
-            t("settings.providers.remove.errorTitle"),
-            error instanceof Error ? error.message : String(error),
-          );
-        }
+        toast.error(error instanceof Error ? error.message : String(error));
       } finally {
-        if (removingProviderIdRef.current === providerId) {
-          removingProviderIdRef.current = null;
-        }
+        if (removingProviderIdRef.current === providerId) removingProviderIdRef.current = null;
         setRemovingProviderId((current) => (current === providerId ? null : current));
       }
     },
-    [patchConfig, t, vortonMode, supportsCredentialRemoval, client, toast],
-  );
-
-  const handleInstall = useCallback(
-    async (entry: AcpProviderCatalogItem) => {
-      if (installingProviderId) return;
-      setInstallingProviderId(entry.id);
-      try {
-        await patchConfig(buildAcpProviderConfigPatch(entry));
-        await refresh([entry.id]);
-      } catch (error) {
-        Alert.alert(
-          t("settings.providers.addErrorTitle"),
-          error instanceof Error ? error.message : String(error),
-        );
-      } finally {
-        setInstallingProviderId((current) => (current === entry.id ? null : current));
-      }
-    },
-    [installingProviderId, patchConfig, refresh, t],
+    [t, supportsCredentialRemoval, client, toast],
   );
 
   return (
     <>
-      <SettingsSection
-        title={t("settings.providers.title")}
-        testID="host-page-providers-card"
-        style={styles.sectionSpacing}
-      >
-        {!hasServer || !isConnected ? (
-          <View style={[settingsStyles.card, styles.emptyCard]}>
-            <Text style={styles.emptyText}>{t("settings.providers.unavailable")}</Text>
-          </View>
-        ) : null}
-        {hasServer && isConnected && isLoading ? (
-          <View style={[settingsStyles.card, styles.emptyCard]}>
-            <Text style={styles.emptyText}>{t("settings.providers.loading")}</Text>
-          </View>
-        ) : null}
-        {hasServer && isConnected && !isLoading && providerDefinitions.length > 0 ? (
-          <ProviderList
-            serverId={serverId}
-            entries={entries ?? []}
-            usageByProvider={usageByProvider}
-            pendingProviderId={pendingProviderId}
-            removingProviderId={removingProviderId}
-            supportsProviderRemoval={supportsProviderRemoval}
-            onPress={handleOpenProviderSettings}
-            onToggleEnabled={handleToggleEnabled}
-            onRemove={handleRemoveProvider}
-            onRename={setRenamingProvider}
-          />
-        ) : null}
-      </SettingsSection>
+      {!runtimeOnly ? (
+        <SettingsSection
+          title={t("settings.providers.title")}
+          testID="host-page-providers-card"
+          style={styles.sectionSpacing}
+        >
+          {!hasServer || !isConnected ? (
+            <View style={[settingsStyles.card, styles.emptyCard]}>
+              <Text style={styles.emptyText}>{t("settings.providers.unavailable")}</Text>
+            </View>
+          ) : null}
+          {hasServer && isConnected && isLoading ? (
+            <View style={[settingsStyles.card, styles.emptyCard]}>
+              <Text style={styles.emptyText}>{t("settings.providers.loading")}</Text>
+            </View>
+          ) : null}
+          {hasServer && isConnected && !isLoading && providerDefinitions.length > 0 ? (
+            <ProviderList
+              serverId={serverId}
+              entries={entries ?? []}
+              usageByProvider={usageByProvider}
+              pendingProviderId={pendingProviderId}
+              removingProviderId={removingProviderId}
+              supportsProviderRemoval={supportsProviderRemoval}
+              onPress={handleOpenProviderSettings}
+              onToggleEnabled={handleToggleEnabled}
+              onRemove={handleRemoveProvider}
+              onRename={setRenamingProvider}
+            />
+          ) : null}
+        </SettingsSection>
+      ) : null}
 
       {hasServer && isConnected ? (
         <SettingsSection
@@ -628,14 +544,10 @@ export function ProvidersSection({ serverId }: ProvidersSectionProps) {
           testID="host-page-add-provider-card"
           style={styles.addProviderSection}
         >
-          <ProviderCatalogList
-            serverId={serverId}
-            installingProviderId={installingProviderId}
-            onInstall={handleInstall}
-          />
+          <ProviderCatalogInstallation serverId={serverId} />
         </SettingsSection>
       ) : null}
-      {vortonMode && renamingProvider ? (
+      {renamingProvider ? (
         <AdaptiveRenameModal
           key={renamingProvider.id}
           visible
@@ -673,9 +585,8 @@ function ProviderList({
   onRemove,
   onRename,
 }: ProviderListProps) {
-  const vortonMode = useVortonMode();
   const supportsProviderOrdering = useHostFeature(serverId, "providerOrdering");
-  const canReorder = vortonMode && supportsProviderOrdering;
+  const canReorder = supportsProviderOrdering;
   const { patchConfig } = useDaemonConfig(serverId);
   const reorder = useMutation({
     mutationFn: async (ordered: ProviderEntry[]) => {

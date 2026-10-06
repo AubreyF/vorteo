@@ -1,13 +1,12 @@
 import { StartupStatus } from "@/components/startup-status";
-import { useVortonMode } from "@/vorton-mode";
+
 import { Text, View } from "react-native";
-import { ArrowLeftToLine, RotateCw, Settings } from "lucide-react-native";
+import { ArrowLeftToLine, RotateCw } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatConnectionStatus } from "@/utils/daemons";
+
 import type { WorkspaceRouteState } from "@/screens/workspace/workspace-route-state";
 import type { Theme } from "@/styles/theme";
 
@@ -82,19 +81,6 @@ export function renderWorkspaceRouteGate(input: {
     case "reconnecting":
       return null;
   }
-}
-
-function getWorkspaceHostStateTitle(
-  state: Extract<WorkspaceRouteState, { kind: "unreachable" }>,
-  t: ReturnType<typeof useTranslation>["t"],
-): string {
-  if (state.connectionStatus === "connecting" || state.connectionStatus === "idle") {
-    return t("workspace.route.connecting");
-  }
-  if (state.connectionStatus === "offline") {
-    return t("workspace.route.hostOffline", { hostName: state.hostName });
-  }
-  return t("workspace.route.cannotReachHost", { hostName: state.hostName });
 }
 
 function WorkspaceConnecting({ hostName }: { hostName: string }) {
@@ -221,69 +207,26 @@ function WorkspaceUnreachable({
 }) {
   const { t } = useTranslation();
   const canRetry = state.connectionStatus === "offline" || state.connectionStatus === "error";
-  const vortonMode = useVortonMode();
-
-  if (vortonMode) {
-    return (
-      <View style={styles.emptyState}>
-        <StartupStatus phase={canRetry ? "unavailable" : "host"} />
-        <Text style={styles.description}>{state.hostName}</Text>
-        {state.lastError ? (
-          <Text style={styles.error} selectable>
-            {state.lastError}
-          </Text>
-        ) : null}
-        <View style={styles.actions}>
-          {canRetry ? (
-            <Button size="md" variant="default" onPress={onRetry}>
-              {t("common.actions.retry")}
-            </Button>
-          ) : null}
-          <Button size="md" variant="outline" onPress={onManageHost}>
-            {t("workspace.route.manageHost")}
-          </Button>
-        </View>
-      </View>
-    );
-  }
 
   return (
     <View style={styles.emptyState}>
-      {state.connectionStatus === "connecting" || state.connectionStatus === "idle" ? (
-        <ThemedLoadingSpinner size="small" uniProps={foregroundMutedColorMapping} />
-      ) : null}
-      <View style={styles.textStack}>
-        <Text style={styles.title}>{getWorkspaceHostStateTitle(state, t)}</Text>
-        <Text style={styles.description}>
-          {state.connectionStatus === "connecting" || state.connectionStatus === "idle"
-            ? state.hostName
-            : t("workspace.route.hostStatus", {
-                status: formatConnectionStatus(state.connectionStatus),
-              })}
+      <StartupStatus phase={canRetry ? "unavailable" : "host"} />
+      <Text style={styles.description}>{state.hostName}</Text>
+      {state.lastError ? (
+        <Text style={styles.error} selectable>
+          {state.lastError}
         </Text>
-        {state.lastError ? (
-          <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
-            <TooltipTrigger asChild>
-              <Text style={styles.error} numberOfLines={3}>
-                {state.lastError}
-              </Text>
-            </TooltipTrigger>
-            <TooltipContent side="top" align="center" offset={8}>
-              <Text style={styles.errorTooltip}>{state.lastError}</Text>
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
-      </View>
-      {canRetry ? (
-        <View style={styles.actions}>
-          <Button size="sm" variant="default" leftIcon={RotateCw} onPress={onRetry}>
+      ) : null}
+      <View style={styles.actions}>
+        {canRetry ? (
+          <Button size="md" variant="default" onPress={onRetry}>
             {t("common.actions.retry")}
           </Button>
-          <Button size="sm" variant="outline" leftIcon={Settings} onPress={onManageHost}>
-            {t("workspace.route.manageHost")}
-          </Button>
-        </View>
-      ) : null}
+        ) : null}
+        <Button size="md" variant="outline" onPress={onManageHost}>
+          {t("workspace.route.manageHost")}
+        </Button>
+      </View>
     </View>
   );
 }
@@ -345,11 +288,6 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     lineHeight: Math.round(theme.fontSize.base * 1.4),
     textAlign: "center",
-  },
-  errorTooltip: {
-    color: theme.colors.popoverForeground,
-    fontSize: theme.fontSize.base,
-    maxWidth: 420,
   },
   actions: {
     flexDirection: "row",

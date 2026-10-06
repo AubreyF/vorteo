@@ -16,9 +16,9 @@ Before changing that entry, verify the actual window's origin, version and conne
 
 Host agents run as the signed-in macOS account. They can access its files, provider credentials and administrative tools to the same extent as an agent launched directly by that account. This is an intentional trust choice, not a stronger sandbox. macOS permission prompts still apply. Provider accounts remain local to their environment.
 
-In Vorteo mode, Settings → General has **Prepare host update task** and **Prepare host merge task**. Each opens a separate editable draft targeting this installation's host. Review the message, select the source project and agent preset, then send it. Clicking the settings action does not create an agent, merge code, deploy or authorize a restart. Without a connected installation host, the action reports that prerequisite instead of choosing another environment.
+Settings → General has **Prepare host update task** and **Prepare host merge task**. Each opens a separate editable draft targeting this installation's host. Review the message, select the source project and agent preset, then send it. Clicking the settings action does not create an agent, merge code, deploy or authorize a restart. Without a connected installation host, the action reports that prerequisite instead of choosing another environment.
 
-The trusted installation interface disables agent browser automation and rejects client plugin bundles from the container or any unrecognized daemon. Client plugins from the explicitly configured native host remain trusted. This restriction applies in Standard mode too because that client holds host credentials. Ordinary interfaces retain their existing behavior.
+The trusted installation interface disables agent browser automation and rejects client plugin bundles from the container or any unrecognized daemon. Client plugins from the explicitly configured native host remain trusted. This restriction protects the host credentials held by the installation interface. Ordinary interfaces retain their existing behavior.
 
 ### Change the protected interface address
 

@@ -13,6 +13,7 @@ export interface NavigateToAgentInput {
 
 export interface AgentNavTarget {
   agentWorkspaceId: string | null | undefined;
+  presentationWorkspaceId?: string | null;
 }
 
 export interface NavigateToAgentDeps {
@@ -25,9 +26,9 @@ export function resolveNavigateToAgent(
   input: NavigateToAgentInput,
   deps: NavigateToAgentDeps,
 ): string {
+  const target = deps.readAgentNavTarget({ serverId: input.serverId, agentId: input.agentId });
   const agentWorkspaceId =
-    input.workspaceId ??
-    deps.readAgentNavTarget({ serverId: input.serverId, agentId: input.agentId }).agentWorkspaceId;
+    target.presentationWorkspaceId ?? input.workspaceId ?? target.agentWorkspaceId;
   const workspaceId = normalizeWorkspaceOpaqueId(agentWorkspaceId);
 
   if (!workspaceId) {

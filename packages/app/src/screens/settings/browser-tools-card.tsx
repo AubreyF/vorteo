@@ -2,6 +2,7 @@ import React, { useCallback } from "react";
 import { Text, View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { useInstallationSettings } from "@/execution-installation/settings";
 import { Switch } from "@/components/ui/switch";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
@@ -16,7 +17,12 @@ export function BrowserToolsOptInCard({ serverId }: { serverId: string }) {
   const { t } = useTranslation();
   const isConnected = useHostRuntimeIsConnected(serverId);
   const { config, patchConfig } = useDaemonConfig(serverId);
-  const state = getBrowserToolsCardState({ isConnected, config });
+  const { installation, data: shared } = useInstallationSettings();
+  const isShared = Boolean(installation?.environments.some((entry) => entry.serverId === serverId));
+  const state = getBrowserToolsCardState({
+    isConnected: isConnected || Boolean(isShared && shared?.settings),
+    config,
+  });
   const mutation = useMutation({
     mutationFn: async (next: boolean) => {
       const result = await patchConfig(createBrowserToolsPatch(next));
@@ -46,6 +52,12 @@ export function BrowserToolsOptInCard({ serverId }: { serverId: string }) {
         <View style={settingsStyles.rowContent}>
           <Text style={settingsStyles.rowTitle}>{state.title}</Text>
           <Text style={settingsStyles.rowHint}>{state.warning}</Text>
+          {isShared ? (
+            <Text style={settingsStyles.rowHint}>
+              Shared default for Host and Dev container. Use environment exceptions to restrict
+              browser access. The protected installation interface does not expose its own tabs.
+            </Text>
+          ) : null}
           {mutationView.loadingText ? (
             <Text style={settingsStyles.rowHint} testID="host-page-browser-tools-loading">
               {mutationView.loadingText}

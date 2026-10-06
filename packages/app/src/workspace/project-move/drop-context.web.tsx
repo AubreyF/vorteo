@@ -16,7 +16,6 @@ import type {
   DraggableListDropTarget,
   DraggableListExternalDrop,
 } from "@/components/draggable-list.types";
-import { useVortonMode } from "@/vorton-mode";
 import { moveWorkspaceToProject } from "./request";
 
 interface DropContext {
@@ -35,7 +34,6 @@ export function ProjectMoveProvider({
   projects,
   children,
 }: PropsWithChildren<{ projects: SidebarProjectEntry[] }>) {
-  const enabled = useVortonMode();
   const [targets, setTargets] = useState<DraggableListDropTarget[]>([]);
   const [highlighted, onTargetChange] = useState<string | null>(null);
   const register = useCallback((id: string, element: HTMLDivElement | null) => {
@@ -56,7 +54,7 @@ export function ProjectMoveProvider({
     () => ({ targets, register, onDrop, highlighted, onTargetChange }),
     [targets, register, onDrop, highlighted],
   );
-  return <Context.Provider value={enabled ? value : null}>{children}</Context.Provider>;
+  return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
 export function ProjectDropTarget({

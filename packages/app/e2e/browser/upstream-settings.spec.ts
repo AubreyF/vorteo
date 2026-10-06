@@ -43,7 +43,7 @@ for (const width of [1280, 390]) {
   });
 }
 
-test("the weekly highlight expires while General is open and mode off hides the upstream section", async ({
+test("the weekly highlight expires while General is open without an alternate product switch", async ({
   page,
 }) => {
   await page.clock.install({ time: new Date(mergedAt + week - 60_000) });
@@ -59,12 +59,9 @@ test("the weekly highlight expires while General is open and mode off hides the 
   await expect(page.getByTestId("upstream-update-overdue")).toHaveCount(0);
   await page.clock.fastForward(120_000);
   await expect(page.getByTestId("upstream-update-overdue")).toHaveCount(1);
-  await page
-    .getByTestId("settings-vorton-mode")
-    .getByLabel("Standard mode", { exact: true })
-    .click();
-  await expect(page.getByTestId("upstream-updates-section")).toHaveCount(0);
-  await expect(page.getByTestId("vorton-updates-section")).toHaveCount(0);
+  await expect(page.getByTestId("settings-vorton-mode")).toHaveCount(0);
+  await expect(page.getByTestId("upstream-updates-section")).toHaveCount(1);
+  await expect(page.getByTestId("vorton-updates-section")).toHaveCount(1);
   await expect(page.getByText("This device", { exact: true })).toHaveCount(1);
   await expect(
     page.getByTestId("settings-sidebar").getByRole("button", { name: "About", exact: true }),

@@ -191,7 +191,7 @@ function PluginRow({
   );
 }
 
-function PluginLogsSheet({
+export function PluginLogsSheet({
   client,
   pluginId,
   serverId,

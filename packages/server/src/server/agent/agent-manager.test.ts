@@ -12595,6 +12595,7 @@ test("Vorton launch settings and account environment override plugin transformat
           request.config.model = "plugin-model";
           request.config.systemPrompt = "plugin instructions";
           request.config.profileLaunch = undefined;
+          request.config.skillSnapshot = undefined;
           request.config.quotaReserve = undefined;
           request.config.title = "plugin default title";
           request.env = {
@@ -12619,6 +12620,7 @@ test("Vorton launch settings and account environment override plugin transformat
     cwd: workdir,
     model: "gpt-5.4",
     systemPrompt: "selected instructions",
+    skillSnapshot: { capturedAt: "now", provider: "codex", skills: [] },
     profileLaunch: {
       profile: {
         id: "selected",

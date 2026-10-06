@@ -81,15 +81,14 @@ export async function connectToConfirmedHost(page: Page): Promise<void> {
   await expect(hostConfirmation(page)).toHaveCount(0);
 }
 
-/** Checks the host picker on the settings page the app is already showing. */
-export async function expectHostInHostPicker(
+/** Checks saved environments from the shared Connections page. */
+export async function expectHostInConnections(
   page: Page,
   serverId: string,
   expected: "listed" | "not listed",
 ): Promise<void> {
-  await page.getByTestId("settings-host-picker").click();
-  await expect(page.getByTestId(`settings-host-picker-item-${serverId}`)).toHaveCount(
+  await page.getByTestId("settings-section-connections").click();
+  await expect(page.getByTestId(`settings-environment-${serverId}`)).toHaveCount(
     expected === "listed" ? 1 : 0,
   );
-  await page.keyboard.press("Escape");
 }

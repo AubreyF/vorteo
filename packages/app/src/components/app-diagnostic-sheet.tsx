@@ -1,4 +1,3 @@
-import { useVortonMode } from "@/vorton-mode";
 import { collectWebViewportDiagnostics } from "@/diagnostics/web-viewport";
 import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -60,7 +59,7 @@ export function AppDiagnosticSheet({
   const { t } = useTranslation();
   const toast = useToast();
   const hosts = useHosts();
-  const vortonMode = useVortonMode();
+
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<ProgressRow[]>([]);
@@ -101,7 +100,7 @@ export function AppDiagnosticSheet({
           hostCount: hosts.length,
         }),
       );
-      if (vortonMode) sections.push(...collectWebViewportDiagnostics());
+      sections.push(...collectWebViewportDiagnostics());
       updateRunProgress("client", t("settings.diagnostics.app.progress.client"), "done");
 
       if (isDesktopApp) {
@@ -130,7 +129,7 @@ export function AppDiagnosticSheet({
         setLoading(false);
       }
     }
-  }, [appVersion, hosts, isDesktopApp, t, updateProgress, vortonMode]);
+  }, [appVersion, hosts, isDesktopApp, t, updateProgress]);
 
   useEffect(() => {
     if (visible) {
