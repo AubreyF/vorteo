@@ -135,7 +135,33 @@ test("profile cards use border selection, a separate activation action, and comp
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
+    const labelEdges: number[] = [];
+    for (const [section, label] of [
+      ["environment", "Environment:"],
+      ["account", "Account:"],
+      ["profile", "Profile:"],
+    ]) {
+      const heading = page.getByTestId(`preset-section-${section}`);
+      await expect(heading.getByText(label, { exact: true })).toBeVisible();
+      const bounds = await heading.getByText(label, { exact: true }).boundingBox();
+      labelEdges.push(bounds!.x + bounds!.width);
+    }
+    expect(Math.max(...labelEdges) - Math.min(...labelEdges)).toBeLessThan(1);
+    const mobileFirst = page.getByTestId("preset-row-shared-workflow/mock/account-medium");
+    const mobileSecond = page.getByTestId("preset-row-shared-workflow/mock/account-ultra");
+    await expect
+      .poll(async () =>
+        Math.abs((await mobileFirst.boundingBox())!.y - (await mobileSecond.boundingBox())!.y),
+      )
+      .toBeLessThan(1);
     await page.screenshot({ path: test.info().outputPath("profile-cards-mobile.png") });
+    await page.setViewportSize({ width: 320, height: 844 });
+    await expect
+      .poll(
+        async () => (await mobileSecond.boundingBox())!.y - (await mobileFirst.boundingBox())!.y,
+      )
+      .toBeGreaterThan(60);
+    await page.screenshot({ path: test.info().outputPath("profile-cards-narrow.png") });
     await page.getByTestId("preset-use-profile").click();
     await expect(page.getByTestId("preset-handoff-modal")).toBeVisible();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();

@@ -5,8 +5,15 @@ import { useVortonTouch } from "@/vorton-touch";
 import { ProfileAction } from "./profile-action";
 import { ProfileSelectorTile, ProfileLoading } from "./profile-selector-tile";
 import { sharedChoiceState, type LaunchChoices } from "./shared-choices";
-import { useCallback, useMemo, useReducer, type ReactNode } from "react";
-import { Keyboard, ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { useCallback, useMemo, useReducer, useState, type ReactNode } from "react";
+import {
+  Keyboard,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+} from "react-native";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -117,14 +124,21 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
     ),
     [accounts, account, selectedId, props, inspectAccount],
   );
+  const profileLabel = inspectedId || props.activeProfileId ? inspected?.name : undefined;
   const profileHeading = useMemo(
     () =>
       compact ? (
-        <SectionButton section="profile" label="Profile" expanded onSection={showSection} />
+        <SectionButton
+          section="profile"
+          label="Profile"
+          value={profileLabel}
+          expanded
+          onSection={showSection}
+        />
       ) : (
         <ColumnHeading section="profile" label="Profile" />
       ),
-    [compact, showSection],
+    [compact, showSection, profileLabel],
   );
   const details = useMemo(
     () =>
@@ -188,7 +202,8 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           navigation={navigation.section}
           onSection={showSection}
           environmentLabel={environment?.label ?? "Current environment"}
-          accountLabel={account?.label ?? "Select account"}
+          accountLabel={account?.label ?? ""}
+          profileLabel={profileLabel}
           environmentIcon={environmentIcon}
           environments={environments}
           accounts={list}
@@ -271,6 +286,7 @@ function CompactSelector({
   onSection,
   environmentLabel,
   accountLabel,
+  profileLabel,
   environmentIcon,
   environments,
   accounts,
@@ -280,6 +296,7 @@ function CompactSelector({
   onSection: (section: SelectorSection) => void;
   environmentLabel: string;
   accountLabel: string;
+  profileLabel?: string;
   environmentIcon: ReactNode;
   environments: ReactNode;
   accounts: ReactNode;
@@ -322,6 +339,7 @@ function CompactSelector({
             <SectionButton
               section="profile"
               label="Profile"
+              value={profileLabel}
               expanded={false}
               onSection={onSection}
             />
@@ -375,37 +393,44 @@ function SectionButton({
   onSection: (section: SelectorSection) => void;
 }) {
   const press = useCallback(() => onSection(section), [section, onSection]);
-  const leadingIcon = useMemo(
+  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
+  const content = useMemo(
     () => (
-      <View style={styles.sectionIcons}>
-        <StepIcon section={section} />
-        {icon}
+      <View style={styles.sectionRow}>
+        <View style={styles.sectionLabelHalf}>
+          <View style={styles.sectionIcons}>
+            <StepIcon section={section} />
+            {icon}
+          </View>
+          <Text style={styles.sectionLabel} numberOfLines={1}>
+            {label}
+            {value ? ":" : ""}
+          </Text>
+        </View>
+        <View style={styles.sectionValueHalf}>
+          <Text style={styles.sectionValue} numberOfLines={1}>
+            {value ?? ""}
+          </Text>
+          {expanded ? <ThemedChevronUp /> : <ThemedChevronDown />}
+        </View>
       </View>
     ),
-    [section, icon],
-  );
-  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
-  const chevron = useMemo(
-    () => (expanded ? <ThemedChevronUp /> : <ThemedChevronDown />),
-    [expanded],
+    [section, icon, label, value, expanded],
   );
   return (
     <Button
       variant="ghost"
       size="md"
       onPress={press}
-      leftIcon={leadingIcon}
       style={styles.sectionButton}
       accessibilityLabel={`${sectionNumbers[section]}. ${label}${value ? `: ${value}` : ""}`}
       accessibilityState={accessibilityState}
-      trailing={chevron}
+      trailing={content}
       testID={`preset-section-${section}`}
-    >
-      {label}
-      {value ? `   ${value}` : ""}
-    </Button>
+    />
   );
 }
+
 function EnvironmentButton({
   environment,
   selected,
@@ -541,7 +566,11 @@ function AccountChoices({
   heading: ReactNode;
 }) {
   const { width } = useWindowDimensions();
-  const grid = !props.compact && width >= 1100;
+  const [listWidth, setListWidth] = useState(0);
+  const measureList = useCallback((event: LayoutChangeEvent) => {
+    setListWidth(event.nativeEvent.layout.width);
+  }, []);
+  const grid = props.compact ? listWidth >= 340 : width >= 1100;
   const DetailScrollView = props.compact ? BottomSheetScrollView : ScrollView;
   const entry = props.entries?.find((candidate) => candidate.provider === account.provider);
   const definition = props.definitions.find((profile) => profile.id === inspected.id);
@@ -574,7 +603,7 @@ function AccountChoices({
           <View style={styles.choices}>
             <CliUpdateWarning update={entry?.cliUpdate} />
             {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
-            <View style={[styles.profileList, grid && styles.profileGrid]}>
+            <View onLayout={measureList} style={[styles.profileList, grid && styles.profileGrid]}>
               {account.rows.map((row, index) => (
                 <ChooserReveal
                   key={`${props.serverId}:${account.provider}:${row.id}`}
@@ -710,7 +739,12 @@ const styles = StyleSheet.create((theme) => ({
   environmentCard: { flex: 0.9, minWidth: 240 },
   accountCard: { flex: 1.3, minWidth: 320 },
   profileCard: { flex: 1.7, minWidth: 0 },
-  sectionIcons: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
+  sectionIcons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
+    marginRight: theme.spacing[2],
+  },
   stepIcon: {
     width: theme.iconSize.md,
     height: theme.iconSize.md,
@@ -749,7 +783,28 @@ const styles = StyleSheet.create((theme) => ({
   compactBody: { flex: 1, minHeight: 0, padding: theme.spacing[3], gap: theme.spacing[2] },
   compactList: { maxHeight: 220 },
   compactProfile: { flex: 1, minHeight: 0 },
-  sectionButton: { justifyContent: "space-between" },
+  sectionButton: { paddingHorizontal: theme.spacing[2], borderRadius: theme.borderRadius.lg },
+  sectionRow: { flex: 1, flexDirection: "row", alignItems: "center" },
+  sectionLabelHalf: {
+    width: "50%",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: theme.spacing[2],
+  },
+  sectionLabel: {
+    flex: 1,
+    textAlign: "right",
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.base,
+  },
+  sectionValueHalf: {
+    width: "50%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingLeft: theme.spacing[2],
+  },
+  sectionValue: { flex: 1, color: theme.colors.foreground, fontSize: theme.fontSize.base },
   detail: { flex: 1, minHeight: 0 },
   detailCard: { flex: 1, minHeight: 0, overflow: "hidden" },
   account: {
