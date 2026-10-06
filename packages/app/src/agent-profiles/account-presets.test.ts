@@ -7,6 +7,18 @@ function row(id: string, provider: string): AgentProfilePickerRow {
 }
 
 describe("account presets", () => {
+  it("follows provider order while preserving profile order within each account", () => {
+    const rows = [row("medium", "codex1"), row("other", "codex2"), row("ultra", "codex1")];
+    const entries = ["codex2", "codex1"].map((provider) => ({
+      provider,
+      status: "ready" as const,
+      enabled: true,
+    }));
+    expect(accountPresets({ rows, definitions: [], entries, query: "" })).toEqual([
+      { provider: "codex2", label: "codex2", rows: [rows[1]] },
+      { provider: "codex1", label: "codex1", rows: [rows[0], rows[2]] },
+    ]);
+  });
   it("groups intelligence profiles by account while retaining their order and identity", () => {
     const rows = [row("medium", "codex1"), row("other", "codex2"), row("ultra", "codex1")];
     expect(accountPresets({ rows, definitions: [], entries: undefined, query: "" })).toEqual([

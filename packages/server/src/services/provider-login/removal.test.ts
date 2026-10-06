@@ -190,3 +190,15 @@ it("requires managed deletion before a legacy config patch can remove a Claude a
   deleteManagedProviderCredentials(input, planProviderRemoval(input).revision);
   expect(() => store.patch({ removeProviders: [providerId] })).not.toThrow();
 });
+
+for (const providerId of ["antigravity", "muse"]) {
+  it(`allows deleting ${providerId} without touching CLI credentials`, () => {
+    const f = fixture();
+    f.providers[providerId] = { enabled: false };
+    const input = { ...f, providerId };
+    const plan = planProviderRemoval(input);
+    expect(plan.credentials).toBe("external");
+    expect(deleteManagedProviderCredentials(input, plan.revision)).toEqual(plan);
+    expect(existsSync(path.join(f.home, "auth.json"))).toBe(true);
+  });
+}

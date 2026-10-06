@@ -17,6 +17,7 @@ test("provider rows preserve snapshot labels, layout, settings, and enabled stat
     await gotoAppShell(page);
     await page.goto(`/settings/hosts/${getServerId()}/providers`);
     const card = page.getByTestId("host-page-providers-card");
+    await client.refreshProvidersSnapshot({ providers: ["mock"] });
     const snapshot = await client.getProvidersSnapshot();
     const labels = snapshot.entries.map(
       (entry) => `${entry.label ?? entry.provider} provider details`,

@@ -1484,6 +1484,27 @@ describe("ProviderSnapshotManager public surface", () => {
 });
 
 describe("ProviderSnapshotManager applyMutableProviderConfig", () => {
+  test("keeps saved provider order in snapshots after unrelated config updates", () => {
+    const manager = new ProviderSnapshotManager({ logger: createTestLogger() });
+    try {
+      manager.applyMutableProviderConfig({ pi: { order: 0 }, codex: { order: 1 } });
+      expect(
+        manager
+          .getSnapshot()
+          .records.slice(0, 3)
+          .map(({ entry }) => entry.provider),
+      ).toEqual(["pi", "codex", "claude"]);
+      manager.applyMutableProviderConfig({ pi: { order: 0, enabled: false }, codex: { order: 1 } });
+      expect(
+        manager
+          .getSnapshot()
+          .records.slice(0, 3)
+          .map(({ entry }) => entry.provider),
+      ).toEqual(["pi", "codex", "claude"]);
+    } finally {
+      manager.destroy();
+    }
+  });
   test("adds a derived provider and includes it in subsequent reads", async () => {
     const manager = new ProviderSnapshotManager({
       logger: createTestLogger(),

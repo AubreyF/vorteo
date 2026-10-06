@@ -2,6 +2,16 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.125 - 2026-10-05
+
+### Added
+
+- Drag providers in Settings to save their order and use it in the profile picker
+
+### Fixed
+
+- Allow deleting Antigravity and Muse Code and keep deleted plugin providers removed after restart
+
 ## 0.11.0-beta.3.vorteo.124 - 2026-10-05
 
 ### Changed

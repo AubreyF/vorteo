@@ -1,3 +1,6 @@
+import { useMutation } from "@tanstack/react-query";
+import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
+import type { DraggableListDragHandleProps } from "@/components/draggable-list.types";
 import { useFetchQuery } from "@/data/query";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { CompactAccountButton } from "@/provider-usage/compact-account-button";
@@ -44,7 +47,7 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { filterSelectableModels } from "@/provider-selection/model-catalog";
-import { ChevronRight, MoreHorizontal, Trash2 } from "lucide-react-native";
+import { ChevronRight, GripVertical, MoreHorizontal, Trash2 } from "lucide-react-native";
 
 type ProviderDefinition = ReturnType<typeof buildProviderDefinitions>[number];
 type ProviderEntry = NonNullable<ReturnType<typeof useProvidersSnapshot>["entries"]>[number];
@@ -95,6 +98,10 @@ interface ProviderRowProps {
   isRemoving: boolean;
   canRemove: boolean;
   isFirst: boolean;
+  drag?: () => void;
+  dragHandleProps?: DraggableListDragHandleProps;
+  canReorder?: boolean;
+  reorderPending?: boolean;
   onPress: (providerId: string) => void;
   onToggleEnabled: (providerId: string, enabled: boolean) => void;
   onRemove: (providerId: string, providerLabel: string) => void;
@@ -188,6 +195,10 @@ function ProviderRow({
   isRemoving,
   canRemove,
   isFirst,
+  drag,
+  dragHandleProps,
+  canReorder,
+  reorderPending,
   onPress,
   onToggleEnabled,
   onRemove,
@@ -234,99 +245,118 @@ function ProviderRow({
   const rowStyle = useCallback(
     ({ pressed, hovered }: PressableStateCallbackType & { hovered?: boolean }) => [
       settingsStyles.row,
-      !isFirst && settingsStyles.rowBorder,
       styles.row,
       vortonMode && isCompact && styles.compactRow,
       hovered && styles.rowHovered,
       pressed && styles.rowPressed,
     ],
-    [isFirst, vortonMode, isCompact],
+    [vortonMode, isCompact],
   );
 
   return (
-    <Pressable
-      style={rowStyle}
-      onPress={handlePress}
-      accessibilityRole="button"
-      accessibilityLabel={t("settings.providers.providerDetails", { name: def.label })}
-    >
-      {({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => (
-        <>
-          <View style={styles.rowContent}>
-            <ChevronRight
-              size={theme.iconSize.sm}
-              color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
-            />
-            <ProviderIcon size={theme.iconSize.md} color={theme.colors.foreground} />
-            <View style={styles.textColumn}>
-              <View style={styles.titleRow}>
-                <Text style={settingsStyles.rowTitle} numberOfLines={1}>
-                  {def.label}
-                </Text>
-                {!isCompact ? <Text style={styles.separator}>·</Text> : null}
-                <StatusIndicator status={providerStatus} compact={isCompact} />
+    <View style={[styles.draggableRow, !isFirst && settingsStyles.rowBorder]}>
+      {canReorder ? (
+        <View
+          {...dragHandleProps?.attributes}
+          {...(!reorderPending ? dragHandleProps?.listeners : undefined)}
+          ref={dragHandleProps?.setActivatorNodeRef}
+          accessibilityLabel={`Reorder ${def.label}`}
+          testID={`provider-drag-${def.id}`}
+        >
+          <Pressable
+            onLongPress={drag}
+            disabled={reorderPending}
+            accessibilityLabel={`Reorder ${def.label}`}
+            style={styles.dragHandle}
+          >
+            <GripVertical size={16} color={theme.colors.foregroundMuted} />
+          </Pressable>
+        </View>
+      ) : null}
+      <Pressable
+        style={rowStyle}
+        onPress={handlePress}
+        accessibilityRole="button"
+        accessibilityLabel={t("settings.providers.providerDetails", { name: def.label })}
+      >
+        {({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => (
+          <>
+            <View style={styles.rowContent}>
+              <ChevronRight
+                size={theme.iconSize.sm}
+                color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
+              />
+              <ProviderIcon size={theme.iconSize.md} color={theme.colors.foreground} />
+              <View style={styles.textColumn}>
+                <View style={styles.titleRow}>
+                  <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+                    {def.label}
+                  </Text>
+                  {!isCompact ? <Text style={styles.separator}>·</Text> : null}
+                  <StatusIndicator status={providerStatus} compact={isCompact} />
+                </View>
+                {providerError && !isCompact ? (
+                  <Text style={styles.errorText} numberOfLines={3}>
+                    {providerError}
+                  </Text>
+                ) : null}
               </View>
-              {providerError && !isCompact ? (
-                <Text style={styles.errorText} numberOfLines={3}>
-                  {providerError}
-                </Text>
+            </View>
+            <View style={[styles.trailingControls, vortonMode && styles.vortonTrailingControls]}>
+              {vortonMode && entry.source === "custom" ? (
+                <>
+                  <CompactAccountButton
+                    onPress={handleRename}
+                    disabled={isRemoving}
+                    testID={`provider-rename-${def.id}`}
+                  >
+                    Rename
+                  </CompactAccountButton>
+                  {canRemove ? (
+                    <CompactAccountButton
+                      onPress={handleRemove}
+                      disabled={isRemoving}
+                      loading={isRemoving}
+                      testID={`provider-remove-${def.id}`}
+                    >
+                      Delete
+                    </CompactAccountButton>
+                  ) : null}
+                </>
+              ) : null}
+              <ProviderReconnectControl
+                serverId={serverId}
+                providerId={def.id}
+                name={def.label}
+                usage={usage}
+              />
+              <Switch
+                value={enabled}
+                onValueChange={handleToggleValueChange}
+                disabled={isToggling || isRemoving}
+                accessibilityLabel={t("settings.providers.enableProvider", { name: def.label })}
+              />
+              {!vortonMode ? (
+                <View style={styles.menuSlot}>
+                  {canRemove ? (
+                    <ProviderActionsMenu
+                      providerId={def.id}
+                      providerLabel={def.label}
+                      isRemoving={isRemoving}
+                      iconSize={theme.iconSize.sm}
+                      foregroundColor={theme.colors.foreground}
+                      foregroundMutedColor={theme.colors.foregroundMuted}
+                      dangerColor={theme.colors.statusDanger}
+                      onRemove={onRemove}
+                    />
+                  ) : null}
+                </View>
               ) : null}
             </View>
-          </View>
-          <View style={[styles.trailingControls, vortonMode && styles.vortonTrailingControls]}>
-            {vortonMode && entry.source === "custom" ? (
-              <>
-                <CompactAccountButton
-                  onPress={handleRename}
-                  disabled={isRemoving}
-                  testID={`provider-rename-${def.id}`}
-                >
-                  Rename
-                </CompactAccountButton>
-                {canRemove ? (
-                  <CompactAccountButton
-                    onPress={handleRemove}
-                    disabled={isRemoving}
-                    loading={isRemoving}
-                    testID={`provider-remove-${def.id}`}
-                  >
-                    Delete
-                  </CompactAccountButton>
-                ) : null}
-              </>
-            ) : null}
-            <ProviderReconnectControl
-              serverId={serverId}
-              providerId={def.id}
-              name={def.label}
-              usage={usage}
-            />
-            <Switch
-              value={enabled}
-              onValueChange={handleToggleValueChange}
-              disabled={isToggling || isRemoving}
-              accessibilityLabel={t("settings.providers.enableProvider", { name: def.label })}
-            />
-            {!vortonMode ? (
-              <View style={styles.menuSlot}>
-                {canRemove ? (
-                  <ProviderActionsMenu
-                    providerId={def.id}
-                    providerLabel={def.label}
-                    isRemoving={isRemoving}
-                    iconSize={theme.iconSize.sm}
-                    foregroundColor={theme.colors.foreground}
-                    foregroundMutedColor={theme.colors.foregroundMuted}
-                    dangerColor={theme.colors.statusDanger}
-                    onRemove={onRemove}
-                  />
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        </>
-      )}
-    </Pressable>
+          </>
+        )}
+      </Pressable>
+    </View>
   );
 }
 
@@ -570,30 +600,18 @@ export function ProvidersSection({ serverId }: ProvidersSectionProps) {
           </View>
         ) : null}
         {hasServer && isConnected && !isLoading && providerDefinitions.length > 0 ? (
-          <View style={settingsStyles.card}>
-            {providerDefinitions.map((def, index) => {
-              const entry = entries?.find((candidate) => candidate.provider === def.id);
-              if (!entry) return null;
-              return (
-                <ProviderRow
-                  key={def.id}
-                  serverId={serverId}
-                  def={def}
-                  usage={usageByProvider.get(def.id)}
-                  entry={entry}
-                  enabled={entry.enabled ?? true}
-                  isToggling={pendingProviderId === def.id}
-                  isRemoving={removingProviderId === def.id}
-                  canRemove={supportsProviderRemoval && entry.source === "custom"}
-                  isFirst={index === 0}
-                  onPress={handleOpenProviderSettings}
-                  onToggleEnabled={handleToggleEnabled}
-                  onRemove={handleRemoveProvider}
-                  onRename={setRenamingProvider}
-                />
-              );
-            })}
-          </View>
+          <ProviderList
+            serverId={serverId}
+            entries={entries ?? []}
+            usageByProvider={usageByProvider}
+            pendingProviderId={pendingProviderId}
+            removingProviderId={removingProviderId}
+            supportsProviderRemoval={supportsProviderRemoval}
+            onPress={handleOpenProviderSettings}
+            onToggleEnabled={handleToggleEnabled}
+            onRemove={handleRemoveProvider}
+            onRename={setRenamingProvider}
+          />
         ) : null}
       </SettingsSection>
 
@@ -625,7 +643,124 @@ export function ProvidersSection({ serverId }: ProvidersSectionProps) {
   );
 }
 
+interface ProviderListProps extends Pick<
+  ProviderRowProps,
+  "serverId" | "onPress" | "onToggleEnabled" | "onRemove" | "onRename"
+> {
+  entries: ProviderEntry[];
+  usageByProvider: Map<string, ProviderUsage>;
+  pendingProviderId: string | null;
+  removingProviderId: string | null;
+  supportsProviderRemoval: boolean;
+}
+
+function ProviderList({
+  serverId,
+  entries,
+  usageByProvider,
+  pendingProviderId,
+  removingProviderId,
+  supportsProviderRemoval,
+  onPress,
+  onToggleEnabled,
+  onRemove,
+  onRename,
+}: ProviderListProps) {
+  const vortonMode = useVortonMode();
+  const supportsProviderOrdering = useHostFeature(serverId, "providerOrdering");
+  const canReorder = vortonMode && supportsProviderOrdering;
+  const { patchConfig } = useDaemonConfig(serverId);
+  const reorder = useMutation({
+    mutationFn: async (ordered: ProviderEntry[]) => {
+      const providers = Object.fromEntries(
+        ordered.map((entry, order) => [entry.provider, { order }]),
+      );
+      const result = await patchConfig({ providers });
+      if (!result) throw new Error("Reconnect to the host and try again.");
+    },
+  });
+  const { mutate: saveOrder } = reorder;
+  const reorderProviders = useCallback(
+    (ordered: ProviderEntry[]) => {
+      saveOrder(ordered);
+    },
+    [saveOrder],
+  );
+
+  const renderProvider = useCallback(
+    ({ item: entry, index, drag, dragHandleProps }: DraggableRenderItemInfo<ProviderEntry>) => {
+      const def = buildProviderDefinitions([entry])[0];
+      return (
+        <ProviderRow
+          key={def.id}
+          serverId={serverId}
+          def={def}
+          usage={usageByProvider.get(def.id)}
+          entry={entry}
+          enabled={entry.enabled ?? true}
+          isToggling={pendingProviderId === def.id}
+          isRemoving={removingProviderId === def.id}
+          canRemove={supportsProviderRemoval && entry.source === "custom"}
+          isFirst={index === 0}
+          drag={drag}
+          dragHandleProps={dragHandleProps}
+          canReorder={canReorder}
+          reorderPending={reorder.isPending}
+          onPress={onPress}
+          onToggleEnabled={onToggleEnabled}
+          onRemove={onRemove}
+          onRename={onRename}
+        />
+      );
+    },
+    [
+      serverId,
+      usageByProvider,
+      pendingProviderId,
+      removingProviderId,
+      supportsProviderRemoval,
+      canReorder,
+      reorder.isPending,
+      onPress,
+      onToggleEnabled,
+      onRemove,
+      onRename,
+    ],
+  );
+
+  return (
+    <View style={settingsStyles.card}>
+      {canReorder ? (
+        <DraggableList
+          data={reorder.isPending ? reorder.variables : entries}
+          keyExtractor={providerKey}
+          renderItem={renderProvider}
+          onDragEnd={reorderProviders}
+          useDragHandle
+          scrollEnabled={false}
+          testID="provider-order-list"
+        />
+      ) : (
+        entries.map((item, index) => renderProvider({ item, index, drag: noop, isActive: false }))
+      )}
+      {reorder.isPending ? <Text style={styles.statusLabel}>Saving provider order…</Text> : null}
+      {reorder.isError ? (
+        <Text accessibilityRole="alert" style={styles.errorText}>
+          {reorder.error.message}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function providerKey(entry: ProviderEntry) {
+  return entry.provider;
+}
+function noop() {}
+
 const styles = StyleSheet.create((theme) => ({
+  draggableRow: { flexDirection: "row", alignItems: "center" },
+  dragHandle: { width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   sectionSpacing: {
     marginBottom: theme.spacing[4],
   },
@@ -641,6 +776,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
   },
   row: {
+    flex: 1,
     gap: theme.spacing[3],
     minHeight: 56,
   },

@@ -1,3 +1,4 @@
+import { mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Locator } from "@playwright/test";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
@@ -145,3 +146,102 @@ for (const width of [1280, 402]) {
     }
   });
 }
+
+test("provider drag order persists, reports save failures, and plugin deletion stays removed", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "provider-order" });
+  try {
+    await client.patchDaemonConfig({
+      providers: { antigravity: { enabled: false }, muse: { enabled: false } },
+    });
+    await gotoAppShell(page);
+    await page.evaluate(() => {
+      const key = "@paseo:create-agent-preferences";
+      const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
+      localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: true }));
+      const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
+      if (!nonce) throw new Error("Missing isolated browser seed nonce");
+      localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
+    });
+    await page.goto(`/settings/hosts/${getServerId()}/providers`);
+    const handles = page.locator('[data-testid^="provider-drag-"]');
+    await expect(handles.first()).toBeVisible();
+    const original = await handles.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("data-testid")),
+    );
+    const source = page.getByTestId("provider-drag-codex");
+    const target = page.getByTestId("provider-drag-claude");
+    await expect(source).toBeVisible();
+    const start = await source.boundingBox();
+    const end = await target.boundingBox();
+    if (!start || !end) throw new Error("Missing drag handle bounds");
+    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await client.getDaemonConfig()).config.providers.codex?.order)
+      .toBe(0);
+    await expect(handles.first()).toHaveAttribute("data-testid", "provider-drag-codex");
+    await page.evaluate(() => {
+      const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
+      if (!nonce) throw new Error("Missing test seed nonce");
+      localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
+    });
+    await page.reload();
+    await expect(handles.first()).toHaveAttribute("data-testid", "provider-drag-codex");
+    expect(await handles.count()).toBe(original.length);
+    const home = process.env.E2E_PASEO_HOME;
+    if (!home) throw new Error("Missing isolated daemon home");
+    const configPath = path.join(home, "config.json");
+    const backupPath = path.join(home, "config.provider-order-backup.json");
+    await rename(configPath, backupPath);
+    await mkdir(configPath);
+    try {
+      await source.focus();
+      await page.keyboard.press("Space");
+      await expect(source).toHaveAttribute("aria-pressed", "true");
+      await page.keyboard.press("ArrowDown");
+      await expect(page.locator('[id^="DndLiveRegion-"]')).toContainText(
+        "over droppable area claude",
+      );
+      await page.keyboard.press("Space");
+      await expect(page.getByRole("alert")).toContainText(/EISDIR|directory/);
+      await expect(handles.first()).toHaveAttribute("data-testid", "provider-drag-codex");
+    } finally {
+      await rm(configPath, { recursive: true });
+      await rename(backupPath, configPath);
+    }
+    await source.focus();
+    await page.keyboard.press("Space");
+    await expect(source).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("ArrowDown");
+    await expect(page.locator('[id^="DndLiveRegion-"]')).toContainText(
+      "over droppable area claude",
+    );
+    await page.keyboard.press("Space");
+    await expect
+      .poll(async () => (await client.getDaemonConfig()).config.providers.codex?.order)
+      .toBe(1);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    for (const id of ["antigravity", "muse"]) {
+      const confirmation = page.waitForEvent("dialog").then((dialog) => dialog.accept());
+      await Promise.all([page.getByTestId(`provider-remove-${id}`).click(), confirmation]);
+      await expect(page.getByTestId(`provider-remove-${id}`)).toHaveCount(0);
+    }
+    await page.evaluate(() => {
+      const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
+      if (!nonce) throw new Error("Missing test seed nonce");
+      localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
+    });
+    await page.reload();
+    await expect(handles.first()).toBeVisible();
+    await expect(page.getByTestId("provider-remove-antigravity")).toHaveCount(0);
+    await expect(page.getByTestId("provider-remove-muse")).toHaveCount(0);
+    await page.screenshot({ path: test.info().outputPath("providers-reordered.png") });
+  } finally {
+    await client.close();
+  }
+});
