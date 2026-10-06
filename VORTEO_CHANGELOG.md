@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.140 - 2026-10-06
+
+### Fixed
+
+- Omit the percent sign at 100 in the usage ring so the label fits; retain it at 99 and below
+
 ## 0.11.0-beta.3.vorteo.139 - 2026-10-06
 
 ### Fixed

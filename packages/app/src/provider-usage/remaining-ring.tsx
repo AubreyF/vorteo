@@ -15,6 +15,7 @@ function Ring({
   green: string;
   gray: string;
 }) {
+  const percentSign = Math.round(remaining ?? 0) === 100 ? "" : "%";
   return (
     <View
       style={styles.ring}
@@ -41,7 +42,7 @@ function Ring({
         </Svg>
       </View>
       <Text style={styles.value}>
-        {remaining === null ? "?" : `${Math.round(remaining)}%${stale ? "*" : ""}`}
+        {remaining === null ? "?" : `${Math.round(remaining)}${percentSign}${stale ? "*" : ""}`}
       </Text>
     </View>
   );
