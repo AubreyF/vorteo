@@ -243,11 +243,12 @@ export function ProviderResetControl(props: {
     <>
       {showBadge ? (
         <BadgeButton
+          dense={props.compact}
           variant="ghost"
           size="sm"
           onPress={show}
           accessibilityLabel={`${name}: ${badge}`}
-          textStyle={[styles.text, criticalTextStyle]}
+          textStyle={[styles.text, props.compact && styles.compactText, criticalTextStyle]}
           testID={`provider-reset-${providerId}`}
         >
           <Text numberOfLines={1} style={criticalTextStyle}>
@@ -285,6 +286,7 @@ export function ProviderResetControl(props: {
 }
 
 const styles = StyleSheet.create((theme) => ({
+  compactText: { fontSize: theme.fontSize.sm },
   critical: { color: theme.colors.destructive },
   text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
 }));

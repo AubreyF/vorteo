@@ -653,10 +653,11 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 0,
     flexDirection: "row",
     padding: theme.spacing[2],
+    paddingTop: 0,
     gap: theme.spacing[2],
   },
-  environmentCard: { flex: 1.1, minWidth: 260 },
-  accountCard: { flex: 1.1, minWidth: 260 },
+  environmentCard: { flex: 0.9, minWidth: 240 },
+  accountCard: { flex: 1.3, minWidth: 320 },
   profileCard: { flex: 1.7, minWidth: 0 },
   cardHeading: {
     padding: theme.spacing[3],

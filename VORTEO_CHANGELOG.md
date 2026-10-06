@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.137 - 2026-10-06
+
+### Changed
+
+- Restore background highlights and increase corner rounding for selected environment, account and profile tiles
+- Compact reset badges, balance chooser header spacing and give the account column more width
+
 ## 0.11.0-beta.3.vorteo.135 - 2026-10-06
 
 ### Changed

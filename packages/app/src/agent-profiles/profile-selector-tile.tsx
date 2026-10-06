@@ -81,11 +81,11 @@ export const profileTileStyles = StyleSheet.create((theme) => ({
     height: Math.ceil(theme.fontSize.base * 1.4) * 2 + theme.spacing[2] + theme.spacing[3] * 2 + 2,
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[3],
-    borderRadius: theme.borderRadius.md,
+    borderRadius: theme.borderRadius.xl,
     borderWidth: 1,
     borderColor: "transparent",
   },
-  selected: { borderColor: theme.colors.accent },
+  selected: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surface3 },
   lines: { gap: theme.spacing[2], minWidth: 0 },
   line: {
     height: Math.ceil(theme.fontSize.base * 1.4),

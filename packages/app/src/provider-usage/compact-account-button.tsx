@@ -9,17 +9,22 @@ export function CompactAccountButton({
   textStyle,
   testID,
   tone = "default",
+  dense = false,
   ...props
-}: ComponentProps<typeof Button> & { tone?: "default" | "danger" }) {
+}: ComponentProps<typeof Button> & { tone?: "default" | "danger"; dense?: boolean }) {
   const outline = useMemo(
     () => (
       <View
         pointerEvents="none"
-        style={[styles.outline, tone === "danger" && styles.dangerOutline]}
+        style={[
+          styles.outline,
+          dense && styles.denseOutline,
+          tone === "danger" && styles.dangerOutline,
+        ]}
         testID={`${testID}-outline`}
       />
     ),
-    [testID, tone],
+    [testID, tone, dense],
   );
   return (
     <Button
@@ -45,6 +50,10 @@ const styles = StyleSheet.create((theme) => ({
     borderWidth: 0,
     paddingHorizontal: theme.spacing[2],
     gap: theme.spacing[2],
+  },
+  denseOutline: {
+    top: (CONTROL_HEIGHTS.field - theme.spacing[6]) / 2,
+    height: theme.spacing[6],
   },
   outline: {
     position: "absolute",

@@ -114,7 +114,7 @@ const styles = StyleSheet.create((theme) => ({
     width: 32,
     height: 4,
     borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.surface3,
+    backgroundColor: theme.colors.surface4,
     overflow: "hidden",
   },
   fill: { height: "100%", backgroundColor: theme.colors.accent },
