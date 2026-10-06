@@ -1,5 +1,8 @@
 import { StyleSheet } from "react-native-unistyles";
 
+export const TASK_CARD_ROW_HEIGHT = 40;
+export const TASK_CARD_TOUCH_ROW_HEIGHT = 52;
+
 export const taskCardStyles = StyleSheet.create((theme) => {
   const surface = {
     backgroundColor: theme.colors.surface1,
@@ -17,7 +20,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       gap: theme.spacing[2],
     },
     item: {
-      minHeight: 40,
+      minHeight: TASK_CARD_ROW_HEIGHT,
       paddingVertical: theme.spacing[1],
       gap: theme.spacing[1],
       justifyContent: "center",
@@ -37,16 +40,19 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     touchAction: { minWidth: 44, minHeight: 44 },
     header: {
       flexDirection: "row",
-      alignItems: "flex-start",
-      minHeight: 24,
+      alignItems: "center",
+      minHeight: TASK_CARD_ROW_HEIGHT,
       gap: theme.spacing[2],
     },
-    touchHeader: { minHeight: 30 },
-    // Let the icon hit area extend into padding while its glyph aligns with the visible heading text.
-    headerAction: { marginTop: -5 },
-    touchHeaderAction: { marginTop: -11 },
+    touchHeader: { minHeight: TASK_CARD_TOUCH_ROW_HEIGHT },
+    accordionTrigger: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: TASK_CARD_ROW_HEIGHT,
+      justifyContent: "flex-start",
+      paddingHorizontal: theme.spacing[2],
+    },
     heading: {
-      alignSelf: "flex-start",
       lineHeight: Math.max(16, Math.round(theme.fontSize.sm * 1.4)),
       color: theme.colors.foreground,
       fontSize: theme.fontSize.sm,

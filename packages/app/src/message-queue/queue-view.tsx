@@ -161,11 +161,7 @@ function QueueHeader({ control }: { control: MessageQueueControl }) {
         accessibilityLabel={snapshot?.paused ? "Resume queue" : "Pause queue"}
         testID="message-queue-pause-resume"
         leftIcon={snapshot?.paused ? Play : Pause}
-        style={[
-          taskCardStyles.headerAction,
-          touch && styles.touch,
-          touch && taskCardStyles.touchHeaderAction,
-        ]}
+        style={touch && styles.touch}
         disabled={!control.canMutate || !snapshot}
         onPress={toggle}
       />
