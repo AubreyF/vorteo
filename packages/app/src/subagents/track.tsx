@@ -451,7 +451,7 @@ function SubagentActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  card: { paddingVertical: theme.spacing[2], paddingLeft: theme.spacing[2] },
+  card: { paddingLeft: theme.spacing[2] },
   cardHeader: { alignItems: "center" },
   cardRows: {
     marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },

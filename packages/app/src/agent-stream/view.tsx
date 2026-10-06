@@ -1676,7 +1676,12 @@ function PermissionRequestCard({
 
   return (
     <View
-      style={[taskCardStyles.surface, permissionStyles.container, permissionStyles.bottomCard]}
+      style={[
+        taskCardStyles.surface,
+        permissionStyles.container,
+        taskCardStyles.contentInsets,
+        permissionStyles.bottomCard,
+      ]}
       testID="permission-request-card"
     >
       <Text style={permissionStyles.title}>{title}</Text>

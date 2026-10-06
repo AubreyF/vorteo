@@ -240,6 +240,7 @@ function PlanCardContent({
     () => [
       taskCardStyles.surface,
       styles.container,
+      taskCardStyles.contentInsets,
       disableOuterSpacing && styles.containerCompact,
     ],
     [disableOuterSpacing],

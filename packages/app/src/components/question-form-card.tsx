@@ -526,7 +526,10 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
   const showTextInput = activeQuestion ? questionShowsTextInput(activeQuestion) : false;
 
   return (
-    <View style={[taskCardStyles.surface, styles.container]} testID="question-form-card">
+    <View
+      style={[taskCardStyles.surface, taskCardStyles.contentInsets]}
+      testID="question-form-card"
+    >
       <QuestionNav
         questions={questions}
         activeIndex={resolvedActiveQuestionIndex}
@@ -619,10 +622,6 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
 }
 
 const styles = StyleSheet.create((theme) => ({
-  container: {
-    padding: theme.spacing[3],
-    gap: theme.spacing[3],
-  },
   questionBlock: {
     gap: theme.spacing[2],
   },

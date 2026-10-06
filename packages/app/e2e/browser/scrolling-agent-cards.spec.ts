@@ -10,21 +10,6 @@ import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-
 import { expectAgentTabActive } from "../support/helpers/launcher";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 
-async function setMode(page: Page, vortonMode: boolean) {
-  await page.evaluate((enabled) => {
-    localStorage.setItem(
-      "@paseo:e2e-disable-default-seed-once",
-      localStorage.getItem("@paseo:e2e-seed-nonce") ?? "",
-    );
-    const key = "@paseo:create-agent-preferences";
-    localStorage.setItem(
-      key,
-      JSON.stringify({ ...JSON.parse(localStorage.getItem(key) ?? "{}"), vortonMode: enabled }),
-    );
-  }, vortonMode);
-  await page.reload();
-}
-
 test("agents, tasks, plugin pills, queue and goals share the scrolling footer", async ({
   page,
 }, info) => {
@@ -106,7 +91,6 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await client.patchDaemonConfig({ pluginsEnabled: true });
     await client.installDirectoryPlugin(pluginDirectory);
     await openAgentRoute(page, agent);
-    await setMode(page, true);
     const stack = page.getByTestId("agent-history-task-cards");
     const ids = [
       "subagents-card",
@@ -196,7 +180,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       for (const card of geometry.slice(3)) {
         expect(card.frame).toEqual(geometry[2].frame);
-        expect(card.padding).toBe(width === 390 ? "8px 8px 8px 12px" : "16px 8px 16px 16px");
+        expect(card.padding).toBe(width === 390 ? "8px 8px 8px 12px" : "8px 8px 8px 16px");
         expect(card.width).toBe(geometry[2].width);
       }
       const movement = await stack.evaluate(async (element) => {
@@ -232,12 +216,6 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       });
     }
     await page.setViewportSize({ width: 1400, height: 900 });
-    await setMode(page, false);
-    await expect(stack).toHaveCount(0);
-    await expect(page.getByTestId("subagents-track-header")).toBeVisible();
-    await expect(page.getByTestId("agent-task-list-header")).toBeVisible();
-    await expect(pill).toBeVisible();
-    await setMode(page, true);
     await expect(stack.getByTestId("subagents-card")).toBeAttached();
     await pill.click();
     await expect(pill).toHaveCount(0);

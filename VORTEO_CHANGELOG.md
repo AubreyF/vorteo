@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.144 - 2026-10-06
+
+### Changed
+
+- Tighten message queue padding and share compact content insets across bottom conversation cards
+
 ## 0.11.0-beta.3.vorteo.143 - 2026-10-06
 
 ### Changed

@@ -10,15 +10,16 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     borderWidth: theme.borderWidth[1],
     borderRadius: theme.borderRadius.lg,
   };
+  const contentInsets = {
+    paddingVertical: theme.spacing[2],
+    paddingLeft: { xs: theme.spacing[3], md: theme.spacing[4] },
+    paddingRight: theme.spacing[2],
+    gap: theme.spacing[1],
+  };
   return {
     surface,
-    container: {
-      ...surface,
-      paddingVertical: { xs: theme.spacing[2], md: theme.spacing[4] },
-      paddingLeft: { xs: theme.spacing[3], md: theme.spacing[4] },
-      paddingRight: theme.spacing[2],
-      gap: theme.spacing[2],
-    },
+    contentInsets,
+    container: { ...surface, ...contentInsets },
     item: {
       minHeight: TASK_CARD_ROW_HEIGHT,
       paddingVertical: theme.spacing[1],
@@ -44,7 +45,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       minHeight: TASK_CARD_ROW_HEIGHT,
       gap: theme.spacing[2],
     },
-    touchHeader: { minHeight: TASK_CARD_TOUCH_ROW_HEIGHT },
+    touchHeader: { minHeight: TASK_CARD_TOUCH_ROW_HEIGHT, height: TASK_CARD_TOUCH_ROW_HEIGHT },
     accordionTrigger: {
       flex: 1,
       minWidth: 0,
