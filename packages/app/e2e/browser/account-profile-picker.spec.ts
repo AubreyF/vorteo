@@ -43,6 +43,7 @@ test("profile cards use border selection, a separate activation action, and comp
     ).toBeVisible();
     await expect(page.getByTestId("preset-environment-card")).toBeVisible();
     await expect(page.getByTestId("preset-account-mock")).toHaveCount(1);
+    await expect(page.getByTestId("preset-reveal-account-mock")).toHaveCSS("opacity", "1");
     const environmentTile = page
       .locator('[data-testid^="preset-environment-"][role="button"]')
       .first();

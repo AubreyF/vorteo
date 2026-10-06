@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.143 - 2026-10-06
+
+### Changed
+
+- Widen profile activation and switching buttons to align with their card, match its rounded corners and add a forward arrow
+
 ## 0.11.0-beta.3.vorteo.142 - 2026-10-06
 
 ### Changed

@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing } from "react-native";
+import { ArrowRight } from "lucide-react-native";
 import { useReducedMotion } from "react-native-reanimated";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
+
+const ThemedArrowRight = withUnistyles(ArrowRight, (theme) => ({
+  size: theme.iconSize.sm,
+  color: theme.colors.accentForeground,
+}));
 
 function ProfileActionBase({
   visible,
@@ -19,6 +25,7 @@ function ProfileActionBase({
   height: number;
 }) {
   const reducedMotion = useReducedMotion();
+  const arrow = useMemo(() => <ThemedArrowRight accessible={false} />, []);
   const progress = useRef(new Animated.Value(0)).current;
   const [mounted, setMounted] = useState(visible);
   useEffect(() => {
@@ -61,6 +68,8 @@ function ProfileActionBase({
           <Button
             variant="default"
             size="md"
+            style={styles.button}
+            trailing={arrow}
             disabled={disabled || !visible}
             onPress={onPress}
             testID="preset-use-profile"
@@ -79,5 +88,6 @@ export const ProfileAction = withUnistyles(ProfileActionBase, (theme) => ({
 
 const styles = StyleSheet.create((theme) => ({
   viewport: { overflow: "hidden", flexShrink: 0 },
-  content: { padding: theme.spacing[2] },
+  content: { paddingVertical: theme.spacing[2] },
+  button: { borderRadius: theme.borderRadius.xl },
 }));
