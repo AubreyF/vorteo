@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.150 - 2026-10-06
+
+### Fixed
+
+- Keep empty projects visible through sidebar refreshes on daemons without a separate project list
+
 ## 0.11.0-beta.3.vorteo.149 - 2026-10-06
 
 ### Changed
