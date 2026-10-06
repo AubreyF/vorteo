@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.147 - 2026-10-06
+
+### Changed
+
+- Align mobile profile chooser labels and selections across a common center split, show selection colons, and fit profile tiles into two columns when space allows
+
 ## 0.11.0-beta.3.vorteo.146 - 2026-10-06
 
 ### Fixed
