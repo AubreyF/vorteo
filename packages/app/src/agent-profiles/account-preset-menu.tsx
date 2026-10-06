@@ -1,3 +1,4 @@
+import { ChooserReveal } from "./chooser-reveal";
 import { ExecutionEnvironmentIcon } from "@/execution-installation/environment-icon";
 import { CliUpdateWarning } from "@/provider-selection/cli-update-warning";
 import { useVortonTouch } from "@/vorton-touch";
@@ -237,17 +238,22 @@ function AccountList({
   const empty = !loading && !error && !accounts.length;
   return (
     <View style={styles.accountList}>
-      {accounts.map((group) => (
-        <AccountButton
-          key={group.provider}
-          serverId={serverId}
-          group={group}
-          active={group === account}
-          selectedId={selectedId}
-          onInspect={onInspect}
-          renderBadge={renderBadge}
-          renderAccountDetails={renderAccountDetails}
-        />
+      {accounts.map((group, index) => (
+        <ChooserReveal
+          key={`${serverId}:${group.provider}`}
+          index={index}
+          testID={`preset-reveal-account-${group.provider}`}
+        >
+          <AccountButton
+            serverId={serverId}
+            group={group}
+            active={group === account}
+            selectedId={selectedId}
+            onInspect={onInspect}
+            renderBadge={renderBadge}
+            renderAccountDetails={renderAccountDetails}
+          />
+        </ChooserReveal>
       ))}
       {loading ? <ProfileLoading label="Loading accounts" /> : null}
       {error ? (
@@ -569,29 +575,41 @@ function AccountChoices({
             <CliUpdateWarning update={entry?.cliUpdate} />
             {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
             <View style={[styles.profileList, grid && styles.profileGrid]}>
-              {account.rows.map((row) => (
-                <ProfileChoice
-                  key={row.id}
-                  row={row}
-                  grid={grid}
-                  selected={hasSelection && row.id === inspected.id}
-                  definition={props.definitions.find((profile) => profile.id === row.id)}
-                  entry={entry}
-                  onInspect={props.onInspect}
-                />
+              {account.rows.map((row, index) => (
+                <ChooserReveal
+                  key={`${props.serverId}:${account.provider}:${row.id}`}
+                  index={index}
+                  sweep
+                  style={grid ? styles.gridChoice : undefined}
+                  testID={`preset-reveal-profile-${row.id}`}
+                >
+                  <ProfileChoice
+                    row={row}
+                    selected={hasSelection && row.id === inspected.id}
+                    definition={props.definitions.find((profile) => profile.id === row.id)}
+                    entry={entry}
+                    onInspect={props.onInspect}
+                  />
+                </ChooserReveal>
               ))}
             </View>
-            {selectionUnavailable ? (
-              <Text style={styles.summary}>
-                This saved profile is unavailable on this account. Choose another profile or update
-                it in Settings.
-              </Text>
-            ) : null}
-            {inspected.localEndpoint ? props.renderRail(inspected) : null}
-            {definition ? (
-              <ProfileDetailsView serverId={props.serverId} profile={definition} compact />
-            ) : null}
-            <WorkflowInstructions definition={definition} definitions={props.definitions} />
+            <ChooserReveal
+              key={`${props.serverId}:${inspected.id}`}
+              sweep
+              style={styles.profileDetails}
+            >
+              {selectionUnavailable ? (
+                <Text style={styles.summary}>
+                  This saved profile is unavailable on this account. Choose another profile or
+                  update it in Settings.
+                </Text>
+              ) : null}
+              {inspected.localEndpoint ? props.renderRail(inspected) : null}
+              {definition ? (
+                <ProfileDetailsView serverId={props.serverId} profile={definition} compact />
+              ) : null}
+              <WorkflowInstructions definition={definition} definitions={props.definitions} />
+            </ChooserReveal>
           </View>
         </DetailScrollView>
       </View>
@@ -636,14 +654,12 @@ function WorkflowInstructions({
 
 function ProfileChoice({
   row,
-  grid,
   selected,
   definition,
   entry,
   onInspect,
 }: {
   row: AgentProfilePickerRow;
-  grid: boolean;
   selected: boolean;
   definition: AgentProfile | undefined;
   entry: ProviderSnapshotEntry | undefined;
@@ -663,7 +679,6 @@ function ProfileChoice({
       subtitle={summary}
       selected={selected}
       onPress={select}
-      style={grid ? styles.gridChoice : undefined}
       testID={`preset-row-${row.id}`}
     />
   );
@@ -724,6 +739,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   accountList: { padding: theme.spacing[2], gap: theme.spacing[1] },
   profileList: { gap: theme.spacing[2] },
+  profileDetails: { gap: theme.spacing[3] },
   profileGrid: { flexDirection: "row", flexWrap: "wrap" },
   gridChoice: { width: "48%", flexGrow: 1 },
   sectionContent: {

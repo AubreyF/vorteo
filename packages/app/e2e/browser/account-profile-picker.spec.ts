@@ -262,3 +262,65 @@ test("chooser opens while usage is pending and refreshes within the account tile
     await seed.restore();
   }
 });
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`chooser entrances respect ${reducedMotion} motion preference`, async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.emulateMedia({ reducedMotion });
+    const lastProfile = { ...medium, id: "account-last", name: "Last Profile" };
+    const seed = await seedAgentProfiles([medium, ultra, lastProfile], true);
+    const workspace = await seedWorkspace({ repoPrefix: "chooser-motion-" });
+    try {
+      const agent = await workspace.client.createAgent({
+        provider: "mock",
+        cwd: workspace.repoPath,
+        workspaceId: workspace.workspaceId,
+        profileId: "shared-workflow/mock/account-medium",
+      });
+      await openAgentRoute(page, { ...workspace, agentId: agent.id });
+      await expectComposerVisible(page);
+      await expect(page.getByTestId("agent-preset-selector")).toContainText("Astra Medium");
+      const framesPromise = page.evaluate(
+        () =>
+          new Promise<Array<[number, number]>>((resolve, reject) => {
+            const frames: Array<[number, number]> = [];
+            const started = performance.now();
+            const sample = () => {
+              const first = document.querySelector(
+                '[data-testid="preset-reveal-profile-shared-workflow/mock/account-medium"]',
+              );
+              const last = document.querySelector(
+                '[data-testid="preset-reveal-profile-shared-workflow/mock/account-last"]',
+              );
+              if (first && last) {
+                const a = Number(getComputedStyle(first).opacity);
+                const b = Number(getComputedStyle(last).opacity);
+                frames.push([a, b]);
+                if (a === 1 && b === 1) return resolve(frames);
+              }
+              if (performance.now() - started > 10_000)
+                return reject(new Error("Chooser entrance did not settle"));
+              requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+          }),
+      );
+      await page.getByTestId("agent-preset-selector").click();
+      const frames = await framesPromise;
+      expect(frames.some(([first, last]) => first > last && last < 1)).toBe(
+        reducedMotion === "no-preference",
+      );
+      expect(frames.at(-1)).toEqual([1, 1]);
+      // Selection changes stay usable while the details sweep is running.
+      await page.getByTestId("preset-row-shared-workflow/mock/account-ultra").click();
+      await page.getByTestId("preset-row-shared-workflow/mock/account-medium").click();
+      await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
+      await expect(
+        page.getByTestId("preset-row-shared-workflow/mock/account-medium"),
+      ).not.toHaveCSS("border-left-color", "rgba(0, 0, 0, 0)");
+    } finally {
+      await workspace.cleanup();
+      await seed.restore();
+    }
+  });
+}
