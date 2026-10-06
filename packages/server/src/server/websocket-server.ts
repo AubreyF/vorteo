@@ -2077,6 +2077,7 @@ export class VoiceAssistantWebSocketServer {
         agentProfiles: true,
         agentProfileLaunch: true,
         sharedProviderPreferences: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
+        accountIndependentProfiles: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         profileWorkflowAliases: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         installationProfileAuthority: Boolean(
           this.daemonConfigStore.get().sharedProviderPreferences,

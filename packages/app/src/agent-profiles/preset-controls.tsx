@@ -15,6 +15,8 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { RemainingRing } from "@/provider-usage/remaining-ring";
 import { useCompactProfileName } from "./use-compact-profile-name";
+import { canonicalProfileId } from "@getpaseo/protocol/provider-preferences";
+import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { selectedPresetPresentation } from "./selected-preset-presentation";
 
 const PROFILE_SNAP_POINTS = ["90%"];
@@ -67,7 +69,7 @@ export function activePresetPicker(input: {
 export function PresetControls({
   serverId,
   profiles,
-  selectedProfileId,
+  selectedProfileId: storedProfileId,
   selectedProfileName,
   activeProfileId,
   currentProvider,
@@ -96,7 +98,13 @@ export function PresetControls({
     [touch, isCompact],
   );
   const { width } = useWindowDimensions();
-  const { profiles: definitions } = useAgentProfiles(serverId);
+  const { profiles: definitions, accountIndependent } = useAgentProfiles(serverId);
+  const { config } = useDaemonConfig(serverId);
+  const preferences = config?.sharedProviderPreferences;
+  const selectedProfileId =
+    storedProfileId && preferences && accountIndependent
+      ? canonicalProfileId(storedProfileId, preferences, config.providers)
+      : storedProfileId;
   const hasLocalEndpoint = profiles.rows.some((row) => Boolean(row.localEndpoint));
   const active = panelActive;
   const { view } = usePresetData(serverId, profiles, active);
@@ -140,7 +148,10 @@ export function PresetControls({
     setOpen(true);
   }, []);
   const select = useCallback(
-    (id: string, choices?: Pick<AgentProfile, "model" | "thinkingOptionId">) => {
+    (
+      id: string,
+      choices?: Partial<Pick<AgentProfile, "provider" | "model" | "thinkingOptionId">>,
+    ) => {
       if (disabled || profiles.isApplying) return;
       profiles.applyProfile(id, choices);
       setOpen(false);
@@ -197,7 +208,11 @@ export function PresetControls({
           serverId={serverId}
           profiles={profiles}
           selectedId={selectedProfileId}
-          activeProfileId={activeProfileId}
+          activeProfileId={
+            activeProfileId && preferences && accountIndependent
+              ? canonicalProfileId(activeProfileId, preferences, config.providers)
+              : activeProfileId
+          }
           compact={isCompact}
           disabled={selectionDisabled}
           onApply={select}

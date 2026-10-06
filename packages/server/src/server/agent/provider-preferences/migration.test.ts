@@ -2,11 +2,12 @@ import { describe, expect, test } from "vitest";
 import {
   materializeLegacyProfiles,
   materializeSharedProfiles,
+  sharedProfileDefinitions,
 } from "@getpaseo/protocol/provider-preferences";
 import { planProviderPreferencesMigration } from "./migration.js";
 
 describe("shared provider preference migration", () => {
-  test("merges account and reasoning copies while retaining permission and team differences", () => {
+  test("retains reasoning, permission and team differences in shared profile definitions", () => {
     const plan = planProviderPreferencesMigration({
       profiles: [
         {
@@ -42,6 +43,7 @@ describe("shared provider preference migration", () => {
     });
     expect(plan.preferences.providers.codex.workflows.map((workflow) => workflow.id)).toEqual([
       "a",
+      "b",
       "safe",
       "team",
     ]);
@@ -50,12 +52,12 @@ describe("shared provider preference migration", () => {
     expect(plan.preferences.legacyProfiles.b).toEqual({
       provider: "account-b",
       providerType: "codex",
-      workflowId: "a",
+      workflowId: "b",
       model: "astra",
       thinkingOptionId: "ultra",
     });
-    expect(plan.preferences.providers.codex.workflows[2].workerProfileId).toBe("b");
-    expect(plan.report.mergedProfiles).toEqual([{ profileId: "b", workflowId: "a" }]);
+    expect(plan.preferences.providers.codex.workflows[3].workerProfileId).toBe("b");
+    expect(plan.report.mergedProfiles).toEqual([]);
   });
 });
 
@@ -85,4 +87,42 @@ test("retains absent legacy overrides and gives a newly added account the shared
   const inherited = materializeSharedProfiles({ preferences, providers, providerIds: ["two"] });
   expect(inherited).toHaveLength(2);
   expect(inherited[0]).toMatchObject({ provider: "two", model: "astra", thinkingOptionId: "high" });
+});
+
+test("the profile library has one identity across accounts", () => {
+  const profiles = ["one", "two"].map((provider) => ({
+    id: provider,
+    name: "Review",
+    provider,
+    model: "astra",
+    thinkingOptionId: "high",
+  }));
+  const providers = { one: { extends: "codex" }, two: { extends: "codex" } };
+  const { preferences } = planProviderPreferencesMigration({ profiles, providers });
+  const library = sharedProfileDefinitions(preferences);
+  expect(library).toHaveLength(1);
+  expect(library[0]).toMatchObject({
+    id: "shared-profile/codex/one",
+    provider: "codex",
+    model: "astra",
+    thinkingOptionId: "high",
+  });
+  expect(preferences.legacyProfiles.two.workflowId).toBe("one");
+});
+
+test("migration preserves profiles with distinct names or delegation notes", () => {
+  const profiles = [
+    { id: "review", name: "Review", provider: "one", model: "astra" },
+    { id: "write", name: "Write", provider: "two", model: "astra" },
+    { id: "ui", name: "Review", provider: "two", model: "astra", notes: "Use for interface work" },
+  ];
+  const { preferences } = planProviderPreferencesMigration({
+    profiles,
+    providers: { one: { extends: "codex" }, two: { extends: "codex" } },
+  });
+  expect(sharedProfileDefinitions(preferences).map((profile) => profile.name)).toEqual([
+    "Review",
+    "Write",
+    "Review",
+  ]);
 });

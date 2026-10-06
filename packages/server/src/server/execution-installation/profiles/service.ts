@@ -13,6 +13,7 @@ import {
 } from "@getpaseo/protocol/messages";
 import {
   importEnvironmentProfiles,
+  consolidateProfileDefinitions,
   projectEnvironmentProfiles,
   prepareEnvironmentProfiles,
   canonicalizeWorkerReferences,
@@ -20,6 +21,7 @@ import {
 } from "./migration.js";
 import { ProfileSharingConflict } from "./merge.js";
 import { validateProviderPreferences } from "../../agent/provider-preferences/validation.js";
+import { isSharedWorkflowProfile } from "@getpaseo/protocol/provider-preferences";
 import type { SharedProviderPreferences } from "@getpaseo/protocol/messages";
 
 const ProvidersSchema = z.record(z.string(), ProviderPreferencesSchema);
@@ -45,7 +47,7 @@ function assertWorkerReference(
 ): void {
   if (!reference) return;
   const parts = reference.split("/");
-  if (parts.length !== 3 || parts[0] !== "shared-workflow") return;
+  if (parts.length !== 3 || !isSharedWorkflowProfile(reference)) return;
   assertRetainedWorkflow(state, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]), owner);
 }
 
@@ -300,9 +302,47 @@ export class InstallationProfiles {
     if (Object.values(this.state?.sources ?? {}).some((source) => !source.projection)) {
       this.upgradeLegacyJournal(configs);
     }
+    this.consolidateLibrary(configs);
     for (const [index, observation] of observations.entries()) {
       await this.reconcileEnvironment(this.environments[index], observation);
     }
+  }
+
+  private consolidateLibrary(configs: Record<string, MutableDaemonConfig>): void {
+    if (!this.state) return;
+    const normalized = consolidateProfileDefinitions({
+      version: 1,
+      revision: this.state.revision,
+      providers: this.state.providers,
+      legacyProfiles: {},
+    });
+    if (isDeepStrictEqual(normalized.providers, this.state.providers)) return;
+    if (Object.keys(configs).length !== this.environments.length) return;
+    const next = structuredClone(this.state);
+    for (const source of Object.values(next.sources)) {
+      if (!source.projection) throw new Error("Missing profile projection during consolidation");
+      source.projection = consolidateProfileDefinitions({
+        ...source.projection,
+        providers: next.providers,
+      });
+      for (const [type, mapping] of Object.entries(source.workflowIds)) {
+        const aliases = source.projection.workflowAliases?.[type] ?? {};
+        for (const [oldId, id] of Object.entries(mapping)) mapping[oldId] = aliases[id] ?? id;
+      }
+      for (const [type, ids] of Object.entries(source.retainedWorkflows)) {
+        const aliases = source.projection.workflowAliases?.[type] ?? {};
+        source.retainedWorkflows[type] = [...new Set(ids.map((id) => aliases[id] ?? id))];
+      }
+    }
+    next.providers = normalized.providers;
+    const backups: Parameters<ProfileSharingJournal["backup"]>[0] = {};
+    for (const [id, config] of Object.entries(configs))
+      backups[id] = {
+        agentProfiles: config.agentProfiles,
+        sharedProviderPreferences: config.sharedProviderPreferences,
+      };
+    this.journal.backup(backups);
+    this.commit(next);
   }
 
   private upgradeLegacyJournal(configs: Record<string, MutableDaemonConfig>): void {

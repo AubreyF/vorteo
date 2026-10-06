@@ -31,6 +31,7 @@ export interface AgentProfileRowProps {
   isFirst: boolean;
   isLast: boolean;
   disabled?: boolean;
+  availabilityReason?: string | null;
   onEdit: (id: string) => void;
   onRemove: (id: string) => void;
   onMoveUp: (id: string) => void;
@@ -43,6 +44,7 @@ export function AgentProfileRow({
   isFirst,
   isLast,
   disabled,
+  availabilityReason,
   onEdit,
   onRemove,
   onMoveUp,
@@ -88,6 +90,7 @@ export function AgentProfileRow({
               {summary}
             </Text>
           </View>
+          {availabilityReason ? <Text style={styles.summary}>{availabilityReason}</Text> : null}
           {profile.notes ? (
             <View style={styles.notes}>
               <ThemedFileText size={ICON_SIZE.xs} uniProps={mutedColorMapping} />

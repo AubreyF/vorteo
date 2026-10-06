@@ -2,6 +2,17 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.150 - 2026-10-06
+
+### Changed
+
+- Share one saved profile across accounts, choose the account separately, and consolidate exact duplicate profiles
+- Run same-provider subagents on the parent’s selected account while retaining worker model and reasoning settings and support for local Pi workers
+
+### Fixed
+
+- Hide incompatible profiles from the launch picker and distinguish catalog loading failures from unavailable models, with Retry and specific details in Manage profiles
+
 ## 0.11.0-beta.3.vorteo.149 - 2026-10-06
 
 ### Changed

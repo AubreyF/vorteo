@@ -64,43 +64,140 @@ export function sharedWorkflowProfileId(provider: string, workflowId: string): s
 }
 
 export function isSharedWorkflowProfile(id: string): boolean {
-  return id.startsWith("shared-workflow/");
+  return id.startsWith("shared-workflow/") || id.startsWith("shared-profile/");
 }
 
-/** Account rows are views of shared workflows; they are never saved as account copies. */
+export function sharedProfileId(providerType: string, workflowId: string): string {
+  return `shared-profile/${encodeURIComponent(providerType)}/${encodeURIComponent(workflowId)}`;
+}
+
+/** Resolve compatibility references without exposing account-specific copies in the library. */
+export function canonicalProfileId(
+  reference: string,
+  preferences: SharedProviderPreferences,
+  providers: Readonly<Record<string, ProviderAncestry>>,
+): string {
+  const binding = preferences.legacyProfiles[reference];
+  const parts = reference.split("/");
+  if (!binding && (parts.length !== 3 || !isSharedWorkflowProfile(reference))) return reference;
+  const type =
+    binding?.providerType ?? resolveProviderType(decodeURIComponent(parts[1]), providers);
+  let id = binding?.workflowId ?? decodeURIComponent(parts[2]);
+  const visited = new Set<string>();
+  const aliases = preferences.workflowAliases?.[type] ?? {};
+  while (aliases[id] && !visited.has(id)) {
+    visited.add(id);
+    id = aliases[id];
+  }
+  return sharedProfileId(type, id);
+}
+
+/** One definition per workflow. Accounts are chosen when launching, never encoded in this library. */
+export function sharedProfileDefinitions(
+  preferences: SharedProviderPreferences,
+  providers: Readonly<Record<string, ProviderAncestry>> = {},
+): AgentProfile[] {
+  return Object.entries(preferences.providers).flatMap(([providerType, group]) =>
+    group.workflows.map((workflow) => {
+      const worker = workflow.workerProfileId ?? group.defaults.workerProfileId;
+      return {
+        ...group.defaults,
+        ...workflow,
+        provider: providerType,
+        id: sharedProfileId(providerType, workflow.id),
+        isDefault: workflow.id === group.defaultWorkflowId,
+        featureValues: { ...group.defaults.featureValues, ...workflow.featureValues },
+        ...(worker ? { workerProfileId: canonicalProfileId(worker, preferences, providers) } : {}),
+      };
+    }),
+  );
+}
+
+/** Resolve one workflow against an explicitly selected account. */
+export function resolveSharedWorkflow(input: {
+  preferences: SharedProviderPreferences;
+  providers: Readonly<Record<string, ProviderAncestry>>;
+  provider: string;
+  workflowId: string;
+  accountBound?: boolean;
+}): AgentProfile | undefined {
+  const { preferences, providers, provider } = input;
+  const providerType = resolveProviderType(provider, providers);
+  const canonical = canonicalProfileId(
+    sharedProfileId(providerType, input.workflowId),
+    preferences,
+    providers,
+  );
+  const workflowId = decodeURIComponent(canonical.split("/")[2]);
+  const group = preferences.providers[providerType];
+  if (!group) return undefined;
+  const workflow = group.workflows.find((item) => item.id === workflowId);
+  if (!workflow) return undefined;
+  const savedWorker = workflow.workerProfileId ?? group.defaults.workerProfileId;
+  const canonicalWorker =
+    savedWorker && !input.accountBound
+      ? canonicalProfileId(savedWorker, preferences, providers)
+      : savedWorker;
+  const workerReference = legacyWorkerReference(
+    canonicalWorker,
+    input.accountBound
+      ? (preferences.workflowWorkerBindings?.[providerType]?.[input.workflowId] ??
+          preferences.workflowWorkerBindings?.[providerType]?.[workflowId])
+      : undefined,
+    preferences,
+    providers,
+  );
+  const providerIds = [
+    ...new Set([provider, ...Object.keys(providers), ...Object.keys(preferences.providers)]),
+  ];
+  return {
+    ...group.defaults,
+    ...workflow,
+    provider,
+    id: sharedProfileId(providerType, workflowId),
+    featureValues: { ...group.defaults.featureValues, ...workflow.featureValues },
+    ...(workerReference
+      ? {
+          workerProfileId: localWorkerReference(workerReference, provider, {
+            preferences,
+            providers,
+            providerIds,
+          }),
+        }
+      : {}),
+  };
+}
+
+// COMPAT(account-profile-ids): older clients use account-qualified launch references.
+// Added in v0.11.0-beta.3.vorteo.150; remove after 2027-04-06 once supported clients use canonical IDs.
 export function materializeSharedProfiles(input: {
   preferences: SharedProviderPreferences;
   providers: Readonly<Record<string, ProviderAncestry>>;
   providerIds: readonly string[];
 }): AgentProfile[] {
-  const profiles: AgentProfile[] = [];
-  for (const provider of input.providerIds) {
+  return input.providerIds.flatMap((provider) => {
     const providerType = resolveProviderType(provider, input.providers);
     const group = input.preferences.providers[providerType];
-    if (!group) continue;
-    for (const workflow of group.workflows) {
-      const workerReference = legacyWorkerReference(
-        workflow.workerProfileId ?? group.defaults.workerProfileId,
-        input.preferences.workflowWorkerBindings?.[providerType]?.[workflow.id],
-        input.preferences,
-        input.providers,
-      );
-      profiles.push({
-        ...group.defaults,
-        ...workflow,
+    if (!group) return [];
+    return group.workflows.flatMap((workflow) => {
+      const profile = resolveSharedWorkflow({
+        ...input,
         provider,
-        id: sharedWorkflowProfileId(provider, workflow.id),
-        isDefault:
-          workflow.id === group.defaultWorkflowId &&
-          (!input.preferences.defaultProvider || input.preferences.defaultProvider === provider),
-        featureValues: { ...group.defaults.featureValues, ...workflow.featureValues },
-        ...(workerReference
-          ? { workerProfileId: localWorkerReference(workerReference, provider, input) }
-          : {}),
+        workflowId: workflow.id,
+        accountBound: true,
       });
-    }
-  }
-  return profiles;
+      if (!profile) return [];
+      return [
+        {
+          ...profile,
+          id: sharedWorkflowProfileId(provider, workflow.id),
+          isDefault:
+            workflow.id === group.defaultWorkflowId &&
+            (!input.preferences.defaultProvider || input.preferences.defaultProvider === provider),
+        },
+      ];
+    });
+  });
 }
 
 export function materializeLegacyProfiles(
@@ -159,13 +256,13 @@ function legacyWorkerReference(
 ): string | undefined {
   if (!canonical || !local) return canonical;
   const canonicalParts = canonical.split("/");
-  if (canonicalParts.length !== 3 || canonicalParts[0] !== "shared-workflow") return canonical;
+  if (canonicalParts.length !== 3 || !isSharedWorkflowProfile(canonical)) return canonical;
   const type = decodeURIComponent(canonicalParts[1]);
   const workflowId = decodeURIComponent(canonicalParts[2]);
   const binding = preferences.legacyProfiles[local];
   if (binding && binding.providerType === type && binding.workflowId === workflowId) return local;
   const localParts = local.split("/");
-  if (localParts.length !== 3 || localParts[0] !== "shared-workflow") return canonical;
+  if (localParts.length !== 3 || !isSharedWorkflowProfile(local)) return canonical;
   const account = decodeURIComponent(localParts[1]);
   if (account.startsWith("installation-account/")) {
     return decodeURIComponent(localParts[2]) === workflowId ? local : canonical;

@@ -1,3 +1,5 @@
+import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
+import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { defaultProfile } from "@/agent-profiles/internal/default-profile";
 import {
   memo,
@@ -1897,6 +1899,7 @@ export function DraftAgentControls({
   isCompactLayout,
 }: DraftAgentControlsProps) {
   const { supportsLaunch, profiles: savedProfiles } = useAgentProfiles(modelSelectorServerId);
+  const { config: profileConfig } = useDaemonConfig(modelSelectorServerId);
   const mappedThinkingOptions = useMemo<AgentControlOption[]>(() => {
     return toThinkingControlOptions(thinkingOptions);
   }, [thinkingOptions]);
@@ -1949,7 +1952,10 @@ export function DraftAgentControls({
     if (!presetPicker || selectedProfileId || isModelLoading) return;
     const available = savedProfiles?.filter(
       (entry) =>
-        (!selectedProvider || entry.provider === selectedProvider) &&
+        (!selectedProvider ||
+          entry.provider === selectedProvider ||
+          entry.provider ===
+            resolveProviderType(selectedProvider, profileConfig?.providers ?? {})) &&
         presetPicker.rows.some((row) => row.id === entry.id),
     );
     const profile = defaultProfile(available);
@@ -1957,11 +1963,12 @@ export function DraftAgentControls({
     const key = `${modelSelectorServerId}:${profile.id}`;
     if (appliedDefaultRef.current === key) return;
     appliedDefaultRef.current = key;
-    presetPicker.applyProfile(profile.id);
+    presetPicker.applyProfile(profile.id, { provider: selectedProvider ?? undefined });
   }, [
     modelSelectorServerId,
     presetPicker,
     savedProfiles,
+    profileConfig,
     selectedProfileId,
     selectedProvider,
     isModelLoading,

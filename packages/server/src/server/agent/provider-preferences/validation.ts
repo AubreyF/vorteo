@@ -5,7 +5,8 @@ import type {
 } from "@getpaseo/protocol/messages";
 import {
   materializeLegacyProfiles,
-  materializeSharedProfiles,
+  sharedProfileDefinitions,
+  canonicalProfileId,
   resolveProviderType,
 } from "@getpaseo/protocol/provider-preferences";
 
@@ -60,19 +61,7 @@ export function validateProviderPreferences(input: {
       );
     }
   }
-  const providerIds = [
-    ...new Set([...Object.keys(providers), ...Object.keys(preferences.providers)]),
-  ];
-  // Validate shared definitions independently of environment account readiness.
-  // Launch resolution still requires the actual worker account binding.
-  const definitions = preferences.installation
-    ? { ...preferences, workflowWorkerBindings: undefined }
-    : preferences;
-  const sharedProfiles = materializeSharedProfiles({
-    preferences: definitions,
-    providers,
-    providerIds,
-  });
+  const sharedProfiles = sharedProfileDefinitions(preferences, providers);
   const profiles = [
     ...materializeLegacyProfiles(preferences, providers),
     ...input.legacyProfiles,
@@ -80,7 +69,8 @@ export function validateProviderPreferences(input: {
   ];
   for (const profile of sharedProfiles) {
     if (!profile.workerProfileId) continue;
-    const worker = profiles.find((candidate) => candidate.id === profile.workerProfileId);
+    const workerId = canonicalProfileId(profile.workerProfileId, preferences, providers);
+    const worker = profiles.find((candidate) => candidate.id === workerId);
     if (!worker || !worker.model || worker.workerProfileId) {
       throw new ProviderPreferencesValidationError(
         profile.workerProfileId,

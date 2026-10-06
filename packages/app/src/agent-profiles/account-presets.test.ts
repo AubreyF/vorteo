@@ -82,3 +82,30 @@ describe("account presets", () => {
     );
   });
 });
+
+it("selects accounts independently while keeping one shared profile ID", () => {
+  const shared = row("shared-profile/codex/review", "codex");
+  const entries = ["one", "two"].map((provider) => ({
+    provider,
+    enabled: true,
+    status: "ready" as const,
+  }));
+  const groups = accountPresets({
+    rows: [shared],
+    definitions: [],
+    entries,
+    query: "",
+    providers: { one: { extends: "codex" }, two: { extends: "codex" } },
+    accountIndependent: true,
+  });
+  expect(
+    groups.map((group) => ({
+      provider: group.provider,
+      profileIds: group.rows.map((item) => item.id),
+    })),
+  ).toEqual([
+    { provider: "one", profileIds: [shared.id] },
+    { provider: "two", profileIds: [shared.id] },
+  ]);
+  expect(shared.provider).toBe("codex");
+});

@@ -1,7 +1,4 @@
-import {
-  materializeSharedProfiles,
-  materializeLegacyProfiles,
-} from "@getpaseo/protocol/provider-preferences";
+import { sharedProfileDefinitions } from "@getpaseo/protocol/provider-preferences";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
 import { TaskOwnerEvidenceStore } from "../../authorization/task-owner-evidence.js";
@@ -3064,7 +3061,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         "List agent profiles: named provider/model/mode bundles a human configured for specific " +
         "kinds of work. Read each profile's `notes` to pick the one that fits the task you're " +
         "delegating. Launch with create_agent.profileId set to its id and provider set to " +
-        "its provider/model pair; copy modeId to settings.modeId when present. The preset " +
+        "a compatible account/model pair. Profile IDs are shared across accounts; choose the account separately using list_providers. The preset " +
         "must have an explicit model. The daemon resolves its instructions, reasoning, " +
         "features, and worker configuration. Supervisors must use their configured worker " +
         "preset. Returns an empty list if none are configured.",
@@ -3078,19 +3075,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       const preferences = config?.sharedProviderPreferences;
       const profiles =
         config && preferences
-          ? [
-              ...materializeSharedProfiles({
-                preferences,
-                providers: config.providers,
-                providerIds: providerSnapshotManager
-                  .getSnapshot()
-                  .records.map(({ entry }) => entry.provider),
-              }),
-              ...materializeLegacyProfiles(preferences, config.providers),
-              ...(config.agentProfiles ?? []).filter(
-                (profile) => !preferences.legacyProfiles[profile.id],
-              ),
-            ]
+          ? sharedProfileDefinitions(preferences, config.providers)
           : (config?.agentProfiles ?? []);
       return {
         content: [],

@@ -2,6 +2,7 @@ import type { AgentProfile, ProviderPreferences } from "@getpaseo/protocol/messa
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 
 export interface LaunchChoices {
+  provider?: string;
   model?: string;
   thinkingOptionId?: string;
 }
@@ -65,10 +66,45 @@ function catalogChoices(input: {
   };
 }
 
+export function profileCatalogState(
+  entry: Pick<ProviderSnapshotEntry, "models" | "status"> | undefined,
+) {
+  if (!entry || entry.status === "loading") return "loading";
+  if (entry.status !== "ready" || !entry.models) return "error";
+  return "ready";
+}
+
+function choiceErrors(input: {
+  model: string;
+  thinkingOptionId: string;
+  entry: Pick<ProviderSnapshotEntry, "models" | "status"> | undefined;
+}) {
+  if (profileCatalogState(input.entry) !== "ready")
+    return { modelError: null, thinkingError: null };
+  const models = input.entry?.models ?? [];
+  const selectable = models.filter((model) => model.isSelectable !== false);
+  const selected = input.model
+    ? selectable.find((model) => model.id === input.model)
+    : (selectable.find((model) => model.isDefault) ?? selectable[0]);
+  if (input.model && !selected)
+    return {
+      modelError: `Model ${input.model} is not offered by this account.`,
+      thinkingError: null,
+    };
+  const supported = selected?.thinkingOptions?.some(
+    (option) => option.id === input.thinkingOptionId,
+  );
+  const thinkingError =
+    input.thinkingOptionId && !supported
+      ? `Reasoning level ${input.thinkingOptionId} is not offered for ${selected?.label ?? "the default model"} on this account.`
+      : null;
+  return { modelError: null, thinkingError };
+}
+
 export function sharedChoiceState(input: {
   profile: AgentProfile;
   choices: LaunchChoices;
-  entry: Pick<ProviderSnapshotEntry, "models"> | undefined;
+  entry: Pick<ProviderSnapshotEntry, "models" | "status"> | undefined;
   family?: readonly Pick<ProviderSnapshotEntry, "models">[];
   preferences?: ProviderPreferences;
 }) {
@@ -85,10 +121,7 @@ export function sharedChoiceState(input: {
     family,
     preferences: input.preferences,
   });
-  const unavailableModel = Boolean(model) && !selectedModel;
-  const unavailableThinking =
-    Boolean(thinkingOptionId) &&
-    !thinkingOptions.some((option) => option.value === thinkingOptionId && option.available);
+  const errors = choiceErrors({ model, thinkingOptionId, entry: input.entry });
   return {
     choices: { model, thinkingOptionId },
     modelOptions,
@@ -99,12 +132,7 @@ export function sharedChoiceState(input: {
         thinkingOptions.find((option) => option.value === thinkingOptionId)?.label ??
         thinkingOptionId,
     },
-    modelError: unavailableModel
-      ? "This model is unavailable on this account. Select another model or account."
-      : null,
-    thinkingError: unavailableThinking
-      ? "This reasoning level is unavailable on this account. Select another level or account."
-      : null,
-    unavailable: unavailableModel || unavailableThinking,
+    ...errors,
+    unavailable: Boolean(errors.modelError || errors.thinkingError),
   };
 }

@@ -384,20 +384,28 @@ export function SharedProviderSection({
           disabled={pending}
         />
         <View style={settingsStyles.card}>
-          {workflows.map((workflow, index) => (
-            <AgentProfileRow
-              key={workflow.id}
-              profile={workflow}
-              entries={entries}
-              isFirst={index === 0}
-              isLast={index === workflows.length - 1}
-              disabled={pending}
-              onEdit={openWorkflow}
-              onRemove={remove}
-              onMoveUp={moveUp}
-              onMoveDown={moveDown}
-            />
-          ))}
+          {workflows.map((workflow, index) => {
+            const availability = sharedChoiceState({
+              profile: workflow,
+              choices: {},
+              entry: entries?.find((entry) => entry.provider === provider),
+            });
+            return (
+              <AgentProfileRow
+                key={workflow.id}
+                profile={workflow}
+                availabilityReason={availability.modelError ?? availability.thinkingError}
+                entries={entries}
+                isFirst={index === 0}
+                isLast={index === workflows.length - 1}
+                disabled={pending}
+                onEdit={openWorkflow}
+                onRemove={remove}
+                onMoveUp={moveUp}
+                onMoveDown={moveDown}
+              />
+            );
+          })}
         </View>
       </SettingsSection>
       {editor ? (

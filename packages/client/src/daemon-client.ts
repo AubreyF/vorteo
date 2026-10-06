@@ -5324,6 +5324,12 @@ export class DaemonClient {
 
   private requireWorkflowLaunchSupport(profileId: string | undefined): void {
     if (profileId && isSharedWorkflowProfile(profileId)) this.requireSharedProviderPreferences();
+    if (
+      profileId?.startsWith("shared-profile/") &&
+      this.lastServerInfoMessage?.features?.accountIndependentProfiles !== true
+    ) {
+      throw new Error("Update the host to use account-independent profiles.");
+    }
   }
 
   private requireSharedProviderPreferences(): void {

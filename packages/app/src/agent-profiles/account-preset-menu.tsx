@@ -4,7 +4,7 @@ import { CliUpdateWarning } from "@/provider-selection/cli-update-warning";
 import { useVortonTouch } from "@/vorton-touch";
 import { ProfileAction } from "./profile-action";
 import { ProfileSelectorTile, ProfileLoading } from "./profile-selector-tile";
-import { sharedChoiceState, type LaunchChoices } from "./shared-choices";
+import { profileCatalogState, sharedChoiceState, type LaunchChoices } from "./shared-choices";
 import { useCallback, useMemo, useReducer, useState, type ReactNode } from "react";
 import {
   Keyboard,
@@ -17,18 +17,12 @@ import {
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
-import type { AgentProfile, ProviderPreferences } from "@getpaseo/protocol/messages";
+import type { AgentProfile } from "@getpaseo/protocol/messages";
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
 import { ProfileDetailsView } from "./profile-details-view";
 import { type AccountPresets } from "./account-presets";
 import type { AgentProfilePickerRow } from "./internal/use-agent-profile-picker";
-import {
-  isSharedWorkflowProfile,
-  resolveProviderType,
-  sharedWorkflowProfileId,
-} from "@getpaseo/protocol/provider-preferences";
-import { useDaemonConfig } from "@/hooks/use-daemon-config";
 
 import { withUnistyles } from "react-native-unistyles";
 import { type ProviderIconComponent, useProviderIcon } from "@/components/provider-icons";
@@ -61,7 +55,8 @@ interface AccountPresetMenuProps {
   definitions: readonly AgentProfile[];
   entries: ProviderSnapshotEntry[] | undefined;
   inspectedId: string | undefined;
-  selectedId: string | undefined;
+  inspectedProvider: string | undefined;
+  onAccount: (provider: string) => void;
   activeProfileId: string | undefined;
   activeServerId: string | null;
   compact: boolean;
@@ -72,30 +67,39 @@ interface AccountPresetMenuProps {
   onInspect: (id: string) => void;
   onApply: (id: string, choices?: LaunchChoices) => void;
   onManage: () => void;
+  onRetry: () => void;
+  retrying: boolean;
   renderRail: (row: AgentProfilePickerRow) => ReactNode;
   renderBadge: (row: AgentProfilePickerRow) => ReactNode;
   renderAccountDetails: (row: AgentProfilePickerRow) => ReactNode;
 }
 
 export function AccountPresetMenu(props: AccountPresetMenuProps) {
-  const { accounts, inspectedId, selectedId, compact, onInspect, onEnvironment } = props;
+  const { accounts, inspectedId, compact, onEnvironment } = props;
   const touch = useVortonTouch();
   const headerSize = compact || touch ? "md" : "sm";
   const [navigation, dispatch] = useReducer(selectorNavigation, {
     section: "profile",
   });
   const account =
-    accounts.find((group) => group.rows.some((row) => row.id === inspectedId)) ?? accounts[0];
-  const inspected = account?.rows.find((row) => row.id === inspectedId) ?? account?.rows[0];
+    accounts.find((group) => group.provider === props.inspectedProvider) ?? accounts[0];
+  const rows = useMemo(() => {
+    const entry = props.entries?.find((item) => item.provider === account?.provider);
+    return (account?.rows ?? []).filter((row) => {
+      const profile = props.definitions.find((item) => item.id === row.id);
+      return profile && !sharedChoiceState({ profile, choices: {}, entry }).unavailable;
+    });
+  }, [account, props.entries, props.definitions]);
+  const inspected = rows.find((row) => row.id === inspectedId) ?? rows[0];
   const environment = props.environments.find((item) => item.serverId === props.serverId);
-  const { preferences, family, retainWorkflow } = useSharedChoices(props, account);
+  const { onAccount } = props;
   const inspectAccount = useCallback(
     (id: string) => {
-      onInspect(retainWorkflow(id));
+      onAccount(id);
       Keyboard.dismiss();
       dispatch({ type: "account" });
     },
-    [onInspect, retainWorkflow],
+    [onAccount],
   );
   const selectEnvironment = useCallback(
     (id: string) => {
@@ -113,7 +117,6 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
       <AccountList
         accounts={accounts}
         account={account}
-        selectedId={selectedId}
         serverId={props.serverId}
         loading={props.loading}
         error={props.error}
@@ -122,9 +125,9 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
         renderAccountDetails={props.renderAccountDetails}
       />
     ),
-    [accounts, account, selectedId, props, inspectAccount],
+    [accounts, account, props, inspectAccount],
   );
-  const profileLabel = inspectedId || props.activeProfileId ? inspected?.name : undefined;
+  const profileLabel = inspected?.id === inspectedId ? inspected?.name : undefined;
   const profileHeading = useMemo(
     () =>
       compact ? (
@@ -142,13 +145,12 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
   );
   const details = useMemo(
     () =>
-      account && inspected ? (
+      account ? (
         <AccountChoices
           {...props}
           account={account}
           inspected={inspected}
-          preferences={preferences}
-          family={family}
+          rows={rows}
           heading={profileHeading}
         />
       ) : (
@@ -161,7 +163,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           )}
         </View>
       ),
-    [account, inspected, props, preferences, family, profileHeading],
+    [account, inspected, rows, props, profileHeading],
   );
   const environments = useMemo(
     () => (
@@ -232,7 +234,6 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
 function AccountList({
   accounts,
   account,
-  selectedId,
   serverId,
   loading,
   error,
@@ -242,7 +243,6 @@ function AccountList({
 }: {
   accounts: AccountPresets[];
   account: AccountPresets | undefined;
-  selectedId: string | undefined;
   serverId: string | null;
   loading?: boolean;
   error?: string | null;
@@ -263,7 +263,6 @@ function AccountList({
             serverId={serverId}
             group={group}
             active={group === account}
-            selectedId={selectedId}
             onInspect={onInspect}
             renderBadge={renderBadge}
             renderAccountDetails={renderAccountDetails}
@@ -461,43 +460,6 @@ function EnvironmentButton({
   );
 }
 
-function useSharedChoices(props: AccountPresetMenuProps, account: AccountPresets | undefined) {
-  const { config } = useDaemonConfig(props.serverId);
-  const providerType = account
-    ? resolveProviderType(account.provider, config?.providers ?? {})
-    : "";
-  const family = useMemo(
-    () =>
-      (props.entries ?? []).filter(
-        (entry) => resolveProviderType(entry.provider, config?.providers ?? {}) === providerType,
-      ),
-    [props.entries, config, providerType],
-  );
-  const preferences = config?.sharedProviderPreferences?.providers[providerType];
-  const retainWorkflow = useCallback(
-    (id: string) => {
-      const target = props.definitions.find((profile) => profile.id === id);
-      const current = props.definitions.find(
-        (profile) => profile.id === (props.inspectedId ?? props.selectedId),
-      );
-      if (!target || !current || !isSharedWorkflowProfile(current.id)) return id;
-      const ancestry = config?.providers ?? {};
-      if (
-        resolveProviderType(target.provider, ancestry) !==
-        resolveProviderType(current.provider, ancestry)
-      )
-        return id;
-      const matching = sharedWorkflowProfileId(
-        target.provider,
-        decodeURIComponent(current.id.split("/")[2]),
-      );
-      return props.definitions.some((profile) => profile.id === matching) ? matching : id;
-    },
-    [props.definitions, props.inspectedId, props.selectedId, config],
-  );
-  return { preferences, family, retainWorkflow };
-}
-
 function ProviderGlyph({
   Icon,
   size,
@@ -518,7 +480,6 @@ function AccountButton({
   serverId,
   group,
   active,
-  selectedId,
   onInspect,
   renderBadge,
   renderAccountDetails,
@@ -526,15 +487,11 @@ function AccountButton({
   serverId: string | null;
   group: AccountPresets;
   active: boolean;
-  selectedId: string | undefined;
   onInspect: (id: string) => void;
   renderBadge: AccountPresetMenuProps["renderBadge"];
   renderAccountDetails: AccountPresetMenuProps["renderAccountDetails"];
 }) {
-  const select = useCallback(
-    () => onInspect(group.rows.find((row) => row.id === selectedId)?.id ?? group.rows[0].id),
-    [group, selectedId, onInspect],
-  );
+  const select = useCallback(() => onInspect(group.provider), [group.provider, onInspect]);
   const ProviderIcon = useProviderIcon(group.provider, serverId);
   const icon = useMemo(() => <ThemedProviderGlyph Icon={ProviderIcon} />, [ProviderIcon]);
 
@@ -551,20 +508,48 @@ function AccountButton({
   );
 }
 
-function AccountChoices({
-  account,
-  inspected,
-  preferences,
-  family,
-  heading,
-  ...props
-}: AccountPresetMenuProps & {
+interface AccountChoicesProps extends AccountPresetMenuProps {
   account: AccountPresets;
-  inspected: AgentProfilePickerRow;
-  preferences: ProviderPreferences | undefined;
-  family: ProviderSnapshotEntry[];
+  inspected: AgentProfilePickerRow | undefined;
+  rows: AgentProfilePickerRow[];
   heading: ReactNode;
-}) {
+}
+
+function AccountChoices(props: AccountChoicesProps) {
+  const entry = props.entries?.find((candidate) => candidate.provider === props.account.provider);
+  const catalogState = profileCatalogState(entry);
+  const loading = !props.error && catalogState === "loading";
+  let catalogError = props.error;
+  if (catalogState === "error") {
+    catalogError = props.error ?? entry?.error ?? "Could not load profiles for this account.";
+  }
+  if (!loading && !catalogError) return <ReadyAccountChoices {...props} />;
+  return (
+    <View style={[settingsStyles.card, styles.detailCard]} testID="preset-profile-card">
+      {props.heading}
+      {loading ? (
+        <ProfileLoading label="Loading profiles" />
+      ) : (
+        <View style={styles.choices}>
+          <Text style={styles.summary} testID="preset-catalog-error">
+            {catalogError}
+          </Text>
+          <Button
+            variant="ghost"
+            size="md"
+            onPress={props.onRetry}
+            disabled={props.retrying}
+            testID="preset-retry-profiles"
+          >
+            {props.retrying ? "Retrying…" : "Retry"}
+          </Button>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function ReadyAccountChoices({ account, inspected, rows, heading, ...props }: AccountChoicesProps) {
   const { width } = useWindowDimensions();
   const [listWidth, setListWidth] = useState(0);
   const measureList = useCallback((event: LayoutChangeEvent) => {
@@ -572,22 +557,22 @@ function AccountChoices({
   }, []);
   const grid = props.compact ? listWidth >= 340 : width >= 1100;
   const DetailScrollView = props.compact ? BottomSheetScrollView : ScrollView;
+  const inspectedId = inspected?.id;
   const entry = props.entries?.find((candidate) => candidate.provider === account.provider);
-  const definition = props.definitions.find((profile) => profile.id === inspected.id);
-  const shared = isSharedWorkflowProfile(inspected.id);
-  const selection = useMemo(
-    () =>
-      definition
-        ? sharedChoiceState({ profile: definition, choices: {}, entry, preferences, family })
-        : null,
-    [definition, entry, preferences, family],
+  const saved = props.definitions.find((profile) => profile.id === inspectedId);
+  const definition = useMemo(
+    () => (saved ? { ...saved, provider: account.provider } : undefined),
+    [saved, account.provider],
   );
-  const selectionUnavailable = shared && Boolean(selection?.unavailable);
   const { onApply } = props;
-  const apply = useCallback(() => onApply(inspected.id), [onApply, inspected.id]);
+  const apply = useCallback(() => {
+    if (inspected) onApply(inspected.id, { provider: account.provider });
+  }, [onApply, inspected, account.provider]);
   const isActive =
-    props.serverId === props.activeServerId && inspected.id === props.activeProfileId;
-  const hasSelection = Boolean(props.inspectedId || props.activeProfileId);
+    props.serverId === props.activeServerId &&
+    account.provider === props.currentProvider &&
+    inspectedId === props.activeProfileId;
+  const hasSelection = Boolean(inspected && inspected.id === props.inspectedId);
   const showAction = hasSelection && !isActive;
   const actionLabel = props.activeProfileId ? "Switch to Profile" : "Activate Profile";
   return (
@@ -602,9 +587,9 @@ function AccountChoices({
         >
           <View style={styles.choices}>
             <CliUpdateWarning update={entry?.cliUpdate} />
-            {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
+            {props.compact && inspected ? props.renderRail(inspected) : null}
             <View onLayout={measureList} style={[styles.profileList, grid && styles.profileGrid]}>
-              {account.rows.map((row, index) => (
+              {rows.map((row, index) => (
                 <ChooserReveal
                   key={`${props.serverId}:${account.provider}:${row.id}`}
                   index={index}
@@ -614,7 +599,7 @@ function AccountChoices({
                 >
                   <ProfileChoice
                     row={row}
-                    selected={hasSelection && row.id === inspected.id}
+                    selected={hasSelection && row.id === inspectedId}
                     definition={props.definitions.find((profile) => profile.id === row.id)}
                     entry={entry}
                     onInspect={props.onInspect}
@@ -623,17 +608,17 @@ function AccountChoices({
               ))}
             </View>
             <ChooserReveal
-              key={`${props.serverId}:${inspected.id}`}
+              key={`${props.serverId}:${inspectedId}`}
               sweep
               style={styles.profileDetails}
             >
-              {selectionUnavailable ? (
-                <Text style={styles.summary}>
-                  This saved profile is unavailable on this account. Choose another profile or
-                  update it in Settings.
+              {rows.length === 0 ? (
+                <Text style={styles.summary} testID="preset-no-compatible-profiles">
+                  No saved profiles match this account’s available models and reasoning levels.
+                  Manage profiles to review their requirements.
                 </Text>
               ) : null}
-              {inspected.localEndpoint ? props.renderRail(inspected) : null}
+              {inspected?.localEndpoint ? props.renderRail(inspected) : null}
               {definition ? (
                 <ProfileDetailsView serverId={props.serverId} profile={definition} compact />
               ) : null}
@@ -644,7 +629,7 @@ function AccountChoices({
       </View>
       <ProfileAction
         visible={showAction}
-        disabled={props.disabled || inspected.unavailable || selectionUnavailable}
+        disabled={props.disabled || inspected?.unavailable}
         onPress={apply}
         label={actionLabel}
       />

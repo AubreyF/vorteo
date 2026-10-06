@@ -8,6 +8,7 @@ import type {
 } from "@getpaseo/protocol/messages";
 import {
   sharedWorkflowProfileId,
+  isSharedWorkflowProfile,
   resolveProviderType,
 } from "@getpaseo/protocol/provider-preferences";
 import { installationProviderReference } from "@getpaseo/protocol/installation-settings";
@@ -100,10 +101,10 @@ function portableWorkerAccountBinding({
   if (!workflow) return null;
   const canonical = workflow.workerProfileId ?? group.defaults.workerProfileId;
   const target = canonical?.split("/");
-  if (target?.length !== 3 || target[0] !== "shared-workflow") return null;
+  if (target?.length !== 3 || !isSharedWorkflowProfile(canonical ?? "")) return null;
   const legacy = preferences.legacyProfiles[reference];
   const parts = reference.split("/");
-  if (!legacy && (parts.length !== 3 || parts[0] !== "shared-workflow")) return null;
+  if (!legacy && (parts.length !== 3 || !isSharedWorkflowProfile(reference))) return null;
   const provider = legacy?.provider ?? decodeURIComponent(parts[1]);
   if (provider === parentProvider) return null;
   const account = installationProviderReference(provider, providers);
@@ -354,7 +355,7 @@ function resolveWorkflowAlias(
   return id;
 }
 
-/** Convert saved legacy value overrides into distinct canonical definitions once. */
+/** Compatibility bindings keep historical choices without becoming new library entries. */
 export function normalizeLegacyProfileValues(
   saved: SharedProviderPreferences,
 ): SharedProviderPreferences {
@@ -363,30 +364,63 @@ export function normalizeLegacyProfileValues(
     const group = preferences.providers[binding.providerType];
     const workflow = group?.workflows.find((entry) => entry.id === binding.workflowId);
     if (!workflow) throw new Error(`Legacy profile ${legacyId} has no workflow`);
-    const effective = { ...group.defaults, ...workflow };
-    if (binding.workerProfileId === undefined && effective.workerProfileId)
-      binding.workerProfileId = effective.workerProfileId;
-    const model = binding.model === null ? undefined : (binding.model ?? effective.model);
-    const thinkingOptionId =
-      binding.thinkingOptionId === null
-        ? undefined
-        : (binding.thinkingOptionId ?? effective.thinkingOptionId);
-    if (model !== effective.model || thinkingOptionId !== effective.thinkingOptionId) {
-      const digest = createHash("sha256")
-        .update(JSON.stringify([legacyId, model, thinkingOptionId]))
-        .digest("hex");
-      const id = `legacy-profile-${digest}`;
-      if (!group.workflows.some((entry) => entry.id === id))
-        group.workflows.push({
-          ...workflow,
-          id,
-          model: model ?? "",
-          thinkingOptionId: thinkingOptionId ?? "",
-        });
-      binding.workflowId = id;
+    const worker = workflow.workerProfileId ?? group.defaults.workerProfileId;
+    if (binding.workerProfileId === undefined && worker) binding.workerProfileId = worker;
+  }
+  return preferences;
+}
+
+/** Merge exact effective definitions, retaining aliases and historical account bindings. */
+export function consolidateProfileDefinitions(
+  saved: SharedProviderPreferences,
+): SharedProviderPreferences {
+  const preferences = structuredClone(saved);
+  preferences.workflowAliases ??= {};
+  for (const [type, group] of Object.entries(preferences.providers)) {
+    const retained: AgentProfile[] = [];
+    const aliases = preferences.workflowAliases[type] ?? {};
+    for (const workflow of group.workflows) {
+      const {
+        id: _id,
+        isDefault: _default,
+        ...behavior
+      } = effectiveProfile(workflow, group.defaults);
+      const matching = retained.find((candidate) => {
+        const {
+          id: _candidateId,
+          isDefault: _candidateDefault,
+          ...candidateBehavior
+        } = effectiveProfile(candidate, group.defaults);
+        return isDeepStrictEqual(behavior, candidateBehavior);
+      });
+      if (matching) aliases[workflow.id] = matching.id;
+      else retained.push(workflow);
     }
-    delete binding.model;
-    delete binding.thinkingOptionId;
+    group.workflows = retained;
+    if (Object.keys(aliases).length) preferences.workflowAliases[type] = aliases;
+    if (group.defaultWorkflowId)
+      group.defaultWorkflowId = resolveWorkflowAlias(preferences, type, group.defaultWorkflowId);
+  }
+  for (const [type, aliases] of Object.entries(preferences.workflowAliases)) {
+    for (const id of Object.keys(aliases))
+      aliases[id] = resolveWorkflowAlias(preferences, type, id);
+  }
+  for (const binding of Object.values(preferences.legacyProfiles))
+    binding.workflowId = resolveWorkflowAlias(
+      preferences,
+      binding.providerType,
+      binding.workflowId,
+    );
+  for (const group of Object.values(preferences.providers)) {
+    for (const profile of [group.defaults, ...group.workflows]) {
+      const parts = profile.workerProfileId?.split("/");
+      if (parts?.length !== 3 || !isSharedWorkflowProfile(profile.workerProfileId ?? "")) continue;
+      const type = decodeURIComponent(parts[1]);
+      profile.workerProfileId = sharedWorkflowProfileId(
+        type,
+        resolveWorkflowAlias(preferences, type, decodeURIComponent(parts[2])),
+      );
+    }
   }
   return preferences;
 }
@@ -422,7 +456,7 @@ function portableWorkerReference(
   if (binding) {
     type = binding.providerType;
     workflowId = binding.workflowId;
-  } else if (parts.length === 3 && parts[0] === "shared-workflow") {
+  } else if (parts.length === 3 && isSharedWorkflowProfile(reference)) {
     type = resolveProviderType(decodeURIComponent(parts[1]), source.providers ?? {});
     workflowId = resolveWorkflowAlias(source.preferences, type, decodeURIComponent(parts[2]));
   } else {

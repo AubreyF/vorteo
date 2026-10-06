@@ -1,3 +1,8 @@
+import {
+  isSharedWorkflowProfile,
+  sharedWorkflowProfileId,
+} from "@getpaseo/protocol/provider-preferences";
+import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useCallback, useMemo, useState } from "react";
 import { useAgentProfiles } from "./internal/use-agent-profiles";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
@@ -37,6 +42,8 @@ interface EnvironmentPresetMenuProps {
 export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   const [serverId, setServerId] = useState(props.serverId);
   const [inspectedByServer, setInspectedByServer] = useState<Record<string, string>>({});
+  const [accountByServer, setAccountByServer] = useState<Record<string, string>>({});
+  const { config } = useDaemonConfig(serverId);
   const hosts = useHosts();
   const connected = useHostRuntimeIsConnected(serverId ?? "");
   const installation = readExecutionInstallation();
@@ -62,13 +69,22 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       available: statuses.get(host.serverId) === "online",
     }));
   }, [installation, hosts, statuses]);
-  const { profiles: definitions, isSupported } = useAgentProfiles(serverId);
-  const { entries, isLoading, error } = useProvidersSnapshot(serverId, { cwd: null });
+  const { profiles: definitions, isSupported, accountIndependent } = useAgentProfiles(serverId);
+  const { entries, isLoading, error, refresh, isRefreshing } = useProvidersSnapshot(serverId, {
+    cwd: null,
+  });
+  const environmentKind = installation?.environments.find(
+    (item) => item.serverId === serverId,
+  )?.kind;
   const rows = useMemo<AgentProfilePickerRow[]>(
     () =>
       (definitions ?? [])
         .filter(
+          (profile) => !environmentKind || !profile.excludedEnvironments?.includes(environmentKind),
+        )
+        .filter(
           (profile) =>
+            accountIndependent ||
             entries?.find((item) => item.provider === profile.provider)?.enabled !== false,
         )
         .map((profile) => {
@@ -86,7 +102,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
             localEndpoint: model?.localEndpoint,
           };
         }),
-    [definitions, entries],
+    [definitions, entries, accountIndependent, environmentKind],
   );
   const menuProfiles = useMemo<AgentProfilePicker>(
     () => ({ rows, applyProfile: props.onApply, isLoadingStatus: isLoading }),
@@ -94,12 +110,37 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   );
   const { view, resetLoadingProviders } = usePresetData(serverId, menuProfiles, true);
   const accounts = useMemo(
-    () => accountPresets({ rows, definitions: definitions ?? [], entries, query: "" }),
-    [rows, definitions, entries],
+    () =>
+      accountPresets({
+        rows,
+        definitions: definitions ?? [],
+        entries,
+        query: "",
+        providers: config?.providers,
+        accountIndependent,
+      }),
+    [rows, definitions, entries, config, accountIndependent],
   );
   const sameEnvironment = serverId === props.serverId;
   const selectedId = sameEnvironment ? props.selectedId : undefined;
   const inspectedId = inspectedByServer[serverId ?? ""] ?? selectedId;
+  const inspectedProvider =
+    accountByServer[serverId ?? ""] ?? (sameEnvironment ? props.currentProvider : undefined);
+  const inspectAccount = useCallback(
+    (provider: string) => {
+      setAccountByServer((current) => ({ ...current, [serverId ?? ""]: provider }));
+      if (!accountIndependent) {
+        const account = accounts.find((item) => item.provider === provider);
+        const matchingId =
+          inspectedId && isSharedWorkflowProfile(inspectedId)
+            ? sharedWorkflowProfileId(provider, decodeURIComponent(inspectedId.split("/")[2]))
+            : undefined;
+        const row = account?.rows.find((item) => item.id === matchingId) ?? account?.rows[0];
+        if (row) setInspectedByServer((current) => ({ ...current, [serverId ?? ""]: row.id }));
+      }
+    },
+    [serverId, accounts, accountIndependent, inspectedId],
+  );
   const inspect = useCallback(
     (id: string) => setInspectedByServer((current) => ({ ...current, [serverId ?? ""]: id })),
     [serverId],
@@ -120,14 +161,17 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   );
   const { onClose } = props;
   const manage = useCallback(() => {
-    const account =
-      accounts.find((item) => item.rows.some((row) => row.id === inspectedId)) ?? accounts[0];
+    const account = accounts.find((item) => item.provider === inspectedProvider) ?? accounts[0];
     if (!serverId || !account) return;
     onClose();
     useProviderSettingsStore
       .getState()
       .open({ serverId, provider: account.provider, tab: "profiles" });
-  }, [accounts, inspectedId, serverId, onClose]);
+  }, [accounts, inspectedProvider, serverId, onClose]);
+  const retry = useCallback(() => {
+    const account = accounts.find((item) => item.provider === inspectedProvider) ?? accounts[0];
+    void refresh(account ? [account.provider] : undefined).catch(() => undefined);
+  }, [accounts, inspectedProvider, refresh]);
   const renderRail = useCallback(
     (row: AgentProfilePickerRow) => (
       <PresetUsageRail
@@ -190,10 +234,11 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       accounts={accounts}
       definitions={definitions ?? []}
       entries={entries}
-      selectedId={selectedId}
       activeProfileId={props.activeProfileId}
       activeServerId={props.serverId}
       inspectedId={inspectedId}
+      inspectedProvider={inspectedProvider}
+      onAccount={inspectAccount}
       compact={props.compact}
       disabled={props.disabled || !connected}
       loading={isLoading || definitions === null}
@@ -204,6 +249,8 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       onInspect={inspect}
       onApply={apply}
       onManage={manage}
+      onRetry={retry}
+      retrying={isRefreshing}
       renderRail={renderRail}
       renderBadge={renderBadge}
       renderAccountDetails={renderAccountDetails}

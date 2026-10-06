@@ -3876,6 +3876,7 @@ export const ServerInfoStatusPayloadSchema = z
         agentProfiles: z.boolean().optional(),
         agentProfileLaunch: z.boolean().optional(),
         sharedProviderPreferences: z.boolean().optional(),
+        accountIndependentProfiles: z.boolean().optional(),
         profileWorkflowAliases: z.boolean().optional(),
         installationProfileAuthority: z.boolean().optional(),
         installationResourceBindings: z.boolean().optional(),
