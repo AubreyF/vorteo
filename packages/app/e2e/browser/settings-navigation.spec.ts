@@ -67,6 +67,13 @@ test.describe("Settings sidebar navigation", () => {
     await expectSettingsHeader(page, "Appearance");
     await expectAppearanceContent(page);
 
+    const back = page.getByTestId("settings-back-to-workspace");
+    await page.mouse.move(0, 0);
+    await expect(back).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(back).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+    await back.hover();
+    await expect(back).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await page.screenshot({ path: test.info().outputPath("settings-back-hover.png") });
     await clickSettingsBackToWorkspace(page);
     await expect(page).not.toHaveURL(/\/settings(\/|$)/);
   });

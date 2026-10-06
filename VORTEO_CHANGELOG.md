@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.148 - 2026-10-06
+
+### Changed
+
+- Use a borderless ghost Back button in Settings with a visible hover background
+
 ## 0.11.0-beta.3.vorteo.147 - 2026-10-06
 
 ### Changed

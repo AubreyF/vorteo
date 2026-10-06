@@ -939,7 +939,7 @@ function SettingsSidebar({
             <WindowChromeSafeArea placement="below" />
             <View style={sidebarStyles.modeHeader} testID="settings-mode-header">
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 leftIcon={ArrowLeft}
                 onPress={onBackToWorkspace}
@@ -1435,8 +1435,6 @@ const sidebarStyles = StyleSheet.create((theme) => ({
     minWidth: 0,
     justifyContent: "flex-start",
     borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.surface0,
-    borderColor: theme.colors.border,
   },
   sidebarDragArea: {
     position: "relative",
