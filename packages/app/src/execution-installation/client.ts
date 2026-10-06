@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   InstallationUnlockSchema,
+  RestartSummarySchema,
+  type RestartSummary,
   RestartJobSchema,
   ProfileSharingStatusSchema,
   type ProfileSharingStatus,
@@ -102,11 +104,29 @@ export class InstallationClient {
     await this.ports.register.installExecutionEnvironments(result.connections);
   }
 
+  async restartSummary(): Promise<RestartSummary | null> {
+    if (!this.installation.idleRestarts) return null;
+    const response = await fetch("/api/installation/restart-summary", {
+      cache: "no-store",
+      redirect: "error",
+    });
+    if (!response.ok) throw new Error("Unable to check restart requests");
+    return RestartSummarySchema.parse(await response.json());
+  }
+
   async listRestarts(): Promise<RestartJob[]> {
     return z.array(RestartJobSchema).parse(await this.request("restarts/query", {}));
   }
 
-  async decide(job: RestartJob, decision: "approve" | "reject"): Promise<void> {
+  async decide(
+    job: RestartJob,
+    decision: "approve" | "reject" | "approve-when-idle" | "cancel",
+  ): Promise<void> {
+    if (
+      (decision === "approve-when-idle" || decision === "cancel") &&
+      !this.installation.idleRestarts
+    )
+      throw new Error("Update the installation coordinator to support queued idle restarts");
     RestartJobSchema.parse(
       await this.request(`restarts/${job.id}/decision`, { revision: job.revision, decision }),
     );
@@ -127,7 +147,11 @@ export class InstallationClient {
 
   private request(path: string, body: unknown): Promise<unknown> {
     if (this.password === null) throw new Error("Unlock installation controls first");
-    return this.ports.request(path, this.password, body);
+    const resource =
+      this.installation.idleRestarts && path.startsWith("restarts")
+        ? `${path}?idleRestarts=1`
+        : path;
+    return this.ports.request(resource, this.password, body);
   }
 }
 

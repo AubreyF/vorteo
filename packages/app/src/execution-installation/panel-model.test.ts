@@ -6,6 +6,7 @@ test("saved connections skip setup on reload without unlocking owner controls", 
   let queries = 0;
   const model = new InstallationPanelModel(
     {
+      restartSummary: async () => null,
       restoreSession: async () => false,
       lock: async () => {},
       passwordFile: null,
@@ -44,6 +45,7 @@ test("opening or observing a request never approves it", async () => {
     detail: "Approval required",
   };
   const model = new InstallationPanelModel({
+    restartSummary: async () => null,
     restoreSession: async () => false,
     lock: async () => {},
     passwordFile: null,
@@ -72,6 +74,7 @@ test("opening or observing a request never approves it", async () => {
 test("failed unlock remains visible and can be retried without granting authority", async () => {
   let attempts = 0;
   const model = new InstallationPanelModel({
+    restartSummary: async () => null,
     restoreSession: async () => false,
     lock: async () => {},
     passwordFile: null,
@@ -109,6 +112,7 @@ test("restoring a browser session retains owner access and locking never approve
   let approvals = 0;
   let locks = 0;
   const model = new InstallationPanelModel({
+    restartSummary: async () => null,
     restoreSession: async () => true,
     passwordFile: "/installation/owner-password",
     sessionsSupported: true,
@@ -137,7 +141,7 @@ test("restoring a browser session retains owner access and locking never approve
   expect(approvals).toBe(0);
 });
 
-test("the approval queue excludes expired and completed requests and keeps only the newest per target", async () => {
+test("the approval queue retains old requests, excludes completed requests and keeps only the newest per target", async () => {
   const base: RestartJob = {
     id: "host-old",
     revision: "revision",
@@ -157,6 +161,7 @@ test("the approval queue excludes expired and completed requests and keeps only 
     { ...base, id: "container", target: "container-daemon" },
   ];
   const model = new InstallationPanelModel({
+    restartSummary: async () => null,
     restoreSession: async () => true,
     lock: async () => {},
     passwordFile: null,
@@ -179,5 +184,5 @@ test("the approval queue excludes expired and completed requests and keeps only 
   jobs = structuredClone(jobs);
   for (const job of jobs) job.expiresAt = "2020-01-01T00:00:00.000Z";
   await model.refresh();
-  expect(model.getState().pendingJobs).toEqual([]);
+  expect(model.getState().pendingJobs.map((job) => job.id)).toEqual(["host-new"]);
 });

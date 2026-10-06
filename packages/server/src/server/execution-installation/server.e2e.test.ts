@@ -345,3 +345,36 @@ test("owner cookie restores access without a password and lock revokes it", asyn
     expiresAt: null,
   });
 });
+
+test("restart details are opt-in so existing open tabs can still decode their strict receipts", async () => {
+  const { request } = await fixture();
+  const job = RestartJobSchema.parse(
+    await (
+      await request("/api/installation/restart-requests", "host-agent-test-token", {
+        target: "host",
+        reason: "Reviewed maintenance",
+        requester: "Provider settings task",
+      })
+    ).json(),
+  );
+  const legacySchema = RestartJobSchema.omit({
+    whenIdle: true,
+    approvedAt: true,
+    impact: true,
+    requester: true,
+  });
+  const legacy = await (
+    await request("/api/installation/owner/restarts/query", "owner-test-password", {})
+  ).json();
+  expect(legacySchema.array().parse(legacy)[0]?.id).toBe(job.id);
+  const details = RestartJobSchema.array().parse(
+    await (
+      await request(
+        "/api/installation/owner/restarts/query?idleRestarts=1",
+        "owner-test-password",
+        {},
+      )
+    ).json(),
+  );
+  expect(details[0]?.requester).toBe("Provider settings task");
+});

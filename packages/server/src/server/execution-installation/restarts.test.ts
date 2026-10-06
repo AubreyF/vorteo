@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { createInstallationRestartExecutor } from "./daemon.js";
 import type { InstallationConfig } from "./config.js";
-import type { RestartJob } from "@getpaseo/protocol/execution-installation";
+import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal } from "./restarts.js";
 
 class MemoryJournal implements RestartJournal {
@@ -39,7 +39,7 @@ test("request-only callers cannot cause a restart, and approval is bound to the 
   expect(() => queue.decide(request.id, request.revision, "approve")).toThrow("already decided");
 });
 
-test("expiry, rejection, and journal failure prevent dispatch", async () => {
+test("rejection and journal failure prevent dispatch; old requests remain approvable", async () => {
   let now = Date.now();
   const journal = new MemoryJournal();
   const calls: string[] = [];
@@ -54,8 +54,9 @@ test("expiry, rejection, and journal failure prevent dispatch", async () => {
     () => now,
   );
   const expired = queue.request({ target: "host", reason: "Prepared" }, "host-agent");
-  now += 31 * 60_000;
-  expect(() => queue.decide(expired.id, expired.revision, "approve")).toThrow("expired");
+  now += 7 * 24 * 60 * 60_000;
+  expect(queue.list()[0]?.status).toBe("pending");
+  queue.decide(expired.id, expired.revision, "reject");
   const rejected = queue.request(
     { target: "container-daemon", reason: "Prepared" },
     "container-agent",
@@ -133,7 +134,7 @@ test("each target has one active request across all requesters", async () => {
   ).toEqual([container.target, "host"]);
 });
 
-test("expired and duplicate legacy requests leave the pending queue without losing receipts", () => {
+test("old requests remain pending and duplicate legacy requests retain receipts", () => {
   let now = Date.parse("2026-01-01T00:00:00Z");
   const journal = new MemoryJournal();
   const first = new InstallationRestarts(journal, { restart: async () => "ready" }, () => now);
@@ -141,11 +142,13 @@ test("expired and duplicate legacy requests leave the pending queue without losi
   now += 30 * 60_000;
   expect(first.list()[0]).toMatchObject({
     id: expired.id,
-    status: "failed",
-    detail: "Restart request expired",
+    status: "pending",
   });
-  expect(journal.read()[0]?.status).toBe("failed");
-  const original = first.request({ target: "host", reason: "Prepared again" }, "host-agent");
+  expect(journal.read()[0]?.status).toBe("pending");
+  const original = first.request(
+    { target: "container-daemon", reason: "Prepared again" },
+    "host-agent",
+  );
   journal.jobs.push({
     ...original,
     id: "legacy-duplicate",
@@ -154,7 +157,7 @@ test("expired and duplicate legacy requests leave the pending queue without losi
   });
   const restored = new InstallationRestarts(journal, { restart: async () => "ready" }, () => now);
   expect(restored.list().map((job) => [job.id, job.status])).toEqual([
-    [expired.id, "failed"],
+    [expired.id, "pending"],
     [original.id, "rejected"],
     ["legacy-duplicate", "pending"],
   ]);
@@ -203,3 +206,89 @@ test("slow healthy status responses allow exactly one restart and require a repl
     restart.mockRestore();
   }
 }, 15_000);
+
+function idleImpact(target: RestartJob["target"], busy = false): RestartImpact {
+  return {
+    target,
+    checkedAt: new Date().toISOString(),
+    agents: busy ? [{ id: "task", title: "Build provider settings", status: "running" }] : [],
+    pendingStarts: 0,
+    idleRestartSupported: true,
+    error: null,
+  };
+}
+
+test("idle approval survives six days and coordinator reload, then runs only when both checks are idle", async () => {
+  const journal = new MemoryJournal();
+  let now = Date.now();
+  let busy = true;
+  let finalCheckBusy = false;
+  let restarts = 0;
+  const executor = {
+    restart: async () => {
+      throw new Error("Unconditional restart forbidden");
+    },
+    inspect: async (target: RestartJob["target"]) => idleImpact(target, busy),
+    restartWhenIdle: async () => {
+      if (finalCheckBusy) return null;
+      restarts++;
+      return "replacement ready";
+    },
+  };
+  let queue = new InstallationRestarts(journal, executor, () => now);
+  const job = queue.request({ target: "host", reason: "Reviewed update" }, "host-agent");
+  journal.jobs[0]!.expiresAt = new Date(now + 30 * 60_000).toISOString();
+  now += 6 * 24 * 60 * 60_000;
+  queue = new InstallationRestarts(journal, executor, () => now);
+  expect(queue.list()[0]?.status).toBe("pending");
+  queue.decide(job.id, job.revision, "approve-when-idle");
+  await queue.drain();
+  expect(restarts).toBe(0);
+  queue = new InstallationRestarts(journal, executor, () => now);
+  expect(queue.list()[0]?.status).toBe("approved");
+  busy = false;
+  finalCheckBusy = true;
+  await queue.drain();
+  expect(restarts).toBe(0);
+  expect(queue.list()[0]?.status).toBe("approved");
+  finalCheckBusy = false;
+  await Promise.all([queue.drain(), queue.drain()]);
+  expect(restarts).toBe(1);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+});
+
+test("an unreachable target waits without blocking another target; cancellation wins an in-flight inspection", async () => {
+  const calls: string[] = [];
+  let release!: (impact: RestartImpact) => void;
+  let held = false;
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async (target) => {
+      calls.push(target);
+      return "ready";
+    },
+    inspect: async () => {
+      if (!held) throw new Error("offline");
+      return new Promise<RestartImpact>((resolve) => {
+        release = resolve;
+      });
+    },
+    restartWhenIdle: async (target) => {
+      calls.push(target);
+      return "ready";
+    },
+  });
+  const host = queue.request({ target: "host", reason: "Update" }, "owner");
+  queue.decide(host.id, host.revision, "approve-when-idle");
+  const container = queue.request({ target: "container-daemon", reason: "Update" }, "owner");
+  queue.decide(container.id, container.revision, "approve");
+  await queue.drain();
+  expect(calls).toEqual(["container-daemon"]);
+  expect(queue.list()[0]?.status).toBe("approved");
+  held = true;
+  const draining = queue.drain();
+  queue.decide(host.id, host.revision, "cancel");
+  release(idleImpact("host"));
+  await draining;
+  expect(calls).toEqual(["container-daemon"]);
+  expect(queue.list()[0]?.status).toBe("rejected");
+});

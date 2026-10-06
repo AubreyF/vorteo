@@ -3841,6 +3841,25 @@ test("sends explicit shutdown_server_request via shutdownServer", async () => {
   });
 });
 
+test("idle restart refuses an older daemon before sending any restart command", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "idle-restart-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen();
+  await connecting;
+  await expect(client.restartServer(undefined, undefined, { idleMode: "restart" })).rejects.toThrow(
+    "Update this daemon",
+  );
+  expect(mock.sent).toHaveLength(0);
+});
+
 test("restartServer remains restart-only and sends restart_server_request", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

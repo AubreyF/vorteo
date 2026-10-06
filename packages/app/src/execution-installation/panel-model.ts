@@ -1,7 +1,12 @@
-import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
+import type {
+  ProfileSharingStatus,
+  RestartJob,
+  RestartSummary,
+} from "@getpaseo/protocol/execution-installation";
 import { OwnerAccessExpired, type InstallationClient } from "./client";
 
 interface InstallationPanelState {
+  restartSummary: RestartSummary | null;
   initialized: boolean;
   lastUpdatedAt: string | null;
   visible: boolean;
@@ -19,6 +24,7 @@ interface InstallationPanelState {
 
 export class InstallationPanelModel {
   private state: InstallationPanelState = {
+    restartSummary: null,
     initialized: false,
     lastUpdatedAt: null,
     visible: true,
@@ -43,6 +49,7 @@ export class InstallationPanelModel {
       InstallationClient,
       | "unlock"
       | "listRestarts"
+      | "restartSummary"
       | "decide"
       | "profileSharingStatus"
       | "resolveProfileConflict"
@@ -131,18 +138,25 @@ export class InstallationPanelModel {
   }
 
   async refresh(): Promise<void> {
-    if (!this.state.unlocked || this.refreshing) return;
+    if (this.refreshing) return;
     this.refreshing = true;
     const generation = this.accessGeneration;
     try {
+      const restartSummary = await this.client.restartSummary();
+      this.publish({ restartSummary });
+      if (!this.state.unlocked) return;
       const [jobs, profileSharing] = await Promise.all([
         this.client.listRestarts(),
         this.client.profileSharingStatus(),
       ]);
       if (generation !== this.accessGeneration) return;
-      const targets = new Set<RestartJob["target"]>();
+      const targets = new Set(
+        jobs
+          .filter((job) => job.status === "approved" || job.status === "running")
+          .map((job) => job.target),
+      );
       const pending = jobs.toReversed().filter((job) => {
-        if (job.status !== "pending" || Date.parse(job.expiresAt) <= Date.now()) return false;
+        if (job.status !== "pending") return false;
         if (targets.has(job.target)) return false;
         targets.add(job.target);
         return true;
@@ -161,15 +175,22 @@ export class InstallationPanelModel {
     }
   }
 
-  async decide(job: RestartJob, decision: "approve" | "reject"): Promise<void> {
+  async decide(
+    job: RestartJob,
+    decision: "approve" | "reject" | "approve-when-idle" | "cancel",
+  ): Promise<void> {
     if (this.state.busy) return;
     this.publish({ busy: true, error: null, notice: null });
     try {
       await this.client.decide(job, decision);
-      const notice =
-        decision === "approve"
-          ? "Restart approved. Its progress is shown here."
-          : "Restart request rejected.";
+      const notices = {
+        approve: "Restart approved. Its progress is shown here.",
+        "approve-when-idle":
+          "Restart queued. It will run when no agents will be interrupted, even if you close this page.",
+        cancel: "Queued restart cancelled.",
+        reject: "Restart request rejected.",
+      };
+      const notice = notices[decision];
       this.publish({ notice });
       await this.refresh();
     } catch (error) {

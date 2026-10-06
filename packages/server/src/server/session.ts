@@ -2667,7 +2667,7 @@ export class Session {
       case "dictation_stream_cancel":
         return this.voiceSessions.handleMessage(msg);
       case "restart_server_request":
-        return this.handleRestartServerRequest(msg.requestId, msg.reason);
+        return this.handleRestartServerRequest(msg.requestId, msg.reason, msg.idleMode);
       case "shutdown_server_request":
         return this.handleShutdownServerRequest(msg.requestId);
       case "client_heartbeat":
@@ -3290,10 +3290,32 @@ export class Session {
     this.terminalController.handleBinaryFrame(binaryFrame.frame, source);
   }
 
-  private async handleRestartServerRequest(requestId: string, reason?: string): Promise<void> {
+  private async handleRestartServerRequest(
+    requestId: string,
+    reason?: string,
+    idleMode?: "inspect" | "restart",
+  ): Promise<void> {
+    if (idleMode) {
+      const impact = this.agentManager.getRestartImpact();
+      const accepted = idleMode === "restart" && this.agentManager.prepareIdleRestart();
+      if (!accepted) {
+        this.emit({
+          type: "status",
+          payload: {
+            status: "restart_requested",
+            requestId,
+            clientId: this.clientId,
+            accepted: false,
+            impact,
+          },
+        });
+        return;
+      }
+    }
     const lifecycleReason = normalizeClientRestartRpcReason(reason);
     const payload: { status: string } & Record<string, unknown> = {
       status: "restart_requested",
+      ...(idleMode ? { accepted: true } : {}),
       clientId: this.clientId,
     };
     if (reason && reason.trim().length > 0) {

@@ -1924,6 +1924,7 @@ export const CancelAgentRequestMessageSchema = z.object({
 
 export const RestartServerRequestMessageSchema = z.object({
   type: z.literal("restart_server_request"),
+  idleMode: z.enum(["inspect", "restart"]).optional(),
   reason: z.string().optional(),
   requestId: z.string(),
 });
@@ -3763,6 +3764,8 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceMultiplicity: z.boolean().optional(),
         // COMPAT(workspaceProjectMembership): added in v0.11.0-beta.3.vorteo.124; retain the gate for older daemons.
         workspaceProjectMembership: z.boolean().optional(),
+        // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; retain until the daemon floor supports the admission barrier.
+        idleRestart: z.boolean().optional(),
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: z.boolean().optional(),
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -3939,6 +3942,13 @@ export const AgentRefreshedStatusPayloadSchema = z
 
 export const RestartRequestedStatusPayloadSchema = z.object({
   status: z.literal("restart_requested"),
+  accepted: z.boolean().optional(),
+  impact: z
+    .object({
+      agents: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
+      pendingStarts: z.number().int().nonnegative(),
+    })
+    .optional(),
   clientId: z.string(),
   reason: z.string().optional(),
   requestId: z.string(),

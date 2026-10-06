@@ -12865,3 +12865,28 @@ test("usage session is a pure read of the live adapter and disappears on close",
   }
   expect(manager.usageSession(agent.id)).toBeNull();
 });
+
+test("idle restart waits for registering sessions and closes admission before new turns", async () => {
+  const client = new HeldAgentCreationClient();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000199",
+  });
+  const creation = manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
+    workspaceId: undefined,
+  });
+  await client.waitForCreationToStart();
+  expect(manager.getRestartImpact().pendingStarts).toBeGreaterThan(0);
+  expect(manager.prepareIdleRestart()).toBe(false);
+  client.finishCreating();
+  const agent = await creation;
+  expect(manager.prepareIdleRestart()).toBe(true);
+  expect(() => manager.streamAgent(agent.id, "start during restart")).toThrow("shutting down");
+  await expect(
+    manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
+      workspaceId: undefined,
+    }),
+  ).rejects.toThrow("shutting down");
+  await manager.closeAgent(agent.id);
+});

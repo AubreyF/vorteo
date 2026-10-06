@@ -711,6 +711,9 @@ async function checkQueueOrbitTransition({ page }: { page: Page }) {
       .poll(async () => (await client.readMessageQueue(agent.agentId)).snapshot?.items.length)
       .toBe(2);
     await page.evaluate(() => document.dispatchEvent(new Event("finish-queue-hold")));
+    // Stop the fixture's continuous output so the card cannot scroll between pointer coordinates.
+    await client.cancelAgent(agent.agentId);
+    await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeVisible();
     const queued = (await client.readMessageQueue(agent.agentId)).snapshot!.items;
     await dragQueueMessage(page, queued[1].id, queued[0].id, false);
     await expect

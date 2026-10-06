@@ -1443,6 +1443,37 @@ export class AgentManager {
     this.mcpBaseUrl = url;
   }
 
+  getRestartImpact() {
+    const managed = Array.from(this.agents.values());
+    const agents = managed
+      .filter((agent) => agent.lifecycle === "initializing" || this.hasInFlightRun(agent.id))
+      .map((agent) => ({
+        id: agent.id,
+        title: agent.config.title || agent.id,
+        status: String(agent.lifecycle),
+      }));
+    for (const parent of managed) {
+      for (const child of this.providerSubagents.list(parent.id)) {
+        if (child.status === "running")
+          agents.push({
+            id: `${parent.id}/${child.id}`,
+            title: child.title || child.description || child.id,
+            status: "running",
+          });
+      }
+    }
+    return { agents, pendingStarts: this.agentRegistrationTasks.size };
+  }
+
+  prepareIdleRestart(): boolean {
+    const impact = this.getRestartImpact();
+    if (impact.agents.length || impact.pendingStarts) return false;
+    // This check and admission barrier must stay synchronous: no new turn can
+    // enter between observing idleness and dispatching the lifecycle intent.
+    this.prepareForShutdown();
+    return true;
+  }
+
   prepareForShutdown(): void {
     this.acceptingAgentRegistrations = false;
   }
@@ -3396,6 +3427,7 @@ export class AgentManager {
     prompt: AgentPromptInput,
     options?: AgentRunOptions,
   ): AsyncGenerator<AgentStreamEvent> {
+    this.assertAcceptingAgentRegistrations();
     const existingAgent = this.requireSessionAgent(agentId);
     this.assertQuotaNotPaused(agentId);
     const parentId = existingAgent.labels[PARENT_AGENT_ID_LABEL];

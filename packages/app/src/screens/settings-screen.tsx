@@ -1,5 +1,5 @@
 import { SkillLibraryContent } from "@/agent-skills/library";
-import { InstallationControls } from "@/execution-installation/panel";
+import { InstallationControls, InstallationRestartBanner } from "@/execution-installation/panel";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
 import { usePanelStore } from "@/stores/panel-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1132,6 +1132,7 @@ function SettingsSidebar({
           >
             {sidebarBody}
           </ScrollView>
+          <InstallationRestartBanner />
           {vorton && (
             <Pressable
               accessibilityRole="button"
@@ -1541,6 +1542,7 @@ export default function SettingsScreen({
             layout="mobile"
           />
         </ScrollView>
+        <InstallationRestartBanner />
         {addHostModals}
       </View>
     );
@@ -1552,6 +1554,7 @@ export default function SettingsScreen({
         <PageLayout title={detailTitle} onBack={handleBackFromDetail}>
           {content}
         </PageLayout>
+        <InstallationRestartBanner />
         {addHostModals}
       </View>
     );

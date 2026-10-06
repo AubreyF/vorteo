@@ -3821,11 +3821,15 @@ export class DaemonClient {
   async restartServer(
     reason?: string,
     requestId?: string,
-    options?: { timeout?: number },
+    options?: { timeout?: number; idleMode?: "inspect" | "restart" },
   ): Promise<RestartRequestedStatusPayload> {
+    if (options?.idleMode && this.lastServerInfoMessage?.features?.idleRestart !== true) {
+      throw new Error("Update this daemon to support idle restarts");
+    }
     const resolvedRequestId = this.createRequestId(requestId);
     const message = SessionInboundMessageSchema.parse({
       type: "restart_server_request",
+      ...(options?.idleMode ? { idleMode: options.idleMode } : {}),
       ...(reason && reason.trim().length > 0 ? { reason } : {}),
       requestId: resolvedRequestId,
     });
