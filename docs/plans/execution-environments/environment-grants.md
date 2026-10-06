@@ -11,3 +11,9 @@ Reuse existing semantic daemon permissions where applicable, but do not advertis
 Acceptance: replay and stale-generation rejection, scope enforcement, revocation before dispatch, approval-payload integrity, and denial of guest-created authority. Define what happens to in-flight work; revocation cannot undo completed external effects.
 
 Dependencies: protected host installation and interface. Can initially be tested with isolated fake environments without either container backend. The credential broker consumes this contract but must not duplicate it. Full-access owner-account host agents remain trusted.
+
+The environment manager owns identity issuance, generation changes, workspace binding and lifecycle. The authority service outside guests owns current grants. A connector request authenticates a bounded environment principal; caller-supplied task IDs provide attribution only unless a stronger isolation mechanism establishes them. Authenticate transport across the actual host/guest boundary rather than assuming local Unix peer credentials identify a process across a VM.
+
+Bind service grants to the connection, target resources and allowed operations as well as environment identity, generation and expiry. Proposed approval choices include one operation, a task lifetime, or a bounded time window. Choose the supported set before implementation. Recheck grants immediately before dispatch, and invalidate old capabilities after environment recreation. Document the treatment of already-dispatched operations.
+
+Delegated authority must be equal or narrower. Sibling agents sharing an environment still share its effective authority; task labels cannot provide stronger confinement. Changing a model provider must not silently select another service account or widen access. Installation records, daemon connection IDs, owner-message evidence and restart approvals are not service grants.
