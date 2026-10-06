@@ -1,3 +1,4 @@
+import { hexColorWithAlpha } from "@/utils/color";
 import { Platform } from "react-native";
 import { darkHighlightColors, lightHighlightColors } from "@getpaseo/highlight";
 
@@ -285,6 +286,8 @@ export function buildLightSemanticColors(tint: LightThemeConfig) {
     borderAccent: tint.borderAccent,
 
     accent: tint.accent,
+    accentSubtle: hexColorWithAlpha(tint.accent, 0.13),
+    accentSubtleHovered: hexColorWithAlpha(tint.accent, 0.2),
     accentBright: tint.accentBright,
     accentForeground: tint.accentForeground ?? tint.surface0,
 
@@ -416,6 +419,8 @@ export function buildDarkSemanticColors(tint: DarkThemeConfig) {
     borderAccent: tint.borderAccent,
 
     accent: tint.accent,
+    accentSubtle: hexColorWithAlpha(tint.accent, 0.13),
+    accentSubtleHovered: hexColorWithAlpha(tint.accent, 0.2),
     accentBright: tint.accentBright,
     accentForeground: tint.accentForeground ?? "#ffffff",
 

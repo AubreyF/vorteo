@@ -2,6 +2,7 @@ import { useMemo, type ComponentProps } from "react";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
+import { useVortonTouch } from "@/vorton-touch";
 import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 
 export function CompactAccountButton({
@@ -12,6 +13,7 @@ export function CompactAccountButton({
   dense = false,
   ...props
 }: ComponentProps<typeof Button> & { tone?: "default" | "danger"; dense?: boolean }) {
+  const touch = useVortonTouch();
   const outline = useMemo(
     () => (
       <View
@@ -32,7 +34,8 @@ export function CompactAccountButton({
       testID={testID}
       variant="outline"
       size="xs"
-      style={[styles.target, style]}
+      style={[styles.target, dense && styles.denseTarget, style]}
+      hitSlop={dense && touch ? 12 : undefined}
       textStyle={[tone === "danger" && styles.dangerText, textStyle]}
       trailing={outline}
     />
@@ -42,7 +45,7 @@ export function CompactAccountButton({
 const styles = StyleSheet.create((theme) => ({
   dangerText: { color: theme.colors.destructive },
   dangerOutline: { borderColor: theme.colors.destructive },
-  // Keep the visible outline compact while retaining a full touch target in the existing row.
+  // Dense badges paint hover within their outline; touch-only hit slop keeps them easy to tap.
   target: {
     height: CONTROL_HEIGHTS.field,
     minHeight: CONTROL_HEIGHTS.field,
@@ -51,10 +54,13 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[2],
     gap: theme.spacing[2],
   },
-  denseOutline: {
-    top: (CONTROL_HEIGHTS.field - theme.spacing[6]) / 2,
-    height: theme.spacing[6],
+  denseTarget: {
+    height: 20,
+    minHeight: 20,
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: 0,
   },
+  denseOutline: { top: 0, height: 20 },
   outline: {
     position: "absolute",
     left: 0,

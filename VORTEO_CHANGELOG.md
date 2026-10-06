@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.145 - 2026-10-06
+
+### Changed
+
+- Tint selected profile tiles orange, match circled heading colors, and shorten reset badges with hover feedback confined to their borders
+
 ## 0.11.0-beta.3.vorteo.144 - 2026-10-06
 
 ### Changed

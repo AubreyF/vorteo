@@ -89,9 +89,9 @@ export const profileTileStyles = StyleSheet.create((theme) => ({
     borderWidth: 1,
     borderColor: "transparent",
   },
-  selected: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surface3 },
+  selected: { borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSubtle },
   interaction: { backgroundColor: theme.colors.surface3 },
-  selectedInteraction: { backgroundColor: theme.colors.surface4 },
+  selectedInteraction: { backgroundColor: theme.colors.accentSubtleHovered },
   lines: { gap: theme.spacing[1], minWidth: 0 },
   line: {
     height: Math.ceil(theme.fontSize.base * 1.25),

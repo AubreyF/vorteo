@@ -286,7 +286,7 @@ export function ProviderResetControl(props: {
 }
 
 const styles = StyleSheet.create((theme) => ({
-  compactText: { fontSize: theme.fontSize.sm },
+  compactText: { fontSize: theme.fontSize.sm - 2, lineHeight: 16 },
   critical: { color: theme.colors.destructive },
   text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
 }));
