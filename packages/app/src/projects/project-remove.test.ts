@@ -14,9 +14,20 @@ const project: ProjectRemoveProject = {
 
 function createProjectRemoveClient() {
   const removedProjectKeys: string[] = [];
+  const archivedWorkspaceIds: string[] = [];
   return {
     removedProjectKeys,
+    archivedWorkspaceIds,
     client: {
+      async archiveWorkspace(workspaceId: string) {
+        archivedWorkspaceIds.push(workspaceId);
+        return {
+          workspaceId,
+          requestId: "archive",
+          archivedAt: "2026-10-05T00:00:00Z",
+          error: null,
+        };
+      },
       async removeProject(projectKey: string): Promise<{ removedWorkspaceIds: string[] }> {
         removedProjectKeys.push(projectKey);
         return { removedWorkspaceIds: [] };
@@ -26,6 +37,18 @@ function createProjectRemoveClient() {
 }
 
 describe("project remove policy", () => {
+  it("archives members in environments with no local project registration", async () => {
+    const host = createProjectRemoveClient();
+    const outcome = await removeProjectFromHosts({
+      targets: [],
+      workspaces: [{ serverId: "host", workspaceId: "moved-work" }],
+      getClient: () => host.client,
+    });
+    expect(outcome.kind).toBe("removed");
+    expect(host.archivedWorkspaceIds).toEqual(["moved-work"]);
+    expect(host.removedProjectKeys).toEqual([]);
+  });
+
   it("requires every host to support project removal", () => {
     const readiness = getProjectRemoveReadiness({
       project,

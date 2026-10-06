@@ -1103,6 +1103,28 @@ export const WorkspaceTitleSuggestResponseSchema = z.object({
   }),
 });
 
+export const WorkspaceProjectMembershipSchema = z.object({
+  key: z.string().min(1).max(2048),
+  name: z.string().min(1).max(256),
+});
+
+export const WorkspaceProjectSetRequestSchema = z.object({
+  type: z.literal("workspace.project.set.request"),
+  workspaceId: z.string(),
+  membership: WorkspaceProjectMembershipSchema.nullable(),
+  requestId: z.string(),
+});
+
+export const WorkspaceProjectSetResponseSchema = z.object({
+  type: z.literal("workspace.project.set.response"),
+  payload: z.object({
+    requestId: z.string(),
+    workspaceId: z.string(),
+    accepted: z.boolean(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const WorkspaceTitleSetRequestSchema = z.object({
   type: z.literal("workspace.title.set.request"),
   workspaceId: z.string(),
@@ -3255,6 +3277,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ProjectRemoveRequestSchema,
   WorkspaceTitleSuggestRequestSchema,
   WorkspaceTitleSetRequestSchema,
+  WorkspaceProjectSetRequestSchema,
   WorkspacePinSetRequestSchema,
   WorkspaceLabelListRequestSchema,
   WorkspaceLabelAssignmentSetRequestSchema,
@@ -3722,6 +3745,8 @@ export const ServerInfoStatusPayloadSchema = z
         checkoutRefresh: z.boolean().optional(),
         // COMPAT(workspaceMultiplicity): added in v0.1.97, drop the gate when floor >= v0.1.97
         workspaceMultiplicity: z.boolean().optional(),
+        // COMPAT(workspaceProjectMembership): added in v0.11.0-beta.3.vorteo.122; retain the gate for older daemons.
+        workspaceProjectMembership: z.boolean().optional(),
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: z.boolean().optional(),
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -4095,6 +4120,7 @@ export const WorkspaceDescriptorPayloadSchema = z
   .object({
     id: z.string(),
     projectId: z.string(),
+    projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
     projectDisplayName: z.string(),
     // COMPAT(projectCustomName): added in v0.1.76, drop the optional gate when floor >= v0.1.76.
     // When the user has renamed a project, projectDisplayName carries the resolved
@@ -7046,6 +7072,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProjectRemoveResponseSchema,
   WorkspaceTitleSuggestResponseSchema,
   WorkspaceTitleSetResponseSchema,
+  WorkspaceProjectSetResponseSchema,
   WorkspacePinSetResponseSchema,
   WorkspaceRecoveryInspectResponseSchema,
   WorkspaceRecoveryRestoreResponseSchema,

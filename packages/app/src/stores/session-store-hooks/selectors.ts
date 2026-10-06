@@ -165,13 +165,13 @@ export function selectWorkspaceStructureProjects(
     const session = state.sessions[serverId];
     const workspaces = session?.workspaces;
     const projects = session?.projects;
-    if (!projects || projects.size === 0) {
+    if (!projects && !workspaces) {
       continue;
     }
     sessions.push({
       serverId,
       workspaces: workspaces?.values() ?? [],
-      projects: projects.values(),
+      projects: projects?.values() ?? [],
     });
   }
 

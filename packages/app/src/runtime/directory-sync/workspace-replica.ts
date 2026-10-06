@@ -134,6 +134,7 @@ export class WorkspaceDirectoryReplica {
       this.projects.delete(delta.projectId);
       useSessionStore.getState().removeProject(this.serverId, delta.projectId);
       for (const workspaceId of this.workspaceIdsByProject.get(delta.projectId) ?? []) {
+        if (this.workspaces.get(workspaceId)?.projectMembership) continue;
         this.deleteWorkspace(workspaceId);
         mutations.push({ kind: "workspace", type: "delete", id: workspaceId });
       }

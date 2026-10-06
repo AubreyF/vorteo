@@ -38,6 +38,59 @@ function workspace(id: string, projectId: string, root: string): WorkspaceDescri
 }
 
 describe("buildWorkspaceStructureProjects", () => {
+  test("moves a workspace between projects without changing its environment or directory", () => {
+    const moved = workspace("ws-host", "host-files", "/host/files");
+    moved.projectMembership = { key: "remote:github.com/acme/app", name: "App" };
+    const result = buildWorkspaceStructureProjects({
+      sessions: [
+        {
+          serverId: "container",
+          projects: [
+            project({
+              id: "app",
+              key: "remote:github.com/acme/app",
+              root: "/container/app",
+              name: "App",
+            }),
+          ],
+          workspaces: [workspace("ws-container", "app", "/container/app")],
+        },
+        {
+          serverId: "host",
+          projects: [project({ id: "host-files", key: null, root: "/host/files", name: "Files" })],
+          workspaces: [moved],
+        },
+      ],
+    });
+
+    expect(result.find((entry) => entry.projectName === "App")?.workspaceKeys).toEqual([
+      "container:ws-container",
+      "host:ws-host",
+    ]);
+    expect(result.find((entry) => entry.projectName === "Files")?.workspaceKeys).toEqual([]);
+    expect(moved.workspaceDirectory).toBe("/host/files");
+    expect(moved.projectId).toBe("host-files");
+  });
+
+  test("keeps assigned work visible when the destination project is offline", () => {
+    const moved = workspace("host-work", "backing-project", "/host/work");
+    moved.projectMembership = { key: "offline-project", name: "My project" };
+    const result = buildWorkspaceStructureProjects({
+      sessions: [{ serverId: "host", projects: [], workspaces: [moved] }],
+    });
+    expect(result).toEqual([
+      {
+        viewKey: "offline-project",
+        projectKey: null,
+        projectName: "My project",
+        projectKind: "git",
+        iconWorkingDir: "",
+        hosts: [],
+        workspaceKeys: ["host:host-work"],
+      },
+    ]);
+  });
+
   test("groups the same project key across hosts and keeps host-local ids", () => {
     const key = "remote:github.com/acme/app";
     const result = buildWorkspaceStructureProjects({

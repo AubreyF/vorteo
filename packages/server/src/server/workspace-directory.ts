@@ -161,7 +161,9 @@ function activeWorkspaceRecords(
     projects.filter((project) => project.archivedAt).map((project) => project.projectId),
   );
   return workspaces.filter(
-    (workspace) => !workspace.archivedAt && !archivedProjects.has(workspace.projectId),
+    (workspace) =>
+      !workspace.archivedAt &&
+      (workspace.projectMembership || !archivedProjects.has(workspace.projectId)),
   );
 }
 
@@ -231,9 +233,7 @@ export class WorkspaceDirectory {
     ]);
 
     const activeProjects = new Map(
-      persistedProjects
-        .filter((project) => !project.archivedAt)
-        .map((project) => [project.projectId, project] as const),
+      persistedProjects.map((project) => [project.projectId, project] as const),
     );
     const activeRecords = activeWorkspaceRecords(persistedWorkspaces, persistedProjects);
     const descriptorsByWorkspaceId = new Map<string, WorkspaceDescriptorPayload>();

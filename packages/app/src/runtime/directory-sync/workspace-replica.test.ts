@@ -68,6 +68,10 @@ it("commits the authoritative snapshot before buffered project updates", () => {
   const attachedMain = normalizeWorkspaceDescriptor(workspace("attached-main", "attached"));
   const attachedFeature = normalizeWorkspaceDescriptor(workspace("attached-feature", "attached"));
   const removed = normalizeWorkspaceDescriptor(workspace("removed", "removed"));
+  const moved = normalizeWorkspaceDescriptor({
+    ...workspace("moved", "removed"),
+    projectMembership: { key: "target-project", name: "Target project" },
+  });
   const unrelated = normalizeWorkspaceDescriptor(workspace("unrelated", "unrelated"));
   const staleAttachedProject = normalizeProjectDescriptor({
     projectId: "attached",
@@ -94,6 +98,7 @@ it("commits the authoritative snapshot before buffered project updates", () => {
         [attachedMain.id, attachedMain],
         [attachedFeature.id, attachedFeature],
         [removed.id, removed],
+        [moved.id, moved],
         [unrelated.id, unrelated],
       ]),
       projects: new Map([
@@ -139,6 +144,7 @@ it("commits the authoritative snapshot before buffered project updates", () => {
     projectRootPath: "/moved/attached",
   });
   expect(session?.workspaces.has(removed.id)).toBe(false);
+  expect(session?.workspaces.get(moved.id)).toBe(moved);
   expect(session?.workspaces.get(unrelated.id)).toBe(unrelated);
   expect(Array.from(session?.projects.keys() ?? [])).toEqual([
     "attached",

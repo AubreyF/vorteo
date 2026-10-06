@@ -17,12 +17,8 @@ import type {
   DraggableListExternalDrop,
 } from "@/components/draggable-list.types";
 import { useVortonMode } from "@/vorton-mode";
-import { ProjectRecreationModal } from "./modal";
+import { moveWorkspaceToProject } from "./request";
 
-interface DropRequest {
-  workspace: SidebarWorkspacePlacement;
-  project: SidebarProjectEntry;
-}
 interface DropContext {
   targets: DraggableListDropTarget[];
   register: (id: string, element: HTMLDivElement | null) => void;
@@ -32,17 +28,16 @@ interface DropContext {
 }
 const Context = createContext<DropContext | null>(null);
 function targetId(projectKey: string) {
-  return `recreate-project:${projectKey}`;
+  return `move-project:${projectKey}`;
 }
 
-export function ProjectRecreationProvider({
+export function ProjectMoveProvider({
   projects,
   children,
 }: PropsWithChildren<{ projects: SidebarProjectEntry[] }>) {
   const enabled = useVortonMode();
   const [targets, setTargets] = useState<DraggableListDropTarget[]>([]);
   const [highlighted, onTargetChange] = useState<string | null>(null);
-  const [request, setRequest] = useState<DropRequest | null>(null);
   const register = useCallback((id: string, element: HTMLDivElement | null) => {
     setTargets((previous) => {
       const next = previous.filter((target) => target.id !== id);
@@ -53,27 +48,15 @@ export function ProjectRecreationProvider({
     (workspace: SidebarWorkspacePlacement, id: string) => {
       const project = projects.find((entry) => targetId(entry.viewKey) === id);
       if (project && project.viewKey !== workspace.projectViewKey)
-        setRequest({ workspace, project });
+        moveWorkspaceToProject(workspace, project.viewKey);
     },
     [projects],
   );
-  const close = useCallback(() => setRequest(null), []);
   const value = useMemo(
     () => ({ targets, register, onDrop, highlighted, onTargetChange }),
     [targets, register, onDrop, highlighted],
   );
-  return (
-    <Context.Provider value={enabled ? value : null}>
-      {children}
-      {enabled && request ? (
-        <ProjectRecreationModal
-          workspace={request.workspace}
-          project={request.project}
-          onClose={close}
-        />
-      ) : null}
-    </Context.Provider>
-  );
+  return <Context.Provider value={enabled ? value : null}>{children}</Context.Provider>;
 }
 
 export function ProjectDropTarget({

@@ -1851,7 +1851,9 @@ export class Session {
         return;
       }
       const projectWorkspaceIds = (await this.workspaceRegistry.list())
-        .filter((workspace) => workspace.projectId === mutation.projectId)
+        .filter(
+          (workspace) => workspace.projectId === mutation.projectId && !workspace.projectMembership,
+        )
         .map((workspace) => workspace.workspaceId);
 
       if (mutation.kind === "remove") {
@@ -3032,6 +3034,8 @@ export class Session {
         return this.handleWorkspaceTitleSuggestRequest(msg);
       case "workspace.title.set.request":
         return this.handleWorkspaceTitleSetRequest(msg.workspaceId, msg.title, msg.requestId);
+      case "workspace.project.set.request":
+        return this.handleWorkspaceProjectSetRequest(msg);
       case "workspace.pin.set.request":
         return this.handleWorkspacePinSetRequest(msg.workspaceId, msg.pinned, msg.requestId);
       default:
@@ -3762,7 +3766,7 @@ export class Session {
         (workspace) => workspace.projectId === resolvedProjectId,
       );
       const activeWorkspaceIds = projectWorkspaces
-        .filter((workspace) => !workspace.archivedAt)
+        .filter((workspace) => !workspace.archivedAt && !workspace.projectMembership)
         .map((workspace) => workspace.workspaceId);
 
       if (activeWorkspaceIds.length > 0) {
@@ -3787,7 +3791,14 @@ export class Session {
           removedWorkspaceIds.push(workspaceId);
         }
 
-        await this.projectRegistry.remove(resolvedProjectId);
+        const hasAssignedWorkspaces = projectWorkspaces.some(
+          (workspace) => !workspace.archivedAt && workspace.projectMembership,
+        );
+        if (hasAssignedWorkspaces) {
+          await this.projectRegistry.archive(resolvedProjectId, new Date().toISOString());
+        } else {
+          await this.projectRegistry.remove(resolvedProjectId);
+        }
         await removeProjectCustomIcon({
           paseoHome: this.paseoHome,
           projectId: resolvedProjectId,
@@ -3966,6 +3977,35 @@ export class Session {
         },
       });
     }
+  }
+
+  private async handleWorkspaceProjectSetRequest(
+    msg: Extract<SessionInboundMessage, { type: "workspace.project.set.request" }>,
+  ): Promise<void> {
+    let error: string | null = null;
+    try {
+      const updated = await this.workspaceRegistry.update(msg.workspaceId, (workspace) => {
+        if (workspace.archivedAt) throw new Error("Restore this workspace before moving it.");
+        return {
+          ...workspace,
+          projectMembership: msg.membership,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      if (!updated) error = "Workspace not found";
+    } catch (cause) {
+      error = getErrorMessageOr(cause, "Failed to move workspace");
+    }
+    this.emit({
+      type: "workspace.project.set.response",
+      payload: {
+        requestId: msg.requestId,
+        workspaceId: msg.workspaceId,
+        accepted: error === null,
+        error,
+      },
+    });
+    if (error === null) await this.emitWorkspaceUpdatesForWorkspaceIds([msg.workspaceId]);
   }
 
   private async handleWorkspacePinSetRequest(
@@ -6019,6 +6059,7 @@ export class Session {
     return {
       id: workspace.workspaceId,
       projectId: workspace.projectId,
+      projectMembership: workspace.projectMembership,
       projectDisplayName: resolvedProjectRecord
         ? resolveProjectDisplayName(resolvedProjectRecord)
         : workspace.projectId,
