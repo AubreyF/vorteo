@@ -121,7 +121,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
       compact ? (
         <SectionButton section="profile" label="Profile" expanded onSection={showSection} />
       ) : (
-        <Text style={styles.cardHeading}>Profile</Text>
+        <ColumnHeading section="profile" label="Profile" />
       ),
     [compact, showSection],
   );
@@ -199,11 +199,11 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
             style={[settingsStyles.card, styles.environmentCard]}
             testID="preset-environment-card"
           >
-            <Text style={styles.cardHeading}>Environment</Text>
+            <ColumnHeading section="environment" label="Environment" />
             <ScrollView>{environments}</ScrollView>
           </View>
           <View style={[settingsStyles.card, styles.accountCard]}>
-            <Text style={styles.cardHeading}>Account</Text>
+            <ColumnHeading section="account" label="Account" />
             <ScrollView keyboardShouldPersistTaps="handled">{list}</ScrollView>
           </View>
           <View style={styles.profileCard}>{details}</View>
@@ -325,6 +325,34 @@ function CompactSelector({
     </View>
   );
 }
+const sectionNumbers: Record<SelectorSection, number> = { environment: 1, account: 2, profile: 3 };
+
+function StepIcon({ section }: { section: SelectorSection }) {
+  return (
+    <View
+      style={styles.stepIcon}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <Text style={styles.stepNumber}>{sectionNumbers[section]}</Text>
+    </View>
+  );
+}
+
+function ColumnHeading({ section, label }: { section: SelectorSection; label: string }) {
+  return (
+    <View
+      style={styles.cardHeading}
+      accessible
+      accessibilityRole="header"
+      accessibilityLabel={`${sectionNumbers[section]}. ${label}`}
+    >
+      <StepIcon section={section} />
+      <Text style={styles.cardHeadingText}>{label}</Text>
+    </View>
+  );
+}
+
 function SectionButton({
   section,
   label,
@@ -341,7 +369,15 @@ function SectionButton({
   onSection: (section: SelectorSection) => void;
 }) {
   const press = useCallback(() => onSection(section), [section, onSection]);
-  const leadingIcon = useMemo(() => (icon ? <View>{icon}</View> : null), [icon]);
+  const leadingIcon = useMemo(
+    () => (
+      <View style={styles.sectionIcons}>
+        <StepIcon section={section} />
+        {icon}
+      </View>
+    ),
+    [section, icon],
+  );
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   const chevron = useMemo(
     () => (expanded ? <ThemedChevronUp /> : <ThemedChevronDown />),
@@ -354,7 +390,7 @@ function SectionButton({
       onPress={press}
       leftIcon={leadingIcon}
       style={styles.sectionButton}
-      accessibilityLabel={`${label}${value ? `: ${value}` : ""}`}
+      accessibilityLabel={`${sectionNumbers[section]}. ${label}${value ? `: ${value}` : ""}`}
       accessibilityState={accessibilityState}
       trailing={chevron}
       testID={`preset-section-${section}`}
@@ -659,8 +695,29 @@ const styles = StyleSheet.create((theme) => ({
   environmentCard: { flex: 0.9, minWidth: 240 },
   accountCard: { flex: 1.3, minWidth: 320 },
   profileCard: { flex: 1.7, minWidth: 0 },
+  sectionIcons: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
+  stepIcon: {
+    width: theme.iconSize.md,
+    height: theme.iconSize.md,
+    borderRadius: theme.borderRadius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.foregroundMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepNumber: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+    lineHeight: theme.iconSize.md - 2,
+  },
   cardHeading: {
     padding: theme.spacing[3],
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  cardHeadingText: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.medium,

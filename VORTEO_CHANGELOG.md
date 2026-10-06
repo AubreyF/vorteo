@@ -2,13 +2,17 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
-## 0.11.0-beta.3.vorteo.138 - 2026-10-06
+## 0.11.0-beta.3.vorteo.139 - 2026-10-06
 
 ### Fixed
 
 - Validate Host startup before dispatching an approved restart. Report invalid field paths and recovery instructions without exposing configuration values.
 - Keep configuration validation in the selected supervisor release so older bootstrap code cannot reject newer provider settings.
 - Preserve restored Host provider bindings during shared settings migration, including legacy Codex sessions.
+
+### Changed
+
+- Add circled step numbers to Environment, Account and Profile headings on desktop and mobile
 
 ## 0.11.0-beta.3.vorteo.137 - 2026-10-06
 
