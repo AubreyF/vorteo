@@ -2,7 +2,7 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
-## 0.11.0-beta.3.vorteo.126 - 2026-10-05
+## 0.11.0-beta.3.vorteo.127 - 2026-10-05
 
 ### Changed
 
@@ -10,6 +10,16 @@ Custom changes to vorteo. Paseo's release history remains in its upstream change
 - Move Activate Profile and Switch to Profile below the scrolling profile card and hide the action for the active selection
 - Remove account search and restore the ghost Manage profiles button
 - Show the selected profile name in the closed chooser instead of always showing Choose profile
+
+## 0.11.0-beta.3.vorteo.126 - 2026-10-05
+
+### Added
+
+- Drag providers in Settings to save their order and use it in the profile picker
+
+### Fixed
+
+- Allow deleting Antigravity and Muse Code and keep deleted plugin providers removed after restart
 
 ## 0.11.0-beta.3.vorteo.124 - 2026-10-05
 

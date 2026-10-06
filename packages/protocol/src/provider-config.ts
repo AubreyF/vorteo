@@ -63,6 +63,8 @@ export const ProviderOverrideSchema = z.object({
   paseoTools: ProviderPaseoToolsPolicySchema.optional(),
   enabled: z.boolean().optional(),
   order: z.number().optional(),
+  // Suppress a plugin registration after the user deletes its provider connection.
+  removed: z.boolean().optional(),
 });
 
 const BUILTIN_PROVIDER_IDS = ["claude", "codex", "copilot", "opencode", "pi", "omp"] as const;

@@ -1,3 +1,5 @@
+import { BuiltinPluginLoader } from "../../server/plugins/builtin/index.js";
+import { loadPersistedConfig } from "../../server/persisted-config.js";
 import { expect, test } from "vitest";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, readFile, access } from "node:fs/promises";
@@ -70,3 +72,65 @@ test("connection removal confirms current ownership and deletes only the final m
     await ctx.cleanup();
   }
 });
+
+test("deletes bundled plugin providers persistently and restores them on explicit re-add", async () => {
+  const builtinPlugins = new BuiltinPluginLoader(undefined, [
+    "antigravity-provider",
+    "muse-provider",
+  ]);
+  const ctx = await createDaemonTestContext({
+    agentClients: {},
+    builtinPlugins,
+    providerOverrides: { antigravity: { enabled: false }, muse: { enabled: false } },
+  });
+  try {
+    for (const providerId of ["antigravity", "muse"]) {
+      const preview = await previewReadyProvider(ctx.client, providerId);
+      expect(preview.plan.credentials).toBe("external");
+      await ctx.client.removeProvider(providerId, preview.plan.revision);
+      expect(
+        (await ctx.client.getProvidersSnapshot()).entries.map((entry) => entry.provider),
+      ).not.toContain(providerId);
+      await expect(ctx.client.previewProviderRemoval(providerId)).rejects.toThrow(
+        "already removed",
+      );
+    }
+    const persisted = loadPersistedConfig(ctx.daemon.paseoHome);
+    expect(persisted.agents?.providers?.antigravity).toMatchObject({
+      removed: true,
+      enabled: false,
+    });
+    expect(persisted.agents?.providers?.muse).toMatchObject({ removed: true, enabled: false });
+    const restarted = await createDaemonTestContext({
+      agentClients: {},
+      builtinPlugins,
+      providerOverrides: persisted.agents?.providers,
+    });
+    try {
+      const ids = (await restarted.client.getProvidersSnapshot()).entries.map(
+        (entry) => entry.provider,
+      );
+      expect(ids).not.toContain("antigravity");
+      expect(ids).not.toContain("muse");
+      await restarted.client.patchDaemonConfig({
+        providers: { muse: { removed: false, enabled: false } },
+      });
+      expect(
+        (await restarted.client.getProvidersSnapshot()).entries.map((entry) => entry.provider),
+      ).toContain("muse");
+      await restarted.client.patchDaemonConfig({
+        providers: { muse: { extends: "codex", label: "Custom Muse", enabled: false } },
+      });
+      const shadow = await restarted.client.previewProviderRemoval("muse");
+      await restarted.client.removeProvider("muse", shadow.plan.revision);
+      expect(
+        (await restarted.client.getProvidersSnapshot()).entries.map((entry) => entry.provider),
+      ).not.toContain("muse");
+      await expect(restarted.client.previewProviderRemoval("codex")).rejects.toThrow("Built-in");
+    } finally {
+      await restarted.cleanup();
+    }
+  } finally {
+    await ctx.cleanup();
+  }
+}, 60_000);

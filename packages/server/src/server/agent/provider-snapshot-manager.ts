@@ -355,6 +355,10 @@ export class ProviderSnapshotManager {
     return Object.prototype.hasOwnProperty.call(this.generation.definitions, provider);
   }
 
+  isPluginProvider(provider: AgentProvider): boolean {
+    return this.pluginProviders.has(provider);
+  }
+
   getProviderLabel(provider: AgentProvider): string {
     return this.generation.definitions[provider]?.label ?? provider;
   }
@@ -398,7 +402,9 @@ export class ProviderSnapshotManager {
   private warnUnknownProviderOverrides(): void {
     if (!this.pluginProvidersSettled) return;
     for (const [provider, override] of Object.entries(this.providerOverrides ?? {})) {
-      if (!override.extends && !this.generation.definitions[provider]) {
+      const unmatched =
+        !override.extends && !override.removed && !this.generation.definitions[provider];
+      if (unmatched) {
         this.logger.warn({ provider }, "Provider override matches no registered provider");
       }
     }
@@ -835,7 +841,11 @@ export class ProviderSnapshotManager {
     definitions: Record<AgentProvider, ProviderDefinition>,
     overrides: Record<string, ProviderOverride> | undefined,
   ): RegistryGeneration {
-    const order = Object.keys(definitions);
+    const order = Object.keys(definitions).sort(
+      (left, right) =>
+        (overrides?.[left]?.order ?? Number.MAX_SAFE_INTEGER) -
+        (overrides?.[right]?.order ?? Number.MAX_SAFE_INTEGER),
+    );
     const providerStates = new Map<
       AgentProvider,
       { initial: ProviderSnapshotRecord; discoveryLimit: LimitFunction }
