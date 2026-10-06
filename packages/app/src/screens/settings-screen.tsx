@@ -472,12 +472,18 @@ function DiagnosticsSection({
 }
 
 interface AboutSectionProps {
+  showInstallation: boolean;
   appVersion: string | null;
   appVersionText: string;
   isDesktopApp: boolean;
 }
 
-function AboutSection({ appVersion, appVersionText, isDesktopApp }: AboutSectionProps) {
+function AboutSection({
+  appVersion,
+  appVersionText,
+  isDesktopApp,
+  showInstallation,
+}: AboutSectionProps) {
   const { t } = useTranslation();
   return (
     <>
@@ -494,7 +500,7 @@ function AboutSection({ appVersion, appVersionText, isDesktopApp }: AboutSection
           {isDesktopApp ? <DesktopAppUpdateRow /> : null}
         </View>
       </SettingsSection>
-      <InstallationControls />
+      {showInstallation ? <InstallationControls /> : null}
       <VortonUpdatesSection />
       <UpstreamUpdatesSection />
       <ConnectedHostsSection clientVersion={appVersion} />
@@ -1152,9 +1158,16 @@ function SettingsSidebar({
 export interface SettingsScreenProps {
   view: SettingsView;
   openAddHostIntent?: string | null;
+  installationRequested?: boolean;
+  restartRequestId?: string | null;
 }
 
-export default function SettingsScreen({ view, openAddHostIntent = null }: SettingsScreenProps) {
+export default function SettingsScreen({
+  view,
+  openAddHostIntent = null,
+  installationRequested = false,
+  restartRequestId = null,
+}: SettingsScreenProps) {
   const vorton = useVortonMode();
   const router = useRouter();
   const { t } = useTranslation();
@@ -1434,6 +1447,9 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
         case "general":
           return (
             <>
+              {installationRequested ? (
+                <InstallationControls focused requestId={restartRequestId} />
+              ) : null}
               <SettingsSection title="Vorteo" testID="settings-vorton-section">
                 <View style={settingsStyles.card}>
                   <VortonModeToggle />
@@ -1442,6 +1458,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
               <GeneralSection settings={settings} handleLanguageChange={handleLanguageChange} />
               <SendingSection />
               <AboutSection
+                showInstallation={!installationRequested}
                 appVersion={appVersion}
                 appVersionText={appVersionText}
                 isDesktopApp={isDesktopApp}

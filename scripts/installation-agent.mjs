@@ -49,4 +49,12 @@ const response = await fetch(new URL(resource, base), {
   signal: AbortSignal.timeout(60_000),
 });
 if (!response.ok) throw new Error(`Installation rejected the request (${response.status})`);
-process.stdout.write(JSON.stringify(await response.json(), null, 2) + "\n");
+const result = await response.json();
+if (positionals[0] === "request-restart" || positionals[0] === "restart-status") {
+  const publicOrigin = config.publicOrigin ?? config.origin;
+  const approval = new URL("/settings/general", new URL(publicOrigin).origin);
+  approval.searchParams.set("installation", "1");
+  approval.searchParams.set("restart", result.id);
+  result.approvalUrl = approval.href;
+}
+process.stdout.write(JSON.stringify(result, null, 2) + "\n");

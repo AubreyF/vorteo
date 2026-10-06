@@ -38,7 +38,12 @@ function SettingsDaemonRedirect() {
 
 export default function SettingsSectionRoute() {
   const vorton = useVortonMode();
-  const params = useLocalSearchParams<{ section?: string; addHost?: string }>();
+  const params = useLocalSearchParams<{
+    section?: string;
+    addHost?: string;
+    installation?: string;
+    restart?: string;
+  }>();
   const rawSection = typeof params.section === "string" ? params.section : "";
   const section: SettingsSectionSlug = isSettingsSectionSlug(rawSection) ? rawSection : "general";
   const openAddHostIntent = typeof params.addHost === "string" ? params.addHost : null;
@@ -61,5 +66,12 @@ export default function SettingsSectionRoute() {
 
   if (rawSection === "about") return <Redirect href={buildSettingsSectionRoute("general")} />;
 
-  return <SettingsScreen view={view} openAddHostIntent={openAddHostIntent} />;
+  return (
+    <SettingsScreen
+      view={view}
+      openAddHostIntent={openAddHostIntent}
+      installationRequested={params.installation === "1" || typeof params.restart === "string"}
+      restartRequestId={typeof params.restart === "string" ? params.restart : null}
+    />
+  );
 }

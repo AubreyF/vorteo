@@ -30,6 +30,7 @@ let root: string;
 let origin: string;
 let listener: Server;
 let config: InstallationConfig;
+let expiredRestartId: string;
 const daemons: IsolatedHostDaemon[] = [];
 const ownerPassword = "installation-browser-owner-password";
 const guestToken = "installation-browser-guest-request-token";
@@ -138,11 +139,12 @@ test.beforeAll(async () => {
   config.listenPort = address.port;
   origin = `http://127.0.0.1:${address.port}`;
   config.public.origin = origin;
+  expiredRestartId = randomUUID();
   await writeFile(
     path.join(root, "restart-jobs.json"),
     JSON.stringify([
       {
-        id: randomUUID(),
+        id: expiredRestartId,
         revision: randomUUID(),
         target: "host",
         requestedBy: "host-agent",
@@ -342,16 +344,24 @@ test("owner connects two environments, prepares host drafts, and approves a veri
     ).status,
   ).toBe(401);
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.goto(`${origin}/settings/general?installation=1`);
-  await expect(page.getByTestId("installation-status-container-daemon")).toContainText(
-    "Approval needed",
-  );
+  await page.goto(`${origin}/settings/general`);
+  await page.getByTestId("installation-lock").click();
+  await page.goto(`${origin}/settings/general?installation=1&restart=${job.id}`);
+  await expect(page.getByTestId("installation-password")).toBeVisible();
+  await expect(page.getByTestId(`restart-confirm-${job.id}`)).toHaveCount(0);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  await expect(page.getByTestId(`restart-confirm-${job.id}`)).toBeInViewport();
+  const unchanged = await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
+    headers: { Authorization: `Bearer ${guestToken}` },
+  }).then((response) => response.json());
+  expect(unchanged.status).toBe("pending");
+  await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("Approval needed");
   const card = page.getByTestId(`restart-request-${job.id}`);
   await expect(card).toContainText("Approval needed");
   page.on("dialog", () => {
     throw new Error("Installation controls must not open browser dialogs");
   });
-  await page.getByTestId(`restart-approve-${job.id}`).click();
   await expect(page.getByTestId(`restart-confirmation-${job.id}`)).toContainText(
     "may be interrupted",
   );
@@ -359,22 +369,70 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await card.screenshot({ path: testInfo.outputPath("installation-inline-review.png") });
   await card.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByTestId(`restart-confirmation-${job.id}`)).toHaveCount(0);
-  await expect(page.getByTestId("installation-status-container-daemon")).toContainText(
-    "Approval needed",
-  );
+  await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("Approval needed");
   await page.getByTestId(`restart-approve-${job.id}`).click();
   await page.getByTestId(`restart-confirm-${job.id}`).click();
   await expect(
     page.getByText("Restart approved. Its progress is shown here.", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByTestId("installation-status-container-daemon")).toContainText(
-    "Restarted",
-    { timeout: 150_000 },
-  );
+  await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("Restarted", {
+    timeout: 150_000,
+  });
+  await expect(card).toContainText("environment identity verified");
+  await expect(page.getByTestId(`restart-confirm-${job.id}`)).toHaveCount(0);
+  await page.getByRole("button", { name: "All restart requests", exact: true }).click();
   await page.getByTestId("restart-history-toggle").click();
   await expect(card).toContainText("environment identity verified");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
+});
+
+test("restart links keep expired and missing requests separate from a pending approval", async ({
+  page,
+}) => {
+  const pending = RestartJobSchema.parse(
+    await (
+      await request("restart-requests", hostToken, {
+        target: "host",
+        reason: "Unrelated pending maintenance",
+      })
+    ).json(),
+  );
+  await page.goto(`${origin}/settings/general?installation=1&restart=${expiredRestartId}`);
+  await page
+    .getByTestId("settings-vorton-mode")
+    .getByRole("button", { name: "Vorteo mode", exact: true })
+    .click();
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  await expect(page.getByTestId(`restart-request-${expiredRestartId}`)).toContainText("expired");
+  await expect(page.getByTestId(`restart-request-${pending.id}`)).toHaveCount(0);
+  await expect(page.getByTestId(`restart-confirm-${expiredRestartId}`)).toHaveCount(0);
+  await page.goto(`${origin}/settings/general?installation=1&restart=${randomUUID()}`);
+  await expect(
+    page.getByText("This restart request is no longer available.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId(`restart-request-${pending.id}`)).toHaveCount(0);
+  await page.goto(`${origin}/settings/general?installation=1&restart=${pending.id}`);
+  await expect(page.getByTestId(`restart-confirm-${pending.id}`)).toBeInViewport();
+  await page.reload();
+  await expect(page.getByTestId(`restart-confirm-${pending.id}`)).toBeInViewport();
+  await page
+    .getByTestId("settings-vorton-mode")
+    .getByRole("button", { name: "Standard mode", exact: true })
+    .click();
+  await expect(page.getByTestId(`restart-confirm-${pending.id}`)).toHaveCount(0);
+  await expect(
+    page.getByText("Enable Vorteo mode below to review installation restart requests.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.getByTestId("settings-vorton-mode").getByLabel("Vorteo mode", { exact: true }).click();
+  await expect(page.getByTestId(`restart-confirm-${pending.id}`)).toBeInViewport();
+  const unchanged = await fetch(`${origin}/api/installation/restart-requests/${pending.id}`, {
+    headers: { Authorization: `Bearer ${hostToken}` },
+  }).then((response) => response.json());
+  expect(unchanged.status).toBe("pending");
 });
 
 async function verifyCrossEnvironmentWorkspaceMove(input: {

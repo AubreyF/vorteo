@@ -342,6 +342,7 @@ async function install(planFile) {
   const hostClientFile = path.join(plan.root, "host-agent.json");
   json(hostClientFile, {
     origin: `http://127.0.0.1:${plan.coordinatorPort}`,
+    publicOrigin: origin,
     token: hostToken,
     kind: "host-agent",
   });
@@ -353,10 +354,12 @@ async function install(planFile) {
   );
   privateWrite(
     skillFile,
-    skill.replaceAll(
-      "INSTALLATION_CLIENT_COMMAND",
-      `${shellQuote(process.execPath)} ${shellQuote(agentScript)} --config ${shellQuote(hostClientFile)}`,
-    ),
+    skill
+      .replaceAll("INSTALLATION_SETTINGS_URL", `${origin}/settings/general?installation=1`)
+      .replaceAll(
+        "INSTALLATION_CLIENT_COMMAND",
+        `${shellQuote(process.execPath)} ${shellQuote(agentScript)} --config ${shellQuote(hostClientFile)}`,
+      ),
   );
   json(path.join(hostHome, "config.json"), {
     daemon: {
@@ -471,10 +474,12 @@ async function install(planFile) {
   const guestSkill = path.join(plan.root, "container-skill.md");
   privateWrite(
     guestSkill,
-    skill.replaceAll(
-      "INSTALLATION_CLIENT_COMMAND",
-      `node ${shellQuote(`${guestDir}/installation-agent.mjs`)} --config ${shellQuote(`${guestDir}/client.json`)}`,
-    ),
+    skill
+      .replaceAll("INSTALLATION_SETTINGS_URL", `${origin}/settings/general?installation=1`)
+      .replaceAll(
+        "INSTALLATION_CLIENT_COMMAND",
+        `node ${shellQuote(`${guestDir}/installation-agent.mjs`)} --config ${shellQuote(`${guestDir}/client.json`)}`,
+      ),
   );
   for (const [from, to] of [
     [guestConfig, `${guestDir}/client.json`],

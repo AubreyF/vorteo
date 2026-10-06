@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { isWeb } from "@/constants/platform";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { usePathname, useRouter } from "expo-router";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
@@ -45,15 +46,33 @@ function getInstallationPanel(registryLoaded: boolean): InstallationPanelModel |
   return panelModel;
 }
 
-export function InstallationControls() {
+export function InstallationControls({
+  focused = false,
+  requestId = null,
+}: {
+  focused?: boolean;
+  requestId?: string | null;
+}) {
   const vortonMode = useVortonMode();
   const registryLoaded = useHostRegistryLoaded();
   const model = getInstallationPanel(registryLoaded);
   const hosts = useHosts();
   const installation = readExecutionInstallation();
   const needsSetup = installation && !hasInstallationConnections(installation, hosts);
-  if (!model || (!vortonMode && !needsSetup)) return null;
-  return <InstallationPanel model={model} />;
+  if (!model) return null;
+  if (!vortonMode && !needsSetup)
+    return focused ? (
+      <SettingsSection title="Installation">
+        <Text style={styles.text}>
+          Enable Vorteo mode below to review installation restart requests.
+        </Text>
+      </SettingsSection>
+    ) : null;
+  return requestId ? (
+    <LinkedInstallationPanel key={requestId} model={model} requestId={requestId} />
+  ) : (
+    <InstallationPanel model={model} />
+  );
 }
 
 // Session restoration stays app-wide. Setup routes to the inline controls once;
@@ -101,6 +120,61 @@ function restartStatus(job: RestartJob, historical = false) {
   if (job.status === "succeeded") variant = "success";
   if (job.status === "failed") variant = "error";
   return { label: labels[job.status], variant };
+}
+
+function LinkedInstallationPanel({
+  model,
+  requestId,
+}: {
+  model: InstallationPanelModel;
+  requestId: string;
+}) {
+  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const router = useRouter();
+  const showAll = useCallback(() => router.replace("/settings/general?installation=1"), [router]);
+  const selected = state.jobs.find((job) => job.id === requestId);
+  const pending = state.pendingJobs.some((job) => job.id === requestId);
+  const active = pending || selected?.status === "approved" || selected?.status === "running";
+  return (
+    <SettingsSection title="Installation" testID="installation-panel">
+      <View style={settingsStyles.card}>
+        <InstallationOwnerAccess model={model} state={state} />
+      </View>
+      {state.error ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {state.error}
+        </Text>
+      ) : null}
+      {state.unlocked ? (
+        <>
+          {selected ? (
+            <RestartRequest
+              key={`${selected.id}:${selected.revision}`}
+              job={selected}
+              model={model}
+              busy={state.busy}
+              historical={!active}
+              linked
+            />
+          ) : (
+            <Text accessibilityLiveRegion="polite" style={styles.text}>
+              {state.lastUpdatedAt
+                ? "This restart request is no longer available."
+                : "Loading restart request…"}
+            </Text>
+          )}
+          {state.notice ? (
+            <Text accessibilityLiveRegion="polite" style={styles.text}>
+              {state.notice}
+            </Text>
+          ) : null}
+          <Button variant="ghost" onPress={showAll}>
+            All restart requests
+          </Button>
+        </>
+      ) : null}
+    </SettingsSection>
+  );
 }
 
 function InstallationPanel({ model }: { model: InstallationPanelModel }) {
@@ -457,17 +531,27 @@ function RestartRequest({
   model,
   busy,
   historical = false,
+  linked = false,
 }: {
   job: RestartJob;
   model: InstallationPanelModel;
   busy: boolean;
   historical?: boolean;
+  linked?: boolean;
 }) {
   const controlSize = useVortonTouch() ? "md" : "sm";
   const expired = job.status === "pending" && Date.parse(job.expiresAt) <= Date.now();
   const status = restartStatus(job, historical);
   const canDecide = !historical && job.status === "pending" && !expired;
-  const [reviewing, setReviewing] = useState(false);
+  const [reviewing, setReviewing] = useState(linked);
+  useEffect(() => {
+    if (!linked || !isWeb) return;
+    const frame = requestAnimationFrame(() => {
+      const target = canDecide ? `restart-confirm-${job.id}` : `restart-request-${job.id}`;
+      document.getElementById(target)?.scrollIntoView({ block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [linked, canDecide, job.id]);
   const [detailsVisible, setDetailsVisible] = useState(false);
   const toggleDetails = useCallback(() => setDetailsVisible((value) => !value), []);
   const review = useCallback(() => setReviewing(true), []);
@@ -479,7 +563,11 @@ function RestartRequest({
     void model.decide(job, "reject");
   }, [job, model]);
   return (
-    <View style={settingsStyles.card} testID={`restart-request-${job.id}`}>
+    <View
+      style={settingsStyles.card}
+      nativeID={`restart-request-${job.id}`}
+      testID={`restart-request-${job.id}`}
+    >
       <View style={styles.cardBody}>
         <View style={styles.requestHeader}>
           <Text style={settingsStyles.rowTitle}>
@@ -522,6 +610,7 @@ function RestartRequest({
                 variant="destructive"
                 disabled={busy}
                 onPress={approve}
+                nativeID={`restart-confirm-${job.id}`}
                 testID={`restart-confirm-${job.id}`}
               >
                 Approve restart
