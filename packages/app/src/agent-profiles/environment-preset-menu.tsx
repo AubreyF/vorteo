@@ -23,6 +23,7 @@ interface EnvironmentPresetMenuProps {
   serverId: string | null;
   profiles: AgentProfilePicker;
   selectedId?: string;
+  activeProfileId?: string;
   compact: boolean;
   disabled: boolean;
   now: number;
@@ -35,7 +36,6 @@ interface EnvironmentPresetMenuProps {
 export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   const [serverId, setServerId] = useState(props.serverId);
   const [inspectedByServer, setInspectedByServer] = useState<Record<string, string>>({});
-  const [query, setQuery] = useState("");
   const hosts = useHosts();
   const connected = useHostRuntimeIsConnected(serverId ?? "");
   const installation = readExecutionInstallation();
@@ -47,11 +47,15 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   const statuses = useHostRuntimeConnectionStatuses(serverIds);
   const environments = useMemo<PresetEnvironment[]>(() => {
     if (installation)
-      return installation.environments.map((item) => ({
-        serverId: item.serverId,
-        label: item.kind === "host" ? "Host" : "Dev container",
-        available: statuses.get(item.serverId) === "online",
-      }));
+      return [...installation.environments]
+        .sort((a, b) => Number(b.kind === "host") - Number(a.kind === "host"))
+        .map((item) => ({
+          serverId: item.serverId,
+          label: item.kind === "host" ? "Host" : "Dev container",
+          description:
+            item.kind === "host" ? "Higher risk · Host access" : "Safer · Isolated workspace",
+          available: statuses.get(item.serverId) === "online",
+        }));
     return hosts.map((host) => ({
       serverId: host.serverId,
       label: host.label,
@@ -90,8 +94,8 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   );
   const { view, ready } = usePresetData(serverId, menuProfiles, true);
   const accounts = useMemo(
-    () => accountPresets({ rows, definitions: definitions ?? [], entries, query }),
-    [rows, definitions, entries, query],
+    () => accountPresets({ rows, definitions: definitions ?? [], entries, query: "" }),
+    [rows, definitions, entries],
   );
   const sameEnvironment = serverId === props.serverId;
   const selectedId = sameEnvironment ? props.selectedId : undefined;
@@ -161,6 +165,8 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       definitions={definitions ?? []}
       entries={entries}
       selectedId={selectedId}
+      activeProfileId={props.activeProfileId}
+      activeServerId={props.serverId}
       inspectedId={inspectedId}
       compact={props.compact}
       disabled={props.disabled || !ready || !connected}
@@ -172,7 +178,6 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       onInspect={inspect}
       onApply={apply}
       onManage={manage}
-      onSearch={setQuery}
       renderRail={renderRail}
     />
   );

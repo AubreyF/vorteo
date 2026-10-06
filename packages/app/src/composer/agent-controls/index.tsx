@@ -1840,6 +1840,7 @@ export const AgentControls = memo(function AgentControls({
           profiles={presetPicker}
           selectedProfileId={selectedProfileId}
           selectedProfileName={selectedProfileName}
+          activeProfileId={selectedProfileId}
           quotaPausedAt={quotaPausedAt}
           currentProvider={agent.provider}
           currentModel={modelSelection.activeModelId}

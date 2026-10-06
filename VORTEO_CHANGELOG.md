@@ -2,6 +2,15 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.120 - 2026-10-05
+
+### Changed
+
+- Simplify the profile chooser with Host first, environment risk descriptions, matching tile heights and rounded orange selection borders
+- Move Activate Profile and Switch to Profile below the scrolling profile card and hide the action for the active selection
+- Remove account search and restore the ghost Manage profiles button
+- Show the selected profile name in the closed chooser instead of always showing Choose profile
+
 ## 0.11.0-beta.3.vorteo.119 - 2026-10-05
 
 ### Fixed

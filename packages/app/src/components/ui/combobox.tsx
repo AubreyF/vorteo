@@ -248,7 +248,7 @@ export interface ComboboxItemProps {
   leadingSlot?: ReactNode;
   trailingSlot?: ReactNode;
   selected?: boolean;
-  selectionPlacement?: "leading" | "trailing";
+  selectionPlacement?: "leading" | "trailing" | "none";
   selectionIndicatorSize?: number;
   active?: boolean;
   disabled?: boolean;

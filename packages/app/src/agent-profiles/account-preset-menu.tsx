@@ -5,12 +5,12 @@ import { sharedChoiceState, type LaunchChoices } from "./shared-choices";
 import { useCallback, useMemo, useReducer, type ReactNode } from "react";
 import { Keyboard, ScrollView, Text, View } from "react-native";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { Search, ChevronDown, ChevronUp } from "lucide-react-native";
+import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { AgentProfile, ProviderPreferences } from "@getpaseo/protocol/messages";
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
-import { ComboboxItem, SearchInput } from "@/components/ui/combobox";
+import { ComboboxItem } from "@/components/ui/combobox";
 import { ProfileDetailsView } from "./profile-details-view";
 import { type AccountPresets } from "./account-presets";
 import type { AgentProfilePickerRow } from "./internal/use-agent-profile-picker";
@@ -39,6 +39,7 @@ export interface PresetEnvironment {
   serverId: string;
   label: string;
   available: boolean;
+  description?: string;
 }
 
 interface AccountPresetMenuProps {
@@ -52,6 +53,8 @@ interface AccountPresetMenuProps {
   entries: ProviderSnapshotEntry[] | undefined;
   inspectedId: string | undefined;
   selectedId: string | undefined;
+  activeProfileId: string | undefined;
+  activeServerId: string | null;
   compact: boolean;
   disabled: boolean;
   currentProvider?: string;
@@ -60,17 +63,15 @@ interface AccountPresetMenuProps {
   onInspect: (id: string) => void;
   onApply: (id: string, choices?: LaunchChoices) => void;
   onManage: () => void;
-  onSearch: (query: string) => void;
   renderRail: (row: AgentProfilePickerRow) => ReactNode;
 }
 
 export function AccountPresetMenu(props: AccountPresetMenuProps) {
-  const { accounts, inspectedId, selectedId, compact, onInspect, onEnvironment, onSearch } = props;
+  const { accounts, inspectedId, selectedId, compact, onInspect, onEnvironment } = props;
   const touch = useVortonTouch();
   const headerSize = compact || touch ? "md" : "sm";
   const [navigation, dispatch] = useReducer(selectorNavigation, {
     section: "profile",
-    searchOpen: false,
   });
   const account =
     accounts.find((group) => group.rows.some((row) => row.id === inspectedId)) ?? accounts[0];
@@ -92,13 +93,6 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
     },
     [onEnvironment],
   );
-  const toggleSearch = useCallback(() => {
-    if (navigation.searchOpen) {
-      onSearch("");
-      Keyboard.dismiss();
-    }
-    dispatch({ type: "search" });
-  }, [navigation.searchOpen, onSearch]);
   const showSection = useCallback(
     (section: SelectorSection) => dispatch({ type: "section", section }),
     [],
@@ -152,26 +146,13 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
     () => <ExecutionEnvironmentIcon serverId={props.serverId} />,
     [props.serverId],
   );
-  const searchAccessibility = useMemo(
-    () => ({ expanded: navigation.searchOpen }),
-    [navigation.searchOpen],
-  );
   return (
     <View style={styles.root} testID="account-preset-menu">
       <View style={styles.header}>
         <Text style={styles.menuTitle}>Choose profile</Text>
-        <Button
-          variant="outline"
-          size={headerSize}
-          leftIcon={Search}
-          onPress={toggleSearch}
-          accessibilityLabel="Search accounts"
-          accessibilityState={searchAccessibility}
-          testID="preset-search-toggle"
-        />
         {!compact ? (
           <Button
-            variant="outline"
+            variant="ghost"
             size={headerSize}
             onPress={props.onManage}
             testID="preset-manage-profiles"
@@ -180,16 +161,6 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           </Button>
         ) : null}
       </View>
-      {navigation.searchOpen ? (
-        <View style={styles.searchField}>
-          <SearchInput
-            size={headerSize}
-            placeholder="Search accounts"
-            onChangeText={props.onSearch}
-            autoFocus
-          />
-        </View>
-      ) : null}
       {compact ? (
         <CompactSelector
           navigation={navigation.section}
@@ -214,10 +185,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
             <Text style={styles.cardHeading}>Account</Text>
             <ScrollView keyboardShouldPersistTaps="handled">{list}</ScrollView>
           </View>
-          <View style={[settingsStyles.card, styles.profileCard]}>
-            <Text style={styles.cardHeading}>Profile</Text>
-            {details}
-          </View>
+          <View style={styles.profileCard}>{details}</View>
         </View>
       )}
     </View>
@@ -316,13 +284,15 @@ function CompactSelector({
           </BottomSheetScrollView>
         ) : null}
       </View>
-      <View style={[settingsStyles.card, navigation === "profile" && styles.compactProfile]}>
-        <SectionButton
-          section="profile"
-          label="Profile"
-          expanded={navigation === "profile"}
-          onSection={onSection}
-        />
+      <View style={navigation === "profile" && styles.compactProfile}>
+        <View style={settingsStyles.card}>
+          <SectionButton
+            section="profile"
+            label="Profile"
+            expanded={navigation === "profile"}
+            onSection={onSection}
+          />
+        </View>
         {navigation === "profile" ? details : null}
       </View>
     </View>
@@ -388,13 +358,13 @@ function EnvironmentButton({
     <ComboboxItem
       label={environment.label}
       leadingSlot={environmentIcon}
-      active={selected}
       selected={selected}
       disabled={!environment.available}
-      description={environment.available ? undefined : "Disconnected"}
+      description={environment.available ? environment.description : "Disconnected"}
+      descriptionPlacement="below"
       onPress={select}
-      selectionPlacement="leading"
-      style={[styles.environmentButton, selected && styles.selectedChoice]}
+      selectionPlacement="none"
+      style={[styles.accountButton, selected && styles.selectedChoice]}
       testID={`preset-environment-${environment.serverId}`}
     />
   );
@@ -487,9 +457,7 @@ function AccountButton({
       labelNumberOfLines={1}
       label={group.label}
       labelStyle={styles.accountTitle}
-      active={active}
-      selectionPlacement="leading"
-      selectionIndicatorSize={24}
+      selectionPlacement="none"
       selected={active}
       onPress={select}
       style={[styles.accountButton, active && styles.selectedChoice]}
@@ -524,50 +492,61 @@ function AccountChoices({
   const selectionUnavailable = shared && Boolean(selection?.unavailable);
   const { onApply } = props;
   const apply = useCallback(() => onApply(inspected.id), [onApply, inspected.id]);
+  const isActive =
+    props.serverId === props.activeServerId && inspected.id === props.activeProfileId;
+  const hasSelection = Boolean(props.inspectedId || props.activeProfileId);
+  const showAction = hasSelection && !isActive;
+  const actionLabel = props.activeProfileId ? "Switch to Profile" : "Activate Profile";
   return (
     <View style={styles.detail} testID={`preset-choices-${account.provider}`}>
-      <DetailScrollView
-        style={styles.detailScroll}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.choices}>
-          {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
-          <View style={styles.profileList}>
-            {account.rows.map((row) => (
-              <ProfileChoice
-                key={row.id}
-                row={row}
-                selected={row.id === inspected.id}
-                definition={props.definitions.find((profile) => profile.id === row.id)}
-                entry={entry}
-                onInspect={props.onInspect}
-              />
-            ))}
-          </View>
-          {selectionUnavailable ? (
-            <Text style={styles.summary}>
-              This saved profile is unavailable on this account. Choose another profile or update it
-              in Settings.
-            </Text>
-          ) : null}
-          {inspected.localEndpoint ? props.renderRail(inspected) : null}
-          {definition ? (
-            <ProfileDetailsView serverId={props.serverId} profile={definition} compact />
-          ) : null}
-          <WorkflowInstructions definition={definition} definitions={props.definitions} />
-        </View>
-      </DetailScrollView>
-      <View style={styles.footer}>
-        <Button
-          variant="default"
-          size="md"
-          disabled={props.disabled || inspected.unavailable || selectionUnavailable}
-          onPress={apply}
-          testID="preset-use-profile"
+      <View style={[settingsStyles.card, styles.detailCard]} testID="preset-profile-card">
+        {!props.compact ? <Text style={styles.cardHeading}>Profile</Text> : null}
+        <DetailScrollView
+          testID="preset-profile-scroll"
+          style={styles.detailScroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          Use profile
-        </Button>
+          <View style={styles.choices}>
+            {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
+            <View style={styles.profileList}>
+              {account.rows.map((row) => (
+                <ProfileChoice
+                  key={row.id}
+                  row={row}
+                  selected={hasSelection && row.id === inspected.id}
+                  definition={props.definitions.find((profile) => profile.id === row.id)}
+                  entry={entry}
+                  onInspect={props.onInspect}
+                />
+              ))}
+            </View>
+            {selectionUnavailable ? (
+              <Text style={styles.summary}>
+                This saved profile is unavailable on this account. Choose another profile or update
+                it in Settings.
+              </Text>
+            ) : null}
+            {inspected.localEndpoint ? props.renderRail(inspected) : null}
+            {definition ? (
+              <ProfileDetailsView serverId={props.serverId} profile={definition} compact />
+            ) : null}
+            <WorkflowInstructions definition={definition} definitions={props.definitions} />
+          </View>
+        </DetailScrollView>
+      </View>
+      <View style={styles.footer}>
+        {showAction ? (
+          <Button
+            variant="default"
+            size="md"
+            disabled={props.disabled || inspected.unavailable || selectionUnavailable}
+            onPress={apply}
+            testID="preset-use-profile"
+          >
+            {actionLabel}
+          </Button>
+        ) : null}
       </View>
     </View>
   );
@@ -629,7 +608,7 @@ function ProfileChoice({
       description={summary}
       descriptionPlacement="below"
       selected={selected}
-      selectionPlacement="leading"
+      selectionPlacement="none"
       onPress={select}
       style={[styles.profileChoice, selected && styles.selectedChoice]}
       testID={`preset-row-${row.id}`}
@@ -644,6 +623,7 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
     padding: theme.spacing[2],
+    paddingLeft: theme.spacing[6],
   },
   menuTitle: {
     flex: 1,
@@ -658,11 +638,6 @@ const styles = StyleSheet.create((theme) => ({
     padding: theme.spacing[2],
     gap: theme.spacing[2],
   },
-  searchField: {
-    padding: theme.spacing[3],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
   environmentCard: { flex: 0.8, minWidth: 0 },
   accountCard: { flex: 1, minWidth: 0 },
   profileCard: { flex: 1.8, minWidth: 0 },
@@ -673,8 +648,7 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.medium,
   },
   accountList: { padding: theme.spacing[2], gap: theme.spacing[1] },
-  environmentButton: { minHeight: 44, borderWidth: 1, borderColor: "transparent" },
-  selectedChoice: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surface3 },
+  selectedChoice: { borderColor: theme.colors.accent },
   profileList: { gap: theme.spacing[2] },
   profileChoice: {
     minHeight: 56,
@@ -686,14 +660,15 @@ const styles = StyleSheet.create((theme) => ({
   compactList: { maxHeight: 220 },
   compactProfile: { flex: 1, minHeight: 0 },
   sectionButton: { justifyContent: "space-between" },
-  detail: { flex: 1, minHeight: 0 },
+  detail: { flex: 1, minHeight: 0, gap: theme.spacing[2] },
+  detailCard: { flex: 1, minHeight: 0, overflow: "hidden" },
   account: {
     padding: theme.spacing[1],
   },
   accountButton: {
     borderWidth: 1,
     borderColor: "transparent",
-    minHeight: Math.ceil(theme.fontSize.base * 1.4) + CONTROL_HEIGHTS.field + theme.spacing[2],
+    height: Math.ceil(theme.fontSize.base * 1.4) + CONTROL_HEIGHTS.field + theme.spacing[3],
     paddingVertical: theme.spacing[1],
     paddingRight: theme.spacing[1],
     borderRadius: theme.borderRadius.md,
@@ -708,7 +683,11 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
   },
   detailScroll: { flex: 1, minHeight: 0 },
-  footer: { padding: theme.spacing[4], borderTopWidth: 1, borderTopColor: theme.colors.border },
+  footer: {
+    padding: theme.spacing[2],
+    minHeight: CONTROL_HEIGHTS.field + theme.spacing[4],
+    flexShrink: 0,
+  },
   choices: { padding: theme.spacing[2], gap: theme.spacing[3] },
   heading: {
     fontSize: theme.fontSize.lg,

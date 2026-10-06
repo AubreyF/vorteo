@@ -62,6 +62,7 @@ interface PresetControlsProps {
   profiles: AgentProfilePicker;
   selectedProfileId?: string;
   selectedProfileName?: string;
+  activeProfileId?: string;
   currentProvider?: string;
   currentModel?: string | null;
   currentThinkingOptionId?: string | null;
@@ -81,6 +82,7 @@ export function PresetControls({
   profiles,
   selectedProfileId,
   selectedProfileName,
+  activeProfileId,
   currentProvider,
   currentModel,
   currentThinkingOptionId,
@@ -195,9 +197,6 @@ export function PresetControls({
       view,
       now,
     });
-  const triggerCopy = vortonMode
-    ? { label: "Choose profile", accessibilityLabel: "Choose profile" }
-    : { label: triggerLabel, accessibilityLabel };
   const show = useCallback(() => {
     setInspectedId(selectedProfileId);
     setQuery("");
@@ -264,7 +263,7 @@ export function PresetControls({
           accessibilityState={triggerAccessibilityState}
           onPress={show}
           disabled={selectionDisabled}
-          accessibilityLabel={triggerCopy.accessibilityLabel}
+          accessibilityLabel={accessibilityLabel}
           testID="agent-preset-selector"
         >
           <PresetStatusIcon
@@ -276,7 +275,7 @@ export function PresetControls({
           />
           <ExecutionEnvironmentIcon serverId={serverId} />
           <Text style={styles.toolbarText} numberOfLines={1}>
-            {triggerCopy.label}
+            {triggerLabel}
           </Text>
         </ComboboxTrigger>
       </View>
@@ -306,6 +305,7 @@ export function PresetControls({
             serverId={serverId}
             profiles={profiles}
             selectedId={selectedProfileId}
+            activeProfileId={activeProfileId}
             compact={isCompact}
             disabled={selectionDisabled}
             onApply={select}
