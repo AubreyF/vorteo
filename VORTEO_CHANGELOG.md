@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.157 - 2026-10-06
+
+### Changed
+
+- Lead restart requests with their explanation, hide technical notes under Details, and remove request IDs, requester metadata and expiry boilerplate.
+
 ## 0.11.0-beta.3.vorteo.156 - 2026-10-06
 
 ### Changed

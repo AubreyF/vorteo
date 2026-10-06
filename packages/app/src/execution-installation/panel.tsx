@@ -15,7 +15,7 @@ import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runti
 import { useVortonTouch } from "@/vorton-touch";
 import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
-import { InstallationPanelModel } from "./panel-model";
+import { InstallationPanelModel, restartExplanation } from "./panel-model";
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
 
 const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
@@ -83,10 +83,6 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
     if (!inSettings) router.replace("/settings/general");
   }, [model, pathname, router, state.busy, state.initialized, state.visible]);
   return null;
-}
-
-function restartRequester(job: RestartJob): string {
-  return job.requester || job.requestedBy;
 }
 
 function restartStatus(job: RestartJob, historical = false) {
@@ -533,14 +529,11 @@ function RestartRequest({
           </Text>
           <StatusBadge {...status} />
         </View>
-        <Text style={styles.text}>{job.reason}</Text>
-        <Text style={styles.text}>{job.detail}</Text>
-        <Text selectable style={styles.text}>
-          Request {job.id}
-          {"\n"}Requested {new Date(job.createdAt).toLocaleString()} by {restartRequester(job)} (
-          {job.requestedBy}){idleRestarts ? "\nRequests do not expire." : ""}
-        </Text>
-        {!historical ? <RestartActivity job={job} /> : null}
+        <RestartExplanation reason={job.reason} />
+        {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}
+        {!historical && (reviewing || job.status === "approved" || job.status === "running") ? (
+          <RestartActivity job={job} />
+        ) : null}
         {job.status === "approved" && job.whenIdle ? (
           <Button variant="outline" disabled={busy} onPress={cancelQueued}>
             Cancel queued restart
@@ -596,6 +589,25 @@ function RestartRequest({
   );
 }
 
+function RestartExplanation({ reason }: { reason: string }) {
+  const [detailsVisible, setDetailsVisible] = useState(false);
+  const toggleDetails = useCallback(() => setDetailsVisible((value) => !value), []);
+  const explanation = restartExplanation(reason);
+  return (
+    <>
+      <Text style={styles.text}>{explanation.summary}</Text>
+      {explanation.details ? (
+        <>
+          <Button variant="ghost" onPress={toggleDetails} {...disclosureProps(detailsVisible)}>
+            {detailsVisible ? "Hide details" : "Details"}
+          </Button>
+          {detailsVisible ? <Text style={styles.text}>{explanation.details}</Text> : null}
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function RestartQueueButton({
   job,
   busy,
@@ -640,9 +652,6 @@ function RestartActivity({ job }: { job: RestartJob }) {
           <Text style={styles.text}>
             {job.impact.error ||
               `Active tasks: ${job.impact.agents.length} · Starting operations: ${job.impact.pendingStarts}`}
-          </Text>
-          <Text style={styles.text}>
-            Checked {new Date(job.impact.checkedAt).toLocaleTimeString()}
           </Text>
           {job.impact.agents.map((agent) => (
             <Text selectable key={agent.id} style={styles.text}>
@@ -715,11 +724,10 @@ function RestartBannerItem({ job }: { job: RestartJob }) {
   const description = useMemo(
     () => (
       <View style={styles.details}>
-        <Text style={styles.text}>{job.reason}</Text>
-        <Text style={styles.text}>
-          {restartRequester(job)} · {new Date(job.createdAt).toLocaleString()}
-        </Text>
-        <RestartActivity job={job} />
+        <Text style={styles.text}>{restartExplanation(job.reason).summary}</Text>
+        {job.status === "approved" || job.status === "running" ? (
+          <RestartActivity job={job} />
+        ) : null}
         <Button variant="outline" onPress={open}>
           Review in Installation controls
         </Button>

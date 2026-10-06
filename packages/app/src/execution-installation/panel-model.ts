@@ -236,3 +236,15 @@ export class InstallationPanelModel {
     for (const listener of this.listeners) listener();
   }
 }
+
+export function restartExplanation(reason: string): { summary: string; details: string } {
+  const text = reason.replace(/^\s*\(AI Generated\)\.?\s*/i, "").trim();
+  const [summary, ...details] = text.split(/\n\s*\n/);
+  return {
+    summary: summary
+      .replace(/\b[0-9a-f]{40,64}\b/gi, "")
+      .replace(/[ \t]+/g, " ")
+      .trim(),
+    details: details.join("\n\n"),
+  };
+}

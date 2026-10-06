@@ -194,7 +194,8 @@ test.beforeAll(async () => {
         revision: randomUUID(),
         target: "host",
         requestedBy: "host-agent",
-        reason: "Maintenance requested six days ago",
+        reason:
+          "(AI Generated).\n\nRestart Host to enable protected workspaces that prevent accidental archiving.\n\nMaintenance requested six days ago",
         createdAt: "2020-01-01T00:00:00.000Z",
         expiresAt: "2020-01-01T00:30:00.000Z",
         status: "pending",
@@ -412,14 +413,21 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   }
   const oldCard = page
     .locator('[data-testid^="restart-request-"]')
-    .filter({ hasText: "Maintenance requested six days ago" });
+    .filter({ hasText: "Restart Host to enable protected workspaces" });
   const installationCard = page.getByTestId("installation-card");
   await expect(installationCard).toHaveCount(1);
   await expect(installationCard.locator('[data-testid^="restart-request-"]')).toHaveCount(1);
   await expect(page.getByTestId("installation-status-host")).toHaveCount(0);
   await expect(page.getByTestId("installation-status-container-daemon")).toHaveCount(0);
   await expect(oldCard).toContainText("Approval needed");
-  await expect(oldCard).toContainText("Requests do not expire");
+  await expect(oldCard).not.toContainText("Requests do not expire");
+  await expect(oldCard).not.toContainText(historicalRestartId);
+  await expect(oldCard).not.toContainText("host-agent");
+  await expect(oldCard).not.toContainText("AI Generated");
+  await expect(oldCard).not.toContainText("Maintenance requested six days ago");
+  await oldCard.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(oldCard).toContainText("Maintenance requested six days ago");
+  await oldCard.getByRole("button", { name: "Hide details", exact: true }).click();
   await oldCard.getByRole("button", { name: "Reject", exact: true }).click();
   await expect(page.getByText("No pending restart requests", { exact: true })).toBeVisible();
   await page.getByTestId("restart-history-toggle").click();

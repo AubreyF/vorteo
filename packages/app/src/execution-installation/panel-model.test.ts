@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { OwnerAccessExpired } from "./client";
-import { InstallationPanelModel } from "./panel-model";
+import { InstallationPanelModel, restartExplanation } from "./panel-model";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 
 test("saved connections skip setup on reload without unlocking owner controls", async () => {
@@ -211,4 +211,27 @@ test("owner expiry during session restoration does not navigate away from an ope
     visible: false,
     error: "Unlock controls to continue.",
   });
+});
+
+test("restart explanations lead with the authored change and keep technical detail separate", () => {
+  expect(
+    restartExplanation(
+      "(AI Generated).\n\nRestart Host to activate protected workspaces.\n\nValidation passed.\n\nRollback is prepared.",
+    ),
+  ).toEqual({
+    summary: "Restart Host to activate protected workspaces.",
+    details: "Validation passed.\n\nRollback is prepared.",
+  });
+  expect(restartExplanation("Restart Dev to activate shared profiles.")).toEqual({
+    summary: "Restart Dev to activate shared profiles.",
+    details: "",
+  });
+});
+
+test("restart summaries omit build hashes", () => {
+  expect(
+    restartExplanation(
+      "Restart Host to activate release 0123456789abcdef0123456789abcdef01234567 with protected workspaces.",
+    ).summary,
+  ).toBe("Restart Host to activate release with protected workspaces.");
 });
