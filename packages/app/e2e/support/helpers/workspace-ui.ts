@@ -1,7 +1,19 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { buildHostWorkspaceRoute } from "@/utils/host-routes";
 import { gotoHome } from "./app";
 import { expectAppRoute } from "./route-assertions";
+
+export async function sidebarProjectForWorkspace(row: Locator) {
+  return row.evaluate((element) => {
+    let parent = element.parentElement;
+    while (parent) {
+      const project = parent.querySelector('[data-testid^="sidebar-project-row-"]');
+      if (project) return project.getAttribute("data-testid");
+      parent = parent.parentElement;
+    }
+    return null;
+  });
+}
 
 export async function openNewAgentComposer(page: Page): Promise<void> {
   await gotoHome(page);

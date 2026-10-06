@@ -6,7 +6,10 @@ import { gotoAppShell, setVortonMode } from "../support/helpers/app";
 import { projectEquivalenceViewKey } from "../support/helpers/project-view-key";
 import { getServerId } from "../support/helpers/server-id";
 import { seedWorkspace } from "../support/helpers/seed-client";
-import { waitForSidebarHydration } from "../support/helpers/workspace-ui";
+import {
+  sidebarProjectForWorkspace,
+  waitForSidebarHydration,
+} from "../support/helpers/workspace-ui";
 
 async function rowTestIds(rows: Locator) {
   return rows.evaluateAll((elements) =>
@@ -194,6 +197,8 @@ test("the workspace menu moves every chat together and preserves membership afte
     await page.getByText(project.projectDisplayName, { exact: true }).last().click();
     await page.getByTestId("project-move-confirm").click();
     await expect(page.getByTestId("project-move-modal")).toHaveCount(0);
+    const destinationRowId = `sidebar-project-row-${projectEquivalenceViewKey(destination.projectKey)}`;
+    await expect.poll(() => sidebarProjectForWorkspace(row)).toBe(destinationRowId);
     const workspace = (await inspector.fetchWorkspaces()).entries.find(
       (entry) => entry.id === source.workspaceId,
     )!;
@@ -212,7 +217,9 @@ test("the workspace menu moves every chat together and preserves membership afte
     expect(chats.map((agent) => agent.cwd)).toEqual([source.repoPath, source.repoPath]);
     await page.reload();
     await waitForSidebarHydration(page);
+    await setVortonMode(page, true);
     await expect(row).toBeVisible();
+    await expect.poll(() => sidebarProjectForWorkspace(row)).toBe(destinationRowId);
     expect(
       (await inspector.fetchWorkspaces()).entries.find((entry) => entry.id === source.workspaceId)
         ?.projectMembership,
