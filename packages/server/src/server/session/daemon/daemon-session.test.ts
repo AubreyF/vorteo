@@ -247,98 +247,38 @@ describe("DaemonSession", () => {
     ]);
   });
 
-  test("pairing offer is empty when relay is disabled", async () => {
-    const { subsystem, emitted } = makeSubsystem({
-      daemonRuntimeConfig: {
-        listen: "127.0.0.1:6767",
-        getRelayConfig: () => ({
-          enabled: false,
-          endpoint: "relay.paseo.sh:443",
-          publicEndpoint: "relay.paseo.sh:443",
-          useTls: true,
-          publicUseTls: true,
-        }),
-      },
-    });
-
-    await subsystem.handleGetPairingOfferRequest({
-      type: "daemon.get_pairing_offer.request",
-      requestId: "p-1",
-    });
-
-    expect(emitted).toEqual([
-      {
-        type: "daemon.get_pairing_offer.response",
-        payload: { requestId: "p-1", url: "", qr: null, relayEnabled: false },
-      },
-    ]);
-  });
-
-  test("pairing offer mints a real connection URL when relay is enabled", async () => {
-    const { subsystem, emitted } = makeSubsystem({
-      daemonRuntimeConfig: {
-        listen: "127.0.0.1:6767",
-        appBaseUrl: "https://app.example.test",
-        getRelayConfig: () => ({
-          enabled: true,
-          endpoint: "relay.example.test:443",
-          publicEndpoint: "relay.example.test:443",
-          useTls: true,
-          publicUseTls: true,
-        }),
-      },
-    });
-
-    await subsystem.handleGetPairingOfferRequest({
-      type: "daemon.get_pairing_offer.request",
-      requestId: "p-2",
-    });
-
-    expect(emitted).toHaveLength(1);
-    const message = emitted[0];
-    expect(message.type).toBe("daemon.get_pairing_offer.response");
-    if (message.type !== "daemon.get_pairing_offer.response") {
-      throw new Error("expected a pairing offer response");
-    }
-    expect(message.payload.requestId).toBe("p-2");
-    expect(message.payload.relayEnabled).toBe(true);
-    expect(message.payload.url.startsWith("https://app.example.test")).toBe(true);
-    expect(typeof message.payload.qr).toBe("string");
-  });
-
-  test("pairing offer reads relay state at request time", async () => {
-    let enabled = false;
-    const { subsystem, emitted } = makeSubsystem({
-      daemonRuntimeConfig: {
-        listen: "127.0.0.1:6767",
-        appBaseUrl: "https://app.example.test",
-        getRelayConfig: () => ({
-          enabled,
-          endpoint: "relay.example.test:443",
-          publicEndpoint: "relay.example.test:443",
-          useTls: true,
-          publicUseTls: true,
-        }),
-      },
-    });
-
-    await subsystem.handleGetPairingOfferRequest({
-      type: "daemon.get_pairing_offer.request",
-      requestId: "disabled",
-    });
-    enabled = true;
-    await subsystem.handleGetPairingOfferRequest({
-      type: "daemon.get_pairing_offer.request",
-      requestId: "enabled",
-    });
-
-    const pairingResponses = emitted.filter(
-      (message) => message.type === "daemon.get_pairing_offer.response",
-    );
-    expect(pairingResponses[0]?.payload.relayEnabled).toBe(false);
-    expect(pairingResponses[1]?.payload.relayEnabled).toBe(true);
-    expect(pairingResponses[1]?.payload.url).toContain("#offer=");
-  });
+  test.each([false, true])(
+    "pairing is retired regardless of legacy relay state %s",
+    async (enabled) => {
+      const { subsystem, emitted } = makeSubsystem({
+        daemonRuntimeConfig: {
+          listen: "127.0.0.1:6767",
+          getRelayConfig: () => ({
+            enabled,
+            endpoint: "relay.example.test:443",
+            publicEndpoint: "relay.example.test:443",
+            useTls: true,
+            publicUseTls: true,
+          }),
+        },
+      });
+      await subsystem.handleGetPairingOfferRequest({
+        type: "daemon.get_pairing_offer.request",
+        requestId: "retired",
+      });
+      expect(emitted).toEqual([
+        {
+          type: "rpc_error",
+          payload: {
+            requestId: "retired",
+            requestType: "daemon.get_pairing_offer.request",
+            error:
+              "Device pairing has been retired. Connect through Tailscale using the environment address and existing authentication.",
+          },
+        },
+      ]);
+    },
+  );
 
   test("diagnostics includes a log tail and redacts connection secrets", async () => {
     const { subsystem, emitted, paseoHome } = makeSubsystem({

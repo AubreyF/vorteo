@@ -553,7 +553,7 @@ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDae
   const providers = config.providerOverrides ?? {};
 
   const initialConfig: MutableDaemonConfig = {
-    relay: { enabled: config.relayEnabled ?? true },
+    relay: { enabled: config.relayEnabled ?? false },
     mcp: {
       enabled: config.mcpEnabled ?? true,
       injectIntoAgents: config.mcpInjectIntoAgents ?? true,
@@ -1727,7 +1727,7 @@ export async function createPaseoDaemon(
             daemonConfigStore.onFieldChange("appendSystemPrompt", (value) => {
               agentManager.setAppendSystemPrompt(typeof value === "string" ? value : "");
             });
-            const relayEnabled = config.relayEnabled ?? true;
+            const relayEnabled = config.relayEnabled ?? false;
             const relayEndpoint = config.relayEndpoint ?? "relay.paseo.sh:443";
             const relayPublicEndpoint = config.relayPublicEndpoint ?? relayEndpoint;
             const relayUseTls = config.relayUseTls ?? relayEndpoint === "relay.paseo.sh:443";

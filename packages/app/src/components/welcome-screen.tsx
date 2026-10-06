@@ -3,36 +3,27 @@ import { useTranslation } from "react-i18next";
 import { Pressable, Text, View, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import {
-  QrCode,
-  Link2,
-  ClipboardPaste,
-  ExternalLink,
-  Settings,
-  Terminal,
-} from "lucide-react-native";
+import { Link2, ExternalLink, Settings, Terminal } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HostProfile } from "@/types/host-connection";
 import { getHostRuntimeStore, isHostRuntimeConnected, useHosts } from "@/runtime/host-runtime";
 import { AddHostModal } from "./add-host-modal";
 import { AddRemoteSshHostModal } from "./add-remote-ssh-host-modal";
-import { PairLinkModal } from "./pair-link-modal";
 import { Button } from "@/components/ui/button";
 import { resolveAppVersion } from "@/utils/app-version";
 import { formatVersionWithPrefix } from "@/desktop/updates/desktop-updates";
 import { buildOpenProjectRoute } from "@/utils/host-routes";
 import { VorteoLogo } from "@/components/icons/paseo-logo";
 import { openExternalUrl } from "@/utils/open-external-url";
-import { isFdroidBuild } from "@/constants/build-profile";
-import { isWeb, isNative } from "@/constants/platform";
+import { isNative } from "@/constants/platform";
 import { isElectronRuntime } from "@/desktop/host";
 
 interface WelcomeAction {
-  key: "scan-qr" | "direct-connection" | "remote-ssh" | "paste-pairing-link";
+  key: "direct-connection" | "remote-ssh";
   label: string;
   testID: string;
   primary: boolean;
-  icon: typeof QrCode;
+  icon: typeof Link2;
   onPress: () => void;
 }
 
@@ -175,7 +166,6 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
   const appVersionText = formatVersionWithPrefix(appVersion);
   const [isDirectOpen, setIsDirectOpen] = useState(false);
   const [isRemoteSshOpen, setIsRemoteSshOpen] = useState(false);
-  const [isPasteLinkOpen, setIsPasteLinkOpen] = useState(false);
   const hosts = useHosts();
   const anyOnlineServerId = useAnyHostOnline(hosts.map((h) => h.serverId));
 
@@ -200,11 +190,6 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
   const handleCloseDirect = useCallback(() => setIsDirectOpen(false), []);
   const handleOpenRemoteSsh = useCallback(() => setIsRemoteSshOpen(true), []);
   const handleCloseRemoteSsh = useCallback(() => setIsRemoteSshOpen(false), []);
-  const handleOpenPasteLink = useCallback(() => setIsPasteLinkOpen(true), []);
-  const handleClosePasteLink = useCallback(() => setIsPasteLinkOpen(false), []);
-  const handleScanQr = useCallback(() => {
-    router.push("/pair-scan?source=onboarding");
-  }, [router]);
 
   const handleHostSaved = useCallback(
     ({ profile }: { profile: HostProfile; serverId: string }) => {
@@ -214,52 +199,16 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
     [onHostAdded, finishOnboarding],
   );
 
-  const actions: WelcomeAction[] =
-    isWeb || isFdroidBuild
-      ? [
-          {
-            key: "direct-connection",
-            label: t("pairing.connectionMethods.direct.title"),
-            testID: "welcome-direct-connection",
-            primary: true,
-            icon: Link2,
-            onPress: handleOpenDirect,
-          },
-          {
-            key: "paste-pairing-link",
-            label: t("pairing.connectionMethods.pasteLink.title"),
-            testID: "welcome-paste-pairing-link",
-            primary: false,
-            icon: ClipboardPaste,
-            onPress: handleOpenPasteLink,
-          },
-        ]
-      : [
-          {
-            key: "scan-qr",
-            label: t("pairing.connectionMethods.scanQr.title"),
-            testID: "welcome-scan-qr",
-            primary: true,
-            icon: QrCode,
-            onPress: handleScanQr,
-          },
-          {
-            key: "direct-connection",
-            label: t("pairing.connectionMethods.direct.title"),
-            testID: "welcome-direct-connection",
-            primary: false,
-            icon: Link2,
-            onPress: handleOpenDirect,
-          },
-          {
-            key: "paste-pairing-link",
-            label: t("pairing.connectionMethods.pasteLink.title"),
-            testID: "welcome-paste-pairing-link",
-            primary: false,
-            icon: ClipboardPaste,
-            onPress: handleOpenPasteLink,
-          },
-        ];
+  const actions: WelcomeAction[] = [
+    {
+      key: "direct-connection",
+      label: "Connect through Tailscale",
+      testID: "welcome-direct-connection",
+      primary: true,
+      icon: Link2,
+      onPress: handleOpenDirect,
+    },
+  ];
 
   if (isElectronRuntime()) {
     actions.splice(1, 0, {
@@ -326,12 +275,6 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
         <AddRemoteSshHostModal
           visible={isRemoteSshOpen}
           onClose={handleCloseRemoteSsh}
-          onSaved={handleHostSaved}
-        />
-
-        <PairLinkModal
-          visible={isPasteLinkOpen}
-          onClose={handleClosePasteLink}
           onSaved={handleHostSaved}
         />
       </ScrollView>

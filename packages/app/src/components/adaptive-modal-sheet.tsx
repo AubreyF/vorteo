@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Keyboard, Pressable, Text, View } from "react-native";
-import type { DimensionValue, StyleProp, ViewStyle } from "react-native";
+import type { DimensionValue, StyleProp, ViewStyle, ScrollViewProps } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import {
@@ -466,6 +466,7 @@ export interface AdaptiveModalSheetProps {
   desktopHeight?: DimensionValue;
   /** Whether the host supplies the scroll container. Caller-owned lists still share sheet gestures. */
   scrollable?: boolean;
+  onScroll?: ScrollViewProps["onScroll"];
   presentation?: "push" | "replace";
   /** Full body viewport below the header, including space beyond the content. */
   bodyStyle?: StyleProp<ViewStyle>;
@@ -490,6 +491,7 @@ export function AdaptiveModalSheet({
   desktopMaxWidth,
   desktopHeight,
   scrollable = true,
+  onScroll,
   presentation,
   contentStyle,
   bodyStyle,
@@ -614,6 +616,8 @@ export function AdaptiveModalSheet({
               style={styles.bottomSheetVisibleScroll}
               contentContainerStyle={SCROLL_CONTENT_GROW}
               keyboardShouldPersistTaps="handled"
+              onScroll={onScroll}
+              scrollEventThrottle={64}
               showsVerticalScrollIndicator={false}
             >
               <View style={[styles.contentGrow, bodyClearanceStyle]}>
@@ -670,6 +674,8 @@ export function AdaptiveModalSheet({
             style={styles.desktopScroll}
             contentContainerStyle={SCROLL_CONTENT_GROW}
             keyboardShouldPersistTaps="handled"
+            onScroll={onScroll}
+            scrollEventThrottle={64}
             showsVerticalScrollIndicator
           >
             <SheetContent style={[styles.contentGrow, contentStyle]}>{children}</SheetContent>

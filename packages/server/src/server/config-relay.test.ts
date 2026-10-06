@@ -21,8 +21,13 @@ describe("daemon relay config", () => {
     await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
   });
 
-  test("preserves implicit relay-on for a legacy config without enabled", async () => {
+  test("defaults relay off when enabled is absent", async () => {
     const home = await createPaseoHome({ version: 1, daemon: { relay: {} } });
+    expect(loadConfig(home, { env: {} }).relayEnabled).toBe(false);
+  });
+
+  test("preserves explicitly enabled legacy connections", async () => {
+    const home = await createPaseoHome({ version: 1, daemon: { relay: { enabled: true } } });
     expect(loadConfig(home, { env: {} }).relayEnabled).toBe(true);
   });
 
@@ -54,7 +59,7 @@ describe("daemon relay config", () => {
     expect(reloaded.relayEnabled).toBe(false);
   });
 
-  test("legacy configs retain relay-on compatibility when enabled remains absent", async () => {
+  test("keeps relay off on reload when enabled remains absent", async () => {
     const home = await createPaseoHome({ version: 1, daemon: { relay: {} } });
     const startup = loadConfig(home, { env: {} });
     const reloaded = resolveConfigFromPersisted(
@@ -66,7 +71,7 @@ describe("daemon relay config", () => {
       },
     );
 
-    expect(reloaded.relayEnabled).toBe(true);
+    expect(reloaded.relayEnabled).toBe(false);
   });
 
   test("marks environment relay overrides immutable", async () => {

@@ -103,15 +103,17 @@ export function EnvironmentResourceExclusions({ serverId }: { serverId: string }
           name="Browser tools"
         />
       ) : null}
-      {settings.providerDefinitions?.map((provider) => (
-        <ResourceAvailability
-          key={`provider-${provider.id}`}
-          serverId={serverId}
-          kind="providerIds"
-          id={provider.id}
-          name={`Provider: ${provider.policy.label ?? provider.providerType}`}
-        />
-      ))}
+      {settings.providerDefinitions
+        ?.filter((provider) => !provider.removed)
+        .map((provider) => (
+          <ResourceAvailability
+            key={`provider-${provider.id}`}
+            serverId={serverId}
+            kind="providerIds"
+            id={provider.id}
+            name={`Provider: ${provider.policy.label ?? provider.providerType}`}
+          />
+        ))}
       {settings.skillLibrary?.map((skill) => (
         <ResourceAvailability
           key={`skill-${skill.identity}`}

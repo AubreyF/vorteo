@@ -5478,6 +5478,7 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.connection.preview_remove.response">(
       {
         message: { type: "provider.connection.preview_remove.request", providerId },
+        timeout: 10000,
       },
     );
   }
@@ -5485,6 +5486,7 @@ export class DaemonClient {
   async removeProvider(providerId: string, revision: string) {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.connection.remove.response">({
       message: { type: "provider.connection.remove.request", providerId, revision },
+      timeout: 10000,
     });
   }
 

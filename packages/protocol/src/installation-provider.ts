@@ -15,6 +15,7 @@ export const InstallationProviderPolicySchema = ProviderOverrideSchema.pick({
 export const InstallationProviderSchema = z.strictObject({
   id: z.string().min(1),
   providerType: z.string().min(1),
+  removed: z.boolean().optional(),
   accountId: z.string().uuid().optional(),
   accountSetup: z
     .strictObject({

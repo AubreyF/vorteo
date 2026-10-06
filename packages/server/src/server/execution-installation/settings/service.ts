@@ -131,6 +131,7 @@ export class InstallationSettingsNotInitialized extends Error {
 export class InstallationSettingsService {
   private state: InstallationSettingsSnapshot;
   private queue: Promise<void> = Promise.resolve();
+  private projectionRevision: number | null = null;
   private readonly installationInstructions: string[] = [];
   private skillRemovalConfirmations: Record<string, readonly string[]> = {};
 
@@ -178,67 +179,65 @@ export class InstallationSettingsService {
     });
   }
 
-  update(input: InstallationSettingsUpdate): Promise<InstallationSettingsSnapshot> {
-    return this.enqueue(async () => {
-      const request = InstallationSettingsUpdateSchema.parse(input);
-      if (request.confirmedSkillRemovals) {
-        if (
-          !request.settings.skills ||
-          Object.keys(request.confirmedSkillRemovals).some((id) => !this.state.sources[id])
-        )
-          throw new InstallationSettingsInvalidUpdate("environment");
-      }
-      const previous = this.state;
+  async update(input: InstallationSettingsUpdate): Promise<InstallationSettingsSnapshot> {
+    const request = InstallationSettingsUpdateSchema.parse(input);
+    if (request.confirmedSkillRemovals) {
       if (
-        this.needsPluginCatalogMigration() ||
-        this.needsSkillCatalogMigration() ||
-        this.needsProviderCatalogMigration() ||
-        this.needsBrowserPolicyMigration()
+        !request.settings.skills ||
+        Object.keys(request.confirmedSkillRemovals).some((id) => !this.state.sources[id])
       )
-        throw new InstallationSettingsNotInitialized();
-      if (request.expectedRevision !== previous.revision)
-        throw new InstallationSettingsConflict(previous.revision);
-      if (previous.settings === null && previous.conflicts === undefined)
-        throw new InstallationSettingsNotInitialized();
-      let base: InstallationSettings;
-      if (previous.conflicts !== undefined) {
-        const unresolved = previous.conflicts.fields.filter(
-          (field) => request.settings[field] === undefined,
-        );
-        if (unresolved.length)
-          throw new InstallationSettingsConflict(previous.revision, unresolved);
-        base = previous.conflicts.candidates[this.environments[0].serverId];
-      } else {
-        base = previous.settings;
-      }
-      const settings = InstallationSettingsSchema.parse({ ...base, ...request.settings });
-      if (request.settings.resourceExclusions === undefined) pruneResourceExclusions(settings);
-      this.validateResources(settings);
-      if (previous.settings !== null && isDeepStrictEqual(settings, previous.settings)) {
-        this.skillRemovalConfirmations = request.confirmedSkillRemovals ?? {};
-        return this.snapshot();
-      }
-      const revision = previous.revision + 1;
-      const next: InstallationSettingsSnapshot = {
-        version: 1,
-        revision,
-        settings,
-        sources: structuredClone(previous.sources),
-      };
-      for (const status of Object.values(next.sources)) {
-        status.pendingRevision = revision;
-        status.error = null;
-      }
-      this.journal.backup({ reason: "owner-update", previous: this.snapshot(), observations: {} });
-      this.commit(next);
+        throw new InstallationSettingsInvalidUpdate("environment");
+    }
+    const previous = this.state;
+    if (
+      this.needsPluginCatalogMigration() ||
+      this.needsSkillCatalogMigration() ||
+      this.needsProviderCatalogMigration() ||
+      this.needsBrowserPolicyMigration()
+    )
+      throw new InstallationSettingsNotInitialized();
+    if (request.expectedRevision !== previous.revision)
+      throw new InstallationSettingsConflict(previous.revision);
+    if (previous.settings === null && previous.conflicts === undefined)
+      throw new InstallationSettingsNotInitialized();
+    let base: InstallationSettings;
+    if (previous.conflicts !== undefined) {
+      const unresolved = previous.conflicts.fields.filter(
+        (field) => request.settings[field] === undefined,
+      );
+      if (unresolved.length) throw new InstallationSettingsConflict(previous.revision, unresolved);
+      base = previous.conflicts.candidates[this.environments[0].serverId];
+    } else {
+      base = previous.settings;
+    }
+    const settings = InstallationSettingsSchema.parse({ ...base, ...request.settings });
+    if (request.settings.resourceExclusions === undefined) pruneResourceExclusions(settings);
+    this.validateResources(settings);
+    if (previous.settings !== null && isDeepStrictEqual(settings, previous.settings)) {
       this.skillRemovalConfirmations = request.confirmedSkillRemovals ?? {};
-      // Reconciliation is explicit so the route can acknowledge durable ownership before RPC work.
       return this.snapshot();
-    });
+    }
+    const revision = previous.revision + 1;
+    const next: InstallationSettingsSnapshot = {
+      version: 1,
+      revision,
+      settings,
+      sources: structuredClone(previous.sources),
+    };
+    for (const status of Object.values(next.sources)) {
+      status.pendingRevision = revision;
+      status.error = null;
+    }
+    this.journal.backup({ reason: "owner-update", previous: this.snapshot(), observations: {} });
+    this.commit(next);
+    this.skillRemovalConfirmations = request.confirmedSkillRemovals ?? {};
+    // Reconciliation is explicit so the route can acknowledge durable ownership before RPC work.
+    return this.snapshot();
   }
 
   reconcile(): Promise<InstallationSettingsSnapshot> {
     return this.enqueue(async () => {
+      this.projectionRevision = null;
       if (this.state.settings === null && this.state.conflicts === undefined) await this.migrate();
       if (this.needsPluginCatalogMigration()) await this.migratePluginCatalog();
       if (this.needsPluginCatalogMigration()) return this.snapshot();
@@ -278,6 +277,7 @@ export class InstallationSettingsService {
         unavailable.add(environment.serverId);
       }
     }
+    if (previous.revision !== this.state.revision) return unavailable;
     if (!isDeepStrictEqual(settings.providerDefinitions, previous.settings.providerDefinitions)) {
       this.validateResources(settings);
       const next = { ...previous, revision: previous.revision + 1, settings };
@@ -720,6 +720,7 @@ export class InstallationSettingsService {
     const accounts =
       settings.providerDefinitions?.filter(
         (definition) =>
+          !definition.removed &&
           definition.accountSetup &&
           Object.hasOwn(definition.bindings, environment.serverId) &&
           !excluded.includes(definition.id),
@@ -733,7 +734,8 @@ export class InstallationSettingsService {
       }
     }
     try {
-      return await this.inspectResources(environment, settings);
+      const inspected = await this.inspectResources(environment, settings);
+      return this.projectionRevision === this.state.revision ? inspected : null;
     } catch {
       this.recordStatus(environment.serverId, "read_failed");
       return null;
@@ -742,6 +744,7 @@ export class InstallationSettingsService {
 
   private async project(environment: SettingsEnvironment): Promise<void> {
     const state = this.state;
+    this.projectionRevision = state.revision;
     if (state.settings === null) return;
     const confirmedRemovals = this.skillRemovalConfirmations[environment.serverId] ?? [];
     delete this.skillRemovalConfirmations[environment.serverId];
@@ -835,12 +838,14 @@ export class InstallationSettingsService {
     confirmedRemovals: readonly string[],
   ): Promise<void> {
     const { environment, patch, plugins, excludedPluginIds } = verification;
+    if (this.projectionRevision !== this.state.revision) return;
     try {
       await environment.patch(patch, confirmedRemovals);
     } catch {
       this.recordStatus(environment.serverId, "patch_failed");
       return;
     }
+    if (this.projectionRevision !== this.state.revision) return;
     if (plugins) {
       try {
         await environment.projectPlugins(plugins, excludedPluginIds);
@@ -849,6 +854,7 @@ export class InstallationSettingsService {
         return;
       }
     }
+    if (this.projectionRevision !== this.state.revision) return;
     if (verification.skillLibrary) {
       try {
         await environment.projectSkillCatalog(verification.skillLibrary);
@@ -921,6 +927,7 @@ export class InstallationSettingsService {
     serverId: string,
     error: InstallationSettingsSnapshot["sources"][string]["error"],
   ): void {
+    if (this.projectionRevision !== null && this.projectionRevision !== this.state.revision) return;
     const next = this.snapshot();
     const status = next.sources[serverId];
     status.error = error;

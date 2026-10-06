@@ -97,10 +97,8 @@ export function projectInstallationProviders(
     const provider = local[localId];
     if (seen.has(localId)) throw new Error("Several shared providers use the same local binding");
     seen.add(localId);
-    if (
-      excludedIds.includes(definition.id) &&
-      (!Object.hasOwn(local, localId) || provider?.removed)
-    ) {
+    const disabled = definition.removed || excludedIds.includes(definition.id);
+    if (disabled && (!Object.hasOwn(local, localId) || provider?.removed)) {
       if (Object.hasOwn(projected, localId)) projected[localId]!.enabled = false;
       continue;
     }
@@ -116,7 +114,7 @@ export function projectInstallationProviders(
     const next = projected[localId]!;
     for (const key of policyKeys) delete next[key];
     Object.assign(next, structuredClone(definition.policy));
-    if (excludedIds.includes(definition.id)) next.enabled = false;
+    if (disabled) next.enabled = false;
   }
   for (const [id, provider] of Object.entries(projected))
     if (!seen.has(id)) provider.enabled = false;

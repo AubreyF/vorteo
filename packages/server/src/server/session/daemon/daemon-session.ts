@@ -2,7 +2,6 @@ import type pino from "pino";
 import type { ProviderAvailability } from "../../agent/agent-manager.js";
 import type { SessionInboundMessage, SessionOutboundMessage } from "../../messages.js";
 import { getPidLockInfo } from "../../pid-lock.js";
-import { generateLocalPairingOffer } from "../../pairing-offer.js";
 import {
   collectDaemonDiagnostics,
   type DaemonWebSocketRuntimeDiagnosticSnapshot,
@@ -212,42 +211,19 @@ export class DaemonSession {
     }
   }
 
+  // COMPAT(retiredPairing): added in v155, retain the error response until legacy pairing clients are unsupported.
   async handleGetPairingOfferRequest(
     msg: Extract<SessionInboundMessage, { type: "daemon.get_pairing_offer.request" }>,
   ): Promise<void> {
-    try {
-      const relay = this.daemonRuntimeConfig?.getRelayConfig();
-      const pairing = await generateLocalPairingOffer({
-        paseoHome: this.paseoHome,
-        relayEnabled: relay?.enabled ?? false,
-        relayEndpoint: relay?.endpoint,
-        relayPublicEndpoint: relay?.publicEndpoint,
-        relayUseTls: relay?.useTls,
-        relayPublicUseTls: relay?.publicUseTls,
-        appBaseUrl: this.daemonRuntimeConfig?.appBaseUrl,
-        includeQr: true,
-        logger: this.logger,
-      });
-      this.host.emit({
-        type: "daemon.get_pairing_offer.response",
-        payload: {
-          requestId: msg.requestId,
-          url: pairing.url ?? "",
-          qr: pairing.qr ?? null,
-          relayEnabled: pairing.relayEnabled,
-        },
-      });
-    } catch (error) {
-      this.logger.error({ err: error }, "Failed to handle daemon pairing offer request");
-      this.host.emit({
-        type: "rpc_error",
-        payload: {
-          requestId: msg.requestId,
-          requestType: "daemon.get_pairing_offer.request",
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
-    }
+    this.host.emit({
+      type: "rpc_error",
+      payload: {
+        requestId: msg.requestId,
+        requestType: msg.type,
+        error:
+          "Device pairing has been retired. Connect through Tailscale using the environment address and existing authentication.",
+      },
+    });
   }
 
   handleConfigReloadRequest(

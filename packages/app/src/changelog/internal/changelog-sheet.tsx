@@ -1,7 +1,14 @@
 import Constants from "expo-constants";
 
 import { memo, useCallback, useMemo } from "react";
-import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
+import {
+  Pressable,
+  Text,
+  View,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
+  type PressableStateCallbackType,
+} from "react-native";
 import { ExternalLink, Gift } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -58,6 +65,18 @@ export function ChangelogSheet({ visible, onClose }: ChangelogSheetProps) {
   const hasReleases = visible && releases.length > 0;
   const { count, showMore } = useRevealedReleases(hasReleases);
 
+  const loadOnScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      if (
+        count < releases.length &&
+        contentOffset.y + layoutMeasurement.height >= contentSize.height - 300
+      )
+        showMore();
+    },
+    [count, releases.length, showMore],
+  );
+
   const handleOpenWebsite = useCallback(() => {
     void openExternalUrl(WEBSITE_CHANGELOG_URL);
   }, []);
@@ -94,9 +113,10 @@ export function ChangelogSheet({ visible, onClose }: ChangelogSheetProps) {
       desktopMaxWidth={620}
       desktopHeight="85%"
       testID="changelog-sheet"
+      onScroll={loadOnScroll}
     >
       <View style={styles.releaseList}>
-        <ChangelogBody releases={releases} shownReleases={count} onShowMore={showMore} />
+        <ChangelogBody releases={releases} shownReleases={count} />
         <ChangelogStatus state={state} onRetry={reload} />
       </View>
     </AdaptiveModalSheet>
@@ -145,11 +165,9 @@ function ChangelogStatus({ state, onRetry }: ChangelogStatusProps) {
 interface ChangelogBodyProps {
   releases: ChangelogTimelineRelease[];
   shownReleases: number;
-  onShowMore: () => void;
 }
 
-function ChangelogBody({ releases, shownReleases, onShowMore }: ChangelogBodyProps) {
-  const { t } = useTranslation();
+function ChangelogBody({ releases, shownReleases }: ChangelogBodyProps) {
   const appVersion = useMemo(() => resolveAppVersion()?.replace(/^v/i, "") ?? null, []);
   const visibleReleases = releases.slice(0, shownReleases);
 
@@ -162,16 +180,6 @@ function ChangelogBody({ releases, shownReleases, onShowMore }: ChangelogBodyPro
           isCurrent={release.version === appVersion}
         />
       ))}
-      {releases.length > visibleReleases.length ? (
-        <Button
-          variant="ghost"
-          onPress={onShowMore}
-          style={styles.showMore}
-          testID="changelog-show-more"
-        >
-          {t("changelog.showMore")}
-        </Button>
-      ) : null}
     </View>
   );
 }
@@ -266,8 +274,5 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     textTransform: "uppercase",
     letterSpacing: 0.5,
-  },
-  showMore: {
-    alignSelf: "center",
   },
 }));

@@ -3902,6 +3902,7 @@ export const ServerInfoStatusPayloadSchema = z
         installationProfileAuthority: z.boolean().optional(),
         installationResourceBindings: z.boolean().optional(),
         installationSettingsAuthority: z.boolean().optional(),
+        installationProviderRemoval: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: z.boolean().optional(),
       })

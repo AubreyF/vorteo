@@ -2085,6 +2085,7 @@ export class VoiceAssistantWebSocketServer {
         ),
         installationResourceBindings: true,
         installationSettingsAuthority: true,
+        installationProviderRemoval: true,
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: true,
       },

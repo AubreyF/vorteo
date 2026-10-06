@@ -149,7 +149,7 @@ export function assertInstallationProviderLaunch(
     );
   const definition = matches[0]!;
   const excluded = admission.settings.resourceExclusions[admission.serverId]?.providerIds ?? [];
-  if (definition.policy.enabled === false || excluded.includes(definition.id))
+  if (definition.removed || definition.policy.enabled === false || excluded.includes(definition.id))
     throw new InstallationSettingsAdmissionError(
       "The shared provider is disabled or excluded from this environment.",
     );
@@ -184,7 +184,10 @@ export function assertInstallationProviderRemoval(
     (definition) => definition.bindings[admission.serverId] === providerId,
   );
   const excluded = admission.settings.resourceExclusions[admission.serverId]?.providerIds ?? [];
-  if (matches.length > 1 || matches.some((definition) => !excluded.includes(definition.id)))
+  if (
+    matches.length > 1 ||
+    matches.some((definition) => !definition.removed && !excluded.includes(definition.id))
+  )
     throw new InstallationSettingsAdmissionError(
       "Exclude this provider from this environment before deleting its local connection.",
     );

@@ -5,7 +5,7 @@
 
 ## Intelligent Frontier Account Pooling
 
-Connect an unlimited number of Codex and Claude accounts, then balance tasks across all of them simultaneously. Keep work moving while tracking usage and reset windows for each connected profile. Drafts restore their saved account and workflow together. New drafts use a workflow from the selected account. Drag providers in Settings to set their order in the profile picker. Delete custom providers, including Antigravity and Muse Code, from the same list.
+Connect an unlimited number of Codex and Claude accounts, then balance tasks across all of them simultaneously. Keep work moving while tracking usage and reset windows for each connected profile. Drafts restore their saved account and workflow together. New drafts use a workflow from the selected account. Drag providers in Settings to set their order in the profile picker. Providers appear once per family, with separate accounts inside. Enable or disable them globally. Removing a provider retains credentials, profiles and task history; restore it disabled from Add provider. Local sign-in and credential deletion live in Manage.
 
 <img width="600" alt="Animated demo of Vorteo account switching and profiles" src="https://github.com/user-attachments/assets/ae3f9872-f3d6-4efa-8f23-a032aa3133de" />
 
@@ -39,7 +39,7 @@ When an older Claude Code version hides newer models, Vorteo shows an update war
 
 - **Keep ongoing work separate.** Mark a workspace **Standing** to put it in a collapsible Standing section within its project. Standing enables **Protected**, which blocks workspace and chat archives until you remove protection. A **Scheduled** badge identifies workspaces targeted by a schedule, including paused schedules.
 
-- **Read custom release notes.** Open **Settings → General → What's new** for Vorteo and Paseo notes in one timeline, newest first, with a shared Show more control. Vorteo version counters continue across upstream Paseo updates. Custom notes remain available when the upstream feed cannot be reached.
+- **Read custom release notes.** Open **Settings → General → What's new** for Vorteo and Paseo notes in one timeline, newest first, with older entries revealed automatically as you scroll. Vorteo version counters continue across upstream Paseo updates. Custom notes remain available when the upstream feed cannot be reached.
 
 - **Keep your place in long conversations.** Web and desktop timelines preserve the surrounding text while image sizes settle as you scroll through earlier messages.
 
@@ -51,7 +51,7 @@ Installation controls sit directly in General settings. Maintenance tasks link d
 
 - **Download files you cannot preview.** Binary file previews offer a visible Download button, including files opened from chat links.
 
-Settings uses one navigation for the installation. Profiles are shared across accounts and between Host and Dev container by default. Choose the account when launching; exclude an environment in the profile editor when needed. Subagents using the same provider follow the parent’s selected account, with their own saved model and reasoning settings. Select a Pi worker profile to delegate to local models. Provider policy, instructions, metadata choices, terminal definitions, skills, plugins and browser-tool defaults are shared too. Use Environments for resource exceptions and local connections. Credentials, local paths and running work stay with their environment. Removing a local account connection retains its shared definition and other connections. Subagents appear under their originating task even when they execute in isolated worktrees.
+Settings uses one navigation for the installation, with Providers directly below Environments. Editor preferences explain how to enter and leave Vim Insert mode and use basic movement, undo and search commands. Profiles are shared across accounts and between Host and Dev container by default. Choose the account when launching; exclude an environment in the profile editor when needed. Subagents using the same provider follow the parent’s selected account, with their own saved model and reasoning settings. Select a Pi worker profile to delegate to local models. Provider policy, instructions, metadata choices, terminal definitions, skills, plugins and browser-tool defaults are shared too. Use Environments for resource exceptions and local connections. Credentials, local paths and running work stay with their environment. Removing a local account connection retains its shared definition and other connections. Subagents appear under their originating task even when they execute in isolated worktrees.
 
 Vorteo has no alternate Paseo mode and does not install a separate Paseo application. Install and configure Paseo independently if you want to use it alongside Vorteo.
 
@@ -76,7 +76,7 @@ Provider authentication happens afterward through the provider settings, which e
 
 Keep progress messages brief. If verification requires access only the user has, request that specific check and state what remains unverified.
 
-The installer builds locally, creates private storage and starts the container. Complete the Tailscale login, open the printed HTTPS address, and use the password in `$HOME/vorteo/.env`. Connect your provider accounts in the web interface. Vorteo mode is enabled by default on a fresh installation.
+The installer builds locally, creates private storage and starts the container. Complete the Tailscale login, open the printed HTTPS address, and use the password in `$HOME/vorteo/.env`. Connect your provider accounts in the web interface. Connect other devices through Tailscale using the environment address and existing application authentication. QR and pairing-link onboarding are retired.
 
 No registry account, host Node or separate host Tailscale installation is needed. Existing checkout? See [installation details](docker/multiplex/README.md).
 Keep personal files, Docker's socket and other users' homes outside the container mounts. See the [security boundaries](docs/container-tailscale.md).
