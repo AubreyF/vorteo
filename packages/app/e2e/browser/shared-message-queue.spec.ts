@@ -557,3 +557,201 @@ test("preserves a media edit after another device changes the message", async ({
     await agent.cleanup();
   }
 });
+
+test.describe("Queue indicator", () => {
+  test.use({ vortonMode: true });
+  test(
+    "local queue orbit fades into the grab handle without replacing the row",
+    checkQueueOrbitTransition,
+  );
+});
+
+async function checkQueueOrbitTransition({ page }: { page: Page }) {
+  test.setTimeout(180_000);
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "queue-orbit-",
+    title: "Queue orbit",
+    model: "thirty-minute-stream",
+    initialPrompt: "Keep running while the orbit is tested.",
+  });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "queue-orbit" });
+  try {
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "pause",
+      paused: true,
+      operationId: "pause-orbit",
+      expectedRevision: 0,
+    });
+    await page.clock.install();
+    await openAgentRoute(page, agent);
+    await expectComposerVisible(page, { timeout: 30_000 });
+    await page.evaluate(() => {
+      const original = WebSocket.prototype.send;
+      document.addEventListener(
+        "finish-queue-hold",
+        () => {
+          WebSocket.prototype.send = original;
+        },
+        { once: true },
+      );
+      WebSocket.prototype.send = function (data) {
+        if (
+          typeof data === "string" &&
+          JSON.parse(data).message?.type === "agent.queue.mutate.request"
+        ) {
+          document.addEventListener("release-queue", () => original.call(this, data), {
+            once: true,
+          });
+          document.documentElement.dataset.queueRequestHeld = "true";
+          return;
+        }
+        original.call(this, data);
+      };
+    });
+    await fillComposerDraft(page, "Watch the orbit settle");
+    await page.getByRole("button", { name: "Queue message", exact: true }).click();
+    const row = page.getByTestId(/^queue-message-/).filter({ hasText: "Watch the orbit settle" });
+    const orbit = row.getByTestId("queue-local-indicator");
+    const handle = row.getByTestId("queue-handle-indicator");
+    await expect(orbit).toHaveCSS("opacity", "1");
+    await expect(handle).toHaveCSS("opacity", "0");
+    const rotation = row.getByTestId("queue-orbit-rotation");
+    const angle = await rotation.evaluate((element) => getComputedStyle(element).transform);
+    await expect
+      .poll(() => rotation.evaluate((element) => getComputedStyle(element).transform))
+      .not.toBe(angle);
+    const localStatus = row.getByRole("button", { name: "Queued on this device", exact: true });
+    await localStatus.hover();
+    await expect(
+      page.getByRole("tooltip", { name: "Queued on this device", exact: true }),
+    ).toBeVisible();
+    await page.mouse.move(0, 0);
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(localStatus).toHaveCSS("min-height", "44px");
+    await localStatus.click();
+    await expect(
+      page.getByRole("tooltip", { name: "Queued on this device", exact: true }),
+    ).toBeVisible();
+    await localStatus.click();
+    await expect(
+      page.getByRole("tooltip", { name: "Queued on this device", exact: true }),
+    ).toBeHidden();
+    await page.setViewportSize(viewport);
+    await expect(orbit).toHaveCSS("opacity", "1");
+    await row.evaluate((element) => {
+      element.setAttribute("data-original-row", "true");
+    });
+    await test
+      .info()
+      .attach("orbit-local", { body: await row.screenshot(), contentType: "image/png" });
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dataset.queueRequestHeld))
+      .toBe("true");
+    const samples = await row.evaluate(async (element) => {
+      document.dispatchEvent(new Event("release-queue"));
+      return await new Promise<{ orbit: number; handle: number }[]>((resolve) => {
+        const values: { orbit: number; handle: number }[] = [];
+        function sample() {
+          const local = element.querySelector('[data-testid="queue-local-indicator"]');
+          const shared = element.querySelector('[data-testid="queue-handle-indicator"]')!;
+          values.push({
+            orbit: local ? Number(getComputedStyle(local).opacity) : 0,
+            handle: Number(getComputedStyle(shared).opacity),
+          });
+          if (values.at(-1)!.handle === 1) resolve(values);
+          else requestAnimationFrame(sample);
+        }
+        requestAnimationFrame(sample);
+      });
+    });
+    expect(samples.some((sample) => sample.orbit > 0 && sample.orbit < 1)).toBe(true);
+    expect(samples.some((sample) => sample.handle > 0 && sample.handle < 1)).toBe(true);
+    expect(samples.every((sample) => sample.handle === 0 || sample.orbit === 0)).toBe(true);
+    await expect(row).toHaveAttribute("data-original-row", "true");
+    await expect(row).toHaveCount(1);
+    await expect(localStatus).toHaveCount(0);
+    await expect(handle).toHaveCSS("opacity", "1");
+    await test
+      .info()
+      .attach("orbit-shared", { body: await row.screenshot(), contentType: "image/png" });
+
+    // Hold animation time at entrance while the real daemon acknowledges the next message.
+    await page.evaluate(() => {
+      delete document.documentElement.dataset.queueRequestHeld;
+    });
+    await page.clock.pauseAt(new Date(Date.now() + 1000));
+    await fillComposerDraft(page, "Quick acknowledgement");
+    await page.getByRole("button", { name: "Queue message", exact: true }).click();
+    const quick = page.getByTestId(/^queue-message-/).filter({ hasText: "Quick acknowledgement" });
+    await expect
+      .poll(async () => {
+        await page.clock.runFor(1);
+        return quick.count();
+      })
+      .toBe(1);
+    await expect(quick.getByTestId("queue-local-indicator")).toHaveCSS("opacity", "0");
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dataset.queueRequestHeld))
+      .toBe("true");
+    await page.evaluate(() => document.dispatchEvent(new Event("release-queue")));
+    await expect
+      .poll(async () => {
+        await page.clock.runFor(1);
+        return quick.getByRole("button", { name: "Reorder queued message" }).count();
+      })
+      .toBe(1);
+    await page.clock.runFor(50);
+    await expect(quick.getByTestId("queue-local-indicator")).toHaveCount(0);
+    await page.clock.runFor(300);
+    await expect(quick.getByTestId("queue-handle-indicator")).toHaveCSS("opacity", "1");
+    await page.clock.resume();
+    await expect(quick.getByRole("button", { name: "Reorder queued message" })).toBeEnabled();
+    await expect
+      .poll(async () => (await client.readMessageQueue(agent.agentId)).snapshot?.items.length)
+      .toBe(2);
+    await page.evaluate(() => document.dispatchEvent(new Event("finish-queue-hold")));
+    const queued = (await client.readMessageQueue(agent.agentId)).snapshot!.items;
+    await dragQueueMessage(page, queued[1].id, queued[0].id, false);
+    await expect
+      .poll(async () =>
+        (await client.readMessageQueue(agent.agentId)).snapshot?.items.map((item) => item.text),
+      )
+      .toEqual(["Quick acknowledgement", "Watch the orbit settle"]);
+  } finally {
+    await page.clock.resume();
+    await client.close();
+    await agent.cleanup();
+  }
+}
+
+test("queue orbit stays hidden in Standard mode", async ({ page }) => {
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "queue-standard-",
+    title: "Standard queue",
+  });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "queue-standard" });
+  try {
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "pause",
+      paused: true,
+      operationId: "pause-standard",
+      expectedRevision: 0,
+    });
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "enqueue",
+      operationId: "standard-enqueue",
+      messageId: "standard-message",
+      text: "Shared queue remains stored",
+      attachments: [],
+    });
+    await openAgentRoute(page, agent);
+    await expectComposerVisible(page, { timeout: 30_000 });
+    await expect(page.getByTestId("shared-message-queue")).toHaveCount(0);
+    await expect(page.getByTestId("queue-local-indicator")).toHaveCount(0);
+    expect((await client.readMessageQueue(agent.agentId)).snapshot?.items).toHaveLength(1);
+  } finally {
+    await client.close();
+    await agent.cleanup();
+  }
+});

@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.133 - 2026-10-05
+
+### Changed
+
+- Messages waiting to synchronize show a muted orbit that fades in, then fades out before the grab handle appears. Quick acknowledgements can skip the orbit without flashing.
+
 ## 0.11.0-beta.3.vorteo.132 - 2026-10-05
 
 ### Fixed

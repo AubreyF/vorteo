@@ -1,5 +1,5 @@
 import { CountBadge } from "@/components/ui/count-badge";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { QueueMessageIndicator } from "./queue-indicator";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
 import { isNative } from "@/constants/platform";
@@ -15,7 +15,6 @@ import {
   Pause,
   MoreHorizontal,
   GripVertical,
-  TriangleAlert,
 } from "lucide-react-native";
 import { useVortonTouch } from "@/vorton-touch";
 import {
@@ -99,6 +98,14 @@ function QueueViewContent({
   )
     return null;
   const hasMessages = hasQueueMessages(control);
+  const hasRows =
+    !!snapshot?.items.length ||
+    control.pending.some((record) => record.operation.kind === "enqueue");
+  const recovery = control.pending.filter((record) => {
+    const operation = record.operation;
+    if (operation.kind !== "enqueue") return true;
+    return !!record.error && !!snapshot?.items.some((item) => item.id === operation.messageId);
+  });
   return (
     <View
       style={hasMessages ? taskCardStyles.container : undefined}
@@ -126,12 +133,12 @@ function QueueViewContent({
       ) : null}
       <View>
         <QueueRows control={control} serverId={serverId} agentId={agentId} />
-        {control.pending.map((record, index) => (
+        {recovery.map((record, index) => (
           <PendingRow
             key={record.operation.operationId}
             record={record}
             control={control}
-            separated={index > 0 || !!snapshot?.items.length}
+            separated={index > 0 || hasRows}
           />
         ))}
       </View>
@@ -169,7 +176,11 @@ function QueueHeader({ control }: { control: MessageQueueControl }) {
   );
 }
 
-const queueItemKey = (item: QueueItem) => item.id;
+type QueueDisplayItem =
+  | { id: string; shared: QueueItem; local: null }
+  | { id: string; shared: null; local: OutboxRecord };
+
+const queueItemKey = (item: QueueDisplayItem) => item.id;
 const EMPTY_QUEUE_ITEMS: QueueItem[] = [];
 
 function QueueRows({
@@ -192,6 +203,7 @@ function QueueRows({
   const enabled =
     control.canMutate &&
     !edits.drafts.length &&
+    !control.pending.some((record) => record.operation.kind === "enqueue") &&
     !preview &&
     !!snapshot &&
     snapshot.items.length > 1 &&
@@ -202,8 +214,9 @@ function QueueRows({
     onDragActive(true);
   }, [snapshot, onDragActive]);
   const drop = useCallback(
-    (items: QueueItem[]) => {
+    (rows: QueueDisplayItem[]) => {
       release();
+      const items = rows.flatMap((row) => (row.shared ? [row.shared] : []));
       if (!snapshot || !control.canMutate) return;
       try {
         const action = queueReorderAction(snapshot, startedRevision.current, items);
@@ -220,7 +233,7 @@ function QueueRows({
     [snapshot, control, release],
   );
   const renderRow = useCallback(
-    (info: DraggableRenderItemInfo<QueueItem>) => (
+    (info: DraggableRenderItemInfo<QueueDisplayItem>) => (
       <QueueRow
         item={info.item}
         index={info.index}
@@ -241,10 +254,20 @@ function QueueRows({
   for (const draft of edits.drafts) {
     if (!items.some((item) => item.id === draft.original.id)) items.push(draft.original);
   }
+  const rows: QueueDisplayItem[] = items.map((item) => ({
+    id: item.id,
+    shared: item,
+    local: null,
+  }));
+  for (const record of control.pending) {
+    if (record.operation.kind !== "enqueue") continue;
+    const id = record.operation.messageId;
+    if (!rows.some((row) => row.id === id)) rows.push({ id, shared: null, local: record });
+  }
   return (
     <>
       <DraggableList
-        data={items}
+        data={rows}
         keyExtractor={queueItemKey}
         renderItem={renderRow}
         onDragBegin={begin}
@@ -271,7 +294,7 @@ function QueueDragHandle({
   info,
   disabled,
 }: {
-  info: DraggableRenderItemInfo<QueueItem>;
+  info: DraggableRenderItemInfo<QueueDisplayItem>;
   disabled: boolean;
 }) {
   const touch = useVortonTouch();
@@ -370,12 +393,36 @@ function PendingRow({
   control: MessageQueueControl;
   separated: boolean;
 }) {
-  const touch = useVortonTouch();
-  const localStatus = record.dismissed ? "Kept on this device" : "Queued on this device";
-  const attachments =
-    record.operation.kind === "enqueue" || record.operation.kind === "edit"
-      ? [...record.operation.attachments, ...record.localAttachments]
-      : [];
+  const attachments = pendingAttachments(record);
+  return (
+    <View style={[taskCardStyles.item, separated && taskCardStyles.separator]}>
+      <View style={styles.summary}>
+        <QueueMessageIndicator record={record} />
+        <QueueAttachmentSummary
+          count={attachments.length}
+          hasMedia={attachments.some((attachment) => attachment.kind === "image")}
+        />
+        <Text
+          selectable
+          style={[taskCardStyles.rowText, styles.summaryText]}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+        >
+          {describePendingChange(record)}
+        </Text>
+      </View>
+      <PendingRecovery record={record} control={control} />
+    </View>
+  );
+}
+
+function PendingRecovery({
+  record,
+  control,
+}: {
+  record: OutboxRecord;
+  control: MessageQueueControl;
+}) {
   const [error, setError] = useState<string | null>(null);
   const keepCopy = useCallback(() => {
     setError(null);
@@ -402,37 +449,11 @@ function PendingRow({
       );
   }, [record, control]);
   return (
-    <View style={[taskCardStyles.item, separated && taskCardStyles.separator]}>
+    <View>
       {record.error ? <Text style={styles.secondary}>Could not synchronize</Text> : null}
       {record.dismissed ? (
         <Text style={styles.secondary}>Kept locally. This change will not be sent.</Text>
       ) : null}
-      <View style={styles.summary}>
-        <Tooltip enabledOnDesktop enabledOnMobile>
-          <TooltipTrigger
-            accessibilityRole="button"
-            accessibilityLabel={localStatus}
-            style={[styles.localStatus, touch && styles.touch]}
-          >
-            <ThemedWarning size={14} uniProps={warningIconMapping} />
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <Text style={styles.tooltipText}>{localStatus}</Text>
-          </TooltipContent>
-        </Tooltip>
-        <QueueAttachmentSummary
-          count={attachments.length}
-          hasMedia={attachments.some((attachment) => attachment.kind === "image")}
-        />
-        <Text
-          selectable
-          style={[taskCardStyles.rowText, styles.summaryText]}
-          numberOfLines={2}
-          ellipsizeMode="tail"
-        >
-          {describePendingChange(record)}
-        </Text>
-      </View>
       {record.error ? (
         <Text style={styles.error} accessibilityRole="alert">
           {record.error.message}
@@ -510,10 +531,24 @@ function ReviewRejectedEdit({
   );
 }
 
+function pendingAttachments(record: OutboxRecord) {
+  const operation = record.operation;
+  if (operation.kind !== "enqueue" && operation.kind !== "edit") return [];
+  return [...operation.attachments, ...record.localAttachments];
+}
+
+function describeQueuedMessage(item: QueueItem): string {
+  return (
+    item.text ||
+    item.attachments.map((attachment) => attachment.fileName).join(", ") ||
+    "Attached context"
+  );
+}
+
 function QueueRow({
   serverId,
   agentId,
-  item,
+  item: row,
   index,
   control,
   dragInfo,
@@ -521,16 +556,21 @@ function QueueRow({
 }: {
   serverId: string;
   agentId: string;
-  item: QueueItem;
+  item: QueueDisplayItem;
   index: number;
   control: MessageQueueControl;
-  dragInfo: DraggableRenderItemInfo<QueueItem>;
+  dragInfo: DraggableRenderItemInfo<QueueDisplayItem>;
   reorderEnabled: boolean;
 }) {
+  const item = row.shared;
+  const record = row.local;
+  const attachments = row.shared ? row.shared.attachments : pendingAttachments(row.local);
+  const text = row.shared ? describeQueuedMessage(row.shared) : describePendingChange(row.local);
   const edits = useQueueEditDrafts();
-  const editing = edits.drafts.filter((draft) => draft.original.id === item.id);
+  const editing = edits.drafts.filter((draft) => draft.original.id === row.id);
   const [editError, setEditError] = useState<string | null>(null);
   const edit = useCallback(() => {
+    if (!item) return;
     void edits
       .open(item)
       .catch((failure: unknown) =>
@@ -546,34 +586,38 @@ function QueueRow({
         index > 0 && taskCardStyles.separator,
         dragInfo.isActive && styles.dragActive,
       ]}
-      testID={`queue-message-${item.id}`}
+      testID={`queue-message-${row.id}`}
     >
       {!editing.length ? (
         <View style={styles.summary}>
-          <QueueDragHandle info={dragInfo} disabled={!reorderEnabled} />
+          <QueueMessageIndicator record={record}>
+            {item ? <QueueDragHandle info={dragInfo} disabled={!reorderEnabled} /> : null}
+          </QueueMessageIndicator>
           <QueueAttachmentSummary
-            count={item.attachments.length}
-            hasMedia={item.attachments.some((attachment) => attachment.kind === "image")}
+            count={attachments.length}
+            hasMedia={attachments.some((attachment) => attachment.kind === "image")}
           />
           <Text
+            selectable={!!record}
             style={[taskCardStyles.rowText, styles.summaryText]}
             numberOfLines={2}
             ellipsizeMode="tail"
           >
-            {item.text ||
-              item.attachments.map((attachment) => attachment.fileName).join(", ") ||
-              "Attached context"}
+            {text}
           </Text>
-          <QueueActions
-            item={item}
-            control={control}
-            edit={edit}
-            details={details}
-            toggleDetails={toggleDetails}
-          />
+          {item ? (
+            <QueueActions
+              item={item}
+              control={control}
+              edit={edit}
+              details={details}
+              toggleDetails={toggleDetails}
+            />
+          ) : null}
         </View>
       ) : null}
-      {details && !editing.length ? (
+      {record ? <PendingRecovery record={record} control={control} /> : null}
+      {item && details && !editing.length ? (
         <SharedQueueAttachments
           serverId={serverId}
           agentId={agentId}
@@ -581,15 +625,15 @@ function QueueRow({
           presentation={item}
         />
       ) : null}
-      {item.delivery.status === "dispatching" ? (
+      {item?.delivery.status === "dispatching" ? (
         <Text style={styles.secondary}>Sending...</Text>
       ) : null}
-      {"reason" in item.delivery ? (
+      {item && "reason" in item.delivery ? (
         <Text style={styles.error} accessibilityRole="alert">
           {item.delivery.reason}
         </Text>
       ) : null}
-      {item.delivery.status === "uncertain" ? (
+      {item?.delivery.status === "uncertain" ? (
         <Text style={styles.secondary}>
           The host could not confirm delivery. Retrying may send this message again.
         </Text>
@@ -603,7 +647,7 @@ function QueueRow({
         <QueueEditEditor
           key={draft.id}
           draft={draft}
-          current={control.snapshot?.items.find((entry) => entry.id === item.id)}
+          current={control.snapshot?.items.find((entry) => entry.id === row.id)}
         />
       ))}
     </View>
@@ -748,22 +792,13 @@ function QueuePrimaryActions({
 }
 
 const ThemedGrip = withUnistyles(GripVertical);
-const ThemedWarning = withUnistyles(TriangleAlert);
 const ThemedMore = withUnistyles(MoreHorizontal);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
-const warningIconMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
 
 const styles = StyleSheet.create((theme) => ({
   row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: theme.spacing[1] },
   summary: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
   summaryText: { flex: 1, minWidth: 0 },
-  localStatus: {
-    width: 24,
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tooltipText: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   heading: {
     flex: 1,
   },
