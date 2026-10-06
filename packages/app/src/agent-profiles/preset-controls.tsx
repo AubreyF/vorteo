@@ -90,15 +90,14 @@ export function PresetControls({
   disabled,
 }: PresetControlsProps) {
   const [open, setOpen] = useState(false);
-  const [waitingToOpen, setWaitingToOpen] = useState(false);
   const panelActive = useRetainedPanelActive();
   const vortonMode = useVortonMode();
   const touch = useVortonTouch();
   const selectionDisabled = disabled || Boolean(profiles.isApplying);
   const controlsRef = useRef<View>(null);
   const triggerAccessibilityState = useMemo(
-    () => ({ expanded: open, busy: waitingToOpen || Boolean(profiles.isApplying) }),
-    [open, waitingToOpen, profiles.isApplying],
+    () => ({ expanded: open, busy: Boolean(profiles.isApplying) }),
+    [open, profiles.isApplying],
   );
   const [query, setQuery] = useState("");
   const [inspectedId, setInspectedId] = useState<string>();
@@ -117,8 +116,8 @@ export function PresetControls({
   const { profiles: definitions } = useAgentProfiles(serverId);
   const hasLocalEndpoint = profiles.rows.some((row) => Boolean(row.localEndpoint));
   const active = vortonMode && panelActive;
-  const { view, ready } = usePresetData(serverId, profiles, active);
-  // Warm every row before opening; changing snapshots must not restart the refresh loop.
+  const { view } = usePresetData(serverId, profiles, active);
+  // Refresh visible usage in the background without gating the menu.
   const refreshRef = useRef(profiles.refreshStatus);
   refreshRef.current = profiles.refreshStatus;
   const refreshingRef = useRef(profiles.isRefreshingStatus);
@@ -139,13 +138,6 @@ export function PresetControls({
     return () => clearInterval(timer);
   }, [active, hasLocalEndpoint, serverId]);
   useEffect(() => {
-    if (waitingToOpen && ready) {
-      setWaitingToOpen(false);
-      setOpen(true);
-    }
-  }, [waitingToOpen, ready]);
-  useEffect(() => {
-    setWaitingToOpen(false);
     setOpen(false);
   }, [serverId, active]);
   const visibleRows = useMemo(
@@ -200,9 +192,8 @@ export function PresetControls({
   const show = useCallback(() => {
     setInspectedId(selectedProfileId);
     setQuery("");
-    setWaitingToOpen(!ready && !waitingToOpen);
-    setOpen(ready);
-  }, [selectedProfileId, ready, waitingToOpen]);
+    setOpen(true);
+  }, [selectedProfileId]);
   const select = useCallback(
     (id: string, choices?: Pick<AgentProfile, "model" | "thinkingOptionId">) => {
       if (disabled || profiles.isApplying) return;
@@ -267,7 +258,7 @@ export function PresetControls({
           testID="agent-preset-selector"
         >
           <PresetStatusIcon
-            waiting={waitingToOpen || Boolean(profiles.isApplying)}
+            waiting={Boolean(profiles.isApplying)}
             showWarning={showWarning}
             showRing={showRing}
             remaining={remaining}

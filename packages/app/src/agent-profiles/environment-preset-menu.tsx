@@ -10,6 +10,7 @@ import {
   formatLocalEndpointSummary,
   formatWorkerActivity,
 } from "@/provider-usage/local-endpoint-summary";
+import { AccountUsageBadge, AccountUsageDetails } from "./account-usage";
 import { PresetUsageRail } from "./preset-usage-rail";
 import { usePresetData } from "./use-preset-data";
 import type {
@@ -91,7 +92,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
     () => ({ rows, applyProfile: props.onApply, isLoadingStatus: isLoading }),
     [rows, props.onApply, isLoading],
   );
-  const { view, ready } = usePresetData(serverId, menuProfiles, true);
+  const { view, resetLoadingProviders } = usePresetData(serverId, menuProfiles, true);
   const accounts = useMemo(
     () => accountPresets({ rows, definitions: definitions ?? [], entries, query: "" }),
     [rows, definitions, entries],
@@ -152,6 +153,31 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
     ),
     [view, serverId, props.now],
   );
+  const renderBadge = useCallback(
+    (row: AgentProfilePickerRow) =>
+      row.localEndpoint ? null : (
+        <AccountUsageBadge view={view} providerId={row.provider} now={props.now} />
+      ),
+    [view, props.now],
+  );
+  const renderAccountDetails = useCallback(
+    (row: AgentProfilePickerRow) => (
+      <AccountUsageDetails
+        view={view}
+        providerId={row.provider}
+        now={props.now}
+        serverId={serverId}
+        name={row.name}
+        resetLoading={resetLoadingProviders.has(row.provider)}
+        localStatus={
+          row.localEndpoint
+            ? (formatLocalEndpointSummary(row.localEndpoint, props.now) ?? "Local endpoint")
+            : undefined
+        }
+      />
+    ),
+    [view, props.now, serverId, resetLoadingProviders],
+  );
   let availabilityError = error;
   if (!connected) availabilityError = "Reconnect to this environment to select a profile";
   else if (!isSupported && !isLoading)
@@ -169,7 +195,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       activeServerId={props.serverId}
       inspectedId={inspectedId}
       compact={props.compact}
-      disabled={props.disabled || !ready || !connected}
+      disabled={props.disabled || !connected}
       loading={isLoading || definitions === null}
       error={availabilityError}
       currentProvider={sameEnvironment ? props.currentProvider : undefined}
@@ -179,6 +205,8 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       onApply={apply}
       onManage={manage}
       renderRail={renderRail}
+      renderBadge={renderBadge}
+      renderAccountDetails={renderAccountDetails}
     />
   );
 }

@@ -1,3 +1,4 @@
+import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 import { expect, test } from "../support/fixtures";
@@ -72,6 +73,7 @@ test("profile cards use border selection, a separate activation action, and comp
       .getByTestId("preset-row-shared-workflow/mock/account-medium")
       .boundingBox();
     const secondProfile = await chosenProfile.boundingBox();
+    expect(secondProfile!.height).toBe(accountBounds!.height);
     expect(secondProfile!.y).toBe(firstProfile!.y);
     expect(secondProfile!.x).toBeGreaterThan(firstProfile!.x);
     const card = await page.getByTestId("preset-profile-card").boundingBox();
@@ -164,6 +166,86 @@ test("active profile hides the action until a different profile is selected", as
       originalCard!.height,
     );
   } finally {
+    await workspace.cleanup();
+    await seed.restore();
+  }
+});
+
+test("chooser opens while usage is pending and refreshes within the account tile", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const seed = await seedAgentProfiles([medium, ultra], true);
+  const workspace = await seedMockAgentWorkspace({
+    repoPrefix: "instant-picker-",
+    title: "Instant picker",
+    model: "e2e-fast-stream",
+    initialPrompt: "Remember the instant picker test.",
+  });
+  const pending: Array<() => void> = [];
+  let hold = true;
+  await page.routeWebSocket(daemonWsRoutePattern(), (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      if (typeof message !== "string") return socket.send(message);
+      const envelope = JSON.parse(message);
+      if (
+        envelope.type === "session" &&
+        envelope.message?.type === "provider.usage.list.response"
+      ) {
+        envelope.message.payload.providers = [
+          {
+            providerId: "mock",
+            displayName: "Mock",
+            status: "available",
+            planLabel: null,
+            windows: [
+              {
+                id: "weekly",
+                label: "Weekly",
+                remainingPct: 8,
+                resetsAt: new Date(Date.now() + 3.5 * 86_400_000).toISOString(),
+              },
+            ],
+          },
+        ];
+        const deliver = () => socket.send(JSON.stringify(envelope));
+        if (hold) pending.push(deliver);
+        else deliver();
+        return;
+      }
+      socket.send(message);
+    });
+  });
+  try {
+    await workspace.client.waitForAgentUpsert(
+      workspace.agentId,
+      (agent) => agent.status === "idle",
+      15_000,
+    );
+    await openAgentRoute(page, workspace);
+    await expectComposerVisible(page);
+    await setVortonMode(page, true);
+    await expect.poll(() => pending.length).toBeGreaterThan(0);
+    await page.getByTestId("agent-preset-selector").click();
+    await expect(page.getByTestId("account-preset-menu")).toBeVisible({ timeout: 1000 });
+    await expect(page.getByTestId("preset-usage-loading-mock")).toBeVisible();
+    await page.getByTestId("preset-row-shared-workflow/mock/account-ultra").click();
+    await expect(page.getByTestId("preset-use-profile")).toHaveText("Activate Profile");
+    hold = false;
+    pending.splice(0).forEach((deliver) => deliver());
+    await expect(page.getByTestId("preset-usage-loading-mock")).toHaveCount(0);
+    const account = page.getByTestId("preset-account-mock");
+    const remaining = account.getByText("8% left", { exact: true });
+    const reset = account.getByText("Resets in 3 days", { exact: true });
+    await expect(remaining).toBeVisible();
+    await expect(reset).toBeVisible();
+    expect((await remaining.boundingBox())!.y).toBeLessThan((await reset.boundingBox())!.y);
+    await page.screenshot({ path: test.info().outputPath("profile-usage-refreshed.png") });
+  } finally {
+    hold = false;
+    pending.splice(0).forEach((deliver) => deliver());
     await workspace.cleanup();
     await seed.restore();
   }
