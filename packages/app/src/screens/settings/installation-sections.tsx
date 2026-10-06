@@ -8,7 +8,6 @@ import { useHosts } from "@/runtime/host-runtime";
 import { readExecutionInstallation } from "@/execution-installation/policy";
 import { useInstallationProfiles } from "@/execution-installation/profiles";
 import { InstallationSettingsStatus } from "@/execution-installation/settings-status";
-import { EnvironmentResourceExclusions } from "@/execution-installation/resource-exclusions";
 import { SharedProviderSection } from "@/agent-profiles/settings/shared-provider-section";
 import { AgentProfilesSection } from "@/agent-profiles/settings/agent-profiles-section";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
@@ -21,7 +20,6 @@ import {
   HostConnectionsPage,
   HostPairDevicePage,
   HostProvidersPage,
-  HostSettingsPage,
   HostTerminalsPage,
   HostUsagePage,
   HostWorkspacesPage,
@@ -97,11 +95,9 @@ function ProfilesSettings({ serverId }: { serverId: string }) {
 
 export function InstallationSettingsContent({
   section,
-  onHostRemoved,
   onAddHost,
 }: {
   section: InstallationSettingsSection;
-  onHostRemoved: () => void;
   onAddHost: () => void;
 }) {
   const hosts = useHosts();
@@ -180,14 +176,6 @@ export function InstallationSettingsContent({
           title={host.label}
           testID={`settings-environment-${host.serverId}`}
         >
-          {section === "environments" ? (
-            <View>
-              <HostSettingsPage serverId={host.serverId} onHostRemoved={onHostRemoved} />
-              <InstallationSettingsStatus>
-                <EnvironmentResourceExclusions serverId={host.serverId} />
-              </InstallationSettingsStatus>
-            </View>
-          ) : null}
           {section === "connections" ? <HostConnectionsPage serverId={host.serverId} /> : null}
           {section === "pair-device" ? <HostPairDevicePage serverId={host.serverId} /> : null}
           {section === "providers" ? <HostProvidersPage serverId={host.serverId} /> : null}

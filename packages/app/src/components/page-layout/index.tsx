@@ -15,6 +15,8 @@ interface PageLayoutProps {
   titleTestID?: string;
   /** Controls for the whole page: right of the title on desktop, in the back header on compact. */
   actions?: ReactNode;
+  /** Persistent controls above the scrolling content column. */
+  fixedHeader?: ReactNode;
   children: ReactNode;
 }
 
@@ -29,6 +31,7 @@ export function PageLayout({
   testID,
   titleTestID,
   actions,
+  fixedHeader,
   children,
 }: PageLayoutProps) {
   const isCompact = useIsCompactFormFactor();
@@ -43,6 +46,7 @@ export function PageLayout({
       ) : (
         <MenuHeader borderless />
       )}
+      {fixedHeader ? <View style={styles.fixedHeader}>{fixedHeader}</View> : null}
       <ScrollView style={styles.scroll} contentContainerStyle={scrollContentStyle} testID={testID}>
         <View style={styles.content}>
           {showTitle ? (
@@ -67,6 +71,13 @@ const styles = StyleSheet.create((theme) => ({
   },
   scroll: {
     flex: 1,
+  },
+  fixedHeader: {
+    width: "100%",
+    maxWidth: 720,
+    alignSelf: "center",
+    paddingHorizontal: theme.spacing[4],
+    paddingVertical: theme.spacing[2],
   },
   content: {
     padding: theme.spacing[4],
