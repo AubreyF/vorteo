@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.152 - 2026-10-06
+
+### Fixed
+
+- Keep moved worker workspaces in their chosen project so automatic sidebar grouping does not hide the destination
+
 ## 0.11.0-beta.3.vorteo.151 - 2026-10-06
 
 ### Fixed

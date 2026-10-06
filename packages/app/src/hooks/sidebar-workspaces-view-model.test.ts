@@ -982,6 +982,69 @@ function workerSidebarFixture() {
 }
 
 describe("managed worker sidebar placement", () => {
+  it.each([true, false])(
+    "keeps an explicitly moved worker in its chosen project with terminal presence %s",
+    (presence) => {
+      const fixture = workerSidebarFixture();
+      fixture.execution.projectMembership = { key: "misc-dev", name: "Misc Dev" };
+      fixture.projects[1] = project({
+        projectKey: "misc-dev",
+        projectName: "Misc Dev",
+        workspaceKeys: ["srv:execution"],
+        hosts: [
+          {
+            serverId: "dev",
+            projectId: "dev-project",
+            iconWorkingDir: "/dev",
+            worktreeSupport: "unsupported",
+          },
+        ],
+      });
+      for (const hydrated of [false, true, false, true]) {
+        fixture.session.hasHydratedAgents = hydrated;
+        const model = buildSidebarWorkspacePlacementModel({
+          projects: fixture.projects,
+          managedWorkspaces: collectManagedWorkspacePlacements({
+            projects: fixture.projects,
+            sessions: [fixture.session],
+          }),
+          terminalPresence: new Map([["srv:execution", presence]]),
+        });
+        expect(model.projects.map((entry) => entry.viewKey)).toEqual([
+          "origin-project",
+          "misc-dev",
+        ]);
+        expect(model.projects[1]?.workspaces.map((entry) => entry.workspaceId)).toEqual([
+          "execution",
+        ]);
+        expect(
+          model.workspaces.find((entry) => entry.workspaceId === "execution")?.projectViewKey,
+        ).toBe("misc-dev");
+      }
+    },
+  );
+
+  it("still folds a worker that inherits its parent's chosen project", () => {
+    const fixture = workerSidebarFixture();
+    const membership = { key: "origin-project", name: "Origin" };
+    fixture.origin.projectMembership = membership;
+    fixture.execution.projectMembership = membership;
+    fixture.projects[0] = project({
+      projectKey: membership.key,
+      workspaceKeys: ["srv:origin", "srv:execution"],
+    });
+    fixture.projects[1] = project({ projectKey: "worker-project", workspaceKeys: [] });
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces: collectManagedWorkspacePlacements({
+        projects: fixture.projects,
+        sessions: [fixture.session],
+      }),
+      terminalPresence: new Map([["srv:execution", false]]),
+    });
+    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin"]);
+    expect(model.workspaces[0]?.managedWorkspaceIds).toEqual(["execution"]);
+  });
   it("folds a confirmed worker-only worktree beneath its originating task and project", () => {
     const fixture = workerSidebarFixture();
     const managedWorkspaces = collectManagedWorkspacePlacements({
