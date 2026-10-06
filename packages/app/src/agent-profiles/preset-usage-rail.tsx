@@ -1,5 +1,5 @@
 import { ProviderReconnectControl } from "@/provider-usage/reconnect-control";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { formatProviderUsageSummary } from "@/provider-usage/compact-summary";
@@ -28,6 +28,7 @@ export function PresetUsageRail({
   providerId,
   name,
   showConnectionActions = true,
+  showResetControl,
 }: {
   view: ProviderUsageView;
   now: number;
@@ -36,6 +37,7 @@ export function PresetUsageRail({
   providerId: string;
   name: string;
   showConnectionActions?: boolean;
+  showResetControl?: boolean;
 }) {
   const { window, usage, statusLabel } = quotaReading(view, providerId, now);
   const { config } = useDaemonConfig(serverId);
@@ -93,7 +95,7 @@ export function PresetUsageRail({
           {formatProviderUsageSummary(usage) ?? statusLabel}
         </Text>
       )}
-      <View style={[styles.resets, vortonMode && styles.resetsVorton]}>
+      <UsageControlSlot visible={showResetControl} vortonMode={vortonMode}>
         <UsageControls
           connectionAction={connectionAction}
           showConnectionActions={showConnectionActions}
@@ -103,7 +105,7 @@ export function PresetUsageRail({
           name={name}
           critical={critical}
         />
-      </View>
+      </UsageControlSlot>
     </>
   );
   const rail = <View style={[styles.rail, vortonMode && styles.railVorton]}>{content}</View>;
@@ -114,6 +116,18 @@ export function PresetUsageRail({
       <Text style={[styles.status, critical && styles.critical]}>{statusLabel}</Text>
     </View>
   );
+}
+function UsageControlSlot({
+  visible,
+  vortonMode,
+  children,
+}: {
+  visible?: boolean;
+  vortonMode: boolean;
+  children: ReactNode;
+}) {
+  if (visible === false) return null;
+  return <View style={[styles.resets, vortonMode && styles.resetsVorton]}>{children}</View>;
 }
 function UsageControls({
   connectionAction,

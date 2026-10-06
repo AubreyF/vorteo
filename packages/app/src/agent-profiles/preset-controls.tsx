@@ -290,7 +290,7 @@ export function PresetControls({
         mobileSnapPoints={vortonMode ? PROFILE_SNAP_POINTS : undefined}
         onActiveOptionChange={vortonMode ? undefined : setInspectedId}
         desktopPlacement="top-start"
-        desktopMinWidth={Math.min(vortonMode ? 880 : 760, width - 32)}
+        desktopMinWidth={Math.min(vortonMode ? 1040 : 760, width - 32)}
         desktopFixedHeight={vortonMode ? 520 : 440}
         desktopPreventInitialFlash
         desktopLockWidth

@@ -32,9 +32,22 @@ export function ProfileDetailsView({
       {sections.map((section) => (
         <View key={section.title} style={styles.section}>
           <Text style={styles.label}>{section.title}</Text>
-          <Text style={styles.text} selectable>
-            {section.text}
-          </Text>
+          <View style={compact && styles.content}>
+            {compact && section.title === "Saved profile permissions" ? (
+              <>
+                <Text style={[styles.text, styles.permissionName]} selectable>
+                  {section.text.split("\n")[0]}
+                </Text>
+                <Text style={styles.description} selectable>
+                  {section.text.split("\n").slice(1).join("\n")}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.text} selectable>
+                {section.text}
+              </Text>
+            )}
+          </View>
         </View>
       ))}
     </View>
@@ -44,5 +57,16 @@ const styles = StyleSheet.create((theme) => ({
   sections: { gap: theme.spacing[4] },
   section: { gap: theme.spacing[2] },
   label: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
-  text: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
+  content: { paddingHorizontal: theme.spacing[3], gap: theme.spacing[1] },
+  permissionName: { fontWeight: theme.fontWeight.medium },
+  description: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    lineHeight: Math.ceil(theme.fontSize.sm * 1.5),
+  },
+  text: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.base,
+    lineHeight: Math.ceil(theme.fontSize.base * 1.5),
+  },
 }));

@@ -52,8 +52,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
         .map((item) => ({
           serverId: item.serverId,
           label: item.kind === "host" ? "Host" : "Dev container",
-          description:
-            item.kind === "host" ? "Higher risk · Host access" : "Safer · Isolated workspace",
+          description: item.kind === "host" ? "Full host access" : "Safer isolated workspace",
           available: statuses.get(item.serverId) === "online",
         }));
     return hosts.map((host) => ({
@@ -133,6 +132,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       <PresetUsageRail
         view={view}
         showConnectionActions={false}
+        showResetControl={false}
         now={props.now}
         localStatus={
           row.localEndpoint

@@ -2,6 +2,14 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.129 - 2026-10-05
+
+### Changed
+
+- Animate profile activation and switching actions and reclaim their space when hidden
+- Widen environment descriptions, move resets to the profile header, and give account rows more breathing room
+- Use a two-column profile grid on wide screens and indent formatted permission and worker details
+
 ## 0.11.0-beta.3.vorteo.127 - 2026-10-05
 
 ### Changed

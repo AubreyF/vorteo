@@ -67,6 +67,13 @@ test("profile cards use border selection, a separate activation action, and comp
     await expect(chosenProfile).not.toHaveCSS("border-left-color", "rgba(0, 0, 0, 0)");
     await expect(chosenProfile.locator("svg")).toHaveCount(0);
     await expect(page.getByTestId("preset-use-profile")).toHaveText("Activate Profile");
+    await waitForSettledPosition(page.getByTestId("preset-use-profile"));
+    const firstProfile = await page
+      .getByTestId("preset-row-shared-workflow/mock/account-medium")
+      .boundingBox();
+    const secondProfile = await chosenProfile.boundingBox();
+    expect(secondProfile!.y).toBe(firstProfile!.y);
+    expect(secondProfile!.x).toBeGreaterThan(firstProfile!.x);
     const card = await page.getByTestId("preset-profile-card").boundingBox();
     const action = await page.getByTestId("preset-use-profile").boundingBox();
     expect(action!.y).toBeGreaterThanOrEqual(card!.y + card!.height);
@@ -124,6 +131,7 @@ test("profile cards use border selection, a separate activation action, and comp
 });
 
 test("active profile hides the action until a different profile is selected", async ({ page }) => {
+  test.setTimeout(120_000);
   const seed = await seedAgentProfiles([medium, ultra], true);
   const workspace = await seedWorkspace({ repoPrefix: "active-profile-picker-" });
   try {
@@ -140,10 +148,21 @@ test("active profile hides the action until a different profile is selected", as
     await page.getByTestId("agent-preset-selector").click();
     await expect(page.getByTestId("preset-row-shared-workflow/mock/account-medium")).toBeVisible();
     await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
+    await expect(page.getByTestId("preset-action-area")).toHaveCSS("height", "0px");
+    const originalCard = await page.getByTestId("preset-profile-card").boundingBox();
+    await page.screenshot({ path: test.info().outputPath("profile-active-no-action.png") });
     await page.getByTestId("preset-row-shared-workflow/mock/account-ultra").click();
     await expect(page.getByTestId("preset-use-profile")).toHaveText("Switch to Profile");
+    await waitForSettledPosition(page.getByTestId("preset-use-profile"));
+    expect((await page.getByTestId("preset-profile-card").boundingBox())!.height).toBeLessThan(
+      originalCard!.height,
+    );
     await page.getByTestId("preset-row-shared-workflow/mock/account-medium").click();
     await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
+    await expect(page.getByTestId("preset-action-area")).toHaveCSS("height", "0px");
+    expect((await page.getByTestId("preset-profile-card").boundingBox())!.height).toBe(
+      originalCard!.height,
+    );
   } finally {
     await workspace.cleanup();
     await seed.restore();

@@ -1,9 +1,10 @@
 import { ExecutionEnvironmentIcon } from "@/execution-installation/environment-icon";
 import { useVortonTouch } from "@/vorton-touch";
-import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
+import { ProfileAction } from "./profile-action";
+import { ProviderResetControl } from "@/provider-usage/reset-control";
 import { sharedChoiceState, type LaunchChoices } from "./shared-choices";
 import { useCallback, useMemo, useReducer, type ReactNode } from "react";
-import { Keyboard, ScrollView, Text, View } from "react-native";
+import { Keyboard, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -496,6 +497,8 @@ function AccountChoices({
   family: ProviderSnapshotEntry[];
   heading: ReactNode;
 }) {
+  const { width } = useWindowDimensions();
+  const grid = !props.compact && width >= 1100;
   const DetailScrollView = props.compact ? BottomSheetScrollView : ScrollView;
   const entry = props.entries?.find((candidate) => candidate.provider === account.provider);
   const definition = props.definitions.find((profile) => profile.id === inspected.id);
@@ -518,7 +521,16 @@ function AccountChoices({
   return (
     <View style={styles.detail} testID={`preset-choices-${account.provider}`}>
       <View style={[settingsStyles.card, styles.detailCard]} testID="preset-profile-card">
-        {heading}
+        <View style={styles.profileHeader}>
+          <View style={styles.profileHeading}>{heading}</View>
+          <ProviderResetControl
+            serverId={props.serverId}
+            providerId={account.provider}
+            name={account.label}
+            compact
+            preloaded
+          />
+        </View>
         <DetailScrollView
           testID="preset-profile-scroll"
           style={styles.detailScroll}
@@ -527,11 +539,12 @@ function AccountChoices({
         >
           <View style={styles.choices}>
             {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
-            <View style={styles.profileList}>
+            <View style={[styles.profileList, grid && styles.profileGrid]}>
               {account.rows.map((row) => (
                 <ProfileChoice
                   key={row.id}
                   row={row}
+                  grid={grid}
                   selected={hasSelection && row.id === inspected.id}
                   definition={props.definitions.find((profile) => profile.id === row.id)}
                   entry={entry}
@@ -553,19 +566,12 @@ function AccountChoices({
           </View>
         </DetailScrollView>
       </View>
-      <View style={styles.footer}>
-        {showAction ? (
-          <Button
-            variant="default"
-            size="md"
-            disabled={props.disabled || inspected.unavailable || selectionUnavailable}
-            onPress={apply}
-            testID="preset-use-profile"
-          >
-            {actionLabel}
-          </Button>
-        ) : null}
-      </View>
+      <ProfileAction
+        visible={showAction}
+        disabled={props.disabled || inspected.unavailable || selectionUnavailable}
+        onPress={apply}
+        label={actionLabel}
+      />
     </View>
   );
 }
@@ -582,13 +588,13 @@ function WorkflowInstructions({
       {definition?.instructions ? (
         <>
           <Text style={styles.label}>Instructions</Text>
-          <Text style={styles.summary}>{definition.instructions}</Text>
+          <Text style={[styles.summary, styles.sectionContent]}>{definition.instructions}</Text>
         </>
       ) : null}
       {definition?.workerProfileId ? (
         <>
           <Text style={styles.label}>Workers</Text>
-          <Text style={styles.summary}>
+          <Text style={[styles.summary, styles.sectionContent]}>
             {definitions.find((profile) => profile.id === definition.workerProfileId)?.name ??
               definition.workerProfileId}{" "}
             · Up to {definition.maxWorkers ?? 2}
@@ -601,12 +607,14 @@ function WorkflowInstructions({
 
 function ProfileChoice({
   row,
+  grid,
   selected,
   definition,
   entry,
   onInspect,
 }: {
   row: AgentProfilePickerRow;
+  grid: boolean;
   selected: boolean;
   definition: AgentProfile | undefined;
   entry: ProviderSnapshotEntry | undefined;
@@ -628,7 +636,7 @@ function ProfileChoice({
       selected={selected}
       selectionPlacement="none"
       onPress={select}
-      style={[styles.profileChoice, selected && styles.selectedChoice]}
+      style={[styles.profileChoice, grid && styles.gridChoice, selected && styles.selectedChoice]}
       testID={`preset-row-${row.id}`}
     />
   );
@@ -656,9 +664,9 @@ const styles = StyleSheet.create((theme) => ({
     padding: theme.spacing[2],
     gap: theme.spacing[2],
   },
-  environmentCard: { flex: 0.8, minWidth: 0 },
-  accountCard: { flex: 1, minWidth: 0 },
-  profileCard: { flex: 1.8, minWidth: 0 },
+  environmentCard: { flex: 1.1, minWidth: 260 },
+  accountCard: { flex: 1, minWidth: 200 },
+  profileCard: { flex: 1.7, minWidth: 0 },
   cardHeading: {
     padding: theme.spacing[3],
     color: theme.colors.foreground,
@@ -668,6 +676,14 @@ const styles = StyleSheet.create((theme) => ({
   accountList: { padding: theme.spacing[2], gap: theme.spacing[1] },
   selectedChoice: { borderColor: theme.colors.accent },
   profileList: { gap: theme.spacing[2] },
+  profileGrid: { flexDirection: "row", flexWrap: "wrap" },
+  gridChoice: { width: "48%", flexGrow: 1 },
+  profileHeader: { flexDirection: "row", alignItems: "center", paddingRight: theme.spacing[2] },
+  profileHeading: { flex: 1, minWidth: 0 },
+  sectionContent: {
+    paddingHorizontal: theme.spacing[3],
+    lineHeight: Math.ceil(theme.fontSize.base * 1.5),
+  },
   profileChoice: {
     minHeight: 56,
     borderWidth: 1,
@@ -678,7 +694,7 @@ const styles = StyleSheet.create((theme) => ({
   compactList: { maxHeight: 220 },
   compactProfile: { flex: 1, minHeight: 0 },
   sectionButton: { justifyContent: "space-between" },
-  detail: { flex: 1, minHeight: 0, gap: theme.spacing[2] },
+  detail: { flex: 1, minHeight: 0 },
   detailCard: { flex: 1, minHeight: 0, overflow: "hidden" },
   account: {
     padding: theme.spacing[1],
@@ -686,9 +702,9 @@ const styles = StyleSheet.create((theme) => ({
   accountButton: {
     borderWidth: 1,
     borderColor: "transparent",
-    height: Math.ceil(theme.fontSize.base * 1.4) + CONTROL_HEIGHTS.field + theme.spacing[3],
-    paddingVertical: theme.spacing[1],
-    paddingRight: theme.spacing[1],
+    height: Math.ceil(theme.fontSize.base * 1.4) * 2 + theme.spacing[8] + theme.spacing[2],
+    paddingVertical: theme.spacing[3],
+    paddingRight: theme.spacing[3],
     borderRadius: theme.borderRadius.md,
   },
   accountTitle: {
@@ -697,15 +713,10 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.medium,
   },
   usage: {
-    minHeight: CONTROL_HEIGHTS.field,
+    paddingTop: theme.spacing[2],
     justifyContent: "center",
   },
   detailScroll: { flex: 1, minHeight: 0 },
-  footer: {
-    padding: theme.spacing[2],
-    minHeight: CONTROL_HEIGHTS.field + theme.spacing[4],
-    flexShrink: 0,
-  },
   choices: { padding: theme.spacing[2], gap: theme.spacing[3] },
   heading: {
     fontSize: theme.fontSize.lg,
