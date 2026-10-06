@@ -364,7 +364,11 @@ export function collectManagedWorkspacePlacements(input: {
   projects: readonly HostProjectListItem[];
   sessions: readonly SidebarHierarchySession[];
 }): ManagedWorkspacePlacement[] {
-  const available = new Set(input.projects.flatMap((project) => project.workspaceKeys));
+  const projectByWorkspace = new Map(
+    input.projects.flatMap((project) =>
+      project.workspaceKeys.map((key) => [key, project.viewKey] as const),
+    ),
+  );
   const placements: ManagedWorkspacePlacement[] = [];
   for (const session of input.sessions) {
     if (!session.hasHydratedAgents) continue;
@@ -379,7 +383,7 @@ export function collectManagedWorkspacePlacements(input: {
     }
     for (const workspace of session.workspaces.values()) {
       const workspaceKey = `${session.serverId}:${workspace.id}`;
-      if (!available.has(workspaceKey)) continue;
+      if (!projectByWorkspace.has(workspaceKey)) continue;
       const agents = agentsByWorkspace.get(workspace.id);
       if (!agents?.length) continue;
       const owners = agents.map((agent) => presentations.get(agent.id));
@@ -390,7 +394,14 @@ export function collectManagedWorkspacePlacements(input: {
       // A followup in a managed worktree stays accessible without creating another project.
       if (hasIndependentAgents && workspace.workspaceKind !== "worktree") continue;
       const parentWorkspaceKey = `${session.serverId}:${ownerId}`;
-      if (!available.has(parentWorkspaceKey)) continue;
+      if (!projectByWorkspace.has(parentWorkspaceKey)) continue;
+      // An explicit move takes precedence over automatic worker grouping. Inherited
+      // membership still folds when the worker and its parent share a project.
+      if (
+        workspace.projectMembership &&
+        workspace.projectMembership.key !== projectByWorkspace.get(parentWorkspaceKey)
+      )
+        continue;
       placements.push({
         workspaceKey,
         serverId: session.serverId,

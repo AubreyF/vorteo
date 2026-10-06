@@ -2,7 +2,7 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
-## 0.11.0-beta.3.vorteo.150 - 2026-10-06
+## 0.11.0-beta.3.vorteo.153 - 2026-10-06
 
 ### Changed
 
@@ -12,6 +12,24 @@ Custom changes to vorteo. Paseo's release history remains in its upstream change
 ### Fixed
 
 - Hide incompatible profiles from the launch picker and distinguish catalog loading failures from unavailable models, with Retry and specific details in Manage profiles
+
+## 0.11.0-beta.3.vorteo.152 - 2026-10-06
+
+### Fixed
+
+- Keep moved worker workspaces in their chosen project so automatic sidebar grouping does not hide the destination
+
+## 0.11.0-beta.3.vorteo.151 - 2026-10-06
+
+### Fixed
+
+- Keep empty projects visible through sidebar refreshes on daemons without a separate project list
+
+## 0.11.0-beta.3.vorteo.150 - 2026-10-06
+
+### Changed
+
+- Keep environment tabs visible above scrolling settings, showing one environment at a time on desktop and mobile
 
 ## 0.11.0-beta.3.vorteo.149 - 2026-10-06
 

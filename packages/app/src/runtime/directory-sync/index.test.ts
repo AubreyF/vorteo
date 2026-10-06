@@ -674,7 +674,7 @@ describe("DirectorySync session readiness", () => {
       serverId,
       hostname: null,
       version: "test",
-      features: { workspaceMultiplicity: true, directorySync: true },
+      features: { workspaceMultiplicity: true, directorySync: true, projectList: true },
     });
 
     const refresh = directory.refreshWorkspaces();
@@ -1022,6 +1022,48 @@ describe("DirectorySync session readiness", () => {
 
     expect(client.fetchWorkspacesCalls).toBe(1);
     expect(useSessionStore.getState().sessions[serverId]?.hasHydratedWorkspaces).toBe(true);
+    directory.dispose();
+  });
+
+  it("keeps empty projects visible when a sync-capable daemon lacks the project list channel", async () => {
+    const serverId = "legacy-empty-project";
+    const { client, directory } = createDirectory(serverId);
+    const store = useSessionStore.getState();
+    store.initializeSession(serverId, client as unknown as DaemonClient, 1);
+    store.updateSessionServerInfo(serverId, {
+      serverId,
+      hostname: null,
+      version: "test",
+      features: { workspaceMultiplicity: true, directorySync: true },
+    });
+    const emptyProject = {
+      projectId: "empty-project",
+      projectDisplayName: "Empty project",
+      projectRootPath: "/repo/empty",
+      projectKind: "non_git" as const,
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const complete = client.holdWorkspaceFetch();
+      const refresh = directory.refreshWorkspaces({ subscribe: attempt === 0 });
+      await expect.poll(() => client.fetchWorkspacesCalls).toBe(attempt + 1);
+      const options = client.lastWorkspaceOptions;
+      const usesSync = typeof options === "object" && options !== null && "sync" in options;
+      complete({
+        requestId: "workspaces",
+        entries: [],
+        emptyProjects: usesSync ? [] : [emptyProject],
+        pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+      });
+      await refresh;
+      expect(
+        useSessionStore.getState().sessions[serverId]?.projects.get("empty-project"),
+      ).toMatchObject(emptyProject);
+    }
+    await directory.refreshWorkspaces();
+    expect(useSessionStore.getState().sessions[serverId]?.projects.has("empty-project")).toBe(
+      false,
+    );
+    expect(client.listProjectsCalls).toBe(0);
     directory.dispose();
   });
 

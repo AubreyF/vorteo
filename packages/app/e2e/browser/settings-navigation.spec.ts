@@ -245,3 +245,38 @@ test.describe("Settings — compact master-detail", () => {
     await expect(page.getByTestId("welcome-direct-connection")).toBeVisible();
   });
 });
+
+for (const width of [1280, 390]) {
+  test(`environment tabs stay visible while details scroll at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 500 });
+    const primary = getServerId();
+    const secondary = "srv_e2e_environment_tabs";
+    const endpoint = `127.0.0.1:${getE2EDaemonPort()}`;
+    await seedSavedSettingsHosts(page, [
+      { serverId: primary, label: "Host", endpoint },
+      { serverId: secondary, label: "Dev container", endpoint },
+    ]);
+    await page.goto(buildSettingsSectionRoute("environments"));
+    const tabs = page.getByTestId("settings-environment-tabs");
+    const hostTab = page.getByRole("tab", { name: "Host", exact: true });
+    const devTab = page.getByRole("tab", { name: "Dev container", exact: true });
+    await expect(hostTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId(`settings-environment-${primary}`)).toBeVisible();
+    await expect(page.getByTestId(`settings-environment-${secondary}`)).toHaveCount(0);
+    const initialTabs = await tabs.boundingBox();
+    expect(initialTabs).not.toBeNull();
+    const scroll = page.getByTestId("settings-environment-scroll");
+    await scroll.hover();
+    await page.mouse.wheel(0, 900);
+    await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect(tabs).toBeVisible();
+    expect((await tabs.boundingBox())!.y).toBe(initialTabs!.y);
+    await devTab.click();
+    await expect(devTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId(`settings-environment-${secondary}`)).toBeAttached();
+    await expect(page.getByTestId(`settings-environment-${primary}`)).toHaveCount(0);
+    await hostTab.click();
+    await expect(hostTab).toHaveAttribute("aria-selected", "true");
+    await page.screenshot({ path: test.info().outputPath(`environment-tabs-${width}.png`) });
+  });
+}
