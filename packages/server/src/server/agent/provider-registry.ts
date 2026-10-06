@@ -826,7 +826,7 @@ function addDerivedProviders(
       continue;
     }
 
-    if (!override.extends) {
+    if (!override.extends || override.removed) {
       // Plugin overrides can precede registration (including disabled or removed plugins).
       continue;
     }
@@ -949,6 +949,7 @@ export function buildProviderRegistry(
       throw new Error(`Plugin provider '${provider}' conflicts with a built-in provider`);
     }
     const override = providerOverrides[provider];
+    if (override?.removed) continue;
     if (override?.extends) {
       logger.warn({ provider }, "Plugin provider shadowed by configured provider");
       continue;

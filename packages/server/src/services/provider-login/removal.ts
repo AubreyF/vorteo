@@ -5,6 +5,7 @@ import path from "node:path";
 import { homedir } from "node:os";
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
 import { ProviderOverrideSchema } from "@getpaseo/protocol/provider-config";
+import { BUILTIN_PROVIDER_IDS } from "@getpaseo/protocol/provider-manifest";
 
 export class ProviderRemovalError extends Error {}
 
@@ -70,7 +71,7 @@ function accountHome(input: RemovalInput): string | null {
   if (!configured)
     throw new ProviderRemovalError("This provider was already removed. Refresh the provider list.");
   const provider = ProviderOverrideSchema.parse(configured);
-  if (!provider.extends)
+  if (BUILTIN_PROVIDER_IDS.includes(input.providerId))
     throw new ProviderRemovalError("Built-in providers can be disabled, but cannot be deleted.");
   if (provider.extends === "claude")
     return provider.env?.CLAUDE_CONFIG_DIR ?? input.defaultClaudeHome;

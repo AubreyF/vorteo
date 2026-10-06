@@ -3121,9 +3121,18 @@ export class Session {
       case "provider.connection.preview_remove.request":
       case "provider.connection.remove.request": {
         this.assertProviderCanBeRemoved(msg.providerId);
+        if (!this.providerSnapshotManager.hasProvider(msg.providerId)) {
+          throw new ProviderRemovalError(
+            "This provider was already removed. Refresh the provider list.",
+          );
+        }
+        const providers = this.daemonConfigStore.get().providers;
+        const configured = providers[msg.providerId] ?? {
+          label: this.providerSnapshotManager.getProviderLabel(msg.providerId),
+        };
         const input = {
           paseoHome: this.paseoHome,
-          providers: this.daemonConfigStore.get().providers,
+          providers: { ...providers, [msg.providerId]: configured },
           providerId: msg.providerId,
           ...defaultProviderAccountHomes(),
         };
@@ -3134,7 +3143,11 @@ export class Session {
           });
         } else {
           const plan = deleteManagedProviderCredentials(input, msg.revision);
-          this.daemonConfigStore.patch({ removeProviders: [msg.providerId] });
+          this.daemonConfigStore.patch(
+            this.providerSnapshotManager.isPluginProvider(msg.providerId)
+              ? { providers: { [msg.providerId]: { removed: true, enabled: false } } }
+              : { removeProviders: [msg.providerId] },
+          );
           this.emit({
             type: "provider.connection.remove.response",
             payload: { requestId: msg.requestId, plan },

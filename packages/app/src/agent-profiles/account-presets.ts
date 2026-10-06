@@ -29,7 +29,13 @@ export function accountPresets(input: {
     group.rows.push(row);
   }
   const query = input.query.trim().toLowerCase();
-  return [...groups.values()].filter((group) => {
+  const providerRanks = new Map(input.entries?.map((entry, index) => [entry.provider, index]));
+  const orderedGroups = [...groups.values()].sort(
+    (left, right) =>
+      (providerRanks.get(left.provider) ?? Number.MAX_SAFE_INTEGER) -
+      (providerRanks.get(right.provider) ?? Number.MAX_SAFE_INTEGER),
+  );
+  return orderedGroups.filter((group) => {
     const models = input.entries?.find((entry) => entry.provider === group.provider)?.models;
     const catalogTerms =
       group.provider === "pi" ? (models?.map((model) => `${model.label} ${model.id}`) ?? []) : [];

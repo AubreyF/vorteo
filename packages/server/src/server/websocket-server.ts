@@ -2001,6 +2001,7 @@ export class VoiceAssistantWebSocketServer {
         codexAccountCreation: true,
         claudeAccountCreation: true,
         providerCredentialRemoval: true,
+        providerOrdering: true,
         providerAccountLogin: Object.values(
           this.providerSnapshotManager.getAgentManagerProviderState().clients,
         ).some((client) => Boolean(client?.openAccountLoginSession)),
