@@ -1077,6 +1077,7 @@ export class ProviderSnapshotManager {
         enabled: true,
         models,
         modes: catalog.modes,
+        cliUpdate: catalog.cliUpdate,
         fetchedAt: new Date().toISOString(),
       });
     } catch (error) {

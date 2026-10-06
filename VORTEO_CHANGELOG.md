@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.131 - 2026-10-05
+
+### Fixed
+
+- Explain when an older Claude Code CLI hides newer models, with the installed version, model requirements and update instructions in provider settings and the account and model pickers
+- Clear CLI compatibility warnings after upgrading and refreshing the provider
+
 ## 0.11.0-beta.3.vorteo.130 - 2026-10-05
 
 ### Added

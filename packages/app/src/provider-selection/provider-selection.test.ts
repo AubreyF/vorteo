@@ -14,6 +14,29 @@ import {
 } from "./provider-selection";
 
 describe("combined model selector data", () => {
+  it("keeps CLI warnings with the connected account while preserving usable models", () => {
+    const cliUpdate = {
+      cli: "Claude Code",
+      installedVersion: "2.1.267",
+      affectedModels: [{ id: "claude-opus-5-5", label: "Opus 5.5", minimumVersion: "2.1.280" }],
+      instructions: "Run claude update.",
+    };
+    const providers = buildSelectableProviderSelectorProviders([
+      {
+        provider: "claude-account-test",
+        label: "Work Claude",
+        enabled: true,
+        status: "ready",
+        cliUpdate,
+        models: [{ provider: "claude-account-test", id: "claude-opus-5", label: "Opus 5" }],
+      },
+    ]);
+    expect(providers[0].cliUpdate).toEqual(cliUpdate);
+    expect(providers[0].modelSelection).toEqual({
+      kind: "models",
+      rows: [expect.objectContaining({ modelId: "claude-opus-5" })],
+    });
+  });
   const codexModel: AgentModelDefinition = {
     provider: "codex",
     id: "gpt-5.4",

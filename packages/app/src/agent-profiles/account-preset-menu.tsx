@@ -1,4 +1,5 @@
 import { ExecutionEnvironmentIcon } from "@/execution-installation/environment-icon";
+import { CliUpdateWarning } from "@/provider-selection/cli-update-warning";
 import { useVortonTouch } from "@/vorton-touch";
 import { ProfileAction } from "./profile-action";
 import { ProviderResetControl } from "@/provider-usage/reset-control";
@@ -538,6 +539,7 @@ function AccountChoices({
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.choices}>
+            <CliUpdateWarning update={entry?.cliUpdate} />
             {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
             <View style={[styles.profileList, grid && styles.profileGrid]}>
               {account.rows.map((row) => (

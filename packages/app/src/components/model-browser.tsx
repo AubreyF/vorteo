@@ -62,6 +62,7 @@ import {
 import type { ProviderUsage } from "@/provider-usage/types";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
 import { useVortonMode } from "@/vorton-mode";
+import { CliUpdateWarning } from "@/provider-selection/cli-update-warning";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import {
   groupProfilesByProviderModel,
@@ -1075,12 +1076,14 @@ function GroupProviderButton({
     [stateNode, serverId, provider.id, provider.label],
   );
   const usageSummary = formatProviderUsageSummary(usage);
+  const vortonMode = useVortonMode();
+  const description = vortonMode && provider.cliUpdate ? "CLI update needed" : usageSummary;
 
   return (
     <ModelBrowserRow
       label={provider.label}
-      description={usageSummary ?? undefined}
-      textLayout={usageSummary ? "stacked" : "inline"}
+      description={description ?? undefined}
+      textLayout={description ? "stacked" : "inline"}
       leadingSlot={leadingSlot}
       trailingSlot={trailingSlot}
       tone="drillDown"
@@ -1385,6 +1388,16 @@ function ProviderModelBrowserContent({
     ],
   );
 
+  const vortonMode = useVortonMode();
+  const listHeader = useMemo(() => {
+    if (!vortonMode || !provider?.cliUpdate) return profileHeader;
+    return (
+      <View>
+        <CliUpdateWarning update={provider.cliUpdate} />
+        {profileHeader}
+      </View>
+    );
+  }, [profileHeader, provider?.cliUpdate, vortonMode]);
   if (!provider) return <ModelSearchEmptyState />;
   const selection = provider.modelSelection;
   if (selection.kind === "loading") {
@@ -1408,7 +1421,13 @@ function ProviderModelBrowserContent({
     );
   }
   if (visibleRows.length === 0) {
-    return profileHeader ?? <ModelSearchEmptyState />;
+    if (!vortonMode || !provider.cliUpdate) return profileHeader ?? <ModelSearchEmptyState />;
+    return (
+      <IndependentProviderList>
+        {listHeader}
+        {profileHeader ? null : <ModelSearchEmptyState />}
+      </IndependentProviderList>
+    );
   }
   return (
     <ModelRowList
@@ -1417,7 +1436,7 @@ function ProviderModelBrowserContent({
       selectedProvider={selectedProvider}
       selectedModel={selectedModel}
       onSelect={onSelect}
-      header={profileHeader}
+      header={listHeader}
       scrolling={scrolling}
       profiledLookup={profiledLookup}
       onCreateProfile={onCreateProfile}
@@ -1509,13 +1528,22 @@ function ModelBrowserContent({
   }
 
   if (allView.kind === "noSearchMatches") {
-    return (
+    const emptyState = (
       <View style={styles.emptyState} testID="model-search-empty">
+        {providers.map((provider) => (
+          <CliUpdateWarning key={provider.id} update={provider.cliUpdate} />
+        ))}
         <ThemedSearch size={ICON_SIZE.md} uniProps={foregroundMutedMapping} />
         <Text style={styles.emptyStateText}>
           {t("modelSelector.noMatchesForQuery", { query: searchQuery.trim() })}
         </Text>
       </View>
+    );
+    const hasCliUpdates = vortonMode && providers.some((provider) => provider.cliUpdate);
+    return hasCliUpdates ? (
+      <IndependentProviderList>{emptyState}</IndependentProviderList>
+    ) : (
+      emptyState
     );
   }
 

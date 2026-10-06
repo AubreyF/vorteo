@@ -20,6 +20,20 @@ provider icon map. You do not need a core manifest entry or provider factory.
 | Antigravity | Installed `agy` CLI                        | [Antigravity](../public-docs/supported-providers.md#antigravity) |
 | Muse Code   | MSP over one `muse serve` host per session | [Muse Code](../public-docs/muse-code.md)                         |
 
+## CLI compatibility warnings
+
+Catalogs can include optional `cliUpdate` information in provider snapshots without changing
+the provider's ready status. Claude derives this from the same manifest requirements used to
+filter models, using the version of the resolved executable in that environment. Connected
+account wrappers preserve the warning. A successful refresh replaces it, so upgrading clears
+the warning without reconnecting the account or restarting the daemon.
+
+Vorteo mode shows these warnings in provider settings, profile choices and the model browser.
+The optional snapshot field also survives compact encoding; older clients ignore it and older
+daemons can omit it. This check describes known model compatibility, not whether every installed
+CLI matches its vendor's latest release. An unreadable version does not establish that a CLI is
+outdated. Providers with replacement model catalogs retain their existing discovery behavior.
+
 ## Provider-native session options
 
 The provider owns validation and application of the opaque record in

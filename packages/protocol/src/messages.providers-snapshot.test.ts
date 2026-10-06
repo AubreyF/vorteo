@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { compactProviderSnapshot, expandProviderSnapshot } from "./provider-snapshot-codec.js";
 import {
   GetProvidersSnapshotResponseMessageSchema,
   ProviderSnapshotEntrySchema,
@@ -6,6 +7,28 @@ import {
 } from "./messages.js";
 
 describe("provider snapshot message schemas", () => {
+  test("preserves CLI update warnings through parsing and compact snapshots", () => {
+    const cliUpdate = {
+      cli: "Claude Code",
+      installedVersion: "2.1.267",
+      affectedModels: [{ id: "claude-opus-5-5", label: "Opus 5.5", minimumVersion: "2.1.280" }],
+      instructions: "Run claude update in this environment, then Refresh.",
+    };
+    const entry = ProviderSnapshotEntrySchema.parse({
+      provider: "claude-account-test",
+      status: "ready",
+      enabled: true,
+      models: [],
+      cliUpdate,
+    });
+    expect(entry.cliUpdate).toEqual(cliUpdate);
+    expect(expandProviderSnapshot(compactProviderSnapshot([entry]))[0].cliUpdate).toEqual(
+      cliUpdate,
+    );
+    expect(
+      ProviderSnapshotEntrySchema.parse({ provider: "claude", status: "ready" }).cliUpdate,
+    ).toBeUndefined();
+  });
   test("defaults missing provider snapshot entry enabled state to true", () => {
     const parsed = ProviderSnapshotEntrySchema.parse({
       provider: "codex",
