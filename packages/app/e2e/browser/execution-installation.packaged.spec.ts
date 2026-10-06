@@ -556,10 +556,14 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await activity.cancelAgent(blocker.id);
   await activity.close();
   await expect(card).toContainText("Restarted", { timeout: 150_000 });
-  await expect(card).toContainText("environment identity verified");
+  const completedRestart = await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
+    headers: { Authorization: `Bearer ${guestToken}` },
+  }).then((response) => response.json());
+  expect(completedRestart.detail).toContain("environment identity verified");
+  await expect(card).not.toContainText("environment identity verified");
   await page.getByRole("button", { name: "All restart requests", exact: true }).click();
   await page.getByTestId("restart-history-toggle").click();
-  await expect(card).toContainText("environment identity verified");
+  await expect(card).not.toContainText("environment identity verified");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
 });
