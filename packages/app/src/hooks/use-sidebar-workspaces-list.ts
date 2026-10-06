@@ -21,6 +21,7 @@ import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import {
   buildSidebarWorkspacePlacementModel,
   collectManagedWorkspacePlacements,
+  hasWorkspaceScriptSurface,
   selectSidebarHierarchySessions,
   sidebarHierarchySessionsEqual,
   type ManagedWorkspacePlacement,
@@ -174,8 +175,10 @@ export function useSidebarWorkspacesList(options?: {
           old !== undefined &&
           placement.workspaceKey === old.workspaceKey &&
           placement.parentWorkspaceKey === old.parentWorkspaceKey &&
+          placement.hasIndependentAgents === old.hasIndependentAgents &&
           placement.workspace.workspaceDirectory === old.workspace.workspaceDirectory &&
-          placement.workspace.scripts.length === old.workspace.scripts.length &&
+          hasWorkspaceScriptSurface(placement.workspace) ===
+            hasWorkspaceScriptSurface(old.workspace) &&
           placement.workspace.archivingAt === old.workspace.archivingAt
         );
       });

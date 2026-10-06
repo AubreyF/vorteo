@@ -1022,6 +1022,65 @@ describe("managed worker sidebar placement", () => {
       }),
     ).toBe("running");
   });
+  it("folds inherited stopped script definitions beneath the originating task", () => {
+    const fixture = workerSidebarFixture();
+    fixture.execution.scripts = [
+      "app",
+      "daemon",
+      "desktop",
+      "ios-simulator",
+      "preview",
+      "typecheck",
+    ].map((scriptName) => ({
+      scriptName,
+      type: "service",
+      hostname: scriptName,
+      port: null,
+      proxyUrl: null,
+      lifecycle: "stopped",
+      health: null,
+      exitCode: null,
+      terminalId: null,
+    }));
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces: collectManagedWorkspacePlacements({
+        projects: fixture.projects,
+        sessions: [fixture.session],
+      }),
+      terminalPresence: new Map([["srv:execution", false]]),
+    });
+    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin"]);
+    expect(fixture.execution.scripts).toHaveLength(6);
+  });
+  it.each([
+    { lifecycle: "running" as const, terminalId: null },
+    { lifecycle: "stopped" as const, terminalId: "script-terminal" },
+  ])("retains script access for $lifecycle with terminal $terminalId", (script) => {
+    const fixture = workerSidebarFixture();
+    fixture.execution.scripts = [
+      {
+        scriptName: "app",
+        type: "service",
+        hostname: "app",
+        port: null,
+        proxyUrl: null,
+        health: null,
+        exitCode: null,
+        ...script,
+      },
+    ];
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces: collectManagedWorkspacePlacements({
+        projects: fixture.projects,
+        sessions: [fixture.session],
+      }),
+      terminalPresence: new Map([["srv:execution", false]]),
+    });
+    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin", "execution"]);
+    expect(model.workspaces[1]?.projectViewKey).toBe("origin-project");
+  });
   it.each([true, undefined])("retains terminal access when presence is %s", (presence) => {
     const fixture = workerSidebarFixture();
     const managedWorkspaces = collectManagedWorkspacePlacements({
@@ -1059,7 +1118,7 @@ describe("managed worker sidebar placement", () => {
       "srv:execution",
     ]);
   });
-  it("does not hide or relocate an independent task sharing the worker's physical workspace", () => {
+  it("keeps an independent task's worker worktree row under the originating project", () => {
     const fixture = workerSidebarFixture();
     fixture.agents.set(
       "independent",
@@ -1069,17 +1128,75 @@ describe("managed worker sidebar placement", () => {
       projects: fixture.projects,
       sessions: [fixture.session],
     });
-    expect(managedWorkspaces).toEqual([]);
     const model = buildSidebarWorkspacePlacementModel({
       projects: fixture.projects,
       managedWorkspaces,
       terminalPresence: new Map([["srv:execution", false]]),
     });
+    expect(model.projects.map((entry) => entry.viewKey)).toEqual(["origin-project"]);
+    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin", "execution"]);
+    expect(model.workspaces[1]?.projectViewKey).toBe("origin-project");
+    expect(fixture.agents.get("independent")?.workspaceId).toBe("execution");
+    expect(fixture.worker.parentAgentId).toBe("parent");
+  });
+  it("does not relocate an independent local workspace containing a managed worker", () => {
+    const fixture = workerSidebarFixture();
+    fixture.execution.workspaceKind = "local_checkout";
+    fixture.agents.set(
+      "independent",
+      agent({ id: "independent", workspaceId: "execution", status: "idle" }),
+    );
+    expect(
+      collectManagedWorkspacePlacements({
+        projects: fixture.projects,
+        sessions: [fixture.session],
+      }),
+    ).toEqual([]);
+    const model = buildSidebarWorkspacePlacementModel({ projects: fixture.projects });
     expect(model.projects.map((entry) => entry.viewKey)).toEqual([
       "origin-project",
       "worker-project",
     ]);
     expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin", "execution"]);
+  });
+  it("keeps the retained worktree visible after its last managed worker is removed", () => {
+    const fixture = workerSidebarFixture();
+    fixture.agents.delete("worker");
+    fixture.agents.set(
+      "independent",
+      agent({ id: "independent", workspaceId: "execution", status: "idle" }),
+    );
+    expect(
+      collectManagedWorkspacePlacements({
+        projects: fixture.projects,
+        sessions: [fixture.session],
+      }),
+    ).toEqual([]);
+  });
+  it("does not choose a project when workers belong to different originating tasks", () => {
+    const fixture = workerSidebarFixture();
+    const other = projectWorkspace("other", "running");
+    fixture.session.workspaces.set(other.id, other);
+    fixture.agents.set(
+      "other-parent",
+      agent({ id: "other-parent", workspaceId: other.id, status: "idle" }),
+    );
+    fixture.agents.set(
+      "other-worker",
+      agent({
+        id: "other-worker",
+        workspaceId: "execution",
+        status: "idle",
+        parentAgentId: "other-parent",
+      }),
+    );
+    fixture.projects.push(project({ projectKey: "other-project", workspaceKeys: ["srv:other"] }));
+    expect(
+      collectManagedWorkspacePlacements({
+        projects: fixture.projects,
+        sessions: [fixture.session],
+      }),
+    ).toEqual([]);
   });
   it.each(["missing", "archived", "workspace-missing"])(
     "preserves visibility when the parent is %s",

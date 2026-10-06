@@ -357,6 +357,7 @@ export interface ManagedWorkspacePlacement {
   serverId: string;
   workspace: WorkspaceDescriptor;
   parentWorkspaceKey: string;
+  hasIndependentAgents: boolean;
 }
 
 export function collectManagedWorkspacePlacements(input: {
@@ -382,19 +383,30 @@ export function collectManagedWorkspacePlacements(input: {
       const agents = agentsByWorkspace.get(workspace.id);
       if (!agents?.length) continue;
       const owners = agents.map((agent) => presentations.get(agent.id));
-      const ownerId = owners[0]?.workspaceId;
-      if (
-        !ownerId ||
-        ownerId === workspace.id ||
-        owners.some((owner) => owner?.workspaceId !== ownerId)
-      )
-        continue;
+      const parentOwners = owners.filter((owner) => owner?.workspaceId !== workspace.id);
+      const ownerId = parentOwners[0]?.workspaceId;
+      if (!ownerId || parentOwners.some((owner) => owner?.workspaceId !== ownerId)) continue;
+      const hasIndependentAgents = owners.some((owner) => owner?.workspaceId === workspace.id);
+      // A followup in a managed worktree stays accessible without creating another project.
+      if (hasIndependentAgents && workspace.workspaceKind !== "worktree") continue;
       const parentWorkspaceKey = `${session.serverId}:${ownerId}`;
       if (!available.has(parentWorkspaceKey)) continue;
-      placements.push({ workspaceKey, serverId: session.serverId, workspace, parentWorkspaceKey });
+      placements.push({
+        workspaceKey,
+        serverId: session.serverId,
+        workspace,
+        parentWorkspaceKey,
+        hasIndependentAgents,
+      });
     }
   }
   return placements;
+}
+
+export function hasWorkspaceScriptSurface(
+  workspace: Pick<WorkspaceDescriptor, "scripts">,
+): boolean {
+  return workspace.scripts.some((script) => script.lifecycle === "running" || !!script.terminalId);
 }
 
 export function buildSidebarWorkspacePlacementModel(input: {
@@ -426,8 +438,9 @@ export function buildSidebarWorkspacePlacementModel(input: {
       descendants.set(placement.parentWorkspaceKey, children);
       const hasOtherSurface = input.preservedWorkspaceKeys?.has(placement.workspaceKey) === true;
       const canFold =
+        !placement.hasIndependentAgents &&
         input.terminalPresence?.get(placement.workspaceKey) === false &&
-        placement.workspace.scripts.length === 0 &&
+        !hasWorkspaceScriptSurface(placement.workspace) &&
         !placement.workspace.archivingAt &&
         !hasOtherSurface;
       if (!canFold && source.viewKey === parent.viewKey) continue;
