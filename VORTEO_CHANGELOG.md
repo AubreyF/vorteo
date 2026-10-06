@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.121 - 2026-10-05
+
+### Fixed
+
+- Match accordion header hover height to card rows, with shared header sizing for subagents, goals, tasks and queued messages.
+
 ## 0.11.0-beta.3.vorteo.120 - 2026-10-05
 
 ### Changed

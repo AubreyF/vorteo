@@ -76,6 +76,7 @@ export function SubagentsTrack({
   archiveFinishedStatus = IDLE_ARCHIVE_FINISHED_STATUS,
   onDetachSubagent,
 }: SubagentsTrackProps): ReactElement | null {
+  const touch = useVortonTouch();
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
@@ -141,8 +142,8 @@ export function SubagentsTrack({
             variant="ghost"
             size="sm"
             hitSlop={6}
-            style={styles.collapseHeader}
-            textStyle={styles.collapseHeaderText}
+            style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchHeader]}
+            textStyle={taskCardStyles.heading}
             trailing={headerTrailing}
             accessibilityLabel={t("subagents.title")}
             aria-expanded={expanded}
@@ -456,17 +457,6 @@ const styles = StyleSheet.create((theme) => ({
     marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
   },
   archiveHeaderText: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted },
-  collapseHeaderText: {
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
-    color: theme.colors.foreground,
-  },
-  collapseHeader: {
-    flex: 1,
-    minWidth: 0,
-    justifyContent: "flex-start",
-    paddingHorizontal: theme.spacing[2],
-  },
   // `flexBasis: "auto"` rather than `flex: 1`: a zero-basis label contributes nothing to the row's
   // intrinsic width, so the panel measures itself at its floor and truncates every label at once.
   rowLabel: {
