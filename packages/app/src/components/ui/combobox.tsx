@@ -238,6 +238,7 @@ export function SearchInput({
 
 export interface ComboboxItemProps {
   label: string;
+  labelSlot?: ReactNode;
   labelStyle?: StyleProp<TextStyle>;
   labelNumberOfLines?: number;
   style?: StyleProp<ViewStyle>;
@@ -261,6 +262,7 @@ export interface ComboboxItemProps {
 
 export function ComboboxItem({
   label,
+  labelSlot,
   labelStyle,
   labelNumberOfLines,
   style,
@@ -318,6 +320,18 @@ export function ComboboxItem({
     ],
     [description, descriptionPlacement],
   );
+  const labelContent = useMemo(
+    () =>
+      labelSlot ?? (
+        <Text
+          numberOfLines={labelNumberOfLines ?? (descriptionPlacement === "below" ? 2 : 1)}
+          style={[styles.comboboxItemLabel, labelStyle]}
+        >
+          {label}
+        </Text>
+      ),
+    [labelSlot, labelNumberOfLines, descriptionPlacement, labelStyle, label],
+  );
   const accessibilityState = useMemo(
     () => ({ selected: Boolean(selected), disabled: Boolean(disabled) }),
     [selected, disabled],
@@ -342,12 +356,7 @@ export function ComboboxItem({
       ) : null}
       {leadingContent}
       <View style={itemContentStyle}>
-        <Text
-          numberOfLines={labelNumberOfLines ?? (descriptionPlacement === "below" ? 2 : 1)}
-          style={[styles.comboboxItemLabel, labelStyle]}
-        >
-          {label}
-        </Text>
+        {labelContent}
         {descriptionSlot ??
           (description ? (
             <Text

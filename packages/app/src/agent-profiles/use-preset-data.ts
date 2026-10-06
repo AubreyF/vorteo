@@ -5,7 +5,6 @@ import { useSessionStore } from "@/stores/session-store";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
 import { providerResetQueryOptions } from "@/provider-usage/reset-query";
 import type { AgentProfilePicker } from "./internal/use-agent-profile-picker";
-import { presetMenuReady } from "./preset-menu-readiness";
 
 export function usePresetData(
   serverId: string | null,
@@ -44,14 +43,6 @@ export function usePresetData(
   });
   return {
     view,
-    ready: presetMenuReady({
-      catalogLoading: Boolean(profiles.isLoadingStatus || profiles.isRefreshingStatus),
-      usageLoading: view.kind === "loading",
-      resets: resets.map((query) => ({
-        enabled,
-        hasData: query.data !== undefined,
-        failed: query.isError && !query.isFetching,
-      })),
-    }),
+    resetLoadingProviders: new Set(providers.filter((_, index) => resets[index]?.isFetching)),
   };
 }
