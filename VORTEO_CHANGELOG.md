@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.138 - 2026-10-06
+
+### Changed
+
+- Add circled step numbers to Environment, Account and Profile headings on desktop and mobile
+
 ## 0.11.0-beta.3.vorteo.137 - 2026-10-06
 
 ### Changed
