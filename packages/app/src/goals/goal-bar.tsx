@@ -18,12 +18,7 @@ interface GoalBarProps {
 
 export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
   const touch = useVortonTouch();
-  const iconStyle = [
-    taskCardStyles.iconAction,
-    taskCardStyles.headerAction,
-    touch && taskCardStyles.touchAction,
-    touch && taskCardStyles.touchHeaderAction,
-  ];
+  const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
   const mutate = control.mutate;
   const toggle = useCallback(() => {
     const status = isGoalContinuationEnabled(control.state) ? "paused" : "active";
@@ -144,7 +139,7 @@ function editIcon(color: string) {
 
 const styles = StyleSheet.create((theme) => ({
   row: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
-  copy: { flex: 1, minWidth: 0, alignSelf: "flex-start" },
+  copy: { flex: 1, minWidth: 0 },
   objective: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   elapsed: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   touch: { minWidth: 44, minHeight: 44 },

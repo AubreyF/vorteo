@@ -112,6 +112,15 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
     ),
     [accounts, account, selectedId, props, inspectAccount],
   );
+  const profileHeading = useMemo(
+    () =>
+      compact ? (
+        <SectionButton section="profile" label="Profile" expanded onSection={showSection} />
+      ) : (
+        <Text style={styles.cardHeading}>Profile</Text>
+      ),
+    [compact, showSection],
+  );
   const details = useMemo(
     () =>
       account && inspected ? (
@@ -121,11 +130,15 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           inspected={inspected}
           preferences={preferences}
           family={family}
+          heading={profileHeading}
         />
       ) : (
-        <Text style={styles.empty}>Select an account</Text>
+        <View style={[settingsStyles.card, styles.detailCard]}>
+          {profileHeading}
+          <Text style={styles.empty}>Select an account</Text>
+        </View>
       ),
-    [account, inspected, props, preferences, family],
+    [account, inspected, props, preferences, family, profileHeading],
   );
   const environments = useMemo(
     () => (
@@ -285,15 +298,18 @@ function CompactSelector({
         ) : null}
       </View>
       <View style={navigation === "profile" && styles.compactProfile}>
-        <View style={settingsStyles.card}>
-          <SectionButton
-            section="profile"
-            label="Profile"
-            expanded={navigation === "profile"}
-            onSection={onSection}
-          />
-        </View>
-        {navigation === "profile" ? details : null}
+        {navigation === "profile" ? (
+          details
+        ) : (
+          <View style={settingsStyles.card}>
+            <SectionButton
+              section="profile"
+              label="Profile"
+              expanded={false}
+              onSection={onSection}
+            />
+          </View>
+        )}
       </View>
     </View>
   );
@@ -471,12 +487,14 @@ function AccountChoices({
   inspected,
   preferences,
   family,
+  heading,
   ...props
 }: AccountPresetMenuProps & {
   account: AccountPresets;
   inspected: AgentProfilePickerRow;
   preferences: ProviderPreferences | undefined;
   family: ProviderSnapshotEntry[];
+  heading: ReactNode;
 }) {
   const DetailScrollView = props.compact ? BottomSheetScrollView : ScrollView;
   const entry = props.entries?.find((candidate) => candidate.provider === account.provider);
@@ -500,7 +518,7 @@ function AccountChoices({
   return (
     <View style={styles.detail} testID={`preset-choices-${account.provider}`}>
       <View style={[settingsStyles.card, styles.detailCard]} testID="preset-profile-card">
-        {!props.compact ? <Text style={styles.cardHeading}>Profile</Text> : null}
+        {heading}
         <DetailScrollView
           testID="preset-profile-scroll"
           style={styles.detailScroll}

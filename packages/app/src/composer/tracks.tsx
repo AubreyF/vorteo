@@ -1,3 +1,4 @@
+import { TASK_CARD_ROW_HEIGHT } from "@/agent-stream/task-card-styles";
 import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -355,7 +356,7 @@ const styles = StyleSheet.create((theme) => {
       borderRadius: theme.borderRadius.md,
     },
     inlineRow: {
-      minHeight: 40,
+      minHeight: TASK_CARD_ROW_HEIGHT,
       marginHorizontal: 0,
       paddingLeft: theme.spacing[2],
       paddingRight: theme.spacing[1],

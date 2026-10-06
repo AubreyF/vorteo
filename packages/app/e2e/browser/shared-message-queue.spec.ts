@@ -80,7 +80,29 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
     await expect
       .poll(() => page.evaluate(() => document.documentElement.dataset.queueRequestHeld))
       .toBe("true");
-    await expect(queue).toContainText("Saved on this device");
+    await expect(queue).not.toContainText("Saved on this device");
+    const localStatus = queue.getByRole("button", { name: "Queued on this device", exact: true });
+    await expect(localStatus).toBeVisible();
+    await localStatus.hover();
+    await expect(page.getByRole("tooltip")).toHaveText("Queued on this device");
+    await page.mouse.move(0, 0);
+    await expect(page.getByRole("tooltip")).toBeHidden();
+    await test.info().attach("queue-local-message", {
+      body: await queue.screenshot(),
+      contentType: "image/png",
+    });
+    const desktopViewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(localStatus).toHaveCSS("min-height", "44px");
+    await localStatus.click();
+    await expect(page.getByRole("tooltip")).toHaveText("Queued on this device");
+    await localStatus.click();
+    await expect(page.getByRole("tooltip")).toBeHidden();
+    await test.info().attach("queue-local-message-compact", {
+      body: await queue.screenshot(),
+      contentType: "image/png",
+    });
+    await page.setViewportSize(desktopViewport);
     await expect(queue.getByTestId("queue-attachment-summary")).toHaveAttribute(
       "aria-label",
       "1 attachment",
@@ -93,6 +115,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
     await expect
       .poll(async () => (await client.readMessageQueue(agent.agentId)).snapshot?.items.length)
       .toBe(1);
+    await expect(localStatus).toHaveCount(0);
 
     second = await browser.newContext({
       baseURL: new URL(page.url()).origin,

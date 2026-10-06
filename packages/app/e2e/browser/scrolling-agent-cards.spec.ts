@@ -163,6 +163,23 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (const card of geometry.slice(2)) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
+      const toggle = stack.getByTestId("subagents-card-toggle");
+      const headerHeight = await toggle.evaluate((node) => node.getBoundingClientRect().height);
+      const rowHeight = await stack.getByTestId("subagents-card").evaluate((card) => {
+        const row = card.lastElementChild?.firstElementChild;
+        if (!row) throw new Error("Subagent row missing");
+        return row.getBoundingClientRect().height;
+      });
+      expect(headerHeight).toBe(rowHeight);
+      if (width === 1400) {
+        await toggle.hover();
+        expect((await toggle.boundingBox())?.height).toBe(headerHeight);
+      }
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect((await toggle.boundingBox())?.height).toBe(headerHeight);
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
       const subagentBottomInset = await stack.getByTestId("subagents-card").evaluate((card) => {
         const rows = card.lastElementChild;
         const lastRow = rows?.lastElementChild;

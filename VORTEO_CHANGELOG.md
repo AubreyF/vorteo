@@ -2,7 +2,7 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
-## 0.11.0-beta.3.vorteo.120 - 2026-10-05
+## 0.11.0-beta.3.vorteo.124 - 2026-10-05
 
 ### Changed
 
@@ -10,6 +10,30 @@ Custom changes to vorteo. Paseo's release history remains in its upstream change
 - Move Activate Profile and Switch to Profile below the scrolling profile card and hide the action for the active selection
 - Remove account search and restore the ghost Manage profiles button
 - Show the selected profile name in the closed chooser instead of always showing Choose profile
+
+## 0.11.0-beta.3.vorteo.123 - 2026-10-05
+
+### Changed
+
+- Show messages waiting to synchronize as standard queue rows with a warning icon and a “Queued on this device” tooltip
+
+## 0.11.0-beta.3.vorteo.122 - 2026-10-05
+
+### Changed
+
+- Choose Host or Dev container in the profile switcher without a duplicate dropdown above the New workspace composer
+
+## 0.11.0-beta.3.vorteo.121 - 2026-10-05
+
+### Fixed
+
+- Match accordion header hover height to card rows, with shared header sizing for subagents, goals, tasks and queued messages.
+
+## 0.11.0-beta.3.vorteo.120 - 2026-10-05
+
+### Changed
+
+- Added expanding and collapsing chevrons to installation history, shared workflows, password help, and request details
 
 ## 0.11.0-beta.3.vorteo.119 - 2026-10-05
 
