@@ -46,6 +46,39 @@ function createCatalogClient(claudeCodeVersion = "2.1.284"): ClaudeAgentClient {
   });
 }
 
+describe("Claude CLI update warnings", () => {
+  it("explains missing models without making an older CLI unavailable, and clears after upgrading", async () => {
+    const configDir = await createClaudeConfigDir({});
+    let version = "2.1.267";
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      resolveVersion: async () => version,
+      runtimeSettings: { env: { CLAUDE_CONFIG_DIR: configDir } },
+    });
+    const before = await client.fetchCatalog({ scope: "global", force: true });
+    expect(before.cliUpdate).toEqual({
+      cli: "Claude Code",
+      installedVersion: "2.1.267",
+      affectedModels: [
+        { id: "claude-opus-5-5", label: "Opus 5.5", minimumVersion: "2.1.280" },
+        { id: "claude-sonnet-5-5", label: "Sonnet 5.5", minimumVersion: "2.1.284" },
+      ],
+      instructions: expect.stringContaining("claude update"),
+    });
+    expect(before.models.some((model) => model.id === "claude-opus-5")).toBe(true);
+    expect(before.models.some((model) => model.id === "claude-opus-5-5")).toBe(false);
+    version = "2.1.280";
+    const partial = await client.fetchCatalog({ scope: "global", force: true });
+    expect(partial.cliUpdate?.affectedModels.map((model) => model.id)).toEqual([
+      "claude-sonnet-5-5",
+    ]);
+    version = "2.1.285";
+    const after = await client.fetchCatalog({ scope: "global", force: true });
+    expect(after.cliUpdate).toBeUndefined();
+    expect(after.models.some((model) => model.id === "claude-opus-5-5")).toBe(true);
+  });
+});
+
 describe("getClaudeModels", () => {
   it("returns all claude models", () => {
     const models = getClaudeModels();

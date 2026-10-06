@@ -217,7 +217,11 @@ function ProviderRow({
       ? entry.error.trim()
       : null;
   const modelCount = filterSelectableModels(entry.models ?? null)?.length ?? 0;
-  const providerStatus = getProviderStatus(entry.status, enabled, modelCount, t);
+  const needsCliUpdate = vortonMode && enabled && Boolean(entry.cliUpdate);
+  const visibleStatus = useMemo<ProviderStatus>(() => {
+    const status = getProviderStatus(entry.status, enabled, modelCount, t);
+    return needsCliUpdate ? { ...status, tone: "warning", label: "CLI update needed" } : status;
+  }, [entry.status, enabled, modelCount, t, needsCliUpdate]);
 
   const handlePress = useCallback(() => {
     onPress(def.id);
@@ -293,8 +297,11 @@ function ProviderRow({
                     {def.label}
                   </Text>
                   {!isCompact ? <Text style={styles.separator}>·</Text> : null}
-                  <StatusIndicator status={providerStatus} compact={isCompact} />
+                  <StatusIndicator status={visibleStatus} compact={isCompact} />
                 </View>
+                {needsCliUpdate && isCompact ? (
+                  <Text style={settingsStyles.rowHint}>CLI update needed</Text>
+                ) : null}
                 {providerError && !isCompact ? (
                   <Text style={styles.errorText} numberOfLines={3}>
                     {providerError}

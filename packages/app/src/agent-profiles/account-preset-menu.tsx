@@ -1,7 +1,8 @@
 import { ExecutionEnvironmentIcon } from "@/execution-installation/environment-icon";
+import { CliUpdateWarning } from "@/provider-selection/cli-update-warning";
 import { useVortonTouch } from "@/vorton-touch";
 import { ProfileAction } from "./profile-action";
-import { ProviderResetControl } from "@/provider-usage/reset-control";
+import { ProfileSelectorTile, ProfileLoading } from "./profile-selector-tile";
 import { sharedChoiceState, type LaunchChoices } from "./shared-choices";
 import { useCallback, useMemo, useReducer, type ReactNode } from "react";
 import { Keyboard, ScrollView, Text, View, useWindowDimensions } from "react-native";
@@ -11,7 +12,6 @@ import { StyleSheet } from "react-native-unistyles";
 import type { AgentProfile, ProviderPreferences } from "@getpaseo/protocol/messages";
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
-import { ComboboxItem } from "@/components/ui/combobox";
 import { ProfileDetailsView } from "./profile-details-view";
 import { type AccountPresets } from "./account-presets";
 import type { AgentProfilePickerRow } from "./internal/use-agent-profile-picker";
@@ -65,6 +65,8 @@ interface AccountPresetMenuProps {
   onApply: (id: string, choices?: LaunchChoices) => void;
   onManage: () => void;
   renderRail: (row: AgentProfilePickerRow) => ReactNode;
+  renderBadge: (row: AgentProfilePickerRow) => ReactNode;
+  renderAccountDetails: (row: AgentProfilePickerRow) => ReactNode;
 }
 
 export function AccountPresetMenu(props: AccountPresetMenuProps) {
@@ -108,7 +110,8 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
         loading={props.loading}
         error={props.error}
         onInspect={inspectAccount}
-        renderRail={props.renderRail}
+        renderBadge={props.renderBadge}
+        renderAccountDetails={props.renderAccountDetails}
       />
     ),
     [accounts, account, selectedId, props, inspectAccount],
@@ -136,7 +139,11 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
       ) : (
         <View style={[settingsStyles.card, styles.detailCard]}>
           {profileHeading}
-          <Text style={styles.empty}>Select an account</Text>
+          {props.loading ? (
+            <ProfileLoading label="Loading profiles" />
+          ) : (
+            <Text style={styles.empty}>Select an account</Text>
+          )}
         </View>
       ),
     [account, inspected, props, preferences, family, profileHeading],
@@ -214,7 +221,8 @@ function AccountList({
   loading,
   error,
   onInspect,
-  renderRail,
+  renderBadge,
+  renderAccountDetails,
 }: {
   accounts: AccountPresets[];
   account: AccountPresets | undefined;
@@ -223,7 +231,8 @@ function AccountList({
   loading?: boolean;
   error?: string | null;
   onInspect: (id: string) => void;
-  renderRail: AccountPresetMenuProps["renderRail"];
+  renderBadge: AccountPresetMenuProps["renderBadge"];
+  renderAccountDetails: AccountPresetMenuProps["renderAccountDetails"];
 }) {
   const empty = !loading && !error && !accounts.length;
   return (
@@ -236,10 +245,11 @@ function AccountList({
           active={group === account}
           selectedId={selectedId}
           onInspect={onInspect}
-          renderRail={renderRail}
+          renderBadge={renderBadge}
+          renderAccountDetails={renderAccountDetails}
         />
       ))}
-      {loading ? <Text style={styles.empty}>Loading accounts...</Text> : null}
+      {loading ? <ProfileLoading label="Loading accounts" /> : null}
       {error ? (
         <Text style={styles.empty} accessibilityRole="alert">
           {error}
@@ -372,16 +382,13 @@ function EnvironmentButton({
     [onSelect, environment.serverId],
   );
   return (
-    <ComboboxItem
+    <ProfileSelectorTile
       label={environment.label}
-      leadingSlot={environmentIcon}
+      leading={environmentIcon}
       selected={selected}
       disabled={!environment.available}
-      description={environment.available ? environment.description : "Disconnected"}
-      descriptionPlacement="below"
+      subtitle={environment.available ? (environment.description ?? "Connected") : "Disconnected"}
       onPress={select}
-      selectionPlacement="none"
-      style={[styles.accountButton, selected && styles.selectedChoice]}
       testID={`preset-environment-${environment.serverId}`}
     />
   );
@@ -446,14 +453,16 @@ function AccountButton({
   active,
   selectedId,
   onInspect,
-  renderRail,
+  renderBadge,
+  renderAccountDetails,
 }: {
   serverId: string | null;
   group: AccountPresets;
   active: boolean;
   selectedId: string | undefined;
   onInspect: (id: string) => void;
-  renderRail: AccountPresetMenuProps["renderRail"];
+  renderBadge: AccountPresetMenuProps["renderBadge"];
+  renderAccountDetails: AccountPresetMenuProps["renderAccountDetails"];
 }) {
   const select = useCallback(
     () => onInspect(group.rows.find((row) => row.id === selectedId)?.id ?? group.rows[0].id),
@@ -462,22 +471,14 @@ function AccountButton({
   const ProviderIcon = useProviderIcon(group.provider, serverId);
   const icon = useMemo(() => <ThemedProviderGlyph Icon={ProviderIcon} />, [ProviderIcon]);
 
-  const usage = useMemo(
-    () => <View style={styles.usage}>{renderRail(group.rows[0])}</View>,
-    [group, renderRail],
-  );
   return (
-    <ComboboxItem
-      leadingSlot={icon}
-      descriptionSlot={usage}
-      descriptionPlacement="below"
-      labelNumberOfLines={1}
+    <ProfileSelectorTile
+      leading={icon}
+      badge={renderBadge(group.rows[0])}
+      subtitle={renderAccountDetails(group.rows[0])}
       label={group.label}
-      labelStyle={styles.accountTitle}
-      selectionPlacement="none"
       selected={active}
       onPress={select}
-      style={[styles.accountButton, active && styles.selectedChoice]}
       testID={`preset-account-${group.provider}`}
     />
   );
@@ -521,16 +522,7 @@ function AccountChoices({
   return (
     <View style={styles.detail} testID={`preset-choices-${account.provider}`}>
       <View style={[settingsStyles.card, styles.detailCard]} testID="preset-profile-card">
-        <View style={styles.profileHeader}>
-          <View style={styles.profileHeading}>{heading}</View>
-          <ProviderResetControl
-            serverId={props.serverId}
-            providerId={account.provider}
-            name={account.label}
-            compact
-            preloaded
-          />
-        </View>
+        {heading}
         <DetailScrollView
           testID="preset-profile-scroll"
           style={styles.detailScroll}
@@ -538,6 +530,7 @@ function AccountChoices({
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.choices}>
+            <CliUpdateWarning update={entry?.cliUpdate} />
             {props.compact && !inspected.localEndpoint ? props.renderRail(inspected) : null}
             <View style={[styles.profileList, grid && styles.profileGrid]}>
               {account.rows.map((row) => (
@@ -629,14 +622,12 @@ function ProfileChoice({
     .filter(Boolean)
     .join(" · ");
   return (
-    <ComboboxItem
+    <ProfileSelectorTile
       label={row.name}
-      description={summary}
-      descriptionPlacement="below"
+      subtitle={summary}
       selected={selected}
-      selectionPlacement="none"
       onPress={select}
-      style={[styles.profileChoice, grid && styles.gridChoice, selected && styles.selectedChoice]}
+      style={grid ? styles.gridChoice : undefined}
       testID={`preset-row-${row.id}`}
     />
   );
@@ -665,7 +656,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   environmentCard: { flex: 1.1, minWidth: 260 },
-  accountCard: { flex: 1, minWidth: 200 },
+  accountCard: { flex: 1.1, minWidth: 260 },
   profileCard: { flex: 1.7, minWidth: 0 },
   cardHeading: {
     padding: theme.spacing[3],
@@ -674,21 +665,12 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.medium,
   },
   accountList: { padding: theme.spacing[2], gap: theme.spacing[1] },
-  selectedChoice: { borderColor: theme.colors.accent },
   profileList: { gap: theme.spacing[2] },
   profileGrid: { flexDirection: "row", flexWrap: "wrap" },
   gridChoice: { width: "48%", flexGrow: 1 },
-  profileHeader: { flexDirection: "row", alignItems: "center", paddingRight: theme.spacing[2] },
-  profileHeading: { flex: 1, minWidth: 0 },
   sectionContent: {
     paddingHorizontal: theme.spacing[3],
     lineHeight: Math.ceil(theme.fontSize.base * 1.5),
-  },
-  profileChoice: {
-    minHeight: 56,
-    borderWidth: 1,
-    borderColor: "transparent",
-    borderRadius: theme.borderRadius.md,
   },
   compactBody: { flex: 1, minHeight: 0, padding: theme.spacing[3], gap: theme.spacing[2] },
   compactList: { maxHeight: 220 },
@@ -698,23 +680,6 @@ const styles = StyleSheet.create((theme) => ({
   detailCard: { flex: 1, minHeight: 0, overflow: "hidden" },
   account: {
     padding: theme.spacing[1],
-  },
-  accountButton: {
-    borderWidth: 1,
-    borderColor: "transparent",
-    height: Math.ceil(theme.fontSize.base * 1.4) * 2 + theme.spacing[8] + theme.spacing[2],
-    paddingVertical: theme.spacing[3],
-    paddingRight: theme.spacing[3],
-    borderRadius: theme.borderRadius.md,
-  },
-  accountTitle: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
-    fontWeight: theme.fontWeight.medium,
-  },
-  usage: {
-    paddingTop: theme.spacing[2],
-    justifyContent: "center",
   },
   detailScroll: { flex: 1, minHeight: 0 },
   choices: { padding: theme.spacing[2], gap: theme.spacing[3] },

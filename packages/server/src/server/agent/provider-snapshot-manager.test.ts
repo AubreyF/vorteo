@@ -142,6 +142,43 @@ async function runTestCatalogActivities(
 }
 
 describe("ProviderSnapshotManager public surface", () => {
+  test("publishes CLI warnings on a ready provider and clears them after refresh", async () => {
+    const warning = {
+      cli: "Claude Code",
+      installedVersion: "2.1.267",
+      affectedModels: [{ id: "claude-opus-5-5", label: "Opus 5.5", minimumVersion: "2.1.280" }],
+      instructions: "Run claude update.",
+    };
+    let outdated = true;
+    const manager = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      extraClients: {
+        claude: createExtraClient("claude", {
+          async isAvailable() {
+            return true;
+          },
+          async fetchCatalog() {
+            return {
+              models: [{ provider: "claude", id: "claude-opus-5", label: "Opus 5" }],
+              modes: [],
+              cliUpdate: outdated ? warning : undefined,
+            };
+          },
+        }),
+      },
+    });
+    try {
+      await manager.refreshSettingsSnapshot({ providers: ["claude"] });
+      const before = await manager.getProvider({ provider: "claude", wait: true });
+      expect(before.status).toBe("ready");
+      expect(before.cliUpdate).toEqual(warning);
+      outdated = false;
+      await manager.refreshSettingsSnapshot({ providers: ["claude"] });
+      expect((await manager.getProvider({ provider: "claude" })).cliUpdate).toBeUndefined();
+    } finally {
+      manager.destroy();
+    }
+  });
   test("publishes one model per provider identity and retains the first definition", async () => {
     const first = { provider: "codex", id: "shared", label: "First", isDefault: true };
     const manager = new ProviderSnapshotManager({

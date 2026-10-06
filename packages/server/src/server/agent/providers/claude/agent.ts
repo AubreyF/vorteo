@@ -42,6 +42,7 @@ import {
 import {
   CLAUDE_DISABLED_THINKING_OPTION_ID,
   CLAUDE_ULTRACODE_THINKING_OPTION_ID,
+  getClaudeCliUpdate,
   parseClaudeCodeVersion,
   resolveClaudeDisabledThinkingForModel,
 } from "./model-manifest.js";
@@ -1599,6 +1600,7 @@ export class ClaudeAgentClient implements AgentClient {
     const modeCatalog = claudeModeCatalog(env);
     return {
       models,
+      cliUpdate: getClaudeCliUpdate(claudeCodeVersion),
       ...modeCatalog,
     };
   }

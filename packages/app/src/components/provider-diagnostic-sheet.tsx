@@ -1,6 +1,7 @@
 import { AgentProfilesSection } from "@/agent-profiles/settings/agent-profiles-section";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useVortonMode } from "@/vorton-mode";
+import { CliUpdateWarning } from "@/provider-selection/cli-update-warning";
 import * as Clipboard from "expo-clipboard";
 import { AlertTriangle, Copy, FileText, Plus, RotateCw, Trash2 } from "lucide-react-native";
 import type { TFunction } from "i18next";
@@ -743,6 +744,7 @@ export function ProviderDiagnosticSheet({
             </Text>
           </View>
         ) : null}
+        <CliUpdateWarning update={providerEntry?.cliUpdate} />
         {vortonMode ? (
           <View style={sheetStyles.tabs}>
             <SegmentedControl

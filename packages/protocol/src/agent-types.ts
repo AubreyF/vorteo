@@ -1,4 +1,4 @@
-import type { AgentAttachment, AgentProfileLaunch } from "./messages.js";
+import type { AgentAttachment, AgentProfileLaunch, ProviderCliUpdate } from "./messages.js";
 import type { QuotaReserveConfig, QuotaReserveLaunchPolicy } from "./quota-reserve.js";
 
 export type AgentProvider = string;
@@ -119,6 +119,7 @@ export function normalizeAgentModelCatalog(models: AgentModelDefinition[]): Agen
 }
 
 export interface ProviderSnapshotEntry {
+  cliUpdate?: ProviderCliUpdate;
   provider: AgentProvider;
   status: ProviderStatus;
   enabled: boolean;

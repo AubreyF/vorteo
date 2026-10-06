@@ -440,6 +440,21 @@ const AgentModelDefinitionSchema = z.object({
   defaultThinkingOptionId: z.string().optional(),
 }) satisfies z.ZodType<AgentModelDefinition>;
 
+export const ProviderCliUpdateSchema = z.object({
+  cli: z.string(),
+  installedVersion: z.string(),
+  affectedModels: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      minimumVersion: z.string(),
+    }),
+  ),
+  instructions: z.string(),
+});
+
+export type ProviderCliUpdate = z.infer<typeof ProviderCliUpdateSchema>;
+
 export const ProviderSnapshotEntrySchema = z.object({
   provider: AgentProviderSchema,
   status: ProviderStatusSchema,
@@ -453,6 +468,7 @@ export const ProviderSnapshotEntrySchema = z.object({
   description: z.string().optional(),
   iconSvg: z.string().optional(),
   defaultModeId: z.string().nullable().optional(),
+  cliUpdate: ProviderCliUpdateSchema.optional(),
 });
 
 export const CompactProviderSnapshotModelSchema = AgentModelDefinitionSchema.omit({

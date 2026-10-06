@@ -10,7 +10,11 @@ import type {
   ProviderOptions,
   ToolPolicy,
 } from "@getpaseo/protocol/agent-types";
-import type { AgentAttachment, AgentProfileLaunch } from "@getpaseo/protocol/messages";
+import type {
+  AgentAttachment,
+  AgentProfileLaunch,
+  ProviderCliUpdate,
+} from "@getpaseo/protocol/messages";
 import type {
   QuotaReserveConfig,
   QuotaReserveLaunchPolicy,
@@ -139,6 +143,7 @@ export function filterSelectableAgentModels(
 }
 
 export interface ProviderSnapshotEntry {
+  cliUpdate?: ProviderCliUpdate;
   provider: AgentProvider;
   status: ProviderStatus;
   enabled: boolean;
@@ -849,6 +854,7 @@ export interface ProviderRefreshContext {
 }
 
 export interface ProviderCatalog {
+  cliUpdate?: ProviderCliUpdate;
   models: AgentModelDefinition[];
   modes: AgentMode[];
   defaultModeId?: string | null;

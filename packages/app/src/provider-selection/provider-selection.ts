@@ -35,6 +35,7 @@ export type ProviderModelSelection =
   | { kind: "error"; message: string };
 
 export interface ProviderSelectorProvider {
+  cliUpdate?: ProviderSnapshotEntry["cliUpdate"];
   id: string;
   label: string;
   modelSelection: ProviderModelSelection;
@@ -151,6 +152,7 @@ export function buildSelectableProviderSelectorProviders(
         id: entry.provider,
         label,
         modelSelection: buildEntryModelSelection(entry, label),
+        cliUpdate: entry.cliUpdate,
       };
     });
 }

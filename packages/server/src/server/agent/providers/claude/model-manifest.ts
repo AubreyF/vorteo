@@ -1,4 +1,5 @@
 import type { AgentModelDefinition, AgentSelectOption } from "../../agent-sdk-types.js";
+import type { ProviderCliUpdate } from "@getpaseo/protocol/messages";
 
 type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -259,6 +260,33 @@ export function getClaudeManifestModels(claudeCodeVersion?: string): AgentModelD
     }
   }
   return definitions;
+}
+
+export function getClaudeCliUpdate(
+  claudeCodeVersion: string | undefined,
+): ProviderCliUpdate | undefined {
+  if (!claudeCodeVersion || !parseClaudeCodeVersion(claudeCodeVersion)) return undefined;
+  const affectedModels: ProviderCliUpdate["affectedModels"] = [];
+  for (const model of CLAUDE_MODEL_MANIFEST) {
+    if (
+      "minimumClaudeCodeVersion" in model &&
+      !isModelAvailableInClaudeCode(model, claudeCodeVersion)
+    ) {
+      affectedModels.push({
+        id: model.id,
+        label: model.label,
+        minimumVersion: model.minimumClaudeCodeVersion,
+      });
+    }
+  }
+  if (affectedModels.length === 0) return undefined;
+  return {
+    cli: "Claude Code",
+    installedVersion: claudeCodeVersion,
+    affectedModels,
+    instructions:
+      "Update Claude Code in this environment, then select Refresh. Run claude update; for Homebrew installations, run brew upgrade --cask claude-code. For a container environment, update inside the container, not on the Docker host.",
+  };
 }
 
 function isModelAvailableInClaudeCode(
