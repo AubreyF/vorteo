@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Text } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Anchor, ShieldCheck } from "lucide-react-native";
+import { Anchor, LockKeyhole } from "lucide-react-native";
 import { MenuHint, MenuItem, MenuSeparator } from "@/components/ui/menu";
 import type { Theme } from "@/styles/theme";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -10,7 +10,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
 
 const StandingIcon = withUnistyles(Anchor);
-const ProtectedIcon = withUnistyles(ShieldCheck);
+const ProtectedIcon = withUnistyles(LockKeyhole);
 const muted = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const standingLeading = <StandingIcon size={14} uniProps={muted} />;
 const protectedLeading = <ProtectedIcon size={14} uniProps={muted} />;
@@ -36,6 +36,20 @@ export function WorkspaceLifecycleMenuItems({
     mutationFn: async (change: { standing?: boolean; protected?: boolean }) => {
       const client = getHostRuntimeStore().getClient(serverId);
       if (!client) throw new Error("Host disconnected. Reconnect and try again.");
+      // Retire old custom aliases before using the built-in control, so unprotecting
+      // cannot leave a second Protected badge behind.
+      const names =
+        selectWorkspace(useSessionStore.getState(), serverId, workspaceId)?.labels ?? [];
+      const aliases = names.filter((name) =>
+        ["standing", "protected"].includes(name.trim().toLowerCase()),
+      );
+      if (aliases.length) {
+        const catalog = await client.listWorkspaceLabels();
+        for (const name of aliases) {
+          const label = catalog.labels.find((entry) => entry.name === name);
+          if (label) await client.setWorkspaceLabel({ workspaceId, label, assigned: false });
+        }
+      }
       await client.setWorkspaceLifecycle({ workspaceId, ...change });
     },
   });
@@ -47,8 +61,6 @@ export function WorkspaceLifecycleMenuItems({
   );
   const changingStanding = mutation.isPending && mutation.variables?.standing !== undefined;
   const changingProtection = mutation.isPending && mutation.variables?.protected !== undefined;
-  if (!supported)
-    return <MenuHint>Update this environment to use Standing and Protected.</MenuHint>;
   return (
     <>
       <MenuItem
@@ -56,7 +68,7 @@ export function WorkspaceLifecycleMenuItems({
         testID={`workspace-standing-${workspaceId}`}
         selected={standing}
         closeOnSelect={false}
-        disabled={mutation.isPending}
+        disabled={!supported || mutation.isPending}
         status={changingStanding ? "pending" : "idle"}
         onSelect={toggleStanding}
       >
@@ -67,7 +79,7 @@ export function WorkspaceLifecycleMenuItems({
         testID={`workspace-protected-${workspaceId}`}
         selected={protectedWorkspace}
         closeOnSelect={false}
-        disabled={mutation.isPending}
+        disabled={!supported || mutation.isPending}
         status={changingProtection ? "pending" : "idle"}
         onSelect={toggleProtected}
       >
@@ -77,6 +89,9 @@ export function WorkspaceLifecycleMenuItems({
         <Text accessibilityRole="alert" style={styles.error}>
           {mutation.error.message}
         </Text>
+      ) : null}
+      {!supported ? (
+        <MenuHint>Update this environment to use Standing and Protected.</MenuHint>
       ) : null}
       <MenuSeparator />
     </>

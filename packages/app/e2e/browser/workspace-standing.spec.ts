@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { expect, test, type Page } from "../support/fixtures";
 import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-agent";
@@ -58,6 +59,15 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "standing-workspaces" });
   let scheduleId: string | undefined;
   try {
+    await client.createAgent({
+      provider: "mock",
+      labels: { [PARENT_AGENT_ID_LABEL]: agent.agentId },
+      workspaceId: agent.workspaceId,
+      cwd: agent.cwd,
+      title: "Count badge reference",
+      model: "e2e-fast-stream",
+      modeId: "load-test",
+    });
     await client.setWorkspaceLabel({
       workspaceId: agent.workspaceId,
       label: { name: "Protected", color: "amber" },
@@ -74,12 +84,19 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     scheduleId = created.schedule.id;
     await client.schedulePause({ id: scheduleId });
     await openAgentRoute(page, agent);
-    await expect(page.getByTestId("workspace-label-chip-Protected")).toHaveText(
-      "Protected (custom)",
-    );
+    await expect(page.getByTestId("workspace-label-chip-Protected")).toHaveText("Protected");
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeHidden();
     await expect(page.getByTestId(`workspace-scheduled-${agent.workspaceId}`)).toHaveText(
       "Scheduled",
+    );
+    await expect(
+      page.getByTestId(`workspace-subagent-count-${getServerId()}-${agent.workspaceId}`),
+    ).toHaveText("A1");
+    const initialCountHeight = (await page
+      .getByTestId(`workspace-subagent-count-${getServerId()}-${agent.workspaceId}`)
+      .boundingBox())!.height;
+    expect((await page.getByTestId("workspace-label-chip-Protected").boundingBox())?.height).toBe(
+      initialCountHeight,
     );
     await openMenu(page, agent.workspaceId);
     await expect(page.getByTestId(`workspace-standing-${agent.workspaceId}`)).toBeHidden();
@@ -87,10 +104,8 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
       .getByTestId(`sidebar-workspace-menu-labels-${getServerId()}:${agent.workspaceId}`)
       .click();
     await expect(page.getByText("Custom labels", { exact: true })).toBeVisible();
-    await expect(page.getByTestId("workspace-label-picker-row-Protected")).toHaveText(
-      "Protected (custom)",
-    );
     await expect(page.getByTestId("workspace-label-picker-create")).toHaveText("Create Label");
+    await expect(page.getByTestId("workspace-label-picker-row-Protected")).toBeHidden();
     await page.getByTestId(`workspace-standing-${agent.workspaceId}`).click();
     await expect(page.getByText("Lifecycle change could not be saved. Try again.")).toBeVisible();
     await page.getByTestId(`workspace-standing-${agent.workspaceId}`).click();
@@ -108,8 +123,14 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
       .first();
     const scheduledBadge = page.getByTestId(`workspace-scheduled-${agent.workspaceId}`);
     const protectedBadge = page.getByTestId(`workspace-shield-${agent.workspaceId}`);
-    await expect.poll(async () => (await scheduledBadge.boundingBox())?.height).toBe(24);
-    expect((await protectedBadge.boundingBox())?.height).toBe(24);
+    const countBadge = page.getByTestId(
+      `workspace-subagent-count-${getServerId()}-${agent.workspaceId}`,
+    );
+    await expect(countBadge).toHaveText("A1");
+    const countHeight = (await countBadge.boundingBox())!.height;
+    expect((await scheduledBadge.boundingBox())?.height).toBe(countHeight);
+    expect((await protectedBadge.boundingBox())?.height).toBe(countHeight);
+    await expect(page.getByTestId("workspace-label-chip-Protected")).toBeHidden();
     const resting = await scheduledBadge.boundingBox();
     const protection = await protectedBadge.boundingBox();
     const rowBox = await row.boundingBox();
@@ -127,11 +148,17 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
         const box = await scheduledBadge.boundingBox();
         return box ? Math.round(resting.x + resting.width - box.x - box.width) : 0;
       })
-      .toBe(28);
+      .toBe(0);
     const menuBox = await menu.boundingBox();
     const shifted = await scheduledBadge.boundingBox();
     if (!menuBox || !shifted) throw new Error("Expected hovered workspace actions");
-    expect(menuBox.x).toBeGreaterThanOrEqual(shifted.x + shifted.width);
+    expect(shifted).toEqual(resting);
+    expect(menuBox.x).toBeLessThan(shifted.x + shifted.width);
+    expect(menuBox.x + menuBox.width).toBeGreaterThan(shifted.x);
+    await expect(menu).toHaveCSS("border-radius", "0px");
+    expect(await menu.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(
+      "rgba(0, 0, 0, 0)",
+    );
     expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
     const title = row.getByText("main", { exact: true });
     expect((await title.boundingBox())?.width).toBeGreaterThanOrEqual(48);
@@ -229,4 +256,62 @@ test.describe("touch controls", () => {
       await agent.cleanup();
     }
   });
+});
+
+test("older environments show disabled built-in protection instead of a custom label", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.routeWebSocket(daemonWsRoutePattern(), (browser) => {
+    const server = browser.connectToServer();
+    browser.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      if (typeof message !== "string") {
+        browser.send(message);
+        return;
+      }
+      const envelope = JSON.parse(message) as {
+        message?: {
+          type?: string;
+          payload?: { status?: string; features?: Record<string, unknown> };
+        };
+      };
+      if (
+        envelope.message?.type === "status" &&
+        envelope.message.payload?.status === "server_info"
+      ) {
+        envelope.message.payload.features = {
+          ...envelope.message.payload.features,
+          workspaceLifecycle: false,
+        };
+      }
+      browser.send(JSON.stringify(envelope));
+    });
+  });
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "standing-old-environment-",
+    title: "Protected legacy label",
+  });
+  try {
+    await agent.client.setWorkspaceLabel({
+      workspaceId: agent.workspaceId,
+      label: { name: "Protected", color: "red" },
+      assigned: true,
+    });
+    await openAgentRoute(page, agent);
+    await openMenu(page, agent.workspaceId);
+    await page
+      .getByTestId(`sidebar-workspace-menu-labels-${getServerId()}:${agent.workspaceId}`)
+      .click();
+    const protection = page.getByTestId(`workspace-protected-${agent.workspaceId}`);
+    await expect(protection).toHaveText("Protected");
+    await expect(protection).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("workspace-label-picker-row-Protected")).toBeHidden();
+    await expect(
+      page.getByText("Update this environment to use Standing and Protected."),
+    ).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath("protected-old-environment.png") });
+  } finally {
+    await agent.cleanup();
+  }
 });

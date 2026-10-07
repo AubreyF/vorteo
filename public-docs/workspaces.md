@@ -41,15 +41,15 @@ In Vorteo, the workspace is the stable container. The sessions are what you run 
 
 Open a workspace's menu, choose **Tag As**, then enable **Standing** for ongoing responsibilities such as a supervisor or recurring council updates. Standing workspaces appear in a collapsible section within their project. Individually pinned workspaces remain in Pinned.
 
-Choosing Standing also enables **Protected**. A shield identifies protected workspaces. Protection blocks archiving the workspace or its agent sessions, including through bulk actions and daemon requests. Remove Protected explicitly before archiving. Turning off Standing keeps protection enabled. You can also protect an ordinary workspace.
+Choosing Standing also enables **Protected**. A lock identifies protected workspaces. Protection blocks archiving the workspace or its agent sessions, including through bulk actions and daemon requests. Remove Protected explicitly before archiving. Turning off Standing keeps protection enabled. You can also protect an ordinary workspace.
 
 **Scheduled** appears automatically when a schedule targets an agent in that workspace. Paused schedules keep the badge; completed or expired schedules do not. Select the badge to open Schedules. Schedules that create a fresh workspace for each run do not mark those outputs as ongoing work.
 
-Standing and Protected have anchor and shield icons and checked states. Custom labels appear in a separate section below them, with **Create Label** at the bottom. Custom labels named Standing, Protected, or Scheduled display “(custom)” in the menu and sidebar; assigning one does not change lifecycle behavior.
+Standing and Protected have anchor and lock icons and checked states. Custom labels appear in a separate section below them, with **Create Label** at the bottom. Standing, Protected and Scheduled are reserved names and are excluded from the custom-label section. On older environments, the built-in controls remain visible but disabled until the environment is updated. Existing custom assignments retain their plain names; a legacy Protected assignment alone does not enforce archive protection.
 
 Standing and Protected require an updated daemon. Tag As explains when the workspace's environment needs an update.
 
-Protected and Scheduled use matching compact icon badges at the right of the workspace title row. Custom labels share that line. Hovering slides the trailing content left to reveal the menu at the far right; touch layouts keep that menu visible. Scheduled opens Schedules and retains a full-size touch target around its compact badge.
+Protected and Scheduled use matching compact icon badges at the right of the workspace title row. Custom labels share that line. Badges match the height of A1/G counters. Hovering reveals a solid, square-edged menu button over the far-right content without moving it; touch layouts keep a fixed menu target visible. Scheduled opens Schedules and retains a full-size touch target around its compact badge.
 
 ## Choose the isolation
 

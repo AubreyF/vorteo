@@ -1,7 +1,7 @@
 import { useCallback, type ReactElement } from "react";
 import { Text, View, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Tag } from "lucide-react-native";
+import { Tag, LockKeyhole } from "lucide-react-native";
 import type { Theme } from "@/styles/theme";
 import {
   WORKSPACE_LABEL_COLORS,
@@ -21,6 +21,7 @@ import { workspaceLabelDisplayName } from "./display-name";
  */
 export const WORKSPACE_LABEL_CHIP_INSET = SPACING[1.5];
 const LabelIcon = withUnistyles(Tag);
+const ProtectedIcon = withUnistyles(LockKeyhole);
 
 /** Custom labels share the compact title-row geometry while retaining their identity colors. */
 export function WorkspaceLabelChip({ label }: { label: WorkspaceLabelDefinition }): ReactElement {
@@ -33,7 +34,13 @@ export function WorkspaceLabelChip({ label }: { label: WorkspaceLabelDefinition 
       style={[styles.chip, CHIP_GROUNDS[label.color]]}
       testID={`workspace-label-chip-${label.name}`}
     >
-      <LabelIcon size={12} uniProps={iconColor} />
+      <View style={styles.icon}>
+        {label.name.trim().toLowerCase() === "protected" ? (
+          <ProtectedIcon size={12} uniProps={iconColor} />
+        ) : (
+          <LabelIcon size={12} uniProps={iconColor} />
+        )}
+      </View>
       <Text style={[styles.name, nameColorStyle(label.color)]} numberOfLines={1}>
         {workspaceLabelDisplayName(label.name)}
       </Text>
@@ -53,7 +60,6 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
-    height: 24,
     overflow: "hidden",
     // Yields space the way the host badge does, so a long label truncates instead of pushing
     // the change request and its checks off the line.
@@ -62,9 +68,9 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: WORKSPACE_LABEL_CHIP_INSET,
     borderRadius: theme.borderRadius.lg,
   },
+  icon: { flexShrink: 0 },
   name: {
     fontSize: theme.fontSize.sm,
-    lineHeight: 16,
     flexShrink: 1,
     minWidth: 0,
   },

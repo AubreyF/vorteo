@@ -40,7 +40,6 @@ import {
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { StatusRing } from "@/components/status-ring";
 import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
-import Animated, { useAnimatedStyle, withTiming, ReduceMotion } from "react-native-reanimated";
 import { WorkspaceLabelChip } from "@/workspace-labels/chip";
 import { useWorkspaceLabelDefinitions } from "@/workspace-labels";
 
@@ -451,20 +450,11 @@ export function SidebarWorkspaceMenuReveal({
   children: ReactNode;
 }) {
   const actionSize = useSidebarActionSize();
-  // Grow the spacer while keeping the button anchored at its final click position.
-  const width = actionSize.width + 4;
-  const spacerStyle = useAnimatedStyle(
-    () => ({
-      width: withTiming(visible ? width : 0, { duration: 160, reduceMotion: ReduceMotion.System }),
-    }),
-    [visible, width],
-  );
+  const touch = useVortonTouch();
+  // Overlay the trailing content without changing the row's layout.
   return (
     <>
-      <Animated.View
-        style={[styles.menuReveal, { height: actionSize.height }, spacerStyle]}
-        pointerEvents="none"
-      />
+      {touch ? <View pointerEvents="none" style={[styles.touchMenuSpace, actionSize]} /> : null}
       {visible ? <View style={[styles.menuEdge, actionSize]}>{children}</View> : null}
     </>
   );
@@ -494,8 +484,15 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     overflow: "hidden",
   },
-  menuReveal: { overflow: "hidden", flexShrink: 0, justifyContent: "center" },
-  menuEdge: { position: "absolute", right: 0, alignItems: "flex-end", justifyContent: "center" },
+  touchMenuSpace: { flexShrink: 0, marginLeft: 4 },
+  menuEdge: {
+    position: "absolute",
+    right: 0,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surfaceSidebarHover,
+    borderRadius: 0,
+  },
   alignedRow: { alignItems: "center" },
   alignedActions: { alignItems: "center", gap: 4 },
   serviceSlot: { alignItems: "center", justifyContent: "center", flexShrink: 0 },

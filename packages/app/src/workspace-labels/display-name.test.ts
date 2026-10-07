@@ -1,9 +1,10 @@
 import { expect, test } from "vitest";
-import { workspaceLabelDisplayName } from "./display-name";
+import { workspaceLabelDisplayName, isBuiltInWorkspaceLabel } from "./display-name";
 
-test("custom names cannot imply workspace lifecycle behavior", () => {
-  expect(workspaceLabelDisplayName("Protected")).toBe("Protected (custom)");
-  expect(workspaceLabelDisplayName("STANDING")).toBe("STANDING (custom)");
-  expect(workspaceLabelDisplayName("Scheduled")).toBe("Scheduled (custom)");
-  expect(workspaceLabelDisplayName("Release review")).toBe("Release review");
+test("built-in names stay out of the custom-label namespace without display suffixes", () => {
+  for (const name of ["Protected", " STANDING ", "scheduled"]) {
+    expect(isBuiltInWorkspaceLabel(name)).toBe(true);
+    expect(workspaceLabelDisplayName(name)).toBe(name);
+  }
+  expect(isBuiltInWorkspaceLabel("Release review")).toBe(false);
 });

@@ -1,6 +1,6 @@
 import { View, Pressable, type GestureResponderEvent } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { ShieldCheck, Repeat2 } from "lucide-react-native";
+import { LockKeyhole, Repeat2 } from "lucide-react-native";
 import { router } from "expo-router";
 import { useVortonTouch } from "@/vorton-touch";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -8,7 +8,7 @@ import { useWorkspaceScheduled } from "./scheduled";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import type { Theme } from "@/styles/theme";
 
-const Shield = withUnistyles(ShieldCheck);
+const Shield = withUnistyles(LockKeyhole);
 const Repeat = withUnistyles(Repeat2);
 const muted = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 

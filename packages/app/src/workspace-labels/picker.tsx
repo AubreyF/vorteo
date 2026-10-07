@@ -36,7 +36,7 @@ import {
 import type { Theme } from "@/styles/theme";
 import { WorkspaceLabelDot, WorkspaceLabelSwatchRow } from "./swatch";
 import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
-import { workspaceLabelDisplayName } from "./display-name";
+import { workspaceLabelDisplayName, isBuiltInWorkspaceLabel } from "./display-name";
 import { useVortonTouch } from "@/vorton-touch";
 
 /** The `MenuSubTrigger` on a workspace's menu that opens the assign page. */
@@ -149,15 +149,17 @@ function WorkspaceLabelPickerPage({
     <>
       <WorkspaceLifecycleMenuItems serverId={serverId} workspaceId={workspaceId} />
       <MenuHint>Custom labels</MenuHint>
-      {snapshot.rows.map((row) => (
-        <WorkspaceLabelAssignRow
-          key={row.name.toLocaleLowerCase()}
-          row={row}
-          offline={offline}
-          pending={pending.has(row.name.toLocaleLowerCase())}
-          onToggle={toggle}
-        />
-      ))}
+      {snapshot.rows
+        .filter((row) => !isBuiltInWorkspaceLabel(row.name))
+        .map((row) => (
+          <WorkspaceLabelAssignRow
+            key={row.name.toLocaleLowerCase()}
+            row={row}
+            offline={offline}
+            pending={pending.has(row.name.toLocaleLowerCase())}
+            onToggle={toggle}
+          />
+        ))}
       {snapshot.rows.length > 0 ? <MenuSeparator /> : null}
       {error ? <MenuHint testID="workspace-label-picker-error">{error}</MenuHint> : null}
       {host?.status === "unsupported" ? (
@@ -232,6 +234,10 @@ function WorkspaceLabelCreatePage({
   const submit = useCallback(() => {
     const trimmed = normalizeWorkspaceLabelName(name);
     if (!trimmed || pending) return;
+    if (isBuiltInWorkspaceLabel(trimmed)) {
+      setError("This name is reserved for a built-in label. Use the controls under Tag As.");
+      return;
+    }
     setPending(true);
     setError(null);
     workspaceLabels
