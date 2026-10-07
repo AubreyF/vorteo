@@ -131,7 +131,11 @@ export class InstallationClient {
     )
       throw new Error("Update the coordinator to support this restart action");
     RestartJobSchema.parse(
-      await this.request(`restarts/${job.id}/decision`, { revision: job.revision, decision }),
+      await this.request(`restarts/${job.id}/decision`, {
+        revision: job.revision,
+        decision,
+        ...(job.update ? { updateSha256: job.update.sha256 } : {}),
+      }),
     );
   }
 
@@ -154,7 +158,10 @@ export class InstallationClient {
       this.installation.idleRestarts && path.startsWith("restarts")
         ? `${path}?idleRestarts=1${this.installation.gracefulRestarts ? "&gracefulRestarts=1" : ""}`
         : path;
-    return this.ports.request(resource, this.password, body);
+    const query = path.startsWith("restarts")
+      ? `${resource}${resource.includes("?") ? "&" : "?"}sourceUpdates=1`
+      : resource;
+    return this.ports.request(query, this.password, body);
   }
 }
 

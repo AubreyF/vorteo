@@ -1,3 +1,4 @@
+import path from "node:path";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import {
@@ -12,6 +13,16 @@ const DaemonConnectionSchema = z.strictObject({
 
 export const InstallationConfigSchema = z.strictObject({
   public: ExecutionInstallationSchema,
+  sourceUpdates: z
+    .strictObject({
+      sourceRepository: z.string().startsWith("/"),
+      releaseRoot: z.string().startsWith("/"),
+      currentReleaseLink: z.string().startsWith("/"),
+      webDirectory: z.string().startsWith("/"),
+      toolingDirectory: z.string().startsWith("/"),
+      integrationRef: z.string().regex(/^refs\/heads\/[a-zA-Z0-9_./-]+$/),
+    })
+    .optional(),
   redirectOrigins: z
     .array(
       z.url().refine((value) => {
@@ -44,6 +55,20 @@ export type InstallationConfig = z.infer<typeof InstallationConfigSchema>;
 export function readInstallationConfig(file: string): InstallationConfig {
   const config = InstallationConfigSchema.parse(JSON.parse(readFileSync(file, "utf8")));
   validateExecutionInstallation(config.public);
+  if (config.sourceUpdates) {
+    const update = config.sourceUpdates;
+    const entrypoint = path.join(
+      update.currentReleaseLink,
+      "packages/server/dist/scripts/supervisor-entrypoint.js",
+    );
+    if (
+      config.host.startupValidation?.entrypoint !== entrypoint ||
+      config.webDistDir !== update.webDirectory
+    )
+      throw new Error(
+        "Source updates require the selected release launcher and managed web directory",
+      );
+  }
   for (const target of [config.host, config.container]) {
     if (!/^127\.0\.0\.1:\d+$/.test(target.endpoint)) {
       throw new Error("Installation management connects only to explicit host loopback endpoints");

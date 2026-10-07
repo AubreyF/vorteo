@@ -1,4 +1,6 @@
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, mkdir, symlink, realpath, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { InstallationSourceUpdates } from "./source-updates.js";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
@@ -303,7 +305,88 @@ test("host preflight refuses a failing release before connecting or dispatching"
     entrypoint,
     'process.stderr.write("Invalid configuration fields: agents.providers.retired.extends"); process.exit(1);',
   );
-  const config: InstallationConfig = {
+  const config = restartTestConfig(root, entrypoint);
+  const connect = vi.spyOn(DaemonClient.prototype, "connect");
+  try {
+    await expect(createInstallationRestartExecutor(config).restart("host")).rejects.toThrow(
+      "No restart was dispatched. Invalid fields: agents.providers.retired.extends.",
+    );
+    expect(connect).not.toHaveBeenCalled();
+    await writeFile(entrypoint, 'process.stderr.write("private-value"); process.exit(1);');
+    await expect(validateHostStartup(config)).rejects.toThrow(
+      "Repair configuration or restore a validated backup",
+    );
+    await writeFile(entrypoint, "process.exit(0);");
+    await expect(validateHostStartup(config)).resolves.toBeUndefined();
+  } finally {
+    connect.mockRestore();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("source installation requires approval of the bundle digest and cannot use an idle restart", async () => {
+  const restart = vi.fn(async () => "ready");
+  const installUpdate = vi.fn(async () => "installed and ready");
+  const queue = new InstallationRestarts(new MemoryJournal(), { restart, installUpdate });
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 42,
+  };
+  const job = queue.request(
+    { target: "host", reason: "Install reviewed source" },
+    "container-agent",
+    update,
+  );
+  await queue.drain();
+  expect(installUpdate).not.toHaveBeenCalled();
+  expect(() => queue.decide(job.id, job.revision, "approve")).toThrow("exact source update");
+  expect(() => queue.decide(job.id, job.revision, "approve", "d".repeat(64))).toThrow(
+    "exact source update",
+  );
+  expect(() => queue.decide(job.id, job.revision, "approve-when-idle", update.sha256)).toThrow(
+    "Idle updates",
+  );
+  expect(() => queue.decide(job.id, job.revision, "finish-current-turns", update.sha256)).toThrow(
+    "Idle updates",
+  );
+  expect(() => queue.decide(job.id, job.revision, "request-again", update.sha256)).toThrow(
+    "exact source update",
+  );
+  expect(queue.list()[0]?.status).toBe("pending");
+  queue.decide(job.id, job.revision, "approve", update.sha256);
+  await queue.drain();
+  expect(installUpdate).toHaveBeenCalledOnce();
+  expect(restart).not.toHaveBeenCalled();
+  expect(queue.list()[0]?.status).toBe("succeeded");
+});
+
+test("unavailable source installers refuse requests and interrupted updates never replay", async () => {
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 42,
+  };
+  const journal = new MemoryJournal();
+  const installUpdate = vi.fn(async () => "ready");
+  const restart = vi.fn(async () => "ready");
+  const unavailable = new InstallationRestarts(journal, { restart });
+  expect(() =>
+    unavailable.request({ target: "host", reason: "Update" }, "container-agent", update),
+  ).toThrow("unavailable");
+  const queue = new InstallationRestarts(journal, { restart, installUpdate });
+  const job = queue.request({ target: "host", reason: "Update" }, "container-agent", update);
+  queue.decide(job.id, job.revision, "approve", update.sha256);
+  const recovered = new InstallationRestarts(journal, { restart, installUpdate });
+  await recovered.drain();
+  expect(recovered.list()[0]?.status).toBe("failed");
+  expect(installUpdate).not.toHaveBeenCalled();
+});
+
+function restartTestConfig(root: string, entrypoint: string): InstallationConfig {
+  return {
     public: {
       version: 1,
       installationId: "00000000-0000-4000-8000-000000000001",
@@ -327,20 +410,105 @@ test("host preflight refuses a failing release before connecting or dispatching"
       startupValidation: { node: process.execPath, entrypoint, home: root },
     },
   };
-  const connect = vi.spyOn(DaemonClient.prototype, "connect");
+}
+
+test("source builds fail before activation, failed readiness restores selection, and publication follows readiness", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-activation-")));
   try {
-    await expect(createInstallationRestartExecutor(config).restart("host")).rejects.toThrow(
-      "No restart was dispatched. Invalid fields: agents.providers.retired.extends.",
+    const previous = path.join(root, "previous");
+    await mkdir(previous);
+    const baseCommit = "b".repeat(40);
+    await writeFile(
+      path.join(previous, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: baseCommit }),
     );
-    expect(connect).not.toHaveBeenCalled();
-    await writeFile(entrypoint, 'process.stderr.write("private-value"); process.exit(1);');
-    await expect(validateHostStartup(config)).rejects.toThrow(
-      "Repair configuration or restore a validated backup",
+    await writeFile(path.join(root, "release.json"), JSON.stringify({ sourceCommit: baseCommit }));
+    await writeFile(path.join(root, "index.html"), "old interface");
+    const link = path.join(root, "current");
+    await symlink(previous, link);
+    const config = restartTestConfig(
+      root,
+      path.join(link, "packages/server/dist/scripts/supervisor-entrypoint.js"),
     );
-    await writeFile(entrypoint, "process.exit(0);");
-    await expect(validateHostStartup(config)).resolves.toBeUndefined();
+    config.sourceUpdates = {
+      sourceRepository: root,
+      releaseRoot: root,
+      currentReleaseLink: link,
+      webDirectory: root,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+    };
+    const updates = new InstallationSourceUpdates(config);
+    const bundle = Buffer.from("approved inert source");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit,
+      sha256: createHash("sha256").update(bundle).digest("hex"),
+      bytes: bundle.length,
+    };
+    expect(() => updates.stage(update, Buffer.from("changed"))).toThrow("digest");
+    updates.stage(update, bundle);
+    const restart = vi.fn(async (): Promise<string> => {
+      throw new Error("replacement did not become ready");
+    });
+    const queue = new InstallationRestarts(new MemoryJournal(), {
+      restart,
+      installUpdate: (job) => updates.install(job, restart),
+    });
+    const dispatch = async () => {
+      const job = queue.request(
+        { target: "host", reason: "Install fixture" },
+        "container-agent",
+        update,
+      );
+      queue.decide(job.id, job.revision, "approve", update.sha256);
+      await queue.drain();
+      return queue.list().find((item) => item.id === job.id);
+    };
+    const prepareScript = path.join(root, "prepare-installation-update.mjs");
+    await writeFile(prepareScript, 'throw new Error("build failed")');
+    expect((await dispatch())?.status).toBe("failed");
+    expect(await realpath(link)).toBe(previous);
+    expect(restart).not.toHaveBeenCalled();
+    await writeFile(
+      prepareScript,
+      `import fs from 'node:fs/promises'; import path from 'node:path';
+      const input = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+      const release = path.join(input.work, 'release'); const exported = path.join(release, 'web-export');
+      const scripts = path.join(release, 'packages/server/dist/scripts');
+      await fs.mkdir(scripts, {recursive:true}); await fs.mkdir(exported);
+      await fs.writeFile(path.join(scripts, 'supervisor-entrypoint.js'), 'process.exit(0)');
+      await fs.writeFile(path.join(release, '.installation-source.json'), JSON.stringify({sourceCommit: input.update.sourceCommit}));
+      await fs.writeFile(input.resultFile, JSON.stringify({release,exported}));`,
+    );
+    await writeFile(
+      path.join(root, "publish-instance-web.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path'; await fs.writeFile(path.join(process.argv[3], 'published'), 'yes');`,
+    );
+    const validPrepareScript = await readFile(prepareScript, "utf8");
+    await writeFile(
+      prepareScript,
+      validPrepareScript +
+        "\nawait fs.writeFile(path.join(input.webDirectory, 'index.html'), 'concurrent publication');",
+    );
+    expect((await dispatch())?.detail).toContain("changed during the build");
+    expect(await realpath(link)).toBe(previous);
+    expect(restart).not.toHaveBeenCalled();
+    await writeFile(prepareScript, validPrepareScript);
+    await writeFile(path.join(root, "index.html"), "old interface");
+    expect((await dispatch())?.detail).toContain("Previous launcher restored");
+    expect(await realpath(link)).toBe(previous);
+    await expect(readFile(path.join(root, "published"))).rejects.toThrow();
+    restart.mockImplementation(async () => {
+      expect(await realpath(link)).not.toBe(previous);
+      await expect(readFile(path.join(root, "published"))).rejects.toThrow();
+      return "ready";
+    });
+    expect((await dispatch())?.status).toBe("succeeded");
+    expect(await readFile(path.join(root, "published"), "utf8")).toBe("yes");
+    expect(updates.source().baseCommit).toBe(update.sourceCommit);
+    expect(restart).toHaveBeenCalledTimes(2);
   } finally {
-    connect.mockRestore();
     await rm(root, { recursive: true, force: true });
   }
 });

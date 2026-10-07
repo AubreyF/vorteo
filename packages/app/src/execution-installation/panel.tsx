@@ -485,6 +485,32 @@ function ProfileSharingEnvironment({
   );
 }
 
+function restartRequestCopy(job: RestartJob) {
+  if (job.update)
+    return {
+      confirm: "Install update and restart Host?",
+      approve: "Install update and restart",
+      review: "Review update",
+    };
+  return {
+    confirm: `Restart ${job.target === "host" ? "host" : "dev container"} daemon?`,
+    approve: "Restart now",
+    review: "Review restart",
+  };
+}
+
+function SourceUpdateDetails({ job }: { job: RestartJob }) {
+  if (!job.update) return null;
+  return (
+    <Text selectable style={styles.text}>
+      Install interface and Host daemon from source {job.update.sourceCommit}
+      {"\n"}Bundle SHA-256: {job.update.sha256}
+      {"\n"}Approval allows this code and its build scripts to run on Host. The coordinator and Dev
+      container are not updated.
+    </Text>
+  );
+}
+
 function RestartRequest({
   job,
   model,
@@ -498,6 +524,7 @@ function RestartRequest({
   historical?: boolean;
   linked?: boolean;
 }) {
+  const copy = restartRequestCopy(job);
   const idleRestarts = readExecutionInstallation()?.idleRestarts === true;
   const status = restartStatus(job, historical);
   const canDecide = !historical && job.status === "pending";
@@ -538,6 +565,7 @@ function RestartRequest({
           <StatusBadge {...status} />
         </View>
         <RestartExplanation reason={job.reason} />
+        <SourceUpdateDetails job={job} />
         <GracefulRestartActions job={job} model={model} busy={busy} onReview={cancel} />
         {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}
         {!historical && (reviewing || job.status === "approved" || job.status === "running") ? (
@@ -550,19 +578,21 @@ function RestartRequest({
         ) : null}
         {canDecide && reviewing ? (
           <View style={styles.details} testID={`restart-confirmation-${job.id}`}>
-            <Text style={settingsStyles.rowTitle}>
-              Restart {job.target === "host" ? "host" : "dev container"} daemon?
-            </Text>
+            <Text style={settingsStyles.rowTitle}>{copy.confirm}</Text>
             <Text style={styles.text}>
               Running agents and terminals may be interrupted. This approves only the request shown
               above.
             </Text>
-            <Text style={styles.text}>
-              Restart when idle waits for all active tasks to finish. Terminals may still
-              disconnect.
-            </Text>
+            {!job.update ? (
+              <Text style={styles.text}>
+                Restart when idle waits for all active tasks to finish. Terminals may still
+                disconnect.
+              </Text>
+            ) : null}
             <View style={styles.actions}>
-              {idleRestarts ? <RestartQueueButton job={job} busy={busy} onPress={queue} /> : null}
+              {idleRestarts && !job.update ? (
+                <RestartQueueButton job={job} busy={busy} onPress={queue} />
+              ) : null}
               <Button
                 variant="destructive"
                 disabled={busy}
@@ -570,7 +600,7 @@ function RestartRequest({
                 nativeID={`restart-confirm-${job.id}`}
                 testID={`restart-confirm-${job.id}`}
               >
-                Restart now
+                {copy.approve}
               </Button>
               <Button variant="ghost" disabled={busy} onPress={cancel}>
                 Cancel
@@ -586,7 +616,7 @@ function RestartRequest({
               onPress={review}
               testID={`restart-approve-${job.id}`}
             >
-              Review restart
+              {copy.review}
             </Button>
             <Button variant="ghost" disabled={busy} onPress={reject}>
               Reject
@@ -626,7 +656,7 @@ function GracefulRestartActions({
   const requestAgain = useCallback(() => {
     void model.decide(job, "request-again");
   }, [model, job]);
-  if (!readExecutionInstallation()?.gracefulRestarts) return null;
+  if (job.update || !readExecutionInstallation()?.gracefulRestarts) return null;
   if (job.status === "rejected")
     return (
       <Button variant="outline" disabled={busy} onPress={requestAgain}>

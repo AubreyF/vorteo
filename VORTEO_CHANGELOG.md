@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.177 - 2026-10-07
+
+### Added
+
+- Submit committed source from Dev for owner-reviewed Host daemon and interface installation, with approval bound to the revision and bundle digest
+
+### Fixed
+
+- Reject idle, finish-current-turns and replay actions for source updates; build native dependencies after installation approval
+
+### Maintenance
+
+- Document protected Host setup, source provenance, stable release selection and partial-update recovery
+
 ## 0.11.0-beta.3.vorteo.176 - 2026-10-07
 
 ### Fixed

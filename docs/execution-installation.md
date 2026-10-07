@@ -153,3 +153,42 @@ restart routes; older strict decoders do not receive the new journal fields.
 Coordinator recovery retries approved waiting work and hold release, never an
 ambiguous disruptive dispatch. A new daemon uses existing goal and queue recovery;
 this does not add an independent continuation scheduler.
+
+## Reviewed source updates
+
+The source-update workflow lets Dev submit committed changes with the installed maintenance command:
+
+```text
+request-restart --target host --update --repository <clean-integration-checkout> --reason-file <reason-file>
+```
+
+The command obtains the installed source revision and integration branch from the protected coordinator, checks the checkout, and uploads an incremental Git bundle. A pending request contains the source revision, base revision, digest and byte count. Uploads require the scoped request credential, are limited to 128 MiB, and cannot execute code or approve themselves. Only one Host upload or pending maintenance request is admitted. A subsequent upload replaces obsolete staged bundles; installed and prepared releases are retained for diagnosis and recovery.
+
+Settings shows **Review update** and **Install update and restart**, including the source revision and digest. Approval binds to that digest as well as the request revision. Old clients cannot approve an update with their plain restart decision. New clients opt into update metadata on restart queries; the installation descriptor is unchanged so older strict decoders remain compatible.
+
+After approval, Host verifies the bundle again, checks its commit and ancestry, builds a fresh source snapshot with native dependencies, and validates startup before selecting the release. The existing daemon restart executor verifies a replacement process and its pinned environment identity. Only then does the guarded web publisher publish the sealed export. The source repository and publication receipt remain available to verify provenance.
+
+This initial workflow installs the Host daemon and interface together. It does not update the coordinator, Dev container, Docker image, credentials or database schema independently. It supports immediate installation approval only. Holding admission closed throughout release activation requires more than the existing idle restart RPC, so update requests reject idle approval. Ordinary idle restarts retain their existing behavior.
+
+A failed build leaves the launcher and interface alone. Failed restart verification restores the previous launcher selection without dispatching another restart; the actual running process needs inspection. Failed interface publication after successful daemon restart reports a partial update and preserves the export. An interrupted coordinator marks dispatched updates failed and never replays them. Previous releases are retained, but reselecting one does not reverse database migrations or restore credentials.
+
+### One-time Host setup
+
+Prepared source does not enable this capability in an existing installation. Use the Host continuity workflow to install the coordinator and maintenance client once. Preserve the installation ID, daemon identities, settings, owner sessions and restart journal. Do not update either agent daemon merely to reload the coordinator.
+
+The protected coordinator configuration gains an optional `sourceUpdates` object:
+
+| Field                | Host-owned value                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| `sourceRepository`   | Protected Git repository containing the installed daemon and interface source history |
+| `releaseRoot`        | Protected directory for fresh prepared releases and build logs                        |
+| `currentReleaseLink` | Atomic symlink selecting the Host runtime release                                     |
+| `webDirectory`       | Existing guarded web publication directory with verified source lineage               |
+| `toolingDirectory`   | Pinned, reviewed installation scripts directory, outside the release selection        |
+| `integrationRef`     | Full configured integration branch, such as `refs/heads/main`                         |
+
+Inspect actual writable container mounts and verify all of these paths, the Node executable, configuration and LaunchAgents remain outside guest-writable storage. Seed `.installation-source.json` in the verified current release with its actual `sourceCommit`. Set the Host LaunchAgent and `host.startupValidation.entrypoint` to the same `currentReleaseLink/packages/server/dist/scripts/supervisor-entrypoint.js` path. Set `webDistDir` to `webDirectory`. The configuration reader refuses a mismatched validation or interface path.
+
+Use the existing guarded publisher to adopt any legacy web directory before enabling updates; do not invent source provenance. Keep coordinator code pinned separately so switching the Host runtime does not switch its own executable. Include `prepare-installation-update.mjs`, `instance-web-artifact.mjs`, `publish-instance-web.mjs` and the publisher's supporting imports in the protected tooling release. Install the updated request client and generated maintenance skill in Dev without exposing Host credentials. Preserve the prior config and launcher for rollback, and obtain approval for any daemon interruption required by the migration.
+
+Acceptance requires a real Dev upload, visible revision and digest in the owner approval screen, refusal of unauthenticated and legacy approvals, a platform-native build after approval, verified daemon identity and replacement PID, and a rendered interface whose release receipt matches the approved source. Host setup and this acceptance cannot be verified from an unprivileged Dev container.
