@@ -66,6 +66,7 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 1,
     minWidth: 0,
     paddingHorizontal: WORKSPACE_LABEL_CHIP_INSET,
+    paddingVertical: theme.spacing[0.5],
     borderRadius: theme.borderRadius.lg,
   },
   icon: { flexShrink: 0 },

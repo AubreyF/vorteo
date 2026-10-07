@@ -24,6 +24,7 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.md,
     minWidth: 20,
     paddingHorizontal: theme.spacing[1],
+    paddingVertical: theme.spacing[0.5],
     alignItems: "center",
     flexShrink: 0,
   },
