@@ -812,6 +812,22 @@ const ToolCallTimelineItemPayloadSchema: z.ZodType<ToolCallTimelineItem, unknown
     ToolCallCanceledPayloadSchema,
   ]);
 
+// Optional on timeline items so older clients and retained history remain readable.
+export const CompactionInspectionSchema = z.object({
+  summary: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("text"), text: z.string() }),
+    z.object({
+      type: z.literal("unavailable"),
+      reason: z.enum(["not_exposed", "encrypted", "failed", "aborted"]),
+      error: z.string().optional(),
+    }),
+  ]),
+  postTokens: z.number().nonnegative().optional(),
+  estimatedPostTokens: z.number().nonnegative().optional(),
+  firstKeptEntryId: z.string().optional(),
+});
+export type CompactionInspection = z.infer<typeof CompactionInspectionSchema>;
+
 // zod-aot 0.20.4 miscompiles this as a nested discriminated union by omitting
 // the inner tool_call branch from the generated outer dispatch.
 export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknown> = z.union([
@@ -859,6 +875,8 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
     status: z.enum(["loading", "completed"]),
     trigger: z.enum(["auto", "manual"]).optional(),
     preTokens: z.number().optional(),
+    compactionId: z.string().optional(),
+    inspection: CompactionInspectionSchema.optional(),
   }),
   z.object({
     type: z.literal("plugin"),

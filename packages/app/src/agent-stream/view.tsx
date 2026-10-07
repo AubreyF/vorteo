@@ -1,3 +1,4 @@
+import { CompactionMarker } from "@/compaction/marker";
 import { taskCardStyles } from "./task-card-styles";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
 import { AgentTaskCards } from "./task-cards";
@@ -42,7 +43,6 @@ import {
   Notification,
   ToolCall,
   TodoListCard,
-  CompactionMarker,
   MessageOuterSpacingProvider,
   type InlinePathTarget,
 } from "@/components/message";
@@ -939,13 +939,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             return <TodoListCard items={item.items} activity={item.activity} />;
 
           case "compaction":
-            return (
-              <CompactionMarker
-                status={item.status}
-                trigger={item.trigger}
-                preTokens={item.preTokens}
-              />
-            );
+            return <CompactionMarker item={item} />;
 
           case "plugin":
             return (

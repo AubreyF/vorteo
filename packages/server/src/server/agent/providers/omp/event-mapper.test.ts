@@ -213,6 +213,7 @@ describe("OMP runtime event mapper", () => {
         status: "completed",
         trigger: "auto",
         preTokens: 123,
+        inspection: { summary: { type: "text", text: "trimmed" }, firstKeptEntryId: "entry-1" },
       },
     });
 
@@ -230,6 +231,7 @@ describe("OMP runtime event mapper", () => {
         type: "compaction",
         status: "completed",
         trigger: "auto",
+        inspection: { summary: { type: "unavailable", reason: "aborted" } },
       },
     });
   });

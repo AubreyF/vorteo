@@ -388,6 +388,7 @@ export const ru: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "Сжатие контекста...",
       auto: "Контекст сжат автоматически",
       manual: "Контекст сжат вручную",

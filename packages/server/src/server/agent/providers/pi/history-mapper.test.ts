@@ -184,3 +184,24 @@ describe("Pi history mapper", () => {
     ]);
   });
 });
+
+test("replays the exact Pi compaction summary without turning it into a user message", async () => {
+  const summary = "  Keep the user's constraints.\n\nTests still pending.\n";
+  expect(
+    await collectHistory([
+      { role: "compactionSummary", summary, tokensBefore: 12345, timestamp: 1000 },
+    ]),
+  ).toEqual([
+    {
+      type: "timeline",
+      provider: "pi",
+      timestamp: "1970-01-01T00:00:01.000Z",
+      item: {
+        type: "compaction",
+        status: "completed",
+        preTokens: 12345,
+        inspection: { summary: { type: "text", text: summary } },
+      },
+    },
+  ]);
+});

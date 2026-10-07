@@ -389,6 +389,7 @@ export const es: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "Compactando...",
       auto: "Contexto compactado automáticamente",
       manual: "Contexto compactado manualmente",

@@ -5935,6 +5935,7 @@ describe("Codex app-server provider", () => {
         item: {
           type: "compaction",
           status: "completed",
+          inspection: { summary: { type: "unavailable", reason: "not_exposed" } },
         },
       },
     ]);
@@ -6592,6 +6593,7 @@ describe("Codex app-server provider", () => {
         item: {
           type: "compaction",
           status: "completed",
+          inspection: { summary: { type: "unavailable", reason: "not_exposed" } },
         },
       },
     ]);
@@ -6738,6 +6740,7 @@ describe("Codex app-server provider", () => {
         item: {
           type: "compaction",
           status: "completed",
+          inspection: { summary: { type: "unavailable", reason: "not_exposed" } },
         },
       },
     ]);
@@ -6766,6 +6769,7 @@ describe("Codex app-server provider", () => {
         item: {
           type: "compaction",
           status: "completed",
+          inspection: { summary: { type: "unavailable", reason: "not_exposed" } },
         },
       },
       {
@@ -6775,6 +6779,7 @@ describe("Codex app-server provider", () => {
         item: {
           type: "compaction",
           status: "completed",
+          inspection: { summary: { type: "unavailable", reason: "not_exposed" } },
         },
       },
     ]);
@@ -6938,6 +6943,7 @@ describe("Codex app-server provider", () => {
         item: {
           type: "compaction",
           status: "completed",
+          inspection: { summary: { type: "unavailable", reason: "not_exposed" } },
           trigger: "manual",
         },
       },

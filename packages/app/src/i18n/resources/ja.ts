@@ -389,6 +389,7 @@ export const ja: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "コンテキストを圧縮中...",
       auto: "コンテキストが自動的に圧縮されました",
       manual: "コンテキストが手動で圧縮されました",

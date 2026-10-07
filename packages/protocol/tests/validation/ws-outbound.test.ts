@@ -320,3 +320,46 @@ const SourceSchema = z.object({
     expect(result.success).toBe(true);
   });
 });
+
+it("retains compaction inspection data on the generated wire boundary and accepts older events", () => {
+  const inspection = {
+    summary: { type: "text", text: "  Original summary\n" },
+    postTokens: 500,
+    firstKeptEntryId: "kept-1",
+  };
+  function envelope(item: object) {
+    return {
+      type: "session",
+      message: {
+        type: "agent_stream",
+        payload: {
+          agentId: "agent-1",
+          timestamp: "2026-10-07T12:00:00.000Z",
+          event: { type: "timeline", provider: "pi", item },
+        },
+      },
+    };
+  }
+  const detailed = envelope({
+    type: "compaction",
+    status: "completed",
+    compactionId: "compact-1",
+    preTokens: 12000,
+    inspection,
+  });
+  expect(GeneratedWSOutboundMessageSchema.safeParse(detailed)).toMatchObject({
+    success: true,
+    data: detailed,
+  });
+  expect(
+    GeneratedWSOutboundMessageSchema.safeParse(
+      envelope({ type: "compaction", status: "completed" }),
+    ).success,
+  ).toBe(true);
+  const invalid = envelope({
+    type: "compaction",
+    status: "completed",
+    inspection: { summary: { type: "text", text: 42 } },
+  });
+  expect(GeneratedWSOutboundMessageSchema.safeParse(invalid).success).toBe(false);
+});

@@ -1,3 +1,4 @@
+import type { CompactionInspection } from "@getpaseo/protocol/messages";
 import type { SkillSnapshot } from "@getpaseo/protocol/skill-library";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { ProviderLoginSession } from "../../services/provider-login/session.js";
@@ -399,6 +400,8 @@ export interface CompactionTimelineItem {
   status: "loading" | "completed";
   trigger?: "auto" | "manual";
   preTokens?: number;
+  compactionId?: string;
+  inspection?: CompactionInspection;
 }
 
 export interface PluginTimelineItem {

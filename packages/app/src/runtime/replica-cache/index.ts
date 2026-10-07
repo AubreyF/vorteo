@@ -2,6 +2,7 @@ import { AgentGoalStateSchema } from "@getpaseo/protocol/agent-goals";
 import { z } from "zod";
 import {
   AgentStatusSchema,
+  CompactionInspectionSchema,
   AgentTimelineItemPayloadSchema,
   WorkspaceGitHubRuntimePayloadSchema,
   WorkspaceProjectMembershipSchema,
@@ -155,6 +156,8 @@ const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
     status: z.enum(["loading", "completed"]),
     trigger: z.enum(["auto", "manual"]).optional(),
     preTokens: z.number().nonnegative().optional(),
+    compactionId: z.string().optional(),
+    inspection: CompactionInspectionSchema.optional(),
   }),
   z.strictObject({
     ...TimelineItemBaseShape,
@@ -482,6 +485,8 @@ function serializeTimelineItem(item: StreamItem): StoredTimelineItem | null {
         status: item.status,
         ...(item.trigger ? { trigger: item.trigger } : {}),
         ...(item.preTokens !== undefined ? { preTokens: item.preTokens } : {}),
+        ...(item.compactionId !== undefined ? { compactionId: item.compactionId } : {}),
+        ...(item.inspection !== undefined ? { inspection: item.inspection } : {}),
       };
     case "tool_call":
       if (item.payload.source !== "agent") return null;
@@ -573,6 +578,8 @@ function deserializeBuiltinTimelineItem(
         status: item.status,
         ...(item.trigger ? { trigger: item.trigger } : {}),
         ...(item.preTokens !== undefined ? { preTokens: item.preTokens } : {}),
+        ...(item.compactionId !== undefined ? { compactionId: item.compactionId } : {}),
+        ...(item.inspection !== undefined ? { inspection: item.inspection } : {}),
       };
     case "tool_call": {
       const tool = item.item;

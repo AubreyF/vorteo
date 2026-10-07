@@ -390,6 +390,7 @@ export const fr: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "Compactage...",
       auto: "Contexte automatiquement compacté",
       manual: "Contexte compacté manuellement",

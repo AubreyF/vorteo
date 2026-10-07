@@ -2060,6 +2060,7 @@ export function threadItemToTimeline(
       return {
         type: "compaction",
         status: "completed",
+        inspection: { summary: { type: "unavailable", reason: "not_exposed" } },
       };
     default:
       return null;
@@ -6873,6 +6874,13 @@ export class CodexAppServerAgentSession implements AgentSession {
       type: "compaction",
       status,
       ...(trigger ? { trigger } : {}),
+      ...(status === "completed"
+        ? {
+            inspection: {
+              summary: { type: "unavailable" as const, reason: "not_exposed" as const },
+            },
+          }
+        : {}),
     };
   }
 

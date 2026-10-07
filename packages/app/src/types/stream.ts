@@ -6,7 +6,11 @@ import type {
   ToolCallDetail,
 } from "@getpaseo/protocol/agent-types";
 import { timelineItemIdentity } from "@getpaseo/protocol/timeline-identity";
-import type { AgentAttachment, AgentStreamEventPayload } from "@getpaseo/protocol/messages";
+import type {
+  CompactionInspection,
+  AgentAttachment,
+  AgentStreamEventPayload,
+} from "@getpaseo/protocol/messages";
 import type { AttachmentMetadata } from "@/attachments/types";
 import { extractTaskEntriesFromToolCall } from "../utils/tool-call-parsers";
 
@@ -504,9 +508,12 @@ function mergeRetainedLifecycleItem(tail: StreamItem[], retained: StreamItem): S
     return next;
   }
   if (retained.kind === "compaction" && retained.status === "completed") {
-    const tailIndex = tail.findIndex(
-      (item) => item.kind === "compaction" && item.status === "loading",
-    );
+    const tailIndex = tail.findIndex((item) => {
+      if (item.kind !== "compaction") return false;
+      if (retained.compactionId && item.compactionId)
+        return retained.compactionId === item.compactionId;
+      return item.status === "loading";
+    });
     const existing = tail[tailIndex];
     if (tailIndex < 0 || !existing || existing.kind !== "compaction") {
       return null;
@@ -518,6 +525,8 @@ function mergeRetainedLifecycleItem(tail: StreamItem[], retained: StreamItem): S
       status: "completed",
       trigger: retained.trigger ?? existing.trigger,
       preTokens: retained.preTokens ?? existing.preTokens,
+      compactionId: retained.compactionId ?? existing.compactionId,
+      inspection: retained.inspection ?? existing.inspection,
     };
     return next;
   }
@@ -819,6 +828,8 @@ export interface CompactionItem {
   status: "loading" | "completed";
   trigger?: "auto" | "manual";
   preTokens?: number;
+  compactionId?: string;
+  inspection?: CompactionInspection;
 }
 
 export interface PluginTimelineStreamItem {
@@ -1489,7 +1500,20 @@ function reduceTimelineCompaction(
   timelineCursor?: TimelinePosition,
 ): StreamItem[] {
   if (item.status === "completed") {
-    const loadingIdx = state.findIndex((s) => s.kind === "compaction" && s.status === "loading");
+    const matchingIdx = item.compactionId
+      ? state.findIndex(
+          (entry) => entry.kind === "compaction" && entry.compactionId === item.compactionId,
+        )
+      : -1;
+    const loadingIdx =
+      matchingIdx >= 0
+        ? matchingIdx
+        : state.findIndex((entry) => {
+            if (entry.kind !== "compaction" || entry.status !== "loading") return false;
+            return (
+              !item.compactionId || !entry.compactionId || entry.compactionId === item.compactionId
+            );
+          });
     const existing = loadingIdx >= 0 ? state[loadingIdx] : undefined;
     if (loadingIdx >= 0 && existing && existing.kind === "compaction") {
       const updated: CompactionItem = {
@@ -1498,6 +1522,8 @@ function reduceTimelineCompaction(
         status: "completed",
         trigger: item.trigger ?? existing.trigger,
         preTokens: item.preTokens ?? existing.preTokens,
+        compactionId: item.compactionId ?? existing.compactionId,
+        inspection: item.inspection ?? existing.inspection,
       };
       return [...state.slice(0, loadingIdx), updated, ...state.slice(loadingIdx + 1)];
     }
@@ -1513,6 +1539,8 @@ function reduceTimelineCompaction(
     status: item.status,
     trigger: item.trigger,
     preTokens: item.preTokens,
+    ...(item.compactionId !== undefined ? { compactionId: item.compactionId } : {}),
+    ...(item.inspection !== undefined ? { inspection: item.inspection } : {}),
   };
   return [...state, compaction];
 }

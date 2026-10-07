@@ -1382,6 +1382,62 @@ describe("stream reducer canonical tool calls", () => {
     ]);
   });
 
+  it("preserves exact summaries and updates only the matching compaction", () => {
+    const timestamp = new Date("2026-10-07T10:00:00Z");
+    const state = hydrateStreamState([
+      {
+        timestamp,
+        event: {
+          type: "timeline",
+          provider: "claude",
+          item: {
+            type: "compaction",
+            status: "completed",
+            compactionId: "first",
+            inspection: { summary: { type: "text", text: "First summary\n" } },
+          },
+        },
+      },
+      {
+        timestamp,
+        event: {
+          type: "timeline",
+          provider: "claude",
+          item: {
+            type: "compaction",
+            status: "completed",
+            compactionId: "second",
+            preTokens: 10000,
+          },
+        },
+      },
+      {
+        timestamp,
+        event: {
+          type: "timeline",
+          provider: "claude",
+          item: {
+            type: "compaction",
+            status: "completed",
+            compactionId: "second",
+            inspection: {
+              summary: { type: "text", text: "  Exact summary\n\nKeep this.\n" },
+              postTokens: 1200,
+            },
+          },
+        },
+      },
+    ]);
+    expect(state.filter((item) => item.kind === "compaction")).toMatchObject([
+      { compactionId: "first", inspection: { summary: { text: "First summary\n" } } },
+      {
+        compactionId: "second",
+        preTokens: 10000,
+        inspection: { summary: { text: "  Exact summary\n\nKeep this.\n" }, postTokens: 1200 },
+      },
+    ]);
+  });
+
   it("terminalizes the loading compaction before a completed turn", () => {
     const state = hydrateStreamState([
       {

@@ -9,6 +9,7 @@ import * as executableUtils from "../../../../executable-resolution/executable-r
 import { buildAgentAttentionNotificationPayload } from "@getpaseo/protocol/agent-attention-notification";
 import {
   ClaudeAgentClient,
+  readClaudeCompactionSummaries,
   convertClaudeHistoryEntry,
   normalizeClaudeAskUserQuestionRequestInput,
   normalizeClaudeAskUserQuestionUpdatedInput,
@@ -3449,4 +3450,32 @@ describe("Claude question permission notifications", () => {
     expect(request.title).toBeUndefined();
     expect(request.description).toBeUndefined();
   });
+});
+
+test("pairs Claude summaries with their original boundaries and ignores sidechains and partial lines", () => {
+  const content =
+    [
+      { type: "system", subtype: "compact_boundary", uuid: "first" },
+      { type: "user", isCompactSummary: true, message: { content: "  First\n" } },
+      { type: "system", subtype: "compact_boundary", uuid: "child", isSidechain: true },
+      { type: "user", isCompactSummary: true, isSidechain: true, message: { content: "Child" } },
+      { type: "system", subtype: "compact_boundary", uuid: "second" },
+      { type: "user", message: { content: "Ordinary message" } },
+      {
+        type: "user",
+        isCompactSummary: true,
+        message: {
+          content: [
+            { type: "text", text: "Second" },
+            { type: "text", text: "Still pending.\n" },
+          ],
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join("\n") + '\n{"type":';
+  expect([...readClaudeCompactionSummaries(content)]).toEqual([
+    ["first", "  First\n"],
+    ["second", "Second\n\nStill pending.\n"],
+  ]);
 });

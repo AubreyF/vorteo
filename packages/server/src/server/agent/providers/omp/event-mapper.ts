@@ -231,15 +231,36 @@ function mapAutoCompactionEndEvent(event: unknown): OmpRuntimeEventMapping {
   if (!parsed.success) {
     return { handled: true, item: null, logReason: "malformed_omp_auto_compaction_end" };
   }
-  const preTokens = readCompactionPreTokens(parsed.data.result);
-  // Wire compaction items only support loading/completed, so every end event clears loading.
+  return { handled: true, item: mapOmpCompactionEnd(parsed.data, "auto") };
+}
+
+interface OmpCompactionEnd {
+  aborted?: boolean;
+  errorMessage?: string;
+  result?: unknown;
+}
+
+export function mapOmpCompactionEnd(
+  event: OmpCompactionEnd,
+  trigger: "auto" | "manual",
+): Extract<AgentTimelineItem, { type: "compaction" }> {
+  const preTokens = readCompactionPreTokens(event.result);
+  const result = event.result;
+  const firstKeptEntryId =
+    typeof result === "object" &&
+    result !== null &&
+    "firstKeptEntryId" in result &&
+    typeof result.firstKeptEntryId === "string"
+      ? result.firstKeptEntryId
+      : undefined;
   return {
-    handled: true,
-    item: {
-      type: "compaction",
-      status: "completed",
-      trigger: "auto",
-      ...(preTokens !== undefined ? { preTokens } : {}),
+    type: "compaction",
+    status: "completed",
+    trigger,
+    ...(preTokens !== undefined ? { preTokens } : {}),
+    inspection: {
+      summary: ompCompactionSummary(event),
+      ...(firstKeptEntryId !== undefined ? { firstKeptEntryId } : {}),
     },
   };
 }
@@ -320,4 +341,22 @@ function hashParts(...parts: string[]): string {
     hash.update("\0");
   }
   return hash.digest("hex").slice(0, 12);
+}
+
+function ompCompactionSummary(
+  event: OmpCompactionEnd,
+): NonNullable<Extract<AgentTimelineItem, { type: "compaction" }>["inspection"]>["summary"] {
+  if (event.aborted) return { type: "unavailable", reason: "aborted" };
+  if (event.errorMessage)
+    return { type: "unavailable", reason: "failed", error: event.errorMessage };
+  const result = event.result;
+  if (
+    typeof result === "object" &&
+    result !== null &&
+    "summary" in result &&
+    typeof result.summary === "string"
+  ) {
+    return { type: "text", text: result.summary };
+  }
+  return { type: "unavailable", reason: "not_exposed" };
 }

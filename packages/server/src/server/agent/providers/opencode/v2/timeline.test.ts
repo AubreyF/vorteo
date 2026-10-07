@@ -54,3 +54,43 @@ test("a completed edit carries the replaced and replacement text", () => {
     },
   ]);
 });
+
+test("keeps the saved OpenCode summary and compaction identity through completion and replay", () => {
+  const timeline = new V2Timeline();
+  expect(
+    timeline.messages([
+      {
+        id: "compact-1",
+        type: "compaction",
+        status: "running",
+        reason: "manual",
+        summary: "",
+        recent: "recent",
+        time: { created: 1 },
+      },
+    ]),
+  ).toMatchObject([{ item: { type: "compaction", status: "loading", compactionId: "compact-1" } }]);
+  const completed = {
+    id: "compact-1",
+    type: "compaction" as const,
+    status: "completed" as const,
+    reason: "manual" as const,
+    summary: "  Exact summary\n",
+    recent: "recent",
+    time: { created: 1 },
+  };
+  const expected = [
+    {
+      item: {
+        type: "compaction",
+        status: "completed",
+        compactionId: "compact-1",
+        trigger: "manual",
+        inspection: { summary: { type: "text", text: "  Exact summary\n" } },
+      },
+    },
+  ];
+  expect(timeline.messages([completed])).toMatchObject(expected);
+  expect(timeline.messages([completed])).toEqual([]);
+  expect(new V2Timeline().messages([completed])).toMatchObject(expected);
+});

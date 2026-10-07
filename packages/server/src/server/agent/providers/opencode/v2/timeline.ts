@@ -167,9 +167,20 @@ export class V2Timeline {
     push: (item: AgentTimelineItem) => void,
   ) {
     const status = message.status === "running" ? "loading" : "completed";
-    if (this.content.get(message.id) === status) return;
-    this.content.set(message.id, status);
-    push({ type: "compaction", status });
+    const signature = status === "loading" ? status : JSON.stringify(message);
+    if (this.content.get(message.id) === signature) return;
+    this.content.set(message.id, signature);
+    const summary =
+      message.status === "failed"
+        ? { type: "unavailable" as const, reason: "failed" as const }
+        : { type: "text" as const, text: message.summary };
+    push({
+      type: "compaction",
+      status,
+      compactionId: message.id,
+      trigger: message.reason,
+      ...(status === "completed" ? { inspection: { summary } } : {}),
+    });
   }
 }
 

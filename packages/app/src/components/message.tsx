@@ -42,7 +42,6 @@ import {
   Copy,
   Plus,
   TriangleAlertIcon,
-  Scissors,
   MicVocal,
   FileSymlink,
 } from "lucide-react-native";
@@ -93,7 +92,6 @@ import {
   useAssistantFileLinkActions,
   useAssistantLinkPress,
 } from "@/assistant-file-links";
-import { getCompactionMarkerLabel } from "./message-compaction-label";
 import { useAssistantImage } from "@/assistant-image/use-assistant-image";
 import {
   AttachmentFrame,
@@ -2190,60 +2188,6 @@ export const Notification = memo(function Notification({
           </View>
         </View>
       </View>
-    </View>
-  );
-});
-
-interface CompactionMarkerProps {
-  status: "loading" | "completed";
-  trigger?: "auto" | "manual";
-  preTokens?: number;
-}
-
-const compactionStylesheet = StyleSheet.create((theme) => ({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: theme.spacing[3],
-    paddingHorizontal: theme.spacing[4],
-    gap: theme.spacing[2],
-  },
-  line: {
-    flex: 1,
-    height: 1,
-    backgroundColor: theme.colors.border,
-  },
-  label: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-  },
-  text: {
-    fontFamily: theme.fontFamily.ui,
-    fontSize: 13,
-    color: theme.colors.foregroundMuted,
-  },
-}));
-
-export const CompactionMarker = memo(function CompactionMarker({
-  status,
-  trigger,
-  preTokens,
-}: CompactionMarkerProps) {
-  const label = getCompactionMarkerLabel({ status, trigger, preTokens });
-
-  return (
-    <View style={compactionStylesheet.container}>
-      <View style={compactionStylesheet.line} />
-      <View style={compactionStylesheet.label}>
-        {status === "loading" ? (
-          <LoadingSpinner size="small" color="#a1a1aa" />
-        ) : (
-          <Scissors size={12} color="#a1a1aa" />
-        )}
-        <Text style={compactionStylesheet.text}>{label}</Text>
-      </View>
-      <View style={compactionStylesheet.line} />
     </View>
   );
 });

@@ -1,3 +1,4 @@
+import type { CompactionInspection } from "./messages.js";
 import type { AgentAttachment, AgentProfileLaunch, ProviderCliUpdate } from "./messages.js";
 import type { QuotaReserveConfig, QuotaReserveLaunchPolicy } from "./quota-reserve.js";
 
@@ -357,6 +358,8 @@ export interface CompactionTimelineItem {
   status: "loading" | "completed";
   trigger?: "auto" | "manual";
   preTokens?: number;
+  compactionId?: string;
+  inspection?: CompactionInspection;
 }
 
 export interface PluginTimelineItem {

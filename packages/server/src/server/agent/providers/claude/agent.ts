@@ -2139,6 +2139,10 @@ class ClaudeAgentSession implements AgentSession {
   private lastRuntimeModel: string | null = null;
   private compacting = false;
   private compactionMarkerOpen = false;
+  private readonly pendingCompactionInspections = new Map<
+    string,
+    Extract<AgentTimelineItem, { type: "compaction" }>
+  >();
   private queryPumpPromise: Promise<void> | null = null;
   private queryRestartNeeded = false;
   private pendingInterruptAbort = false;
@@ -4203,6 +4207,8 @@ class ClaudeAgentSession implements AgentSession {
         this.appendStreamEventEvents(message, events, options);
         break;
       case "result":
+        this.appendSavedCompactionInspections(events);
+        this.pendingCompactionInspections.clear();
         this.appendResultEvents(message, events);
         break;
       default:
@@ -4380,6 +4386,18 @@ class ClaudeAgentSession implements AgentSession {
         },
         provider: "claude",
       });
+      const boundary = events.at(-1);
+      if (boundary?.type === "timeline" && boundary.item.type === "compaction") {
+        boundary.item.compactionId = message.uuid;
+        boundary.item.inspection = {
+          summary: { type: "unavailable", reason: "not_exposed" },
+          ...(compactMetadata?.postTokens !== undefined
+            ? { postTokens: compactMetadata.postTokens }
+            : {}),
+        };
+        this.pendingCompactionInspections.set(message.uuid, boundary.item);
+      }
+      this.appendSavedCompactionInspections(events);
       events.push(this.contextUsage.buildCompactionUsageEvent(compactMetadata?.postTokens));
       return;
     }
@@ -4389,6 +4407,32 @@ class ClaudeAgentSession implements AgentSession {
     }
     if (message.subtype === "task_progress") {
       return;
+    }
+  }
+
+  private appendSavedCompactionInspections(events: AgentStreamEvent[]): void {
+    if (this.pendingCompactionInspections.size === 0 || !this.claudeSessionId) return;
+    const historyPath = this.resolveHistoryPath(this.claudeSessionId);
+    if (!historyPath || !fs.existsSync(historyPath)) return;
+    let summaries: Map<string, string>;
+    try {
+      summaries = readClaudeCompactionSummaries(fs.readFileSync(historyPath, "utf8"));
+    } catch (error) {
+      this.logger.warn({ err: error }, "Could not read saved compaction summaries");
+      return;
+    }
+    for (const [id, item] of this.pendingCompactionInspections) {
+      const text = summaries.get(id);
+      if (text === undefined) continue;
+      events.push({
+        type: "timeline",
+        provider: "claude",
+        item: {
+          ...item,
+          inspection: { ...item.inspection, summary: { type: "text", text } },
+        },
+      });
+      this.pendingCompactionInspections.delete(id);
     }
   }
 
@@ -4968,6 +5012,15 @@ class ClaudeAgentSession implements AgentSession {
     const timeline: PersistedTimelineEntry[] = [];
     for (const line of content.split(/\r?\n/)) {
       this.ingestPersistedHistoryLine(line, timeline, replay);
+    }
+
+    const summaries = readClaudeCompactionSummaries(content);
+    for (const entry of timeline) {
+      if (entry.item.type !== "compaction" || !entry.item.compactionId) continue;
+      const text = summaries.get(entry.item.compactionId);
+      if (text !== undefined) {
+        entry.item.inspection = { ...entry.item.inspection, summary: { type: "text", text } };
+      }
     }
 
     if (timeline.length > 0) {
@@ -6072,6 +6125,15 @@ function convertClaudeHistoryEntryPreamble(
           status: "completed",
           trigger: compactMetadata?.trigger === "manual" ? "manual" : "auto",
           preTokens: compactMetadata?.preTokens,
+          ...(typeof entry.uuid === "string" ? { compactionId: entry.uuid } : {}),
+          ...(compactMetadata?.postTokens !== undefined
+            ? {
+                inspection: {
+                  summary: { type: "unavailable", reason: "not_exposed" },
+                  postTokens: compactMetadata.postTokens,
+                },
+              }
+            : {}),
         },
       ],
     };
@@ -6485,4 +6547,30 @@ function readClaudeCommandLifecycle(message: unknown): ClaudeCommandLifecycle | 
     commandUuid: record.command_uuid,
     state: record.state as ClaudeCommandLifecycle["state"],
   };
+}
+
+/** Pair saved summaries with their own boundary, never with a later compaction. */
+export function readClaudeCompactionSummaries(content: string): Map<string, string> {
+  const summaries = new Map<string, string>();
+  let boundaryId: string | null = null;
+  for (const entry of parseClaudeHistoryRecords(content)) {
+    if (entry.isSidechain === true) continue;
+    if (entry.type === "system" && entry.subtype === "compact_boundary") {
+      boundaryId = typeof entry.uuid === "string" ? entry.uuid : null;
+      continue;
+    }
+    if (entry.isCompactSummary !== true || boundaryId === null) continue;
+    const message = toObjectRecord(entry.message);
+    const text = message?.content;
+    if (typeof text === "string") summaries.set(boundaryId, text);
+    else if (Array.isArray(text)) {
+      const parts = text.flatMap((part) => {
+        const block = toObjectRecord(part);
+        return block?.type === "text" && typeof block.text === "string" ? [block.text] : [];
+      });
+      if (parts.length > 0) summaries.set(boundaryId, parts.join("\n\n"));
+    }
+    boundaryId = null;
+  }
+  return summaries;
 }

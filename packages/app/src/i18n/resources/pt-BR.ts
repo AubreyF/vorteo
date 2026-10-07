@@ -388,6 +388,7 @@ export const ptBR: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "Compactando...",
       auto: "Contexto compactado automaticamente",
       manual: "Contexto compactado manualmente",

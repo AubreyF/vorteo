@@ -384,6 +384,7 @@ export const ar: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "الضغط...",
       auto: "يتم ضغط السياق تلقائيًا",
       manual: "تم ضغط السياق يدويًا",

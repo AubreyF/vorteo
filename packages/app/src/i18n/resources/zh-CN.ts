@@ -384,6 +384,7 @@ export const zhCN: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "正在压缩...",
       auto: "上下文已自动压缩",
       manual: "上下文已手动压缩",

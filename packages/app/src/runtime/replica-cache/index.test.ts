@@ -533,6 +533,34 @@ describe("ReplicaCache", () => {
     expect((await cache.readTimeline(SERVER_ID, "agent-1"))?.items).toEqual([timelineItem("New")]);
   });
 
+  it("retains the exact compaction artifact across a cache reload", async () => {
+    const storage = new MemoryStorage();
+    const writer = createCache(storage);
+    const item: StreamItem = {
+      kind: "compaction",
+      id: "compact-row",
+      compactionId: "boundary-1",
+      status: "completed",
+      preTokens: 12345,
+      trigger: "auto",
+      timestamp: new Date("2026-10-07T08:00:00Z"),
+      timelineCursor: { epoch: "epoch-1", seq: 12 },
+      inspection: {
+        summary: { type: "text", text: "  Original summary\n" },
+        postTokens: 345,
+        firstKeptEntryId: "entry-42",
+      },
+    };
+    writer.commitTimeline(SERVER_ID, "agent-1", {
+      agentId: "agent-1",
+      items: [item],
+      range: { epoch: "epoch-1", startSeq: 12, endSeq: 12 },
+      hasOlder: false,
+    });
+    await writer.flush();
+    expect((await createCache(storage).readTimeline(SERVER_ID, "agent-1"))?.items).toEqual([item]);
+  });
+
   it("round-trips plugin timeline items", async () => {
     const storage = new MemoryStorage();
     const writer = createCache(storage);
