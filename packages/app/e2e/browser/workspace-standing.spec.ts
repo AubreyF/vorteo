@@ -176,8 +176,10 @@ test.describe("touch controls", () => {
         .tap();
       const protection = page.getByTestId(`workspace-protected-${agent.workspaceId}`);
       await expect(protection).toHaveAttribute("aria-checked", "true");
+      await expect(protection).toHaveCSS("min-height", "44px");
+      // The menu's animated transform can retain a fractional CSS pixel.
       await expect
-        .poll(async () => (await protection.boundingBox())?.height)
+        .poll(async () => Math.round((await protection.boundingBox())?.height ?? 0))
         .toBeGreaterThanOrEqual(44);
       await page.screenshot({ path: test.info().outputPath("tag-as-touch.png") });
       await page.keyboard.press("Escape");
