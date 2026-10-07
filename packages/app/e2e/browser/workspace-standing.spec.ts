@@ -117,12 +117,13 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     await page
       .getByTestId(`sidebar-workspace-menu-labels-${getServerId()}:${agent.workspaceId}`)
       .click();
-    await page.screenshot({ path: test.info().outputPath("tag-as-desktop.png") });
     await page.getByTestId(`workspace-protected-${agent.workspaceId}`).click();
     await expect(page.getByTestId(`workspace-protected-${agent.workspaceId}`)).toHaveAttribute(
       "aria-checked",
       "false",
     );
+    await page.waitForTimeout(400); // Capture the settled flyout, after its entry animation.
+    await page.screenshot({ path: test.info().outputPath("tag-as-desktop.png") });
     await page.keyboard.press("Escape");
     expect(
       (await client.fetchWorkspaces()).entries.find((w) => w.id === agent.workspaceId),
@@ -175,7 +176,9 @@ test.describe("touch controls", () => {
         .tap();
       const protection = page.getByTestId(`workspace-protected-${agent.workspaceId}`);
       await expect(protection).toHaveAttribute("aria-checked", "true");
-      expect((await protection.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+      await expect
+        .poll(async () => (await protection.boundingBox())?.height)
+        .toBeGreaterThanOrEqual(44);
       await page.screenshot({ path: test.info().outputPath("tag-as-touch.png") });
       await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");
