@@ -98,6 +98,10 @@ def validate(request, now):
     return request
 
 
+class RecoveryPending(RuntimeError):
+    """Recovery can be retried without discarding the owner's running intent."""
+
+
 class Runtime:
     def __init__(self, config):
         self.c = config
@@ -120,6 +124,29 @@ class Runtime:
 
     def ts(self, args):
         return self.docker(['exec', self.c['container'], '/usr/local/bin/tailscale', '--socket=/run/tailscale/tailscaled.sock', *args])
+
+    def daemon_identity(self):
+        # A PID alone can be reused, including across a container restart.
+        code = r"""
+const fs=require('node:fs');const path=require('node:path');const found=[];
+const home=process.env.PASEO_HOME||path.join(require('node:os').homedir(),'.paseo');
+const owner=JSON.parse(fs.readFileSync(path.join(home,'paseo.pid'),'utf8')).pid;
+if(!Number.isSafeInteger(owner)||owner<=0)process.exit(1);
+const boot=fs.readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim();
+for(const pid of fs.readdirSync('/proc').filter(p=>/^\d+$/.test(p))){
+  try{
+    const status=fs.readFileSync(`/proc/${pid}/status`,'utf8');
+    if(!/^Name:\s+Paseo Daemon$/m.test(status))continue;
+    const parent=Number(status.match(/^PPid:\s+(\d+)$/m)?.[1]);
+    if(Number(pid)!==owner&&parent!==owner)continue;
+    const stat=fs.readFileSync(`/proc/${pid}/stat`,'utf8');
+    found.push(`${boot}:${pid}:${stat.slice(stat.lastIndexOf(')')+2).split(' ')[19]}`);
+  }catch(e){if(!['ENOENT','EACCES','ESRCH'].includes(e.code))throw e;}
+}
+if(found.length!==1)process.exit(1);
+process.stdout.write(found[0]);
+"""
+        return self.docker(['exec', '--user', 'paseo', self.c['container'], '/usr/local/bin/node', '-e', code]).strip()
 
     def preflight(self):
         status = json.loads(self.ts(['status', '--json']))
@@ -311,6 +338,7 @@ class Broker:
         raise ValueError('Requested HTTPS port is reserved, occupied or outside policy')
 
     def activate(self, entry):
+        daemon = self.runtime.daemon_identity() if self.c.get('restoreAfterRestart') else None
         current = self.runtime.current(entry['workspaceId'], entry['service'])
         if current['cwd'] != entry['cwd'] or current['fingerprint'] != entry['fingerprint']:
             raise ValueError('Service configuration identity changed')
@@ -350,9 +378,56 @@ class Broker:
         again = self.runtime.current(entry['workspaceId'], entry['service'])
         if (again['fingerprint'], again.get('terminalId'), again.get('port'), again.get('lifecycle')) != (entry['fingerprint'], entry['terminal'], port, 'running'):
             raise ValueError('Service changed during verification')
+        if daemon is not None:
+            if self.runtime.daemon_identity() != daemon:
+                self.remove(entry)
+                raise RecoveryPending('Daemon changed during verification')
+            entry['daemon'] = daemon
+            entry.pop('recovery', None)
+        entry.pop('error', None)
         entry.update(status='ready', url=url)
         self.save()
         return {'status': 'ready', 'url': url, 'frontendPort': entry['frontend'], 'backendPort': port}
+
+    def restore_after_restart(self, entry):
+        if not self.c.get('restoreAfterRestart') or not entry.get('daemon'):
+            return
+        daemon = self.runtime.daemon_identity()
+        if daemon == entry['daemon']:
+            return
+        current = self.runtime.current(entry['workspaceId'], entry['service'])
+        if current['cwd'] != entry['cwd'] or current['fingerprint'] != entry['fingerprint']:
+            raise ValueError('Service configuration identity changed')
+        recovery = entry.get('recovery', {})
+        if recovery.get('daemon') != daemon:
+            recovery = {'daemon': daemon, 'attempts': 0, 'retryAt': 0}
+        if current['lifecycle'] == 'running':
+            if not recovery.get('terminal') or current.get('terminalId') != recovery['terminal']:
+                raise ValueError('Unrecognized service after daemon restart; explicit start required')
+            return
+        # Remove the stale route before allowing the daemon to allocate a new backend.
+        self.remove(entry)
+        if recovery['attempts'] >= 3:
+            raise RecoveryPending('Recovery failed three times; explicit start required')
+        if time.time() < recovery['retryAt']:
+            raise RecoveryPending('Waiting before retrying preview recovery')
+        recovery.update(attempts=recovery['attempts'] + 1, retryAt=time.time() + 30 * (2 ** recovery['attempts']))
+        entry.update(recovery=recovery, status='pending')
+        entry.pop('url', None)
+        self.save()
+        atomic(self.channel / 'origins' / (self.key(entry) + '.json'),
+               {'origin': f'https://{self.address(entry)}', 'workspaceId': entry['workspaceId'], 'service': entry['service']}, mode=0o644)
+        started = self.runtime.lifecycle('start', current)
+        if self.runtime.daemon_identity() != daemon:
+            raise RecoveryPending('Daemon changed while starting preview')
+        terminal = started.get('terminalId')
+        if not terminal or started.get('lifecycle') != 'running':
+            raise RecoveryPending('Preview start did not return a running terminal')
+        # Only the acknowledged managed start may replace the old process identity.
+        recovery['terminal'] = terminal
+        entry.update(terminal=terminal, backend=started['port'])
+        entry.pop('listener', None)
+        self.save()
 
     def handle(self, r):
         now = time.time()
@@ -404,6 +479,7 @@ class Broker:
             self.runtime.lifecycle('stop', current)
             current = self.runtime.current(r['workspaceId'], r['service'])
         entry.update(desired='running', status='pending', fingerprint=current['fingerprint'])
+        entry.pop('recovery', None)
         self.save()
         # This is startup configuration, not a verified browser link.
         atomic(self.channel / 'origins' / (key + '.json'), {'origin': f'https://{self.address(entry)}', 'workspaceId': r['workspaceId'], 'service': r['service']}, mode=0o644)
@@ -438,12 +514,14 @@ class Broker:
                 if entry['desired'] == 'stopped':
                     self.remove(entry)
                     continue
+                self.restore_after_restart(entry)
                 self.activate(entry)
             except Exception as error:
                 # Fail closed on process/config changes. Never revive a stopped service.
                 if isinstance(error, ValueError):
                     entry.update(desired='stopped', stoppedAt=time.time())
-                entry.update(status='failed', error=type(error).__name__)
+                entry.update(status='pending' if isinstance(error, RecoveryPending) else 'failed',
+                             error=str(error) if isinstance(error, (ValueError, RecoveryPending)) else type(error).__name__)
                 entry.pop('url', None)
                 try:
                     self.remove(entry)
