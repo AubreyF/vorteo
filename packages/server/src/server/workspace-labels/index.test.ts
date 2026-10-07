@@ -45,6 +45,75 @@ describe("workspace labels", () => {
     await rm(paseoHome, { recursive: true, force: true });
   });
 
+  test("migrates legacy Protected labels to durable protection and allows explicit unprotection", async () => {
+    await registry.update("wks_one", (workspace) => ({
+      ...workspace,
+      labels: [" protected ", "Review"],
+      protected: false,
+    }));
+    await writeJsonFileAtomic(join(paseoHome, "projects", "workspace-labels.json"), [
+      { name: "Protected", color: "amber" },
+      { name: "Review", color: "sky" },
+    ]);
+    await labels.initialize();
+    expect(await registry.get("wks_one")).toMatchObject({ protected: true, labels: ["Review"] });
+    expect((await labels.list()).labels).toEqual([{ name: "Review", color: "sky" }]);
+    await expect(registry.archive("wks_one", new Date().toISOString())).rejects.toThrow();
+    const reloaded = new FileBackedWorkspaceRegistry(
+      join(paseoHome, "projects", "workspaces.json"),
+      createTestLogger(),
+    );
+    expect(await reloaded.get("wks_one")).toMatchObject({ protected: true, labels: ["Review"] });
+    await registry.update("wks_one", (workspace) => ({ ...workspace, protected: false }));
+    await labels.initialize();
+    expect((await registry.get("wks_one"))?.protected).toBe(false);
+    await registry.archive("wks_one", new Date().toISOString());
+  });
+
+  test("rejects creating or renaming a custom label to Protected", async () => {
+    await expect(
+      labels.setAssignment({
+        workspaceId: "wks_one",
+        label: { name: " PROTECTED ", color: "amber" },
+        assigned: true,
+      }),
+    ).rejects.toThrow("built-in");
+    await labels.setAssignment({
+      workspaceId: "wks_one",
+      label: { name: "Review", color: "sky" },
+      assigned: true,
+    });
+    await expect(labels.update({ name: "Review", newName: "protected" })).rejects.toThrow(
+      "built-in",
+    );
+  });
+
+  test("recovers protection and labels together after migration persistence fails", async () => {
+    await registry.update("wks_one", (workspace) => ({ ...workspace, labels: ["Protected"] }));
+    await writeJsonFileAtomic(join(paseoHome, "projects", "workspace-labels.json"), [
+      { name: "Protected", color: "amber" },
+    ]);
+    const failing = createWorkspaceLabelService({
+      paseoHome,
+      workspaceRegistry: registry,
+      writeTransaction: async (path, transaction) => {
+        if (transactionPhase(transaction) === "committed") throw new Error("commit marker failed");
+        await writeJsonFileAtomic(path, transaction);
+      },
+    });
+    await expect(failing.initialize()).rejects.toThrow("commit marker failed");
+    const reloaded = new FileBackedWorkspaceRegistry(
+      join(paseoHome, "projects", "workspaces.json"),
+      createTestLogger(),
+    );
+    expect((await reloaded.get("wks_one"))?.protected).toBeUndefined();
+    expect((await reloaded.get("wks_one"))?.labels).toEqual(["Protected"]);
+    const recovered = createWorkspaceLabelService({ paseoHome, workspaceRegistry: reloaded });
+    await recovered.initialize();
+    expect((await reloaded.get("wks_one"))?.protected).toBe(true);
+    expect((await recovered.list()).labels).toEqual([]);
+  });
+
   test("normalizes identity, preserves the target definition, persists assignments, and stays silent on no-op", async () => {
     const updates: unknown[] = [];
     const initial = await labels.subscribe({ onChange: (change) => updates.push(change) });

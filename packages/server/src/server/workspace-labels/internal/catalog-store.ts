@@ -29,6 +29,8 @@ interface WorkspaceLabelMutation<TResult> {
 const WorkspaceLabelWorkspaceStateSchema = z.object({
   workspaceId: z.string(),
   labels: z.array(z.string()).optional(),
+  // Missing on older journals; null records an explicitly absent protection flag.
+  protected: z.boolean().nullable().optional(),
   updatedAt: z.string(),
 });
 const WorkspaceLabelTransactionSchema = z.object({
@@ -205,7 +207,18 @@ export class WorkspaceLabelCatalogStore {
       stage: (workspaces) => ({
         updates: workspaceStates.flatMap((state) => {
           const current = workspaces.get(state.workspaceId);
-          return current ? [{ ...current, labels: state.labels, updatedAt: state.updatedAt }] : [];
+          return current
+            ? [
+                {
+                  ...current,
+                  labels: state.labels,
+                  updatedAt: state.updatedAt,
+                  ...(state.protected !== undefined
+                    ? { protected: state.protected ?? undefined }
+                    : {}),
+                },
+              ]
+            : [];
         }),
         result: undefined,
         forcePersist: true,
@@ -241,6 +254,7 @@ function transactionFor<TResult>(
 function workspaceState(workspace: PersistedWorkspaceRecord) {
   return {
     workspaceId: workspace.workspaceId,
+    protected: workspace.protected ?? null,
     ...(workspace.labels ? { labels: [...workspace.labels] } : {}),
     updatedAt: workspace.updatedAt,
   };

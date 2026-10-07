@@ -53,6 +53,15 @@ export class WorkspaceLabelService {
 
   async initialize(): Promise<void> {
     await this.catalog.initialize();
+    // Convert the old decorative label before clients can observe or archive workspaces.
+    // The catalog journal commits protection and label removal together, including recovery.
+    await this.exclusive(() =>
+      this.catalog.commit((catalog, workspaces) => ({
+        labels: catalog.filter((label) => workspaceLabelKey(label.name) !== "protected"),
+        workspaceUpdates: migrateProtectedAssignments(workspaces),
+        result: undefined,
+      })),
+    );
   }
 
   async list(
@@ -88,7 +97,7 @@ export class WorkspaceLabelService {
     assigned: boolean;
   }): Promise<{ label: WorkspaceLabelDefinition; workspaceLabels: string[] }> {
     return this.exclusive(async () => {
-      const name = requireName(input.label.name);
+      const name = requireCustomName(input.label.name);
       const committed = await this.catalog.commit<AssignmentCommit>((catalog, workspaces) => {
         const workspace = workspaces.get(input.workspaceId);
         if (!workspace || workspace.archivedAt) {
@@ -145,7 +154,7 @@ export class WorkspaceLabelService {
   }): Promise<{ label: WorkspaceLabelDefinition; affectedWorkspaceCount: number }> {
     return this.exclusive(async () => {
       const fromKey = workspaceLabelKey(requireName(input.name));
-      const newName = input.newName === undefined ? null : requireName(input.newName);
+      const newName = input.newName === undefined ? null : requireCustomName(input.newName);
       const committed = await this.catalog.commit<UpdateCommit>((catalog, workspaces) => {
         const existing = catalog.find((label) => workspaceLabelKey(label.name) === fromKey);
         if (!existing) throw new WorkspaceLabelError("label_not_found", "Label not found");
@@ -301,4 +310,31 @@ function requireName(raw: string): string {
     throw new WorkspaceLabelError("label_name_empty", "Label name cannot be empty");
   }
   return name;
+}
+
+function requireCustomName(raw: string): string {
+  const name = requireName(raw);
+  if (workspaceLabelKey(name) === "protected") {
+    throw new WorkspaceLabelError("label_name_taken", "Protected is a built-in workspace flag");
+  }
+  return name;
+}
+
+function migrateProtectedAssignments(
+  workspaces: ReadonlyMap<string, PersistedWorkspaceRecord>,
+): PersistedWorkspaceRecord[] {
+  return [...workspaces.values()].flatMap((workspace) => {
+    if (!workspaceHasLabel(workspace, "protected")) return [];
+    const labels = (workspace.labels ?? []).filter(
+      (name) => workspaceLabelKey(name) !== "protected",
+    );
+    return [
+      {
+        ...workspace,
+        protected: true,
+        labels: labels.length ? labels : undefined,
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+  });
 }

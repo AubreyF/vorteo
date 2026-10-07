@@ -1,7 +1,7 @@
 import { useCallback, type ReactElement } from "react";
 import { Text, View, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Tag, LockKeyhole } from "lucide-react-native";
+import { Tag } from "lucide-react-native";
 import type { Theme } from "@/styles/theme";
 import {
   WORKSPACE_LABEL_COLORS,
@@ -21,7 +21,6 @@ import { workspaceLabelDisplayName } from "./display-name";
  */
 export const WORKSPACE_LABEL_CHIP_INSET = SPACING[1.5];
 const LabelIcon = withUnistyles(Tag);
-const ProtectedIcon = withUnistyles(LockKeyhole);
 
 /** Custom labels share the compact title-row geometry while retaining their identity colors. */
 export function WorkspaceLabelChip({ label }: { label: WorkspaceLabelDefinition }): ReactElement {
@@ -35,11 +34,7 @@ export function WorkspaceLabelChip({ label }: { label: WorkspaceLabelDefinition 
       testID={`workspace-label-chip-${label.name}`}
     >
       <View style={styles.icon}>
-        {label.name.trim().toLowerCase() === "protected" ? (
-          <ProtectedIcon size={12} uniProps={iconColor} />
-        ) : (
-          <LabelIcon size={12} uniProps={iconColor} />
-        )}
+        <LabelIcon size={12} uniProps={iconColor} />
       </View>
       <Text style={[styles.name, nameColorStyle(label.color)]} numberOfLines={1}>
         {workspaceLabelDisplayName(label.name)}
