@@ -502,7 +502,8 @@ test("owner connects two environments, prepares host drafts, and approves a veri
     await (
       await request("restart-requests", guestToken, {
         target: "container-daemon",
-        reason: "Verify isolated test daemon restart",
+        reason:
+          "The owner requested another restart. The previous request was cancelled. Host already restarted. Dev remains on an older version; this request activates protected workspace controls. It does not reload the coordinator.",
       })
     ).json(),
   );
@@ -548,8 +549,12 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await expect(card).toContainText("Waiting 0h");
   expect((await activity.getDaemonStatus()).pid).toBe(beforePid);
   const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
-  await expect(banner).toContainText("Queued until idle");
-  await expect(banner).toContainText("Finish before restart");
+  await expect(banner).toContainText("Dev container restart queued");
+  await expect(banner.getByTestId(`restart-progress-${job.id}`)).toBeVisible();
+  await expect(banner).toContainText("This restart activates protected workspace controls.");
+  await expect(banner).not.toContainText("The owner requested");
+  await expect(banner).not.toContainText("Finish before restart");
+  await expect(banner).toContainText("Active tasks: 1");
   await banner.screenshot({ path: testInfo.outputPath("restart-queued-sidebar.png") });
   await page.reload();
   await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("Queued until idle");

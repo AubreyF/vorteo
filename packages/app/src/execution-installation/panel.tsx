@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { usePathname, useRouter } from "expo-router";
@@ -10,6 +10,8 @@ import { settingsStyles } from "@/styles/settings";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-badge";
 import { SidebarCallout } from "@/components/sidebar-callout";
 import { Button } from "@/components/ui/button";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import type { Theme } from "@/styles/theme";
 
 import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
@@ -17,6 +19,9 @@ import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
 import { InstallationPanelModel, restartExplanation } from "./panel-model";
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
+
+const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
+const spinnerColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
 const collapsedDisclosure = { leftIcon: ChevronDown, accessibilityState: { expanded: false } };
@@ -717,7 +722,7 @@ function RestartQueueButton({
   );
 }
 
-function RestartActivity({ job }: { job: RestartJob }) {
+function RestartActivity({ job, compact = false }: { job: RestartJob; compact?: boolean }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (job.status !== "approved" || !job.whenIdle) return;
@@ -740,11 +745,12 @@ function RestartActivity({ job }: { job: RestartJob }) {
             {job.impact.error ||
               `Active tasks: ${job.impact.agents.length} · Starting operations: ${job.impact.pendingStarts}`}
           </Text>
-          {job.impact.agents.map((agent) => (
-            <Text selectable key={agent.id} style={styles.text}>
-              {agent.title} · {agent.status}
-            </Text>
-          ))}
+          {!compact &&
+            job.impact.agents.map((agent) => (
+              <Text selectable key={agent.id} style={styles.text}>
+                {agent.title} · {agent.status}
+              </Text>
+            ))}
           {!job.impact.idleRestartSupported && !job.impact.error ? (
             <Text style={styles.text}>
               This daemon needs an update before queued idle restarts can run.
@@ -813,7 +819,7 @@ function RestartBannerItem({ job }: { job: RestartJob }) {
       <View style={styles.details}>
         <Text style={styles.text}>{restartExplanation(job.reason).summary}</Text>
         {job.status === "approved" || job.status === "running" ? (
-          <RestartActivity job={job} />
+          <RestartActivity job={job} compact />
         ) : null}
         <Button variant="outline" onPress={open}>
           Review in Installation controls
@@ -822,12 +828,22 @@ function RestartBannerItem({ job }: { job: RestartJob }) {
     ),
     [job, open],
   );
-  return (
-    <SidebarCallout
-      title={`${job.target === "host" ? "Host" : "Dev container"}: ${restartStatus(job).label}`}
-      description={description}
-    />
+  const target = job.target === "host" ? "Host" : "Dev container";
+  let title = `${target} restart needs approval`;
+  if (job.status === "approved") title = `${target} restart queued`;
+  if (job.finishCurrentTurns) title = `${target} finishing current turns`;
+  if (job.status === "running") title = `Restarting ${target}`;
+  const inProgress = job.status === "approved" || job.status === "running";
+  const icon = useMemo(
+    () =>
+      inProgress ? (
+        <View testID={`restart-progress-${job.id}`}>
+          <ThemedLoadingSpinner uniProps={spinnerColor} size={16} />
+        </View>
+      ) : undefined,
+    [inProgress, job.id],
   );
+  return <SidebarCallout title={title} icon={icon} description={description} />;
 }
 
 const styles = StyleSheet.create((theme) => ({

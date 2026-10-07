@@ -235,3 +235,15 @@ test("restart summaries omit build hashes", () => {
     ).summary,
   ).toBe("Restart Host to activate release with protected workspaces.");
 });
+
+test("legacy restart paragraphs show one sentence about the change", () => {
+  const reason =
+    "The owner requested another restart. The previous request was cancelled. Host already restarted. Dev remains on v139, worker 12345; this request activates v153 for Standing and Protected workspaces. It does not reload the coordinator.\n\nValidation passed.";
+  expect(restartExplanation(reason)).toEqual({
+    summary: "This restart activates v153 for Standing and Protected workspaces.",
+    details: reason,
+  });
+  expect(
+    restartExplanation("Maintenance was requested. Review the details. Wait until idle.").summary,
+  ).toBe("Maintenance was requested.");
+});

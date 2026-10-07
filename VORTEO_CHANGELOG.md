@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.163 - 2026-10-06
+
+### Changed
+
+- Restart notices show one sentence about the change, with older long descriptions under Details.
+- Sidebar restart headings distinguish queued and restarting states, show a progress spinner, and keep individual task details in Installation controls.
+
 ## 0.11.0-beta.3.vorteo.162 - 2026-10-06
 
 ### Added
