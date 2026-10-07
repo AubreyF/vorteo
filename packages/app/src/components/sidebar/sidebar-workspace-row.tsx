@@ -30,8 +30,9 @@ import {
   SidebarWorkspaceRowContent,
   resolveTrailingActionVisibility,
   SidebarWorkspaceTrailingActionBase,
-  SidebarWorkspaceTrailingActionOverlay,
+  SidebarWorkspaceMenuReveal,
   SidebarWorkspaceTrailingActionSlot,
+  SidebarWorkspaceTrailingDetails,
 } from "@/components/sidebar/sidebar-workspace-row-content";
 import { useOpenKebabMenuVisibility } from "@/components/sidebar/use-open-kebab-menu-visibility";
 import { getSidebarRowBackdrop } from "@/components/sidebar/sidebar-row-backdrop";
@@ -368,7 +369,6 @@ function WorkspaceRowBody({
 
 function WorkspaceRowTrailingActions({
   workspace,
-  backdrop,
   trailing,
   isHovered,
   isTouchPlatform,
@@ -410,9 +410,7 @@ function WorkspaceRowTrailingActions({
   const {
     trailingPresentation,
     showKebab: showKebabInSlot,
-    showScrim,
     renderSlot,
-    reserveSlotWidth,
   } = resolveTrailingActionVisibility({
     workspace,
     trailing,
@@ -429,14 +427,12 @@ function WorkspaceRowTrailingActions({
         <Text style={styles.workspaceCreatingText}>{t("sidebar.workspace.status.creating")}</Text>
       ) : null}
       {renderSlot ? (
-        <SidebarWorkspaceTrailingActionSlot reserveWidth={reserveSlotWidth}>
+        <SidebarWorkspaceTrailingActionSlot>
           <SidebarWorkspaceTrailingActionBase presentation={trailingPresentation}>
             <SidebarWorkspaceTrailingContent workspace={workspace} trailing={trailing} />
           </SidebarWorkspaceTrailingActionBase>
-          <SidebarWorkspaceTrailingActionOverlay
-            visible={kebab.showKebab}
-            scrimBackdrop={showScrim ? backdrop : undefined}
-          >
+          <SidebarWorkspaceTrailingDetails workspace={workspace} />
+          <SidebarWorkspaceMenuReveal visible={kebab.showKebab}>
             {onArchive ? (
               <SidebarWorkspaceMenu
                 {...kebab.menuProps}
@@ -456,7 +452,7 @@ function WorkspaceRowTrailingActions({
                 archiveShortcutKeys={archiveShortcutKeys}
               />
             ) : null}
-          </SidebarWorkspaceTrailingActionOverlay>
+          </SidebarWorkspaceMenuReveal>
         </SidebarWorkspaceTrailingActionSlot>
       ) : null}
     </>

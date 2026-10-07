@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.163 - 2026-10-06
+
+### Changed
+
+- Align compact Protected, Scheduled and custom label badges on the workspace title row. Reveal the menu at the far right by sliding trailing content left on hover; retain visible touch controls.
+
 ## 0.11.0-beta.3.vorteo.162 - 2026-10-06
 
 ### Added
