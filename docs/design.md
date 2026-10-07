@@ -128,7 +128,7 @@ Cards inside a section sit closer than sections. Rows inside a card touch — on
 
 Rows have generous vertical padding: roughly 16px of content plus 16px of vertical padding for settings rows, 8–12px for sidebar list items where many rows must fit. Compressing rows below the established density to fit more on the screen is wrong. Too many rows means more cards or more sections, not smaller rows.
 
-Conversation cards use `taskCardStyles` for their shared frame and header geometry. Headers match the 40px row height; touch headers use 52px to match a 44px action plus row padding. Accordion headings use `accordionTrigger` and `touchHeader`, including future goal or question accordions. Hover changes the fill without changing the header height.
+Conversation cards use `taskCardStyles` for their shared frame and header geometry. Cards with header rows omit the outer top inset because the header already provides vertical clearance; cards that begin directly with content retain their content inset. Headers match the 40px row height; touch headers use 52px to match a 44px action plus row padding. Accordion headings use `accordionTrigger` and `touchHeader`, including future goal or question accordions. Hover changes the fill without changing the header height.
 
 The whitespace is the design.
 

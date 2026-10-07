@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.179 - 2026-10-07
+
+### Fixed
+
+- Remove redundant top padding from goal, task progress, message queue and subagent cards while preserving header heights and touch targets.
+- Update desktop and compact conversation-card spacing assertions and the shared design guidance.
+
 ## 0.11.0-beta.3.vorteo.178 - 2026-10-07
 
 ### Changed

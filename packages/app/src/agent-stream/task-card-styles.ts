@@ -19,7 +19,8 @@ export const taskCardStyles = StyleSheet.create((theme) => {
   return {
     surface,
     contentInsets,
-    container: { ...surface, ...contentInsets },
+    // Header rows already provide vertical clearance above their labels and actions.
+    container: { ...surface, ...contentInsets, paddingTop: 0 },
     item: {
       minHeight: TASK_CARD_ROW_HEIGHT,
       paddingVertical: theme.spacing[1],
