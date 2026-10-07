@@ -5,11 +5,9 @@
 
 ## Intelligent Frontier Account Pooling
 
-Connect an unlimited number of Codex and Claude accounts, then balance tasks across all of them simultaneously. Keep work moving while tracking usage and reset windows for each connected profile. Drafts restore their saved account and workflow together. New drafts use a workflow from the selected account. Drag providers in Settings to set their order in the profile picker. Providers appear once per family, with separate accounts inside. Enable or disable them globally. Removing a provider retains credentials, profiles and task history; restore it disabled from Add provider. Local sign-in and credential deletion live in Manage.
+Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together.
 
 <img width="600" alt="Animated demo of Vorteo account switching and profiles" src="https://github.com/user-attachments/assets/ae3f9872-f3d6-4efa-8f23-a032aa3133de" />
-
-When an older Claude Code version hides newer models, Vorteo shows an update warning in provider settings and the account and model pickers. It lists the installed version, affected models and update instructions for the selected environment. Update the CLI and refresh the provider to clear the warning.
 
 ## Enhanced Security
 
@@ -19,33 +17,25 @@ When an older Claude Code version hides newer models, Vorteo shows an update war
 
 ## Power Tools to Manage Your Fleet
 
-- **Manage skills across environments.** Open **Settings > Skills** to inspect installed skills, instructions, ownership and hashes across environments. Shared provider paths appear once per environment, with each path available in Details. Preview pinned installations, provider discovery links, identical-copy consolidation, removal and restoration. Profiles can inherit defaults with exclusions, select specific skills or disable optional skills on supported providers. See the [skill library guide](docs/skill-library.md).
+- **Put local workers to work.** Let a supervisor delegate tasks to a saved worker profile, including Pi models on local or private endpoints. Set a concurrency limit and follow each worker beneath its originating task, even when it uses a separate worktree.
 
-- **Give Codex a goal.** Set an objective with an optional token budget. Follow progress, elapsed time and token usage from the goal bar, and pause or resume when you need to intervene.
+- **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene.
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
 
-- **Line up the next steps.** Queue messages with files or images, then edit, reorder, pause or send them from another connected device. The host owns the queue and can keep delivering messages after you close the client. Pausing the queue leaves an active goal eligible to continue; stopping the task pauses both. Saved queues do not guarantee uninterrupted execution of an active turn during a host restart. Question, approval, plan, queue, goal and subagent cards share a subtle border, compact corners and consistent spacing above the message box and scroll with the conversation. Cards use compact, uniform top and bottom insets with a small heading-to-content gap. Card headings match the row height, including the Subagents accordion hover. Collapse the Subagents card using its heading; the count and Archive finished action stay visible. Messages waiting to synchronize use the same queue rows, with a muted orbit that fades in while waiting, then fades out before the grab handle fades in. Its tooltip says “Queued on this device.” Unsaved queue edits stay on the device across reloads, including newly added images. Save synchronizes text and attachment changes; Cancel leaves the shared message unchanged. Drag queued messages to reorder them; sidebar badges show queued messages, subagents and active goals.
-
-- **Put local workers to work.** Managed workers appear beneath their originating task and project. Independent follow-ups in a worker worktree stay accessible there, along with terminals and running scripts. Configure a Pi profile for a local or private OpenAI-compatible endpoint, then let a supervisor delegate work with a limit on concurrent workers.
-
-- **Switch environment settings without losing your place.** Settings > Environments keeps environment tabs visible above the scrolling details and exceptions.
+- **Move between phone, tablet and desktop.** Pick up your tasks from another device with shared message queues, saved profiles and controls that fit the screen.
 
 <img width="400" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
 
-- **Seamlessly transition between phone, tablet, and desktop.** Choose an environment, account and saved profile in the profile switcher’s three desktop cards or collapsible mobile sections, numbered 1–3 with circled step markers. New workspace uses this switcher for Host and Dev container selection. Profile rows show their saved model and reasoning; choosing one keeps those settings together. Host appears first with its access risk explained; selections use rounded orange outlines and a light orange fill. Circled step numbers match their headings, and compact reset badges keep hover feedback within their visible borders. The closed chooser shows the selected profile and a compact usage ring; a full ring reads `100` to keep the label inside its border. Activate Profile appears after an initial selection, and Switch to Profile appears when changing the active environment, account or profile. The full-width arrow action matches the profile card’s rounded corners, slides below it and collapses completely when hidden. The chooser opens immediately while account usage and other data load inside it. Switching environments brings accounts in with a staggered fade, followed by a gentle profile sweep; reduced-motion settings skip these animations. Environment, account and profile tiles share a compact two-line layout and height, with visible hover feedback. Accounts use the same natural name order across environments, regardless of daemon registration order. The wider account column shows remaining usage at the upper right, with reset timing and compact reset buttons on the second line. Wide layouts show a two-column profile grid and indented permission and worker details. Mobile headings align labels and selected values across a common center split, with colons identifying each selection. Profile tiles use two columns when the sheet has room and one on narrow screens. Mobile profile management remains in Settings. Choose any environment’s profile to continue a chat in the same project. Projects can contain workspaces from different environments and repositories. The handoff keeps the project selected and resolves a working directory in the chosen environment. Visible touch controls and responsive task views keep task management within reach. Sidebar rows and actions expand into larger touch targets on touchscreens and in narrow windows. The workspace diff counter keeps a 44-pixel touch target in compact layouts. On desktop, hover a project or workspace row to reveal its three-dot menu.
+- **Line up the next steps.** Queue messages with files or images, then edit, reorder, pause or send them from any connected device. The daemon keeps delivering queued work after you close the client.
 
-- **Enclaves for ongoing work.** Choose **Tag As** in a workspace menu to toggle **Standing** and **Protected** or assign custom labels. Standing puts the workspace in a collapsible section within its project and enables protection, which blocks workspace and chat archives until you remove it. A **Scheduled** badge identifies workspaces targeted by a schedule, including paused schedules.
+- **Manage Host and Dev container together.** Share profiles and settings across environments while keeping credentials and working files local. Review environment access and approve maintenance from one interface.
 
-Host installation restarts validate the configured supervisor and persisted settings before dispatch. Failure details stay in Installation settings. Use the same complete release for the service and its validation entrypoint. See [restart and recovery](docs/execution-installation.md#restart-and-recovery).
+- **Manage your skill library.** Inspect skills across environments, review installations and updates, and choose which skills each profile can use. See the [skill library guide](docs/skill-library.md).
 
-Installation controls share one card in General settings, with restart actions inline and history expanding at the bottom. Maintenance tasks link directly to the exact request; opening the link never approves a restart. See the latest Host and Dev container restart states, review and approve requests inline, and expand history or shared workflows without opening a modal. Up and down chevrons show which installation sections are expanded or collapsed. Use the separate owner password generated by the host installer; owner access lasts seven days per browser and can be locked explicitly. Restart requests do not expire. Restart cards and sidebar notices lead with the requested change and why it needs a restart. Longer preparation notes stay under Details. Approve **Restart when idle** to wait for the listed active tasks to finish; the queue shows elapsed waiting time and can be cancelled before dispatch. It runs even with the browser closed. Completed and rejected requests stay in collapsed history. Each restart still requires approval, and saved daemon connections work while owner controls are locked. Owner session persistence supports Windows as well as POSIX hosts. The environment selector and profile dropdown use a green box for Dev container and an amber monitor with a key for Host access.
+- **Enclaves for ongoing work.** Mark a workspace Standing to keep it in view and protect it from accidental archival. Add custom labels and see which workspaces have scheduled tasks.
 
-- **Download files you cannot preview.** Binary file previews offer a visible Download button, including files opened from chat links.
-
-Settings uses one navigation for the installation, with Providers directly below Environments. Editor preferences explain how to enter and leave Vim Insert mode and use basic movement, undo and search commands. Profiles are shared across accounts and between Host and Dev container by default. Choose the account when launching; exclude an environment in the profile editor when needed. Subagents using the same provider follow the parent’s selected account, with their own saved model and reasoning settings. Select a Pi worker profile to delegate to local models. Provider policy, instructions, metadata choices, terminal definitions, skills, plugins and browser-tool defaults are shared too. Use Environments for resource exceptions and local connections. Credentials, local paths and running work stay with their environment. Removing a local account connection retains its shared definition and other connections. Subagents appear under their originating task even when they execute in isolated worktrees.
-
-Vorteo has no alternate Paseo mode and does not install a separate Paseo application. Install and configure Paseo independently if you want to use it alongside Vorteo.
+The [Vorteo customizations](docs/vorteo-customizations.md) document covers the full feature inventory and remaining limitations.
 
 ## Install
 
@@ -91,6 +81,7 @@ Keep updates brief. Request only the specific user or administrator action neede
 
 ## Further Reading
 
+- [Vorteo customizations beyond Paseo](docs/vorteo-customizations.md)
 - [Roadmap](docs/roadmap.md)
 - [Accounts and presets](docs/agent-presets.md)
 - [Development inside the container](docs/development.md)

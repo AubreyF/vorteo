@@ -52,6 +52,8 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 - Before diagnosing cross-package type errors, rebuild declarations with `npm run build:client` or `npm run build:server` as appropriate. Do not patch types to hide stale declarations. See [development](docs/development.md).
 - Record user-facing custom changes in `VORTEO_CHANGELOG.md` at the prepared version, following [release notes](docs/release.md#vorteo-release-notes).
 - Every commit increments the Vorteo version through the installed hook. Stage intended manifest changes first; never bypass hooks or use upstream release commands for routine commits.
+- Update [Vorteo customizations](docs/vorteo-customizations.md) in every commit, including documentation, tooling and upstream merges. Maintain the affected feature or limitation; when functionality is unchanged, update the maintenance review with the commit's scope and result. Follow [inventory maintenance](docs/writing.md#maintain-the-vorteo-customizations-inventory).
+- For every Paseo upstream merge, compare incoming implementation and tests with the customizations inventory. Record full or partial overlap and the remaining Vorteo difference, credit upstream, and revise the roadmap in the same change. Do not claim parity from a release-note title alone or remove custom behavior without verifying compatibility.
 
 ## Finish the task
 
@@ -59,7 +61,7 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 - Before reporting “shipped”, verify the remote branch directly and prove it contains the task commits. Report GitHub publication and deployment separately. A successful deployment, local commit, open PR or pushed feature branch alone does not complete shipping. If either required step is blocked, state what remains instead of claiming completion.
 - In this repository, a request to "push" means integrate the requested changes into `main` and push `main` to `origin`, unless the user explicitly names another destination. Do not publish a feature branch instead. Preserve unrelated work and use a normal fast-forward push; never force-push `main`.
 
-- Update the README in the same change when shipped user-facing behavior changes. Follow the [writing rules](docs/writing.md); preserve the author's animation and other demos.
+- Review the README when shipped user-facing behavior changes; update it when the overview or onboarding changes. Keep each Power Tools item to one short paragraph and put detailed behavior in [Vorteo customizations](docs/vorteo-customizations.md). Follow the [writing rules](docs/writing.md); preserve the author's animation and other demos.
 - Report what changed, validation results and remaining limitations. Link the README update or explain why the change does not affect it.
 - Follow the user's requested delivery stage. A request for a preview stops before committing or publishing.
 - When the user says a change goes to `next`, preserve that PR destination through delivery. Follow [release branch discipline](docs/release.md#release-branch-discipline).

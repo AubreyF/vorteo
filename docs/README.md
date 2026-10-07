@@ -4,6 +4,7 @@ Use this index to find the document that owns your task. Read relevant subjects 
 
 | Doc                                                                   | What's in it                                                                                                                   |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| [Vorteo customizations](vorteo-customizations.md)                     | Cumulative fork features, limitations and comparison with integrated Paseo                                                     |
 | [docs/roadmap.md](roadmap.md)                                         | Planned fork work, separate from shipped capabilities                                                                          |
 | [Execution environment plans](plans/execution-environments/README.md) | Proposed two-day unified host/container installation and separately scoped future projects                                     |
 | [docs/product.md](product.md)                                         | What Vorteo is, who it's for, where it's going                                                                                 |

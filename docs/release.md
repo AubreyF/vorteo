@@ -20,6 +20,8 @@ Vorteo native metadata reserves 100,000 build numbers per upstream major/minor/p
 
 ## Vorteo release notes
 
+[Vorteo customizations](vorteo-customizations.md) owns the cumulative feature inventory. Update it in every commit using the [inventory maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory), including a review result when functionality is unchanged. Every upstream merge must also compare incoming Paseo behavior with the inventory, record overlap and remaining differences, and revise the roadmap before delivery.
+
 [VORTEO_CHANGELOG.md](../VORTEO_CHANGELOG.md) owns custom release history. Before committing user-facing changes, run `npm run version:vorton` and add an entry for the prepared version using `## <version> - YYYY-MM-DD`, with Added, Changed or Fixed sections. Keep newest entries first. Describe user-visible changes in short bullets. Documentation-only commits do not need a release entry. Do not rewrite historical versions when the suffix changes.
 
 The initial baseline covers custom behavior through `0.9.0-beta.2.vorton.40`; it is a cumulative summary, not a claim that every feature first shipped in that commit. New versions use `vorteo` while version parsing accepts legacy `vorton` parents and preserves their counter and native build numbering.
