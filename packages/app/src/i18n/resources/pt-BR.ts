@@ -1031,6 +1031,8 @@ export const ptBR: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Rascunho",
           merged: "Mergeada",
           closed: "Fechada",

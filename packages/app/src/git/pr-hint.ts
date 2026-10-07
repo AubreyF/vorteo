@@ -1,10 +1,12 @@
 import { normalizeForge, type Forge } from "@/git/forge";
+import { githubForgeLogic } from "@/git/forges/github";
 import type { PresentableCheck } from "@/git/check-presentation";
 
 export interface PrHint {
   url: string;
   number: number;
   state: "open" | "merged" | "closed";
+  activity?: "awaiting_merge" | "merging";
   /** Forge backing this change request, so badges render the right brand mark. */
   forge: Forge;
   checks?: PrHintCheck[];
@@ -25,6 +27,7 @@ interface PrStatusLike {
   checksStatus?: string;
   reviewDecision?: string | null;
   forge?: string;
+  github?: unknown;
 }
 
 function parsePullRequestNumber(url: string): number | null {
@@ -47,6 +50,7 @@ function parsePullRequestNumber(url: string): number | null {
 export function selectPrHintFromStatus(
   status: PrStatusLike | null | undefined,
   forge?: string | null,
+  mergePending = false,
 ): PrHint | null {
   if (!status?.url) {
     return null;
@@ -62,7 +66,23 @@ export function selectPrHintFromStatus(
   else if (status.state === "open") state = "open";
   else state = "closed";
 
+  // Workspace summaries carry GitHub facts in `github`, including on current daemons.
+  const github =
+    normalizeForge(forge ?? status.forge) === "github" &&
+    typeof status.github === "object" &&
+    status.github !== null
+      ? githubForgeLogic.facts.parse({ ...status.github, forge: "github" })
+      : null;
+  let activity: PrHint["activity"];
+  if (state === "open") {
+    if (mergePending) activity = "merging";
+    else if (github && (github.autoMergeRequest !== null || github.isInMergeQueue)) {
+      activity = "awaiting_merge";
+    }
+  }
+
   return {
+    activity,
     url: status.url,
     number,
     state,

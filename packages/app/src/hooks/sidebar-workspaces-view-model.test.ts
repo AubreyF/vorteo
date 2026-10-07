@@ -1350,3 +1350,31 @@ it("keeps standing work separate without inferring Standing from protection or t
     standing: [standing],
   });
 });
+
+it("updates retained PR rows when merging starts and stops without a daemon update", () => {
+  const descriptor = workspaceWithForge("github", "https://github.com/acme/repo/pull/42");
+  const initial = createSidebarWorkspaceEntry({ serverId: "srv", workspace: descriptor });
+  const input = {
+    placements: [initial],
+    sessions: [
+      {
+        serverId: "srv",
+        workspaces: new Map([[descriptor.id, descriptor]]),
+        workspaceAgentActivity: new Map(),
+      },
+    ],
+  };
+  const idle = buildSidebarWorkspaceEntries(input);
+  const merging = buildSidebarWorkspaceEntries({
+    ...input,
+    previousEntries: idle,
+    isPrMergePending: (serverId, cwd) => serverId === "srv" && cwd === "/repo",
+  });
+  expect(merging.get(initial.workspaceKey)?.prHint?.activity).toBe("merging");
+  expect(merging.get(initial.workspaceKey)).not.toBe(idle.get(initial.workspaceKey));
+  const finished = buildSidebarWorkspaceEntries({ ...input, previousEntries: merging });
+  expect(finished.get(initial.workspaceKey)?.prHint?.activity).toBeUndefined();
+  expect(finished.get(initial.workspaceKey)).not.toBe(merging.get(initial.workspaceKey));
+  const unchanged = buildSidebarWorkspaceEntries({ ...input, previousEntries: finished });
+  expect(unchanged.get(initial.workspaceKey)).toBe(finished.get(initial.workspaceKey));
+});

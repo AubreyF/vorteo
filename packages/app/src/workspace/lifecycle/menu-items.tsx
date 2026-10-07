@@ -1,18 +1,20 @@
 import { useCallback } from "react";
+import { router } from "expo-router";
+import { useWorkspaceScheduleState } from "./scheduled";
 import { useMutation } from "@tanstack/react-query";
 import { Text } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Anchor, LockKeyhole } from "lucide-react-native";
+import { Repeat2, LockKeyhole } from "lucide-react-native";
 import { MenuHint, MenuItem, MenuSeparator } from "@/components/ui/menu";
 import type { Theme } from "@/styles/theme";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
 
-const StandingIcon = withUnistyles(Anchor);
+const ScheduleIcon = withUnistyles(Repeat2);
 const ProtectedIcon = withUnistyles(LockKeyhole);
 const muted = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
-const standingLeading = <StandingIcon size={14} uniProps={muted} />;
+const scheduleLeading = <ScheduleIcon size={14} uniProps={muted} />;
 const protectedLeading = <ProtectedIcon size={14} uniProps={muted} />;
 
 export function WorkspaceLifecycleMenuItems({
@@ -22,9 +24,12 @@ export function WorkspaceLifecycleMenuItems({
   serverId: string;
   workspaceId: string;
 }) {
-  const standing = useSessionStore(
-    (state) => selectWorkspace(state, serverId, workspaceId)?.standing === true,
-  );
+  const scheduleState = useWorkspaceScheduleState(serverId, workspaceId);
+  const scheduleLabel = scheduleState === "paused" ? "Paused" : "Scheduled";
+  const scheduleAction = scheduleState ? "Manage schedules…" : "Add schedule…";
+  const openSchedules = useCallback(() => {
+    router.push({ pathname: "/schedules", params: { serverId, workspaceId } });
+  }, [serverId, workspaceId]);
   const protectedWorkspace = useSessionStore(
     (state) => selectWorkspace(state, serverId, workspaceId)?.protected === true,
   );
@@ -33,46 +38,28 @@ export function WorkspaceLifecycleMenuItems({
   );
   const mutation = useMutation({
     mutationKey: ["workspace-lifecycle", serverId, workspaceId],
-    mutationFn: async (change: { standing?: boolean; protected?: boolean }) => {
+    mutationFn: async (change: { protected: boolean }) => {
       const client = getHostRuntimeStore().getClient(serverId);
       if (!client) throw new Error("Host disconnected. Reconnect and try again.");
-      // Retire old custom aliases before using the built-in control, so unprotecting
-      // cannot leave a second Protected badge behind.
-      const names =
-        selectWorkspace(useSessionStore.getState(), serverId, workspaceId)?.labels ?? [];
-      const aliases = names.filter((name) =>
-        ["standing", "protected"].includes(name.trim().toLowerCase()),
-      );
-      if (aliases.length) {
-        const catalog = await client.listWorkspaceLabels();
-        for (const name of aliases) {
-          const label = catalog.labels.find((entry) => entry.name === name);
-          if (label) await client.setWorkspaceLabel({ workspaceId, label, assigned: false });
-        }
-      }
       await client.setWorkspaceLifecycle({ workspaceId, ...change });
     },
   });
   const { mutate } = mutation;
-  const toggleStanding = useCallback(() => mutate({ standing: !standing }), [mutate, standing]);
   const toggleProtected = useCallback(
     () => mutate({ protected: !protectedWorkspace }),
     [mutate, protectedWorkspace],
   );
-  const changingStanding = mutation.isPending && mutation.variables?.standing !== undefined;
   const changingProtection = mutation.isPending && mutation.variables?.protected !== undefined;
   return (
     <>
+      <MenuHint>Standing</MenuHint>
+      {scheduleState ? <MenuHint>{scheduleLabel}</MenuHint> : null}
       <MenuItem
-        leading={standingLeading}
-        testID={`workspace-standing-${workspaceId}`}
-        selected={standing}
-        closeOnSelect={false}
-        disabled={!supported || mutation.isPending}
-        status={changingStanding ? "pending" : "idle"}
-        onSelect={toggleStanding}
+        leading={scheduleLeading}
+        testID={`workspace-schedules-${workspaceId}`}
+        onSelect={openSchedules}
       >
-        Standing
+        {scheduleAction}
       </MenuItem>
       <MenuItem
         leading={protectedLeading}
@@ -85,14 +72,13 @@ export function WorkspaceLifecycleMenuItems({
       >
         Protected
       </MenuItem>
+      <MenuHint>Protected workspaces cannot be archived.</MenuHint>
       {mutation.isError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {mutation.error.message}
         </Text>
       ) : null}
-      {!supported ? (
-        <MenuHint>Update this environment to use Standing and Protected.</MenuHint>
-      ) : null}
+      {!supported ? <MenuHint>Update this environment to use Protected.</MenuHint> : null}
       <MenuSeparator />
     </>
   );

@@ -760,3 +760,17 @@ describe("schedule form model", () => {
     });
   });
 });
+
+it("creates a schedule for an existing thread without requiring a new-agent project or model", () => {
+  const form = open({
+    mode: "create",
+    agentId: "agent-1",
+    defaults: { serverId: "host-a", projectTargets: [] },
+  });
+  expect(form.getState()).toMatchObject({ targetKind: "agent", canSubmit: false });
+  form.setCadence({ type: "cron", expression: "0 9 * * *", timezone: "UTC" });
+  expect(form.getState().canSubmit).toBe(false);
+  form.setPrompt("Review updates");
+  expect(form.getState()).toMatchObject({ canSubmit: true });
+  form.close();
+});

@@ -156,6 +156,7 @@ export function createSidebarWorkspaceEntry(input: {
   workspace: WorkspaceDescriptor;
   projectViewKey?: string;
   pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
+  mergePending?: boolean;
   workspaceAgentActivity?: ReadonlyMap<string, WorkspaceAgentActivity>;
 }): SidebarWorkspaceEntry {
   const projectViewKey = input.projectViewKey ?? input.workspace.projectId;
@@ -186,6 +187,7 @@ export function createSidebarWorkspaceEntry(input: {
     prHint: selectPrHintFromStatus(
       input.workspace.githubRuntime?.pullRequest,
       input.workspace.forge,
+      input.mergePending,
     ),
     archiveHasUncommittedChanges: input.workspace.gitRuntime?.isDirty ?? null,
     archiveUnpushedCommitCount: input.workspace.gitRuntime?.aheadOfOrigin ?? null,
@@ -576,6 +578,7 @@ export function buildSidebarWorkspaceEntries(input: {
   sessions: SidebarWorkspaceSession[];
   pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
   previousEntries?: ReadonlyMap<string, SidebarWorkspaceEntry>;
+  isPrMergePending?: (serverId: string, cwd: string) => boolean;
 }): Map<string, SidebarWorkspaceEntry> {
   if (input.placements.length === 0 || input.sessions.length === 0) {
     return new Map();
@@ -599,6 +602,7 @@ export function buildSidebarWorkspaceEntries(input: {
       serverId: placement.serverId,
       workspace,
       projectViewKey: placement.projectViewKey,
+      mergePending: input.isPrMergePending?.(placement.serverId, workspace.workspaceDirectory),
       pendingCreateAttempts: input.pendingCreateAttempts,
       workspaceAgentActivity: session.workspaceAgentActivity,
     });
@@ -651,6 +655,8 @@ function areSidebarWorkspaceEntriesEqual(
         leftHint.url === rightHint.url &&
         leftHint.number === rightHint.number &&
         leftHint.state === rightHint.state &&
+        leftHint.activity === rightHint.activity &&
+        leftHint.forge === rightHint.forge &&
         leftHint.checks === rightHint.checks &&
         leftHint.checksStatus === rightHint.checksStatus &&
         leftHint.reviewDecision === rightHint.reviewDecision)

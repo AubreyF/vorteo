@@ -41,6 +41,7 @@ export interface ScheduleFormHost {
 }
 
 export interface ScheduleFormSnapshot {
+  agentId?: string;
   mode: "create" | "edit";
   schedule?: ScheduleSummary & { serverId?: string; serverName?: string };
   hosts: readonly ScheduleFormHost[];
@@ -376,7 +377,10 @@ function makeProviderResolutionRecord(
 }
 
 function resolveTargetKind(snapshot: ScheduleFormSnapshot): ScheduleFormTargetKind {
-  if (snapshot.mode === "edit" && snapshot.schedule?.target.type === "agent") {
+  if (
+    snapshot.agentId ||
+    (snapshot.mode === "edit" && snapshot.schedule?.target.type === "agent")
+  ) {
     return "agent";
   }
   return "new-agent";
@@ -546,7 +550,8 @@ function resolveDisclosure(state: ScheduleFormState): ScheduleDisclosureState {
 
 function resolveCanSubmit(state: ScheduleFormState): boolean {
   if (state.targetKind === "agent") {
-    return state.submitCadence !== undefined;
+    const hasPrompt = state.mode === "edit" || state.prompt.trim().length > 0;
+    return !!state.selectedServerId && hasPrompt && state.submitCadence !== undefined;
   }
   if (state.prompt.trim().length === 0) {
     return false;

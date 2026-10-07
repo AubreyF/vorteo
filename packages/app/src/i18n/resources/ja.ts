@@ -1021,6 +1021,8 @@ export const ja: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "ドラフト",
           merged: "マージ済み",
           closed: "クローズ済み",

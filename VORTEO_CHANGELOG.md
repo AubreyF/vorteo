@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.177 - 2026-10-07
+
+### Changed
+
+- Extend the sidebar PR link with Awaiting merge for GitHub auto-merge or queue membership and Merging while a client-submitted merge is pending.
+- Align Standing headings with workspace dots, match workspace title size, show the count as a badge only while collapsed, and use a full-row highlight with a leading disclosure arrow.
+- Derive Standing membership from workspace schedules and archive protection, retaining paused schedules with a Paused badge.
+- Open workspace-scoped schedules from Tag As and sidebar badges, with explicit thread selection for new schedules.
+- Keep existing custom labels visible and distinguish reserved names; remove the empty custom-label heading.
+- Cover schedule state, thread schedule creation, protection and menu behavior with focused tests.
+
 ## 0.11.0-beta.3.vorteo.176 - 2026-10-07
 
 ### Fixed

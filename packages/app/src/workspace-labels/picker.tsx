@@ -148,18 +148,16 @@ function WorkspaceLabelPickerPage({
   return (
     <>
       <WorkspaceLifecycleMenuItems serverId={serverId} workspaceId={workspaceId} />
-      <MenuHint>Custom labels</MenuHint>
-      {snapshot.rows
-        .filter((row) => !isBuiltInWorkspaceLabel(row.name))
-        .map((row) => (
-          <WorkspaceLabelAssignRow
-            key={row.name.toLocaleLowerCase()}
-            row={row}
-            offline={offline}
-            pending={pending.has(row.name.toLocaleLowerCase())}
-            onToggle={toggle}
-          />
-        ))}
+      {snapshot.rows.length > 0 ? <MenuHint>Custom labels</MenuHint> : null}
+      {snapshot.rows.map((row) => (
+        <WorkspaceLabelAssignRow
+          key={row.name.toLocaleLowerCase()}
+          row={row}
+          offline={offline}
+          pending={pending.has(row.name.toLocaleLowerCase())}
+          onToggle={toggle}
+        />
+      ))}
       {snapshot.rows.length > 0 ? <MenuSeparator /> : null}
       {error ? <MenuHint testID="workspace-label-picker-error">{error}</MenuHint> : null}
       {host?.status === "unsupported" ? (

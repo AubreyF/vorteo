@@ -1034,6 +1034,8 @@ export const en = {
           },
         },
         states: {
+          awaitingMerge: "Awaiting merge",
+          merging: "Merging",
           draft: "Draft",
           merged: "Merged",
           closed: "Closed",

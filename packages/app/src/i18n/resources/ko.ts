@@ -1015,6 +1015,8 @@ export const ko: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "초안",
           merged: "병합됨",
           closed: "닫힘",

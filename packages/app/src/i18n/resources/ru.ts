@@ -1025,6 +1025,8 @@ export const ru: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Черновик",
           merged: "Объединён",
           closed: "Закрыт",

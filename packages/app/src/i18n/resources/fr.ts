@@ -1040,6 +1040,8 @@ export const fr: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Brouillon",
           merged: "Fusionné",
           closed: "Fermé",

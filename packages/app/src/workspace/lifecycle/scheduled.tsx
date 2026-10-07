@@ -8,9 +8,9 @@ import {
 } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { useRetainedPanelActive } from "@/components/retained-panel";
-import { scheduledWorkspaceKeys } from "./scheduled-workspaces";
+import { scheduledWorkspaceStates, type WorkspaceScheduleState } from "./scheduled-workspaces";
 
-const EMPTY_KEYS: ReadonlySet<string> = new Set();
+const EMPTY_KEYS: ReadonlyMap<string, WorkspaceScheduleState> = new Map();
 const ScheduledWorkspaces = createContext(EMPTY_KEYS);
 
 export function ScheduledWorkspaceProvider({ children }: PropsWithChildren) {
@@ -39,7 +39,7 @@ export function ScheduledWorkspaceProvider({ children }: PropsWithChildren) {
       },
     })),
   );
-  const keys = scheduledWorkspaceKeys(
+  const keys = scheduledWorkspaceStates(
     serverIds.map((serverId, index) => ({
       serverId,
       schedules: queries[index].data ?? [],
@@ -50,6 +50,10 @@ export function ScheduledWorkspaceProvider({ children }: PropsWithChildren) {
   return <ScheduledWorkspaces.Provider value={keys}>{children}</ScheduledWorkspaces.Provider>;
 }
 
-export function useWorkspaceScheduled(serverId: string, workspaceId: string): boolean {
-  return useContext(ScheduledWorkspaces).has(`${serverId}:${workspaceId}`);
+export function useWorkspaceScheduleStates() {
+  return useContext(ScheduledWorkspaces);
+}
+
+export function useWorkspaceScheduleState(serverId: string, workspaceId: string) {
+  return useWorkspaceScheduleStates().get(`${serverId}:${workspaceId}`);
 }

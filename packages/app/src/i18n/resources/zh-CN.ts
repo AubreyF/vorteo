@@ -1000,6 +1000,8 @@ export const zhCN: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Draft",
           merged: "已 merge",
           closed: "已关闭",
