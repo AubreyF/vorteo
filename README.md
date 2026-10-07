@@ -17,6 +17,8 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 ## Power Tools to Manage Your Fleet
 
+- **Automated upgrade restarts that wait for idle.** Once an upgrade is prepared, approve a queued restart for the Host or Dev container daemon. Vorteo waits for active agents and workers to finish, then restarts automatically, even with your browser closed. You can cancel before dispatch; clients reconnect after the restart.
+
 - **Put local workers to work.** Let a supervisor delegate tasks to a saved worker profile, including Pi models on local or private endpoints. Set a concurrency limit and follow each worker beneath its originating task, even when it uses a separate worktree.
 
 - **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene.
