@@ -59,7 +59,7 @@ function toSubagentRow(agent: Agent, profiles: readonly AgentProfile[]): Subagen
   const profileCode = agent.profile
     ? presetNickname({ name: agent.profile.name, nickname: definition?.nickname })
     : "No profile";
-  const model = agent.runtimeInfo?.model ?? agent.model ?? "Model unavailable";
+  const model = agent.runtimeInfo?.model ?? agent.model ?? "Model not reported";
   const effort = agent.runtimeInfo?.thinkingOptionId ?? agent.thinkingOptionId;
   const subtitle = [profileCode, model, effort].filter(Boolean).join(" · ");
   return {
@@ -132,7 +132,7 @@ export function selectProviderSubagentsForParent(
       provider: subagent.provider,
       title: subagent.title,
       description: subagent.description,
-      subtitle: subagent.subtitle ?? "Native · Model unavailable",
+      subtitle: subagent.subtitle ?? "Model not reported",
       status: subagent.status,
       requiresAttention: subagent.status === "failed",
       createdAt: new Date(subagent.createdAt),

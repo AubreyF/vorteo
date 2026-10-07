@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { mkdtemp, writeFile, rm, mkdir, symlink, realpath, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { InstallationSourceUpdates } from "./source-updates.js";
@@ -119,14 +120,16 @@ test("each target has one active request across all requesters", async () => {
     { target: "container-daemon", reason: "Prepared" },
     "container-agent",
   );
-  expect(() => queue.request({ target: "host", reason: "Duplicate" }, "owner")).toThrow("already");
-  expect(() =>
-    queue.request({ target: "container-daemon", reason: "Duplicate" }, "host-agent"),
-  ).toThrow("already");
-  queue.decide(host.id, host.revision, "approve");
-  expect(() =>
-    queue.request({ target: "host", reason: "Duplicate approved" }, "container-agent"),
-  ).toThrow("already");
+  expect(queue.request({ target: "host", reason: "Another prepared update" }, "owner")).toEqual(
+    host,
+  );
+  expect(
+    queue.request({ target: "container-daemon", reason: "Another update" }, "host-agent"),
+  ).toEqual(container);
+  const approved = queue.decide(host.id, host.revision, "approve");
+  expect(
+    queue.request({ target: "host", reason: "Latest prepared update" }, "container-agent"),
+  ).toEqual(approved);
   await queue.drain();
   expect(queue.request({ target: "host", reason: "Next maintenance" }, "owner").status).toBe(
     "pending",
@@ -573,7 +576,7 @@ test("queued restart upgrades, cancellation releases its hold, and request again
   expect(retry.id).not.toBe(job.id);
   expect(retry).toMatchObject({ status: "pending", reason: job.reason });
   expect(retry.finishCurrentTurns).toBeUndefined();
-  expect(() => queue.decide(job.id, upgraded.revision, "request-again")).toThrow("already active");
+  expect(queue.decide(job.id, upgraded.revision, "request-again")).toEqual(retry);
 });
 
 test("cancel during hold setup cannot dispatch, and release failures remain retryable", async () => {
@@ -629,4 +632,626 @@ test("a graceful restart can only be forced by another explicit decision", async
   queue.decide(job.id, approved.revision, "approve");
   await queue.drain();
   expect(forced).toBe(1);
+});
+
+test.each(["approve-when-idle", "finish-current-turns"] as const)(
+  "later prepared updates share %s approval and activate the latest staged release once",
+  async (decision) => {
+    const journal = new MemoryJournal();
+    let release = "first";
+    let busy = true;
+    const activated: string[] = [];
+    const executor = {
+      restart: async () => "ready",
+      inspect: async (target: RestartJob["target"]) => idleImpact(target, busy),
+      restartWhenIdle: async () => {
+        activated.push(release);
+        return "ready";
+      },
+      holdCurrentTurns: async () => {},
+      releaseCurrentTurns: async () => {},
+    };
+    const queue = new InstallationRestarts(journal, executor);
+    const initial = queue.request({ target: "host", reason: "First update" }, "host-agent");
+    const approved = queue.decide(initial.id, initial.revision, decision);
+    await queue.drain();
+    release = "combined updates";
+    const joined = queue.request(
+      { target: "host", reason: "Complementary update" },
+      "container-agent",
+    );
+    expect(joined).toMatchObject({
+      id: initial.id,
+      revision: approved.revision,
+      status: "approved",
+      approvedAt: approved.approvedAt,
+      whenIdle: true,
+    });
+    expect(joined.finishCurrentTurns).toBe(approved.finishCurrentTurns);
+    expect(queue.list()).toHaveLength(1);
+    busy = false;
+    const recovered = new InstallationRestarts(journal, executor);
+    await recovered.drain();
+    await recovered.drain();
+    expect(activated).toEqual(["combined updates"]);
+    expect(recovered.list()[0]?.status).toBe("succeeded");
+  },
+);
+
+test("new requests cannot join a restart after dispatch starts", async () => {
+  let complete!: (detail: string) => void;
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: () =>
+      new Promise<string>((resolve) => {
+        complete = resolve;
+      }),
+  });
+  const initial = queue.request({ target: "host", reason: "First update" }, "host-agent");
+  queue.decide(initial.id, initial.revision, "approve");
+  const draining = queue.drain();
+  expect(() => queue.request({ target: "host", reason: "Too late" }, "container-agent")).toThrow(
+    "already restarting",
+  );
+  complete("ready");
+  await draining;
+  expect(queue.request({ target: "host", reason: "Next update" }, "container-agent").status).toBe(
+    "pending",
+  );
+});
+
+test("source batches invalidate stale approvals, freeze at approval, and preserve contribution receipts", async () => {
+  const journal = new MemoryJournal();
+  let base = "b".repeat(40);
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: base,
+    sha256: "a".repeat(64),
+    bytes: 100,
+  };
+  const install = vi.fn(async (job: RestartJob) => {
+    base = job.update!.sourceCommit;
+    return "installed";
+  });
+  const executor = {
+    restart: vi.fn(async () => "plain"),
+    installUpdate: install,
+    sourceBase: () => base,
+    prepareUpdate: async (
+      contributions: import("@getpaseo/protocol/execution-installation").SourceContribution[],
+    ) => ({
+      batch: {
+        status: "ready" as const,
+        contributions: contributions.map((item) => ({ ...item, status: "included" as const })),
+      },
+      update: { ...update, baseCommit: base, sha256: String(contributions.length).repeat(64) },
+    }),
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const input = { target: "host" as const, reason: "First" };
+  const firstId = crypto.randomUUID();
+  const first = queue.contribute(input, "container-agent", update, firstId);
+  await queue.prepareBatches();
+  const ready = queue.contribution(firstId)!.batch;
+  expect(ready.sourceBatch?.status).toBe("ready");
+  expect(() => queue.request(input, "owner")).toThrow("source update");
+  const secondId = crypto.randomUUID();
+  const second = queue.contribute({ ...input, reason: "Second" }, "host-agent", update, secondId);
+  expect(second.batch.id).toBe(first.batch.id);
+  expect(() => queue.decide(ready.id, ready.revision, "approve", ready.update!.sha256)).toThrow(
+    "changed",
+  );
+  expect(() => queue.decide(second.batch.id, second.batch.revision, "approve-when-idle")).toThrow(
+    "exact source",
+  );
+  expect(queue.contribute(input, "container-agent", update, firstId).contribution).toMatchObject({
+    id: firstId,
+    update,
+    reason: input.reason,
+  });
+  expect(() =>
+    queue.contribute({ ...input, reason: "Changed" }, "container-agent", update, firstId),
+  ).toThrow("different submission");
+  await queue.prepareBatches();
+  const combined = queue.contribution(firstId)!.batch;
+  expect(() => queue.decide(combined.id, combined.revision, "approve", update.sha256)).toThrow(
+    "exact source",
+  );
+  queue.decide(combined.id, combined.revision, "approve", combined.update!.sha256);
+  const next = queue.contribute(input, "container-agent", update, crypto.randomUUID());
+  expect(next.batch.id).not.toBe(combined.id);
+  await queue.prepareBatches();
+  expect(queue.contribution(next.contribution.id)!.batch.sourceBatch?.status).toBe("waiting");
+  await queue.drain();
+  expect(install).toHaveBeenCalledOnce();
+  expect(install.mock.calls[0]![0].update).toEqual(combined.update);
+  expect(executor.restart).not.toHaveBeenCalled();
+  await queue.prepareBatches();
+  const nextReady = queue.contribution(next.contribution.id)!.batch;
+  expect(nextReady.update?.baseCommit).toBe(base);
+  expect(nextReady.status).toBe("pending");
+  expect(queue.contribution(firstId)!.contribution.update).toEqual(update);
+  const recovered = new InstallationRestarts(journal, executor);
+  await recovered.drain();
+  expect(install).toHaveBeenCalledOnce();
+});
+
+test("interrupted or racing batch preparation cannot publish stale source; conflicts require explicit replacement", async () => {
+  const journal = new MemoryJournal();
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "a".repeat(64),
+    bytes: 10,
+  };
+  let complete!: () => void;
+  const executor = {
+    restart: async () => "ready",
+    installUpdate: async () => "installed",
+    sourceBase: () => update.baseCommit,
+    prepareUpdate: async (
+      contributions: import("@getpaseo/protocol/execution-installation").SourceContribution[],
+    ) => {
+      await new Promise<void>((resolve) => {
+        complete = resolve;
+      });
+      return {
+        batch: {
+          status: "conflict" as const,
+          contributions: contributions.map((item) => ({
+            ...item,
+            status: "conflict" as const,
+            detail: "same.txt",
+          })),
+        },
+      };
+    },
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const input = { target: "host" as const, reason: "Contribution" };
+  const first = queue.contribute(input, "container-agent", update, crypto.randomUUID());
+  const preparing = queue.prepareBatches();
+  const second = queue.contribute(input, "host-agent", update, crypto.randomUUID());
+  complete();
+  await preparing;
+  expect(queue.contribution(first.contribution.id)!.batch.sourceBatch?.contributions).toHaveLength(
+    2,
+  );
+  expect(queue.contribution(first.contribution.id)!.batch.sourceBatch?.status).toBe("preparing");
+  const recovered = new InstallationRestarts(journal, executor);
+  const retry = recovered.prepareBatches();
+  complete();
+  await retry;
+  expect(recovered.contribution(first.contribution.id)!.batch.sourceBatch?.status).toBe("conflict");
+  expect(() =>
+    recovered.contribute(input, "host-agent", update, crypto.randomUUID(), first.contribution.id),
+  ).toThrow("Only your");
+  const replacement = recovered.contribute(
+    input,
+    "container-agent",
+    update,
+    crypto.randomUUID(),
+    first.contribution.id,
+  );
+  expect(recovered.contribution(first.contribution.id)!.contribution).toMatchObject({
+    status: "superseded",
+    supersededBy: replacement.contribution.id,
+    update,
+  });
+  expect(recovered.contribution(second.contribution.id)).not.toBeNull();
+  recovered.decide(replacement.batch.id, replacement.batch.revision, "reject");
+  expect(recovered.contribution(first.contribution.id)!.batch.status).toBe("rejected");
+});
+
+test("inert Git batching combines old-base deltas, retains conflicts, and ignores executable Git configuration", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { existsSync } = await import("node:fs");
+  const { prepareSourceBatch } = await import("./source-batches.js");
+  const root = await mkdtemp(path.join(tmpdir(), "source-batch-test-"));
+  const repository = path.join(root, "repo");
+  const directory = path.join(root, "bundles");
+  await mkdir(repository);
+  await mkdir(directory);
+  const git = (...args: string[]) =>
+    execFileSync("git", args, {
+      cwd: repository,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@localhost",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@localhost",
+      },
+    }).trim();
+  const sentinel = path.join(root, "executed");
+  const savedCount = process.env.GIT_CONFIG_COUNT;
+  const savedKey = process.env.GIT_CONFIG_KEY_0;
+  const savedValue = process.env.GIT_CONFIG_VALUE_0;
+  try {
+    git("init", "--initial-branch=integration");
+    await writeFile(path.join(repository, "same.txt"), "base\n");
+    git("add", ".");
+    git("commit", "-m", "base");
+    const base = git("rev-parse", "HEAD");
+    async function contribution(files: Record<string, string>) {
+      git("checkout", "-B", "integration", base);
+      for (const [name, text] of Object.entries(files))
+        await writeFile(path.join(repository, name), text);
+      git("add", ".");
+      git("commit", "-m", "contribution");
+      const sourceCommit = git("rev-parse", "HEAD");
+      const file = path.join(root, `${sourceCommit}.bundle`);
+      git("bundle", "create", file, `${base}..refs/heads/integration`);
+      const bundle = await readFile(file);
+      const update = {
+        sourceCommit,
+        baseCommit: base,
+        sha256: createHash("sha256").update(bundle).digest("hex"),
+        bytes: bundle.length,
+      };
+      await writeFile(path.join(directory, `${update.sha256}.bundle`), bundle);
+      return {
+        id: crypto.randomUUID(),
+        update,
+        reason: "Change",
+        requestedBy: "container-agent" as const,
+        createdAt: new Date().toISOString(),
+        status: "queued" as const,
+        detail: "",
+      };
+    }
+    const first = await contribution({ "first.txt": "first\n", "same.txt": "one\n" });
+    const second = await contribution({
+      "second.txt": "second\n",
+      ".gitattributes": "same.txt merge=hostile\n",
+    });
+    const conflict = await contribution({ "same.txt": "two\n" });
+    const firstBundle = await readFile(path.join(directory, `${first.update.sha256}.bundle`));
+    // This inherited command would run if preparation reused the caller's Git config.
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "merge.hostile.driver";
+    process.env.GIT_CONFIG_VALUE_0 = `touch ${sentinel}`;
+    let combinedBundle: Buffer | undefined;
+    const input = {
+      directory,
+      repository,
+      integrationRef: "refs/heads/integration",
+      baseCommit: base,
+      webCommit: base,
+      contributions: [first, second],
+      stage: (_update: unknown, bundle: Buffer) => {
+        combinedBundle = bundle;
+      },
+    };
+    const result = await prepareSourceBatch(input);
+    expect(result.batch.status).toBe("ready");
+    expect(result.batch.contributions.map((item) => item.status)).toEqual(["included", "included"]);
+    expect(combinedBundle).toBeDefined();
+    // Import the inert output into the test repository to inspect tree and ancestry.
+    delete process.env.GIT_CONFIG_COUNT;
+    delete process.env.GIT_CONFIG_KEY_0;
+    delete process.env.GIT_CONFIG_VALUE_0;
+    const combinedFile = path.join(root, "combined.bundle");
+    await writeFile(combinedFile, combinedBundle!);
+    git("fetch", combinedFile, "refs/heads/integration:refs/heads/combined");
+    const combined = result.update!.sourceCommit;
+    expect(git("show", `${combined}:first.txt`)).toBe("first");
+    expect(git("show", `${combined}:second.txt`)).toBe("second");
+    expect(git("show", `${combined}:same.txt`)).toBe("one");
+    git("merge-base", "--is-ancestor", first.update.sourceCommit, combined);
+    git("merge-base", "--is-ancestor", second.update.sourceCommit, combined);
+    expect(git("log", "--format=%B", combined)).toContain(first.id);
+    const late = await contribution({ "late.txt": "late\n" });
+    const next = await prepareSourceBatch({
+      ...input,
+      baseCommit: combined,
+      webCommit: combined,
+      contributions: [late],
+    });
+    expect(next.batch.status).toBe("ready");
+    await writeFile(combinedFile, combinedBundle!);
+    git("fetch", combinedFile, "refs/heads/integration:refs/heads/next");
+    expect(git("show", `${next.update!.sourceCommit}:first.txt`)).toBe("first");
+    expect(git("show", `${next.update!.sourceCommit}:late.txt`)).toBe("late");
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "merge.hostile.driver";
+    process.env.GIT_CONFIG_VALUE_0 = `touch ${sentinel}`;
+    const blocked = await prepareSourceBatch({
+      ...input,
+      contributions: [first, second, conflict],
+    });
+    expect(blocked.batch.status).toBe("conflict");
+    expect(blocked.update).toBeUndefined();
+    expect(blocked.batch.contributions[2]).toMatchObject({ status: "conflict" });
+    expect(blocked.batch.contributions[2]!.detail).toContain("same.txt");
+    expect(existsSync(sentinel)).toBe(false);
+    expect(await readFile(path.join(directory, `${first.update.sha256}.bundle`))).toEqual(
+      firstBundle,
+    );
+    const corrupted = await prepareSourceBatch({
+      ...input,
+      contributions: [{ ...first, update: { ...first.update, bytes: 1 } }],
+    });
+    expect(corrupted.batch.contributions[0]?.status).toBe("invalid");
+  } finally {
+    for (const [key, value] of Object.entries({
+      GIT_CONFIG_COUNT: savedCount,
+      GIT_CONFIG_KEY_0: savedKey,
+      GIT_CONFIG_VALUE_0: savedValue,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test("repo-shaped batching reconciles generated versions and every note while preserving deployed web source", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { prepareSourceBatch } = await import("./source-batches.js");
+  const root = await mkdtemp(path.join(tmpdir(), "release-batch-test-"));
+  const repository = path.join(root, "repo");
+  const directory = path.join(root, "bundles");
+  await mkdir(repository);
+  await mkdir(directory);
+  const git = (...args: string[]) =>
+    execFileSync("git", args, {
+      cwd: repository,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@localhost",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@localhost",
+      },
+    }).trim();
+  const baseNotes =
+    "# Vorteo changelog\n\n## 0.11.0-beta.3.vorteo.177 - 2026-10-07\n\n### Fixed\n\n- Existing note\n";
+  // Use the repository's real workspace manifests and full lock, including its size.
+  const sourceRoot = path.resolve(import.meta.dirname, "../../../../..");
+  const templateRoot = JSON.parse(await readFile(path.join(sourceRoot, "package.json"), "utf8"));
+  const templateLock = JSON.parse(
+    await readFile(path.join(sourceRoot, "package-lock.json"), "utf8"),
+  );
+  const templatePackages = new Map<string, Record<string, unknown>>();
+  for (const file of [
+    "package.json",
+    ...templateRoot.workspaces.map((dir: string) => `${dir}/package.json`),
+  ]) {
+    templatePackages.set(file, JSON.parse(await readFile(path.join(sourceRoot, file), "utf8")));
+    await mkdir(path.dirname(path.join(repository, file)), { recursive: true });
+  }
+  async function metadata(counter: number, note: string, dependency = "1.0.0") {
+    const version = `0.11.0-beta.3.vorteo.${counter}`;
+    const packages = structuredClone(templatePackages);
+    const lock = structuredClone(templateLock);
+    const names = new Set([...packages.values()].map((pkg) => pkg.name));
+    for (const [file, pkg] of packages) {
+      const key = file === "package.json" ? "" : file.slice(0, -"/package.json".length);
+      pkg.version = version;
+      lock.packages[key].version = version;
+      for (const section of [
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+      ]) {
+        const pins = z.record(z.string(), z.string()).parse(pkg[section] ?? {});
+        for (const name of Object.keys(pins))
+          if (names.has(name) && name !== pkg.name) pins[name] = pkg.private ? "*" : version;
+        if (file === "packages/client/package.json" && section === "dependencies")
+          pins.external = dependency;
+        if (pkg[section]) {
+          pkg[section] = pins;
+          lock.packages[key][section] = pins;
+        }
+      }
+      await writeFile(path.join(repository, file), JSON.stringify(pkg, null, 2) + "\n");
+    }
+    lock.version = version;
+    lock.packages["node_modules/external"] = {
+      version: dependency,
+      resolved: `https://example.invalid/${dependency}`,
+      integrity: "test",
+    };
+    await writeFile(
+      path.join(repository, "package-lock.json"),
+      JSON.stringify(lock, null, 2) + "\n",
+    );
+    await writeFile(
+      path.join(repository, "VORTEO_CHANGELOG.md"),
+      note
+        ? baseNotes.replace("## ", `## ${version} - 2026-10-07\n\n### Fixed\n\n- ${note}\n\n## `)
+        : baseNotes,
+    );
+  }
+  try {
+    git("init", "--initial-branch=integration");
+    await metadata(177, "");
+    await writeFile(path.join(repository, "feature.txt"), "base\n");
+    await mkdir(path.join(repository, "docs"));
+    await writeFile(path.join(repository, "docs/vorteo-customizations.md"), "Inventory baseline\n");
+    git("add", ".");
+    git("commit", "-m", "deployed runtime");
+    const base = git("rev-parse", "HEAD");
+    await metadata(178, "Published web-only improvement");
+    await writeFile(path.join(repository, "web.txt"), "published\n");
+    git("add", ".");
+    git("commit", "-m", "deployed web");
+    const web = git("rev-parse", "HEAD");
+    async function contribution(
+      name: string,
+      version: number,
+      dependency = "1.0.0",
+      feature?: string,
+    ) {
+      git("checkout", "-B", "integration", base);
+      await metadata(version, name, dependency);
+      await writeFile(path.join(repository, `${name}.txt`), name);
+      if (feature) {
+        await writeFile(path.join(repository, "feature.txt"), feature);
+        await writeFile(path.join(repository, "docs/vorteo-customizations.md"), feature);
+      }
+      git("add", ".");
+      git("commit", "-m", name);
+      const sourceCommit = git("rev-parse", "HEAD");
+      const file = path.join(root, `${sourceCommit}.bundle`);
+      git("bundle", "create", file, `${base}..refs/heads/integration`);
+      const bundle = await readFile(file);
+      const sha256 = createHash("sha256").update(bundle).digest("hex");
+      await writeFile(path.join(directory, `${sha256}.bundle`), bundle);
+      return {
+        id: crypto.randomUUID(),
+        update: { sourceCommit, baseCommit: base, sha256, bytes: bundle.length },
+        reason: name,
+        requestedBy: "container-agent" as const,
+        createdAt: "2026-10-07T00:00:00.000Z",
+        status: "queued" as const,
+        detail: "",
+      };
+    }
+    const first = await contribution("First feature note", 179);
+    const second = await contribution("Second feature note", 178);
+    let output: Buffer | undefined;
+    const input = {
+      directory,
+      repository,
+      integrationRef: "refs/heads/integration",
+      baseCommit: base,
+      webCommit: web,
+      contributions: [first, second],
+      stage: (_update: unknown, bundle: Buffer) => {
+        output = bundle;
+      },
+    };
+    input.contributions.push({ ...first, id: crypto.randomUUID() });
+    const result = await prepareSourceBatch(input);
+    expect(result.batch.status, JSON.stringify(result.batch)).toBe("ready");
+    expect(result.batch.webCommit).toBe(web);
+    expect(result.batch.contributions[2]?.detail).toMatch(/^Already included/);
+    const file = path.join(root, "result.bundle");
+    await writeFile(file, output!);
+    git("fetch", file, "refs/heads/integration:refs/heads/combined");
+    const head = result.update!.sourceCommit;
+    const manifest = JSON.parse(git("show", `${head}:package.json`));
+    const library = JSON.parse(git("show", `${head}:packages/client/package.json`));
+    const lock = JSON.parse(git("show", `${head}:package-lock.json`));
+    expect(manifest.version).toBe("0.11.0-beta.3.vorteo.180");
+    expect(library.version).toBe(manifest.version);
+    expect(library.dependencies["@getpaseo/protocol"]).toBe(manifest.version);
+    expect(lock.packages["packages/client"].dependencies["@getpaseo/protocol"]).toBe(
+      manifest.version,
+    );
+    expect(lock.version).toBe(manifest.version);
+    expect(lock.packages["packages/client"].version).toBe(manifest.version);
+    expect(lock.packages[""].dependencies).toEqual(manifest.dependencies);
+    expect(git("show", `${head}:web.txt`)).toBe("published");
+    git("merge-base", "--is-ancestor", web, head);
+    const notes = git("show", `${head}:VORTEO_CHANGELOG.md`);
+    for (const note of [
+      "Existing note",
+      "Published web-only improvement",
+      "First feature note",
+      "Second feature note",
+    ])
+      expect(notes).toContain(note);
+    expect(notes.split(/^## /m)[1]).toMatch(/^0\.11\.0-beta\.3\.vorteo\.180 -/);
+    expect(git("log", "-1", "--format=%B", head)).toContain(first.id);
+    expect(git("log", "-1", "--format=%B", head)).toContain(second.id);
+    const dependentOne = await contribution("Dependency one", 178, "2.0.0");
+    const dependentTwo = await contribution("Dependency two", 179, "3.0.0");
+    const blocked = await prepareSourceBatch({
+      ...input,
+      contributions: [dependentOne, dependentTwo],
+    });
+    expect(blocked.batch.status).toBe("conflict");
+    expect(blocked.update).toBeUndefined();
+    expect(blocked.batch.contributions[1]?.detail).toContain("package");
+    const featureOne = await contribution("Same feature one", 178, "1.0.0", "one\n");
+    const featureTwo = await contribution("Same feature two", 179, "1.0.0", "two\n");
+    const featureConflict = await prepareSourceBatch({
+      ...input,
+      contributions: [featureOne, featureTwo],
+    });
+    expect(featureConflict.batch.status).toBe("conflict");
+    expect(featureConflict.batch.contributions[1]?.detail).toContain("feature.txt");
+    expect(featureConflict.batch.contributions[1]?.detail).toContain("vorteo-customizations.md");
+    const overLimit = await prepareSourceBatch({
+      ...input,
+      contributions: [first, second].map((item) =>
+        Object.assign({}, item, {
+          update: Object.assign({}, item.update, { bytes: 70 * 1024 * 1024 }),
+        }),
+      ),
+    });
+    expect(overLimit.batch.status).toBe("conflict");
+    expect(overLimit.batch.contributions[0]?.detail).toContain("128 MiB");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("preparation cannot inherit approval or overwrite cancellation, and a newer web publication invalidates approval", async () => {
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 1,
+  };
+  let web = "b".repeat(40);
+  let release!: () => void;
+  const install = vi.fn(async () => "installed");
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async () => "plain",
+    installUpdate: install,
+    sourceBase: () => update.baseCommit,
+    sourceWeb: () => web,
+    prepareUpdate: async (contributions) => {
+      const preparedWeb = web;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { batch: { status: "ready", webCommit: preparedWeb, contributions }, update };
+    },
+  });
+  const receipt = queue.contribute(
+    { target: "host", reason: "Work" },
+    "host-agent",
+    update,
+    crypto.randomUUID(),
+  );
+  const preparing = queue.prepareBatches();
+  const inFlight = queue.contribution(receipt.contribution.id)!.batch;
+  expect(() => queue.decide(inFlight.id, inFlight.revision, "approve", update.sha256)).toThrow(
+    "exact source",
+  );
+  queue.decide(inFlight.id, inFlight.revision, "reject");
+  release();
+  await preparing;
+  expect(queue.contribution(receipt.contribution.id)!.batch.status).toBe("rejected");
+  const next = queue.contribute(
+    { target: "host", reason: "Retry" },
+    "host-agent",
+    update,
+    crypto.randomUUID(),
+  );
+  const retry = queue.prepareBatches();
+  release();
+  await retry;
+  const ready = queue.contribution(next.contribution.id)!.batch;
+  web = "d".repeat(40);
+  expect(() => queue.decide(ready.id, ready.revision, "approve", update.sha256)).toThrow(
+    "Combined source changed",
+  );
+  const refresh = queue.prepareBatches();
+  release();
+  await refresh;
+  const refreshed = queue.contribution(next.contribution.id)!.batch;
+  expect(refreshed.sourceBatch?.webCommit).toBe(web);
+  expect(refreshed.revision).not.toBe(ready.revision);
+  expect(refreshed.status).toBe("pending");
+  expect(install).not.toHaveBeenCalled();
 });

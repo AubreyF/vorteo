@@ -1,5 +1,4 @@
 import { splitStandingWorkspaces } from "@/workspace/lifecycle/grouping";
-import { ScheduledWorkspaceProvider } from "@/workspace/lifecycle/scheduled";
 import {
   ProjectMoveProvider,
   ProjectDropTarget,
@@ -1876,7 +1875,8 @@ function ProjectBlock({
           {groups.standing.length > 0 ? (
             <>
               <PinnedSectionHeader
-                title={`Standing · ${groups.standing.length}`}
+                title="Standing"
+                count={groups.standing.length}
                 indented
                 testID={`sidebar-standing-section-${project.viewKey}`}
                 collapsed={standingCollapsed}
@@ -2145,7 +2145,7 @@ export function SidebarWorkspaceList({
       />
     );
 
-  return <ScheduledWorkspaceProvider>{content}</ScheduledWorkspaceProvider>;
+  return content;
 }
 
 /**

@@ -1,3 +1,7 @@
+import type { Page } from "@playwright/test";
+import { z } from "zod";
+import { loadProtocolSchemas } from "../support/helpers/daemon-client-loader";
+import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { seedAgentProfiles } from "../support/helpers/agent-profiles";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { test, expect } from "../support/fixtures";
@@ -84,6 +88,62 @@ test.describe("Archive finished subagents", () => {
     }
   });
 
+  test("distinguishes provider children and explains dismissal on desktop and compact layouts", async ({
+    page,
+  }, info) => {
+    const agents = await seedParentWithSubagent(workspace, {
+      parentTitle: "Mixed delegation supervisor",
+      childTitle: "Managed review worker",
+    });
+    await provideCompletedChild(page, agents.parent.id);
+    await openAgentRoute(page, { workspaceId: agents.workspaceId, agentId: agents.parent.id });
+    await openSubagentsTrack(page);
+    const workers = page.getByTestId("subagents-group-paseo");
+    const providers = page.getByTestId("subagents-group-provider");
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(workers).toContainText("Vorteo workers (1)");
+      await expect(workers).toContainText("Managed review worker");
+      await expect(providers).toContainText("Provider subagents (1)");
+      await expect(providers).toContainText("Completed");
+      await expect(providers).toContainText("Model not reported");
+      await expect(
+        providers.getByRole("button", { name: "Dismiss Provider review child", exact: true }),
+      ).toBeVisible();
+      const explanation = page.getByTestId("subagents-group-provider-info");
+      if (width === 1280) await explanation.hover();
+      else await explanation.click();
+      await expect(page.getByText(/Created inside the coding provider’s session/)).toBeVisible();
+      await expect(
+        page.getByText(/Dismiss hides finished children until this app reloads/),
+      ).toBeVisible();
+      await expect(page.getByRole("tooltip").filter({ hasText: "Created inside" })).toHaveCSS(
+        "opacity",
+        "1",
+      );
+      const explanationScreenshot = info.outputPath(`subagent-explanation-${width}.png`);
+      await page.screenshot({ path: explanationScreenshot });
+      await info.attach(`subagent explanation ${width}`, {
+        path: explanationScreenshot,
+        contentType: "image/png",
+      });
+      await page.mouse.click(1, 1);
+      await expect(page.getByText(/Created inside the coding provider’s session/)).toBeHidden();
+      const screenshot = info.outputPath(`subagent-ownership-${width}.png`);
+      await page.screenshot({ path: screenshot });
+      await info.attach(`subagent ownership ${width}`, {
+        path: screenshot,
+        contentType: "image/png",
+      });
+    }
+    await providers
+      .getByRole("button", { name: "Dismiss Provider review child", exact: true })
+      .click();
+    await expect(providers).toHaveCount(0);
+    await expectManagedSubagentUnarchived(workspace, agents.child.id);
+    await expect(workers).toBeVisible();
+  });
+
   test("archives a finished managed child from the track", async ({ page }) => {
     const agents = await seedParentWithSubagent(workspace, {
       parentTitle: "Archive parent",
@@ -135,3 +195,39 @@ test.describe("Archive finished subagents", () => {
     await expectManagedSubagentArchived(workspace, agents.child.id);
   });
 });
+
+async function provideCompletedChild(page: Page, parentAgentId: string): Promise<void> {
+  // A deterministic provider descriptor exercises presentation and dismissal,
+  // without making a paid provider call or testing provider discovery here.
+  const { ProviderSubagentListResponseMessageSchema } = await loadProtocolSchemas();
+  const envelopeSchema = z.object({
+    type: z.literal("session"),
+    message: ProviderSubagentListResponseMessageSchema,
+  });
+  await page.routeWebSocket(daemonWsRoutePattern(), (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((message) => {
+      const envelope = envelopeSchema.safeParse(JSON.parse(String(message)));
+      if (envelope.success && envelope.data.message.payload.parentAgentId === parentAgentId) {
+        const response = envelope.data;
+        response.message.payload.error = null;
+        response.message.payload.subagents = [
+          {
+            id: "provider-review",
+            parentAgentId: parentAgentId,
+            provider: "codex",
+            title: "Provider review child",
+            description: null,
+            status: "completed",
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(1).toISOString(),
+            toolCallId: null,
+          },
+        ];
+        ws.send(JSON.stringify(response));
+        return;
+      }
+      ws.send(message);
+    });
+  });
+}

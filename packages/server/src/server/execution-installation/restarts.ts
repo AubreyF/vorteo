@@ -4,6 +4,9 @@ import type {
   RestartDecision,
   RestartJob,
   RestartRequest,
+  SourceContribution,
+  SourceBatch,
+  SourceUpdate,
 } from "@getpaseo/protocol/execution-installation";
 
 export interface RestartJournal {
@@ -12,6 +15,11 @@ export interface RestartJournal {
 }
 
 export interface RestartExecutor {
+  sourceBase?(): string;
+  sourceWeb?(): string;
+  prepareUpdate?(
+    contributions: SourceContribution[],
+  ): Promise<{ batch: SourceBatch; update?: SourceUpdate }>;
   installUpdate?(job: RestartJob): Promise<string>;
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
@@ -23,8 +31,8 @@ export interface RestartExecutor {
 export class RestartRequestError extends Error {}
 
 function validateSourceDecision(job: RestartJob, decision: RestartDecision, updateSha256?: string) {
-  if (job.update && decision !== "reject") {
-    if (decision !== "approve" || updateSha256 !== job.update.sha256)
+  if ((job.update || job.sourceBatch) && decision !== "reject") {
+    if (decision !== "approve" || !job.update || updateSha256 !== job.update.sha256)
       throw new RestartRequestError(
         "Review and approve this exact source update. Idle updates are not supported.",
       );
@@ -36,6 +44,7 @@ export class InstallationRestarts {
   private jobs: RestartJob[];
   private running = false;
   private refreshingImpacts = false;
+  private preparing = false;
   private readonly impactCache = new Map<RestartJob["target"], RestartImpact>();
 
   constructor(
@@ -60,7 +69,9 @@ export class InstallationRestarts {
 
   list(): RestartJob[] {
     this.reconcilePending();
-    return this.jobs.map((job) => ({ ...job, impact: this.impactCache.get(job.target) }));
+    return structuredClone(
+      this.jobs.map((job) => ({ ...job, impact: this.impactCache.get(job.target) })),
+    );
   }
 
   request(
@@ -76,8 +87,14 @@ export class InstallationRestarts {
       if (job.status === "approved" || job.status === "running") return true;
       return job.status === "pending";
     });
-    if (active)
-      throw new RestartRequestError("A restart request for this target is already active");
+    if (active?.status === "running")
+      throw new RestartRequestError(
+        "This target is already restarting. Wait for its result before requesting another restart.",
+      );
+    if (active && (update || active.update || active.sourceBatch))
+      throw new RestartRequestError("A source update cannot share a plain restart approval");
+    // Only plain restart requests share a target approval. Source approvals stay exact.
+    if (active) return { ...active };
     const job: RestartJob = {
       ...input,
       ...(update ? { update } : {}),
@@ -96,6 +113,147 @@ export class InstallationRestarts {
     return { ...job };
   }
 
+  /** Receipt identity and uploaded metadata never change, even after replacement. */
+  contribution(id: string) {
+    for (const job of this.jobs) {
+      const contribution = job.sourceBatch?.contributions.find((item) => item.id === id);
+      if (contribution) return structuredClone({ contribution, batch: job });
+    }
+    return null;
+  }
+
+  contribute(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update: SourceUpdate,
+    id: string,
+    replaces?: string,
+  ) {
+    if (input.target !== "host" || !this.executor.prepareUpdate || !this.executor.installUpdate)
+      throw new RestartRequestError("Source batching unavailable");
+    const existing = this.contribution(id);
+    if (existing) {
+      const original = existing.contribution;
+      if (
+        JSON.stringify(original.update) !== JSON.stringify(update) ||
+        original.reason !== input.reason ||
+        original.requester !== input.requester ||
+        original.requestedBy !== requestedBy ||
+        original.replaces !== replaces
+      )
+        throw new RestartRequestError("Contribution ID already belongs to a different submission");
+      return existing;
+    }
+    let job = this.jobs.find((item) => item.sourceBatch && item.status === "pending");
+    const contributions = structuredClone(job?.sourceBatch?.contributions ?? []);
+    if (contributions.length >= 100)
+      throw new RestartRequestError("Batch contribution limit reached");
+    if (replaces) {
+      const original = contributions.find((item) => item.id === replaces);
+      if (
+        !original ||
+        original.requestedBy !== requestedBy ||
+        !["conflict", "invalid"].includes(original.status)
+      )
+        throw new RestartRequestError(
+          "Only your conflicted or invalid contribution can be replaced",
+        );
+      original.status = "superseded";
+      original.supersededBy = id;
+    }
+    contributions.push({
+      id,
+      update,
+      reason: input.reason,
+      requester: input.requester,
+      requestedBy,
+      createdAt: new Date(this.now()).toISOString(),
+      replaces,
+      status: "queued",
+      detail: "Awaiting integration",
+    });
+    job = {
+      ...(job ?? {
+        ...input,
+        id: randomUUID(),
+        requestedBy,
+        createdAt: new Date(this.now()).toISOString(),
+        expiresAt: "9999-12-31T23:59:59.999Z",
+      }),
+      revision: randomUUID(),
+      status: "pending",
+      update: undefined,
+      sourceBatch: { status: "preparing", contributions },
+      detail: "Combining submitted source. Approval is unavailable until preparation completes.",
+    };
+    if (this.jobs.some((item) => item.id === job.id)) this.replace(job);
+    else this.commit([...this.jobs, job]);
+    return this.contribution(id)!;
+  }
+
+  async prepareBatches(): Promise<void> {
+    if (this.preparing || !this.executor.prepareUpdate) return;
+    this.preparing = true;
+    try {
+      const job = this.jobs.find((item) => item.sourceBatch && item.status === "pending");
+      if (!job?.sourceBatch) return;
+      const blocked = this.jobs.some(
+        (item) =>
+          item.id !== job.id &&
+          item.target === "host" &&
+          ["pending", "approved", "running"].includes(item.status),
+      );
+      if (blocked) {
+        if (job.sourceBatch.status !== "waiting")
+          this.replace({
+            ...job,
+            update: undefined,
+            revision: randomUUID(),
+            sourceBatch: { ...job.sourceBatch, status: "waiting" },
+            detail: "Waiting for the earlier Host request to finish",
+          });
+        return;
+      }
+      if (job.sourceBatch.status === "ready" && this.currentSource(job)) return;
+      if (job.sourceBatch.status === "conflict") return;
+      const preparing: RestartJob = {
+        ...job,
+        update: undefined,
+        revision: randomUUID(),
+        sourceBatch: { ...job.sourceBatch, status: "preparing" },
+      };
+      this.replace(preparing);
+      const result = await this.executor.prepareUpdate(
+        structuredClone(preparing.sourceBatch!.contributions),
+      );
+      const current = this.jobs.find((item) => item.id === job.id);
+      // An upload, cancellation or a newer preparation invalidates this result.
+      if (current?.status !== "pending" || current.revision !== preparing.revision) return;
+      this.replace({
+        ...current,
+        revision: randomUUID(),
+        update: result.update,
+        sourceBatch: result.batch,
+        detail:
+          result.batch.status === "ready"
+            ? "Review the combined source before installation"
+            : "Contributions need correction before this batch can be approved",
+      });
+    } catch (error) {
+      const job = this.jobs.find(
+        (item) => item.sourceBatch?.status === "preparing" && item.status === "pending",
+      );
+      if (job)
+        this.replace({
+          ...job,
+          detail: `Source preparation will retry: ${error instanceof Error ? error.message : "unavailable"}`,
+        });
+      throw error;
+    } finally {
+      this.preparing = false;
+    }
+  }
+
   decide(
     id: string,
     revision: string,
@@ -105,7 +263,7 @@ export class InstallationRestarts {
     const job = this.jobs.find((candidate) => candidate.id === id);
     if (!job || job.revision !== revision)
       throw new RestartRequestError("Restart request is missing or changed");
-    validateSourceDecision(job, decision, updateSha256);
+    this.validateDecision(job, decision, updateSha256);
     if (decision === "request-again") {
       if (job.status !== "rejected")
         throw new RestartRequestError("Only cancelled requests can be requested again");
@@ -156,6 +314,38 @@ export class InstallationRestarts {
     return { ...next };
   }
 
+  private currentSource(job: RestartJob) {
+    return (
+      job.update?.baseCommit === this.executor.sourceBase?.() &&
+      job.sourceBatch?.webCommit === this.executor.sourceWeb?.()
+    );
+  }
+
+  private validateDecision(job: RestartJob, decision: RestartDecision, updateSha256?: string) {
+    validateSourceDecision(job, decision, updateSha256);
+    if (decision !== "reject" && job.sourceBatch) {
+      if (
+        job.sourceBatch.status !== "ready" ||
+        !job.update ||
+        job.update.baseCommit !== this.executor.sourceBase?.() ||
+        job.sourceBatch.webCommit !== this.executor.sourceWeb?.()
+      )
+        throw new RestartRequestError(
+          "Combined source changed or is not ready. Refresh before approving.",
+        );
+    }
+    if (
+      decision !== "reject" &&
+      this.jobs.some(
+        (other) =>
+          other.id !== job.id &&
+          other.target === job.target &&
+          ["approved", "running"].includes(other.status),
+      )
+    )
+      throw new RestartRequestError("An earlier request is still active for this target");
+  }
+
   private approveFinish(job: RestartJob): RestartJob {
     if (!["pending", "approved"].includes(job.status))
       throw new RestartRequestError("Restart request is already dispatched or decided");
@@ -188,6 +378,7 @@ export class InstallationRestarts {
   }
 
   async drain(): Promise<void> {
+    if (this.executor.prepareUpdate) await this.prepareBatches();
     if (this.running) return;
     this.running = true;
     try {
@@ -323,7 +514,7 @@ export class InstallationRestarts {
     const jobs = [...this.jobs];
     for (let index = jobs.length - 1; index >= 0; index--) {
       const job = jobs[index]!;
-      if (job.status !== "pending") continue;
+      if (job.status !== "pending" || job.update || job.sourceBatch) continue;
       if (targets.has(job.target)) {
         changed = true;
         jobs[index] = {

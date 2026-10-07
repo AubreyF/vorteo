@@ -1025,6 +1025,8 @@ export const ru: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Черновик",
           merged: "Объединён",
           closed: "Закрыт",
@@ -1850,6 +1852,7 @@ export const ru: TranslationResources = {
     backdrop: "Фон меню",
   },
   subagents: {
+    ...en.subagents,
     title: "Субагенты",
     pillLabelOne: "1 субагент",
     pillLabelMany: "Субагентов: {{count}}",
@@ -1862,7 +1865,7 @@ export const ru: TranslationResources = {
     detachTooltip: "Отсоединить субагента",
     archiveAction: "Архивировать {{label}}",
     archiveTooltip: "Архивировать субагента",
-    archiveFinishedAction: "Архивировать завершенные субагенты",
+    archiveFinishedAction: "Убрать завершённые",
     archiveFinishedRetry: "Повторить ({{failed}}/{{total}})",
   },
   panels: {

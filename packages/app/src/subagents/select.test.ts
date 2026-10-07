@@ -147,7 +147,7 @@ describe("selectSubagentsForParent", () => {
         { serverId: SERVER_ID, parentAgentId: "parent-a" },
         true,
       )[0]?.subtitle,
-    ).toBe("Native · Model unavailable");
+    ).toBe("Model not reported");
     store.hideFromTrack(SERVER_ID, "parent-a", ["provider-child"]);
 
     expect(

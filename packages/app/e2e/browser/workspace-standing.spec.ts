@@ -13,7 +13,7 @@ async function openMenu(page: Page, workspaceId: string) {
   await page.getByTestId(`sidebar-workspace-kebab-${key}`).first().click();
 }
 
-test("Standing is saved and protected, Scheduled stays simple, and failed changes can be retried", async ({
+test("Standing follows schedules and protection, and failed changes can be retried", async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -70,7 +70,7 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     });
     await client.setWorkspaceLabel({
       workspaceId: agent.workspaceId,
-      label: { name: "Protected", color: "amber" },
+      label: { name: "Review", color: "amber" },
       assigned: true,
     });
     const created = await client.scheduleCreate({
@@ -84,18 +84,16 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     scheduleId = created.schedule.id;
     await client.schedulePause({ id: scheduleId });
     await openAgentRoute(page, agent);
-    await expect(page.getByTestId("workspace-label-chip-Protected")).toHaveText("Protected");
+    await expect(page.getByTestId("workspace-label-chip-Review")).toHaveText("Review");
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeHidden();
-    await expect(page.getByTestId(`workspace-scheduled-${agent.workspaceId}`)).toHaveText(
-      "Scheduled",
-    );
+    await expect(page.getByTestId(`workspace-scheduled-${agent.workspaceId}`)).toHaveText("Paused");
     await expect(
       page.getByTestId(`workspace-subagent-count-${getServerId()}-${agent.workspaceId}`),
     ).toHaveText("A1");
     const initialCountHeight = (await page
       .getByTestId(`workspace-subagent-count-${getServerId()}-${agent.workspaceId}`)
       .boundingBox())!.height;
-    expect((await page.getByTestId("workspace-label-chip-Protected").boundingBox())?.height).toBe(
+    expect((await page.getByTestId("workspace-label-chip-Review").boundingBox())?.height).toBe(
       initialCountHeight,
     );
     await openMenu(page, agent.workspaceId);
@@ -105,15 +103,40 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
       .click();
     await expect(page.getByText("Custom labels", { exact: true })).toBeVisible();
     await expect(page.getByTestId("workspace-label-picker-create")).toHaveText("Create Label");
-    await expect(page.getByTestId("workspace-label-picker-row-Protected")).toBeHidden();
-    await page.getByTestId(`workspace-standing-${agent.workspaceId}`).click();
+    await expect(page.getByTestId("workspace-label-picker-row-Review")).toBeVisible();
+    await page.getByTestId(`workspace-protected-${agent.workspaceId}`).click();
     await expect(page.getByText("Lifecycle change could not be saved. Try again.")).toBeVisible();
-    await page.getByTestId(`workspace-standing-${agent.workspaceId}`).click();
+    await page.getByTestId(`workspace-protected-${agent.workspaceId}`).click();
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeVisible();
     await page.keyboard.press("Escape");
     const section = page.getByTestId(/^sidebar-standing-section-/);
-    await expect(section).toHaveText("Standing · 1");
+    await expect(section).toHaveText("Standing");
+    const heading = section.getByText("Standing", { exact: true });
+    const workspaceRow = page
+      .getByTestId(`sidebar-workspace-row-${getServerId()}:${agent.workspaceId}`)
+      .first();
+    const dot = workspaceRow.getByTestId("workspace-status-indicator-done").locator(":scope > div");
+    const headingBox = await heading.boundingBox();
+    const dotBox = await dot.boundingBox();
+    if (!headingBox || !dotBox) throw new Error("Expected Standing heading and workspace dot");
+    expect(Math.abs(headingBox.x - dotBox.x)).toBeLessThan(1);
+    const titleSize = await workspaceRow
+      .getByText("main", { exact: true })
+      .evaluate((element) => getComputedStyle(element).fontSize);
+    await expect(heading).toHaveCSS("font-size", titleSize);
+    const arrowBox = await section.locator("svg").first().boundingBox();
+    if (!arrowBox) throw new Error("Expected leading disclosure arrow");
+    expect(arrowBox.x + arrowBox.width).toBeLessThanOrEqual(headingBox.x);
+    await section.hover();
+    expect(await section.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(
+      "rgba(0, 0, 0, 0)",
+    );
+    const sectionBox = await section.boundingBox();
+    const workspaceBox = await workspaceRow.boundingBox();
+    expect(sectionBox?.width).toBe(workspaceBox?.width);
+
     await section.click();
+    await expect(section).toContainText("1");
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeHidden();
     await section.click();
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeVisible();
@@ -130,7 +153,7 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     const countHeight = (await countBadge.boundingBox())!.height;
     expect((await scheduledBadge.boundingBox())?.height).toBe(countHeight);
     expect((await protectedBadge.boundingBox())?.height).toBe(countHeight);
-    await expect(page.getByTestId("workspace-label-chip-Protected")).toBeHidden();
+    await expect(page.getByTestId("workspace-label-chip-Review")).toBeVisible();
     const resting = await scheduledBadge.boundingBox();
     const protection = await protectedBadge.boundingBox();
     const rowBox = await row.boundingBox();
@@ -206,7 +229,7 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     await page.keyboard.press("Escape");
     expect(
       (await client.fetchWorkspaces()).entries.find((w) => w.id === agent.workspaceId),
-    ).toMatchObject({ standing: true, protected: false });
+    ).toMatchObject({ protected: false });
   } finally {
     if (scheduleId) await client.scheduleDelete({ id: scheduleId });
     await client.setWorkspaceLifecycle({ workspaceId: agent.workspaceId, protected: false });
@@ -265,7 +288,7 @@ test.describe("touch controls", () => {
       await page.touchscreen.tap(900, 200);
       await expect(protection).toBeHidden();
       await scheduled.tap();
-      await expect(page).toHaveURL(/\/schedules$/);
+      await expect(page).toHaveURL(/\/schedules\?.*workspaceId=/);
     } finally {
       if (scheduleId) await client.scheduleDelete({ id: scheduleId });
       await client.setWorkspaceLifecycle({ workspaceId: agent.workspaceId, protected: false });
@@ -312,7 +335,7 @@ test("older environments show disabled built-in protection instead of a custom l
   try {
     await agent.client.setWorkspaceLabel({
       workspaceId: agent.workspaceId,
-      label: { name: "Protected", color: "red" },
+      label: { name: "Review", color: "red" },
       assigned: true,
     });
     await openAgentRoute(page, agent);
@@ -323,12 +346,70 @@ test("older environments show disabled built-in protection instead of a custom l
     const protection = page.getByTestId(`workspace-protected-${agent.workspaceId}`);
     await expect(protection).toHaveText("Protected");
     await expect(protection).toHaveAttribute("aria-disabled", "true");
-    await expect(page.getByTestId("workspace-label-picker-row-Protected")).toBeHidden();
-    await expect(
-      page.getByText("Update this environment to use Standing and Protected."),
-    ).toBeVisible();
+    await expect(page.getByTestId("workspace-label-picker-row-Review")).toBeVisible();
+    await expect(page.getByText("Update this environment to use Protected.")).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("protected-old-environment.png") });
   } finally {
+    await agent.cleanup();
+  }
+});
+
+test("workspace schedule creation, pause, resume and deletion drive Standing", async ({ page }) => {
+  test.setTimeout(180_000);
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "schedule-membership-",
+    title: "Scheduled review",
+  });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "schedule-membership" });
+  let scheduleId: string | undefined;
+  try {
+    await openAgentRoute(page, agent);
+    const section = page.getByTestId(/^sidebar-standing-section-/);
+    await expect(section).toBeHidden();
+    await openMenu(page, agent.workspaceId);
+    await page
+      .getByTestId(`sidebar-workspace-menu-labels-${getServerId()}:${agent.workspaceId}`)
+      .click();
+    await expect(page.getByTestId(`workspace-standing-${agent.workspaceId}`)).toBeHidden();
+    const catalog = await client.listWorkspaceLabels();
+    await expect(page.getByText("Custom labels", { exact: true })).toHaveCount(
+      catalog.labels.length > 0 ? 1 : 0,
+    );
+    await page.getByTestId(`workspace-schedules-${agent.workspaceId}`).click();
+    await expect(page.getByText("Workspace schedules", { exact: true })).toBeVisible();
+    await page.getByTestId("schedules-empty-new").click();
+    await page.getByTestId("schedule-name-input").fill("Workspace review");
+    await page.getByTestId("schedule-prompt-input").fill("Review pending changes");
+    await expect(page.getByTestId("schedule-project-trigger")).toBeHidden();
+    await page.getByTestId("schedule-cadence-preset-trigger").click();
+    await page.getByTestId("schedule-cadence-preset-daily-9").click();
+    await page.getByRole("button", { name: "Create schedule", exact: true }).click();
+    await expect(page.getByTestId("schedule-form-sheet")).toBeHidden();
+    const schedules = await client.scheduleList();
+    const created = schedules.schedules.find((schedule) => schedule.name === "Workspace review");
+    expect(created?.target).toEqual({ type: "agent", agentId: agent.agentId });
+    if (!created) throw new Error("Expected created workspace schedule");
+    scheduleId = created.id;
+    await openAgentRoute(page, agent);
+    const badge = page.getByTestId(`workspace-scheduled-${agent.workspaceId}`);
+    await expect(badge).toHaveText("Scheduled");
+    await expect(section).toHaveText("Standing");
+    await client.schedulePause({ id: scheduleId });
+    await expect(badge).toHaveText("Paused", { timeout: 25_000 });
+    await expect(section).toHaveText("Standing");
+    await client.scheduleResume({ id: scheduleId });
+    await expect(badge).toHaveText("Scheduled", { timeout: 25_000 });
+    await client.setWorkspaceLifecycle({ workspaceId: agent.workspaceId, protected: true });
+    await client.scheduleDelete({ id: scheduleId });
+    scheduleId = undefined;
+    await expect(badge).toBeHidden({ timeout: 25_000 });
+    await expect(section).toHaveText("Standing");
+    await client.setWorkspaceLifecycle({ workspaceId: agent.workspaceId, protected: false });
+    await expect(section).toBeHidden();
+  } finally {
+    if (scheduleId) await client.scheduleDelete({ id: scheduleId });
+    await client.setWorkspaceLifecycle({ workspaceId: agent.workspaceId, protected: false });
+    await client.close();
     await agent.cleanup();
   }
 });

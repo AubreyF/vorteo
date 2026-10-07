@@ -3,14 +3,10 @@ import { useFetchQueries } from "@/data/query";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
-import { providerResetQueryOptions } from "@/provider-usage/reset-query";
-import type { AgentProfilePicker } from "./internal/use-agent-profile-picker";
+import { resetProviderIds, providerResetQueryOptions } from "@/provider-usage/reset-query";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 
-export function usePresetData(
-  serverId: string | null,
-  profiles: AgentProfilePicker,
-  active: boolean,
-) {
+export function usePresetData(serverId: string | null, active: boolean) {
   const client = useHostRuntimeClient(serverId ?? "");
   const connected = useHostRuntimeIsConnected(serverId ?? "");
   const supportsResets = useSessionStore(
@@ -21,10 +17,8 @@ export function usePresetData(
     (state) => state.sessions[serverId ?? ""]?.clientGeneration,
   );
   const enabled = Boolean(active && connected && client && supportsResets);
-  const providers = useMemo(
-    () => [...new Set(profiles.rows.map((row) => row.provider))],
-    [profiles.rows],
-  );
+  const { entries } = useProvidersSnapshot(serverId, { cwd: null });
+  const providers = useMemo(() => resetProviderIds(entries), [entries]);
   const resets = useFetchQueries(
     providers.map((providerId) =>
       providerResetQueryOptions({

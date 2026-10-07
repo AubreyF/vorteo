@@ -520,10 +520,10 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await page.getByTestId("installation-lock").click();
   await page.goto(`${origin}/settings/general?installation=1&restart=${job.id}`);
   await expect(page.getByTestId("installation-password")).toBeVisible();
-  await expect(page.getByTestId(`restart-confirm-${job.id}`)).toHaveCount(0);
+  await expect(page.getByTestId(`restart-queue-${job.id}`)).toHaveCount(0);
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
-  await expect(page.getByTestId(`restart-confirm-${job.id}`)).toBeInViewport();
+  await expect(page.getByTestId(`restart-queue-${job.id}`)).toBeInViewport();
   const unchanged = await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
     headers: { Authorization: `Bearer ${guestToken}` },
   }).then((response) => response.json());
@@ -534,16 +534,14 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   page.on("dialog", () => {
     throw new Error("Installation controls must not open browser dialogs");
   });
-  await expect(page.getByTestId(`restart-confirmation-${job.id}`)).toContainText(
-    "may be interrupted",
-  );
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(card.getByRole("button")).toHaveText([
+    "Restart when idle",
+    "Finish turns and restart",
+    "Cancel",
+  ]);
+  await expect(card).not.toContainText(blocker.id);
+  await expect(card.getByRole("button", { name: "Details", exact: true })).toHaveCount(0);
   await card.screenshot({ path: testInfo.outputPath("installation-inline-review.png") });
-  await card.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(page.getByTestId(`restart-confirmation-${job.id}`)).toHaveCount(0);
-  await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("Approval needed");
-  await page.getByTestId(`restart-approve-${job.id}`).click();
-  await expect(card).toContainText("Finish before restart");
   await page.getByTestId(`restart-queue-${job.id}`).click();
   await expect(card).toContainText("Queued until idle");
   await expect(card).toContainText("Waiting 0h");
@@ -554,7 +552,7 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await expect(banner).toContainText("This restart activates protected workspace controls.");
   await expect(banner).not.toContainText("The owner requested");
   await expect(banner).not.toContainText("Finish before restart");
-  await expect(banner).toContainText("Active tasks: 1");
+  await expect(banner).toContainText("1 active tasks");
   await banner.screenshot({ path: testInfo.outputPath("restart-queued-sidebar.png") });
   await page.reload();
   await expect(page.getByTestId(`restart-request-${job.id}`)).toContainText("Queued until idle");
@@ -566,7 +564,9 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   }).then((response) => response.json());
   expect(completedRestart.detail).toContain("environment identity verified");
   await expect(card).not.toContainText("environment identity verified");
-  await page.getByRole("button", { name: "All restart requests", exact: true }).click();
+  await expect(page.getByRole("button", { name: "All restart requests", exact: true })).toHaveCount(
+    0,
+  );
   await page.getByTestId("restart-history-toggle").click();
   await expect(card).not.toContainText("environment identity verified");
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -678,6 +678,112 @@ test("restart banner names daemons and keeps its top divider fixed while scrolli
   }
 });
 
+test("both restart requests stay visible with simple actions and sidebar force confirmation", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const client = await connectInstallationDaemon(config, "container");
+  const directory = path.join(root, "simple-restart-controls");
+  await mkdir(directory);
+  const { workspace } = await client.createWorkspace({
+    source: { kind: "directory", path: directory },
+  });
+  if (!workspace) throw new Error("Missing restart workspace");
+  const blocker = await client.createAgent({
+    config: {
+      provider: "mock",
+      cwd: directory,
+      title: "Private task title",
+      model: "thirty-minute-stream",
+    },
+    workspaceId: workspace.id,
+    initialPrompt: "Wait for restart test",
+  });
+  try {
+    await expect
+      .poll(async () => (await client.fetchAgent({ agentId: blocker.id }))?.agent.status)
+      .toBe("running");
+    const host = RestartJobSchema.parse(
+      await (
+        await request("restart-requests", hostToken, {
+          target: "host",
+          reason: "Activate host changes.",
+        })
+      ).json(),
+    );
+    const dev = RestartJobSchema.parse(
+      await (
+        await request("restart-requests", guestToken, {
+          target: "container-daemon",
+          reason: "Activate dev changes.",
+        })
+      ).json(),
+    );
+    await page.goto(`${origin}/settings/general?installation=1&restart=${dev.id}`);
+    await page.getByTestId("installation-password").fill(ownerPassword);
+    await page.getByTestId("installation-unlock").click();
+    const card = page.getByTestId(`restart-request-${dev.id}`);
+    const hostCard = page.getByTestId(`restart-request-${host.id}`);
+    await expect(hostCard).toBeVisible();
+    await expect(card).toBeVisible();
+    await expect(card.getByRole("button")).toHaveText([
+      "Restart when idle",
+      "Finish turns and restart",
+      "Cancel",
+    ]);
+    await expect(hostCard.getByRole("button")).toHaveText([
+      "Restart when idle",
+      "Finish turns and restart",
+      "Cancel",
+    ]);
+    await expect(card).not.toContainText(blocker.id);
+    await expect(card).not.toContainText("Private task title");
+    await expect(
+      page.getByRole("button", { name: "All restart requests", exact: true }),
+    ).toHaveCount(0);
+    await card.screenshot({ path: testInfo.outputPath("restart-pending.png") });
+    await card.getByRole("button", { name: "Restart when idle", exact: true }).click();
+    await expect(card.getByRole("button")).toHaveText(["Cancel", "Force restart now"]);
+    const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
+    // Compact navigation hides the sidebar until opened.
+    if (await banner.count()) {
+      await expect(banner.getByRole("button", { name: "Review restart", exact: true })).toHaveCount(
+        2,
+      );
+      await expect(
+        banner.getByRole("button", { name: "Force restart now", exact: true }),
+      ).toHaveCount(2);
+      page.once("dialog", (dialog) => dialog.dismiss());
+      await banner.getByTestId(`restart-force-${dev.id}`).click();
+      await expect(card).toContainText("Queued until idle");
+    }
+    await card.screenshot({ path: testInfo.outputPath("restart-queued.png") });
+    await card.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(card).toContainText("Rejected");
+    await hostCard.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(hostCard).toHaveCount(0);
+    expect((await client.fetchAgent({ agentId: blocker.id }))?.agent.status).toBe("running");
+    const retry = RestartJobSchema.parse(
+      await (
+        await request("restart-requests", guestToken, {
+          target: "container-daemon",
+          reason: "Activate combined updates.",
+        })
+      ).json(),
+    );
+    await page.goto(`${origin}/settings/general?installation=1&restart=${retry.id}`);
+    const retryCard = page.getByTestId(`restart-request-${retry.id}`);
+    await retryCard.getByRole("button", { name: "Finish turns and restart", exact: true }).click();
+    await expect(retryCard).toContainText("Finishing current turns");
+    await expect(retryCard.getByRole("button")).toHaveText(["Cancel", "Force restart now"]);
+    page.once("dialog", (dialog) => dialog.accept());
+    await retryCard.getByRole("button", { name: "Force restart now", exact: true }).click();
+    await expect(retryCard).toContainText("Restarted", { timeout: 150_000 });
+  } finally {
+    await client.close();
+  }
+});
+
 test("restart links keep rejected and missing requests separate from a pending approval", async ({
   page,
 }) => {
@@ -706,17 +812,17 @@ test("restart links keep rejected and missing requests separate from a pending a
   await expect(page.getByTestId(`restart-request-${historicalRestartId}`)).toContainText(
     "Rejected",
   );
-  await expect(page.getByTestId(`restart-request-${pending.id}`)).toHaveCount(0);
+  await expect(page.getByTestId(`restart-request-${pending.id}`)).toBeVisible();
   await expect(page.getByTestId(`restart-confirm-${historicalRestartId}`)).toHaveCount(0);
   await page.goto(`${origin}/settings/general?installation=1&restart=${randomUUID()}`);
   await expect(
     page.getByText("This restart request is no longer available.", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByTestId(`restart-request-${pending.id}`)).toHaveCount(0);
+  await expect(page.getByTestId(`restart-request-${pending.id}`)).toBeVisible();
   await page.goto(`${origin}/settings/general?installation=1&restart=${pending.id}`);
-  await expect(page.getByTestId(`restart-confirm-${pending.id}`)).toBeInViewport();
+  await expect(page.getByTestId(`restart-queue-${pending.id}`)).toBeInViewport();
   await page.reload();
-  await expect(page.getByTestId(`restart-confirm-${pending.id}`)).toBeInViewport();
+  await expect(page.getByTestId(`restart-queue-${pending.id}`)).toBeInViewport();
   await expect(page.getByTestId("settings-vorton-mode")).toHaveCount(0);
   const unchanged = await fetch(`${origin}/api/installation/restart-requests/${pending.id}`, {
     headers: { Authorization: `Bearer ${hostToken}` },
@@ -772,19 +878,28 @@ test("finish current turns can be cancelled and requested again before a verifie
       ).status,
     ).toBe(401);
     await page.getByTestId(`restart-finish-${job.id}`).click();
-    await expect(page.getByTestId(`restart-finish-confirmation-${job.id}`)).toContainText(
-      "save and finish",
-    );
-    await page.getByTestId(`restart-finish-confirm-${job.id}`).click();
     await expect(card).toContainText("Finishing current turns");
-    await expect(card).toContainText("Saving current work");
+    await expect(card).not.toContainText("Saving current work");
+    await expect(card.getByRole("button")).toHaveText(["Cancel", "Force restart now"]);
     await expect(client.sendMessage(blocker.id, "Do not start this new task.")).rejects.toThrow();
     expect((await client.getDaemonStatus()).pid).toBe(pid);
     await card.screenshot({ path: testInfo.outputPath("finish-current-turns.png") });
-    await card.getByRole("button", { name: "Cancel queued restart", exact: true }).click();
+    await card.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(card).toContainText("Rejected");
-    await card.getByRole("button", { name: "Request again", exact: true }).click();
-    await page.getByRole("button", { name: "All restart requests", exact: true }).click();
+    const cancelled = RestartJobSchema.parse(
+      await (
+        await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
+          headers: { Authorization: `Bearer ${guestToken}` },
+        })
+      ).json(),
+    );
+    await request(`owner/restarts/${job.id}/decision`, ownerPassword, {
+      revision: cancelled.revision,
+      decision: "request-again",
+    });
+    await expect(
+      page.getByRole("button", { name: "All restart requests", exact: true }),
+    ).toHaveCount(0);
     const response = await request(
       "owner/restarts/query?gracefulRestarts=1&idleRestarts=1",
       ownerPassword,
@@ -796,7 +911,7 @@ test("finish current turns can be cancelled and requested again before a verifie
     if (!retry) throw new Error("Missing fresh pending request");
     expect(retry.id).not.toBe(job.id);
     await page.getByTestId(`restart-finish-${retry.id}`).click();
-    await page.getByTestId(`restart-finish-confirm-${retry.id}`).click();
+
     const retryCard = page.getByTestId(`restart-request-${retry.id}`);
     await expect(retryCard).toContainText("Finishing current turns");
     // The real mock-provider turn ends naturally; this test never cancels it.
@@ -3095,3 +3210,65 @@ for (const sourceKind of ["host", "container"] as const) {
     }
   });
 }
+
+test("source batch review shows every contribution and cannot approve a changed revision", async ({
+  page,
+}, info) => {
+  const id = randomUUID();
+  const revision = randomUUID();
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 100,
+  };
+  const job = {
+    id,
+    revision,
+    target: "host",
+    requestedBy: "host-agent",
+    reason: "Combined update",
+    createdAt: new Date().toISOString(),
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "pending",
+    detail: "Review combined source",
+    update,
+    sourceBatch: {
+      status: "ready",
+      contributions: ["Sidebar correction", "Complementary workflow"].map((reason) => ({
+        id: randomUUID(),
+        update,
+        reason,
+        requestedBy: "container-agent",
+        createdAt: new Date().toISOString(),
+        status: "included",
+        detail: "Included",
+      })),
+    },
+  };
+  await page.route("**/api/installation/owner/restarts/query?*", async (route) => {
+    expect(route.request().url()).toContain("sourceBatches=1");
+    await route.fulfill({ json: [job] });
+  });
+  const decisions: unknown[] = [];
+  await page.route(`**/api/installation/owner/restarts/${id}/decision?*`, async (route) => {
+    decisions.push(route.request().postDataJSON());
+    await route.fulfill({ status: 409, json: { error: "Restart request is missing or changed" } });
+  });
+  await page.goto(`${origin}/settings/general?installation=1&restart=${id}`);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const card = page.getByTestId(`restart-request-${id}`);
+  await expect(card.getByRole("button")).toHaveText(["Install update and restart", "Cancel"]);
+  await expect(card).toContainText("Sidebar correction");
+  await expect(card).toContainText("Complementary workflow");
+  await expect(card).toContainText(update.sourceCommit);
+  await expect(card).toContainText(update.sha256);
+  await expect(page.getByTestId(`restart-force-${id}`)).toHaveCount(0);
+  await card.getByRole("button", { name: "Install update and restart", exact: true }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Restart request is missing or changed" }).first(),
+  ).toBeVisible();
+  expect(decisions).toEqual([{ revision, decision: "approve", updateSha256: update.sha256 }]);
+  await card.screenshot({ path: info.outputPath("source-batch-review.png") });
+});

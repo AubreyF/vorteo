@@ -4,7 +4,53 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.180 - 2026-10-07
+
+### Added
+
+- Combine pending Host source contributions into one reviewed release with immutable receipts, preserved provenance and one exact-source installation approval
+- Freeze approved batches and queue later submissions separately; retain conflicts for explicit correction
+
+### Changed
+
+- Separate Vorteo workers from provider subagents, explain missing model metadata and distinguish dismissal from archival
+- Smooth the sidebar action overlay with an eased fade that matches its row background
+
+### Fixed
+
+- Share plain restart requests per target and show Host and Dev controls together with explicit force confirmation
+- Restore account reset counters when shared profiles name a provider family
+- Preserve newer published interface source and reconcile generated release versions, internal pins, lock entries and appended release notes during inert preparation
+
+### Maintenance
+
+- Integrate Standing and schedule controls, pull request activity, card spacing and repository links with the reviewed Host update workflow
+
+- Cover Git integration, release metadata, hostile configuration, concurrency, recovery and approval races; coordinator installation remains separate from source validation
+
+## 0.11.0-beta.3.vorteo.179 - 2026-10-07
+
+### Fixed
+
+- Remove redundant top padding from goal, task progress, message queue and subagent cards while preserving header heights and touch targets.
+- Update desktop and compact conversation-card spacing assertions and the shared design guidance.
+
+## 0.11.0-beta.3.vorteo.178 - 2026-10-07
+
+### Changed
+
+- Replace the Star, Sponsor and Community footers in Settings and Open Project with one GitHub icon and link to `AubreyF/vorteo`
+
 ## 0.11.0-beta.3.vorteo.177 - 2026-10-07
+
+### Changed
+
+- Extend the sidebar PR link with Awaiting merge for GitHub auto-merge or queue membership and Merging while a client-submitted merge is pending.
+- Align Standing headings with workspace dots, match workspace title size, show the count as a badge only while collapsed, and use a full-row highlight with a leading disclosure arrow.
+- Derive Standing membership from workspace schedules and archive protection, retaining paused schedules with a Paused badge.
+- Open workspace-scoped schedules from Tag As and sidebar badges, with explicit thread selection for new schedules.
+- Keep existing custom labels visible and distinguish reserved names; remove the empty custom-label heading.
+- Cover schedule state, thread schedule creation, protection and menu behavior with focused tests.
 
 ### Added
 

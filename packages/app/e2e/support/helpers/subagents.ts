@@ -184,13 +184,13 @@ export async function expectArchiveFinishedInProgress(
   await expect(
     page
       .getByTestId("subagents-track-archive-finished")
-      .getByText(`Archiving ${completed}/${total}`, { exact: true }),
+      .getByText(`Clearing ${completed}/${total}`, { exact: true }),
   ).toBeVisible();
 }
 
 export async function expectArchiveFinishedRetry(page: Page): Promise<void> {
   const action = page.getByTestId("subagents-track-archive-finished");
-  await expect(action).toHaveAccessibleName("Retry archiving finished");
+  await expect(action).toHaveAccessibleName("Retry clearing finished");
   await expect(action).toBeEnabled();
 }
 

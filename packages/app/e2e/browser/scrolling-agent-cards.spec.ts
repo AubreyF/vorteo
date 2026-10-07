@@ -143,7 +143,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
       expect(geometry[0].frame[3]).toBe("8px");
-      expect(geometry[2].padding).toBe("8px");
+      expect(geometry[2].padding).toBe("0px 8px 8px");
       for (const card of geometry.slice(2)) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
@@ -180,7 +180,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       for (const card of geometry.slice(3)) {
         expect(card.frame).toEqual(geometry[2].frame);
-        expect(card.padding).toBe(width === 390 ? "8px 8px 8px 12px" : "8px 8px 8px 16px");
+        expect(card.padding).toBe(width === 390 ? "0px 8px 8px 12px" : "0px 8px 8px 16px");
         expect(card.width).toBe(geometry[2].width);
       }
       const movement = await stack.evaluate(async (element) => {

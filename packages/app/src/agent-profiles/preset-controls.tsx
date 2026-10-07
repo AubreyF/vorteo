@@ -107,7 +107,7 @@ export function PresetControls({
       : storedProfileId;
   const hasLocalEndpoint = profiles.rows.some((row) => Boolean(row.localEndpoint));
   const active = panelActive;
-  const { view } = usePresetData(serverId, profiles, active);
+  const { view } = usePresetData(serverId, active);
   // Refresh visible usage in the background without gating the menu.
   const refreshRef = useRef(profiles.refreshStatus);
   refreshRef.current = profiles.refreshStatus;

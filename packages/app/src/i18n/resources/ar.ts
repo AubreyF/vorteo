@@ -1008,6 +1008,8 @@ export const ar: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "مسودة",
           merged: "تم الدمج",
           closed: "مغلق",
@@ -1818,6 +1820,7 @@ export const ar: TranslationResources = {
     backdrop: "خلفية القائمة",
   },
   subagents: {
+    ...en.subagents,
     title: "الوكلاء الفرعيون",
     pillLabelOne: "وكيل فرعي واحد",
     pillLabelMany: "{{count}} وكلاء فرعيين",
@@ -1830,7 +1833,7 @@ export const ar: TranslationResources = {
     detachTooltip: "فصل الوكيل الفرعي",
     archiveAction: "أرشيف{{label}}",
     archiveTooltip: "أرشفة الوكيل الفرعي",
-    archiveFinishedAction: "أرشفة الوكلاء الفرعيين المكتملين",
+    archiveFinishedAction: "مسح المكتمل",
     archiveFinishedRetry: "إعادة المحاولة ({{failed}}/{{total}})",
   },
   panels: {

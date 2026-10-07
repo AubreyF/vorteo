@@ -1034,6 +1034,8 @@ export const en = {
           },
         },
         states: {
+          awaitingMerge: "Awaiting merge",
+          merging: "Merging",
           draft: "Draft",
           merged: "Merged",
           closed: "Closed",
@@ -1873,7 +1875,21 @@ export const en = {
     detachTooltip: "Detach subagent",
     archiveAction: "Archive {{label}}",
     archiveTooltip: "Archive subagent",
-    archiveFinishedAction: "Archive finished subagents",
+    archiveFinishedAction: "Clear finished",
+    workersTitle: "Vorteo workers",
+    workersInfo:
+      "Separate agents managed by Vorteo. Their profile, model and reasoning settings appear below each task. Archive removes a worker from the active list; detach makes it an independent task.",
+    providerTitle: "Provider subagents",
+    providerInfo:
+      "Created inside the coding provider’s session, outside Vorteo’s worker profile and concurrency controls. Model not reported means model metadata is missing. Dismiss hides finished children until this app reloads; it does not archive their sessions. Clear finished archives Vorteo workers and dismisses provider children.",
+    dismissAction: "Dismiss {{label}}",
+    dismissTooltip: "Dismiss until the app reloads",
+    providerStatus: {
+      running: "Working",
+      completed: "Completed",
+      failed: "Failed",
+      canceled: "Canceled",
+    },
     archiveFinishedRetry: "Retry ({{failed}}/{{total}})",
   },
   panels: {

@@ -1,3 +1,7 @@
+import {
+  ScheduledWorkspaceProvider,
+  useWorkspaceScheduleStates,
+} from "@/workspace/lifecycle/scheduled";
 import { useProjectExpansion } from "./use-project-expansion";
 import React, { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import {
@@ -48,13 +52,15 @@ interface SidebarModel extends SidebarWorkspacesListResult {
 
 const SidebarModelContext = createContext<SidebarModel | null>(null);
 
-export function SidebarModelProvider({
-  active,
-  children,
-}: {
-  active?: boolean;
-  children: ReactNode;
-}) {
+export function SidebarModelProvider(props: { active?: boolean; children: ReactNode }) {
+  return (
+    <ScheduledWorkspaceProvider>
+      <SidebarModelContent {...props} />
+    </ScheduledWorkspaceProvider>
+  );
+}
+
+function SidebarModelContent({ active, children }: { active?: boolean; children: ReactNode }) {
   const list = useSidebarWorkspacesList({ enabled: active });
   const groupMode = useSidebarViewStore((state) => state.groupMode);
   const labelFilter = useSidebarViewStore((state) => state.labelFilter);
@@ -93,10 +99,18 @@ export function SidebarModelProvider({
   // live session-store subscription over every workspace on every visible host, so widening this
   // for a filter that does not need it costs a retained-but-inactive sidebar real work.
   const needsWorkspaceEntries = groupMode !== "project" || hasActiveLabelFilter;
-  const workspaceEntriesByKey = useSidebarWorkspaceEntries(
+  const rawWorkspaceEntries = useSidebarWorkspaceEntries(
     list.workspacePlacements,
     active !== false || needsWorkspaceEntries,
   );
+  const scheduleStates = useWorkspaceScheduleStates();
+  const workspaceEntriesByKey = useMemo(() => {
+    const entries = new Map<string, SidebarWorkspaceEntry>();
+    for (const [key, entry] of rawWorkspaceEntries) {
+      entries.set(key, { ...entry, standing: entry.protected === true || scheduleStates.has(key) });
+    }
+    return entries;
+  }, [rawWorkspaceEntries, scheduleStates]);
   const filteredWorkspaceEntriesByKey = useMemo(() => {
     const byProject = filterWorkspacesByProjects({
       workspaces: [...workspaceEntriesByKey.values()],

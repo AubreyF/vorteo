@@ -75,8 +75,33 @@ export const SourceUpdateSchema = z.strictObject({
 });
 export type SourceUpdate = z.infer<typeof SourceUpdateSchema>;
 
+// COMPAT(sourceBatches): opt-in metadata; old strict clients receive legacy job fields only.
+export const SourceContributionSchema = z.strictObject({
+  id: z.string().uuid(),
+  update: SourceUpdateSchema,
+  reason: z.string(),
+  requester: z.string().optional(),
+  requestedBy: z.enum(["owner", "host-agent", "container-agent"]),
+  createdAt: z.string().datetime(),
+  replaces: z.string().uuid().optional(),
+  supersededBy: z.string().uuid().optional(),
+  status: z.enum(["queued", "included", "conflict", "invalid", "superseded"]),
+  detail: z.string(),
+});
+export type SourceContribution = z.infer<typeof SourceContributionSchema>;
+export const SourceBatchSchema = z.strictObject({
+  webCommit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .optional(),
+  status: z.enum(["preparing", "waiting", "ready", "conflict"]),
+  contributions: z.array(SourceContributionSchema),
+});
+export type SourceBatch = z.infer<typeof SourceBatchSchema>;
+
 export const RestartJobSchema = RestartRequestSchema.extend({
   update: SourceUpdateSchema.optional(),
+  sourceBatch: SourceBatchSchema.optional(),
   id: z.string().uuid(),
   revision: z.string().uuid(),
   requestedBy: z.enum(["owner", "host-agent", "container-agent"]),

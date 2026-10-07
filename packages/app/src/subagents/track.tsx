@@ -1,3 +1,5 @@
+import { SettingsGroup } from "@/components/settings/headings/settings-group";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { CountBadge } from "@/components/ui/count-badge";
 import { Button } from "@/components/ui/button";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
@@ -5,7 +7,7 @@ import { useVortonTouch } from "@/vorton-touch";
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { Archive, ChevronDown, ChevronRight, Unlink } from "lucide-react-native";
+import { Archive, ChevronDown, ChevronRight, Unlink, X } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useProviderIcon } from "@/components/provider-icons";
 import { ComposerTrackActions, ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
@@ -28,6 +30,7 @@ import {
   countFinishedSubagents,
 } from "./track-presentation";
 
+const ThemedX = withUnistyles(X);
 const ThemedArchive = withUnistyles(Archive);
 const ThemedUnlink = withUnistyles(Unlink);
 const ThemedChevronDown = withUnistyles(ChevronDown);
@@ -111,22 +114,38 @@ export function SubagentsTrack({
   const finishedCount = countFinishedSubagents(rows);
   const showArchiveFinished = finishedCount > 0 || isArchivingFinished || isArchiveFinishedFailed;
 
-  const rowsContent = rows.map((row, index) => (
-    <View
-      key={`${row.kind}:${row.id}`}
-      style={inline && index > 0 ? taskCardStyles.separator : undefined}
-    >
-      <SubagentsTrackRow
-        inline={inline}
-        row={row}
-        serverId={serverId}
-        onOpenSubagent={onOpenSubagent}
-        onOpenProviderSubagent={onOpenProviderSubagent}
-        onArchiveSubagent={onArchiveSubagent}
-        onDetachSubagent={onDetachSubagent}
-      />
-    </View>
-  ));
+  const rowsContent = (["paseo", "provider"] as const).map((kind) => {
+    const children = rows.filter((row) => row.kind === kind);
+    if (children.length === 0) return null;
+    const title = kind === "paseo" ? t("subagents.workersTitle") : t("subagents.providerTitle");
+    const info = kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo");
+    return (
+      <SettingsGroup
+        key={kind}
+        title={`${title} (${children.length})`}
+        info={info}
+        testID={`subagents-group-${kind}`}
+        style={styles.group}
+      >
+        {children.map((row, index) => (
+          <View
+            key={`${row.kind}:${row.id}`}
+            style={index > 0 ? taskCardStyles.separator : undefined}
+          >
+            <SubagentsTrackRow
+              inline={inline}
+              row={row}
+              serverId={serverId}
+              onOpenSubagent={onOpenSubagent}
+              onOpenProviderSubagent={onOpenProviderSubagent}
+              onArchiveSubagent={onArchiveSubagent}
+              onDetachSubagent={onDetachSubagent}
+            />
+          </View>
+        ))}
+      </SettingsGroup>
+    );
+  });
   const archiveAction =
     showArchiveFinished && onArchiveFinished ? (
       <ArchiveFinishedRow
@@ -221,10 +240,10 @@ export function ArchiveFinishedRow({
     [inline, status, t],
   );
 
-  let actionLabel = "Archive finished";
+  let actionLabel = t("subagents.archiveFinishedAction");
   if (status.kind === "archiving")
-    actionLabel = `Archiving ${status.completedCount}/${status.totalCount}`;
-  if (status.kind === "failed") actionLabel = "Retry archive";
+    actionLabel = `Clearing ${status.completedCount}/${status.totalCount}`;
+  if (status.kind === "failed") actionLabel = "Retry cleanup";
   if (inline) {
     return (
       <Button
@@ -236,7 +255,9 @@ export function ArchiveFinishedRow({
         loading={status.kind === "archiving"}
         testID="subagents-track-archive-finished"
         accessibilityLabel={
-          status.kind === "failed" ? "Retry archiving finished" : "Archive finished"
+          status.kind === "failed"
+            ? "Retry clearing finished"
+            : t("subagents.archiveFinishedAction")
         }
       >
         {actionLabel}
@@ -313,6 +334,11 @@ export function SubagentsTrackRow({
           <Text style={[styles.rowLabel, inline && taskCardStyles.rowText]} numberOfLines={1}>
             {displayLabel}
           </Text>
+          {row.kind === "provider" ? (
+            <View style={styles.statusLine}>
+              <StatusBadge label={t(`subagents.providerStatus.${row.status}`)} size="xs" />
+            </View>
+          ) : null}
           {presentation.subtitle ? (
             <Text style={styles.rowTrailing} selectable>
               {presentation.subtitle}
@@ -341,8 +367,8 @@ export function SubagentsTrackRow({
       canArchive,
       canDetach,
       presentation,
-      row.kind,
-      row.id,
+      row,
+      t,
     ],
   );
 
@@ -393,15 +419,17 @@ function SubagentRowActions({
         />
       ) : null}
       <SubagentActionButton
-        accessibilityLabel={t("subagents.archiveAction", { label: displayLabel })}
+        accessibilityLabel={
+          providerNative
+            ? t("subagents.dismissAction", { label: displayLabel })
+            : t("subagents.archiveAction", { label: displayLabel })
+        }
         testID={`subagents-track-archive-${rowId}`}
         tooltipLabel={
-          providerNative
-            ? "Hide finished native subagent on this device"
-            : t("subagents.archiveTooltip")
+          providerNative ? t("subagents.dismissTooltip") : t("subagents.archiveTooltip")
         }
         inline={inline}
-        icon="archive"
+        icon={providerNative ? "dismiss" : "archive"}
         visible={visible}
         onPress={onArchivePress}
       />
@@ -409,7 +437,7 @@ function SubagentRowActions({
   );
 }
 
-type SubagentActionIcon = "archive" | "detach";
+type SubagentActionIcon = "archive" | "detach" | "dismiss";
 
 function renderSubagentActionIcon(
   icon: SubagentActionIcon,
@@ -417,6 +445,7 @@ function renderSubagentActionIcon(
   size: number,
 ): ReactElement {
   const uniProps = isActive ? foregroundColorMapping : foregroundMutedColorMapping;
+  if (icon === "dismiss") return <ThemedX size={size} uniProps={uniProps} />;
   if (icon === "detach") {
     return <ThemedUnlink size={size} uniProps={uniProps} />;
   }
@@ -469,6 +498,8 @@ function SubagentActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  group: { marginBottom: theme.spacing[4], paddingHorizontal: theme.spacing[2] },
+  statusLine: { alignItems: "flex-start" },
   rowTextColumn: {
     flexGrow: 1,
     flexShrink: 1,

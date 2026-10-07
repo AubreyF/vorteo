@@ -105,11 +105,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
         }),
     [definitions, entries, accountIndependent, environmentKind],
   );
-  const menuProfiles = useMemo<AgentProfilePicker>(
-    () => ({ rows, applyProfile: props.onApply, isLoadingStatus: isLoading }),
-    [rows, props.onApply, isLoading],
-  );
-  const { view, resetLoadingProviders } = usePresetData(serverId, menuProfiles, true);
+  const { view, resetLoadingProviders } = usePresetData(serverId, true);
   const accounts = useMemo(
     () =>
       accountPresets({

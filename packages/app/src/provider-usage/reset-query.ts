@@ -1,4 +1,12 @@
+import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+
+// Shared workflows name a provider family; reset credits belong to configured accounts.
+export function resetProviderIds(
+  entries: readonly Pick<ProviderSnapshotEntry, "provider" | "enabled">[] | undefined,
+): string[] {
+  return (entries ?? []).filter((entry) => entry.enabled).map((entry) => entry.provider);
+}
 
 export function providerResetQueryOptions(input: {
   serverId: string | null;

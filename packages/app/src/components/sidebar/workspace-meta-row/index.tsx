@@ -189,6 +189,8 @@ function PullRequestItem({ hint }: { hint: PrHint }) {
   const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
   const presentation = getForgePresentation(normalizeForge(hint.forge));
+  const labelState = hint.state === "open" ? hint.activity : hint.state;
+  const statusLabel = labelState ? t(PR_STATE_LABEL_KEYS[labelState]) : "";
 
   const handlePress = useCallback(
     (event: GestureResponderEvent) => {
@@ -204,10 +206,15 @@ function PullRequestItem({ hint }: { hint: PrHint }) {
   return (
     <Pressable
       accessibilityRole="link"
-      accessibilityLabel={t("workspace.git.pr.accessibility.pullRequest", {
-        number: hint.number,
-        context: presentation.changeRequestContext,
-      })}
+      accessibilityLabel={[
+        t("workspace.git.pr.accessibility.pullRequest", {
+          number: hint.number,
+          context: presentation.changeRequestContext,
+        }),
+        statusLabel,
+      ]
+        .filter(Boolean)
+        .join(", ")}
       hitSlop={4}
       onPressIn={handlePressIn}
       onPress={handlePress}
@@ -222,9 +229,7 @@ function PullRequestItem({ hint }: { hint: PrHint }) {
       )}
       <Text style={isHovered ? styles.prTextHovered : styles.prText} numberOfLines={1}>
         {hint.number}
-        {/* An open change request is the unremarkable case and says nothing extra; a merged
-            or closed one is why the row still looks like it has work in it. */}
-        {hint.state === "open" ? "" : ` ${t(PR_STATE_LABEL_KEYS[hint.state])}`}
+        {statusLabel ? ` ${statusLabel}` : ""}
       </Text>
     </Pressable>
   );
@@ -312,6 +317,8 @@ export function ServiceItem({
 const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
 
 const PR_STATE_LABEL_KEYS = {
+  awaiting_merge: "workspace.git.pr.states.awaitingMerge",
+  merging: "workspace.git.pr.states.merging",
   merged: "workspace.git.pr.states.merged",
   closed: "workspace.git.pr.states.closed",
 } as const;
