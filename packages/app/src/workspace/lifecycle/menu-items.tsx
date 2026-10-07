@@ -1,11 +1,19 @@
 import { useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Text } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
-import { MenuItem } from "@/components/ui/menu";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { Anchor, ShieldCheck } from "lucide-react-native";
+import { MenuHint, MenuItem, MenuSeparator } from "@/components/ui/menu";
+import type { Theme } from "@/styles/theme";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
+
+const StandingIcon = withUnistyles(Anchor);
+const ProtectedIcon = withUnistyles(ShieldCheck);
+const muted = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const standingLeading = <StandingIcon size={14} uniProps={muted} />;
+const protectedLeading = <ProtectedIcon size={14} uniProps={muted} />;
 
 export function WorkspaceLifecycleMenuItems({
   serverId,
@@ -39,10 +47,12 @@ export function WorkspaceLifecycleMenuItems({
   );
   const changingStanding = mutation.isPending && mutation.variables?.standing !== undefined;
   const changingProtection = mutation.isPending && mutation.variables?.protected !== undefined;
-  if (!supported) return null;
+  if (!supported)
+    return <MenuHint>Update this environment to use Standing and Protected.</MenuHint>;
   return (
     <>
       <MenuItem
+        leading={standingLeading}
         testID={`workspace-standing-${workspaceId}`}
         selected={standing}
         closeOnSelect={false}
@@ -53,6 +63,7 @@ export function WorkspaceLifecycleMenuItems({
         Standing
       </MenuItem>
       <MenuItem
+        leading={protectedLeading}
         testID={`workspace-protected-${workspaceId}`}
         selected={protectedWorkspace}
         closeOnSelect={false}
@@ -67,6 +78,7 @@ export function WorkspaceLifecycleMenuItems({
           {mutation.error.message}
         </Text>
       ) : null}
+      <MenuSeparator />
     </>
   );
 }

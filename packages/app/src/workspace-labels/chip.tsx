@@ -8,6 +8,7 @@ import {
 } from "@getpaseo/protocol/workspace-labels";
 import { identityForeground, identityTint } from "@/styles/identity-colors";
 import { SPACING } from "@/styles/theme";
+import { workspaceLabelDisplayName } from "./display-name";
 
 /**
  * How far the ground extends past the name on each side.
@@ -38,7 +39,7 @@ export function WorkspaceLabelChip({ label }: { label: WorkspaceLabelDefinition 
       testID={`workspace-label-chip-${label.name}`}
     >
       <Text style={[styles.name, nameColorStyle(label.color)]} numberOfLines={1}>
-        {label.name}
+        {workspaceLabelDisplayName(label.name)}
       </Text>
     </View>
   );

@@ -35,6 +35,8 @@ import {
 } from "@/workspace-labels";
 import type { Theme } from "@/styles/theme";
 import { WorkspaceLabelDot, WorkspaceLabelSwatchRow } from "./swatch";
+import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
+import { workspaceLabelDisplayName } from "./display-name";
 
 /** The `MenuSubTrigger` on a workspace's menu that opens the assign page. */
 export const WORKSPACE_LABEL_PAGE_ID = "workspaceLabels";
@@ -78,7 +80,7 @@ export function useWorkspaceLabelMenuPages(
     return [
       {
         id: WORKSPACE_LABEL_PAGE_ID,
-        title: t("workspaceLabels.title"),
+        title: "Tag As",
         content: (
           <WorkspaceLabelPickerPage
             serverId={target.serverId}
@@ -142,6 +144,8 @@ function WorkspaceLabelPickerPage({
 
   return (
     <>
+      <WorkspaceLifecycleMenuItems serverId={serverId} workspaceId={workspaceId} />
+      <MenuHint>Custom labels</MenuHint>
       {snapshot.rows.map((row) => (
         <WorkspaceLabelAssignRow
           key={row.name.toLocaleLowerCase()}
@@ -152,18 +156,18 @@ function WorkspaceLabelPickerPage({
         />
       ))}
       {snapshot.rows.length > 0 ? <MenuSeparator /> : null}
+      {error ? <MenuHint testID="workspace-label-picker-error">{error}</MenuHint> : null}
+      {host?.status === "unsupported" ? (
+        <MenuHint>{t("workspaceLabels.updateHostUse")}</MenuHint>
+      ) : null}
       <MenuSubTrigger
         id={WORKSPACE_LABEL_CREATE_PAGE_ID}
         leading={CREATE_LEADING}
         disabled={offline}
         testID="workspace-label-picker-create"
       >
-        {t("workspaceLabels.create")}
+        Create Label
       </MenuSubTrigger>
-      {error ? <MenuHint testID="workspace-label-picker-error">{error}</MenuHint> : null}
-      {host?.status === "unsupported" ? (
-        <MenuHint>{t("workspaceLabels.updateHostUse")}</MenuHint>
-      ) : null}
     </>
   );
 }
@@ -194,7 +198,7 @@ function WorkspaceLabelAssignRow({
       onSelect={select}
       testID={`workspace-label-picker-row-${row.name}`}
     >
-      {row.name}
+      {workspaceLabelDisplayName(row.name)}
     </MenuItem>
   );
 }

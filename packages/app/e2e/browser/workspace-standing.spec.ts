@@ -57,6 +57,11 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "standing-workspaces" });
   let scheduleId: string | undefined;
   try {
+    await client.setWorkspaceLabel({
+      workspaceId: agent.workspaceId,
+      label: { name: "Protected", color: "amber" },
+      assigned: true,
+    });
     const created = await client.scheduleCreate({
       name: "Council heartbeat",
       prompt: "Review updates",
@@ -68,10 +73,23 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     scheduleId = created.schedule.id;
     await client.schedulePause({ id: scheduleId });
     await openAgentRoute(page, agent);
+    await expect(page.getByTestId("workspace-label-chip-Protected")).toHaveText(
+      "Protected (custom)",
+    );
+    await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeHidden();
     await expect(page.getByTestId(`workspace-scheduled-${agent.workspaceId}`)).toHaveText(
       "Scheduled",
     );
     await openMenu(page, agent.workspaceId);
+    await expect(page.getByTestId(`workspace-standing-${agent.workspaceId}`)).toBeHidden();
+    await page
+      .getByTestId(`sidebar-workspace-menu-labels-${getServerId()}:${agent.workspaceId}`)
+      .click();
+    await expect(page.getByText("Custom labels", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("workspace-label-picker-row-Protected")).toHaveText(
+      "Protected (custom)",
+    );
+    await expect(page.getByTestId("workspace-label-picker-create")).toHaveText("Create Label");
     await page.getByTestId(`workspace-standing-${agent.workspaceId}`).click();
     await expect(page.getByText("Lifecycle change could not be saved. Try again.")).toBeVisible();
     await page.getByTestId(`workspace-standing-${agent.workspaceId}`).click();
@@ -96,6 +114,10 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     ).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("standing-desktop.png") });
     await openMenu(page, agent.workspaceId);
+    await page
+      .getByTestId(`sidebar-workspace-menu-labels-${getServerId()}:${agent.workspaceId}`)
+      .click();
+    await page.screenshot({ path: test.info().outputPath("tag-as-desktop.png") });
     await page.getByTestId(`workspace-protected-${agent.workspaceId}`).click();
     await expect(page.getByTestId(`workspace-protected-${agent.workspaceId}`)).toHaveAttribute(
       "aria-checked",
@@ -147,6 +169,16 @@ test.describe("touch controls", () => {
       await section.tap();
       await expect(scheduled).toBeVisible();
       await page.screenshot({ path: test.info().outputPath("standing-touch.png") });
+      await page.getByTestId(`sidebar-workspace-kebab-${getServerId()}:${agent.workspaceId}`).tap();
+      await page
+        .getByTestId(`sidebar-workspace-menu-labels-${getServerId()}:${agent.workspaceId}`)
+        .tap();
+      const protection = page.getByTestId(`workspace-protected-${agent.workspaceId}`);
+      await expect(protection).toHaveAttribute("aria-checked", "true");
+      expect((await protection.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+      await page.screenshot({ path: test.info().outputPath("tag-as-touch.png") });
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
       await scheduled.tap();
       await expect(page).toHaveURL(/\/schedules$/);
     } finally {

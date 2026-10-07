@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.159 - 2026-10-06
+
+### Changed
+
+- Combine Standing, Protected and custom labels under Tag As in workspace menus. Add lifecycle and project-move icons, keep Create Label last, and distinguish custom labels that share lifecycle names.
+
 ## 0.11.0-beta.3.vorteo.157 - 2026-10-06
 
 ### Changed
