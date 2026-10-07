@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.180 - 2026-10-07
+
+### Added
+
+- Opt-in recovery of previously verified workspace previews after daemon restarts, retaining their private HTTPS reservations and rechecking service, listener and certificate identity.
+- Bounded retry coverage and installer controls that preserve existing policy when omitted. Explicit stops, archived or changed workspaces, and unrecognized replacement processes remain protected.
+
+### Maintenance
+
+- Update preview operation, host acceptance and customization documentation. Real restart acceptance remains a separate installation check.
+
 ## 0.11.0-beta.3.vorteo.179 - 2026-10-07
 
 ### Fixed
