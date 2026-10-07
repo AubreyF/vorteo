@@ -45,6 +45,8 @@ interface CloseBulkWorkspaceTabsInput {
   closeTab: (tabId: string, action: () => Promise<void>) => Promise<void>;
   closeWorkspaceTabWithCleanup: (input: CloseWorkspaceTabWithCleanupInput) => void;
   closeLayoutOnlyAgent: (agentId: string) => Promise<void>;
+  closeAgent?: (agentId: string) => Promise<void>;
+  closeTerminal?: (terminalId: string) => Promise<void>;
   logLabel: string;
   warn?: (message: string, payload: object) => void;
 }
@@ -130,7 +132,15 @@ export async function closeBulkWorkspaceTabs(input: CloseBulkWorkspaceTabsInput)
     logLabel,
     warn,
   } = input;
-  const hasDestructiveTabs = groups.archiveAgentTabs.length > 0 || groups.terminalTabs.length > 0;
+  if (input.closeAgent) {
+    for (const tab of groups.archiveAgentTabs) await input.closeAgent(tab.agentId);
+  }
+  if (input.closeTerminal) {
+    for (const tab of groups.terminalTabs) await input.closeTerminal(tab.terminalId);
+  }
+  const terminalIds = input.closeTerminal ? [] : groups.terminalTabs.map((tab) => tab.terminalId);
+  const agentIds = input.closeAgent ? [] : groups.archiveAgentTabs.map((tab) => tab.agentId);
+  const hasDestructiveTabs = agentIds.length > 0 || terminalIds.length > 0;
 
   for (const { tabId, agentId } of groups.layoutOnlyAgentTabs) {
     await closeTab(tabId, async () => {
@@ -150,8 +160,8 @@ export async function closeBulkWorkspaceTabs(input: CloseBulkWorkspaceTabsInput)
   if (hasDestructiveTabs && client) {
     void client
       .closeItems({
-        agentIds: groups.archiveAgentTabs.map((tab) => tab.agentId),
-        terminalIds: groups.terminalTabs.map((tab) => tab.terminalId),
+        agentIds,
+        terminalIds,
       })
       .catch((error) => {
         warn?.(`[WorkspaceScreen] Failed to bulk close tabs ${logLabel}`, { error });

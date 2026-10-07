@@ -1,6 +1,8 @@
+import { useHosts } from "@/runtime/host-runtime";
+import { readExecutionInstallation } from "@/execution-installation/policy";
 import { useCallback, useMemo, type ReactElement, type ReactNode } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
-import { Check, CircleAlert } from "lucide-react-native";
+import { Box, Monitor, Check, CircleAlert } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import invariant from "tiny-invariant";
@@ -16,7 +18,7 @@ import {
   STATUS_INDICATOR_ALERT_SIZE,
   STATUS_INDICATOR_DOT_SIZE,
 } from "@/utils/status-indicator-geometry";
-import type { Theme } from "@/styles/theme";
+import { EXECUTION_ENVIRONMENT_COLORS, type Theme } from "@/styles/theme";
 import { usePanelInstanceAttributes } from "@/panels/panel-instance-attributes";
 
 export interface WorkspaceTabPresentation {
@@ -30,6 +32,7 @@ export interface WorkspaceTabPresentation {
   titleState: "ready" | "loading";
   icon: React.ComponentType<PanelIconProps>;
   statusBucket: SidebarStateBucket | null;
+  environmentKind?: "host" | "container";
 }
 
 const DEFAULT_STATUS_DOT_OFFSET = -2;
@@ -76,9 +79,18 @@ function WorkspaceTabPresentationResolverInner({
   workspaceId,
   children,
 }: WorkspaceTabPresentationResolverInnerProps): ReactElement {
+  const hosts = useHosts();
+  const executionServerId = tab.target.environment?.serverId ?? serverId;
+  const installationEnvironment = readExecutionInstallation()?.environments.find(
+    (item) => item.serverId === executionServerId,
+  );
+  let environmentLabel = hosts.find((host) => host.serverId === executionServerId)?.label ?? "";
+  if (installationEnvironment)
+    environmentLabel = installationEnvironment.kind === "host" ? "Host" : "Dev container";
+  const showEnvironment = tab.kind === "agent" && hosts.length > 1;
   const descriptor = registration.useDescriptor(tab.target as never, {
-    serverId,
-    workspaceId,
+    serverId: tab.target.environment?.serverId ?? serverId,
+    workspaceId: tab.target.environment?.workspaceId ?? workspaceId,
     tabId: tab.tabId,
   });
   const attributes = usePanelInstanceAttributes({ serverId, workspaceId, tabId: tab.tabId });
@@ -87,9 +99,10 @@ function WorkspaceTabPresentationResolverInner({
     () => ({
       key: tab.key,
       kind: tab.kind,
-      label: descriptor.label,
+      label: showEnvironment ? `${descriptor.label} · ${environmentLabel}` : descriptor.label,
       subtitle: descriptor.subtitle,
-      tooltip: descriptor.tooltip,
+      tooltip: showEnvironment ? `${descriptor.tooltip} · ${environmentLabel}` : descriptor.tooltip,
+      environmentKind: showEnvironment ? installationEnvironment?.kind : undefined,
       modified: attributes.modified,
       showCloseButton: registration.showCloseButton,
       titleState: descriptor.titleState,
@@ -97,6 +110,9 @@ function WorkspaceTabPresentationResolverInner({
       statusBucket: descriptor.statusBucket,
     }),
     [
+      showEnvironment,
+      installationEnvironment?.kind,
+      environmentLabel,
       descriptor.icon,
       descriptor.label,
       descriptor.tooltip,
@@ -151,7 +167,12 @@ export function WorkspaceTabIcon({
   if (bucket === "failed") statusDotColor = styles.statusDotFailed.color;
   else if (bucket === "attention") statusDotColor = styles.statusDotAttention.color;
   const showNeedsInputAlert = bucket === "needs_input";
-  const Icon = presentation.icon;
+  let Icon = presentation.icon;
+  let executionColor = iconColor;
+  if (presentation.environmentKind) {
+    Icon = presentation.environmentKind === "host" ? Monitor : Box;
+    executionColor = EXECUTION_ENVIRONMENT_COLORS[presentation.environmentKind];
+  }
   const agentIconWrapperStyle = useMemo(
     () => [styles.agentIconWrapper, { width: size, height: size }],
     [size],
@@ -169,7 +190,7 @@ export function WorkspaceTabIcon({
 
   return (
     <View style={agentIconWrapperStyle}>
-      <Icon size={size} color={iconColor} strokeWidth={strokeWidth} />
+      <Icon size={size} color={executionColor} strokeWidth={strokeWidth} />
       {isRunning ? (
         <View
           style={styles.statusRing}

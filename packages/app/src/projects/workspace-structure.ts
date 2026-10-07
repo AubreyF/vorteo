@@ -45,12 +45,16 @@ interface ProjectDraft {
 export function buildWorkspaceStructureProjects(input: {
   sessions: WorkspaceStructureSession[];
 }): WorkspaceStructureProject[] {
+  const sessions = input.sessions.map((session) => ({
+    ...session,
+    workspaces: Array.from(session.workspaces),
+  }));
   const byProject = new Map<string, ProjectDraft>();
   const projectEntries: Array<{ serverId: string; project: ProjectDescriptor }> = [];
   const keyCountsByServer = new Map<string, Map<string, number>>();
   const viewKeyByServerProjectId = new Map<string, Map<string, string>>();
 
-  for (const session of input.sessions) {
+  for (const session of sessions) {
     for (const project of session.projects) {
       projectEntries.push({ serverId: session.serverId, project });
       const sharedKey = project.projectKey ?? null;
@@ -79,8 +83,17 @@ export function buildWorkspaceStructureProjects(input: {
     );
   }
 
-  for (const session of input.sessions) {
+  const workspaceKeys = new Set(
+    sessions.flatMap((session) =>
+      Array.from(session.workspaces)
+        .filter((workspace) => !workspace.projectMembership?.environmentOwner)
+        .map((workspace) => `${session.serverId}:${workspace.id}`),
+    ),
+  );
+  for (const session of sessions) {
     for (const workspace of session.workspaces) {
+      const owner = workspace.projectMembership?.environmentOwner;
+      if (owner && workspaceKeys.has(`${owner.serverId}:${owner.workspaceId}`)) continue;
       const membership = workspace.projectMembership;
       const viewKey =
         membership?.key ?? viewKeyByServerProjectId.get(session.serverId)?.get(workspace.projectId);

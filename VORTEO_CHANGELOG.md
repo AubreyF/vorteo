@@ -2,6 +2,19 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.152 - 2026-10-07
+
+### Changed
+
+- Select a new task's environment separately from its account and profile, keeping the draft in place
+- Keep Host and Dev container tasks in one visible workspace, with environment labels on task tabs
+- Reuse exact shared-folder mappings or an explicitly chosen destination folder instead of guessing from another workspace
+
+### Fixed
+
+- Preserve drafts on connection and attachment-transfer failures when starting a task in another environment
+- Route conversation loading and task actions to the task's environment after reload
+
 ## 0.11.0-beta.3.vorteo.150 - 2026-10-06
 
 ### Changed

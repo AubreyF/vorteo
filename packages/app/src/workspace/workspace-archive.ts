@@ -1,3 +1,4 @@
+import { workspaceEnvironmentMembers } from "@/task-environments/workspaces";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import {
   clearWorkspaceArchivePending,
@@ -83,6 +84,30 @@ export async function archiveWorkspaceOptimistically(input: {
   client: WorkspaceArchiveClient;
   workspace: WorkspaceArchiveTarget;
 }): Promise<void> {
+  const members = workspaceEnvironmentMembers(useSessionStore.getState().sessions, input.workspace);
+  const isOwner =
+    members[0]?.serverId === input.workspace.serverId &&
+    members[0]?.workspaceId === input.workspace.workspaceId;
+  const companions = (isOwner ? members : []).filter(
+    (member) =>
+      member.serverId !== input.workspace.serverId ||
+      member.workspaceId !== input.workspace.workspaceId,
+  );
+  const operations = companions.map((workspace) => {
+    const client = getHostRuntimeStore().getClient(workspace.serverId);
+    if (!client) throw new Error("Reconnect all workspace environments before archiving.");
+    return { client, workspace };
+  });
+  for (const operation of operations) {
+    await archiveWorkspaceOrThrow({
+      client: operation.client,
+      workspaceId: operation.workspace.workspaceId,
+    });
+    getHostRuntimeStore().removeWorkspaceSnapshot(
+      operation.workspace.serverId,
+      operation.workspace.workspaceId,
+    );
+  }
   const snapshot = hideWorkspaceOptimistically(input.workspace);
 
   try {

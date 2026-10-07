@@ -29,31 +29,6 @@ export async function createDestinationWorkspace(input: NewDestinationWorkspace)
   return result.workspace;
 }
 
-export async function resolveDestinationDirectory(input: {
-  client: Pick<DaemonClient, "listProjects" | "browseProjectDirectories"> &
-    DestinationWorkspaceClient;
-  project: NonNullable<WorkspaceDescriptorPayload["projectMembership"]>;
-  repositoryKey: string | null;
-}) {
-  const workspaces = await readDestinationWorkspaces(input.client);
-  const member = workspaces.find(
-    (workspace) => workspace.projectMembership?.key === input.project.key,
-  );
-  if (member) return member.workspaceDirectory ?? member.projectRootPath;
-  const projects = (await input.client.listProjects()).projects;
-  const matches = projects.filter(
-    (project) => input.repositoryKey && project.projectKey === input.repositoryKey,
-  );
-  if (matches.length === 1) return matches[0].projectRootPath;
-  const browse = await input.client.browseProjectDirectories({});
-  if (browse.error) throw new Error(browse.error);
-  const directory =
-    browse.directory?.containerPath ??
-    browse.roots.find((root) => root.id === "home")?.containerPath;
-  if (!directory) throw new Error("No working directory is available in this environment.");
-  return directory;
-}
-
 export interface DestinationWorkspaceClient {
   fetchWorkspaces(
     options?: Pick<FetchWorkspacesOptions, "page">,

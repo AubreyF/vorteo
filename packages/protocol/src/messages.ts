@@ -1139,9 +1139,15 @@ export const WorkspaceTitleSuggestResponseSchema = z.object({
   }),
 });
 
+export const WorkspaceEnvironmentOwnerSchema = z.object({
+  serverId: z.string().min(1),
+  workspaceId: z.string().min(1),
+});
+
 export const WorkspaceProjectMembershipSchema = z.object({
   key: z.string().min(1).max(2048),
   name: z.string().min(1).max(256),
+  environmentOwner: WorkspaceEnvironmentOwnerSchema.optional(),
 });
 
 export const WorkspaceProjectSetRequestSchema = z.object({
@@ -3778,6 +3784,8 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceMultiplicity: z.boolean().optional(),
         // COMPAT(workspaceProjectMembership): added in v0.11.0-beta.3.vorteo.124; retain the gate for older daemons.
         workspaceProjectMembership: z.boolean().optional(),
+        // COMPAT(workspaceTaskEnvironments): gate bindings on daemons that persist them.
+        workspaceTaskEnvironments: z.boolean().optional(),
         // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; retain until the daemon floor supports the admission barrier.
         idleRestart: z.boolean().optional(),
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.

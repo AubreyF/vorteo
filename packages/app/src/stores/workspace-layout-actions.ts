@@ -271,6 +271,8 @@ export interface WorkspaceTabSnapshot {
   terminalsHydrated: boolean;
   activeAgentIds: Iterable<string>;
   autoOpenAgentIds: Iterable<string>;
+  agentTargets?: Record<string, WorkspaceTabTarget>;
+  hydratedEnvironmentIds?: Iterable<string>;
   knownTerminalIds?: Iterable<string>;
   standaloneTerminalIds: Iterable<string>;
   hasActivePendingTerminalCreate?: boolean;
@@ -2341,9 +2343,13 @@ function collapseStaleEntityTabs(input: {
   explorerSidebarPaneId: string | null;
 }): WorkspaceLayout {
   const { snapshot, visibleAgentIds, knownTerminalIds } = input;
+  const hydratedEnvironments = new Set(snapshot.hydratedEnvironmentIds);
   let nextLayout = input.layout;
   for (const tab of collectAllTabs(nextLayout.root)) {
-    if (isAgentTab(tab) && snapshot.agentsHydrated && !visibleAgentIds.has(tab.target.agentId)) {
+    const agentsHydrated = tab.target.environment
+      ? hydratedEnvironments.has(tab.target.environment.serverId)
+      : snapshot.agentsHydrated;
+    if (isAgentTab(tab) && agentsHydrated && !visibleAgentIds.has(tab.target.agentId)) {
       nextLayout =
         closeTabInLayout({
           layout: nextLayout,
@@ -2353,6 +2359,7 @@ function collapseStaleEntityTabs(input: {
     }
     if (
       isTerminalTab(tab) &&
+      !tab.target.environment &&
       snapshot.terminalsHydrated &&
       !knownTerminalIds.has(tab.target.terminalId)
     ) {
@@ -2370,6 +2377,7 @@ function collapseStaleEntityTabs(input: {
 function addMissingEntityTabs(input: {
   layout: WorkspaceLayout;
   autoOpenAgentIds: Set<string>;
+  agentTargets?: Record<string, WorkspaceTabTarget>;
   representedAgentIds: Set<string>;
   standaloneTerminalIds: Set<string>;
   hasActivePendingTerminalCreate: boolean;
@@ -2378,6 +2386,7 @@ function addMissingEntityTabs(input: {
 }): WorkspaceLayout {
   const {
     autoOpenAgentIds,
+    agentTargets,
     representedAgentIds,
     standaloneTerminalIds,
     hasActivePendingTerminalCreate,
@@ -2403,7 +2412,7 @@ function addMissingEntityTabs(input: {
     }
     nextLayout = openEntityTabWithoutFocusing({
       layout: nextLayout,
-      target: { kind: "agent", agentId },
+      target: agentTargets?.[agentId] ?? { kind: "agent", agentId },
       explorerSidebarPaneId,
     });
     currentAgentIds.add(agentId);
@@ -2510,6 +2519,7 @@ export function reconcileWorkspaceTabs(
   nextLayout = addMissingEntityTabs({
     layout: nextLayout,
     autoOpenAgentIds: autoOpenSet,
+    agentTargets: snapshot.agentTargets,
     representedAgentIds,
     standaloneTerminalIds,
     hasActivePendingTerminalCreate: snapshot.hasActivePendingTerminalCreate ?? false,

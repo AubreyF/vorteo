@@ -1,12 +1,10 @@
+import { workspaceOwner } from "@/task-environments/workspaces";
+import { resolveTaskDirectory } from "@/task-environments/directory";
+import { useHosts } from "@/runtime/host-runtime";
 import { generateMessageId } from "@/types/stream";
-import { readDestinationWorkspaces, resolveDestinationDirectory } from "./destination-workspaces";
 import { selectWorkspaceStructureProjects } from "@/stores/session-store-hooks/selectors";
 import type { HostProjectListItem } from "@/projects/host-project-model";
-import { generateDraftId } from "@/stores/draft-keys";
-import {
-  navigateToWorkspace,
-  useActiveWorkspaceSelection,
-} from "@/stores/navigation-active-workspace-store";
+import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { createElement, useCallback, useMemo, useRef, useState, type ReactElement } from "react";
 import { router } from "expo-router";
 import { buildHostAgentDetailRoute } from "@/utils/host-routes";
@@ -69,6 +67,7 @@ export interface AgentProfilePickerRow {
 }
 
 export interface AgentProfilePicker {
+  currentEnvironmentOnly?: boolean;
   refreshStatus?: () => void;
   isRefreshingStatus?: boolean;
   isLoadingStatus?: boolean;
@@ -83,7 +82,7 @@ export interface AgentProfilePicker {
 }
 
 interface PendingHandoff {
-  source: AgentSnapshotPayload | null;
+  source: AgentSnapshotPayload;
   destinationServerId?: string;
   destinationProject?: NonNullable<WorkspaceDescriptorPayload["projectMembership"]>;
   destinationDirectory?: string;
@@ -116,6 +115,7 @@ export function useAgentProfilePicker(
   input: UseAgentProfilePickerInput,
 ): AgentProfilePicker | null {
   const { serverId, availableProviders, target } = input;
+  const hosts = useHosts();
   const activeWorkspace = useActiveWorkspaceSelection();
   const activeWorkspaceId =
     activeWorkspace?.serverId === serverId ? activeWorkspace.workspaceId : null;
@@ -152,52 +152,26 @@ export function useAgentProfilePicker(
           useSessionStore.getState().sessions[handoff.destinationServerId]?.client;
         if (!destinationClient || !workspace)
           throw new Error("Reconnect and select a destination workspace.");
-        if (handoff.source) {
-          const successor = await createEnvironmentProfileSuccessor({
-            sourceClient: client,
-            destinationClient,
-            source: handoff.source,
-            sourceServerId: handoff.serverId,
-            profile: handoff.profile,
-            reviewedContext: context,
-            workspaceId: workspace.id,
-            idempotencyKey: handoff.idempotencyKey,
-          });
-          setHandoff(null);
-          router.push(
-            buildHostAgentDetailRoute(
-              handoff.destinationServerId,
-              successor.id,
-              successor.workspaceId,
-            ),
-          );
-          return;
-        }
-        const current = await readDestinationWorkspaces(destinationClient);
-        const destination = current.find((item) => item.id === workspace.id && !item.archivingAt);
-        if (!destination) throw new Error("The destination workspace is no longer available.");
-        const resolved = materializeAgentProfile(handoff.profile);
-        navigateToWorkspace({
-          serverId: handoff.destinationServerId,
-          workspaceId: destination.id,
-          target: {
-            kind: "draft",
-            draftId: generateDraftId(),
-            setup: {
-              provider: resolved.provider,
-              profileId: resolved.profileId,
-              cwd: destination.workspaceDirectory ?? destination.projectRootPath,
-              model: resolved.modelId || null,
-              modeId: resolved.modeId || null,
-              thinkingOptionId: resolved.thinkingOptionId || null,
-              featureValues: resolved.featureValues,
-            },
-          },
+        const successor = await createEnvironmentProfileSuccessor({
+          sourceClient: client,
+          destinationClient,
+          source: handoff.source,
+          sourceServerId: handoff.serverId,
+          profile: handoff.profile,
+          reviewedContext: context,
+          workspaceId: workspace.id,
+          idempotencyKey: handoff.idempotencyKey,
         });
         setHandoff(null);
+        router.push(
+          buildHostAgentDetailRoute(
+            handoff.destinationServerId,
+            successor.id,
+            successor.workspaceId,
+          ),
+        );
         return;
       }
-      if (!handoff.source) throw new Error("Source task not found.");
       const successor = await createProfileSuccessor(
         client,
         handoff.source,
@@ -211,21 +185,15 @@ export function useAgentProfilePicker(
   );
   const handoffElement = handoff
     ? createElement(ProfileHandoffModal, {
-        key: `${handoff.source?.id ?? "draft"}:${handoff.profile.id}:${handoff.destinationServerId ?? serverId}`,
+        key: `${handoff.source.id}:${handoff.profile.id}:${handoff.destinationServerId ?? serverId}`,
         name: handoff.profile.name,
         destinationServerId: handoff.destinationServerId,
         destinationProject: handoff.destinationProject,
         destinationDirectory: handoff.destinationDirectory,
         workspaceName: handoff.workspaceName,
-        draft: handoff.source === null,
-        ...(handoff.source === null
-          ? {
-              title: `Use ${handoff.profile.name}`,
-              confirmLabel: "Open draft",
-              description:
-                "Open a thread in this project using the selected environment. Your original draft and its attachments stay in place.",
-            }
-          : {}),
+        title: handoff.destinationServerId
+          ? `Continue in ${hosts.find((host) => host.serverId === handoff.destinationServerId)?.label ?? "another environment"}`
+          : undefined,
         initialContext: handoff.context,
         onClose: closeHandoff,
         onConfirm: confirmHandoff,
@@ -253,19 +221,16 @@ export function useAgentProfilePicker(
 
   const applyDestinationProfile = useCallback(
     (destinationServerId: string, profile: AgentProfile) => {
+      if (target.kind === "draft") return;
       if (!client || !serverId || applyingRef.current) return;
       applyingRef.current = true;
       setIsApplying(true);
       void (async () => {
         try {
-          let source: AgentSnapshotPayload | null = null;
-          let context = "";
-          if (target.kind === "agent") {
-            const fetched = await client.fetchAgent(target.agentId);
-            if (!fetched) throw new Error("Source task not found.");
-            source = fetched.agent;
-            context = await readProfileHandoff(client, source);
-          }
+          const fetched = await client.fetchAgent(target.agentId);
+          if (!fetched) throw new Error("Source task not found.");
+          const source = fetched.agent;
+          const context = await readProfileHandoff(client, source);
           const sessions = useSessionStore.getState().sessions;
           const workspaceId = source?.workspaceId ?? activeWorkspaceId;
           const sourceWorkspace = workspaceId
@@ -281,23 +246,25 @@ export function useAgentProfilePicker(
             useSessionStore.getState(),
             Object.keys(sessions),
           );
-          const draftProject = target.kind === "draft" ? target.controls.project : null;
-          const selectedProject =
-            draftProject ??
-            projects.find((project) =>
-              project.workspaceKeys.includes(`${serverId}:${workspaceId}`),
-            );
+          const owner = workspaceOwner(
+            { serverId, workspaceId: workspaceId ?? "" },
+            sourceWorkspace ?? undefined,
+          );
+          const selectedProject = projects.find((project) =>
+            project.workspaceKeys.includes(`${owner.serverId}:${owner.workspaceId}`),
+          );
           if (!selectedProject)
             throw new Error("Select a project before choosing a profile from another environment.");
           const destinationProject = {
             key: selectedProject.viewKey,
             name: selectedProject.projectName,
           };
-          const destinationDirectory = await resolveDestinationDirectory({
-            client: destinationClient,
-            project: destinationProject,
-            repositoryKey: selectedProject.projectKey,
-          });
+          const destinationDirectory =
+            (await resolveTaskDirectory({
+              source: client,
+              destination: destinationClient,
+              directory: source.cwd,
+            })) ?? "";
           setHandoff({
             source,
             profile,
@@ -464,6 +431,7 @@ export function useAgentProfilePicker(
       isSupported && profiles !== null
         ? {
             rows,
+            currentEnvironmentOnly: target.kind === "draft",
             applyProfile,
             applyDestinationProfile,
             isApplying,
@@ -476,6 +444,7 @@ export function useAgentProfilePicker(
     [
       applyProfile,
       applyDestinationProfile,
+      target.kind,
       isSupported,
       profiles,
       rows,

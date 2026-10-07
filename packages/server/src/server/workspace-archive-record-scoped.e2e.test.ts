@@ -539,3 +539,18 @@ test("keeps the worktree on disk when a sibling workspace still references it", 
   expect(remaining.has(siblingWorkspaceId)).toBe(true);
   expect(existsSync(worktreeDir)).toBe(true);
 }, 60000);
+
+test("persists an environment association without changing directory ownership", async () => {
+  const cwd = makeTempDir("workspace-environment-binding-");
+  const workspaceId = await createLocalWorkspace(cwd, "Environment task");
+  const membership = {
+    key: "shared-project",
+    name: "Shared project",
+    environmentOwner: { serverId: "other-environment", workspaceId: "original-workspace" },
+  };
+  await ctx.client.setWorkspaceProject({ workspaceId, membership });
+  const workspace = (await ctx.client.fetchWorkspaces()).entries.find(
+    (entry) => entry.id === workspaceId,
+  );
+  expect(workspace).toMatchObject({ workspaceDirectory: cwd, projectMembership: membership });
+});

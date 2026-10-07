@@ -33,7 +33,14 @@ export type PluginWorkspaceTabTarget =
       agentId: string;
     };
 
-export type WorkspaceTabTarget =
+export interface WorkspaceTabEnvironment {
+  serverId: string;
+  workspaceId: string;
+}
+
+export type WorkspaceTabTarget = WorkspaceTabContent & { environment?: WorkspaceTabEnvironment };
+
+type WorkspaceTabContent =
   | { kind: "new_tab" }
   | { kind: "draft"; draftId: string; setup?: WorkspaceDraftTabSetup }
   | { kind: "agent"; agentId: string }

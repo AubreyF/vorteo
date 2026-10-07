@@ -11,6 +11,7 @@ interface RenamingTabState {
   kind: "terminal" | "agent";
   id: string;
   currentTitle: string;
+  serverId?: string;
 }
 
 interface UseWorkspaceTabRenameInput {
@@ -47,9 +48,18 @@ export function useWorkspaceTabRename(
       if (tab.target.kind === "agent") {
         const { agentId } = tab.target;
         const agent =
-          useSessionStore.getState().sessions[normalizedServerId]?.agents?.get(agentId) ?? null;
+          useSessionStore
+            .getState()
+            .sessions[tab.target.environment?.serverId ?? normalizedServerId]?.agents?.get(
+              agentId,
+            ) ?? null;
         const currentTitle = agent?.title ?? "";
-        setRenamingTab({ kind: "agent", id: agentId, currentTitle });
+        setRenamingTab({
+          kind: "agent",
+          id: agentId,
+          currentTitle,
+          serverId: tab.target.environment?.serverId ?? normalizedServerId,
+        });
       }
     },
     [normalizedServerId, terminalsData],
@@ -73,7 +83,10 @@ export function useWorkspaceTabRename(
         void queryClient.invalidateQueries({ queryKey: terminalsQueryKey });
         return;
       }
-      await client.updateAgent(renamingTab.id, { name: trimmed });
+      const agentClient =
+        useSessionStore.getState().sessions[renamingTab.serverId ?? normalizedServerId]?.client;
+      if (!agentClient) throw new Error(t("workspace.terminal.hostDisconnected"));
+      await agentClient.updateAgent(renamingTab.id, { name: trimmed });
       void queryClient.invalidateQueries({
         queryKey: ["sidebarAgentsList", normalizedServerId],
       });

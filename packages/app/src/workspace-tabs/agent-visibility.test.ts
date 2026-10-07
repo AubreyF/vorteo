@@ -3,6 +3,7 @@ import { getAgentPresentationIndex } from "@/subagents/policies";
 import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import {
   buildWorkspaceTabSnapshot,
+  deriveEnvironmentWorkspaceAgentVisibility,
   deriveWorkspaceAgentVisibility,
   shouldPruneWorkspaceAgentTab,
   workspaceAgentVisibilityEqual,
@@ -574,4 +575,21 @@ it("keeps execution-workspace recovery when the parent workspace remains availab
   });
   expect(result.activeAgentIds).toEqual(new Set(["child"]));
   expect(result.autoOpenAgentIds).toEqual(new Set(["child"]));
+});
+
+it("does not prune saved destination tabs before the owning workspace hydrates", () => {
+  const visibility = deriveEnvironmentWorkspaceAgentVisibility({
+    serverId: "host",
+    workspaceId: "source",
+    sessions: {
+      container: {
+        agents: new Map(),
+        agentDetails: new Map(),
+        workspaces: new Map(),
+        hasHydratedAgents: true,
+        hasHydratedWorkspaces: true,
+      },
+    },
+  });
+  expect(visibility.hydratedEnvironmentIds).toEqual(new Set());
 });

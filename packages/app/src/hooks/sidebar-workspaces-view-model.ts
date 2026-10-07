@@ -269,6 +269,20 @@ export function deriveProjectStatusBucket(input: {
     }
   }
 
+  const ownerKeys = new Set(
+    input.workspaces.map((placement) => `${placement.serverId}:${placement.workspaceId}`),
+  );
+  for (const [serverId, session] of Object.entries(input.sessions)) {
+    if (!session) continue;
+    for (const workspace of session.workspaces.values()) {
+      const owner = workspace.projectMembership?.environmentOwner;
+      if (!owner || !ownerKeys.has(`${owner.serverId}:${owner.workspaceId}`)) continue;
+      const ids = workspaceIdsByServer.get(serverId) ?? [];
+      ids.push(workspace.id);
+      workspaceIdsByServer.set(serverId, ids);
+    }
+  }
+
   const buckets: SidebarStateBucket[] = [];
   for (const [serverId, workspaceIds] of workspaceIdsByServer) {
     const session = input.sessions[serverId];
@@ -554,6 +568,7 @@ export function buildSidebarWorkspaceEntries(input: {
 
   const sessionByServerId = new Map(input.sessions.map((session) => [session.serverId, session]));
   const entries = new Map<string, SidebarWorkspaceEntry>();
+  const environmentStatuses = indexEnvironmentStatuses(input);
 
   for (const placement of input.placements) {
     const session = sessionByServerId.get(placement.serverId);
@@ -587,6 +602,7 @@ export function buildSidebarWorkspaceEntries(input: {
           }),
         );
     }
+    statuses.push(...(environmentStatuses.get(placement.workspaceKey) ?? []));
     const status = aggregateSidebarStateBuckets(statuses.map((value) => value.status));
     const winner = statuses.find((value) => value.status === status);
     entry.statusBucket = status;
@@ -814,4 +830,30 @@ export function deriveSidebarLoadingState(input: {
   const isLoading = input.isActive && hasRegisteredHosts && !allHydrated;
   const isInitialLoad = isLoading && !input.hasProjects;
   return { isLoading, isInitialLoad, isRevalidating: false };
+}
+
+function indexEnvironmentStatuses(input: {
+  sessions: SidebarWorkspaceSession[];
+  pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
+}) {
+  const environmentStatuses = new Map<string, EffectiveWorkspaceStatus[]>();
+  for (const session of input.sessions) {
+    for (const workspace of session.workspaces.values()) {
+      const owner = workspace.projectMembership?.environmentOwner;
+      if (!owner) continue;
+      const key = `${owner.serverId}:${owner.workspaceId}`;
+      const statuses = environmentStatuses.get(key) ?? [];
+      statuses.push(
+        deriveEffectiveWorkspaceStatus({
+          serverId: session.serverId,
+          workspace,
+          pendingCreateAttempts: input.pendingCreateAttempts,
+          workspaceAgentActivity: session.workspaceAgentActivity,
+        }),
+      );
+      environmentStatuses.set(key, statuses);
+    }
+  }
+
+  return environmentStatuses;
 }

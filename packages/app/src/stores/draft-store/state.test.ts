@@ -128,6 +128,7 @@ describe("draft-store normalization", () => {
   it("preserves uploaded file attachments when hydrating a draft", () => {
     const attachment = {
       kind: "file" as const,
+      sourceServerId: "original-environment",
       attachment: {
         type: "uploaded_file" as const,
         id: "file-1",

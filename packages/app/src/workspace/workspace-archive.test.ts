@@ -222,3 +222,59 @@ describe("archiveWorkspacesOptimistically", () => {
     expect(storedWorkspaceOn(SECOND_SERVER_ID, second.id)).toBeUndefined();
   });
 });
+
+it("archives explicitly bound environments before the visible workspace", async () => {
+  const original = workspace();
+  const companion = workspace({
+    id: "workspace-2",
+    workspaceKind: "directory",
+    projectMembership: { key: "project-1", name: "Project", environmentOwner: target() },
+  });
+  getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [original]);
+  useSessionStore.getState().initializeSession(SECOND_SERVER_ID, {} as DaemonClient);
+  getHostRuntimeStore().acceptWorkspaceSnapshots(SECOND_SERVER_ID, [companion]);
+  const calls: string[] = [];
+  const secondary = createClient(async (id) => {
+    calls.push(id);
+    return archivePayload({ workspaceId: id });
+  });
+  const getClient = vi
+    .spyOn(getHostRuntimeStore(), "getClient")
+    .mockReturnValue(secondary as DaemonClient);
+  try {
+    await archiveWorkspaceOptimistically({
+      workspace: target(),
+      client: createClient(async (id) => {
+        calls.push(id);
+        return archivePayload({ workspaceId: id });
+      }),
+    });
+    expect(calls).toEqual(["workspace-2", "workspace-1"]);
+    expect(storedWorkspaceOn(SECOND_SERVER_ID, companion.id)).toBeUndefined();
+  } finally {
+    getClient.mockRestore();
+  }
+});
+
+it("keeps the visible workspace when its other environment cannot be archived", async () => {
+  const original = workspace();
+  getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [original]);
+  useSessionStore.getState().initializeSession(SECOND_SERVER_ID, {} as DaemonClient);
+  getHostRuntimeStore().acceptWorkspaceSnapshots(SECOND_SERVER_ID, [
+    workspace({
+      id: "workspace-2",
+      projectMembership: { key: "project-1", name: "Project", environmentOwner: target() },
+    }),
+  ]);
+  const archive = vi.fn(async (id: string) => archivePayload({ workspaceId: id }));
+  const getClient = vi.spyOn(getHostRuntimeStore(), "getClient").mockReturnValue(null);
+  try {
+    await expect(
+      archiveWorkspaceOptimistically({ workspace: target(), client: createClient(archive) }),
+    ).rejects.toThrow("Reconnect all workspace environments");
+    expect(archive).not.toHaveBeenCalled();
+    expect(storedWorkspace(original.id)).toEqual(original);
+  } finally {
+    getClient.mockRestore();
+  }
+});
