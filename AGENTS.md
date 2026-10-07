@@ -39,8 +39,11 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 
 ## Work outside the container
 
-- Whenever a task needs access or actions outside your container, prepare a self-contained handoff prompt and invite the user to run it in an agent session with the required access. Use this for diagnostics as well as implementation and deployment. Do not send the user individual diagnostic commands to run and relay back.
-- Complete the available work first. Include the objective, verified findings, relevant paths, changes already made, validation evidence, remaining work, acceptance checks and unresolved decisions. Tell the receiving agent to gather its own diagnostics and carry the task through completion.
+- Before handing host work back to the owner, inspect the available skills, tools and installed clients for a supported operation. Use them within the task's authorization. Being in the container or lacking a host shell does not by itself require a continuity prompt.
+- For Host or Dev daemon restart requests and status queries, read the installed `installation-maintenance` skill and use its scoped client. Use `request-restart` only after preparation and validation, return the exact request's approval link, and use `restart-status` to inspect an existing request. Do not substitute a host continuity prompt for these supported operations. The owner still approves the exact restart; the client cannot approve it or grant host-shell access. See [restart routing](docs/host-handoff.md#use-supported-operations-first).
+- Use the managed preview helper for authorized preview lifecycle operations. Restart support does not imply support for source deployment, web publication, host policy changes or arbitrary host diagnostics.
+- Prepare a self-contained host handoff only for remaining work that available tools cannot perform, or when a concrete access or policy failure blocks the supported route. State what you inspected or attempted and the exact blocker. Complete supported operations and container work first. Do not send the owner individual diagnostic commands to run and relay back.
+- In a handoff, include the objective, verified findings, relevant paths, changes already made, validation evidence, remaining work, acceptance checks and unresolved decisions. Tell the receiving agent to gather its own diagnostics and carry the task through completion.
 - Preserve existing authorization and restart boundaries. A handoff does not grant permission to interrupt running work. Prepare a concrete deployment and rollback plan before requesting any required restart approval. Keep machine-specific handoffs and deployment details outside Git; follow [host handoff guidance](docs/host-handoff.md).
 
 ## Check your work

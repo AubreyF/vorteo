@@ -21,6 +21,7 @@ export interface SidebarCalloutProps {
   description?: ReactNode;
   icon?: ReactNode;
   variant?: SidebarCalloutVariant;
+  showTopBorder?: boolean;
   actions?: readonly SidebarCalloutAction[];
   onDismiss?: () => void;
   testID?: string;
@@ -35,6 +36,7 @@ export function SidebarCallout({
   description,
   icon,
   variant = "default",
+  showTopBorder = true,
   actions,
   onDismiss,
   testID,
@@ -46,8 +48,12 @@ export function SidebarCallout({
   const hasDescription = description != null && description !== "";
 
   const containerStyle = useMemo(
-    () => [styles.container, variant === "error" ? styles.containerError : null],
-    [variant],
+    () => [
+      styles.container,
+      variant === "error" ? styles.containerError : null,
+      !showTopBorder ? styles.withoutTopBorder : null,
+    ],
+    [variant, showTopBorder],
   );
 
   return (
@@ -152,6 +158,9 @@ const styles = StyleSheet.create((theme) => ({
     borderTopWidth: theme.borderWidth[1],
     borderTopColor: theme.colors.border,
     gap: theme.spacing[2],
+  },
+  withoutTopBorder: {
+    borderTopWidth: 0,
   },
   containerError: {
     borderTopColor: theme.colors.destructive,

@@ -2,6 +2,16 @@
 
 Keep an installation handoff outside Git. Include the current repository revision, active work, private deployment configuration, backed-up state, image references and verified acceptance evidence. Do not place credentials or machine-specific records in public documentation.
 
+## Use supported operations first
+
+Before preparing a host continuity prompt, inspect the installed skills and clients for the operation you need. Use supported operations within the owner's authorization, even when the target daemon runs outside your container.
+
+For Host and Dev daemon restart requests or status queries, read the installed `installation-maintenance` skill and use its configured client. The [skill template](../scripts/installation-skills/installation-maintenance/SKILL.md) documents the workflow; the installed copy supplies the environment's command. Complete preparation, validation and rollback planning before `request-restart`, return the exact request's approval link, and use `restart-status` to inspect its durable outcome. An existing request should be checked before proposing another. The owner approves each restart in Installation controls. A request, unlocked controls or a previous restart approval does not authorize a new restart.
+
+Use the managed preview helper for preview start, status, stop and restart. The restart client does not deploy source, publish web assets, change host policy or provide arbitrary host diagnostics. Host-only container-agent management remains restricted to trusted host orchestrators.
+
+A handoff is required only when the remaining work has no supported tool route or a concrete access or policy failure blocks that route. Identify the unsupported operation or observed failure, finish the work available here, and transfer only the remaining work. Do not hand off a supported restart request or status query merely because you lack a host shell. Do not bypass a broker rejection or broaden credentials to avoid a handoff.
+
 ## Install or operate
 
 For a new instance, follow the [container installer](../docker/multiplex/README.md). It builds locally on AMD64 or ARM64 and enrolls Tailscale inside the container. Connect provider accounts after installation. Optional macOS preview and recovery tools are separate from the standard installation.

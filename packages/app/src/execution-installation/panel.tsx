@@ -797,14 +797,14 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
           Status refresh failed. Showing last known activity.
         </Text>
       ) : null}
-      {jobs.map((job) => (
-        <RestartBannerItem key={job.id} job={job} />
+      {jobs.map((job, index) => (
+        <RestartBannerItem key={job.id} job={job} showTopBorder={index > 0} />
       ))}
     </ScrollView>
   );
 }
 
-function RestartBannerItem({ job }: { job: RestartJob }) {
+function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBorder: boolean }) {
   const router = useRouter();
   const open = useCallback(
     () =>
@@ -828,7 +828,7 @@ function RestartBannerItem({ job }: { job: RestartJob }) {
     ),
     [job, open],
   );
-  const target = job.target === "host" ? "Host" : "Dev container";
+  const target = job.target === "host" ? "Host daemon" : "Dev daemon";
   let title = `${target} restart needs approval`;
   if (job.status === "approved") title = `${target} restart queued`;
   if (job.finishCurrentTurns) title = `${target} finishing current turns`;
@@ -843,11 +843,23 @@ function RestartBannerItem({ job }: { job: RestartJob }) {
       ) : undefined,
     [inProgress, job.id],
   );
-  return <SidebarCallout title={title} icon={icon} description={description} />;
+  return (
+    <SidebarCallout
+      title={title}
+      icon={icon}
+      description={description}
+      showTopBorder={showTopBorder}
+    />
+  );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  banner: { maxHeight: 280, flexGrow: 0 },
+  banner: {
+    maxHeight: 280,
+    flexGrow: 0,
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+  },
   details: { gap: theme.spacing[2] },
   unlockRow: {
     flexDirection: "row",

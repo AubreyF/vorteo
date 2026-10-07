@@ -549,7 +549,7 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await expect(card).toContainText("Waiting 0h");
   expect((await activity.getDaemonStatus()).pid).toBe(beforePid);
   const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
-  await expect(banner).toContainText("Dev container restart queued");
+  await expect(banner).toContainText("Dev daemon restart queued");
   await expect(banner.getByTestId(`restart-progress-${job.id}`)).toBeVisible();
   await expect(banner).toContainText("This restart activates protected workspace controls.");
   await expect(banner).not.toContainText("The owner requested");
@@ -571,6 +571,111 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await expect(card).not.toContainText("environment identity verified");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
+});
+
+test("restart banner names daemons and keeps its top divider fixed while scrolling", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await page.goto(`${origin}/settings/general?installation=1`);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const pending = RestartJobSchema.array().parse(
+    await (await request("owner/restarts/query", ownerPassword, {})).json(),
+  );
+  for (const job of pending.filter((entry) => entry.status === "pending")) {
+    await request(`owner/restarts/${job.id}/decision`, ownerPassword, {
+      revision: job.revision,
+      decision: "reject",
+    });
+  }
+  const clients: Awaited<ReturnType<typeof connectInstallationDaemon>>[] = [];
+  const blockers: { client: (typeof clients)[number]; id: string }[] = [];
+  const jobs: string[] = [];
+  try {
+    for (const kind of ["container", "host"] as const) {
+      const client = await connectReadyInstallationDaemon(kind);
+      clients.push(client);
+      const directory = path.join(root, `banner-${kind}`);
+      await mkdir(directory, { recursive: true });
+      const { workspace } = await client.createWorkspace({
+        source: { kind: "directory", path: directory },
+      });
+      if (!workspace) throw new Error("Missing banner fixture workspace");
+      const blocker = await client.createAgent({
+        config: {
+          provider: "mock",
+          cwd: directory,
+          title: "Keep the banner fixture queued",
+          model: "thirty-minute-stream",
+        },
+        workspaceId: workspace.id,
+        initialPrompt: "Keep this isolated restart queued during the scroll check",
+      });
+      blockers.push({ client, id: blocker.id });
+      await expect
+        .poll(async () => (await client.fetchAgent({ agentId: blocker.id }))?.agent.status)
+        .toBe("running");
+      const target = kind === "host" ? "host" : "container-daemon";
+      const job = RestartJobSchema.parse(
+        await (
+          await request("restart-requests", guestToken, {
+            target,
+            reason:
+              "Activate the prepared daemon update while preserving active work and shared installation settings.",
+          })
+        ).json(),
+      );
+      jobs.push(job.id);
+      const response = await request(`owner/restarts/${job.id}/decision`, ownerPassword, {
+        revision: job.revision,
+        decision: "approve-when-idle",
+      });
+      expect(response.status).toBe(200);
+    }
+    const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
+    await expect(banner).toContainText("Dev daemon restart queued");
+    await expect(banner).toContainText("Host daemon restart queued");
+    const cards = banner.getByRole("alert");
+    await expect(cards).toHaveCount(2);
+    await expect(cards.first()).toHaveCSS("border-top-width", "0px");
+    await expect(cards.last()).toHaveCSS("border-top-width", "1px");
+    const bounds = await banner.boundingBox();
+    if (!bounds) throw new Error("Missing restart banner bounds");
+    const overflow = await banner.evaluate(
+      (element) => element.scrollHeight - element.clientHeight,
+    );
+    expect(overflow).toBeGreaterThan(0);
+    for (const fraction of [0, 0.5, 1]) {
+      await banner.evaluate((element, scrollTop) => {
+        element.scrollTop = scrollTop;
+      }, overflow * fraction);
+      await expect
+        .poll(() => banner.evaluate((element) => element.scrollTop))
+        .toBeCloseTo(overflow * fraction, 0);
+      await expect(banner).toHaveCSS("border-top-width", "1px");
+      expect(await banner.boundingBox()).toEqual(bounds);
+      await banner.screenshot({
+        path: testInfo.outputPath(`restart-banner-scroll-${fraction}.png`),
+      });
+    }
+    const firstCardBounds = await cards.first().boundingBox();
+    if (!firstCardBounds) throw new Error("Missing restart card bounds");
+    expect(firstCardBounds.y).toBeLessThan(bounds.y);
+  } finally {
+    for (const id of jobs) {
+      const response = await fetch(`${origin}/api/installation/restart-requests/${id}`, {
+        headers: { Authorization: `Bearer ${guestToken}` },
+      });
+      const job = RestartJobSchema.parse(await response.json());
+      await request(`owner/restarts/${id}/decision`, ownerPassword, {
+        revision: job.revision,
+        decision: "cancel",
+      });
+    }
+    for (const { client, id } of blockers) await client.cancelAgent(id);
+    for (const client of clients) await client.close();
+  }
 });
 
 test("restart links keep rejected and missing requests separate from a pending approval", async ({

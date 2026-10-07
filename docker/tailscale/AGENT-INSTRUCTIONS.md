@@ -28,7 +28,7 @@ The broker runs while the Mac is awake and the user session is available. It rev
 
 ## Owner preview preference
 
-When the owner requests a local preview, provide a verified private Tailscale HTTPS URL in every project and worktree. The request authorizes the managed preview lifecycle without a separate approval question. A localhost-only URL does not fulfill the request. Keep Funnel disabled and preserve path, listener ownership, and origin checks. Host changes require a self-contained continuity prompt for Codex on the primary host, including completed preparation, validation, remaining work, existing authority, and acceptance checks.
+When the owner requests a local preview, provide a verified private Tailscale HTTPS URL in every project and worktree. The request authorizes the managed preview lifecycle without a separate approval question. A localhost-only URL does not fulfill the request. Keep Funnel disabled and preserve path, listener ownership, and origin checks. Before preparing a host continuity prompt, check available skills and clients. Use the installed `installation-maintenance` skill for supported Host or Dev daemon restart requests and status queries, retaining owner approval for each restart. Host policy changes and other operations without a supported tool route require a self-contained continuity prompt, including the concrete blocker, completed preparation, validation, remaining work, existing authority, and acceptance checks.
 
 ## Preview workspace reuse
 
