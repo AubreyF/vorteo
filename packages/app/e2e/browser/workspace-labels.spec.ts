@@ -369,6 +369,11 @@ test.describe("Workspace labels", () => {
         await page.getByTestId("workspace-label-picker-create").tap();
         await expect(page.getByTestId("workspace-label-picker-create-name")).toBeVisible();
         await expect(labelRow(page, "Touch")).toBeHidden();
+        await page.getByTestId("workspace-label-picker-create-name").fill("Protected");
+        await page.getByTestId("workspace-label-picker-create-submit").tap();
+        await expect(page.getByTestId("workspace-label-picker-error")).toContainText(
+          "reserved for a built-in label",
+        );
         await page.getByTestId("workspace-label-picker-create-name").fill("Handheld");
         await page.getByTestId("workspace-label-swatch-emerald").tap();
         await page.getByTestId("workspace-label-picker-create-submit").tap();

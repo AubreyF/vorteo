@@ -2,6 +2,13 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.165 - 2026-10-06
+
+### Changed
+
+- Match workspace labels to the A1/G badge height. Use a lock for Protected and keep built-in names out of custom labels.
+- Overlay the sidebar menu with a solid square-edged background without sliding the row contents.
+
 ## 0.11.0-beta.3.vorteo.164 - 2026-10-06
 
 ### Changed
