@@ -4,7 +4,7 @@ import { parseChangelog } from "../../src/changelog/internal/parse-changelog";
 import { expect, test, type Page } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
 import { openSettingsSection } from "../support/helpers/settings";
-import { openWhatsNew, release, serveChangelog } from "../support/helpers/changelog";
+import { release, serveChangelog } from "../support/helpers/changelog";
 
 const customReleases = parseChangelog(
   readFileSync(path.resolve(__dirname, "../../../../VORTEO_CHANGELOG.md"), "utf8"),
@@ -15,7 +15,8 @@ const DISCORD_DESTINATION =
   /^https:\/\/(?:discord\.gg\/jz8T2uahpH|discord\.com\/invite\/jz8T2uahpH)(?:[/?#]|$)/;
 const GITHUB_ISSUE_DESTINATION =
   /^https:\/\/github\.com\/(?:getpaseo\/paseo\/issues\/new(?:\/choose)?(?:[/?#]|$)|login\?return_to=https%3A%2F%2Fgithub\.com%2Fgetpaseo%2Fpaseo%2Fissues%2Fnew$)/;
-const CHANGELOG_DESTINATION = /^https:\/\/paseo\.sh\/changelog(?:[/?#]|$)/;
+const CHANGELOG_DESTINATION =
+  /^https:\/\/github\.com\/AubreyF\/vorteo\/blob\/main\/VORTEO_CHANGELOG\.md(?:[?#]|$)/;
 // The name and the version are separate cells of a key/value row, so they meet with no space
 // between them in the row's text content.
 const APP_VERSION = /^Vorteo\s*v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -80,13 +81,14 @@ test("opens troubleshooting and support destinations", async ({ page }) => {
   });
 });
 
-test("renders the changelog in the app and links the website", async ({ page }) => {
+test("renders the changelog from Settings and links the Vorteo repository", async ({ page }) => {
+  // Future dates keep these rendering fixtures above bundled historical notes.
   // A callout, a section name the app has never seen, and a fenced sample whose
   // contents look like a release heading.
   await serveChangelog(page, [
     "# Changelog",
     "",
-    "## 9.1.0 - 2026-03-04",
+    "## 9.1.0 - 2099-03-04",
     "",
     "Headline release note.",
     "",
@@ -101,7 +103,7 @@ test("renders the changelog in the app and links the website", async ({ page }) 
     "## 0.0.0 - 1999-01-01",
     "```",
     "",
-    "## 9.0.0 - 2026-02-01",
+    "## 9.0.0 - 2099-02-01",
     "",
     "### Fixed",
     "",
@@ -110,10 +112,13 @@ test("renders the changelog in the app and links the website", async ({ page }) 
   ]);
   await gotoAppShell(page);
 
-  const sheet = await openWhatsNew(page);
+  await openSettings(page);
+  await page.getByTestId("settings-whats-new").click();
+  const sheet = page.getByTestId("changelog-sheet");
+  await expect(sheet).toBeVisible();
   const latest = release(sheet, "9.1.0");
 
-  await expect(latest.getByText("March 4, 2026", { exact: true })).toBeVisible();
+  await expect(latest.getByText("March 4, 2099", { exact: true })).toBeVisible();
   await expect(latest.getByText("Headline release note.")).toBeVisible();
   await expect(latest.getByText("Read this before upgrading.")).toBeVisible();
   await expect(latest.getByText("Sparkles", { exact: true })).toBeVisible();

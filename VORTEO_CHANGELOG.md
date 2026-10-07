@@ -1,6 +1,19 @@
 # Vorteo changelog
 
-Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
+Vorteo change history, covering features, fixes, documentation, tests, tooling and upstream integration. Update this file in every commit using the prepared version and a dated entry. See the [commit workflow](docs/release.md#vorteo-release-notes).
+
+The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
+
+## 0.11.0-beta.3.vorteo.168 - 2026-10-07
+
+### Changed
+
+- Open the full changelog from Settings on the Vorteo GitHub repository
+
+### Maintenance
+
+- Require staged, dated changelog entries for every commit before changing version manifests
+- Document changelog scope and link version history from the README
 
 ## 0.11.0-beta.3.vorteo.167 - 2026-10-07
 

@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/app",
-  "version": "0.11.0-beta.3.vorteo.167",
+  "version": "0.11.0-beta.3.vorteo.168",
   "private": true,
   "main": "index.ts",
   "scripts": {

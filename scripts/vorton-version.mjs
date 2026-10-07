@@ -46,6 +46,19 @@ const parentCounters = parentVersions.map((parent) => Number(parent[5] ?? parent
 const counter = Math.max(historicalCounterFloor, ...parentCounters) + 1;
 if (!Number.isSafeInteger(counter)) throw new Error("Vorteo counter exceeds safe integer range.");
 const next = `${base}${current[4] ? "." : "-"}vorteo.${counter}`;
+// Validate the index before changing manifests; unstaged notes cannot satisfy a commit.
+if (mode === "--hook" || mode === "--check") {
+  const changelog = "VORTEO_CHANGELOG.md";
+  const changed = git("diff", "--cached", "--name-only", "HEAD", "--", changelog);
+  if (!changed) throw new Error(`Stage a ${changelog} entry for every commit (${next}).`);
+  const staged = git("show", `:${changelog}`);
+  const [, latest = ""] = staged.split(/^## /m);
+  const [heading, ...body] = latest.split(/\r?\n/);
+  const match = /^(\S+) - (\d{4}-\d{2}-\d{2})$/.exec(heading);
+  if (!match || match[1] !== next || !/^- \S/m.test(body.join("\n"))) {
+    throw new Error(`Stage a nonempty top ${changelog} entry headed "## ${next} - YYYY-MM-DD".`);
+  }
+}
 const files = [
   "package.json",
   ...root.workspaces.map((workspace) => `${workspace}/package.json`),

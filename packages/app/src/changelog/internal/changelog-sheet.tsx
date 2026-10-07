@@ -39,7 +39,7 @@ import {
 const customMarkdown: unknown = Constants.expoConfig?.extra?.vorteoChangelog;
 const customReleases = parseChangelog(typeof customMarkdown === "string" ? customMarkdown : "");
 
-const WEBSITE_CHANGELOG_URL = "https://paseo.sh/changelog";
+const WEBSITE_CHANGELOG_URL = "https://github.com/AubreyF/vorteo/blob/main/VORTEO_CHANGELOG.md";
 
 const ThemedGift = withUnistyles(Gift);
 const ThemedExternalLink = withUnistyles(ExternalLink);

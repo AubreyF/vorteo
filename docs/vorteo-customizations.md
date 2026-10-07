@@ -58,7 +58,7 @@ This inventory describes the reviewed source. Availability depends on the instal
 ## Product identity and release tracking
 
 - **Vorteo identity.** App names, icons and packaging identify the fork. There is no alternate Paseo mode or separately installed Paseo application; install upstream independently to use both.
-- **Custom release history.** What's new combines bundled Vorteo notes with Paseo notes in date order, labels their source and loads older entries automatically while scrolling. Custom notes remain available when the upstream feed cannot be reached. See [release notes](release.md#vorteo-release-notes).
+- **Custom release history.** What's new combines bundled Vorteo notes with Paseo notes in date order, labels their source and loads older entries automatically while scrolling. Custom notes remain available when the upstream feed cannot be reached. Full changelog opens the Vorteo history on GitHub. Commit hooks require a staged, dated entry for every commit, including maintenance. See [release notes](release.md#vorteo-release-notes).
 - **Continuous custom versions.** Each commit advances the Vorteo counter, including documentation and tooling commits. Upstream upgrades retain that sequence; manifests, internal dependency pins, lockfiles and native metadata stay synchronized through the installed hook. See [commit versioning](release.md#vorton-commit-versions).
 
 ## Incomplete integrations
@@ -79,4 +79,4 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
-October 7, 2026: Integrated the accepted restart controls, workspace badge changes, Claude sign-in completion, settings navigation and tabs, provider catalog selection, worker model display and dismissal, and explicit worker account editing with current main. Integrated the accepted compact badge and fixed menu overlay follow-up. Preserved the newer README and account usage behavior; minor badge details belong in this inventory and the workspace guide. Source validation and publication do not establish live runtime acceptance.
+October 7, 2026: Integrated the accepted restart controls, workspace badge changes, Claude sign-in completion, settings navigation and tabs, provider catalog selection, worker model display and dismissal, and explicit worker account editing with current main. Integrated the accepted compact badge and fixed menu overlay follow-up. Preserved the newer README and account usage behavior; minor badge details belong in this inventory and the workspace guide. Integrated the completed changelog enforcement and Settings link changes, with focused hook and browser coverage. Source validation and publication do not establish live runtime acceptance.

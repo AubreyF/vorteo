@@ -14,6 +14,13 @@ test("commit versions advance once, preserve staging, and synchronize lock metad
   const write = (file, value) =>
     writeFileSync(path.join(cwd, file), `${JSON.stringify(value, null, 2)}\n`);
   const read = (file) => JSON.parse(readFileSync(path.join(cwd, file), "utf8"));
+  const stageChangelog = (version) => {
+    writeFileSync(
+      path.join(cwd, "VORTEO_CHANGELOG.md"),
+      `# Vorteo changelog\n\n## ${version} - 2026-10-07\n\n### Maintenance\n\n- Update the fixture\n`,
+    );
+    git("add", "VORTEO_CHANGELOG.md");
+  };
   try {
     mkdirSync(path.join(cwd, "packages/a"), { recursive: true });
     git("init");
@@ -39,6 +46,24 @@ test("commit versions advance once, preserve staging, and synchronize lock metad
     const hook = path.join(cwd, ".git/hooks/pre-commit");
     writeFileSync(hook, `#!/bin/sh\nexec "${process.execPath}" "${script}" --hook\n`);
     chmodSync(hook, 0o755);
+    const unchangedIndex = git("diff", "--cached");
+    assert.throws(() => run(process.execPath, [script, "--hook"]), /entry for every commit/);
+    assert.equal(git("diff", "--cached"), unchangedIndex);
+    assert.equal(read("package.json").version, "0.7.2");
+    stageChangelog("0.7.2-vorteo.100");
+    const validNotes = readFileSync(path.join(cwd, "VORTEO_CHANGELOG.md"), "utf8");
+    for (const invalid of [
+      validNotes.replace("vorteo.100", "vorteo.99"),
+      validNotes.replace("- Update the fixture", ""),
+      validNotes.replace("2026-10-07", "undated"),
+    ]) {
+      writeFileSync(path.join(cwd, "VORTEO_CHANGELOG.md"), invalid);
+      git("add", "VORTEO_CHANGELOG.md");
+      writeFileSync(path.join(cwd, "VORTEO_CHANGELOG.md"), validNotes);
+      assert.throws(() => run(process.execPath, [script, "--hook"]), /nonempty top/);
+      assert.equal(read("package.json").version, "0.7.2");
+    }
+    git("add", "VORTEO_CHANGELOG.md");
     run(process.execPath, [script, "--hook"]);
     assert.equal(read("package.json").version, "0.7.2-vorteo.100");
     run(process.execPath, [script, "--hook"]);
@@ -46,6 +71,8 @@ test("commit versions advance once, preserve staging, and synchronize lock metad
     assert.equal(read("package.json").version, "0.7.2-vorteo.100");
     git("commit", "-m", "first");
     writeFileSync(path.join(cwd, "unrelated.txt"), "leave me unstaged");
+    assert.throws(() => run(process.execPath, [script, "--hook"]), /entry for every commit/);
+    stageChangelog("0.7.2-vorteo.101");
     run(process.execPath, [script, "--hook"]);
     assert.equal(read("package.json").version, "0.7.2-vorteo.101");
     assert.equal(read("package-lock.json").packages["packages/a"].version, "0.7.2-vorteo.101");
@@ -68,7 +95,9 @@ test("commit versions advance once, preserve staging, and synchronize lock metad
     run(process.execPath, [script]);
     assert.equal(read("package.json").version, "0.9.0-beta.2.vorteo.102");
     git("add", "package.json", "packages/a/package.json", "package-lock.json");
+    stageChangelog("0.9.0-beta.2.vorteo.102");
     git("commit", "-m", "beta base");
+    stageChangelog("0.9.0-beta.2.vorteo.103");
     run(process.execPath, [script, "--hook"]);
     assert.equal(read("package.json").version, "0.9.0-beta.2.vorteo.103");
     root.version = "0.9.0-beta.1";
@@ -83,6 +112,7 @@ test("commit versions advance once, preserve staging, and synchronize lock metad
     run(process.execPath, [script]);
     assert.equal(read("package.json").version, "0.9.0-vorteo.103");
     git("add", "package.json", "packages/a/package.json", "package-lock.json");
+    stageChangelog("0.9.0-vorteo.103");
     git("commit", "-m", "stable base");
     root.version = "0.9.0-beta.3";
     write("package.json", root);
@@ -133,6 +163,10 @@ for (const versions of [
       writeVersion(versions[0]);
       run(process.execPath, [script]);
       assert.equal(version(), versions[2]);
+      writeFileSync(
+        path.join(cwd, "VORTEO_CHANGELOG.md"),
+        `# Vorteo changelog\n\n## ${versions[2]} - 2026-10-07\n\n### Maintenance\n\n- Merge upstream changes\n`,
+      );
       git("add", ".");
       run(process.execPath, [script, "--hook"]);
       run(process.execPath, [script, "--check"]);

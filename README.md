@@ -37,6 +37,8 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 <img width="400" alt="Protected and scheduled workspaces" src="https://github.com/user-attachments/assets/757352aa-a2e7-457d-b95f-7ded601444f7" />
 
+See the [Vorteo customizations](docs/vorteo-customizations.md) for the full feature inventory and the [Vorteo changelog](VORTEO_CHANGELOG.md) for changes by version.
+
 ## Install
 
 Give your agent this command, or run it yourself:
