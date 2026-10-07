@@ -12,6 +12,7 @@ export interface RestartJournal {
 }
 
 export interface RestartExecutor {
+  installUpdate?(job: RestartJob): Promise<string>;
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
   restartWhenIdle?(target: RestartJob["target"]): Promise<string | null>;
@@ -20,6 +21,15 @@ export interface RestartExecutor {
 }
 
 export class RestartRequestError extends Error {}
+
+function validateSourceDecision(job: RestartJob, decision: RestartDecision, updateSha256?: string) {
+  if (job.update && decision !== "reject") {
+    if (decision !== "approve" || updateSha256 !== job.update.sha256)
+      throw new RestartRequestError(
+        "Review and approve this exact source update. Idle updates are not supported.",
+      );
+  }
+}
 
 /** The coordinator owns this queue, so daemon restarts cannot destroy the receipt. */
 export class InstallationRestarts {
@@ -53,7 +63,13 @@ export class InstallationRestarts {
     return this.jobs.map((job) => ({ ...job, impact: this.impactCache.get(job.target) }));
   }
 
-  request(input: RestartRequest, requestedBy: RestartJob["requestedBy"]): RestartJob {
+  request(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): RestartJob {
+    if (update && (input.target !== "host" || !this.executor.installUpdate))
+      throw new RestartRequestError("Source updates are unavailable for this target");
     this.reconcilePending();
     const active = this.jobs.find((job) => {
       if (job.target !== input.target) return false;
@@ -64,6 +80,7 @@ export class InstallationRestarts {
       throw new RestartRequestError("A restart request for this target is already active");
     const job: RestartJob = {
       ...input,
+      ...(update ? { update } : {}),
       id: randomUUID(),
       revision: randomUUID(),
       requestedBy,
@@ -71,16 +88,24 @@ export class InstallationRestarts {
       // COMPAT(restartExpiry): added in v0.11.0-beta.3.vorteo.131; retain this required wire field until older clients are retired.
       expiresAt: "9999-12-31T23:59:59.999Z",
       status: "pending",
-      detail: "Owner approval required. Running work on the selected daemon may be interrupted.",
+      detail: update
+        ? "Owner approval required to build and install this source on Host, restart its daemon, and publish the interface."
+        : "Owner approval required. Running work on the selected daemon may be interrupted.",
     };
     this.commit([...this.jobs, job]);
     return { ...job };
   }
 
-  decide(id: string, revision: string, decision: RestartDecision): RestartJob {
+  decide(
+    id: string,
+    revision: string,
+    decision: RestartDecision,
+    updateSha256?: string,
+  ): RestartJob {
     const job = this.jobs.find((candidate) => candidate.id === id);
     if (!job || job.revision !== revision)
       throw new RestartRequestError("Restart request is missing or changed");
+    validateSourceDecision(job, decision, updateSha256);
     if (decision === "request-again") {
       if (job.status !== "rejected")
         throw new RestartRequestError("Only cancelled requests can be requested again");
@@ -228,16 +253,12 @@ export class InstallationRestarts {
     this.replace({
       ...job,
       status: "running",
-      detail: "Restarting the approved target and checking its identity and readiness",
+      detail: job.update
+        ? "Building approved source, installing Host daemon, verifying readiness, and publishing the interface"
+        : "Restarting the approved target and checking its identity and readiness",
     });
     try {
-      let detail: string | null;
-      if (job.whenIdle) {
-        if (!this.executor.restartWhenIdle) throw new Error("Idle restart executor unavailable");
-        detail = await this.executor.restartWhenIdle(job.target);
-      } else {
-        detail = await this.executor.restart(job.target);
-      }
+      const detail = await this.executeApproved(job);
       if (detail === null) {
         this.replace({
           ...job,
@@ -251,6 +272,18 @@ export class InstallationRestarts {
       const detail = error instanceof Error ? error.message : "Restart failed";
       this.replace({ ...job, status: "failed", detail });
     }
+  }
+
+  private executeApproved(job: RestartJob): Promise<string | null> {
+    if (job.update) {
+      if (!this.executor.installUpdate) throw new Error("Source update executor unavailable");
+      return this.executor.installUpdate(job);
+    }
+    if (job.whenIdle) {
+      if (!this.executor.restartWhenIdle) throw new Error("Idle restart executor unavailable");
+      return this.executor.restartWhenIdle(job.target);
+    }
+    return this.executor.restart(job.target);
   }
 
   async refreshImpacts(): Promise<void> {

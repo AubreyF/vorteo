@@ -20,6 +20,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import type { Logger } from "pino";
 import { z } from "zod";
 import {
+  SourceUpdateSchema,
   RestartJobSchema,
   type RestartJob,
   RestartRequestSchema,
@@ -51,6 +52,8 @@ import {
   type InstallationSettingsService,
 } from "./settings/service.js";
 
+import { InstallationSourceUpdates } from "./source-updates.js";
+
 // COMPAT(providerRemovalOwner): added in v155, remove after legacy strict catalog clients are unsupported.
 function ownerSettingsSnapshot(snapshot: InstallationSettingsSnapshot, removalAware: boolean) {
   if (removalAware) return snapshot;
@@ -67,7 +70,19 @@ function matchesToken(token: string | null, hash: string): boolean {
 }
 
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
-function restartReply(job: RestartJob, details: boolean, graceful = false) {
+function restartReply(job: RestartJob, details: boolean, graceful = false, sourceUpdates = false) {
+  // COMPAT(sourceUpdates): added in v177; retain until older restart-only clients are retired.
+  if (job.update && !sourceUpdates) {
+    const { update: _update, ...restart } = job;
+    return restartReply(
+      {
+        ...restart,
+        detail: "Source update pending. Reload Vorteo to review installation details.",
+      },
+      details,
+      graceful,
+    );
+  }
   // COMPAT(gracefulRestart): v162 owner clients opt in; older strict decoders omit these fields.
   const {
     finishCurrentTurns: _finishCurrentTurns,
@@ -96,6 +111,10 @@ export function createInstallationServer(
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const journal = path.join(config.stateDir, "restart-jobs.json");
+  const updates = config.sourceUpdates ? new InstallationSourceUpdates(config) : null;
+  const restartExecutor: RestartExecutor = updates
+    ? { ...executor, installUpdate: (job) => updates.install(job, executor.restart) }
+    : executor;
   const restarts = new InstallationRestarts(
     {
       read: () =>
@@ -115,7 +134,7 @@ export function createInstallationServer(
         }
       },
     },
-    executor,
+    restartExecutor,
   );
   const drainRestarts = () =>
     restarts
@@ -173,6 +192,87 @@ export function createInstallationServer(
     res.setHeader("Cache-Control", "no-store");
     next();
   });
+  let uploading = false;
+  function authenticateUpdate(req: Request, res: Response, next: NextFunction) {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    const host = matchesToken(token, config.hostAgentTokenHash);
+    const container = matchesToken(token, config.containerAgentTokenHash);
+    if (!host && !container) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!updates) {
+      res.status(503).json({ error: "Source updates require Host installation setup" });
+      return;
+    }
+    res.locals.updateRequester = host ? "host-agent" : "container-agent";
+    next();
+  }
+  app.get("/api/installation/update-source", authenticateUpdate, (_req, res) => {
+    if (!updates) {
+      res.sendStatus(503);
+      return;
+    }
+    res.json(updates.source());
+  });
+  app.post(
+    "/api/installation/source-update-requests",
+    authenticateUpdate,
+    (_req, res, next) => {
+      const active = restarts
+        .list()
+        .some(
+          (job) => job.target === "host" && ["pending", "approved", "running"].includes(job.status),
+        );
+      if (uploading || active) {
+        res.status(409).json({ error: "A Host request or source upload is already active" });
+        return;
+      }
+      uploading = true;
+      let released = false;
+      const release = () => {
+        if (!released) {
+          released = true;
+          uploading = false;
+        }
+      };
+      res.once("finish", release);
+      res.once("close", release);
+      next();
+    },
+    express.raw({ type: "application/octet-stream", limit: "128mb" }),
+    (req, res) => {
+      const metadata = req.header("x-vorteo-update");
+      if (!metadata || metadata.length > 16000 || !Buffer.isBuffer(req.body)) {
+        res.sendStatus(400);
+        return;
+      }
+      const input = z
+        .strictObject({ request: RestartRequestSchema, update: SourceUpdateSchema })
+        .parse(JSON.parse(Buffer.from(metadata, "base64").toString("utf8")));
+      if (input.request.target !== "host") {
+        res.sendStatus(400);
+        return;
+      }
+      // A plain restart may have arrived while the upload was streaming.
+      const active = restarts
+        .list()
+        .some(
+          (job) => job.target === "host" && ["pending", "approved", "running"].includes(job.status),
+        );
+      if (active) {
+        res.sendStatus(409);
+        return;
+      }
+      if (!updates) {
+        res.sendStatus(503);
+        return;
+      }
+      updates.stage(input.update, req.body);
+      const requester = z.enum(["host-agent", "container-agent"]).parse(res.locals.updateRequester);
+      res.status(201).json(restarts.request(input.request, requester, input.update));
+    },
+  );
   app.use(express.json({ limit: "1mb" }));
   app.get("/api/installation/health", (_req, res) =>
     res.json({ installationId: config.public.installationId }),
@@ -452,7 +552,12 @@ export function createInstallationServer(
       restarts
         .list()
         .map((job) =>
-          restartReply(job, req.query.idleRestarts === "1", req.query.gracefulRestarts === "1"),
+          restartReply(
+            job,
+            req.query.idleRestarts === "1",
+            req.query.gracefulRestarts === "1",
+            req.query.sourceUpdates === "1",
+          ),
         ),
     );
     void restarts
@@ -472,8 +577,20 @@ export function createInstallationServer(
   );
   app.post("/api/installation/owner/restarts/:id/decision", (req, res) => {
     const decision = RestartDecisionSchema.parse(req.body);
-    const job = restarts.decide(req.params.id, decision.revision, decision.decision);
-    res.json(restartReply(job, req.query.idleRestarts === "1", req.query.gracefulRestarts === "1"));
+    const job = restarts.decide(
+      req.params.id,
+      decision.revision,
+      decision.decision,
+      decision.updateSha256,
+    );
+    res.json(
+      restartReply(
+        job,
+        req.query.idleRestarts === "1",
+        req.query.gracefulRestarts === "1",
+        req.query.sourceUpdates === "1",
+      ),
+    );
     void restarts
       .drain()
       .catch((error) => logger.error({ err: error }, "Installation restart journal failed"));

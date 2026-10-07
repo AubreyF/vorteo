@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { parseArgs } from "node:util";
 
 const { values, positionals } = parseArgs({
@@ -7,6 +11,8 @@ const { values, positionals } = parseArgs({
   options: {
     config: { type: "string" },
     target: { type: "string" },
+    update: { type: "boolean" },
+    repository: { type: "string" },
     requester: { type: "string" },
     "reason-file": { type: "string" },
     "request-file": { type: "string" },
@@ -46,14 +52,80 @@ switch (positionals[0]) {
   default:
     throw new Error("Commands: request-restart, restart-status, container-agents (host only)");
 }
+let upload;
+let metadata;
+if (values.update) {
+  if (positionals[0] !== "request-restart" || values.target !== "host")
+    throw new Error("--update supports request-restart --target host only");
+  const sourceResponse = await fetch(new URL("/api/installation/update-source", base), {
+    headers: { Authorization: `Bearer ${config.token}` },
+    redirect: "error",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!sourceResponse.ok)
+    throw new Error(
+      `Host update capability unavailable (${sourceResponse.status}). Install the source-update coordinator capability first.`,
+    );
+  const source = await sourceResponse.json();
+  if (
+    !/^[a-f0-9]{40}$/.test(source.baseCommit) ||
+    !/^refs\/heads\/[a-zA-Z0-9_./-]+$/.test(source.integrationRef) ||
+    !Number.isSafeInteger(source.maxBytes)
+  )
+    throw new Error("Invalid Host update source descriptor");
+  const repository = path.resolve(values.repository ?? process.cwd());
+  const git = (args) =>
+    execFileSync("git", args, { cwd: repository, encoding: "utf8", maxBuffer: 8192 }).trim();
+  if (git(["status", "--porcelain"]))
+    throw new Error("Commit changes in a clean integration checkout before requesting an update");
+  const sourceCommit = git(["rev-parse", "HEAD"]);
+  if (sourceCommit !== git(["rev-parse", source.integrationRef]))
+    throw new Error("Checkout must match the installation integration branch");
+  if (sourceCommit === source.baseCommit)
+    throw new Error("This source revision is already installed");
+  git(["merge-base", "--is-ancestor", source.baseCommit, sourceCommit]);
+  const temporary = mkdtempSync(path.join(tmpdir(), "vorteo-source-update-"));
+  try {
+    const file = path.join(temporary, "source.bundle");
+    git(["bundle", "create", file, `${source.baseCommit}..${source.integrationRef}`]);
+    if (statSync(file).size > Math.min(source.maxBytes, 128 * 1024 * 1024))
+      throw new Error("Source bundle exceeds the upload limit");
+    upload = readFileSync(file);
+    metadata = Buffer.from(
+      JSON.stringify({
+        request: body,
+        update: {
+          sourceCommit,
+          baseCommit: source.baseCommit,
+          sha256: createHash("sha256").update(upload).digest("hex"),
+          bytes: upload.length,
+        },
+      }),
+    ).toString("base64");
+    resource = "/api/installation/source-update-requests";
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+}
+let requestBody;
+if (upload) requestBody = upload;
+else if (body) requestBody = JSON.stringify(body);
 const response = await fetch(new URL(resource, base), {
   method: body ? "POST" : "GET",
-  headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
-  ...(body ? { body: JSON.stringify(body) } : {}),
+  headers: {
+    Authorization: `Bearer ${config.token}`,
+    "Content-Type": upload ? "application/octet-stream" : "application/json",
+    ...(metadata ? { "x-vorteo-update": metadata } : {}),
+  },
+  body: requestBody,
   redirect: "error",
   signal: AbortSignal.timeout(60_000),
 });
-if (!response.ok) throw new Error(`Installation rejected the request (${response.status})`);
+if (!response.ok) {
+  const failure = await response.json().catch(() => null);
+  const detail = typeof failure?.error === "string" ? `: ${failure.error}` : "";
+  throw new Error(`Installation rejected the request (${response.status})${detail}`);
+}
 const result = await response.json();
 if (positionals[0] === "request-restart" || positionals[0] === "restart-status") {
   const publicOrigin = config.publicOrigin ?? config.origin;

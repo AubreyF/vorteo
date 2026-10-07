@@ -63,7 +63,20 @@ export const RestartImpactSchema = z.object({
 });
 export type RestartImpact = z.infer<typeof RestartImpactSchema>;
 
+export const SourceUpdateSchema = z.strictObject({
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  baseCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  bytes: z
+    .number()
+    .int()
+    .positive()
+    .max(128 * 1024 * 1024),
+});
+export type SourceUpdate = z.infer<typeof SourceUpdateSchema>;
+
 export const RestartJobSchema = RestartRequestSchema.extend({
+  update: SourceUpdateSchema.optional(),
   id: z.string().uuid(),
   revision: z.string().uuid(),
   requestedBy: z.enum(["owner", "host-agent", "container-agent"]),
@@ -80,6 +93,10 @@ export const RestartJobSchema = RestartRequestSchema.extend({
 export type RestartJob = z.infer<typeof RestartJobSchema>;
 
 export const RestartDecisionSchema = z.strictObject({
+  updateSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   revision: z.string().uuid(),
   decision: z.enum([
     "approve",

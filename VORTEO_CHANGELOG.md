@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.182 - 2026-10-07
+
+### Added
+
+- Integrate reviewed Dev source uploads and digest-bound Host daemon and interface installation into main, preserving current preview and interface changes.
+
+### Maintenance
+
+- Preserve the installed source-update commit in main history and reconcile version metadata and release notes.
+
 ## 0.11.0-beta.3.vorteo.181 - 2026-10-07
 
 ### Fixed
@@ -44,6 +54,18 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Open workspace-scoped schedules from Tag As and sidebar badges, with explicit thread selection for new schedules.
 - Keep existing custom labels visible and distinguish reserved names; remove the empty custom-label heading.
 - Cover schedule state, thread schedule creation, protection and menu behavior with focused tests.
+
+### Added
+
+- Submit committed source from Dev for owner-reviewed Host daemon and interface installation, with approval bound to the revision and bundle digest
+
+### Fixed
+
+- Reject idle, finish-current-turns and replay actions for source updates; build native dependencies after installation approval
+
+### Maintenance
+
+- Document protected Host setup, source provenance, stable release selection and partial-update recovery
 
 ## 0.11.0-beta.3.vorteo.176 - 2026-10-07
 

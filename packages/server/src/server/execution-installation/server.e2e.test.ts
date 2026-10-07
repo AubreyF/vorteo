@@ -1,8 +1,9 @@
 import { InstallationSkillPackages } from "./settings/skill-packages.js";
 import type { InstallationPluginSourceResolver } from "./settings/runtime.js";
 import { createInstallationSettingsReader } from "./settings/admission.js";
+import { InstallationSourceUpdates } from "./source-updates.js";
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -310,6 +311,7 @@ async function fixture(
   profiles?: InstallationProfiles,
   settings?: InstallationSettingsService,
   resolvePluginSource?: InstallationPluginSourceResolver,
+  sourceUpdates = false,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
   writeFileSync(
@@ -341,6 +343,24 @@ async function fixture(
     },
     container: { endpoint: "127.0.0.1:6768", password: "guest-daemon-test-password" },
   };
+  if (sourceUpdates) {
+    const release = path.join(root, "release");
+    mkdirSync(release);
+    writeFileSync(
+      path.join(release, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: "b".repeat(40) }),
+    );
+    const link = path.join(root, "current");
+    symlinkSync(release, link);
+    config.sourceUpdates = {
+      sourceRepository: root,
+      releaseRoot: root,
+      currentReleaseLink: link,
+      webDirectory: root,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+    };
+  }
   const calls: string[] = [];
   const app = createInstallationServer(
     config,
@@ -812,4 +832,109 @@ test("legacy owner clients can read removed providers but cannot resurrect them"
   });
   expect(restored.status).toBe(200);
   expect(settings.snapshot().settings!.providerDefinitions![0].removed).toBe(false);
+});
+
+test("uploaded source stays inert until the owner approves its exact digest; legacy approval cannot install", async () => {
+  const install = vi
+    .spyOn(InstallationSourceUpdates.prototype, "install")
+    .mockResolvedValue("installed and verified");
+  try {
+    const { request, url } = await fixture(undefined, undefined, undefined, true);
+    const bundle = Buffer.from("inert test bundle");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: createHash("sha256").update(bundle).digest("hex"),
+      bytes: bundle.length,
+    };
+    const body = { request: { target: "host", reason: "Review source update" }, update };
+    const upload = (token: string, metadata = body) =>
+      fetch(`${url}/api/installation/source-update-requests`, {
+        method: "POST",
+        headers: {
+          Host: "owner.example.test",
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/octet-stream",
+          "x-vorteo-update": Buffer.from(JSON.stringify(metadata)).toString("base64"),
+        },
+        body: bundle,
+      });
+    expect((await upload("wrong-token")).status).toBe(401);
+    expect(
+      (await request("/api/installation/update-source", "guest-agent-test-token")).status,
+    ).toBe(200);
+    const uploaded = await upload("guest-agent-test-token");
+    expect(uploaded.status).toBe(201);
+    const job = RestartJobSchema.parse(await uploaded.json());
+    expect(job.update).toEqual(update);
+    expect(install).not.toHaveBeenCalled();
+    expect((await upload("guest-agent-test-token")).status).toBe(409);
+    const legacy = await request(
+      "/api/installation/owner/restarts/query",
+      "owner-test-password",
+      {},
+    );
+    expect(await legacy.json()).toEqual([expect.not.objectContaining({ update })]);
+    const decision = `/api/installation/owner/restarts/${job.id}/decision`;
+    expect(
+      (
+        await request(decision, "guest-agent-test-token", {
+          revision: job.revision,
+          decision: "approve",
+          updateSha256: update.sha256,
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await request(decision, "owner-test-password", {
+          revision: job.revision,
+          decision: "approve",
+        })
+      ).status,
+    ).toBe(409);
+    expect(install).not.toHaveBeenCalled();
+    const approved = await request(
+      `${decision}?idleRestarts=1&sourceUpdates=1`,
+      "owner-test-password",
+      { revision: job.revision, decision: "approve", updateSha256: update.sha256 },
+    );
+    expect(approved.status).toBe(200);
+    await vi.waitFor(() => expect(install).toHaveBeenCalledOnce());
+  } finally {
+    install.mockRestore();
+  }
+});
+
+test("old coordinators refuse source upload explicitly and a changed bundle never creates a job", async () => {
+  const unavailable = await fixture();
+  expect(
+    (await unavailable.request("/api/installation/update-source", "guest-agent-test-token")).status,
+  ).toBe(503);
+  const { request, url } = await fixture(undefined, undefined, undefined, true);
+  const metadata = {
+    request: { target: "host", reason: "test" },
+    update: {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 4,
+    },
+  };
+  const response = await fetch(`${url}/api/installation/source-update-requests`, {
+    method: "POST",
+    headers: {
+      Host: "owner.example.test",
+      Authorization: "Bearer guest-agent-test-token",
+      "Content-Type": "application/octet-stream",
+      "x-vorteo-update": Buffer.from(JSON.stringify(metadata)).toString("base64"),
+    },
+    body: Buffer.from("nope"),
+  });
+  expect(response.status).not.toBe(201);
+  expect(
+    await (
+      await request("/api/installation/owner/restarts/query", "owner-test-password", {})
+    ).json(),
+  ).toEqual([]);
 });
