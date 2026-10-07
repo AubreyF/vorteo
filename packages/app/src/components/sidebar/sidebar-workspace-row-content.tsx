@@ -1,3 +1,4 @@
+import { TrailingActionScrim } from "@/components/ui/trailing-action-scrim";
 import { WorkspaceLifecycleIndicators } from "@/workspace/lifecycle/indicators";
 import {
   ExecutionEnvironmentIcon,
@@ -455,7 +456,14 @@ export function SidebarWorkspaceMenuReveal({
   return (
     <>
       {touch ? <View pointerEvents="none" style={[styles.touchMenuSpace, actionSize]} /> : null}
-      {visible ? <View style={[styles.menuEdge, actionSize]}>{children}</View> : null}
+      {visible ? (
+        <View style={[styles.menuEdge, actionSize]}>
+          {!touch ? (
+            <TrailingActionScrim backdrop="surfaceSidebarHover" testID="sidebar-menu-fade" />
+          ) : null}
+          {children}
+        </View>
+      ) : null}
     </>
   );
 }

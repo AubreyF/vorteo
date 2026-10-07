@@ -162,7 +162,12 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
     const title = row.getByText("main", { exact: true });
     expect((await title.boundingBox())?.width).toBeGreaterThanOrEqual(48);
+    await expect(row.getByTestId("sidebar-menu-fade")).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("badges-hovered.png") });
+    await menu.hover();
+    await expect(menu).toHaveCSS("border-radius", "4px");
+    expect(await scheduledBadge.boundingBox()).toEqual(resting);
+    await page.screenshot({ path: test.info().outputPath("menu-hovered.png") });
     expect((await client.archiveWorkspace(agent.workspaceId)).error).toContain("protected");
     await expect(client.archiveAgent(agent.agentId)).rejects.toThrow("protected");
     await openMenu(page, agent.workspaceId);

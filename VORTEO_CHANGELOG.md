@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.170 - 2026-10-07
+
+### Changed
+
+- Fade sidebar badges beneath the overlaid workspace menu and round the button corners on hover without moving the badges
+
 ## 0.11.0-beta.3.vorteo.169 - 2026-10-07
 
 ### Changed

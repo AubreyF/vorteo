@@ -33,7 +33,7 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
 
-- **Enclaves for streamlined factory operations.** Mark a workspace Standing to keep it in view and protect it from accidental archival. Add custom labels and see which workspaces have scheduled tasks. Sidebar badges share compact padding with room above and below their text.
+- **Enclaves for streamlined factory operations.** Mark a workspace Standing to keep it in view and protect it from accidental archival. Add custom labels and see which workspaces have scheduled tasks. Sidebar badges share compact padding with room above and below their text, and fade beneath the overlaid workspace menu.
 
 <img width="400" alt="Protected and scheduled workspaces" src="https://github.com/user-attachments/assets/757352aa-a2e7-457d-b95f-7ded601444f7" />
 

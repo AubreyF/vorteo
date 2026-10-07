@@ -493,6 +493,7 @@ const styles = StyleSheet.create((theme) => ({
     marginRight: -7,
   },
   triggerHovered: {
+    borderRadius: theme.borderRadius.base,
     backgroundColor: theme.colors.surface2,
   },
 }));
