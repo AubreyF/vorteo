@@ -7,7 +7,7 @@
 
 Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together.
 
-<img width="600" alt="Animated demo of Vorteo account switching and profiles" src="https://github.com/user-attachments/assets/ae3f9872-f3d6-4efa-8f23-a032aa3133de" />
+<img width="800" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
 
 ## Enhanced Security
 
@@ -17,29 +17,25 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 ## Power Tools to Manage Your Fleet
 
-- **Move between phone, tablet and desktop.** Pick up your tasks from another device with shared message queues, saved profiles and controls that fit the screen.
+- **Cross-device, server-managed message queuing.** Line up your task messages with files or images - then edit, reorder, pause, and send them from any connected device. The daemon in each environment will continue executing queued work even if your client is offline.
 
-<img width="400" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
+<img width="400" alt="Server managed cross-device message queuing." src="https://github.com/user-attachments/assets/59dfdb03-e1ec-40d2-b66e-9683134e3811" />
 
 - **Automated daemon upgrades and restarts for zero downtime operations.** Once an upgrade is prepared, approve a queued restart for the Host or Dev container daemon. Vorteo waits for active agents and workers to finish, then restarts automatically, even with your browser closed.
 
-<img width="400" alt="CleanShot 2026-10-06 at 21 08 02" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
+<img width="400" alt="Queued daemon upgrades" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
 
 - **Put local workers to work.** Let a supervisor delegate tasks to a saved worker profile, including Pi models on local or private endpoints. Set a concurrency limit and follow each worker beneath its originating task, even when it uses a separate worktree.
+
+<img width="400" alt="Frontier delegation to local workers" src="https://github.com/user-attachments/assets/fb255faa-8e19-4f28-8ec8-55a8b253ed2a" />
 
 - **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene.
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
 
-- **Line up the next steps.** Queue messages with files or images, then edit, reorder, pause or send them from any connected device. The daemon keeps delivering queued work after you close the client.
+- **Enclaves for streamlined factory operations.** Mark a workspace Standing to keep it in view and protect it from accidental archival. Add custom labels and see which workspaces have scheduled tasks.
 
-- **Manage Host and Dev container together.** Share profiles and settings across environments while keeping credentials and working files local. Review environment access and approve maintenance from one interface.
-
-- **Manage your skill library.** Inspect skills across environments, review installations and updates, and choose which skills each profile can use. See the [skill library guide](docs/skill-library.md).
-
-- **Enclaves for ongoing work.** Mark a workspace Standing to keep it in view and protect it from accidental archival. Add custom labels and see which workspaces have scheduled tasks.
-
-The [Vorteo customizations](docs/vorteo-customizations.md) document covers the full feature inventory and remaining limitations.
+<img width="400" alt="Protected and scheduled workspaces" src="https://github.com/user-attachments/assets/757352aa-a2e7-457d-b95f-7ded601444f7" />
 
 ## Install
 
@@ -85,7 +81,7 @@ Keep updates brief. Request only the specific user or administrator action neede
 
 ## Further Reading
 
-- [Vorteo customizations beyond Paseo](docs/vorteo-customizations.md)
+- [Vorteo customizations beyond upstream Paseo](docs/vorteo-customizations.md)
 - [Roadmap](docs/roadmap.md)
 - [Accounts and presets](docs/agent-presets.md)
 - [Development inside the container](docs/development.md)
