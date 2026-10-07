@@ -855,6 +855,7 @@ for (const destinationMode of ["existing", "new"] as const) {
       await expect(page.getByTestId("execution-environment-container-icon").first()).toBeVisible();
       await page.getByTestId(`preset-environment-${destinationServerId}`).click();
       await page.getByTestId("preset-account-mock").click();
+      await page.getByRole("button", { name: "Browser handoff", exact: true }).click();
       await expect(
         page
           .getByTestId(`execution-environment-${destinationKind}-icon`)
@@ -2906,6 +2907,7 @@ for (const sourceKind of ["host", "container"] as const) {
       await expect(page.getByTestId("preset-environment-card")).toHaveCount(0);
       if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
       await page.getByTestId("preset-account-mock").click();
+      await page.getByRole("button", { name: "Browser handoff", exact: true }).click();
       await page.getByTestId("preset-use-profile").click();
       await page.getByRole("button", { name: "Send message", exact: true }).click();
       await expect

@@ -83,3 +83,5 @@ No complete replacement of these custom workflows was established in this review
 ## Maintenance review
 
 October 7, 2026: Integrated the accepted restart controls, workspace badge changes, Claude sign-in completion, settings navigation and tabs, provider catalog selection, worker model display and dismissal, and explicit worker account editing with current main. Integrated the accepted compact badge and fixed menu overlay follow-up. Preserved the newer README and account usage behavior; minor badge details belong in this inventory and the workspace guide. Integrated the completed changelog enforcement and Settings link changes, with focused hook and browser coverage. Source validation and publication do not establish live runtime acceptance.
+
+October 7, 2026: Updated task-environment and conversation-handoff browser fixtures to select the saved profile explicitly after the account. This test maintenance does not change application or runtime behavior.
