@@ -1,6 +1,7 @@
 import type {
   ProfileSharingStatus,
   RestartJob,
+  RestartDecision,
   RestartSummary,
 } from "@getpaseo/protocol/execution-installation";
 import { OwnerAccessExpired, type InstallationClient } from "./client";
@@ -175,10 +176,7 @@ export class InstallationPanelModel {
     }
   }
 
-  async decide(
-    job: RestartJob,
-    decision: "approve" | "reject" | "approve-when-idle" | "cancel",
-  ): Promise<void> {
+  async decide(job: RestartJob, decision: RestartDecision): Promise<void> {
     if (this.state.busy) return;
     this.publish({ busy: true, error: null, notice: null });
     try {
@@ -187,6 +185,8 @@ export class InstallationPanelModel {
         approve: "Restart approved. Its progress is shown here.",
         "approve-when-idle":
           "Restart queued. It will run when no agents will be interrupted, even if you close this page.",
+        "finish-current-turns": "New work is held while current turns finish.",
+        "request-again": "Restart requested again. Review it before approving.",
         cancel: "Queued restart cancelled.",
         reject: "Restart request rejected.",
       };

@@ -90,8 +90,11 @@ function restartStatus(job: RestartJob, historical = false) {
     if (historical) return { label: "Superseded", variant: "muted" as const };
     return { label: "Approval needed", variant: "warning" as const };
   }
+  let approvedLabel = "Approved";
+  if (job.whenIdle) approvedLabel = "Queued until idle";
+  if (job.finishCurrentTurns) approvedLabel = "Finishing current turns";
   const labels = {
-    approved: job.whenIdle ? "Queued until idle" : "Approved",
+    approved: approvedLabel,
     running: "Restarting",
     succeeded: "Restarted",
     failed: "Failed",
@@ -530,6 +533,7 @@ function RestartRequest({
           <StatusBadge {...status} />
         </View>
         <RestartExplanation reason={job.reason} />
+        <GracefulRestartActions job={job} model={model} busy={busy} onReview={cancel} />
         {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}
         {!historical && (reviewing || job.status === "approved" || job.status === "running") ? (
           <RestartActivity job={job} />
@@ -583,6 +587,89 @@ function RestartRequest({
               Reject
             </Button>
           </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function GracefulRestartActions({
+  job,
+  model,
+  busy,
+  onReview,
+}: {
+  job: RestartJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+  onReview: () => void;
+}) {
+  const [confirmation, setConfirmation] = useState<"finish" | "now" | null>(null);
+  const reviewFinish = useCallback(() => {
+    onReview();
+    setConfirmation("finish");
+  }, [onReview]);
+  const reviewNow = useCallback(() => {
+    onReview();
+    setConfirmation("now");
+  }, [onReview]);
+  const cancel = useCallback(() => setConfirmation(null), []);
+  const confirm = useCallback(() => {
+    void model.decide(job, confirmation === "finish" ? "finish-current-turns" : "approve");
+    setConfirmation(null);
+  }, [model, job, confirmation]);
+  const requestAgain = useCallback(() => {
+    void model.decide(job, "request-again");
+  }, [model, job]);
+  if (!readExecutionInstallation()?.gracefulRestarts) return null;
+  if (job.status === "rejected")
+    return (
+      <Button variant="outline" disabled={busy} onPress={requestAgain}>
+        Request again
+      </Button>
+    );
+  if (job.status !== "pending" && job.status !== "approved") return null;
+  if (confirmation)
+    return (
+      <View style={styles.details} testID={`restart-finish-confirmation-${job.id}`}>
+        <Text style={styles.text}>
+          {confirmation === "finish"
+            ? "Hold new work, ask active threads to save and finish their current turns, then restart? Terminals may disconnect."
+            : "Restart immediately? Running tasks and terminals may be interrupted."}
+        </Text>
+        <View style={styles.actions}>
+          <Button
+            variant="destructive"
+            disabled={busy}
+            onPress={confirm}
+            testID={`restart-finish-confirm-${job.id}`}
+          >
+            {confirmation === "finish" ? "Finish current turns and restart" : "Restart now"}
+          </Button>
+          <Button variant="ghost" disabled={busy} onPress={cancel}>
+            Cancel
+          </Button>
+        </View>
+      </View>
+    );
+  return (
+    <View style={styles.details}>
+      {job.finishCurrentTurns ? <Text style={styles.text}>{job.detail}</Text> : null}
+      <View style={styles.actions}>
+        {!job.finishCurrentTurns ? (
+          <Button
+            variant="outline"
+            disabled={busy || !job.impact?.gracefulRestartSupported}
+            onPress={reviewFinish}
+            testID={`restart-finish-${job.id}`}
+          >
+            Finish current turns and restart
+          </Button>
+        ) : null}
+        {job.status === "approved" ? (
+          <Button variant="outline" disabled={busy} onPress={reviewNow}>
+            Restart now
+          </Button>
         ) : null}
       </View>
     </View>

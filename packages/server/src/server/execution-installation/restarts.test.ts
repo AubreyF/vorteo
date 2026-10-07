@@ -344,3 +344,121 @@ test("host preflight refuses a failing release before connecting or dispatching"
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("finishing current turns holds admission before inspection and restarts only after idle", async () => {
+  const events: string[] = [];
+  let busy = true;
+  const journal = new MemoryJournal();
+  const executor = {
+    restart: async () => {
+      throw new Error("Immediate restart must not run");
+    },
+    holdCurrentTurns: async () => {
+      events.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      events.push("release");
+    },
+    inspect: async (target: RestartJob["target"]) => {
+      events.push("inspect");
+      return idleImpact(target, busy);
+    },
+    restartWhenIdle: async () => {
+      events.push("restart");
+      return "ready";
+    },
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const job = queue.request({ target: "host", reason: "Activate shared settings." }, "owner");
+  const approved = queue.decide(job.id, job.revision, "finish-current-turns");
+  await queue.drain();
+  expect(events).toEqual(["hold", "inspect"]);
+  expect(queue.list()[0]).toMatchObject({ status: "approved", finishCurrentTurns: true });
+  const recovered = new InstallationRestarts(journal, executor);
+  busy = false;
+  await recovered.drain();
+  expect(events).toEqual(["hold", "inspect", "hold", "inspect", "restart"]);
+  expect(recovered.list()[0]?.status).toBe("succeeded");
+  expect(approved.revision).not.toBe(job.revision);
+});
+
+test("queued restart upgrades, cancellation releases its hold, and request again needs approval", async () => {
+  const released: string[] = [];
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async () => "ready",
+    restartWhenIdle: async () => "ready",
+    inspect: async (target) => idleImpact(target, true),
+    holdCurrentTurns: async () => {},
+    releaseCurrentTurns: async (_target, id) => {
+      released.push(id);
+    },
+  });
+  const job = queue.request({ target: "host", reason: "Activate shared settings." }, "owner");
+  queue.decide(job.id, job.revision, "approve-when-idle");
+  const upgraded = queue.decide(job.id, job.revision, "finish-current-turns");
+  await queue.drain();
+  expect(() => queue.decide(job.id, job.revision, "cancel")).toThrow();
+  queue.decide(job.id, upgraded.revision, "cancel");
+  await queue.drain();
+  expect(released).toEqual([job.id]);
+  const retry = queue.decide(job.id, upgraded.revision, "request-again");
+  expect(retry.id).not.toBe(job.id);
+  expect(retry).toMatchObject({ status: "pending", reason: job.reason });
+  expect(retry.finishCurrentTurns).toBeUndefined();
+  expect(() => queue.decide(job.id, upgraded.revision, "request-again")).toThrow("already active");
+});
+
+test("cancel during hold setup cannot dispatch, and release failures remain retryable", async () => {
+  let finishHold!: () => void;
+  const held = new Promise<void>((resolve) => {
+    finishHold = resolve;
+  });
+  let releaseFails = true;
+  let restarts = 0;
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async () => "ready",
+    inspect: async (target) => idleImpact(target),
+    holdCurrentTurns: async () => held,
+    releaseCurrentTurns: async () => {
+      if (releaseFails) throw new Error("offline");
+    },
+    restartWhenIdle: async () => {
+      restarts++;
+      return "ready";
+    },
+  });
+  const job = queue.request({ target: "host", reason: "Activate settings." }, "owner");
+  const approved = queue.decide(job.id, job.revision, "finish-current-turns");
+  const drain = queue.drain();
+  queue.decide(job.id, approved.revision, "cancel");
+  finishHold();
+  await drain;
+  await queue.drain();
+  expect(restarts).toBe(0);
+  expect(queue.list()[0]).toMatchObject({ status: "rejected" });
+  expect(queue.list()[0]?.holdReleased).not.toBe(true);
+  releaseFails = false;
+  await queue.drain();
+  expect(queue.list()[0]?.holdReleased).toBe(true);
+});
+
+test("a graceful restart can only be forced by another explicit decision", async () => {
+  let forced = 0;
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async () => {
+      forced++;
+      return "ready";
+    },
+    restartWhenIdle: async () => null,
+    inspect: async (target) => idleImpact(target, true),
+    holdCurrentTurns: async () => {},
+    releaseCurrentTurns: async () => {},
+  });
+  const job = queue.request({ target: "host", reason: "Activate settings." }, "owner");
+  const approved = queue.decide(job.id, job.revision, "finish-current-turns");
+  await queue.drain();
+  expect(forced).toBe(0);
+  queue.decide(job.id, approved.revision, "approve");
+  await queue.drain();
+  expect(forced).toBe(1);
+});

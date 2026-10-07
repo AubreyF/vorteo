@@ -67,15 +67,21 @@ function matchesToken(token: string | null, hash: string): boolean {
 }
 
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
-function restartReply(job: RestartJob, details: boolean) {
-  if (details) return job;
+function restartReply(job: RestartJob, details: boolean, graceful = false) {
+  // COMPAT(gracefulRestart): v162 owner clients opt in; older strict decoders omit these fields.
+  const {
+    finishCurrentTurns: _finishCurrentTurns,
+    holdReleased: _holdReleased,
+    ...compatible
+  } = job;
+  if (details) return graceful ? job : compatible;
   const {
     whenIdle: _whenIdle,
     approvedAt: _approvedAt,
     impact: _impact,
     requester: _requester,
     ...legacy
-  } = job;
+  } = compatible;
   return { ...legacy, expiresAt: "9999-12-31T23:59:59.999Z" };
 }
 
@@ -442,7 +448,13 @@ export function createInstallationServer(
     void restarts.impacts().then((impacts) => res.json(impacts), next);
   });
   app.post("/api/installation/owner/restarts/query", (req, res) => {
-    res.json(restarts.list().map((job) => restartReply(job, req.query.idleRestarts === "1")));
+    res.json(
+      restarts
+        .list()
+        .map((job) =>
+          restartReply(job, req.query.idleRestarts === "1", req.query.gracefulRestarts === "1"),
+        ),
+    );
     void restarts
       .refreshImpacts()
       .catch((error) => logger.error({ err: error }, "Restart impact refresh failed"));
@@ -454,13 +466,14 @@ export function createInstallationServer(
         restartReply(
           restarts.request(RestartRequestSchema.parse(req.body), "owner"),
           req.query.idleRestarts === "1",
+          req.query.gracefulRestarts === "1",
         ),
       ),
   );
   app.post("/api/installation/owner/restarts/:id/decision", (req, res) => {
     const decision = RestartDecisionSchema.parse(req.body);
     const job = restarts.decide(req.params.id, decision.revision, decision.decision);
-    res.json(restartReply(job, req.query.idleRestarts === "1"));
+    res.json(restartReply(job, req.query.idleRestarts === "1", req.query.gracefulRestarts === "1"));
     void restarts
       .drain()
       .catch((error) => logger.error({ err: error }, "Installation restart journal failed"));
@@ -475,6 +488,7 @@ export function createInstallationServer(
         ...config.public,
         profileSharing: true,
         idleRestarts: Boolean(executor.inspect && executor.restartWhenIdle),
+        gracefulRestarts: Boolean(executor.holdCurrentTurns && executor.releaseCurrentTurns),
       },
     }),
   );

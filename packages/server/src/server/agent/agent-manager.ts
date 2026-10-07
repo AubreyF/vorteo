@@ -1179,6 +1179,7 @@ export class AgentManager {
   private messageQueueControl: Pick<
     MessageQueueService,
     | "pause"
+    | "wake"
     | "acceptedHistory"
     | "recordProviderMessageId"
     | "reconcileHistory"
@@ -1189,6 +1190,12 @@ export class AgentManager {
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
   private readonly beforeSteerUnavailableFallback?: AgentManagerOptions["beforeSteerUnavailableFallback"];
   private acceptingAgentRegistrations = true;
+  private restartDrainId: string | null = null;
+  private readonly cancelledRestartDrains = new Set<string>();
+  private readonly restartDrainTasks = new Map<string, Promise<void>>();
+  private readonly restartDrainPrepared = new Set<string>();
+  private readonly restartDrainWarnings = new Set<string>();
+  private readonly restartDrainErrors = new Map<string, string>();
   private readonly getSharedProviderConfig?: () => MutableDaemonConfig;
   private readonly installationSettingsReader?: InstallationSettingsReader;
 
@@ -1312,6 +1319,7 @@ export class AgentManager {
     const open = client?.openQuotaGovernedSession;
     if (
       !this.acceptingAgentRegistrations ||
+      this.isRestartDraining() ||
       this.providerEnabled.get(provider) === false ||
       !client ||
       !open
@@ -1322,6 +1330,7 @@ export class AgentManager {
     const assertCurrent = () => {
       if (
         !this.acceptingAgentRegistrations ||
+        this.isRestartDraining() ||
         this.providerEnabled.get(provider) === false ||
         this.clients.get(provider) !== client ||
         this.governedClientGenerations.get(provider) !== generation
@@ -1396,6 +1405,7 @@ export class AgentManager {
     control: Pick<
       MessageQueueService,
       | "pause"
+      | "wake"
       | "acceptedHistory"
       | "recordProviderMessageId"
       | "reconcileHistory"
@@ -1410,6 +1420,7 @@ export class AgentManager {
     prompt: AgentPromptInput,
     item: QueueItem,
   ): AsyncGenerator<AgentStreamEvent> | null {
+    if (this.isRestartDraining()) return null;
     const agent = this.getAgent(agentId);
     const stored = this.registry?.getLoadedRecord(agentId);
     if (!agent || stored?.archivedAt || agent.lifecycle !== "idle") return null;
@@ -1436,7 +1447,7 @@ export class AgentManager {
     canStart: () => boolean,
   ): Promise<AsyncGenerator<AgentStreamEvent> | null> {
     return this.runForegroundMutation(agentId, async () => {
-      if (!canStart()) return null;
+      if (this.isRestartDraining() || !canStart()) return null;
       const agent = this.requireAgent(agentId);
       if (!item.sendNow || agent.activeTurnId !== item.sendNow.expectedTurnId)
         throw new Error("The active turn changed. Review the task before sending now.");
@@ -1462,6 +1473,88 @@ export class AgentManager {
     this.mcpBaseUrl = url;
   }
 
+  isRestartDraining(): boolean {
+    return this.restartDrainId !== null;
+  }
+
+  beginRestartDrain(requestId: string): boolean {
+    if (this.cancelledRestartDrains.has(requestId)) return false;
+    if (this.restartDrainId && this.restartDrainId !== requestId) return false;
+    this.restartDrainId = requestId;
+    for (const agent of this.agents.values()) {
+      if (
+        agent.lifecycle === "initializing" ||
+        this.restartDrainTasks.has(agent.id) ||
+        (this.restartDrainPrepared.has(agent.id) &&
+          agent.session.goals?.state.goal?.status !== "active")
+      )
+        continue;
+      this.restartDrainPrepared.add(agent.id);
+      const task = this.prepareAgentForRestart(agent.id, requestId)
+        .catch((error: unknown) => {
+          this.restartDrainErrors.set(
+            agent.id,
+            error instanceof Error ? error.message : "Could not prepare task for restart",
+          );
+        })
+        .finally(() => this.restartDrainTasks.delete(agent.id));
+      this.restartDrainTasks.set(agent.id, task);
+    }
+    return true;
+  }
+
+  private async prepareAgentForRestart(agentId: string, requestId: string): Promise<void> {
+    const agent = this.requireSessionAgent(agentId);
+    const turnId = agent.activeForegroundTurnId ?? agent.activeTurnId;
+    const turnKey = `${agentId}:${turnId}`;
+    const notify = this.hasInFlightRun(agentId) && !this.restartDrainWarnings.has(turnKey);
+    const warning =
+      "The owner approved a restart after current turns finish. Finish your current small step, save your work and a brief continuation note, then end this turn. Do not start new work.";
+    if (notify) {
+      this.restartDrainWarnings.add(turnKey);
+      await this.appendTimelineItem(agentId, {
+        type: "notification",
+        level: "warning",
+        message: warning,
+      });
+    }
+    if (agent.session.goals)
+      await this.pauseGoalForQueuedMessages(agentId, () => this.restartDrainId === requestId);
+    if (!notify || this.restartDrainId !== requestId || !this.hasInFlightRun(agentId)) return;
+    if ((agent.activeForegroundTurnId ?? agent.activeTurnId) !== turnId) return;
+    // Steering never replaces or interrupts a turn. Unsupported providers finish normally.
+    try {
+      await this.steerAgentRun(agentId, warning, {
+        clientMessageId: `restart-warning-${requestId}-${agentId}`,
+      });
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId },
+        "Restart warning could not reach the provider; waiting for its current turn",
+      );
+      await this.appendTimelineItem(agentId, {
+        type: "notification",
+        level: "warning",
+        message:
+          "The provider could not receive the restart warning. Its current turn will finish normally before restart.",
+      });
+    }
+  }
+
+  cancelRestartDrain(requestId: string): boolean {
+    this.cancelledRestartDrains.add(requestId);
+    if (this.restartDrainId !== requestId) return true;
+    // Let outstanding goal pauses settle before releasing the barrier so cancellation
+    // cannot strand a late pause or resume a goal during another hold.
+    if (this.restartDrainTasks.size) return false;
+    this.restartDrainId = null;
+    this.restartDrainPrepared.clear();
+    this.restartDrainWarnings.clear();
+    this.restartDrainErrors.clear();
+    for (const agent of this.agents.values()) this.messageQueueControl?.wake(agent.id);
+    return true;
+  }
+
   getRestartImpact() {
     const managed = Array.from(this.agents.values());
     const agents = managed
@@ -1481,7 +1574,20 @@ export class AgentManager {
           });
       }
     }
-    return { agents, pendingStarts: this.agentRegistrationTasks.size };
+    for (const [id, error] of this.restartDrainErrors) {
+      const existing = agents.find((agent) => agent.id === id);
+      if (existing) existing.status = error;
+      else agents.push({ id, title: this.agents.get(id)?.config.title || id, status: error });
+    }
+    return {
+      agents,
+      pendingStarts: this.agentRegistrationTasks.size + this.restartDrainTasks.size,
+    };
+  }
+
+  async checkpointRestartDrain(): Promise<void> {
+    await this.flushForShutdown();
+    for (const agent of this.agents.values()) await this.persistSnapshot(agent);
   }
 
   prepareIdleRestart(): boolean {
@@ -2911,6 +3017,7 @@ export class AgentManager {
     queueIsEmpty: () => Promise<boolean>,
     canContinueGoal: () => boolean = () => true,
   ): Promise<void> {
+    if (this.isRestartDraining()) return;
     await this.withQueueGoalMutation(agentId, () =>
       resumeGoalAfterQueue(
         this.queueGoalPort(
@@ -2918,6 +3025,7 @@ export class AgentManager {
           async () => {
             const agent = this.requireAgent(agentId);
             return (
+              !this.isRestartDraining() &&
               canContinueGoal() &&
               agent.lifecycle === "idle" &&
               !this.hasInFlightRun(agentId) &&
@@ -2925,8 +3033,8 @@ export class AgentManager {
               (await queueIsEmpty())
             );
           },
-          canContinueGoal,
-          async () => canContinueGoal() && (await queueIsEmpty()),
+          () => !this.isRestartDraining() && canContinueGoal(),
+          async () => !this.isRestartDraining() && canContinueGoal() && (await queueIsEmpty()),
         ),
       ),
     );
@@ -3360,6 +3468,7 @@ export class AgentManager {
    * broadcast like normal timeline events.
    */
   tryRunOutOfBand(agentId: string, prompt: AgentPromptInput, options?: AgentRunOptions): boolean {
+    this.assertAcceptingAgentRegistrations();
     this.assertQuotaNotPaused(agentId);
     const agent = this.requireSessionAgent(agentId);
     const handler = agent.session.tryHandleOutOfBand?.(prompt);
@@ -3698,6 +3807,7 @@ export class AgentManager {
     prompt: AgentPromptInput,
     options?: AgentRunOptions,
   ): Promise<AsyncGenerator<AgentStreamEvent>> {
+    this.assertAcceptingAgentRegistrations();
     const snapshot = this.requireAgent(agentId);
     this.assertQuotaNotPaused(agentId);
     if (
@@ -3766,6 +3876,7 @@ export class AgentManager {
     prompt: AgentPromptInput,
     options?: AgentSteerOptions,
   ): Promise<ActiveTurnSteerDispatchResult> {
+    this.assertAcceptingAgentRegistrations();
     const agent = this.requireSessionAgent(agentId);
     const expectedTurnId = agent.activeForegroundTurnId ?? agent.activeTurnId;
     if (!expectedTurnId) {
@@ -4606,7 +4717,7 @@ export class AgentManager {
   ): Promise<ManagedAgent> {
     let registered = false;
     try {
-      this.assertAcceptingAgentRegistrations();
+      if (!this.acceptingAgentRegistrations) throw new AgentManagerShuttingDownError();
       const resolvedAgentId = validateAgentId(agentId, "registerSession");
       if (this.agents.has(resolvedAgentId)) {
         throw new Error(`Agent with id ${resolvedAgentId} already exists`);
@@ -4643,7 +4754,7 @@ export class AgentManager {
         }
       }
 
-      this.assertAcceptingAgentRegistrations();
+      if (!this.acceptingAgentRegistrations) throw new AgentManagerShuttingDownError();
       this.restoreLatestQuotaReserve(resolvedAgentId, managed.config);
       this.agents.set(resolvedAgentId, managed);
       registered = true;
@@ -4693,6 +4804,10 @@ export class AgentManager {
   }
 
   private assertAcceptingAgentRegistrations(): void {
+    if (this.restartDrainId)
+      throw new Error(
+        "A restart is waiting for current turns to finish. New work is held until restart or cancellation.",
+      );
     if (!this.acceptingAgentRegistrations) {
       throw new AgentManagerShuttingDownError();
     }

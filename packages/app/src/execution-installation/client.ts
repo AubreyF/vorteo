@@ -8,6 +8,7 @@ import {
   type ProfileSharingStatus,
   type ExecutionInstallation,
   type RestartJob,
+  type RestartDecision,
 } from "@getpaseo/protocol/execution-installation";
 import type { HostRuntimeStore } from "@/runtime/host-runtime";
 import type { HostProfile } from "@/types/host-connection";
@@ -118,15 +119,17 @@ export class InstallationClient {
     return z.array(RestartJobSchema).parse(await this.request("restarts/query", {}));
   }
 
-  async decide(
-    job: RestartJob,
-    decision: "approve" | "reject" | "approve-when-idle" | "cancel",
-  ): Promise<void> {
+  async decide(job: RestartJob, decision: RestartDecision): Promise<void> {
     if (
       (decision === "approve-when-idle" || decision === "cancel") &&
       !this.installation.idleRestarts
     )
       throw new Error("Update the installation coordinator to support queued idle restarts");
+    if (
+      ["finish-current-turns", "request-again"].includes(decision) &&
+      !this.installation.gracefulRestarts
+    )
+      throw new Error("Update the coordinator to support this restart action");
     RestartJobSchema.parse(
       await this.request(`restarts/${job.id}/decision`, { revision: job.revision, decision }),
     );
@@ -149,7 +152,7 @@ export class InstallationClient {
     if (this.password === null) throw new Error("Unlock installation controls first");
     const resource =
       this.installation.idleRestarts && path.startsWith("restarts")
-        ? `${path}?idleRestarts=1`
+        ? `${path}?idleRestarts=1${this.installation.gracefulRestarts ? "&gracefulRestarts=1" : ""}`
         : path;
     return this.ports.request(resource, this.password, body);
   }

@@ -614,6 +614,98 @@ test("restart links keep rejected and missing requests separate from a pending a
   expect(unchanged.status).toBe("pending");
 });
 
+test("finish current turns can be cancelled and requested again before a verified restart", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await page.goto(`${origin}/settings/general?installation=1`);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const client = await connectInstallationDaemon(config, "container");
+  const directory = path.join(root, "finish-current-turn");
+  await mkdir(directory, { recursive: true });
+  const { workspace } = await client.createWorkspace({
+    source: { kind: "directory", path: directory },
+  });
+  if (!workspace) throw new Error("Missing workspace");
+  try {
+    const blocker = await client.createAgent({
+      config: {
+        provider: "mock",
+        cwd: directory,
+        title: "Saving current work",
+        model: "one-minute-stream",
+      },
+      workspaceId: workspace.id,
+      initialPrompt: "Complete this turn normally before restart.",
+    });
+    await expect
+      .poll(async () => (await client.fetchAgent({ agentId: blocker.id }))?.agent.status)
+      .toBe("running");
+    const pid = (await client.getDaemonStatus()).pid;
+    const job = RestartJobSchema.parse(
+      await (
+        await request("restart-requests", guestToken, {
+          target: "container-daemon",
+          reason: "Restart Dev to activate shared settings after saving current work.",
+        })
+      ).json(),
+    );
+    await page.goto(`${origin}/settings/general?installation=1&restart=${job.id}`);
+    const card = page.getByTestId(`restart-request-${job.id}`);
+    expect(
+      (
+        await request(`owner/restarts/${job.id}/decision`, guestToken, {
+          revision: job.revision,
+          decision: "finish-current-turns",
+        })
+      ).status,
+    ).toBe(401);
+    await page.getByTestId(`restart-finish-${job.id}`).click();
+    await expect(page.getByTestId(`restart-finish-confirmation-${job.id}`)).toContainText(
+      "save and finish",
+    );
+    await page.getByTestId(`restart-finish-confirm-${job.id}`).click();
+    await expect(card).toContainText("Finishing current turns");
+    await expect(card).toContainText("Saving current work");
+    await expect(client.sendMessage(blocker.id, "Do not start this new task.")).rejects.toThrow();
+    expect((await client.getDaemonStatus()).pid).toBe(pid);
+    await card.screenshot({ path: testInfo.outputPath("finish-current-turns.png") });
+    await card.getByRole("button", { name: "Cancel queued restart", exact: true }).click();
+    await expect(card).toContainText("Rejected");
+    await card.getByRole("button", { name: "Request again", exact: true }).click();
+    await page.getByRole("button", { name: "All restart requests", exact: true }).click();
+    const response = await request(
+      "owner/restarts/query?gracefulRestarts=1&idleRestarts=1",
+      ownerPassword,
+      {},
+    );
+    const retry = RestartJobSchema.array()
+      .parse(await response.json())
+      .find((item) => item.target === "container-daemon" && item.status === "pending");
+    if (!retry) throw new Error("Missing fresh pending request");
+    expect(retry.id).not.toBe(job.id);
+    await page.getByTestId(`restart-finish-${retry.id}`).click();
+    await page.getByTestId(`restart-finish-confirm-${retry.id}`).click();
+    const retryCard = page.getByTestId(`restart-request-${retry.id}`);
+    await expect(retryCard).toContainText("Finishing current turns");
+    // The real mock-provider turn ends naturally; this test never cancels it.
+    await page.goto(`${origin}/settings/general?installation=1&restart=${retry.id}`);
+    await expect(page.getByTestId(`restart-request-${retry.id}`)).toContainText("Restarted", {
+      timeout: 100_000,
+    });
+    await client.close();
+    const replacement = await connectReadyInstallationDaemon("container");
+    try {
+      expect((await replacement.getDaemonStatus()).pid).not.toBe(pid);
+    } finally {
+      await replacement.close();
+    }
+  } finally {
+    await client.close();
+  }
+});
+
 async function verifyCrossEnvironmentWorkspaceMove(input: {
   page: Page;
   testInfo: TestInfo;

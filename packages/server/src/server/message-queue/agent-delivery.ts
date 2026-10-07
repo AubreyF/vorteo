@@ -17,6 +17,7 @@ export function createAgentQueueDelivery(
 ): Omit<QueueDeliveryPort, "changed"> {
   const { agentManager, agentStorage, logger } = options;
   return {
+    canStartWork: () => !agentManager.isRestartDraining(),
     async history(agentId) {
       const record = await agentStorage.get(agentId);
       if (!record || record.archivedAt) return [];
@@ -40,6 +41,7 @@ export function createAgentQueueDelivery(
         await agentManager.resumeGoalAfterQueuedMessages(agentId, queueIsEmpty, canContinueGoal);
     },
     async prepare(agentId, item, canStart, canHoldGoal = canStart) {
+      if (agentManager.isRestartDraining()) return false;
       const record = await agentStorage.get(agentId);
       if (!record || record.archivedAt) return false;
       const agent = await ensureUnarchivedAgentLoaded(agentId, options);
@@ -52,6 +54,7 @@ export function createAgentQueueDelivery(
       if (agent.session?.goals) {
         await agentManager.pauseGoalForQueuedMessages(agentId, canHoldGoal);
       }
+      if (agentManager.isRestartDraining()) return false;
       await agentManager.prepareQuotaReserveAdmission(agentId);
       return !!item.sendNow || (agent.lifecycle === "idle" && agent.pendingPermissions.size === 0);
     },

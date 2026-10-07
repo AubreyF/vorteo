@@ -2711,7 +2711,12 @@ export class Session {
       case "dictation_stream_cancel":
         return this.voiceSessions.handleMessage(msg);
       case "restart_server_request":
-        return this.handleRestartServerRequest(msg.requestId, msg.reason, msg.idleMode);
+        return this.handleRestartServerRequest(
+          msg.requestId,
+          msg.reason,
+          msg.idleMode,
+          msg.restartDrainId,
+        );
       case "shutdown_server_request":
         return this.handleShutdownServerRequest(msg.requestId);
       case "client_heartbeat":
@@ -3349,9 +3354,30 @@ export class Session {
   private async handleRestartServerRequest(
     requestId: string,
     reason?: string,
-    idleMode?: "inspect" | "restart",
+    idleMode?: "inspect" | "restart" | "drain" | "cancel-drain",
+    restartDrainId?: string,
   ): Promise<void> {
+    if (idleMode === "drain" || idleMode === "cancel-drain") {
+      if (!restartDrainId) throw new Error("Restart hold requires the approved request identity");
+      const accepted =
+        idleMode === "drain"
+          ? this.agentManager.beginRestartDrain(restartDrainId)
+          : this.agentManager.cancelRestartDrain(restartDrainId);
+      this.emit({
+        type: "status",
+        payload: {
+          status: "restart_requested",
+          requestId,
+          clientId: this.clientId,
+          accepted,
+          impact: this.agentManager.getRestartImpact(),
+        },
+      });
+      return;
+    }
     if (idleMode) {
+      if (idleMode === "restart" && this.agentManager.isRestartDraining())
+        await this.agentManager.checkpointRestartDrain();
       const impact = this.agentManager.getRestartImpact();
       const accepted = idleMode === "restart" && this.agentManager.prepareIdleRestart();
       if (!accepted) {

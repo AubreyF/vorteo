@@ -3841,14 +3841,25 @@ export class DaemonClient {
   async restartServer(
     reason?: string,
     requestId?: string,
-    options?: { timeout?: number; idleMode?: "inspect" | "restart" },
+    options?: {
+      timeout?: number;
+      idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
+      restartDrainId?: string;
+    },
   ): Promise<RestartRequestedStatusPayload> {
     if (options?.idleMode && this.lastServerInfoMessage?.features?.idleRestart !== true) {
       throw new Error("Update this daemon to support idle restarts");
     }
+    if (
+      (options?.idleMode === "drain" || options?.idleMode === "cancel-drain") &&
+      this.lastServerInfoMessage?.features?.gracefulRestart !== true
+    ) {
+      throw new Error("Update this daemon to support finishing current turns before restart");
+    }
     const resolvedRequestId = this.createRequestId(requestId);
     const message = SessionInboundMessageSchema.parse({
       type: "restart_server_request",
+      ...(options?.restartDrainId ? { restartDrainId: options.restartDrainId } : {}),
       ...(options?.idleMode ? { idleMode: options.idleMode } : {}),
       ...(reason && reason.trim().length > 0 ? { reason } : {}),
       requestId: resolvedRequestId,

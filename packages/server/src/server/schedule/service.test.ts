@@ -432,6 +432,37 @@ describe("ScheduleService", () => {
     expect(inspected.nextRunAt).toBe("2026-01-01T00:02:00.000Z");
   });
 
+  test("restart hold defers scheduled occurrences without consuming them", async () => {
+    let open = false;
+    let runs = 0;
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      canStartWork: () => open,
+      runner: async () => {
+        runs++;
+        return { agentId: null, output: "done" };
+      },
+    });
+    const created = await service.create({
+      prompt: "Review PRs",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+    });
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+    expect(runs).toBe(0);
+    expect((await service.inspect(created.id)).runs).toHaveLength(0);
+    expect((await service.inspect(created.id)).nextRunAt).toBe(created.nextRunAt);
+    open = true;
+    await service.tick();
+    expect(runs).toBe(1);
+  });
+
   test("protected quota deferrals preserve the occurrence and maxRuns across restart", async () => {
     const runner = vi.fn(async () => ({ agentId: null, output: "must not run" }));
     const createWorkspace = vi.fn(async () => {

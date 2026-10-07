@@ -2,6 +2,14 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.162 - 2026-10-06
+
+### Added
+
+- Finish current turns before restart: hold new work, warn active threads, preserve goal intent, and restart once their current turns have finished.
+- Cancel a restart hold or request a canceled restart again with fresh approval.
+- Escalate a queued restart to an immediate restart only after separate confirmation.
+
 ## 0.11.0-beta.3.vorteo.159 - 2026-10-06
 
 ### Changed

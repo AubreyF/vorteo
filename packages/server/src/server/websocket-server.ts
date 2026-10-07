@@ -1987,6 +1987,7 @@ export class VoiceAssistantWebSocketServer {
         workspaceMultiplicity: true,
         workspaceProjectMembership: true,
         idleRestart: true,
+        gracefulRestart: true,
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: true,
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.

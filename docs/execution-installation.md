@@ -100,3 +100,28 @@ For a failed setup, inspect the private logs and installation receipt before ret
 ## Validation
 
 Run `npm run test:e2e:installation --workspace=@getpaseo/app` for the packaged interface on desktop and phone-sized Chromium. It starts two isolated supervised daemons and the real coordinator, verifies plugin and credential boundaries, prepares both editable update drafts without starting agents, and approves and verifies a container-daemon restart. All fixture processes and state are torn down. This does not test launchd, Tailscale, macOS folder permissions or a physical phone; those belong to host acceptance.
+
+### Finish current turns before restart
+
+The owner can upgrade a pending or queued restart to finish current turns. The
+coordinator journals approval before asking the target daemon to hold new work.
+The daemon blocks new starts, holds queued delivery and scheduled dispatch, and
+uses the existing durable goal hold to pause automatic continuation without
+interrupting a running turn. Active threads receive a timeline warning; providers
+with steering also receive the instruction during their current turn. Unsupported
+providers finish normally. No timeout silently converts this into a forced restart.
+
+The existing idle check includes provider subagents and registrations already in
+flight. Before dispatch, the daemon drains persistence and saves agent snapshots.
+A failed goal pause remains a visible blocker. Cancellation is journaled first and
+releases only the matching request's hold; a delayed canceled request cannot
+reestablish it. Existing queue goal recovery preserves explicit manual pauses.
+An immediate restart of a queued request requires a new explicit owner decision.
+A canceled request can create a new pending request, never reuse its old approval.
+
+The optional `gracefulRestart` daemon capability and `gracefulRestarts` installation
+capability gate these actions. New owner clients request `gracefulRestarts=1` on
+restart routes; older strict decoders do not receive the new journal fields.
+Coordinator recovery retries approved waiting work and hold release, never an
+ambiguous disruptive dispatch. A new daemon uses existing goal and queue recovery;
+this does not add an independent continuation scheduler.
