@@ -58,6 +58,7 @@ This inventory describes the reviewed source. Availability depends on the instal
 - **Conversation readability.** Web and desktop timelines preserve surrounding text as image sizes settle during history scrolling. Question, approval, plan, queue, goal and subagent cards share compact spacing and borders. The Subagents heading collapses its contents while leaving the count and Archive finished action accessible.
 - **Task visibility and navigation.** Sidebar activity badges show queued messages, managed workers and active goals, with a visibility preference. Search, History, Schedules and Settings remain accessible; configured search shortcuts appear in the tooltip. Archiving a workspace returns to the empty New workspace page. Usage stays beside account selection rather than in the sidebar.
 - **Unified settings navigation.** One installation navigation exposes shared settings and environment exceptions. Environment tabs stay visible above scrolling details. Settings tabs use a full-width baseline and rounded top corners. Agent profiles shows one provider family at a time; defaults use an available account catalog and provider-discovered skills. Navigation starts with General, Environments, Providers and Agent profiles; editor preferences explain Vim modes and basic commands.
+- **Repository access.** Settings and Open Project share one GitHub footer linking to `AubreyF/vorteo`, replacing the upstream Star, Sponsor and Community links.
 - **File downloads.** Binary previews offer a visible Download button, including files opened from conversation links.
 
 ## Product identity and release tracking
@@ -89,3 +90,5 @@ October 7, 2026: Integrated the accepted restart controls, workspace badge chang
 October 7, 2026: Updated task-environment and conversation-handoff browser fixtures to select the saved profile explicitly after the account. This test maintenance does not change application or runtime behavior.
 
 Restart maintenance review: The installation browser suite checks both daemon labels and divider positions. Repository and preview instructions prioritize supported restart requests and status queries before host handoffs; owner approval and host access boundaries remain unchanged.
+
+October 7, 2026: Reviewed both shared footer placements and replaced their upstream social links with the Vorteo repository link. The README overview and onboarding are unchanged. Live deployment requires separate verification.
