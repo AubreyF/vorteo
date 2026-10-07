@@ -1,3 +1,4 @@
+import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import {
   useCallback,
   useMemo,
@@ -93,6 +94,7 @@ function renderTriggerIcon({ hovered }: { hovered?: boolean }) {
 
 export interface SidebarWorkspaceMenuProps {
   workspaceKey: string;
+  backdrop?: SidebarSurfaceBackdrop;
   serverId?: string;
   workspaceId?: string;
   workspaceLabels?: readonly string[];
@@ -276,6 +278,7 @@ function SidebarWorkspaceMenuItems({
 
 export function SidebarWorkspaceMenu({
   workspaceKey,
+  backdrop = "surfaceSidebarHover",
   serverId,
   workspaceId,
   workspaceLabels,
@@ -298,11 +301,13 @@ export function SidebarWorkspaceMenu({
   const actionSize = useSidebarActionSize();
   const actionStyle = useCallback(
     (state: PressableStateCallbackType & { hovered?: boolean }) => [
-      triggerStyle(state),
+      styles.trigger,
+      styles.backdrop(backdrop),
+      state.hovered && styles.triggerHovered,
       actionSize && styles.alignedTrigger,
       actionSize,
     ],
-    [actionSize],
+    [actionSize, backdrop],
   );
   const { t } = useTranslation();
   const workspaceTarget = useMemo<WorkspaceLabelTarget | null>(
@@ -471,11 +476,8 @@ export function SidebarWorkspaceContextMenu({
   );
 }
 
-function triggerStyle({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) {
-  return [styles.trigger, hovered && styles.triggerHovered];
-}
-
 const styles = StyleSheet.create((theme) => ({
+  backdrop: (backdrop: SidebarSurfaceBackdrop) => ({ backgroundColor: theme.colors[backdrop] }),
   alignedTrigger: {
     marginLeft: 0,
     marginRight: 0,
@@ -486,7 +488,6 @@ const styles = StyleSheet.create((theme) => ({
   trigger: {
     padding: 2,
     borderRadius: 0,
-    backgroundColor: theme.colors.surfaceSidebarHover,
     marginLeft: 2,
     // MoreVertical paints only around the center of its SVG. Keep the padded hit box, but
     // pull the painted dots through that unused view-box space onto the trailing-content rail.

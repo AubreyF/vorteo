@@ -1,3 +1,4 @@
+import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import {
   memo,
   useCallback,
@@ -907,6 +908,7 @@ function StatusWorkspaceRowInnerContent({
               >
                 {renderSlot ? (
                   <StatusWorkspaceActionSlot
+                    backdrop={backdrop}
                     workspace={workspace}
                     trailing={trailing}
                     trailingPresentation={trailingPresentation}
@@ -936,6 +938,7 @@ function StatusWorkspaceRowInnerContent({
 
 function StatusWorkspaceActionSlot({
   workspace,
+  backdrop,
   trailing,
   trailingPresentation,
   showKebab,
@@ -953,6 +956,7 @@ function StatusWorkspaceActionSlot({
   archiveShortcutKeys,
 }: {
   workspace: SidebarWorkspaceEntry;
+  backdrop: SidebarSurfaceBackdrop;
   trailing: SidebarWorkspaceTrailing;
   trailingPresentation: SidebarWorkspaceTrailingPresentation;
   showKebab: boolean;
@@ -976,10 +980,11 @@ function StatusWorkspaceActionSlot({
         <SidebarWorkspaceTrailingContent workspace={workspace} trailing={trailing} />
       </SidebarWorkspaceTrailingActionBase>
       <SidebarWorkspaceTrailingDetails workspace={workspace} />
-      <SidebarWorkspaceMenuReveal visible={kebab.showKebab}>
+      <SidebarWorkspaceMenuReveal visible={kebab.showKebab} backdrop={backdrop}>
         {kebab.showKebab && onArchive ? (
           <SidebarWorkspaceMenu
             {...kebab.menuProps}
+            backdrop={backdrop}
             workspaceKey={workspace.workspaceKey}
             serverId={workspace.serverId}
             workspaceId={workspace.workspaceId}

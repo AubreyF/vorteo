@@ -445,9 +445,11 @@ export function SidebarWorkspaceTrailingActionBase({
 
 export function SidebarWorkspaceMenuReveal({
   visible,
+  backdrop,
   children,
 }: {
   visible: boolean;
+  backdrop: SidebarSurfaceBackdrop;
   children: ReactNode;
 }) {
   const actionSize = useSidebarActionSize();
@@ -457,10 +459,11 @@ export function SidebarWorkspaceMenuReveal({
     <>
       {touch ? <View pointerEvents="none" style={[styles.touchMenuSpace, actionSize]} /> : null}
       {visible ? (
-        <View style={[styles.menuEdge, actionSize]}>
-          {!touch ? (
-            <TrailingActionScrim backdrop="surfaceSidebarHover" testID="sidebar-menu-fade" />
-          ) : null}
+        <View
+          testID="sidebar-menu-backdrop"
+          style={[styles.menuEdge, styles.menuBackdrop(backdrop), actionSize]}
+        >
+          {!touch ? <TrailingActionScrim backdrop={backdrop} testID="sidebar-menu-fade" /> : null}
           {children}
         </View>
       ) : null}
@@ -492,13 +495,13 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     overflow: "hidden",
   },
+  menuBackdrop: (backdrop: SidebarSurfaceBackdrop) => ({ backgroundColor: theme.colors[backdrop] }),
   touchMenuSpace: { flexShrink: 0, marginLeft: 4 },
   menuEdge: {
     position: "absolute",
     right: 0,
     alignItems: "flex-end",
     justifyContent: "center",
-    backgroundColor: theme.colors.surfaceSidebarHover,
     borderRadius: 0,
   },
   alignedRow: { alignItems: "center" },

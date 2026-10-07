@@ -163,6 +163,18 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     const title = row.getByText("main", { exact: true });
     expect((await title.boundingBox())?.width).toBeGreaterThanOrEqual(48);
     await expect(row.getByTestId("sidebar-menu-fade")).toBeVisible();
+    const rowBackground = await row.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    );
+    await expect(menu).toHaveCSS("background-color", rowBackground);
+    await expect(row.getByTestId("sidebar-menu-backdrop")).toHaveCSS(
+      "background-color",
+      rowBackground,
+    );
+    await expect(row.getByTestId("sidebar-menu-fade").locator("stop").last()).toHaveCSS(
+      "stop-color",
+      rowBackground,
+    );
     await page.screenshot({ path: test.info().outputPath("badges-hovered.png") });
     await menu.hover();
     await expect(menu).toHaveCSS("border-radius", "4px");

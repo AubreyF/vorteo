@@ -632,6 +632,7 @@ function ProjectMenuItems({
 
 function WorkspaceRowRightGroup({
   workspace,
+  backdrop,
   isHovered,
   isTouchPlatform,
   isCreating,
@@ -699,10 +700,11 @@ function WorkspaceRowRightGroup({
             <SidebarWorkspaceTrailingContent workspace={workspace} trailing={trailing} />
           </SidebarWorkspaceTrailingActionBase>
           <SidebarWorkspaceTrailingDetails workspace={workspace} />
-          <SidebarWorkspaceMenuReveal visible={kebab.showKebab}>
+          <SidebarWorkspaceMenuReveal visible={kebab.showKebab} backdrop={backdrop}>
             {onArchive ? (
               <SidebarWorkspaceMenu
                 {...kebab.menuProps}
+                backdrop={backdrop}
                 workspaceKey={workspace.workspaceKey}
                 serverId={workspace.serverId}
                 workspaceId={workspace.workspaceId}
