@@ -16,6 +16,7 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
   page,
 }) => {
   test.setTimeout(180_000);
+  page.setDefaultTimeout(15_000);
   let failNext = true;
   await page.routeWebSocket(daemonWsRoutePattern(), (browser) => {
     const server = browser.connectToServer();
@@ -101,6 +102,40 @@ test("Standing is saved and protected, Scheduled stays simple, and failed change
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeHidden();
     await section.click();
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeVisible();
+    await page.mouse.move(900, 700);
+    const row = page
+      .getByTestId(`sidebar-workspace-row-${getServerId()}:${agent.workspaceId}`)
+      .first();
+    const scheduledBadge = page.getByTestId(`workspace-scheduled-${agent.workspaceId}`);
+    const protectedBadge = page.getByTestId(`workspace-shield-${agent.workspaceId}`);
+    await expect.poll(async () => (await scheduledBadge.boundingBox())?.height).toBe(24);
+    expect((await protectedBadge.boundingBox())?.height).toBe(24);
+    const resting = await scheduledBadge.boundingBox();
+    const protection = await protectedBadge.boundingBox();
+    const rowBox = await row.boundingBox();
+    if (!resting || !protection || !rowBox) throw new Error("Expected visible workspace badges");
+    expect(Math.abs(resting.y - protection.y)).toBeLessThan(1);
+    expect(rowBox.x + rowBox.width - resting.x - resting.width).toBeLessThanOrEqual(12);
+    await page.screenshot({ path: test.info().outputPath("badges-resting.png") });
+    await row.hover();
+    const menu = page
+      .getByTestId(`sidebar-workspace-kebab-${getServerId()}:${agent.workspaceId}`)
+      .first();
+    await expect(menu).toBeVisible();
+    await expect
+      .poll(async () => {
+        const box = await scheduledBadge.boundingBox();
+        return box ? Math.round(resting.x + resting.width - box.x - box.width) : 0;
+      })
+      .toBe(28);
+    const menuBox = await menu.boundingBox();
+    const shifted = await scheduledBadge.boundingBox();
+    if (!menuBox || !shifted) throw new Error("Expected hovered workspace actions");
+    expect(menuBox.x).toBeGreaterThanOrEqual(shifted.x + shifted.width);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
+    const title = row.getByText("main", { exact: true });
+    expect((await title.boundingBox())?.width).toBeGreaterThanOrEqual(48);
+    await page.screenshot({ path: test.info().outputPath("badges-hovered.png") });
     expect((await client.archiveWorkspace(agent.workspaceId)).error).toContain("protected");
     await expect(client.archiveAgent(agent.agentId)).rejects.toThrow("protected");
     await openMenu(page, agent.workspaceId);
@@ -141,6 +176,7 @@ test.describe("touch controls", () => {
 
   test("Standing and Scheduled keep touch targets on a wide touchscreen", async ({ page }) => {
     test.setTimeout(180_000);
+    page.setDefaultTimeout(15_000);
     const agent = await seedMockAgentWorkspace({
       repoPrefix: "standing-touch-",
       title: "Standing supervisor",
@@ -182,8 +218,8 @@ test.describe("touch controls", () => {
         .poll(async () => Math.round((await protection.boundingBox())?.height ?? 0))
         .toBeGreaterThanOrEqual(44);
       await page.screenshot({ path: test.info().outputPath("tag-as-touch.png") });
-      await page.keyboard.press("Escape");
-      await page.keyboard.press("Escape");
+      await page.touchscreen.tap(900, 200);
+      await expect(protection).toBeHidden();
       await scheduled.tap();
       await expect(page).toHaveURL(/\/schedules$/);
     } finally {

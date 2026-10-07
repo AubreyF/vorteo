@@ -1,6 +1,8 @@
-import type { ReactElement } from "react";
+import { useCallback, type ReactElement } from "react";
 import { Text, View, type ViewStyle } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { Tag } from "lucide-react-native";
+import type { Theme } from "@/styles/theme";
 import {
   WORKSPACE_LABEL_COLORS,
   type WorkspaceLabelColor,
@@ -18,26 +20,20 @@ import { workspaceLabelDisplayName } from "./display-name";
  * A static number from the spacing scale, not a theme read — see docs/unistyles.md.
  */
 export const WORKSPACE_LABEL_CHIP_INSET = SPACING[1.5];
+const LabelIcon = withUnistyles(Tag);
 
-/**
- * A label where it is read rather than managed: its name in its own color, on a 10% ground of
- * the same hue — the tint formula the status pills already use.
- *
- * It is the one tinted thing on the workspace meta row, and that is the point. Every other item
- * on that line reports state, so they share the state colors; a label is something a person
- * attached to a workspace, and the ground is what separates that from a passing check sitting
- * next to it. The color comes from the identity table, held to the same contrast band as the
- * host badge beside it, so a chip identifies without shouting.
- *
- * The chip is exactly as tall as the line it sits on: text at the row's `lineHeight`, no vertical
- * padding. A ground that grew the line would push every other row in the sidebar down for it.
- */
+/** Custom labels share the compact title-row geometry while retaining their identity colors. */
 export function WorkspaceLabelChip({ label }: { label: WorkspaceLabelDefinition }): ReactElement {
+  const iconColor = useCallback(
+    (theme: Theme) => ({ color: identityForeground(label.color, theme.colorScheme) }),
+    [label.color],
+  );
   return (
     <View
       style={[styles.chip, CHIP_GROUNDS[label.color]]}
       testID={`workspace-label-chip-${label.name}`}
     >
+      <LabelIcon size={12} uniProps={iconColor} />
       <Text style={[styles.name, nameColorStyle(label.color)]} numberOfLines={1}>
         {workspaceLabelDisplayName(label.name)}
       </Text>
@@ -54,15 +50,18 @@ const CHIP_GROUNDS: Record<WorkspaceLabelColor, ViewStyle> = Object.fromEntries(
 
 const styles = StyleSheet.create((theme) => ({
   chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    height: 24,
+    overflow: "hidden",
     // Yields space the way the host badge does, so a long label truncates instead of pushing
     // the change request and its checks off the line.
     flexShrink: 1,
     minWidth: 0,
     paddingHorizontal: WORKSPACE_LABEL_CHIP_INSET,
-    borderRadius: theme.borderRadius.full,
+    borderRadius: theme.borderRadius.lg,
   },
-  // No optical nudge: the ground is the text's own line box, so the chip's ink sits on the same
-  // baseline as the bare text beside it and centring is whatever the line already does.
   name: {
     fontSize: theme.fontSize.sm,
     lineHeight: 16,

@@ -49,6 +49,8 @@ Standing and Protected have anchor and shield icons and checked states. Custom l
 
 Standing and Protected require an updated daemon. Tag As explains when the workspace's environment needs an update.
 
+Protected and Scheduled use matching compact icon badges at the right of the workspace title row. Custom labels share that line. Hovering slides the trailing content left to reveal the menu at the far right; touch layouts keep that menu visible. Scheduled opens Schedules and retains a full-size touch target around its compact badge.
+
 ## Choose the isolation
 
 Every workspace has an isolation mode:
