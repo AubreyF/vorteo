@@ -6,7 +6,7 @@ import {
 import { WorkspaceGoalBadge } from "@/goals/workspace-goal-badge";
 import { WorkspaceQueueCount } from "@/message-queue/workspace-queue-count";
 import { WorkspaceSubagentCount } from "@/subagents/workspace-count";
-import { useVortonTouch, VORTON_ACTION_SLOT } from "@/vorton-touch";
+import { useVortonTouch } from "@/vorton-touch";
 
 import { useSidebarActionSize } from "./use-sidebar-action-size";
 import { memo, useMemo, useCallback, useState, type ReactNode } from "react";
@@ -40,7 +40,8 @@ import {
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { StatusRing } from "@/components/status-ring";
 import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
-import { TrailingActionScrim } from "@/components/ui/trailing-action-scrim";
+import Animated, { useAnimatedStyle, withTiming, ReduceMotion } from "react-native-reanimated";
+import { WorkspaceLabelChip } from "@/workspace-labels/chip";
 import { useWorkspaceLabelDefinitions } from "@/workspace-labels";
 
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -156,16 +157,11 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   children?: ReactNode;
 }) {
   const {
-    settings: { workspaceTitleSource, sidebarRowItems },
+    settings: { workspaceTitleSource },
   } = useAppSettings();
   const workspaceLabel = resolveSidebarWorkspacePrimaryLabel({ workspace, workspaceTitleSource });
 
   const installedEnvironment = useHasExecutionEnvironment(workspace.serverId);
-  const actionSize = useSidebarActionSize();
-  const inlineService = selectWorkspaceServiceSummary(workspace.scripts);
-  // The workspace carries label names; their colors live in its host's catalog, so the row is
-  // where the two meet — the meta line is handed finished definitions.
-  const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
   const workspaceBranchTextStyle = useMemo(
     () => [
       styles.workspaceBranchText,
@@ -202,21 +198,8 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             <Text style={workspaceBranchTextStyle} numberOfLines={1}>
               {workspaceLabel}
             </Text>
-            <WorkspaceLifecycleIndicators workspace={workspace} />
             <View style={[sidebarWorkspaceRowStyles.rowRight, styles.alignedActions]}>
-              {inlineService ? (
-                <View style={[styles.serviceSlot, actionSize]}>
-                  <ServiceItem summary={inlineService} iconOnly />
-                </View>
-              ) : null}
               {children}
-              {
-                <WorkspaceActivityBadges
-                  serverId={workspace.serverId}
-                  workspaceId={workspace.workspaceId}
-                  visible={sidebarRowItems.activityBadges}
-                />
-              }
             </View>
           </View>
           <WorkspaceMetaRow
@@ -225,7 +208,6 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             hostBadge={visibleHostBadge(installedEnvironment, hostBadge)}
             prHint={workspace.prHint}
             serviceSummary={null}
-            labels={labels}
           />
         </View>
       </View>
@@ -346,7 +328,8 @@ export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: theme.spacing[2],
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
   },
   shortcutBadge: {
     minWidth: 18,
@@ -367,28 +350,6 @@ export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
     lineHeight: 14,
   },
   hidden: { opacity: 0 },
-  // Stays position:relative at zero width so the absolutely-positioned kebab keeps
-  // anchoring to the same right edge whether or not the slot holds anything.
-  trailingActionSlot: {
-    position: "relative",
-    minHeight: 20,
-    flexShrink: 0,
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
-  },
-  trailingActionSlotReserved: {
-    position: "relative",
-    minWidth: 18,
-    minHeight: 20,
-    flexShrink: 0,
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
-  },
-  trailingActionOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-  },
 }));
 
 export function SidebarWorkspaceShortcutBadge({ number }: { number: number }) {
@@ -401,16 +362,7 @@ export function SidebarWorkspaceShortcutBadge({ number }: { number: number }) {
 
 export type SidebarWorkspaceTrailingPresentation = "visible" | "hidden" | "absent";
 
-/**
- * What the trailing slot shows for a row. Derived in one place because three row renderers
- * share it: the two project-mode rows and the status-mode row. The rule used to be copied
- * into each of them and immediately drifted — one call site kept hiding the diff after the
- * others stopped.
- *
- * The trailing content survives the kebab on hover and fades under the scrim instead of
- * blinking out. Touch has no hover, so its permanent kebab still hides the content outright
- * rather than scrimming an unhovered row whose background doesn't match the gradient.
- */
+/** Shared visibility for project and status grouping. The menu reserves space only when shown. */
 export function resolveTrailingActionVisibility({
   workspace,
   trailing,
@@ -428,52 +380,50 @@ export function resolveTrailingActionVisibility({
 }): {
   trailingPresentation: SidebarWorkspaceTrailingPresentation;
   showKebab: boolean;
-  showScrim: boolean;
   renderSlot: boolean;
-  reserveSlotWidth: boolean;
 } {
   const hasTrailing = hasSidebarWorkspaceTrailing({ workspace, trailing });
   const showKebab = Boolean(hasArchiveAction && (isHovered || isTouchPlatform)) && !showShortcut;
-  // Touch permanently replaces the stats with the menu. Only temporary shortcut hints
-  // conceal content while retaining its width, so desktop rows do not shift.
-  const hasContent = hasTrailing && !(hasArchiveAction && isTouchPlatform);
+  const hasContent = hasTrailing;
   let trailingPresentation: SidebarWorkspaceTrailingPresentation = "absent";
   if (hasContent) trailingPresentation = showShortcut ? "hidden" : "visible";
   return {
     trailingPresentation,
     showKebab,
-    // The scrim paints the row's own hover background, so it can only be drawn on a hovered
-    // row — over an unhovered one the gradient fades to the wrong color. That is also why
-    // touch, which shows the kebab without ever hovering, never gets one.
-    showScrim: showKebab && isHovered,
-    renderSlot: hasArchiveAction || hasTrailing,
-    // The slot only holds width for something that permanently sits in it. Trailing content
-    // does; the kebab only does on touch, where there is no hover for it to appear on and so
-    // no scrim to let it overlay the title. Everywhere else the width goes back to the title
-    // and the kebab fades in over its tail.
-    reserveSlotWidth: hasContent || (hasArchiveAction && isTouchPlatform),
+    renderSlot: true,
   };
 }
 
-export function SidebarWorkspaceTrailingActionSlot({
-  reserveWidth,
-  children,
+export function SidebarWorkspaceTrailingActionSlot({ children }: { children: ReactNode }) {
+  return <View style={styles.trailingRail}>{children}</View>;
+}
+
+export function SidebarWorkspaceTrailingDetails({
+  workspace,
 }: {
-  reserveWidth: boolean;
-  children: ReactNode;
+  workspace: SidebarWorkspaceEntry;
 }) {
-  const actionSize = useSidebarActionSize();
+  const {
+    settings: { sidebarRowItems },
+  } = useAppSettings();
+  const service = selectWorkspaceServiceSummary(workspace.scripts);
+  const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
   return (
-    <View
-      dataSet={VORTON_ACTION_SLOT}
-      style={[
-        reserveWidth
-          ? sidebarWorkspaceRowStyles.trailingActionSlotReserved
-          : sidebarWorkspaceRowStyles.trailingActionSlot,
-        actionSize && { minWidth: actionSize.width, minHeight: actionSize.height },
-      ]}
-    >
-      {children}
+    <View style={styles.trailingDetails}>
+      {service ? <ServiceItem summary={service} iconOnly /> : null}
+      <WorkspaceActivityBadges
+        serverId={workspace.serverId}
+        workspaceId={workspace.workspaceId}
+        visible={sidebarRowItems.activityBadges}
+      />
+      {sidebarRowItems.labels && labels.length > 0 ? (
+        <View style={styles.customLabels}>
+          {labels.map((label) => (
+            <WorkspaceLabelChip key={label.name} label={label} />
+          ))}
+        </View>
+      ) : null}
+      <WorkspaceLifecycleIndicators workspace={workspace} />
     </View>
   );
 }
@@ -493,28 +443,59 @@ export function SidebarWorkspaceTrailingActionBase({
   );
 }
 
-export function SidebarWorkspaceTrailingActionOverlay({
+export function SidebarWorkspaceMenuReveal({
   visible,
-  scrimBackdrop,
   children,
 }: {
   visible: boolean;
-  /** Fade the row into the kebab when something (the diff stat) is still rendered behind it. */
-  scrimBackdrop?: SidebarSurfaceBackdrop;
   children: ReactNode;
 }) {
-  if (!visible || !children) return null;
+  const actionSize = useSidebarActionSize();
+  // Grow the spacer while keeping the button anchored at its final click position.
+  const width = actionSize.width + 4;
+  const spacerStyle = useAnimatedStyle(
+    () => ({
+      width: withTiming(visible ? width : 0, { duration: 160, reduceMotion: ReduceMotion.System }),
+    }),
+    [visible, width],
+  );
   return (
     <>
-      {scrimBackdrop ? (
-        <TrailingActionScrim backdrop={scrimBackdrop} testID="sidebar-workspace-trailing-scrim" />
-      ) : null}
-      <View style={sidebarWorkspaceRowStyles.trailingActionOverlay}>{children}</View>
+      <Animated.View
+        style={[styles.menuReveal, { height: actionSize.height }, spacerStyle]}
+        pointerEvents="none"
+      />
+      {visible ? <View style={[styles.menuEdge, actionSize]}>{children}</View> : null}
     </>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
+  trailingRail: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  trailingDetails: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    marginLeft: theme.spacing[1],
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  // Custom names yield before the built-in state badges in a crowded row.
+  customLabels: {
+    flexDirection: "row",
+    gap: theme.spacing[1],
+    flexShrink: 1000,
+    minWidth: 0,
+    overflow: "hidden",
+  },
+  menuReveal: { overflow: "hidden", flexShrink: 0, justifyContent: "center" },
+  menuEdge: { position: "absolute", right: 0, alignItems: "flex-end", justifyContent: "center" },
   alignedRow: { alignItems: "center" },
   alignedActions: { alignItems: "center", gap: 4 },
   serviceSlot: { alignItems: "center", justifyContent: "center", flexShrink: 0 },
@@ -580,7 +561,7 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 20,
     opacity: 0.76,
     flex: 1,
-    minWidth: 0,
+    minWidth: theme.spacing[12],
   },
   workspaceBranchTextCreating: {
     opacity: 0.92,

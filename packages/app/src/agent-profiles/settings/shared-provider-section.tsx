@@ -1,3 +1,5 @@
+import { readExecutionInstallation } from "@/execution-installation/policy";
+import { replaceProviderDefaults, editSharedProfile } from "./shared-profile-edits";
 import { useInstallationProfiles } from "@/execution-installation/profiles";
 import { PreferredChoicesField } from "./preferred-choices-field";
 import { sharedChoiceState } from "../shared-choices";
@@ -5,6 +7,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import type {
   AgentProfile,
+  MutableDaemonConfig,
   ProviderPreferences,
   SharedProviderPreferences,
 } from "@getpaseo/protocol/messages";
@@ -23,9 +26,11 @@ import { generateAgentProfileId } from "../internal/profile-id";
 import { toErrorMessage } from "@/utils/error-messages";
 
 interface EditTarget {
+  serverId: string;
   kind: "defaults" | "workflow";
   profile: AgentProfile;
   snapshot: SharedProviderPreferences;
+  providers: MutableDaemonConfig["providers"];
 }
 
 export function SharedProviderSection({
@@ -96,11 +101,13 @@ export function SharedProviderSection({
   const openDefaults = useCallback(() => {
     if (!shared) return;
     setEditor({
+      serverId,
       kind: "defaults",
       snapshot: shared,
+      providers: config?.providers ?? {},
       profile: { ...group?.defaults, id: "provider-defaults", name: "Provider defaults", provider },
     });
-  }, [shared, group, provider]);
+  }, [shared, group, provider, serverId, config?.providers]);
   const openWorkflow = useCallback(
     (id?: string) => {
       if (!shared) return;
@@ -109,14 +116,18 @@ export function SharedProviderSection({
         id: generateAgentProfileId(),
         name: "",
         provider: providerType,
+        workerProfileId: "",
+        maxWorkers: 2,
       };
       setEditor({
+        serverId,
         kind: "workflow",
         snapshot: shared,
+        providers: config?.providers ?? {},
         profile: { ...group?.defaults, ...profile, provider },
       });
     },
-    [shared, group, provider, providerType],
+    [shared, group, provider, providerType, serverId, config?.providers],
   );
   const add = useCallback(() => openWorkflow(), [openWorkflow]);
 
@@ -130,7 +141,7 @@ export function SharedProviderSection({
         workflows: [],
         defaultWorkflowId: null,
       };
-      const next = structuredClone(previous);
+      let next = structuredClone(previous);
       if (editor.kind === "defaults") {
         const {
           name: _name,
@@ -142,33 +153,16 @@ export function SharedProviderSection({
           excludedEnvironments: _excludedEnvironments,
           ...defaults
         } = value;
-        next.defaults = defaults;
+        next = replaceProviderDefaults(next, defaults);
       } else {
-        const { thinkingOptionId: _thinkingOptionId, ...workflowValue } = value;
-        const original = next.workflows.find((item) => item.id === editor.profile.id);
-        const workflow: AgentProfile = {
-          ...original,
-          ...workflowValue,
-          id: editor.profile.id,
-          provider: providerType,
-        };
-        // Preserve inheritance when an unchanged field was supplied only by provider defaults.
-        for (const key of [
-          "instructions",
-          "workerProfileId",
-          "maxWorkers",
-          "featureValues",
-          "quotaReservePolicy",
-        ] as const) {
-          if (
-            original?.[key] === undefined &&
-            JSON.stringify(workflow[key]) === JSON.stringify(next.defaults[key])
-          ) {
-            delete workflow[key];
-          }
-        }
-        if (workflow.model === next.defaults.model) delete workflow.model;
-        if (workflow.modeId === next.defaults.modeId) delete workflow.modeId;
+        const workflow = editSharedProfile(
+          next,
+          editor.profile.id,
+          providerType,
+          value,
+          editor.providers,
+          Boolean(installation),
+        );
         const index = next.workflows.findIndex((item) => item.id === workflow.id);
         if (index < 0) next.workflows.push(workflow);
         else next.workflows[index] = workflow;
@@ -176,7 +170,7 @@ export function SharedProviderSection({
       }
       await saveGroup(editor.snapshot, next);
     },
-    [editor, providerType, saveGroup],
+    [editor, providerType, saveGroup, installation],
   );
 
   const changeDefault = useCallback(
@@ -304,10 +298,23 @@ export function SharedProviderSection({
       ),
     [group, provider],
   );
-  const sharedScope = useMemo(
-    () => (editor ? { providerType, kind: editor.kind } : undefined),
-    [editor, providerType],
-  );
+  const providerLabel =
+    entries?.find((entry) => entry.provider === providerType)?.label ?? providerType;
+  const sharedScope = useMemo(() => {
+    if (!editor) return undefined;
+    const accountLabel =
+      entries?.find((entry) => entry.provider === editor.profile.provider)?.label ??
+      editor.profile.provider;
+    const environment = readExecutionInstallation()?.environments.find(
+      (entry) => entry.serverId === editor.serverId,
+    );
+    return {
+      providerType,
+      providerLabel,
+      kind: editor.kind,
+      catalogLabel: environment ? `${accountLabel} (${environment.kind})` : accountLabel,
+    };
+  }, [editor, entries, providerType, providerLabel]);
   const defaultOptions = (group?.workflows ?? []).map((workflow) => ({
     id: workflow.id,
     value: workflow.id,
@@ -318,14 +325,14 @@ export function SharedProviderSection({
   const addButton = useMemo(
     () => (
       <Button variant="ghost" size="sm" onPress={add} disabled={!shared || pending}>
-        Add workflow
+        Add profile
       </Button>
     ),
     [add, shared, pending],
   );
   return (
     <>
-      <SettingsSection title="Shared provider settings" testID="shared-provider-settings">
+      <SettingsSection title={`${providerLabel} defaults`} testID="shared-provider-settings">
         {installation ? (
           <Text style={settingsStyles.rowHint}>
             Profiles belong to this installation and are available in every environment unless
@@ -337,7 +344,7 @@ export function SharedProviderSection({
         ) : null}
         <View style={settingsStyles.card}>
           <View style={settingsStyles.row}>
-            <Text style={settingsStyles.rowHint}>Applies to all {providerType} accounts</Text>
+            <Text style={settingsStyles.rowHint}>Applies to all {providerLabel} accounts</Text>
             <Button
               variant="outline"
               size="sm"
@@ -370,17 +377,17 @@ export function SharedProviderSection({
           <Alert variant="error" title="Unable to save" description={operation.message} />
         ) : null}
       </SettingsSection>
-      <SettingsSection title="Workflows" trailing={addButton}>
+      <SettingsSection title="Profiles" trailing={addButton}>
         <SelectField
-          label="Default workflow"
+          label="Default profile"
           value={group?.defaultWorkflowId ?? null}
           selectedDisplay={
             defaultOptions.find((option) => option.value === group?.defaultWorkflowId) ?? null
           }
           options={defaultOptions}
           onChange={changeDefault}
-          placeholder="Choose a workflow"
-          emptyText="No workflows"
+          placeholder="Choose a profile"
+          emptyText="No profiles"
           disabled={pending}
         />
         <View style={settingsStyles.card}>
@@ -410,7 +417,7 @@ export function SharedProviderSection({
       </SettingsSection>
       {editor ? (
         <AgentProfileEditModal
-          serverId={serverId}
+          serverId={editor.serverId}
           visible
           mode="edit"
           profile={editor.profile}

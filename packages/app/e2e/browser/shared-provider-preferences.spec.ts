@@ -1,3 +1,4 @@
+import { getServerId } from "../support/helpers/server-id";
 import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { SharedProviderPreferences } from "@getpaseo/protocol/messages";
@@ -319,3 +320,129 @@ test("a new draft keeps the remembered account when another account owns the def
     await client.close();
   }
 });
+
+for (const viewport of [
+  { width: 1280, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test(`provider defaults separate worker teams and preserve the selected worker account (${viewport.width})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    const client = await connectDaemonClient<DaemonClient>({
+      clientIdPrefix: "profile-worker-accounts",
+    });
+    const initial = (await client.getDaemonConfig()).config.sharedProviderPreferences!;
+    await client.patchDaemonConfig({
+      providers: {
+        "workers-one": {
+          extends: "codex",
+          label: "Worker account one",
+          enabled: true,
+          command: ["node"],
+          models: [{ id: "worker-model", label: "Worker model" }],
+        },
+        "workers-two": {
+          extends: "codex",
+          label: "Worker account two",
+          enabled: true,
+          command: ["node"],
+          models: [{ id: "worker-model", label: "Worker model" }],
+        },
+      },
+      sharedProviderPreferences: {
+        version: 1,
+        revision: initial.revision,
+        legacyProfiles: {},
+        providers: {
+          codex: {
+            defaults: { model: "worker-model", modeId: "full-access" },
+            preferredModels: [],
+            preferredThinkingOptions: [],
+            workflows: [
+              { id: "supervisor", name: "Supervisor", provider: "codex" },
+              { id: "worker", name: "Worker", provider: "codex", model: "worker-model" },
+            ],
+            defaultWorkflowId: "supervisor",
+          },
+        },
+      },
+      expectedProviderPreferencesRevision: initial.revision,
+    });
+    const workspace = await seedMockAgentWorkspace({
+      repoPrefix: "profile-worker-accounts-",
+      title: "Worker account choices",
+    });
+    try {
+      await openAgentRoute(page, workspace);
+      await expectComposerVisible(page);
+      if (viewport.width < 600) {
+        // The compact chooser keeps profile management in Settings.
+        await page.evaluate(() => {
+          const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
+          if (!nonce) throw new Error("Missing isolated browser seed nonce");
+          localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
+        });
+        await page.goto(`/settings/hosts/${getServerId()}/providers`);
+        await page
+          .getByRole("button", { name: "Worker account one provider details", exact: true })
+          .getByText("Worker account one", { exact: true })
+          .click();
+        await page
+          .getByTestId("provider-settings-tabs")
+          .getByText("Profiles", { exact: true })
+          .click();
+      } else {
+        await page.getByTestId("agent-preset-selector").click();
+        await page.getByTestId("preset-account-workers-one").click();
+        await page.getByTestId("preset-manage-profiles").click();
+      }
+      await page.getByRole("button", { name: "Edit defaults", exact: true }).click();
+      await expect(page.getByTestId("agent-profile-edit-modal")).toBeVisible();
+      await expect(page.getByTestId("agent-profile-worker-account-field")).toHaveCount(0);
+      await expect(page.getByTestId("agent-profile-worker-field")).toHaveCount(0);
+      await page.getByTestId("agent-profile-cancel-button").click();
+      await expect(page.getByTestId("agent-profile-edit-modal")).toHaveCount(0);
+      await page.getByTestId("agent-profile-edit-supervisor").click();
+      await page.getByTestId("agent-profile-worker-account-field").getByRole("button").click();
+      await page.getByText("Worker account two", { exact: true }).last().click();
+      await expect(page.getByTestId("agent-profile-save-button")).toBeDisabled();
+      await page.getByTestId("agent-profile-worker-field").getByRole("button").click();
+      await page.getByText("Worker", { exact: true }).last().click();
+      await expect(page.getByTestId("agent-profile-worker-field")).toContainText("Worker");
+      await page.getByTestId("agent-profile-save-button").click();
+      await expect
+        .poll(async () =>
+          (
+            await client.getDaemonConfig()
+          ).config.sharedProviderPreferences!.providers.codex.workflows.find(
+            (profile) => profile.id === "supervisor",
+          ),
+        )
+        .toMatchObject({
+          workerProfileId: "shared-profile/codex/worker",
+          workerAccount: "workers-two",
+        });
+      await expect(page.getByTestId("agent-profile-edit-modal")).toHaveCount(0);
+      await page.getByTestId("agent-profile-edit-supervisor").click();
+      await expect(page.getByTestId("agent-profile-worker-account-field")).toContainText(
+        "Worker account two",
+      );
+      await expect(page.getByTestId("agent-profile-worker-field")).toContainText("Worker");
+      await page.getByTestId("agent-profile-worker-field").scrollIntoViewIfNeeded();
+      await expect(page.getByTestId("agent-profile-worker-account-field")).toBeInViewport();
+      await expect(page.getByTestId("agent-profile-save-button")).toBeInViewport();
+      await page.screenshot({ path: test.info().outputPath("profile-worker-account.png") });
+      await page.getByTestId("agent-profile-cancel-button").click();
+    } finally {
+      await workspace.cleanup();
+      const current = (await client.getDaemonConfig()).config.sharedProviderPreferences!;
+      await client.patchDaemonConfig({
+        sharedProviderPreferences: initial,
+        expectedProviderPreferencesRevision: current.revision,
+        removeProviders: ["workers-one", "workers-two"],
+      });
+      await client.close();
+    }
+  });
+}

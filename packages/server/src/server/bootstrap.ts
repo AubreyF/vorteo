@@ -1436,6 +1436,7 @@ export async function createPaseoDaemon(
     execution: governedRuntime,
   });
   const scheduleService = new ScheduleService({
+    canStartWork: () => !agentManager.isRestartDraining(),
     quotaRunner: quotaPreflight,
     paseoHome: config.paseoHome,
     logger,

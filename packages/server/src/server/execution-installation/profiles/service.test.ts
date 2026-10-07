@@ -27,6 +27,7 @@ import { validateProviderPreferences } from "../../agent/provider-preferences/va
 
 class Environment implements ProfileEnvironment {
   offline = false;
+  workerAccounts = false;
   reads = 0;
   loseReply = false;
   config;
@@ -1150,4 +1151,117 @@ test("existing installations consolidate once and keep old launch references usa
   await restarted.synchronize();
   expect(restarted.inspect()!.revision).toBe(revision);
   expect(journal.backups).toBe(2);
+});
+
+test("explicit worker account survives coordinator save, reload and both environment projections", async () => {
+  const { service, host, container, journal } = fixture();
+  host.workerAccounts = true;
+  container.workerAccounts = true;
+  host.config.providers = {
+    "worker-host": { extends: "codex", installationAccountId: "worker-account", enabled: true },
+  };
+  container.config.providers = {
+    "worker-dev": { extends: "codex", installationAccountId: "worker-account", enabled: true },
+  };
+  await service.synchronize();
+  const snapshot = service.snapshot()!;
+  const providers = structuredClone(snapshot.providers);
+  providers.codex.workflows.push({
+    id: "explicit-worker",
+    name: "Explicit worker",
+    provider: "codex",
+    model: "worker-model",
+  });
+  providers.claude = {
+    defaults: {},
+    preferredModels: [],
+    preferredThinkingOptions: [],
+    defaultWorkflowId: "explicit-team",
+    workflows: [
+      {
+        id: "explicit-team",
+        name: "Explicit team",
+        provider: "claude",
+        model: "claude-model",
+        workerProfileId: "shared-profile/codex/explicit-worker",
+        workerAccount: "installation-account/worker-account",
+      },
+    ],
+  };
+  const saved = await service.patch({ expectedRevision: snapshot.revision, providers });
+  expect(saved.workerAccounts).toBe(true);
+  await service.synchronize();
+  const reloaded = new InstallationProfiles(
+    journal,
+    [host, container],
+    "00000000-0000-4000-8000-000000000001",
+  );
+  expect(reloaded.snapshot()?.providers.claude.workflows[0].workerAccount).toBe(
+    "installation-account/worker-account",
+  );
+  for (const [environment, account] of [
+    [host, "worker-host"],
+    [container, "worker-dev"],
+  ] as const) {
+    const launch = resolveProfileLaunch(
+      { provider: "claude", cwd: "/work", profileId: "shared-profile/claude/explicit-team" },
+      [],
+      0,
+      environment.config,
+    );
+    expect(launch.profileLaunch?.worker?.provider).toBe(account);
+    expect(launch.profileLaunch?.worker?.model).toBe("worker-model");
+  }
+});
+
+test("coordinator refuses a new explicit worker account until every environment supports it", async () => {
+  const { service, host, container } = fixture();
+  host.workerAccounts = true;
+  container.workerAccounts = false;
+  await service.synchronize();
+  const snapshot = service.snapshot()!;
+  const providers = structuredClone(snapshot.providers);
+  providers.codex.workflows[0].workerAccount = "installation-account/new-worker";
+  await expect(
+    service.patch({ expectedRevision: snapshot.revision, providers }),
+  ).rejects.toBeInstanceOf(ProfileSharingConflict);
+  expect(service.snapshot()).toEqual(snapshot);
+});
+
+test("an explicit worker account cannot fall back to another account when unavailable", async () => {
+  const { service, host, container } = fixture();
+  host.workerAccounts = true;
+  container.workerAccounts = true;
+  host.config.providers = {
+    chosen: { extends: "codex", installationAccountId: "chosen-account", enabled: true },
+    other: { extends: "codex", enabled: true },
+  };
+  container.config.providers = {
+    chosen: { extends: "codex", installationAccountId: "chosen-account", enabled: true },
+  };
+  await service.synchronize();
+  const snapshot = service.snapshot()!;
+  const providers = structuredClone(snapshot.providers);
+  providers.codex.workflows.push(
+    { id: "worker", name: "Worker", provider: "codex", model: "worker" },
+    {
+      id: "team",
+      name: "Team",
+      provider: "codex",
+      model: "supervisor",
+      workerProfileId: "shared-profile/codex/worker",
+      workerAccount: "installation-account/chosen-account",
+    },
+  );
+  await service.patch({ expectedRevision: snapshot.revision, providers });
+  await service.synchronize();
+  host.config.providers.chosen.enabled = false;
+  expect(() =>
+    resolveProfileLaunch(
+      { provider: "other", cwd: "/work", profileId: "shared-profile/codex/team" },
+      [],
+      0,
+      host.config,
+    ),
+  ).toThrow("worker account is unavailable");
 });

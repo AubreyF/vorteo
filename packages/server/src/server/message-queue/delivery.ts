@@ -3,6 +3,7 @@ import type { AgentStreamEvent, AgentPromptInput } from "../agent/agent-sdk-type
 import { MessageQueueStore } from "./store.js";
 
 export interface QueueDeliveryPort {
+  canStartWork?(): boolean;
   history?(agentId: string): Promise<AgentStreamEvent[]>;
   prepare(
     agentId: string,
@@ -41,7 +42,12 @@ export class QueueDeliveryWorker {
   private readonly stopVersions = new Map<string, number>();
 
   private unavailable(agentId: string): boolean {
-    return this.closed || this.halted.has(agentId) || this.suspensions.has(agentId);
+    return (
+      this.closed ||
+      this.halted.has(agentId) ||
+      this.suspensions.has(agentId) ||
+      this.port.canStartWork?.() === false
+    );
   }
 
   private admissionGuard(agentId: string): () => boolean {
@@ -54,6 +60,7 @@ export class QueueDeliveryWorker {
     const version = this.stopVersions.get(agentId) ?? 0;
     return () =>
       !this.closed &&
+      this.port.canStartWork?.() !== false &&
       !this.halted.has(agentId) &&
       version === (this.stopVersions.get(agentId) ?? 0);
   }

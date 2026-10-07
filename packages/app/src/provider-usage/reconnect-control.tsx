@@ -142,6 +142,9 @@ export function ProviderReconnectControl({
                 </Button>
               </>
             )}
+            <Button variant="outline" onPress={close} testID="provider-login-done">
+              Done
+            </Button>
           </View>
         </AdaptiveModalSheet>
       ) : null}

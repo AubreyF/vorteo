@@ -24,7 +24,7 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { SegmentedControl } from "@/components/ui/segmented-control";
+import { SettingsTabs } from "@/components/settings/settings-tabs";
 import {
   requestInstallationSettings,
   useInstallationSettings,
@@ -629,7 +629,7 @@ function ProviderCatalog({
           Choose where authentication or runtime installation is needed. Provider settings are
           shared.
         </Text>
-        <SegmentedControl
+        <SettingsTabs
           options={options}
           value={selectedServerId}
           onValueChange={setRuntimeServerId}
@@ -654,7 +654,7 @@ function ProviderCatalog({
         <Text style={settingsStyles.rowHint}>
           Local sign-in and runtime details. Availability exceptions are managed in Environments.
         </Text>
-        <SegmentedControl
+        <SettingsTabs
           options={options}
           value={selectedServerId}
           onValueChange={setRuntimeServerId}

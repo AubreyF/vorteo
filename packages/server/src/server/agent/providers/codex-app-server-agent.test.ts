@@ -4574,6 +4574,67 @@ describe("Codex app-server provider", () => {
     });
   });
 
+  test.each([
+    { model: "gpt-6.1-sol", reasoningEffort: "medium", subtitle: "Native · gpt-6.1-sol · medium" },
+    { model: null, reasoningEffort: null, subtitle: "Native · Model unavailable" },
+  ])(
+    "reports native child configuration as $subtitle without inheriting the supervisor model",
+    async ({ model, reasoningEffort, subtitle }) => {
+      const appServer = createFakeCodexAppServer({
+        "thread/read": () => ({
+          thread: { model, reasoningEffort, turns: [] },
+        }),
+      });
+      const session = new CodexAppServerAgentSession(
+        createConfig({ cwd: "/workspace/project", model: "gpt-6-astra" }),
+        null,
+        createTestLogger(),
+        async () => appServer.child,
+      );
+      const events: AgentStreamEvent[] = [];
+      session.subscribe((event) => events.push(event));
+      try {
+        const run = session.run("Delegate the review.");
+        await appServer.waitForTurnStart();
+        appServer.startsSubAgent({
+          callId: "review",
+          threadId: "review-child",
+          agentPath: "/root/review_prompt_preservation",
+        });
+        await vi.waitFor(() => {
+          expect(events).toContainEqual(
+            expect.objectContaining({
+              type: "provider_subagent",
+              event: expect.objectContaining({
+                id: "review-child",
+                title: "Review prompt preservation",
+                description: null,
+                subtitle,
+              }),
+            }),
+          );
+        });
+        appServer.completeTurn({ threadId: "review-child" });
+        appServer.completeTurn();
+        await run;
+        expect(
+          events.findLast(
+            (event) => event.type === "provider_subagent" && event.event.type === "upsert",
+          ),
+        ).toMatchObject({
+          event: {
+            id: "review-child",
+            subtitle,
+            status: "completed",
+          },
+        });
+        appServer.assertNoErrors();
+      } finally {
+        await session.close();
+      }
+    },
+  );
+
   test("keeps a settled child completed until Codex starts another child turn", async () => {
     const appServer = createFakeCodexAppServer();
     const session = new CodexAppServerAgentSession(

@@ -14,6 +14,10 @@ Provider defaults resolve first, workflow fields override them, and an explicit 
 
 Hosts advertising `accountIndependentProfiles` expose one `shared-profile/<provider-type>/<workflow-id>` identity per profile. The picker chooses an account separately and retains the selected profile when switching compatible accounts. It hides profiles with a model or reasoning level missing from a successfully loaded account catalog. Loading and failed discovery are separate states, with Retry for failures; Manage profiles retains saved definitions with specific compatibility details. The shared editor uses the current account's catalog and labels its scope. It captures the configuration revision when opened, retains edits after a conflict, and requires reopening against the current revision.
 
+Settings shows one provider family at a time. Provider defaults apply to that family's accounts; individual profiles configure worker teams. The worker editor first selects an account, then an eligible profile with an explicit model. Cross-provider delegation remains supported. Saving provider defaults moves any previously inherited worker settings onto existing profiles, preserving their teams. New profiles start without workers. Unavailable saved worker references remain visible and are not silently cleared. Explicit worker account editing requires support from the installation coordinator and every environment. Until then, the editor retains saved teams and explains the required update.
+
+Skill choices are filtered by the provider's discovered inventory in the selected environment. Saved references missing from that inventory remain visible with a removal action. Inherited skills stay collapsed until customization is opened.
+
 A launch freezes the effective profile, worker target and configuration revision. Later edits affect future launches. Existing chats keep their permission snapshots and can use the permission warning's reviewed recreation flow. Shared workflow IDs are opaque launch references; clients must require the capability before submitting them.
 
 ### Profiles across execution environments
@@ -125,3 +129,7 @@ Keep policy state separate from `quotaPausedAt`. Persist stop reason and continu
 The third borderless composer control follows permissions and shows both thresholds. Require the daemon capability for presentation and new launch policy attachment. Existing tasks retain their attached policies. New protocol fields stay optional; unsupported hosts require an update rather than browser-only enforcement.
 
 Acceptance includes threshold equality, multiple windows, stale data, manual stops, worker completion races, restart recovery, and duplicate wake prevention. Deploy through the [instance continuity workflow](instance-continuity.md); source and web publication alone cannot activate daemon enforcement.
+
+### Explicit worker accounts
+
+`workerProfileId` identifies the shared worker definition. The optional `workerAccount` field binds it to a specific account; installation edits use a portable installation account reference so each environment can resolve its own local account ID. Existing profiles without this field keep their previous account resolution. Launch refuses a missing, disabled or mismatched explicit account instead of substituting another account. The `explicitWorkerAccounts` daemon capability and the installation snapshot's `workerAccounts` flag gate editing during mixed-version updates.

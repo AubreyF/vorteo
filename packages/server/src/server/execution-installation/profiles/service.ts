@@ -74,6 +74,7 @@ export type ProfileSharingState = z.infer<typeof ProfileSharingStateSchema>;
 export interface ProfileEnvironment {
   serverId: string;
   kind: "host" | "container";
+  workerAccounts?: boolean;
   read(): Promise<MutableDaemonConfig>;
   patch(patch: MutableDaemonConfigPatch): Promise<MutableDaemonConfig>;
 }
@@ -142,7 +143,11 @@ export class InstallationProfiles {
       Object.values(this.state.sources).some((source) => !source.projection)
     )
       return null;
-    return { ...status, providers: structuredClone(this.state.providers) };
+    return {
+      ...status,
+      providers: structuredClone(this.state.providers),
+      workerAccounts: this.environments.every((environment) => environment.workerAccounts === true),
+    };
   }
 
   patch(input: InstallationProfilesPatch): Promise<InstallationProfilesSnapshot> {
@@ -160,6 +165,20 @@ export class InstallationProfiles {
       throw new ProfileSharingConflict(["revision"]);
     const next = structuredClone(state);
     next.providers = ProvidersSchema.parse(input.providers);
+    for (const [type, group] of Object.entries(next.providers)) {
+      const previous = state.providers[type];
+      const changed = [group.defaults, ...group.workflows].some((profile, index) => {
+        const original =
+          index === 0
+            ? previous?.defaults
+            : previous?.workflows.find((item) => item.id === group.workflows[index - 1].id);
+        return Boolean(profile.workerAccount) && profile.workerAccount !== original?.workerAccount;
+      });
+      if (changed && !this.environments.every((environment) => environment.workerAccounts === true))
+        throw new ProfileSharingConflict([
+          "Update every environment before selecting a worker account.",
+        ]);
+    }
     this.validateRetainedWorkflows(next);
     validateProviderPreferences({
       preferences: {

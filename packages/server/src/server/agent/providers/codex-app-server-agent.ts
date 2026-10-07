@@ -3448,6 +3448,8 @@ interface CodexSubAgentCallState {
   childItemOrder: string[];
   childItems: Map<string, AgentTimelineItem>;
   childThreadIds: Set<string>;
+  childSubtitles: Map<string, string>;
+  configurationReads: Set<string>;
 }
 
 function resolveCodexParentSubagentId(
@@ -5953,6 +5955,12 @@ export class CodexAppServerAgentSession implements AgentSession {
         this.emitSubAgentActivityUpdate(callId, "running", { reopen: true });
         return;
       case "turn_started":
+        void this.refreshSubagentConfiguration(
+          parsed.threadId,
+          this.subAgentCallsByCallId.get(callId),
+        );
+        this.dispatchParsedNotification(parsed);
+        return;
       case "turn_completed":
       case "agent_message_delta":
       case "reasoning_delta":
@@ -6155,6 +6163,8 @@ export class CodexAppServerAgentSession implements AgentSession {
         childItemOrder: [],
         childItems: new Map<string, AgentTimelineItem>(),
         childThreadIds: new Set<string>(),
+        childSubtitles: new Map<string, string>(),
+        configurationReads: new Set<string>(),
       } satisfies CodexSubAgentCallState);
 
     state.toolCall = {
@@ -6190,10 +6200,40 @@ export class CodexAppServerAgentSession implements AgentSession {
         continue;
       }
       this.subAgentCallIdByChildThreadId.set(receiverThreadId, timelineItem.callId);
+      const isNewChild = !state.childThreadIds.has(receiverThreadId);
       state.childThreadIds.add(receiverThreadId);
       this.emitProviderSubagentUpsert(receiverThreadId, state, timelineItem.status);
+      if (isNewChild) void this.refreshSubagentConfiguration(receiverThreadId, state);
     }
     return childThreadIds;
+  }
+
+  private async refreshSubagentConfiguration(
+    threadId: string | null,
+    state: CodexSubAgentCallState | undefined,
+  ): Promise<void> {
+    if (!threadId || !this.client || !state || state.configurationReads.has(threadId)) return;
+    state.configurationReads.add(threadId);
+    try {
+      // Read the child's configured model. A fork can override its supervisor's model.
+      const response = toObjectRecord(
+        await this.client.request("thread/read", { threadId, includeTurns: false }),
+      );
+      const thread = toObjectRecord(response?.thread);
+      if (this.subAgentCallsByCallId.get(state.callId) !== state) return;
+      const model = nonEmptyString(thread?.model) ?? "Model unavailable";
+      const effort = nonEmptyString(thread?.reasoningEffort);
+      const subtitle = ["Native", model, effort].filter(Boolean).join(" · ");
+      const previous = state.childSubtitles.get(threadId) ?? "Native · Model unavailable";
+      if (subtitle === previous) return;
+      state.childSubtitles.set(threadId, subtitle);
+      this.emitProviderSubagentUpsert(threadId, state, state.toolCall.status);
+    } catch (error) {
+      // Older providers or an already-removed thread may not expose configuration.
+      this.logger.debug({ err: error, threadId }, "Could not read subagent configuration");
+    } finally {
+      state.configurationReads.delete(threadId);
+    }
   }
 
   private handleRegisteredSubAgentActivity(rawItem: { [key: string]: unknown }): boolean {
@@ -6397,6 +6437,8 @@ export class CodexAppServerAgentSession implements AgentSession {
     } else if (status === "canceled") {
       providerStatus = "canceled";
     }
+    // MultiAgentV2's description is the raw task path; its title is already humanized.
+    const description = state.activityItemIds.size > 0 ? null : (detail.description ?? null);
     this.emitEvent({
       type: "provider_subagent",
       provider: CODEX_PROVIDER,
@@ -6404,7 +6446,8 @@ export class CodexAppServerAgentSession implements AgentSession {
         type: "upsert",
         id: childThreadId,
         title: detail.subAgentType ?? "Codex subagent",
-        description: detail.description ?? null,
+        description,
+        subtitle: state.childSubtitles.get(childThreadId) ?? "Native · Model unavailable",
         status: providerStatus,
         toolCallId: state.callId,
         parentSubagentId: state.parentSubagentId,

@@ -10,33 +10,44 @@ interface StatusBadgeProps {
   leading?: ReactNode;
   /** `xs` fits beside a line of `sm` text: the same label on tighter padding. */
   size?: "sm" | "xs";
+  shape?: "pill" | "row";
 }
 
-export function StatusBadge({ label, variant = "muted", leading, size = "sm" }: StatusBadgeProps) {
+export function StatusBadge({
+  label,
+  variant = "muted",
+  leading,
+  size = "sm",
+  shape = "pill",
+}: StatusBadgeProps) {
   const pillStyle = useMemo(
     () => [
       styles.pill,
       size === "xs" && styles.pillXs,
+      shape === "row" && styles.row,
       variant === "success" && styles.pillSuccess,
       variant === "warning" && styles.pillWarning,
       variant === "error" && styles.pillError,
     ],
-    [size, variant],
+    [size, variant, shape],
   );
   const textStyle = useMemo(
     () => [
       styles.pillText,
+      shape === "row" && styles.rowText,
       variant === "success" && styles.pillTextSuccess,
       variant === "warning" && styles.pillTextWarning,
       variant === "error" && styles.pillTextError,
     ],
-    [variant],
+    [variant, shape],
   );
 
   return (
     <View style={pillStyle}>
-      {leading}
-      <Text style={textStyle}>{label}</Text>
+      {shape === "row" && leading ? <View style={styles.rowIcon}>{leading}</View> : leading}
+      <Text style={textStyle} numberOfLines={shape === "row" ? 1 : undefined}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -57,6 +68,18 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[1.5],
     paddingVertical: 1,
   },
+  row: {
+    minWidth: 0,
+    flexShrink: 1,
+    overflow: "hidden",
+    height: 24,
+    paddingHorizontal: theme.spacing[1],
+    paddingVertical: 0,
+    borderRadius: theme.borderRadius.lg,
+    gap: theme.spacing[1],
+  },
+  rowText: { minWidth: 0, flexShrink: 1 },
+  rowIcon: { flexShrink: 0 },
   pillSuccess: {
     backgroundColor: theme.colors.statusSuccessTint,
     borderColor: "transparent",

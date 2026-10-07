@@ -23,28 +23,35 @@ import {
 export function createInstallationProfiles(config: InstallationConfig): InstallationProfiles {
   const directory = path.join(config.stateDir, "shared-profiles");
   const file = path.join(directory, "state.json");
-  const environments: ProfileEnvironment[] = config.public.environments.map((environment) => ({
-    serverId: environment.serverId,
-    kind: environment.kind,
-    async read() {
-      const client = await connectInstallationDaemon(config, environment.kind);
-      try {
-        if (client.getLastServerInfoMessage()?.features?.installationProfileAuthority !== true)
-          throw new Error("Update the daemon to preserve shared profile identities");
-        return (await client.getDaemonConfig()).config;
-      } finally {
-        await client.close();
-      }
-    },
-    async patch(patch) {
-      const client = await connectInstallationDaemon(config, environment.kind);
-      try {
-        return (await client.patchDaemonConfig(patch)).config;
-      } finally {
-        await client.close();
-      }
-    },
-  }));
+  const environments: ProfileEnvironment[] = config.public.environments.map((environment) => {
+    const target: ProfileEnvironment = {
+      serverId: environment.serverId,
+      kind: environment.kind,
+      workerAccounts: false,
+      async read() {
+        target.workerAccounts = false;
+        const client = await connectInstallationDaemon(config, environment.kind);
+        try {
+          if (client.getLastServerInfoMessage()?.features?.installationProfileAuthority !== true)
+            throw new Error("Update the daemon to preserve shared profile identities");
+          target.workerAccounts =
+            client.getLastServerInfoMessage()?.features?.explicitWorkerAccounts === true;
+          return (await client.getDaemonConfig()).config;
+        } finally {
+          await client.close();
+        }
+      },
+      async patch(patch) {
+        const client = await connectInstallationDaemon(config, environment.kind);
+        try {
+          return (await client.patchDaemonConfig(patch)).config;
+        } finally {
+          await client.close();
+        }
+      },
+    };
+    return target;
+  });
   return new InstallationProfiles(
     {
       read: () =>

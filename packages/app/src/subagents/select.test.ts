@@ -68,6 +68,31 @@ afterEach(() => {
 });
 
 describe("selectSubagentsForParent", () => {
+  it("shows the child's profile code and runtime model rather than the supervisor's", () => {
+    setAgents([
+      makeAgent({ id: "parent", model: "gpt-6-astra" }),
+      makeAgent({
+        id: "child",
+        parentAgentId: "parent",
+        profile: { id: "worker", name: "Codex 1 Sol Medium" },
+        model: "gpt-6-astra",
+        runtimeInfo: {
+          provider: "codex",
+          sessionId: "child-session",
+          model: "gpt-6.1-sol",
+          thinkingOptionId: "medium",
+        },
+      }),
+    ]);
+    const rows = selectSubagentsForParent(
+      useSessionStore.getState(),
+      { serverId: SERVER_ID, parentAgentId: "parent" },
+      EMPTY_PENDING_ARCHIVE_IDS,
+      [{ id: "worker", name: "Codex 1 Sol Medium", nickname: "C1-SM", provider: "codex" }],
+    );
+    expect(rows[0]?.subtitle).toBe("C1-SM · gpt-6.1-sol · medium");
+  });
+
   it("hides cached provider children when the host does not support them", () => {
     useProviderSubagentStore.getState().applyUpdate(SERVER_ID, {
       kind: "upsert",
@@ -116,6 +141,13 @@ describe("selectSubagentsForParent", () => {
         toolCallId: "call-1",
       },
     });
+    expect(
+      selectProviderSubagentsForParent(
+        useProviderSubagentStore.getState(),
+        { serverId: SERVER_ID, parentAgentId: "parent-a" },
+        true,
+      )[0]?.subtitle,
+    ).toBe("Native · Model unavailable");
     store.hideFromTrack(SERVER_ID, "parent-a", ["provider-child"]);
 
     expect(
@@ -293,7 +325,7 @@ describe("selectSubagentsForParent", () => {
         status: "running",
         requiresAttention: true,
         createdAt,
-        model: "should-not-leak",
+        model: "claude-sonnet-5",
         cwd: "/private/project",
       }),
     ]);
@@ -314,7 +346,7 @@ describe("selectSubagentsForParent", () => {
         provider: "claude",
         title: "Review child",
         description: null,
-        subtitle: null,
+        subtitle: "No profile · claude-sonnet-5",
         status: "running",
         turn: { phase: "idle", cancellationRequestId: null },
         requiresAttention: true,

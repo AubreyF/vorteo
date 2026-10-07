@@ -39,7 +39,10 @@ const cases: ProviderSubagentCase[] = [
     provider: "codex",
     sentinel: "CODEX_CHILD_SENTINEL",
     expectedName: "Sentinel child",
-    providerConfig: { providerOptions: { features: { multi_agent_v2: true } } },
+    expectedSubtitle: /Native · gpt-[\w.-]+(?: · \w+)?/,
+    providerConfig: {
+      providerOptions: { features: { multi_agent_v2: true } },
+    },
     prompt:
       'Use the native collaboration.spawn_agent tool exactly once with task_name "sentinel_child" and fork_turns "none". Ask it to reply with exactly CODEX_CHILD_SENTINEL and do nothing else. Wait for it with collaboration.wait_agent, then reply ROOT_DONE. Do not use Paseo tools.',
   },
@@ -142,9 +145,19 @@ test.describe("real provider subagent timelines", () => {
         ).toBeVisible({ timeout: 60_000 });
         // Opening the subagent's tab closed the panel with the parent's pane.
         await openSubagentsTrack(page);
-        const archiveFinished = page.getByTestId("subagents-track-archive-finished");
-        await expect(archiveFinished).toBeVisible({ timeout: 30_000 });
-        await archiveFinished.click();
+        await page.setViewportSize({ width: 390, height: 844 });
+        const archive = rows.first().getByTestId(/^subagents-track-archive-/);
+        await expect(archive).toBeVisible({ timeout: 30_000 });
+        await expect(rows.first().getByTestId(/^subagents-track-detach-/)).toHaveCount(0);
+        const compactTrackScreenshot = testInfo.outputPath(
+          `${scenario.provider}-subagent-track-compact.png`,
+        );
+        await page.screenshot({ path: compactTrackScreenshot });
+        await testInfo.attach(`${scenario.provider} compact subagent track`, {
+          path: compactTrackScreenshot,
+          contentType: "image/png",
+        });
+        await archive.click();
         await expect(rows).toHaveCount(0, { timeout: 30_000 });
       } finally {
         await cleanupRewindFlow({ handle, cwd });

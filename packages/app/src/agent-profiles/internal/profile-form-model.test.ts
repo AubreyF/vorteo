@@ -569,3 +569,19 @@ it("preserves and explicitly changes profile skill policy", () => {
   model.setSkillPolicy(undefined);
   expect(model.getState().submitValue?.skillPolicy).toBeUndefined();
 });
+
+it("requires a worker profile after switching accounts and preserves an explicit No workers choice", () => {
+  const model = openWithCatalog({
+    mode: "edit",
+    profile: { id: "team", name: "Team", provider: "claude", workerProfileId: "saved-worker" },
+  });
+  expect(model.getState().submitValue?.workerProfileId).toBe("saved-worker");
+  model.setWorkerAccount("codex-two");
+  expect(model.getState().workerProfileId).toBe("");
+  expect(model.getState().canSubmit).toBe(false);
+  model.setWorkerProfileId("second-account-worker");
+  expect(model.getState().submitValue?.workerProfileId).toBe("second-account-worker");
+  model.setWorkerAccount("");
+  expect(model.getState().canSubmit).toBe(true);
+  expect(model.getState().submitValue?.workerProfileId).toBe("");
+});

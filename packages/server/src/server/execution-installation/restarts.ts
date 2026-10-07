@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   RestartImpact,
+  RestartDecision,
   RestartJob,
   RestartRequest,
 } from "@getpaseo/protocol/execution-installation";
@@ -14,6 +15,8 @@ export interface RestartExecutor {
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
   restartWhenIdle?(target: RestartJob["target"]): Promise<string | null>;
+  holdCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
+  releaseCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
 }
 
 export class RestartRequestError extends Error {}
@@ -74,32 +77,44 @@ export class InstallationRestarts {
     return { ...job };
   }
 
-  decide(
-    id: string,
-    revision: string,
-    decision: "approve" | "reject" | "approve-when-idle" | "cancel",
-  ): RestartJob {
+  decide(id: string, revision: string, decision: RestartDecision): RestartJob {
     const job = this.jobs.find((candidate) => candidate.id === id);
-    if (
-      job?.revision === revision &&
-      job.status === "approved" &&
-      job.whenIdle &&
-      decision === "cancel"
-    ) {
-      const next: RestartJob = {
+    if (!job || job.revision !== revision)
+      throw new RestartRequestError("Restart request is missing or changed");
+    if (decision === "request-again") {
+      if (job.status !== "rejected")
+        throw new RestartRequestError("Only cancelled requests can be requested again");
+      return this.request(
+        { target: job.target, reason: job.reason, requester: job.requester },
+        "owner",
+      );
+    }
+    if (decision === "finish-current-turns") return this.approveFinish(job);
+    if (decision === "cancel") {
+      if (job.status !== "approved" || !job.whenIdle)
+        throw new RestartRequestError("Restart is not waiting or has already dispatched");
+      const next = {
         ...job,
-        status: "rejected",
+        status: "rejected" as const,
         detail: "Queued restart cancelled by owner",
       };
       this.replace(next);
       return { ...next };
     }
-    if (!job || job.revision !== revision || job.status !== "pending" || decision === "cancel") {
-      throw new RestartRequestError("Restart request is missing, changed, or already decided");
+    if (job.status === "approved" && job.whenIdle && decision === "approve") {
+      const next = {
+        ...job,
+        revision: randomUUID(),
+        whenIdle: false,
+        detail: "Owner approved an immediate restart, which may interrupt running tasks.",
+      };
+      this.replace(next);
+      return { ...next };
     }
-    if (decision === "approve-when-idle" && !this.executor.restartWhenIdle) {
+    if (job.status !== "pending")
+      throw new RestartRequestError("Restart request is already decided");
+    if (decision === "approve-when-idle" && !this.executor.restartWhenIdle)
       throw new RestartRequestError("Idle restarts are unavailable on this coordinator");
-    }
     const next: RestartJob = {
       ...job,
       status: decision === "reject" ? "rejected" : "approved",
@@ -116,10 +131,59 @@ export class InstallationRestarts {
     return { ...next };
   }
 
+  private approveFinish(job: RestartJob): RestartJob {
+    if (!["pending", "approved"].includes(job.status))
+      throw new RestartRequestError("Restart request is already dispatched or decided");
+    if (
+      !this.executor.holdCurrentTurns ||
+      !this.executor.releaseCurrentTurns ||
+      !this.executor.restartWhenIdle
+    )
+      throw new RestartRequestError("Update the coordinator to support finishing current turns");
+    const next: RestartJob = {
+      ...job,
+      revision: randomUUID(),
+      status: "approved",
+      approvedAt: new Date(this.now()).toISOString(),
+      whenIdle: true,
+      finishCurrentTurns: true,
+      detail: "Holding new work while current turns finish. You can cancel before restart.",
+    };
+    this.replace(next);
+    return { ...next };
+  }
+
+  private async inspectBeforeRestart(job: RestartJob): Promise<RestartImpact> {
+    if (!this.executor.inspect) throw new Error("Idle restart inspection is unavailable");
+    if (job.finishCurrentTurns) {
+      if (!this.executor.holdCurrentTurns) throw new Error("Graceful restart unavailable");
+      await this.executor.holdCurrentTurns(job.target, job.id);
+    }
+    return this.executor.inspect(job.target);
+  }
+
   async drain(): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {
+      for (const job of this.jobs.filter(
+        (candidate) =>
+          candidate.finishCurrentTurns &&
+          !candidate.holdReleased &&
+          ["rejected", "failed", "succeeded"].includes(candidate.status),
+      )) {
+        if (!this.executor.releaseCurrentTurns) continue;
+        try {
+          await this.executor.releaseCurrentTurns(job.target, job.id);
+          this.replace({ ...job, holdReleased: true });
+        } catch {
+          // Keep release intent durable and retry without dispatching a restart.
+          this.replace({
+            ...job,
+            detail: "Waiting for the environment to release its restart hold.",
+          });
+        }
+      }
       for (const job of this.jobs.filter((candidate) => candidate.status === "approved")) {
         await this.dispatch(job);
       }
@@ -132,8 +196,7 @@ export class InstallationRestarts {
     if (job.whenIdle) {
       let impact: RestartImpact;
       try {
-        if (!this.executor.inspect) throw new Error("Idle restart inspection is unavailable");
-        impact = await this.executor.inspect(job.target);
+        impact = await this.inspectBeforeRestart(job);
       } catch {
         impact = {
           target: job.target,
@@ -145,7 +208,8 @@ export class InstallationRestarts {
         };
       }
       // Owner cancellation may arrive while the target is being inspected.
-      if (this.jobs.find((candidate) => candidate.id === job.id)?.status !== "approved") return;
+      const current = this.jobs.find((candidate) => candidate.id === job.id);
+      if (current?.status !== "approved" || current.revision !== job.revision) return;
       const waiting =
         impact.error ||
         !impact.idleRestartSupported ||

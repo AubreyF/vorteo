@@ -138,7 +138,7 @@ export function resolveSharedWorkflow(input: {
     savedWorker && !input.accountBound
       ? canonicalProfileId(savedWorker, preferences, providers)
       : savedWorker;
-  const workerReference = legacyWorkerReference(
+  let workerReference = legacyWorkerReference(
     canonicalWorker,
     input.accountBound
       ? (preferences.workflowWorkerBindings?.[providerType]?.[input.workflowId] ??
@@ -147,6 +147,12 @@ export function resolveSharedWorkflow(input: {
     preferences,
     providers,
   );
+  workerReference = explicitWorkerReference({
+    reference: workerReference,
+    account: workflow.workerAccount ?? group.defaults.workerAccount,
+    preferences,
+    providers,
+  });
   const providerIds = [
     ...new Set([provider, ...Object.keys(providers), ...Object.keys(preferences.providers)]),
   ];
@@ -168,6 +174,33 @@ export function resolveSharedWorkflow(input: {
   };
 }
 
+function explicitWorkerReference(input: {
+  reference: string | undefined;
+  account: string | undefined;
+  preferences: SharedProviderPreferences;
+  providers: Readonly<Record<string, ProviderAncestry>>;
+}): string | undefined {
+  const { reference, account, preferences, providers } = input;
+  if (!reference || !account) return reference;
+  const localAccount = localInstallationProvider(account, providers);
+  if (
+    !localAccount ||
+    providers[localAccount]?.enabled === false ||
+    providers[localAccount]?.removed
+  )
+    throw new WorkerAccountError(
+      account,
+      "The selected worker account is unavailable in this environment.",
+    );
+  const target = canonicalProfileId(reference, preferences, providers).split("/");
+  if (resolveProviderType(localAccount, providers) !== decodeURIComponent(target[1]))
+    throw new WorkerAccountError(
+      account,
+      "The selected worker account belongs to another provider.",
+    );
+  return sharedWorkflowProfileId(localAccount, decodeURIComponent(target[2]));
+}
+
 // COMPAT(account-profile-ids): older clients use account-qualified launch references.
 // Added in v0.11.0-beta.3.vorteo.150; remove after 2027-04-06 once supported clients use canonical IDs.
 export function materializeSharedProfiles(input: {
@@ -180,12 +213,18 @@ export function materializeSharedProfiles(input: {
     const group = input.preferences.providers[providerType];
     if (!group) return [];
     return group.workflows.flatMap((workflow) => {
-      const profile = resolveSharedWorkflow({
-        ...input,
-        provider,
-        workflowId: workflow.id,
-        accountBound: true,
-      });
+      let profile: AgentProfile | undefined;
+      try {
+        profile = resolveSharedWorkflow({
+          ...input,
+          provider,
+          workflowId: workflow.id,
+          accountBound: true,
+        });
+      } catch (error) {
+        if (!(error instanceof WorkerAccountError)) throw error;
+        return [];
+      }
       if (!profile) return [];
       return [
         {
@@ -284,6 +323,16 @@ function legacyWorkerProviderType(
     (entry) => entry.provider === account,
   );
   return binding?.providerType ?? account;
+}
+
+export class WorkerAccountError extends Error {
+  constructor(
+    readonly account: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "WorkerAccountError";
+  }
 }
 
 export class ProviderAncestryError extends Error {

@@ -22,6 +22,7 @@ export const ExecutionInstallationSchema = z.strictObject({
   installationId: z.string().uuid(),
   profileSharing: z.boolean().optional(),
   idleRestarts: z.boolean().optional(),
+  gracefulRestarts: z.boolean().optional(),
   origin: z.url(),
   environments: z.array(InstallationEnvironmentSchema).length(2),
 });
@@ -57,6 +58,7 @@ export const RestartImpactSchema = z.object({
   agents: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
   pendingStarts: z.number().int().nonnegative(),
   idleRestartSupported: z.boolean(),
+  gracefulRestartSupported: z.boolean().optional(),
   error: z.string().nullable(),
 });
 export type RestartImpact = z.infer<typeof RestartImpactSchema>;
@@ -70,6 +72,8 @@ export const RestartJobSchema = RestartRequestSchema.extend({
   status: z.enum(["pending", "approved", "running", "succeeded", "failed", "rejected"]),
   detail: z.string(),
   whenIdle: z.boolean().optional(),
+  finishCurrentTurns: z.boolean().optional(),
+  holdReleased: z.boolean().optional(),
   approvedAt: z.string().datetime().optional(),
   impact: RestartImpactSchema.optional(),
 });
@@ -77,8 +81,17 @@ export type RestartJob = z.infer<typeof RestartJobSchema>;
 
 export const RestartDecisionSchema = z.strictObject({
   revision: z.string().uuid(),
-  decision: z.enum(["approve", "reject", "approve-when-idle", "cancel"]),
+  decision: z.enum([
+    "approve",
+    "reject",
+    "approve-when-idle",
+    "finish-current-turns",
+    "request-again",
+    "cancel",
+  ]),
 });
+
+export type RestartDecision = z.infer<typeof RestartDecisionSchema>["decision"];
 
 export const EXECUTION_ENVIRONMENT_LABELS: Record<ExecutionEnvironmentKind, string> = {
   container: "Dev container",
@@ -129,6 +142,7 @@ export const ProfileSharingStatusSchema = z.object({
 export type ProfileSharingStatus = z.infer<typeof ProfileSharingStatusSchema>;
 
 export const InstallationProfilesSnapshotSchema = ProfileSharingStatusSchema.extend({
+  workerAccounts: z.boolean().optional(),
   providers: z.record(z.string(), ProviderPreferencesSchema),
 });
 export type InstallationProfilesSnapshot = z.infer<typeof InstallationProfilesSnapshotSchema>;

@@ -2,6 +2,23 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.166 - 2026-10-07
+
+### Changed
+
+- Show worker profile codes and model configuration, remove duplicate native task names, and let finished native workers be hidden individually
+
+- Use full-width tab baselines and rounded top corners across environment and provider settings
+
+- Place Environments, Providers and Agent profiles directly below General in Settings.
+- Show one provider family at a time in Agent profiles, filter skills by provider discovery, and keep delegation settings on individual profiles.
+- Preserve explicitly selected worker accounts across installation environments. Account editing becomes available after the coordinator and every environment support it.
+
+### Fixed
+
+- Finish account sign-in with a clear success message and Done button instead of leaving the connection panel saying usage is refreshing.
+- Use an available account catalog for shared provider defaults so a disabled base provider does not hide mode and model choices.
+
 ## 0.11.0-beta.3.vorteo.165 - 2026-10-07
 
 ### Changed
@@ -12,6 +29,27 @@ Custom changes to vorteo. Paseo's release history remains in its upstream change
 
 - Keep reset button text gray even when account usage is nearly exhausted.
 - Display Codex usage credits as credits rather than dollars.
+
+## 0.11.0-beta.3.vorteo.164 - 2026-10-06
+
+### Changed
+
+- Restart notices show one sentence about the change, with older long descriptions under Details.
+- Sidebar restart headings distinguish queued and restarting states, show a progress spinner, and keep individual task details in Installation controls.
+
+## 0.11.0-beta.3.vorteo.163 - 2026-10-06
+
+### Changed
+
+- Align compact Protected, Scheduled and custom label badges on the workspace title row. Reveal the menu at the far right by sliding trailing content left on hover; retain visible touch controls.
+
+## 0.11.0-beta.3.vorteo.162 - 2026-10-06
+
+### Added
+
+- Finish current turns before restart: hold new work, warn active threads, preserve goal intent, and restart once their current turns have finished.
+- Cancel a restart hold or request a canceled restart again with fresh approval.
+- Escalate a queued restart to an immediate restart only after separate confirmation.
 
 ## 0.11.0-beta.3.vorteo.159 - 2026-10-06
 

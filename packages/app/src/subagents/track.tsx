@@ -19,6 +19,8 @@ import {
 import type { Theme } from "@/styles/theme";
 import { getPanelManifest } from "@/panels/panel-manifest";
 import type { SubagentRow } from "./select";
+import { isFinishedSubagent } from "./archive-finished";
+import { useProviderSubagentStore } from "./provider-store";
 import type { ArchiveFinishedStatus } from "./use-archive-finished";
 import {
   buildSubagentPillPresentation,
@@ -290,33 +292,42 @@ export function SubagentsTrackRow({
     }
   }, [onOpenProviderSubagent, onOpenSubagent, row]);
   const handleArchivePress = useCallback(() => {
+    if (row.kind === "provider") {
+      useProviderSubagentStore.getState().hideFromTrack(serverId, row.parentAgentId, [row.id]);
+      return;
+    }
     onArchiveSubagent(row.id);
-  }, [onArchiveSubagent, row.id]);
+  }, [onArchiveSubagent, row, serverId]);
   const handleDetachPress = useCallback(() => {
     onDetachSubagent?.(row.id);
   }, [onDetachSubagent, row.id]);
   const actionsAlwaysVisible = inline || isNative || isCompact;
+  const canArchive = row.kind === "paseo" || isFinishedSubagent(row);
+  const canDetach = row.kind === "paseo" && Boolean(onDetachSubagent);
 
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
       <>
         <WorkspaceTabIcon presentation={presentation} backdrop={active ? "surface2" : "surface1"} />
-        <Text style={[styles.rowLabel, inline && taskCardStyles.rowText]} numberOfLines={1}>
-          {displayLabel}
-        </Text>
-        {presentation.subtitle ? (
-          <Text style={styles.rowTrailing} numberOfLines={1}>
-            {presentation.subtitle}
+        <View style={styles.rowTextColumn}>
+          <Text style={[styles.rowLabel, inline && taskCardStyles.rowText]} numberOfLines={1}>
+            {displayLabel}
           </Text>
-        ) : null}
-        {row.kind === "paseo" ? (
+          {presentation.subtitle ? (
+            <Text style={styles.rowTrailing} selectable>
+              {presentation.subtitle}
+            </Text>
+          ) : null}
+        </View>
+        {canArchive ? (
           <SubagentRowActions
             inline={inline}
             rowId={row.id}
             displayLabel={displayLabel}
             visible={actionsAlwaysVisible || active}
-            onDetachPress={onDetachSubagent ? handleDetachPress : undefined}
+            onDetachPress={canDetach ? handleDetachPress : undefined}
             onArchivePress={handleArchivePress}
+            providerNative={row.kind === "provider"}
           />
         ) : null}
       </>
@@ -327,7 +338,8 @@ export function SubagentsTrackRow({
       displayLabel,
       handleArchivePress,
       handleDetachPress,
-      onDetachSubagent,
+      canArchive,
+      canDetach,
       presentation,
       row.kind,
       row.id,
@@ -353,6 +365,7 @@ function SubagentRowActions({
   visible,
   onDetachPress,
   onArchivePress,
+  providerNative,
 }: {
   inline?: boolean;
   rowId: string;
@@ -360,6 +373,7 @@ function SubagentRowActions({
   visible: boolean;
   onDetachPress?: () => void;
   onArchivePress: () => void;
+  providerNative: boolean;
 }): ReactElement {
   const { t } = useTranslation();
   return (
@@ -381,7 +395,11 @@ function SubagentRowActions({
       <SubagentActionButton
         accessibilityLabel={t("subagents.archiveAction", { label: displayLabel })}
         testID={`subagents-track-archive-${rowId}`}
-        tooltipLabel={t("subagents.archiveTooltip")}
+        tooltipLabel={
+          providerNative
+            ? "Hide finished native subagent on this device"
+            : t("subagents.archiveTooltip")
+        }
         inline={inline}
         icon="archive"
         visible={visible}
@@ -451,6 +469,12 @@ function SubagentActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  rowTextColumn: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    gap: theme.spacing[1],
+  },
   card: { paddingLeft: theme.spacing[2] },
   cardHeader: { alignItems: "center" },
   cardRows: {
@@ -467,9 +491,6 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     color: theme.colors.foreground,
   },
-  // Trailing metadata — provider context on a subagent row, progress on the archive row. No width
-  // cap: the panel's own ceiling bounds it. It shrinks twice as fast as the label, so a wordy
-  // provider subtitle gives way first instead of squeezing the thing that names the row.
   rowTrailing: {
     flexShrink: 2,
     minWidth: 0,

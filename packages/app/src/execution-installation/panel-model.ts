@@ -1,6 +1,7 @@
 import type {
   ProfileSharingStatus,
   RestartJob,
+  RestartDecision,
   RestartSummary,
 } from "@getpaseo/protocol/execution-installation";
 import { OwnerAccessExpired, type InstallationClient } from "./client";
@@ -175,10 +176,7 @@ export class InstallationPanelModel {
     }
   }
 
-  async decide(
-    job: RestartJob,
-    decision: "approve" | "reject" | "approve-when-idle" | "cancel",
-  ): Promise<void> {
+  async decide(job: RestartJob, decision: RestartDecision): Promise<void> {
     if (this.state.busy) return;
     this.publish({ busy: true, error: null, notice: null });
     try {
@@ -187,6 +185,8 @@ export class InstallationPanelModel {
         approve: "Restart approved. Its progress is shown here.",
         "approve-when-idle":
           "Restart queued. It will run when no agents will be interrupted, even if you close this page.",
+        "finish-current-turns": "New work is held while current turns finish.",
+        "request-again": "Restart requested again. Review it before approving.",
         cancel: "Queued restart cancelled.",
         reject: "Restart request rejected.",
       };
@@ -239,12 +239,20 @@ export class InstallationPanelModel {
 
 export function restartExplanation(reason: string): { summary: string; details: string } {
   const text = reason.replace(/^\s*\(AI Generated\)\.?\s*/i, "").trim();
-  const [summary, ...details] = text.split(/\n\s*\n/);
+  const [opening, ...details] = text.split(/\n\s*\n/);
+  const sentences = opening.split(/(?<=[.!?])\s+(?=[A-Z])/);
+  const change =
+    /\b(?:activat(?:e[sd]?|ing)|add[sd]?|fix(?:es|ed)?|enabl(?:e[sd]?|ing)|updat(?:e[sd]?|ing)|improv(?:e[sd]?|ing))\b/i;
+  const sentence = sentences.find((value) => change.test(value)) ?? sentences[0];
+  const clause = sentence.split(/;\s*/).find((value) => change.test(value)) ?? sentence;
+  const summary = clause
+    .replace(/^this request\b/i, "This restart")
+    .replace(/\b[0-9a-f]{40,64}\b/gi, "")
+    .replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, "")
+    .replace(/[ \t]+/g, " ")
+    .trim();
   return {
-    summary: summary
-      .replace(/\b[0-9a-f]{40,64}\b/gi, "")
-      .replace(/[ \t]+/g, " ")
-      .trim(),
-    details: details.join("\n\n"),
+    summary,
+    details: opening === summary ? details.join("\n\n") : text,
   };
 }

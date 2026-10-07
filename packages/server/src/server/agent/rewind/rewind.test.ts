@@ -167,6 +167,7 @@ describe("AgentManager rewind", () => {
     pauseGate.hold();
     const { manager, session, agentId } = await createRewindHarness();
     manager.setMessageQueueControl({
+      wake() {},
       pause: () => pauseGate.wait(),
       acceptedHistory: async () => [],
       reconcileHistory: async () => {},
@@ -188,6 +189,7 @@ describe("AgentManager rewind", () => {
     const { manager, session, agentId } = await createRewindHarness();
     let failPause = true;
     manager.setMessageQueueControl({
+      wake() {},
       pause: async () => {
         if (failPause) throw new Error("Queue pause persistence failed");
       },

@@ -92,6 +92,8 @@ Pane chrome — the workspace pane header, the file-explorer header, the diff pa
 
 ---
 
+Settings tab rows have a bottom border spanning the full content column. Tabs meet that line with square bottom corners and rounded top corners. Keep the border outside horizontal scrolling so it spans the column even when there are only a few tabs.
+
 ## 6. Pickers
 
 Five primitives. The pick is determined by option count, the need to search, and how the picker is anchored.

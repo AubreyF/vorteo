@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { usePathname, useRouter } from "expo-router";
@@ -10,6 +10,8 @@ import { settingsStyles } from "@/styles/settings";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-badge";
 import { SidebarCallout } from "@/components/sidebar-callout";
 import { Button } from "@/components/ui/button";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import type { Theme } from "@/styles/theme";
 
 import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
@@ -17,6 +19,9 @@ import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
 import { InstallationPanelModel, restartExplanation } from "./panel-model";
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
+
+const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
+const spinnerColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
 const collapsedDisclosure = { leftIcon: ChevronDown, accessibilityState: { expanded: false } };
@@ -90,8 +95,11 @@ function restartStatus(job: RestartJob, historical = false) {
     if (historical) return { label: "Superseded", variant: "muted" as const };
     return { label: "Approval needed", variant: "warning" as const };
   }
+  let approvedLabel = "Approved";
+  if (job.whenIdle) approvedLabel = "Queued until idle";
+  if (job.finishCurrentTurns) approvedLabel = "Finishing current turns";
   const labels = {
-    approved: job.whenIdle ? "Queued until idle" : "Approved",
+    approved: approvedLabel,
     running: "Restarting",
     succeeded: "Restarted",
     failed: "Failed",
@@ -530,6 +538,7 @@ function RestartRequest({
           <StatusBadge {...status} />
         </View>
         <RestartExplanation reason={job.reason} />
+        <GracefulRestartActions job={job} model={model} busy={busy} onReview={cancel} />
         {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}
         {!historical && (reviewing || job.status === "approved" || job.status === "running") ? (
           <RestartActivity job={job} />
@@ -589,6 +598,89 @@ function RestartRequest({
   );
 }
 
+function GracefulRestartActions({
+  job,
+  model,
+  busy,
+  onReview,
+}: {
+  job: RestartJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+  onReview: () => void;
+}) {
+  const [confirmation, setConfirmation] = useState<"finish" | "now" | null>(null);
+  const reviewFinish = useCallback(() => {
+    onReview();
+    setConfirmation("finish");
+  }, [onReview]);
+  const reviewNow = useCallback(() => {
+    onReview();
+    setConfirmation("now");
+  }, [onReview]);
+  const cancel = useCallback(() => setConfirmation(null), []);
+  const confirm = useCallback(() => {
+    void model.decide(job, confirmation === "finish" ? "finish-current-turns" : "approve");
+    setConfirmation(null);
+  }, [model, job, confirmation]);
+  const requestAgain = useCallback(() => {
+    void model.decide(job, "request-again");
+  }, [model, job]);
+  if (!readExecutionInstallation()?.gracefulRestarts) return null;
+  if (job.status === "rejected")
+    return (
+      <Button variant="outline" disabled={busy} onPress={requestAgain}>
+        Request again
+      </Button>
+    );
+  if (job.status !== "pending" && job.status !== "approved") return null;
+  if (confirmation)
+    return (
+      <View style={styles.details} testID={`restart-finish-confirmation-${job.id}`}>
+        <Text style={styles.text}>
+          {confirmation === "finish"
+            ? "Hold new work, ask active threads to save and finish their current turns, then restart? Terminals may disconnect."
+            : "Restart immediately? Running tasks and terminals may be interrupted."}
+        </Text>
+        <View style={styles.actions}>
+          <Button
+            variant="destructive"
+            disabled={busy}
+            onPress={confirm}
+            testID={`restart-finish-confirm-${job.id}`}
+          >
+            {confirmation === "finish" ? "Finish current turns and restart" : "Restart now"}
+          </Button>
+          <Button variant="ghost" disabled={busy} onPress={cancel}>
+            Cancel
+          </Button>
+        </View>
+      </View>
+    );
+  return (
+    <View style={styles.details}>
+      {job.finishCurrentTurns ? <Text style={styles.text}>{job.detail}</Text> : null}
+      <View style={styles.actions}>
+        {!job.finishCurrentTurns ? (
+          <Button
+            variant="outline"
+            disabled={busy || !job.impact?.gracefulRestartSupported}
+            onPress={reviewFinish}
+            testID={`restart-finish-${job.id}`}
+          >
+            Finish current turns and restart
+          </Button>
+        ) : null}
+        {job.status === "approved" ? (
+          <Button variant="outline" disabled={busy} onPress={reviewNow}>
+            Restart now
+          </Button>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 function RestartExplanation({ reason }: { reason: string }) {
   const [detailsVisible, setDetailsVisible] = useState(false);
   const toggleDetails = useCallback(() => setDetailsVisible((value) => !value), []);
@@ -630,7 +722,7 @@ function RestartQueueButton({
   );
 }
 
-function RestartActivity({ job }: { job: RestartJob }) {
+function RestartActivity({ job, compact = false }: { job: RestartJob; compact?: boolean }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (job.status !== "approved" || !job.whenIdle) return;
@@ -653,11 +745,12 @@ function RestartActivity({ job }: { job: RestartJob }) {
             {job.impact.error ||
               `Active tasks: ${job.impact.agents.length} · Starting operations: ${job.impact.pendingStarts}`}
           </Text>
-          {job.impact.agents.map((agent) => (
-            <Text selectable key={agent.id} style={styles.text}>
-              {agent.title} · {agent.status}
-            </Text>
-          ))}
+          {!compact &&
+            job.impact.agents.map((agent) => (
+              <Text selectable key={agent.id} style={styles.text}>
+                {agent.title} · {agent.status}
+              </Text>
+            ))}
           {!job.impact.idleRestartSupported && !job.impact.error ? (
             <Text style={styles.text}>
               This daemon needs an update before queued idle restarts can run.
@@ -726,7 +819,7 @@ function RestartBannerItem({ job }: { job: RestartJob }) {
       <View style={styles.details}>
         <Text style={styles.text}>{restartExplanation(job.reason).summary}</Text>
         {job.status === "approved" || job.status === "running" ? (
-          <RestartActivity job={job} />
+          <RestartActivity job={job} compact />
         ) : null}
         <Button variant="outline" onPress={open}>
           Review in Installation controls
@@ -735,12 +828,22 @@ function RestartBannerItem({ job }: { job: RestartJob }) {
     ),
     [job, open],
   );
-  return (
-    <SidebarCallout
-      title={`${job.target === "host" ? "Host" : "Dev container"}: ${restartStatus(job).label}`}
-      description={description}
-    />
+  const target = job.target === "host" ? "Host" : "Dev container";
+  let title = `${target} restart needs approval`;
+  if (job.status === "approved") title = `${target} restart queued`;
+  if (job.finishCurrentTurns) title = `${target} finishing current turns`;
+  if (job.status === "running") title = `Restarting ${target}`;
+  const inProgress = job.status === "approved" || job.status === "running";
+  const icon = useMemo(
+    () =>
+      inProgress ? (
+        <View testID={`restart-progress-${job.id}`}>
+          <ThemedLoadingSpinner uniProps={spinnerColor} size={16} />
+        </View>
+      ) : undefined,
+    [inProgress, job.id],
   );
+  return <SidebarCallout title={title} icon={icon} description={description} />;
 }
 
 const styles = StyleSheet.create((theme) => ({

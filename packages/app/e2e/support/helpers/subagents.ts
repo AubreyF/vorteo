@@ -134,11 +134,11 @@ export async function seedParentWithCrossWorkspaceSubagent(
  * its own whenever a row navigates away, so a flow that comes back to the parent reopens it.
  */
 export async function openSubagentsTrack(page: Page): Promise<void> {
-  const panel = page.getByTestId("subagents-track-header-panel");
-  if ((await panel.count()) === 0) {
-    await page.getByTestId("subagents-track-header").click();
-  }
-  await expect(panel).toBeVisible({ timeout: 30_000 });
+  const card = page.getByTestId("subagents-card");
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  const toggle = card.getByTestId("subagents-card-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }
 
 export async function expectSubagentRowVisible(page: Page, childId: string): Promise<void> {
@@ -172,7 +172,7 @@ export async function expectManagedSubagentArchived(
 }
 
 export async function archiveFinishedSubagents(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Archive finished subagents" }).click();
+  await page.getByTestId("subagents-track-archive-finished").click();
 }
 
 export async function expectArchiveFinishedInProgress(
@@ -180,17 +180,18 @@ export async function expectArchiveFinishedInProgress(
   completed: number,
   total: number,
 ): Promise<void> {
-  await expect(page.getByRole("button", { name: "Archive finished subagents" })).toBeDisabled();
-  await expect(page.getByText(`${completed}/${total}`, { exact: true })).toBeVisible();
+  await expect(page.getByTestId("subagents-track-archive-finished")).toBeDisabled();
+  await expect(
+    page
+      .getByTestId("subagents-track-archive-finished")
+      .getByText(`Archiving ${completed}/${total}`, { exact: true }),
+  ).toBeVisible();
 }
 
-export async function expectArchiveFinishedRetry(
-  page: Page,
-  failed: number,
-  total: number,
-): Promise<void> {
-  await expect(page.getByText(`Retry (${failed}/${total})`, { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Archive finished subagents" })).toBeEnabled();
+export async function expectArchiveFinishedRetry(page: Page): Promise<void> {
+  const action = page.getByTestId("subagents-track-archive-finished");
+  await expect(action).toHaveAccessibleName("Retry archiving finished");
+  await expect(action).toBeEnabled();
 }
 
 export async function holdManagedSubagentArchiveRequest(

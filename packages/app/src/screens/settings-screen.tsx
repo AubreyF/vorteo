@@ -153,6 +153,9 @@ interface SidebarSectionItem {
 
 const SIDEBAR_SECTION_ITEMS: SidebarSectionItem[] = [
   { id: "general", labelKey: "settings.sections.general", icon: Settings },
+  { id: "environments", labelKey: "settings.hostSections.host", icon: Server },
+  { id: "providers", labelKey: "settings.hostSections.providers", icon: Boxes },
+  { id: "profiles", labelKey: "settings.host.agentProfiles.sectionTitle", icon: Bot },
   {
     id: "appearance",
     labelKey: "settings.sections.appearance",
@@ -221,7 +224,6 @@ const SIDEBAR_SECTION_ITEMS: SidebarSectionItem[] = [
     Content: SkillLibraryContent,
   },
   { id: "diagnostics", labelKey: "settings.sections.diagnostics", icon: Stethoscope },
-  { id: "profiles", labelKey: "settings.host.agentProfiles.sectionTitle", icon: Bot },
 ];
 
 function isSectionAvailable(item: SidebarSectionItem, isDesktopApp: boolean): boolean {
@@ -825,7 +827,13 @@ function SettingsSidebar({
   const hasHosts = hosts.length > 0;
   const enableBuiltInDaemonOption = useEnableBuiltInDaemonOption();
   const isDesktopApp = isElectronRuntime();
-  const items = SIDEBAR_SECTION_ITEMS.filter((item) => isSectionAvailable(item, isDesktopApp));
+  const items = SIDEBAR_SECTION_ITEMS.filter((item) => {
+    const requiresHost = item.id === "environments" || item.id === "providers";
+    return isSectionAvailable(item, isDesktopApp) && (!requiresHost || hasHosts);
+  });
+  const hostItems = HOST_SECTION_ITEMS.filter(
+    (item) => item.id !== "host" && item.id !== "providers",
+  );
   const insets = useSafeAreaInsets();
   const isDesktop = layout === "desktop";
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
@@ -857,15 +865,19 @@ function SettingsSidebar({
         <SidebarSectionButton
           key={item.id}
           itemId={item.id}
-          label={t(item.labelKey)}
+          label={item.id === "environments" ? "Environments" : t(item.labelKey)}
           icon={item.icon}
-          isSelected={selectedSectionId === item.id}
+          isSelected={
+            selectedSectionId === item.id ||
+            selectedHostSection === item.id ||
+            (item.id === "environments" && selectedHostSection === "host")
+          }
           onSelect={onSelectSection}
         />
       ))}
       {hasHosts ? (
         <View>
-          {HOST_SECTION_ITEMS.map((item) => (
+          {hostItems.map((item) => (
             <SidebarSectionButton
               key={item.id}
               itemId={item.id === "host" ? "environments" : item.id}

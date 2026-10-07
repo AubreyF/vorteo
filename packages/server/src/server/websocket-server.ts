@@ -1987,6 +1987,7 @@ export class VoiceAssistantWebSocketServer {
         workspaceMultiplicity: true,
         workspaceProjectMembership: true,
         idleRestart: true,
+        gracefulRestart: true,
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: true,
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -2079,6 +2080,7 @@ export class VoiceAssistantWebSocketServer {
         agentProfileLaunch: true,
         sharedProviderPreferences: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         accountIndependentProfiles: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
+        explicitWorkerAccounts: true,
         profileWorkflowAliases: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         installationProfileAuthority: Boolean(
           this.daemonConfigStore.get().sharedProviderPreferences,

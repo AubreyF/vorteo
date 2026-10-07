@@ -30,9 +30,6 @@ for (const width of [1280, 402]) {
       await page.setViewportSize({ width, height: 1000 });
       await gotoAppShell(page);
       await page.evaluate(() => {
-        const key = "@paseo:create-agent-preferences";
-        const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
-        localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: true }));
         const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
         if (!nonce) throw new Error("Missing isolated browser seed nonce");
         localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
@@ -49,6 +46,14 @@ for (const width of [1280, 402]) {
       const name = `Browser account ${width}`;
       await page.getByTestId("claude-account-name").fill(name);
       await page.getByTestId("claude-account-create").click();
+      await expect(page.getByTestId("claude-account-done")).toBeVisible();
+      const config = (await client.getDaemonConfig()).config;
+      const account = Object.entries(config.providers).find(
+        ([, provider]) => provider.label === name,
+      );
+      if (!account) throw new Error("Created account missing");
+      await page.getByTestId("claude-account-done").click();
+      await page.getByTestId(`provider-connect-${account[0]}`).click();
       const panel = page.getByTestId("provider-login-panel");
       await panel.getByRole("button", { name: "Start sign-in", exact: true }).click();
       await expect(page.getByTestId("claude-browser-login")).toBeVisible();
@@ -63,27 +68,23 @@ for (const width of [1280, 402]) {
       await page.getByTestId("claude-login-code").fill("browser-test-code");
       await panel.getByRole("button", { name: "Complete sign-in", exact: true }).click();
       await expect(panel).toContainText("Sign-in completed");
-      const config = (await client.getDaemonConfig()).config;
-      const account = Object.entries(config.providers).find(
-        ([, provider]) => provider.label === name,
-      );
-      if (!account) throw new Error("Created account missing");
+      await expect(panel).not.toContainText("Usage is refreshing");
+      await expect(panel).not.toContainText("A code lasts up to 15 minutes");
+      await expect(panel).toContainText("You can close this panel and use this account.");
       expect(account[1].extends).toBe("claude");
       const environment = z.record(z.string(), z.string()).parse(account[1].env);
       expect(environment.CLAUDE_CONFIG_DIR).toContain(account[0]);
-      await page.getByTestId("claude-account-done").click();
+      await page.getByTestId("provider-login-done").click();
+      await expect(page.getByTestId("provider-reconnect-dialog")).toBeHidden();
       await expect(page.getByTestId(`provider-rename-${account[0]}`)).toBeVisible();
       await page.evaluate(() => {
-        const key = "@paseo:create-agent-preferences";
-        const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
-        localStorage.setItem(key, JSON.stringify({ ...preferences, vortonMode: false }));
         const nonce = localStorage.getItem("@paseo:e2e-seed-nonce");
         if (!nonce) throw new Error("Missing isolated browser seed nonce");
         localStorage.setItem("@paseo:e2e-disable-default-seed-once", nonce);
       });
       await page.reload();
       await expect(page.getByTestId("host-page-providers-card")).toBeVisible();
-      await expect(page.getByTestId("catalog-provider-claude")).toHaveCount(0);
+      await expect(page.getByTestId("catalog-provider-claude")).toBeVisible();
       expect((await client.getDaemonConfig()).config.providers[account[0]].label).toBe(name);
     } finally {
       await client.close();

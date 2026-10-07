@@ -89,6 +89,8 @@ export interface AgentProfileFormState {
   instructions: string;
   skillPolicy: SkillPolicy | undefined;
   workerProfileId: string;
+  workerAccount?: string;
+  workerAccountId: string | null;
   maxWorkers: number;
   provider: string;
   modelId: string;
@@ -136,6 +138,7 @@ export interface AgentProfileFormModel {
   setExcludedEnvironments: (value: InstallationEnvironment["kind"][]) => void;
   setSkillPolicy: (value: SkillPolicy | undefined) => void;
   setInstructions: (value: string) => void;
+  setWorkerAccount: (value: string) => void;
   setWorkerProfileId: (value: string) => void;
   setMaxWorkers: (value: number) => void;
   setProvider: (providerId: string, display: AgentProfileFormDisplay) => void;
@@ -371,6 +374,7 @@ function buildSubmitValue(state: AgentProfileFormState): AgentProfileValue | nul
     excludedEnvironments: [...state.excludedEnvironments],
     ...(state.skillPolicy ? { skillPolicy: state.skillPolicy } : {}),
     workerProfileId: state.workerProfileId,
+    workerAccount: state.workerAccount,
     maxWorkers: state.maxWorkers,
   };
 }
@@ -413,6 +417,8 @@ function buildInitialState(snapshot: AgentProfileFormSnapshot): AgentProfileForm
     instructions: profile.instructions ?? "",
     skillPolicy: profile.skillPolicy,
     workerProfileId: profile.workerProfileId ?? "",
+    workerAccount: profile.workerAccount,
+    workerAccountId: null,
     maxWorkers: profile.maxWorkers ?? 2,
     provider,
     modelId,
@@ -520,7 +526,9 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
         hasProvider && (thinking.length > 0 || Boolean(withOptions.thinkingOptionId)),
       showFeaturesField: hasProvider && features.length > 0,
     };
+    const needsWorkerProfile = Boolean(withOptions.workerAccountId) && !withOptions.workerProfileId;
     const canSubmit =
+      !needsWorkerProfile &&
       withOptions.name.trim().length > 0 &&
       withOptions.provider.length > 0 &&
       !withOptions.isSubmitting;
@@ -585,6 +593,13 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
       publish((current) => ({ ...current, excludedEnvironments: [...value] })),
     setSkillPolicy: (value) => publish((current) => ({ ...current, skillPolicy: value })),
     setInstructions: (value) => publish((current) => ({ ...current, instructions: value })),
+    setWorkerAccount: (value) =>
+      publish((current) => ({
+        ...current,
+        workerAccountId: value,
+        workerProfileId: "",
+        workerAccount: undefined,
+      })),
     setWorkerProfileId: (value) => publish((current) => ({ ...current, workerProfileId: value })),
     setMaxWorkers: (value) => publish((current) => ({ ...current, maxWorkers: value })),
     setProvider: (providerId, display) =>

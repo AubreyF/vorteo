@@ -95,10 +95,12 @@ function LoginPanelContent({
         <Text style={styles.text}>Loading sign-in status…</Text>
       )}
       <LoginAction login={login} />
-      <Text style={styles.muted}>
-        You can close this panel while signing in. Reopen the account connection panel to resume. A
-        code lasts up to 15 minutes.
-      </Text>
+      {state?.status !== "succeeded" ? (
+        <Text style={styles.muted}>
+          You can close this panel while signing in. Reopen the account connection panel to resume.
+          A code lasts up to 15 minutes.
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -149,8 +151,8 @@ function LoginProgress({
   if (state.status === "failed") message = state.message;
   if (state.status === "succeeded")
     message = state.accountLabel
-      ? `Signed in as ${state.accountLabel}. Your account credentials are saved. Usage is refreshing.`
-      : "Sign-in completed. Your account credentials are saved. Usage is refreshing.";
+      ? `Signed in as ${state.accountLabel}. Your account credentials are saved. You can close this panel and use this account.`
+      : "Sign-in completed. Your account credentials are saved. You can close this panel and use this account.";
   return (
     <Text accessibilityLiveRegion="polite" style={styles.text}>
       {message}

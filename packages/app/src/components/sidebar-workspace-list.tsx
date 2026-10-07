@@ -119,8 +119,9 @@ import {
   SidebarWorkspaceShortcutBadge,
   resolveTrailingActionVisibility,
   SidebarWorkspaceTrailingActionBase,
-  SidebarWorkspaceTrailingActionOverlay,
+  SidebarWorkspaceMenuReveal,
   SidebarWorkspaceTrailingActionSlot,
+  SidebarWorkspaceTrailingDetails,
 } from "@/components/sidebar/sidebar-workspace-row-content";
 import { useOpenKebabMenuVisibility } from "@/components/sidebar/use-open-kebab-menu-visibility";
 import {
@@ -631,7 +632,6 @@ function ProjectMenuItems({
 
 function WorkspaceRowRightGroup({
   workspace,
-  backdrop,
   isHovered,
   isTouchPlatform,
   isCreating,
@@ -677,9 +677,7 @@ function WorkspaceRowRightGroup({
   const {
     trailingPresentation,
     showKebab: showKebabInSlot,
-    showScrim,
     renderSlot,
-    reserveSlotWidth,
   } = resolveTrailingActionVisibility({
     workspace,
     trailing,
@@ -696,14 +694,12 @@ function WorkspaceRowRightGroup({
         <Text style={styles.workspaceCreatingText}>{t("sidebar.workspace.status.creating")}</Text>
       ) : null}
       {renderSlot ? (
-        <SidebarWorkspaceTrailingActionSlot reserveWidth={reserveSlotWidth}>
+        <SidebarWorkspaceTrailingActionSlot>
           <SidebarWorkspaceTrailingActionBase presentation={trailingPresentation}>
             <SidebarWorkspaceTrailingContent workspace={workspace} trailing={trailing} />
           </SidebarWorkspaceTrailingActionBase>
-          <SidebarWorkspaceTrailingActionOverlay
-            visible={kebab.showKebab}
-            scrimBackdrop={showScrim ? backdrop : undefined}
-          >
+          <SidebarWorkspaceTrailingDetails workspace={workspace} />
+          <SidebarWorkspaceMenuReveal visible={kebab.showKebab}>
             {onArchive ? (
               <SidebarWorkspaceMenu
                 {...kebab.menuProps}
@@ -726,7 +722,7 @@ function WorkspaceRowRightGroup({
                 openInFileManagerPath={workspacePath}
               />
             ) : null}
-          </SidebarWorkspaceTrailingActionOverlay>
+          </SidebarWorkspaceMenuReveal>
         </SidebarWorkspaceTrailingActionSlot>
       ) : null}
     </>

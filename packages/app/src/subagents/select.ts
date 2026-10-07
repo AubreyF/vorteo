@@ -4,7 +4,9 @@ import equal from "fast-deep-equal";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useSessionStore, type Agent } from "@/stores/session-store";
 import { refreshProviderSubagents, useProviderSubagentStore } from "./provider-store";
-import type { ProviderSubagentDescriptorPayload } from "@getpaseo/protocol/messages";
+import type { AgentProfile, ProviderSubagentDescriptorPayload } from "@getpaseo/protocol/messages";
+import { presetNickname } from "@/agent-profiles/nickname";
+import { useAgentProfiles } from "@/agent-profiles/internal/use-agent-profiles";
 
 export interface PaseoSubagentRow {
   kind: "paseo";
@@ -13,7 +15,7 @@ export interface PaseoSubagentRow {
   title: Agent["title"];
   /** Managed agents have a real title, so the union's task line is always absent for them. */
   description: null;
-  subtitle: null;
+  subtitle: string | null;
   status: Agent["status"];
   turn: Agent["turn"];
   requiresAttention: Agent["requiresAttention"];
@@ -52,14 +54,21 @@ interface SelectSubagentsParams {
 const EMPTY_SUBAGENT_ROWS: SubagentRow[] = [];
 const EMPTY_PROVIDER_SUBAGENT_ROWS: ProviderSubagentRow[] = [];
 
-function toSubagentRow(agent: Agent): SubagentRow {
+function toSubagentRow(agent: Agent, profiles: readonly AgentProfile[]): SubagentRow {
+  const definition = profiles.find((profile) => profile.id === agent.profile?.id);
+  const profileCode = agent.profile
+    ? presetNickname({ name: agent.profile.name, nickname: definition?.nickname })
+    : "No profile";
+  const model = agent.runtimeInfo?.model ?? agent.model ?? "Model unavailable";
+  const effort = agent.runtimeInfo?.thinkingOptionId ?? agent.thinkingOptionId;
+  const subtitle = [profileCode, model, effort].filter(Boolean).join(" · ");
   return {
     kind: "paseo",
     id: agent.id,
     provider: agent.provider,
     title: agent.title,
     description: null,
-    subtitle: null,
+    subtitle,
     status: agent.status,
     turn: agent.turn,
     requiresAttention: agent.requiresAttention,
@@ -71,6 +80,7 @@ export function selectSubagentsForParent(
   state: SessionStoreSnapshot,
   params: SelectSubagentsParams,
   pendingArchiveIds: ReadonlySet<string>,
+  profiles: readonly AgentProfile[] = [],
 ): SubagentRow[] {
   const agents = state.sessions[params.serverId]?.agents;
   if (!agents || agents.size === 0) {
@@ -86,7 +96,7 @@ export function selectSubagentsForParent(
     ) {
       continue;
     }
-    rows.push(toSubagentRow(agent));
+    rows.push(toSubagentRow(agent, profiles));
   }
 
   if (rows.length === 0) {
@@ -122,7 +132,7 @@ export function selectProviderSubagentsForParent(
       provider: subagent.provider,
       title: subagent.title,
       description: subagent.description,
-      subtitle: subagent.subtitle ?? null,
+      subtitle: subagent.subtitle ?? "Native · Model unavailable",
       status: subagent.status,
       requiresAttention: subagent.status === "failed",
       createdAt: new Date(subagent.createdAt),
@@ -133,10 +143,15 @@ export function selectProviderSubagentsForParent(
 }
 
 export function useSubagentsForParent(params: SelectSubagentsParams): SubagentRow[] {
+  const { profiles, legacyProfiles } = useAgentProfiles(params.serverId);
+  const profileDefinitions = useMemo(
+    () => [...(profiles ?? []), ...legacyProfiles],
+    [profiles, legacyProfiles],
+  );
   const pendingArchiveIds = usePendingArchiveAgentIds(params.serverId);
   const paseoRows = useStoreWithEqualityFn(
     useSessionStore,
-    (state) => selectSubagentsForParent(state, params, pendingArchiveIds),
+    (state) => selectSubagentsForParent(state, params, pendingArchiveIds, profileDefinitions),
     equal,
   );
   const supported = useSessionStore(

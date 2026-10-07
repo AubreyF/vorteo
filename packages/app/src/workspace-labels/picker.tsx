@@ -37,6 +37,7 @@ import type { Theme } from "@/styles/theme";
 import { WorkspaceLabelDot, WorkspaceLabelSwatchRow } from "./swatch";
 import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
 import { workspaceLabelDisplayName } from "./display-name";
+import { useVortonTouch } from "@/vorton-touch";
 
 /** The `MenuSubTrigger` on a workspace's menu that opens the assign page. */
 export const WORKSPACE_LABEL_PAGE_ID = "workspaceLabels";
@@ -75,12 +76,14 @@ export function useWorkspaceLabelMenuPages(
   target: WorkspaceLabelTarget | null,
 ): readonly MenuPageDefinition[] {
   const { t } = useTranslation();
+  const touch = useVortonTouch();
   return useMemo(() => {
     if (!target) return NO_PAGES;
     return [
       {
         id: WORKSPACE_LABEL_PAGE_ID,
         title: "Tag As",
+        hoverIntent: !touch,
         content: (
           <WorkspaceLabelPickerPage
             serverId={target.serverId}
@@ -99,7 +102,7 @@ export function useWorkspaceLabelMenuPages(
         ),
       },
     ];
-  }, [t, target]);
+  }, [t, target, touch]);
 }
 
 /**

@@ -1,5 +1,9 @@
-import { canonicalProfileId } from "@getpaseo/protocol/provider-preferences";
+import { useHostFeature } from "@/runtime/host-features";
+import { useInstallationProfiles } from "@/execution-installation/profiles";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
+import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
+import { workerChoices, workerAccountProfiles } from "./worker-choices";
 import { ProfileSkillPolicy } from "@/agent-skills/profile-policy";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
@@ -45,7 +49,12 @@ export interface AgentProfileEditModalProps {
   mode: "create" | "edit";
   profile?: AgentProfile;
   seed?: AgentProfileSeed;
-  sharedScope?: { providerType: string; kind: "defaults" | "workflow" };
+  sharedScope?: {
+    providerType: string;
+    providerLabel?: string;
+    catalogLabel?: string;
+    kind: "defaults" | "workflow";
+  };
   onClose: () => void;
   onSave: (value: AgentProfileValue) => Promise<void>;
 }
@@ -155,32 +164,9 @@ function ProfileLaunchFields({
   state,
   controlSize,
 }: ProfileLaunchFieldsProps) {
-  const { profiles, legacyProfiles, supportsLaunch, accountIndependent } =
-    useAgentProfiles(serverId);
+  const { supportsLaunch } = useAgentProfiles(serverId);
   const { config } = useDaemonConfig(serverId);
-  const preferences = config?.sharedProviderPreferences;
-  const currentWorkerId =
-    preferences && accountIndependent
-      ? canonicalProfileId(state.workerProfileId, preferences, config.providers)
-      : state.workerProfileId;
-  const workerOptions = useMemo(
-    () => [
-      { id: "none", value: "", label: "No workers" },
-      ...[
-        ...(profiles ?? []),
-        ...legacyProfiles.filter(
-          (entry) =>
-            entry.id === state.workerProfileId &&
-            !profiles?.some((candidate) => candidate.id === currentWorkerId),
-        ),
-      ]
-        .filter((entry) => entry.id !== profile?.id && !entry.workerProfileId)
-        .map((entry) => ({ id: entry.id, value: entry.id, label: entry.name })),
-    ],
-    [profiles, legacyProfiles, profile?.id, state.workerProfileId, currentWorkerId],
-  );
-  const selectedLimit =
-    WORKER_LIMIT_OPTIONS.find((entry) => entry.value === state.maxWorkers) ?? null;
+  const providerType = resolveProviderType(state.provider, config?.providers ?? {});
   if (!supportsLaunch) return null;
   return (
     <>
@@ -198,6 +184,7 @@ function ProfileLaunchFields({
       ) : null}
       <ProfileSkillPolicy
         serverId={serverId}
+        providerType={providerType}
         value={state.skillPolicy}
         onChange={model.setSkillPolicy}
       />
@@ -217,18 +204,129 @@ function ProfileLaunchFields({
           testID="agent-profile-instructions-input"
         />
       </Field>
+      {!defaults ? (
+        <ProfileWorkerFields
+          serverId={serverId}
+          profile={profile}
+          model={model}
+          state={state}
+          controlSize={controlSize}
+        />
+      ) : (
+        <Text style={styles.sharedScope}>
+          Configure workers on individual profiles. Existing teams keep their worker settings when
+          you save these defaults.
+        </Text>
+      )}
+    </>
+  );
+}
+
+function ProfileWorkerFields({
+  serverId,
+  profile,
+  model,
+  state,
+  controlSize,
+}: ProfileLaunchFieldsProps) {
+  const { profiles, legacyProfiles } = useAgentProfiles(serverId);
+  const explicitAccounts = useHostFeature(serverId, "explicitWorkerAccounts");
+  const shared = useInstallationProfiles();
+  const { config } = useDaemonConfig(serverId);
+  const { entries, isLoading } = useProvidersSnapshot(serverId);
+  const workers = workerChoices({
+    profiles: workerAccountProfiles(
+      config,
+      entries ?? [],
+      profiles ?? [],
+      legacyProfiles,
+      state.workerProfileId,
+    ),
+    entries: entries ?? [],
+    providers: config?.providers ?? {},
+    supervisor: { id: profile?.id ?? "", provider: state.provider },
+    selectedWorkerId: state.workerProfileId,
+    originalWorkerId: profile?.workerProfileId,
+    accountId: state.workerAccountId,
+    environment: readExecutionInstallation()?.environments.find(
+      (entry) => entry.serverId === serverId,
+    )?.kind,
+  });
+  if (!explicitAccounts || (shared.installation && shared.data?.workerAccounts !== true)) {
+    return (
+      <Field
+        label="Workers"
+        hint="Update the installation to edit worker accounts. Saved teams are retained."
+      >
+        <Text style={styles.sharedScope}>
+          {state.workerProfileId
+            ? `${workers.accountDisplay.label}: ${workers.profileDisplay.label}`
+            : "No workers"}
+        </Text>
+      </Field>
+    );
+  }
+  return (
+    <WorkerControls
+      state={state}
+      model={model}
+      controlSize={controlSize}
+      isLoading={isLoading}
+      workers={workers}
+    />
+  );
+}
+
+function WorkerControls({
+  state,
+  model,
+  controlSize,
+  isLoading,
+  workers,
+}: {
+  state: AgentProfileFormState;
+  model: AgentProfileFormModel;
+  controlSize: FieldControlSize;
+  isLoading: boolean;
+  workers: ReturnType<typeof workerChoices>;
+}) {
+  const selectedLimit =
+    WORKER_LIMIT_OPTIONS.find((entry) => entry.value === state.maxWorkers) ?? null;
+  return (
+    <>
       <SelectField
-        label="Worker preset"
-        value={currentWorkerId}
-        selectedDisplay={workerOptions.find((entry) => entry.value === currentWorkerId) ?? null}
+        label="Worker account"
+        hint="Workers use their own account and profile. You can choose a different provider."
+        value={workers.accountId}
+        selectedDisplay={workers.accountDisplay}
+        options={workers.accountOptions}
+        onChange={model.setWorkerAccount}
         placeholder="No workers"
-        emptyText="Create a worker preset first"
-        options={workerOptions}
-        onChange={model.setWorkerProfileId}
+        emptyText="No eligible worker accounts"
         disabled={state.isSubmitting}
+        loading={isLoading}
         size={controlSize}
-        testID="agent-profile-worker-field"
+        testID="agent-profile-worker-account-field"
       />
+      {workers.accountId || state.workerProfileId ? (
+        <SelectField
+          label="Worker profile"
+          value={workers.selectedWorkerId || null}
+          selectedDisplay={state.workerProfileId ? workers.profileDisplay : null}
+          options={workers.profiles}
+          onChange={model.setWorkerProfileId}
+          placeholder="Choose a worker profile"
+          emptyText="Create a profile with an explicit model and no workers for this account."
+          hint={
+            !isLoading && workers.unavailable
+              ? "The saved worker is unavailable in this environment. Choose another profile or No workers."
+              : undefined
+          }
+          disabled={state.isSubmitting}
+          size={controlSize}
+          testID="agent-profile-worker-field"
+        />
+      ) : null}
       {state.workerProfileId ? (
         <SelectField
           label="Maximum concurrent workers"
@@ -263,7 +361,14 @@ function ProfileProviderFields({
 }) {
   const { t } = useTranslation();
   return sharedScope ? (
-    <Text style={styles.sharedScope}>Applies to all {sharedScope.providerType} accounts</Text>
+    <View>
+      <Text style={styles.sharedScope}>
+        Applies to all {sharedScope.providerLabel ?? sharedScope.providerType} accounts
+      </Text>
+      {sharedScope.catalogLabel ? (
+        <Text style={styles.sharedScope}>Available options from {sharedScope.catalogLabel}.</Text>
+      ) : null}
+    </View>
   ) : (
     <>
       <SelectField
@@ -375,9 +480,11 @@ function OpenAgentProfileEditModal({
   const editingDefaults = sharedScope?.kind === "defaults";
   const sheetHeader = useMemo<SheetHeader>(
     () => ({
-      title: editingDefaults ? "Edit provider defaults" : t(profileTitleKey(mode)),
+      title: editingDefaults
+        ? `Edit ${sharedScope?.providerLabel ?? sharedScope?.providerType} defaults`
+        : t(profileTitleKey(mode)),
     }),
-    [editingDefaults, mode, t],
+    [editingDefaults, sharedScope?.providerLabel, sharedScope?.providerType, mode, t],
   );
 
   const providerOptions = useMemo(

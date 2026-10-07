@@ -189,6 +189,8 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
             checkedAt: new Date().toISOString(),
             ...response.impact,
             idleRestartSupported,
+            gracefulRestartSupported:
+              client.getLastServerInfoMessage()?.features?.gracefulRestart === true,
             error: null,
           };
         }
@@ -219,6 +221,40 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
           idleRestartSupported,
           error: null,
         };
+      } finally {
+        await client.close();
+      }
+    },
+    async holdCurrentTurns(target, requestId) {
+      const client = await connectInstallationDaemon(
+        config,
+        target === "host" ? "host" : "container",
+      );
+      try {
+        const result = await client.restartServer(undefined, undefined, {
+          timeout: 5000,
+          idleMode: "drain",
+          restartDrainId: requestId,
+        });
+        if (result.accepted !== true)
+          throw new Error("Environment could not establish the restart hold");
+      } finally {
+        await client.close();
+      }
+    },
+    async releaseCurrentTurns(target, requestId) {
+      const client = await connectInstallationDaemon(
+        config,
+        target === "host" ? "host" : "container",
+      );
+      try {
+        const result = await client.restartServer(undefined, undefined, {
+          timeout: 5000,
+          idleMode: "cancel-drain",
+          restartDrainId: requestId,
+        });
+        if (result.accepted !== true)
+          throw new Error("Environment is still releasing the restart hold");
       } finally {
         await client.close();
       }

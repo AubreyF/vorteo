@@ -3795,6 +3795,7 @@ test("manual stop interrupts the provider even when queue pause persistence fail
     },
   });
   fixture.manager.setMessageQueueControl({
+    wake() {},
     pause: async () => {
       throw new Error("Queue pause could not be persisted: disk full");
     },
@@ -11809,6 +11810,7 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
     ]);
 
     manager.setMessageQueueControl({
+      wake() {},
       pause: async () => {
         rewindSteps.push("pause");
       },
@@ -12925,4 +12927,114 @@ test("idle restart waits for registering sessions and closes admission before ne
     }),
   ).rejects.toThrow("shutting down");
   await manager.closeAgent(agent.id);
+});
+
+test("restart drain warns once without interrupting and rejects new turns until cancellation", async () => {
+  const session = new SteeringTestSession({ provider: "codex", cwd: process.cwd() });
+  const client = new (class extends TestAgentClient {
+    override async createSession() {
+      return session;
+    }
+  })();
+  const manager = new AgentManager({ clients: { codex: client }, logger });
+  const agent = await manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
+    workspaceId: undefined,
+  });
+  const run = manager.streamAgent(agent.id, "initial");
+  const consume = (async () => {
+    for await (const _event of run) {
+    }
+  })();
+  await manager.waitForAgentRunStart(agent.id);
+  const id = randomUUID();
+  expect(manager.beginRestartDrain(id)).toBe(true);
+  await expect.poll(() => manager.getRestartImpact().pendingStarts).toBe(0);
+  expect(session.steerCount).toBe(1);
+  expect(session.interruptCount).toBe(0);
+  expect(() => manager.streamAgent(agent.id, "new work")).toThrow("held");
+  expect(manager.prepareIdleRestart()).toBe(false);
+  expect(manager.beginRestartDrain(id)).toBe(true);
+  expect(session.steerCount).toBe(1);
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  expect(manager.isRestartDraining()).toBe(false);
+  expect(manager.beginRestartDrain(id)).toBe(false);
+  await manager.cancelAgentRun(agent.id);
+  await consume;
+  await manager.closeAgent(agent.id);
+});
+
+test("restart drain includes registrations crossing the hold and does not cancel unsupported providers", async () => {
+  const client = new HeldAgentCreationClient();
+  const manager = new AgentManager({ clients: { codex: client }, logger });
+  const creation = manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
+    workspaceId: undefined,
+  });
+  await client.waitForCreationToStart();
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  expect(manager.prepareIdleRestart()).toBe(false);
+  client.finishCreating();
+  const agent = await creation;
+  manager.beginRestartDrain(id);
+  await expect.poll(() => manager.getRestartImpact().pendingStarts).toBe(0);
+  await expect(
+    manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
+      workspaceId: undefined,
+    }),
+  ).rejects.toThrow("held");
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  await manager.closeAgent(agent.id);
+});
+
+test("restart drain preserves a held goal and cancellation can resume it without reviving manual pauses", async () => {
+  const fixture = await createControlledInterruptFixture({
+    name: "restart-goal-hold",
+    agentId: randomUUID(),
+    turnId: "restart-held-turn",
+    interrupt: async () => {},
+  });
+  let goal: AgentGoal = {
+    threadId: "thread",
+    objective: "Finish",
+    status: "active",
+    tokenBudget: null,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const goals = new CodexGoals({
+    request: async (method, input) => {
+      if (method === "thread/goal/set") {
+        const status = Reflect.get(input, "status");
+        if (status !== "paused" && status !== "active") throw new Error("Unexpected goal state");
+        goal = { ...goal, status, updatedAt: goal.updatedAt + 1 };
+      }
+      return { goal };
+    },
+    onChange() {},
+  });
+  goals.bind("thread");
+  Object.defineProperty(fixture.session, "goals", { value: goals });
+  try {
+    const id = randomUUID();
+    fixture.manager.beginRestartDrain(id);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    expect(goal.status).toBe("paused");
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.phase).toBe("held");
+    await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
+    expect(goal.status).toBe("paused");
+    expect(fixture.manager.cancelRestartDrain(id)).toBe(true);
+    await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
+    expect(goal.status).toBe("active");
+    const second = randomUUID();
+    fixture.manager.beginRestartDrain(second);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    await fixture.manager.setAgentGoal(fixture.agentId, { status: "paused" });
+    fixture.manager.cancelRestartDrain(second);
+    await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
+    expect(goal.status).toBe("paused");
+  } finally {
+    await fixture.cleanup();
+  }
 });

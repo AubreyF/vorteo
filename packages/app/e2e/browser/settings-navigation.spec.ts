@@ -287,6 +287,21 @@ for (const width of [1280, 390]) {
     await expect(hostTab).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId(`settings-environment-${primary}`)).toBeVisible();
     await expect(page.getByTestId(`settings-environment-${secondary}`)).toHaveCount(0);
+    const tabBar = page.getByTestId("settings-environment-tabs-bar");
+    await expect(tabBar).toHaveCSS("border-bottom-width", "1px");
+    await expect(tabBar).toHaveCSS("border-bottom-style", "solid");
+    for (const tab of [hostTab, devTab]) {
+      await expect(tab).toHaveCSS("border-bottom-left-radius", "0px");
+      await expect(tab).toHaveCSS("border-bottom-right-radius", "0px");
+      await expect(tab).not.toHaveCSS("border-top-left-radius", "0px");
+      await expect(tab).not.toHaveCSS("border-top-right-radius", "0px");
+    }
+    const barBounds = await tabBar.boundingBox();
+    const contentBounds = await page.getByTestId(`settings-environment-${primary}`).boundingBox();
+    expect(barBounds).not.toBeNull();
+    expect(contentBounds).not.toBeNull();
+    expect(barBounds!.x).toBeCloseTo(contentBounds!.x, 0);
+    expect(barBounds!.width).toBeCloseTo(contentBounds!.width, 0);
     const initialTabs = await tabs.boundingBox();
     expect(initialTabs).not.toBeNull();
     const scroll = page.getByTestId("settings-environment-scroll");
