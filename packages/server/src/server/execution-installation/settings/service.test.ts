@@ -1164,3 +1164,56 @@ test("older browser policy migration waits for both environments and preserves c
   expect(host.config.browserTools.enabled).toBe(true);
   expect(restored.snapshot().revision).toBe(saved.revision);
 });
+
+test("owner changes commit while an environment read is pending without acknowledging stale projection", async () => {
+  const { service, host, container } = fixture();
+  await service.reconcile();
+  const gate = Promise.withResolvers<void>();
+  host.readGate = gate.promise;
+  const projection = service.reconcile();
+  await Promise.resolve();
+  try {
+    const saved = await service.update({ expectedRevision: 1, settings: { pluginsEnabled: true } });
+    expect(saved.revision).toBe(2);
+    expect(saved.sources.host.pendingRevision).toBe(2);
+  } finally {
+    gate.resolve();
+    host.readGate = null;
+  }
+  await projection;
+  expect(service.snapshot().settings?.pluginsEnabled).toBe(true);
+  await service.reconcile();
+  expect(host.config.pluginsEnabled).toBe(true);
+  expect(container.config.pluginsEnabled).toBe(true);
+  expect(service.snapshot().sources.host.appliedRevision).toBe(2);
+});
+
+test("a slow previous patch cannot acknowledge a newer owner revision", async () => {
+  const { service, host, container } = fixture();
+  await service.reconcile();
+  await service.update({ expectedRevision: 1, settings: { appendSystemPrompt: "first" } });
+  const gate = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  host.patchGate = gate.promise;
+  host.onPatch = started.resolve;
+  const projection = service.reconcile();
+  await started.promise;
+  try {
+    const saved = await service.update({
+      expectedRevision: 2,
+      settings: { appendSystemPrompt: "latest" },
+    });
+    expect(saved.revision).toBe(3);
+  } finally {
+    host.patchGate = null;
+    host.onPatch = null;
+    gate.resolve();
+  }
+  await projection;
+  expect(service.snapshot().sources.host.pendingRevision).toBe(3);
+  expect(service.snapshot().sources.host.appliedRevision).not.toBe(3);
+  await service.reconcile();
+  expect(host.config.appendSystemPrompt).toBe("latest");
+  expect(container.config.appendSystemPrompt).toBe("latest");
+  expect(service.snapshot().sources.host.appliedRevision).toBe(3);
+});

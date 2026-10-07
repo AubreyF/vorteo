@@ -20,18 +20,7 @@ export interface ProviderPreferencesMigrationReport {
 
 /** Unknown profile fields participate in equality so future behavior cannot be silently merged. */
 function workflowBehavior(profile: AgentProfile) {
-  const {
-    id: _id,
-    name: _name,
-    nickname: _nickname,
-    icon: _icon,
-    color: _color,
-    notes: _notes,
-    provider: _provider,
-    isDefault: _isDefault,
-    thinkingOptionId: _thinkingOptionId,
-    ...behavior
-  } = profile;
+  const { id: _id, provider: _provider, isDefault: _isDefault, ...behavior } = profile;
   return behavior;
 }
 
@@ -71,7 +60,7 @@ export function planProviderPreferencesMigration(input: {
       isDeepStrictEqual(workflowBehavior(entry), behavior),
     );
     if (!workflow) {
-      const { thinkingOptionId: _thinkingOptionId, isDefault: _isDefault, ...source } = profile;
+      const { isDefault: _isDefault, ...source } = profile;
       workflow = { ...structuredClone(source), provider: providerType };
       group.workflows.push(workflow);
       report.workflows += 1;

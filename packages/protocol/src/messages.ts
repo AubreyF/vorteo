@@ -1169,6 +1169,24 @@ export const WorkspaceTitleSetRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const WorkspaceLifecycleSetRequestSchema = z.object({
+  type: z.literal("workspace.lifecycle.set.request"),
+  workspaceId: z.string(),
+  standing: z.boolean().optional(),
+  protected: z.boolean().optional(),
+  requestId: z.string(),
+});
+
+export const WorkspaceLifecycleSetResponseSchema = z.object({
+  type: z.literal("workspace.lifecycle.set.response"),
+  payload: z.object({
+    requestId: z.string(),
+    workspaceId: z.string(),
+    accepted: z.boolean(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const WorkspacePinSetRequestSchema = z.object({
   type: z.literal("workspace.pin.set.request"),
   workspaceId: z.string(),
@@ -3302,6 +3320,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceTitleSetRequestSchema,
   WorkspaceProjectSetRequestSchema,
   WorkspacePinSetRequestSchema,
+  WorkspaceLifecycleSetRequestSchema,
   WorkspaceLabelListRequestSchema,
   WorkspaceLabelAssignmentSetRequestSchema,
   WorkspaceLabelUpdateRequestSchema,
@@ -3821,6 +3840,8 @@ export const ServerInfoStatusPayloadSchema = z
         providerSubagentNesting: z.boolean().optional(),
         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
         workspacePinning: z.boolean().optional(),
+        // COMPAT(workspaceLifecycle): added in v0.11.0-beta.3.vorteo.153, remove after 2027-04-06 once the daemon floor includes it.
+        workspaceLifecycle: z.boolean().optional(),
         // COMPAT(workspaceMarkUnread): added in v0.5.0, remove after 2027-08-20.
         workspaceMarkUnread: z.boolean().optional(),
         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
@@ -3876,10 +3897,12 @@ export const ServerInfoStatusPayloadSchema = z
         agentProfiles: z.boolean().optional(),
         agentProfileLaunch: z.boolean().optional(),
         sharedProviderPreferences: z.boolean().optional(),
+        accountIndependentProfiles: z.boolean().optional(),
         profileWorkflowAliases: z.boolean().optional(),
         installationProfileAuthority: z.boolean().optional(),
         installationResourceBindings: z.boolean().optional(),
         installationSettingsAuthority: z.boolean().optional(),
+        installationProviderRemoval: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: z.boolean().optional(),
       })
@@ -4191,6 +4214,9 @@ export const WorkspaceDescriptorPayloadSchema = z
     title: z.string().nullable().optional(),
     // COMPAT(workspacePinning): added in v0.1.107, remove optional after 2027-01-12.
     pinnedAt: z.string().nullable().optional(),
+    // COMPAT(workspaceLifecycle): added in v0.11.0-beta.3.vorteo.153, remove after 2027-04-06 once the daemon floor includes it.
+    standing: z.boolean().optional(),
+    protected: z.boolean().optional(),
     // COMPAT(workspaceLabels): added in v0.5.0, remove optional after 2027-08-14.
     labels: z.array(z.string()).optional(),
     archivingAt: z.string().nullable().optional().default(null),
@@ -7131,6 +7157,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceTitleSetResponseSchema,
   WorkspaceProjectSetResponseSchema,
   WorkspacePinSetResponseSchema,
+  WorkspaceLifecycleSetResponseSchema,
   WorkspaceRecoveryInspectResponseSchema,
   WorkspaceRecoveryRestoreResponseSchema,
   WaitForFinishResponseMessageSchema,

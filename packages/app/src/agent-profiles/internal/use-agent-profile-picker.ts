@@ -1,3 +1,8 @@
+import {
+  resolveProviderType,
+  isSharedWorkflowProfile,
+} from "@getpaseo/protocol/provider-preferences";
+import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { generateMessageId } from "@/types/stream";
 import { readDestinationWorkspaces, resolveDestinationDirectory } from "./destination-workspaces";
 import { selectWorkspaceStructureProjects } from "@/stores/session-store-hooks/selectors";
@@ -78,7 +83,7 @@ export interface AgentProfilePicker {
   applyDestinationProfile?: (serverId: string, profile: AgentProfile) => void;
   applyProfile: (
     profileId: string,
-    choices?: Pick<AgentProfile, "model" | "thinkingOptionId">,
+    choices?: Partial<Pick<AgentProfile, "provider" | "model" | "thinkingOptionId">>,
   ) => void;
 }
 
@@ -116,6 +121,7 @@ export function useAgentProfilePicker(
   input: UseAgentProfilePickerInput,
 ): AgentProfilePicker | null {
   const { serverId, availableProviders, target } = input;
+  const { config: daemonConfig } = useDaemonConfig(serverId);
   const activeWorkspace = useActiveWorkspaceSelection();
   const activeWorkspaceId =
     activeWorkspace?.serverId === serverId ? activeWorkspace.workspaceId : null;
@@ -343,7 +349,12 @@ export function useAgentProfilePicker(
     () =>
       applicableProfiles.map((profile) => ({
         id: profile.id,
-        unavailable: !availableProviders.includes(profile.provider),
+        unavailable: !availableProviders.some(
+          (provider) =>
+            provider === profile.provider ||
+            (isSharedWorkflowProfile(profile.id) &&
+              resolveProviderType(provider, daemonConfig?.providers ?? {}) === profile.provider),
+        ),
         provider: profile.provider,
         modelId: profile.model?.trim() ?? "",
         icon: profile.icon ?? "",
@@ -358,7 +369,7 @@ export function useAgentProfilePicker(
           formatFeatureCount,
         }),
       })),
-    [applicableProfiles, availableProviders, entries, formatFeatureCount],
+    [applicableProfiles, availableProviders, entries, formatFeatureCount, daemonConfig],
   );
 
   const persistSelection = useCallback(
@@ -382,14 +393,29 @@ export function useAgentProfilePicker(
   );
 
   const applyProfile = useCallback(
-    (profileId: string, choices?: Pick<AgentProfile, "model" | "thinkingOptionId">) => {
+    (
+      profileId: string,
+      choices?: Partial<Pick<AgentProfile, "provider" | "model" | "thinkingOptionId">>,
+    ) => {
       const saved =
         applicableProfiles.find((entry) => entry.id === profileId) ??
         legacyProfiles.find((entry) => entry.id === profileId);
-      const profile = saved ? { ...saved, ...choices } : undefined;
-      if (!profile || !availableProviders.includes(profile.provider)) {
+      if (!saved) return;
+      const compatibleAccounts = availableProviders.filter(
+        (candidate) =>
+          candidate === saved.provider ||
+          (saved.id.startsWith("shared-profile/") &&
+            resolveProviderType(candidate, daemonConfig?.providers ?? {}) === saved.provider),
+      );
+      const preferred = daemonConfig?.sharedProviderPreferences?.defaultProvider;
+      const defaultAccount =
+        compatibleAccounts.find((candidate) => candidate === preferred) ?? compatibleAccounts[0];
+      const provider = choices?.provider ?? defaultAccount;
+      if (!provider || !compatibleAccounts.includes(provider)) {
+        toast.error("The selected account is unavailable. Choose another account.");
         return;
       }
+      const profile = { ...saved, ...choices, provider };
       const resolved = materializeAgentProfile(profile);
 
       if (target.kind === "draft") {
@@ -429,6 +455,7 @@ export function useAgentProfilePicker(
     },
     [
       applicableProfiles,
+      daemonConfig,
       legacyProfiles,
       availableProviders,
       client,

@@ -1,3 +1,5 @@
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { waitForSettledPosition } from "../support/helpers/sheet-layout";
@@ -60,10 +62,10 @@ test("profile cards use border selection, a separate activation action, and comp
     await expect(page.getByRole("button", { name: "Connect", exact: true })).toHaveCount(0);
     await expect(page.getByRole("textbox", { name: "Search accounts" })).toHaveCount(0);
     await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
-    await page.getByTestId("preset-row-shared-workflow/mock/account-ultra").click();
+    await page.getByTestId("preset-row-shared-profile/mock/account-ultra").click();
     await expect(page.getByTestId("profile-customization-details")).toContainText("Approval Test");
     await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
-    const chosenProfile = page.getByTestId("preset-row-shared-workflow/mock/account-ultra");
+    const chosenProfile = page.getByTestId("preset-row-shared-profile/mock/account-ultra");
     await expect(chosenProfile).toHaveCSS("border-radius", accountRadius);
     await expect(chosenProfile).not.toHaveCSS("border-left-color", "rgba(0, 0, 0, 0)");
     await expect(chosenProfile.locator("svg")).toHaveCount(0);
@@ -71,7 +73,7 @@ test("profile cards use border selection, a separate activation action, and comp
       environmentTile,
       page.getByTestId("preset-account-mock"),
       chosenProfile,
-      page.getByTestId("preset-row-shared-workflow/mock/account-medium"),
+      page.getByTestId("preset-row-shared-profile/mock/account-medium"),
     ]) {
       await page.mouse.move(0, 0);
       const restColor = await tile.evaluate((element) => getComputedStyle(element).backgroundColor);
@@ -86,7 +88,7 @@ test("profile cards use border selection, a separate activation action, and comp
     await expect(page.getByTestId("preset-use-profile")).toHaveText("Activate Profile");
     await waitForSettledPosition(page.getByTestId("preset-use-profile"));
     const firstProfile = await page
-      .getByTestId("preset-row-shared-workflow/mock/account-medium")
+      .getByTestId("preset-row-shared-profile/mock/account-medium")
       .boundingBox();
     const secondProfile = await chosenProfile.boundingBox();
     expect(secondProfile!.height).toBe(accountBounds!.height);
@@ -124,7 +126,7 @@ test("profile cards use border selection, a separate activation action, and comp
     await expect(page.getByTestId("preset-account-mock")).toBeVisible();
     await page.getByTestId("preset-account-mock").click();
     await expect(page.getByTestId("preset-choices-mock")).toBeVisible();
-    await page.getByTestId("preset-row-shared-workflow/mock/account-ultra").click();
+    await page.getByTestId("preset-row-shared-profile/mock/account-ultra").click();
     await page.getByTestId("preset-section-environment").click();
     await expect(page.getByTestId("preset-choices-mock")).toHaveCount(0);
     await page.getByTestId("preset-section-profile").click();
@@ -147,8 +149,8 @@ test("profile cards use border selection, a separate activation action, and comp
       labelEdges.push(bounds!.x + bounds!.width);
     }
     expect(Math.max(...labelEdges) - Math.min(...labelEdges)).toBeLessThan(1);
-    const mobileFirst = page.getByTestId("preset-row-shared-workflow/mock/account-medium");
-    const mobileSecond = page.getByTestId("preset-row-shared-workflow/mock/account-ultra");
+    const mobileFirst = page.getByTestId("preset-row-shared-profile/mock/account-medium");
+    const mobileSecond = page.getByTestId("preset-row-shared-profile/mock/account-ultra");
     await expect
       .poll(async () =>
         Math.abs((await mobileFirst.boundingBox())!.y - (await mobileSecond.boundingBox())!.y),
@@ -188,18 +190,18 @@ test("active profile hides the action until a different profile is selected", as
     await expectComposerVisible(page);
     await expect(page.getByTestId("agent-preset-selector")).toContainText("Astra Medium");
     await page.getByTestId("agent-preset-selector").click();
-    await expect(page.getByTestId("preset-row-shared-workflow/mock/account-medium")).toBeVisible();
+    await expect(page.getByTestId("preset-row-shared-profile/mock/account-medium")).toBeVisible();
     await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
     await expect(page.getByTestId("preset-action-area")).toHaveCSS("height", "0px");
     const originalCard = await page.getByTestId("preset-profile-card").boundingBox();
     await page.screenshot({ path: test.info().outputPath("profile-active-no-action.png") });
-    await page.getByTestId("preset-row-shared-workflow/mock/account-ultra").click();
+    await page.getByTestId("preset-row-shared-profile/mock/account-ultra").click();
     await expect(page.getByTestId("preset-use-profile")).toHaveText("Switch to Profile");
     await waitForSettledPosition(page.getByTestId("preset-use-profile"));
     expect((await page.getByTestId("preset-profile-card").boundingBox())!.height).toBeLessThan(
       originalCard!.height,
     );
-    await page.getByTestId("preset-row-shared-workflow/mock/account-medium").click();
+    await page.getByTestId("preset-row-shared-profile/mock/account-medium").click();
     await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
     await expect(page.getByTestId("preset-action-area")).toHaveCSS("height", "0px");
     expect((await page.getByTestId("preset-profile-card").boundingBox())!.height).toBe(
@@ -270,7 +272,7 @@ test("chooser opens while usage is pending and refreshes within the account tile
     await page.getByTestId("agent-preset-selector").click();
     await expect(page.getByTestId("account-preset-menu")).toBeVisible({ timeout: 1000 });
     await expect(page.getByTestId("preset-usage-loading-mock")).toBeVisible();
-    await page.getByTestId("preset-row-shared-workflow/mock/account-ultra").click();
+    await page.getByTestId("preset-row-shared-profile/mock/account-ultra").click();
     await expect(page.getByTestId("preset-use-profile")).toHaveText("Activate Profile");
     hold = false;
     pending.splice(0).forEach((deliver) => deliver());
@@ -314,10 +316,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             const started = performance.now();
             const sample = () => {
               const first = document.querySelector(
-                '[data-testid="preset-reveal-profile-shared-workflow/mock/account-medium"]',
+                '[data-testid="preset-reveal-profile-shared-profile/mock/account-medium"]',
               );
               const last = document.querySelector(
-                '[data-testid="preset-reveal-profile-shared-workflow/mock/account-last"]',
+                '[data-testid="preset-reveal-profile-shared-profile/mock/account-last"]',
               );
               if (first && last) {
                 const a = Number(getComputedStyle(first).opacity);
@@ -339,15 +341,194 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       );
       expect(frames.at(-1)).toEqual([1, 1]);
       // Selection changes stay usable while the details sweep is running.
-      await page.getByTestId("preset-row-shared-workflow/mock/account-ultra").click();
-      await page.getByTestId("preset-row-shared-workflow/mock/account-medium").click();
+      await page.getByTestId("preset-row-shared-profile/mock/account-ultra").click();
+      await page.getByTestId("preset-row-shared-profile/mock/account-medium").click();
       await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
-      await expect(
-        page.getByTestId("preset-row-shared-workflow/mock/account-medium"),
-      ).not.toHaveCSS("border-left-color", "rgba(0, 0, 0, 0)");
+      await expect(page.getByTestId("preset-row-shared-profile/mock/account-medium")).not.toHaveCSS(
+        "border-left-color",
+        "rgba(0, 0, 0, 0)",
+      );
     } finally {
       await workspace.cleanup();
       await seed.restore();
     }
   });
 }
+
+test("picker hides incompatible profiles and preserves them in Manage profiles", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const incompatible = {
+    ...medium,
+    id: "unsupported-model",
+    name: "Unsupported model",
+    model: "not-in-account-catalog",
+  };
+  const reasoning = {
+    ...medium,
+    id: "unsupported-reasoning",
+    name: "Unsupported reasoning",
+    thinkingOptionId: "not-in-model-catalog",
+  };
+  const seed = await seedAgentProfiles([incompatible, medium, reasoning], true);
+  const workspace = await seedMockAgentWorkspace({
+    repoPrefix: "profile-compatibility-",
+    title: "Profile compatibility",
+    model: "e2e-fast-stream",
+  });
+  try {
+    await openAgentRoute(page, workspace);
+    await expectComposerVisible(page);
+    await page.getByTestId("agent-preset-selector").click();
+    await expect(page.getByTestId("preset-row-shared-profile/mock/account-medium")).toBeVisible();
+    await expect(page.getByTestId("preset-row-shared-profile/mock/unsupported-model")).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByTestId("preset-row-shared-profile/mock/unsupported-reasoning"),
+    ).toHaveCount(0);
+    await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
+    await page.getByTestId("preset-row-shared-profile/mock/account-medium").click();
+    await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
+    await page.getByTestId("preset-manage-profiles").click();
+    await expect(page.getByTestId("agent-profile-row-unsupported-model")).toContainText(
+      "Model not-in-account-catalog is not offered by this account.",
+    );
+    await expect(page.getByTestId("agent-profile-row-unsupported-reasoning")).toContainText(
+      "Reasoning level not-in-model-catalog is not offered",
+    );
+  } finally {
+    await workspace.cleanup();
+    await seed.restore();
+  }
+});
+
+test("failed catalog discovery offers retry and restores selectable profiles", async ({ page }) => {
+  test.setTimeout(120_000);
+  const seed = await seedAgentProfiles([medium], true);
+  const workspace = await seedMockAgentWorkspace({
+    repoPrefix: "profile-catalog-retry-",
+    title: "Catalog retry",
+  });
+  let failCatalog = true;
+  await page.routeWebSocket(daemonWsRoutePattern(), (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      if (!failCatalog || typeof message !== "string") return socket.send(message);
+      const envelope = JSON.parse(message);
+      const type = envelope.message?.type;
+      if (
+        envelope.type === "session" &&
+        (type === "get_providers_snapshot_response" || type === "providers_snapshot_update")
+      ) {
+        const payload = envelope.message.payload;
+        delete payload.compactSnapshot;
+        delete payload.snapshotHash;
+        delete payload.notModified;
+        payload.entries = [
+          { provider: "mock", enabled: true, status: "error", error: "Catalog discovery failed" },
+        ];
+        return socket.send(JSON.stringify(envelope));
+      }
+      socket.send(message);
+    });
+  });
+  try {
+    await openAgentRoute(page, workspace);
+    await expectComposerVisible(page);
+    await page.getByTestId("agent-preset-selector").click();
+    await expect(page.getByTestId("preset-catalog-error")).toHaveText("Catalog discovery failed");
+    await expect(page.getByTestId("preset-row-shared-profile/mock/account-medium")).toHaveCount(0);
+    await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
+    failCatalog = false;
+    await page.getByTestId("preset-retry-profiles").click();
+    await expect(page.getByTestId("preset-row-shared-profile/mock/account-medium")).toBeVisible();
+    await page.getByTestId("preset-row-shared-profile/mock/account-medium").click();
+    await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
+  } finally {
+    await workspace.cleanup();
+    await seed.restore();
+  }
+});
+
+test("one saved profile stays selected across accounts and unavailable choices stay out of the picker", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "profile-account-selection",
+  });
+  const model = {
+    id: "shared-model",
+    label: "Shared model",
+    thinkingOptions: [{ id: "high", label: "High" }],
+  };
+  await client.patchDaemonConfig({
+    providers: {
+      "profile-one": {
+        extends: "codex",
+        label: "Account one",
+        enabled: true,
+        command: ["node"],
+        models: [model],
+      },
+      "profile-two": {
+        extends: "codex",
+        label: "Account two",
+        enabled: true,
+        command: ["node"],
+        models: [model],
+      },
+      "profile-limited": {
+        extends: "codex",
+        label: "Limited account",
+        enabled: true,
+        command: ["node"],
+        models: [{ ...model, thinkingOptions: [] }],
+      },
+    },
+  });
+  const seed = await seedAgentProfiles(
+    [
+      {
+        id: "review",
+        name: "Shared review",
+        provider: "codex",
+        model: "shared-model",
+        thinkingOptionId: "high",
+      },
+    ],
+    true,
+  );
+  const workspace = await seedMockAgentWorkspace({
+    repoPrefix: "shared-profile-account-",
+    title: "Shared profile account",
+  });
+  try {
+    await openAgentRoute(page, workspace);
+    await expectComposerVisible(page);
+    await page.getByTestId("agent-preset-selector").click();
+    await page.getByTestId("preset-account-profile-one").click();
+    const row = page.getByTestId("preset-row-shared-profile/codex/review");
+    await row.click();
+    await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
+    await page.getByTestId("preset-account-profile-two").click();
+    await expect(row).toHaveCount(1);
+    await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
+    await page.getByTestId("preset-account-profile-limited").click();
+    await expect(row).toHaveCount(0);
+    await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);
+    await page.getByTestId("preset-account-profile-one").click();
+    await expect(row).toHaveCount(1);
+    await expect(page.getByTestId("preset-use-profile")).toBeEnabled();
+  } finally {
+    await workspace.cleanup();
+    await seed.restore();
+    await client.patchDaemonConfig({
+      removeProviders: ["profile-one", "profile-two", "profile-limited"],
+    });
+    await client.close();
+  }
+});

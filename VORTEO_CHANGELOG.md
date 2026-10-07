@@ -2,6 +2,70 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.159 - 2026-10-06
+
+### Changed
+
+- Combine Standing, Protected and custom labels under Tag As in workspace menus. Add lifecycle and project-move icons, keep Create Label last, and distinguish custom labels that share lifecycle names.
+
+## 0.11.0-beta.3.vorteo.157 - 2026-10-06
+
+### Changed
+
+- Lead restart requests with their explanation, hide technical notes under Details, and remove request IDs, requester metadata and expiry boilerplate.
+
+## 0.11.0-beta.3.vorteo.156 - 2026-10-06
+
+### Changed
+
+- Keep installation access, restart requests and expandable history in one card without duplicate environment summaries.
+
+## 0.11.0-beta.3.vorteo.155 - 2026-10-06
+
+### Changed
+
+- Show each provider family once, with its accounts inside and shared enable controls. Keep local sign-in and credential management in an explicit dialog.
+- Reveal older What's new entries automatically while scrolling.
+- Explain Vim editing modes and basic shortcuts in Editor preferences.
+- Place Providers directly below Environments and remove the gap above Environments.
+- Replace QR and pairing-link onboarding with direct Tailscale connections while preserving existing connection authentication.
+
+### Fixed
+
+- Remove and restore shared providers without deleting credentials, saved profiles or task histories.
+- Save shared settings without waiting behind slow environment synchronization, and report unconfirmed operations within ten seconds.
+
+## 0.11.0-beta.3.vorteo.154 - 2026-10-06
+
+### Changed
+
+- Share one saved profile across accounts, choose the account separately, and consolidate exact duplicate profiles
+- Run same-provider subagents on the parent’s selected account while retaining worker model and reasoning settings and support for local Pi workers
+
+### Fixed
+
+- Hide incompatible profiles from the launch picker and distinguish catalog loading failures from unavailable models, with Retry and specific details in Manage profiles
+
+## 0.11.0-beta.3.vorteo.153 - 2026-10-06
+
+### Added
+
+- Mark ongoing workspaces Standing and keep them in a collapsible section within each project.
+- Protect workspaces against accidental workspace, chat, and project archives. Standing enables protection automatically; remove protection explicitly when the work is finished.
+- See a simple Scheduled badge on workspaces targeted by agent schedules, including paused schedules, and open Schedules from the badge.
+
+## 0.11.0-beta.3.vorteo.152 - 2026-10-06
+
+### Fixed
+
+- Keep moved worker workspaces in their chosen project so automatic sidebar grouping does not hide the destination
+
+## 0.11.0-beta.3.vorteo.151 - 2026-10-06
+
+### Fixed
+
+- Keep empty projects visible through sidebar refreshes on daemons without a separate project list
+
 ## 0.11.0-beta.3.vorteo.150 - 2026-10-06
 
 ### Changed

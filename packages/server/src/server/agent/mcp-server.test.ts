@@ -5837,6 +5837,50 @@ describe("agent profile listing MCP tool", () => {
     expect(response.structuredContent).toEqual({ profiles });
   });
 
+  it("lists one shared profile instead of account and legacy copies", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const config = MutableDaemonConfigSchema.parse({
+      mcp: { injectIntoAgents: true },
+      providers: { one: { extends: "codex" }, two: { extends: "codex" } },
+      sharedProviderPreferences: {
+        version: 1,
+        revision: 1,
+        providers: {
+          codex: {
+            defaults: { model: "astra" },
+            preferredModels: [],
+            preferredThinkingOptions: [],
+            defaultWorkflowId: null,
+            workflows: [
+              { id: "review", name: "Review", provider: "codex", notes: "Inspect changes" },
+            ],
+          },
+        },
+        legacyProfiles: { old: { provider: "one", providerType: "codex", workflowId: "review" } },
+      },
+    });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      daemonConfigStore: { get: () => config },
+      logger,
+    });
+    const response = await registeredTool(server, "list_profiles").handler({});
+    expect(response.structuredContent).toMatchObject({
+      profiles: [
+        {
+          id: "shared-profile/codex/review",
+          provider: "codex",
+          name: "Review",
+          model: "astra",
+          notes: "Inspect changes",
+        },
+      ],
+    });
+    expect((response.structuredContent as { profiles: unknown[] }).profiles).toHaveLength(1);
+  });
+
   it("returns an empty array when no profiles are configured", async () => {
     const { agentManager, agentStorage } = createTestDeps();
     const server = await createAgentMcpServer({

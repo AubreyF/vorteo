@@ -1,3 +1,4 @@
+import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
 import { resolve } from "node:path";
 
 import type { Logger } from "pino";
@@ -24,7 +25,13 @@ import { WorkspaceAutomationBlockedError } from "./workspace-automation-gate.js"
 
 export type ActiveWorkspaceRef = Pick<
   PersistedWorkspaceRecord,
-  "workspaceId" | "cwd" | "kind" | "worktreeRoot" | "isPaseoOwnedWorktree" | "mainRepoRoot"
+  | "workspaceId"
+  | "cwd"
+  | "kind"
+  | "worktreeRoot"
+  | "isPaseoOwnedWorktree"
+  | "mainRepoRoot"
+  | "protected"
 >;
 
 export interface ArchiveDependencies {
@@ -207,6 +214,7 @@ async function resolveArchiveTarget(
       );
       return { backing: null, teardownTargets: [], setupWorkspaceIds: [], workspaceIds: [] };
     }
+    assertWorkspaceUnprotected(record);
     const isArchived = "archivedAt" in record && Boolean(record.archivedAt);
     return {
       backing: await resolveWorkspaceBackingDirectory(record, dependencies),
@@ -226,6 +234,7 @@ async function resolveArchiveTarget(
       }),
     )
   ).filter((workspace): workspace is ActiveWorkspaceRef => workspace !== null);
+  for (const workspace of targetWorkspaces) assertWorkspaceUnprotected(workspace);
   const persistedMainRepoRoot = targetWorkspaces.find(
     (workspace) => workspace.mainRepoRoot,
   )?.mainRepoRoot;

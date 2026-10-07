@@ -749,3 +749,67 @@ test("restart details are opt-in so existing open tabs can still decode their st
   );
   expect(details[0]?.requester).toBe("Provider settings task");
 });
+
+test("legacy owner clients can read removed providers but cannot resurrect them", async () => {
+  const host = new SettingsEnvironmentFake("host-id");
+  host.config.providers = { mock: { enabled: true } };
+  const settings = new InstallationSettingsService(new SettingsJournalFake(), [host]);
+  const initial = await settings.reconcile();
+  const definitions = initial.settings!.providerDefinitions!;
+  for (const provider of definitions) {
+    provider.removed = true;
+    provider.policy.enabled = false;
+  }
+  const saved = await settings.update({
+    expectedRevision: initial.revision,
+    settings: { providerDefinitions: definitions },
+  });
+  const { url } = await fixture(undefined, settings);
+  const headers = {
+    Host: "owner.example.test",
+    Origin: "https://owner.example.test",
+    Authorization: "Bearer owner-test-password",
+    "Content-Type": "application/json",
+  };
+  const legacy = await (
+    await fetch(`${url}/api/installation/owner/settings/read`, {
+      method: "POST",
+      headers,
+      body: "{}",
+    })
+  ).json();
+  expect(legacy.settings.providerDefinitions[0]).not.toHaveProperty("removed");
+  expect(legacy.settings.providerDefinitions[0].policy.enabled).toBe(false);
+  const rejected = await fetch(`${url}/api/installation/owner/settings`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({
+      expectedRevision: saved.revision,
+      settings: { providerDefinitions: legacy.settings.providerDefinitions },
+    }),
+  });
+  expect(rejected.status).toBe(409);
+  expect(settings.snapshot().settings!.providerDefinitions![0].removed).toBe(true);
+  const aware = await (
+    await fetch(`${url}/api/installation/owner/settings/read`, {
+      method: "POST",
+      headers: { ...headers, "X-Vorteo-Provider-Removal": "1" },
+      body: "{}",
+    })
+  ).json();
+  expect(aware.settings.providerDefinitions[0].removed).toBe(true);
+  const restored = await fetch(`${url}/api/installation/owner/settings`, {
+    method: "PATCH",
+    headers: { ...headers, "X-Vorteo-Provider-Removal": "1" },
+    body: JSON.stringify({
+      expectedRevision: saved.revision,
+      settings: {
+        providerDefinitions: definitions.map((provider) =>
+          Object.assign({}, provider, { removed: false }),
+        ),
+      },
+    }),
+  });
+  expect(restored.status).toBe(200);
+  expect(settings.snapshot().settings!.providerDefinitions![0].removed).toBe(false);
+});

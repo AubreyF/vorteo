@@ -194,7 +194,8 @@ test.beforeAll(async () => {
         revision: randomUUID(),
         target: "host",
         requestedBy: "host-agent",
-        reason: "Maintenance requested six days ago",
+        reason:
+          "(AI Generated).\n\nRestart Host to enable protected workspaces that prevent accidental archiving.\n\nMaintenance requested six days ago",
         createdAt: "2020-01-01T00:00:00.000Z",
         expiresAt: "2020-01-01T00:30:00.000Z",
         status: "pending",
@@ -412,13 +413,27 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   }
   const oldCard = page
     .locator('[data-testid^="restart-request-"]')
-    .filter({ hasText: "Maintenance requested six days ago" });
+    .filter({ hasText: "Restart Host to enable protected workspaces" });
+  const installationCard = page.getByTestId("installation-card");
+  await expect(installationCard).toHaveCount(1);
+  await expect(installationCard.locator('[data-testid^="restart-request-"]')).toHaveCount(1);
+  await expect(page.getByTestId("installation-status-host")).toHaveCount(0);
+  await expect(page.getByTestId("installation-status-container-daemon")).toHaveCount(0);
   await expect(oldCard).toContainText("Approval needed");
-  await expect(oldCard).toContainText("Requests do not expire");
+  await expect(oldCard).not.toContainText("Requests do not expire");
+  await expect(oldCard).not.toContainText(historicalRestartId);
+  await expect(oldCard).not.toContainText("host-agent");
+  await expect(oldCard).not.toContainText("AI Generated");
+  await expect(oldCard).not.toContainText("Maintenance requested six days ago");
+  await oldCard.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(oldCard).toContainText("Maintenance requested six days ago");
+  await oldCard.getByRole("button", { name: "Hide details", exact: true }).click();
   await oldCard.getByRole("button", { name: "Reject", exact: true }).click();
   await expect(page.getByText("No pending restart requests", { exact: true })).toBeVisible();
   await page.getByTestId("restart-history-toggle").click();
   await expect(oldCard).toContainText("Rejected");
+  await expect(installationCard.getByTestId("restart-history")).toContainText("Rejected");
+  await installationCard.screenshot({ path: testInfo.outputPath("installation-history.png") });
   await page.getByTestId("restart-history-toggle").click();
   await page.getByTestId("installation-lock").click();
   await expect(page.getByText("Unlock to view approval status", { exact: false })).toBeVisible();
@@ -541,10 +556,14 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await activity.cancelAgent(blocker.id);
   await activity.close();
   await expect(card).toContainText("Restarted", { timeout: 150_000 });
-  await expect(card).toContainText("environment identity verified");
+  const completedRestart = await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
+    headers: { Authorization: `Bearer ${guestToken}` },
+  }).then((response) => response.json());
+  expect(completedRestart.detail).toContain("environment identity verified");
+  await expect(card).not.toContainText("environment identity verified");
   await page.getByRole("button", { name: "All restart requests", exact: true }).click();
   await page.getByTestId("restart-history-toggle").click();
-  await expect(card).toContainText("environment identity verified");
+  await expect(card).not.toContainText("environment identity verified");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
 });
@@ -1375,13 +1394,14 @@ test("shared plugins preserve source review on failure and project one catalog t
     await client.close();
   }
   await page.goto(`${origin}/settings/providers`);
-  const providerCard = page.getByTestId(`shared-provider-${providerDefinitionId}`);
+  const providerCard = page.getByTestId("provider-family-shared-test-runtime");
   await expect(providerCard).toHaveCount(1);
+  await providerCard.getByRole("button", { name: "shared-test-runtime", exact: true }).click();
   await expect(providerCard.getByText("Shared test runtime", { exact: true })).toBeVisible();
   await expect(providerCard.getByText("Offline", { exact: true })).toHaveCount(0);
   await expect(
     providerCard.getByRole("button", { name: "Shared test runtime provider details", exact: true }),
-  ).toHaveCount(2);
+  ).toHaveCount(0);
   await providerCard.screenshot({ path: info.outputPath("plugin-provider-shared.png") });
 });
 
@@ -2039,6 +2059,12 @@ test("shared account setup preserves the catalog through retries and local remov
       (entry) => entry.kind === "host",
     )!.serverId;
     await page.goto(`${origin}/settings/providers`);
+    const family = page.getByTestId("provider-family-codex");
+    await family.getByRole("button", { name: "Codex", exact: true }).click();
+    await family
+      .getByTestId(`provider-account-managed/${creationId}`)
+      .getByRole("button", { name: "Manage", exact: true })
+      .click();
     const remove = page.getByTestId(`shared-provider-remove-managed/${creationId}-${hostServerId}`);
     await expect(remove).toBeEnabled({ timeout: 60_000 });
     let dialog = page.waitForEvent("dialog");
@@ -2071,7 +2097,7 @@ test("shared account setup preserves the catalog through retries and local remov
     ).toContainText("Shared settings changed");
     expect(await readFile(auth, "utf8")).toBe("fixture credential");
     await page
-      .getByTestId(`shared-provider-managed/${creationId}`)
+      .getByTestId("provider-manage-sheet")
       .screenshot({ path: testInfo.outputPath("removal-conflict.png") });
     await expect
       .poll(async () => (await read()).sources[hostServerId].pendingRevision, { timeout: 60_000 })
@@ -2098,7 +2124,7 @@ test("shared account setup preserves the catalog through retries and local remov
     await click;
     await expect(remove).not.toBeVisible({ timeout: 60_000 });
     await page
-      .getByTestId(`shared-provider-managed/${creationId}`)
+      .getByTestId("provider-manage-sheet")
       .screenshot({ path: testInfo.outputPath("removal-complete.png") });
     await expect(readFile(auth, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     await read();
@@ -2140,7 +2166,7 @@ test("shared account setup preserves the catalog through retries and local remov
         .getByTestId(`provider-connect-${providerId}`),
     ).toBeVisible();
     await page
-      .getByTestId(`shared-provider-managed/${creationId}`)
+      .getByTestId("provider-manage-sheet")
       .screenshot({ path: testInfo.outputPath("restored-binding.png") });
   } finally {
     await host.close();
@@ -2156,6 +2182,7 @@ test("Add Account saves one shared definition and opens local sign-in", async ({
   await page.getByTestId("installation-unlock").click();
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await page.goto(`${origin}/settings/providers`);
+  await page.getByRole("button", { name: "Add provider", exact: true }).click();
   await page.getByTestId("add-codex-account").first().click();
   await page.getByTestId("codex-account-name").fill("Shared form account");
   await page.getByTestId("codex-account-create").click();
@@ -2265,6 +2292,9 @@ test("custom model edits from a provider sheet update both environments", async 
   await page.getByTestId("installation-unlock").click();
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await page.goto(`${origin}/settings/providers`);
+  const family = page.getByTestId("provider-family-mock");
+  await family.getByRole("button", { name: "mock", exact: true }).click();
+  await family.getByRole("button", { name: "Manage", exact: true }).click();
   await page
     .getByRole("button", { name: "Shared fixture provider provider details", exact: true })
     .first()
@@ -2330,115 +2360,135 @@ test("custom model edits from a provider sheet update both environments", async 
   await page.screenshot({ path: testInfo.outputPath("shared-model-editor.png"), fullPage: true });
 });
 
-test("single provider catalog shares rename enablement and ordering across environments", async ({
-  page,
-}, testInfo) => {
-  await page.goto(origin);
-  await page.getByTestId("installation-password").fill(ownerPassword);
-  await page.getByTestId("installation-unlock").click();
-  await expect(page.getByTestId("installation-password")).not.toBeVisible();
-  const read = async () =>
-    InstallationSettingsSnapshotSchema.parse(
-      await (
-        await page.request.post(`${origin}/api/installation/owner/settings/read`, {
-          headers: { Origin: origin },
-          data: {},
-        })
-      ).json(),
-    );
-  const initial = await read();
-  const definition = initial.settings?.providerDefinitions?.find(
-    (entry) => entry.providerType === "mock",
-  );
-  if (!definition) throw new Error("Missing shared provider fixture");
-  await page.goto(`${origin}/settings/providers`);
-  await expect(page.getByTestId(`shared-provider-${definition.id}`)).toHaveCount(1);
-  await expect(page.getByTestId("host-page-providers-card")).toHaveCount(0);
-  for (const daemon of daemons)
-    await expect(
-      page.getByTestId(`shared-provider-environment-${definition.id}-${daemon.serverId}`),
-    ).toBeVisible();
-  await page.getByTestId(`shared-provider-rename-${definition.id}`).click();
-  await page.getByTestId("shared-provider-rename-dialog-input").fill("One shared provider");
-  await page.getByTestId("shared-provider-rename-dialog-submit").click();
-  await expect(page.getByTestId("shared-provider-rename-dialog-input")).not.toBeVisible();
-  await page.getByTestId(`shared-provider-enabled-${definition.id}`).click();
-  await expect
-    .poll(
-      async () =>
-        (await read()).settings?.providerDefinitions?.find((entry) => entry.id === definition.id)
-          ?.policy.enabled,
-    )
-    .toBe(false);
-  await expect
-    .poll(
-      async () =>
-        Object.values((await read()).sources).every((status) => status.pendingRevision === null),
-      { timeout: 60_000 },
-    )
-    .toBe(true);
-  for (const kind of ["host", "container"] as const) {
-    const client = await connectReadyInstallationDaemon(kind);
+for (const width of [1280, 390]) {
+  test(`provider families share controls and reversible removal at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto(origin);
+    await page.getByTestId("installation-password").fill(ownerPassword);
+    await page.getByTestId("installation-unlock").click();
+    await expect(page.getByTestId("installation-password")).not.toBeVisible();
+    const read = async () =>
+      InstallationSettingsSnapshotSchema.parse(
+        await (
+          await page.request.post(`${origin}/api/installation/owner/settings/read`, {
+            headers: { Origin: origin, "X-Vorteo-Provider-Removal": "1" },
+            data: {},
+          })
+        ).json(),
+      );
+    const before = await read();
+    const originals = before.settings?.providerDefinitions;
+    if (!originals) throw new Error("Missing provider definitions");
     try {
-      expect((await client.getDaemonConfig()).config.providers.mock).toMatchObject({
-        label: "One shared provider",
-        enabled: false,
-      });
+      await page.goto(`${origin}/settings/providers`);
+      const family = page.getByTestId("provider-family-mock");
+      await expect(family).toHaveCount(1);
+      await expect(page.locator('[data-testid^="shared-provider-environment-"]')).toHaveCount(0);
+      await expect(page.getByTestId("host-page-add-provider-card")).toHaveCount(0);
+      const enabled = family.getByRole("switch", { name: "Enable mock everywhere", exact: true });
+      await expect(enabled).toBeChecked();
+      await enabled.click();
+      await expect(enabled).not.toBeChecked();
+      await expect
+        .poll(async () =>
+          (await read()).settings?.providerDefinitions
+            ?.filter((entry) => entry.providerType === "mock")
+            .every((entry) => entry.policy.enabled === false),
+        )
+        .toBe(true);
+      await expect
+        .poll(
+          async () =>
+            Object.values((await read()).sources).every(
+              (source) => source.pendingRevision === null,
+            ),
+          { timeout: 60000 },
+        )
+        .toBe(true);
+      for (const kind of ["host", "container"] as const) {
+        const client = await connectReadyInstallationDaemon(kind);
+        try {
+          expect((await client.getDaemonConfig()).config.providers.mock.enabled).toBe(false);
+        } finally {
+          await client.close();
+        }
+      }
+      if (width === 1280) {
+        const handle = family.getByTestId("provider-family-drag-mock");
+        await handle.focus();
+        await page.keyboard.press("Space");
+        await expect(handle).toHaveAttribute("aria-pressed", "true");
+        await page.keyboard.press("ArrowDown");
+        await expect(page.locator('[id^="DndLiveRegion-"]')).toContainText(
+          "over droppable area antigravity",
+        );
+        await page.keyboard.press("Space");
+        await expect
+          .poll(
+            async () =>
+              (await read()).settings?.providerDefinitions?.find(
+                (entry) => entry.providerType === "mock",
+              )?.policy.order,
+          )
+          .toBe(1);
+      }
+      await family.getByRole("button", { name: "mock", exact: true }).click();
+      await family.getByRole("button", { name: "Manage", exact: true }).click();
+      await page.getByRole("button", { name: "Rename", exact: true }).click();
+      await page.getByTestId("shared-provider-rename-dialog-input").fill("Renamed fixture account");
+      await page.getByTestId("shared-provider-rename-dialog-submit").click();
+      await expect(page.getByTestId("shared-provider-rename-dialog")).not.toBeVisible();
+      await expect(
+        page
+          .getByTestId("provider-manage-sheet")
+          .getByText("Renamed fixture account", { exact: true })
+          .first(),
+      ).toBeVisible();
+      await page
+        .getByTestId("provider-manage-sheet")
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await expect(page.getByTestId("provider-manage-sheet")).not.toBeVisible();
+      await expect(family.getByText("Renamed fixture account", { exact: true })).toBeVisible();
+      const dialog = page.waitForEvent("dialog");
+      const click = family.getByRole("button", { name: "Remove provider", exact: true }).click();
+      await (await dialog).accept();
+      await click;
+      await expect(family).toHaveCount(0);
+      const removed = (await read()).settings?.providerDefinitions?.filter(
+        (entry) => entry.providerType === "mock",
+      );
+      expect(removed?.map((entry) => entry.id)).toEqual(
+        originals.filter((entry) => entry.providerType === "mock").map((entry) => entry.id),
+      );
+      expect(removed?.every((entry) => entry.removed && entry.policy.enabled === false)).toBe(true);
+      await page.getByRole("button", { name: "Add provider", exact: true }).click();
+      await page.getByRole("button", { name: "Restore disabled provider", exact: true }).click();
+      await expect(
+        page.getByRole("button", { name: "Restore disabled provider", exact: true }),
+      ).toHaveCount(0);
+      await page
+        .getByTestId("provider-add-sheet")
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await expect(page.getByTestId("provider-add-sheet")).not.toBeVisible();
+      await family.scrollIntoViewIfNeeded();
+      await expect(family).toBeVisible();
+      await expect(
+        family.getByRole("switch", { name: "Enable mock everywhere", exact: true }),
+      ).not.toBeChecked();
+      await page.screenshot({ path: testInfo.outputPath("provider-families.png"), fullPage: true });
     } finally {
-      await client.close();
+      const latest = await read();
+      await page.request.patch(`${origin}/api/installation/owner/settings`, {
+        headers: { Origin: origin, "X-Vorteo-Provider-Removal": "1" },
+        data: { expectedRevision: latest.revision, settings: { providerDefinitions: originals } },
+      });
     }
-  }
-  await page.getByTestId(`shared-provider-enabled-${definition.id}`).click();
-  await expect
-    .poll(
-      async () =>
-        (await read()).settings?.providerDefinitions?.find((entry) => entry.id === definition.id)
-          ?.policy.enabled,
-    )
-    .toBe(true);
-  await expect(page.getByText("Saving shared provider settings...", { exact: true })).toHaveCount(
-    0,
-  );
-  await expect
-    .poll(async () =>
-      Object.values((await read()).sources).every((source) => source.pendingRevision === null),
-    )
-    .toBe(true);
-  await expect(
-    page.getByText(
-      "Shared settings are saved. Some environments are still waiting to apply them.",
-      { exact: true },
-    ),
-  ).toHaveCount(0);
-  const ordered = [...(initial.settings?.providerDefinitions ?? [])].sort(
-    (left, right) =>
-      (left.policy.order ?? Number.MAX_SAFE_INTEGER) -
-      (right.policy.order ?? Number.MAX_SAFE_INTEGER),
-  );
-  const next = ordered[ordered.findIndex((entry) => entry.id === definition.id) + 1];
-  if (!next) throw new Error("Missing reorder destination fixture");
-  const drag = page.getByTestId(`shared-provider-drag-${definition.id}`);
-  await drag.focus();
-  await page.keyboard.press("Space");
-  await expect(drag).toHaveAttribute("aria-pressed", "true");
-  await page.keyboard.press("ArrowDown");
-  await expect(page.locator('[id^="DndLiveRegion-"]')).toContainText(
-    `over droppable area ${next.id}`,
-  );
-  await page.keyboard.press("Space");
-  await expect
-    .poll(
-      async () =>
-        (await read()).settings?.providerDefinitions?.find((entry) => entry.id === definition.id)
-          ?.policy.order,
-    )
-    .toBe(1);
-  await page.getByTestId(`shared-provider-${definition.id}`).scrollIntoViewIfNeeded();
-  await page.screenshot({
-    path: testInfo.outputPath("shared-provider-catalog.png"),
-    fullPage: true,
   });
-});
+}
 
 test("catalog enrollment failure stays visible and does not install an independent runtime", async ({
   page,
@@ -2448,6 +2498,7 @@ test("catalog enrollment failure stays visible and does not install an independe
   await page.getByTestId("installation-unlock").click();
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await page.goto(`${origin}/settings/providers`);
+  await page.getByRole("button", { name: "Add provider", exact: true }).click();
   await page.getByTestId("provider-catalog-search").fill("Auggie");
   const add = page
     .getByTestId("host-page-add-provider-card")
@@ -2528,7 +2579,8 @@ test("catalog runtime enrollment reuses one disabled shared provider across both
   });
   expect(created.ok()).toBe(true);
   await page.goto(`${origin}/settings/providers`);
-  await expect(page.getByTestId(`shared-provider-${id}`)).toBeVisible();
+  await expect(page.getByTestId("provider-family-auggie")).toBeVisible();
+  await page.getByRole("button", { name: "Add provider", exact: true }).click();
   for (const kind of ["host", "container"] as const) {
     await page
       .getByTestId("provider-runtime-environment")
@@ -2570,7 +2622,11 @@ test("catalog runtime enrollment reuses one disabled shared provider across both
       policy: { label: "Shared catalog runtime", enabled: false },
     },
   ]);
-  await page.getByTestId(`shared-provider-${id}`).scrollIntoViewIfNeeded();
+  await page
+    .getByTestId("provider-add-sheet")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await page.getByTestId("provider-family-auggie").scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath("shared-catalog-enrollment.png") });
 });
 

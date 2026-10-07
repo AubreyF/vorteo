@@ -39,7 +39,6 @@ import {
   FolderGit2,
   SquareTerminal,
   Code2,
-  Smartphone,
   Sparkles,
   Blocks,
   BookOpen,
@@ -73,7 +72,6 @@ import { PageLayout } from "@/components/page-layout";
 import { AddHostMethodModal } from "@/components/add-host-method-modal";
 import { AddHostModal } from "@/components/add-host-modal";
 import { AddRemoteSshHostModal } from "@/components/add-remote-ssh-host-modal";
-import { PairLinkModal } from "@/components/pair-link-modal";
 import { KeyboardShortcutsSection } from "@/screens/settings/keyboard-shortcuts-section";
 import { EditorSection } from "@/screens/settings/editor-section";
 import { Button } from "@/components/ui/button";
@@ -239,13 +237,12 @@ interface HostSectionItem {
 
 const HOST_SECTION_ITEMS: HostSectionItem[] = [
   { id: "host", labelKey: "settings.hostSections.host", icon: Server },
+  { id: "providers", labelKey: "settings.hostSections.providers", icon: Boxes },
   { id: "projects", labelKey: "settings.hostSections.projects", icon: FolderGit2 },
   { id: "connections", labelKey: "settings.hostSections.connections", icon: Network },
-  { id: "pair-device", labelKey: "openProject.tiles.pairDevice.title", icon: Smartphone },
   { id: "agents", labelKey: "settings.hostSections.agents", icon: Bot },
   { id: "metadata", labelKey: "settings.hostSections.metadata", icon: Sparkles },
   { id: "workspaces", labelKey: "settings.hostSections.workspaces", icon: FolderGit2 },
-  { id: "providers", labelKey: "settings.hostSections.providers", icon: Boxes },
   { id: "usage", labelKey: "settings.hostSections.usage", icon: Gauge },
   { id: "terminals", labelKey: "settings.hostSections.terminals", icon: SquareTerminal },
   { id: "plugins", labelKey: "settings.hostSections.plugins", icon: Blocks },
@@ -855,21 +852,19 @@ function SettingsSidebar({
   if (view.kind === "plugin") selectedHostSection = "plugins";
 
   const sidebarBody = (
-    <>
-      <View style={sidebarStyles.list}>
-        {items.map((item) => (
-          <SidebarSectionButton
-            key={item.id}
-            itemId={item.id}
-            label={t(item.labelKey)}
-            icon={item.icon}
-            isSelected={selectedSectionId === item.id}
-            onSelect={onSelectSection}
-          />
-        ))}
-      </View>
+    <View style={sidebarStyles.list}>
+      {items.map((item) => (
+        <SidebarSectionButton
+          key={item.id}
+          itemId={item.id}
+          label={t(item.labelKey)}
+          icon={item.icon}
+          isSelected={selectedSectionId === item.id}
+          onSelect={onSelectSection}
+        />
+      ))}
       {hasHosts ? (
-        <View style={sidebarStyles.list}>
+        <View>
           {HOST_SECTION_ITEMS.map((item) => (
             <SidebarSectionButton
               key={item.id}
@@ -886,7 +881,7 @@ function SettingsSidebar({
           ))}
         </View>
       ) : (
-        <View style={sidebarStyles.list}>
+        <View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("settings.addHost")}
@@ -923,7 +918,7 @@ function SettingsSidebar({
           ) : null}
         </View>
       )}
-    </>
+    </View>
   );
 
   return (
@@ -1000,7 +995,6 @@ export default function SettingsScreen({
   const [isAddHostMethodVisible, setIsAddHostMethodVisible] = useState(false);
   const [isDirectHostVisible, setIsDirectHostVisible] = useState(false);
   const [isRemoteSshVisible, setIsRemoteSshVisible] = useState(false);
-  const [isPasteLinkVisible, setIsPasteLinkVisible] = useState(false);
   const [isPlaybackTestRunning, setIsPlaybackTestRunning] = useState(false);
   const [playbackTestResult, setPlaybackTestResult] = useState<string | null>(null);
   const lastOpenedAddHostIntentRef = useRef<string | null>(null);
@@ -1057,13 +1051,11 @@ export default function SettingsScreen({
     setIsAddHostMethodVisible(false);
     setIsDirectHostVisible(false);
     setIsRemoteSshVisible(false);
-    setIsPasteLinkVisible(false);
   }, []);
 
   const goBackToAddConnectionMethods = useCallback(() => {
     setIsDirectHostVisible(false);
     setIsRemoteSshVisible(false);
-    setIsPasteLinkVisible(false);
     setIsAddHostMethodVisible(true);
   }, []);
 
@@ -1089,11 +1081,6 @@ export default function SettingsScreen({
     setIsRemoteSshVisible(true);
   }, []);
 
-  const handleSelectPasteLink = useCallback(() => {
-    setIsAddHostMethodVisible(false);
-    setIsPasteLinkVisible(true);
-  }, []);
-
   const handleHostAdded = useCallback(
     ({ serverId }: { serverId: string }) => {
       const target = buildSettingsHostSectionRoute(serverId, "connections");
@@ -1117,14 +1104,6 @@ export default function SettingsScreen({
     },
     [isCompactLayout, router],
   );
-
-  const handleScanQr = useCallback(() => {
-    closeAddConnectionFlow();
-    router.push({
-      pathname: "/pair-scan",
-      params: { source: "settings" },
-    });
-  }, [closeAddConnectionFlow, router]);
 
   const handleHostRemoved = useCallback(() => {
     const fallback = buildSettingsSectionRoute("general");
@@ -1260,8 +1239,6 @@ export default function SettingsScreen({
         onClose={closeAddConnectionFlow}
         onDirectConnection={handleSelectDirectConnection}
         onRemoteSsh={handleSelectRemoteSsh}
-        onPasteLink={handleSelectPasteLink}
-        onScanQr={handleScanQr}
       />
       <AddHostModal
         visible={isDirectHostVisible}
@@ -1271,12 +1248,6 @@ export default function SettingsScreen({
       />
       <AddRemoteSshHostModal
         visible={isRemoteSshVisible}
-        onClose={closeAddConnectionFlow}
-        onCancel={goBackToAddConnectionMethods}
-        onSaved={handleHostAdded}
-      />
-      <PairLinkModal
-        visible={isPasteLinkVisible}
         onClose={closeAddConnectionFlow}
         onCancel={goBackToAddConnectionMethods}
         onSaved={handleHostAdded}

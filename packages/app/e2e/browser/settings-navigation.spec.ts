@@ -54,6 +54,30 @@ test.describe("Settings sidebar navigation", () => {
     await gotoAppShell(page);
     await openSettings(page);
 
+    const sidebar = page.getByTestId("settings-sidebar");
+    const sections = sidebar.locator('[data-testid^="settings-section-"]');
+    const ids = await sections.evaluateAll((nodes) => {
+      const sectionIds: Array<string | null> = [];
+      for (const node of nodes) sectionIds.push(node.getAttribute("data-testid"));
+      return sectionIds;
+    });
+    const profileIndex = ids.indexOf("settings-section-profiles");
+    expect(ids.slice(profileIndex, profileIndex + 5)).toEqual([
+      "settings-section-profiles",
+      "settings-section-environments",
+      "settings-section-providers",
+      "settings-section-projects",
+      "settings-section-connections",
+    ]);
+    await expect(sidebar.getByTestId("settings-section-pair-device")).toHaveCount(0);
+    const profilesBox = await sidebar.getByTestId("settings-section-profiles").boundingBox();
+    const environmentsBox = await sidebar
+      .getByTestId("settings-section-environments")
+      .boundingBox();
+    expect(environmentsBox!.y - profilesBox!.y - profilesBox!.height).toBeLessThanOrEqual(8);
+    await openSettingsSection(page, "editor");
+    await expect(page.getByText(/Press i to enter Insert mode/)).toBeVisible();
+
     await openSettingsSection(page, "diagnostics");
     await expectSettingsHeader(page, "Diagnostics");
     await expectDiagnosticsContent(page);

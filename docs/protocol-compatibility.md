@@ -131,3 +131,9 @@ A governed run records optional `governorBinding` metadata containing its verifi
 Unused prepared work must revoke dispatch immediately and freeze through trusted custody, including when persistence fails or the schedule expires. Freeze completion means durable state and verified settlement, not an interrupt acknowledgment. It preserves accounting reservations. Failed cleanup retains the preparation or bound run for recovery.
 
 Restart recovery, edit guards and deletion guards recognize unfinished governed work independently of the schedule's editable quota policy. A frozen run remains unfinished. Deletion checks run inside the schedule mutation, and admission verifies the current record before asking the driver to prepare work. Older clients may omit these optional response fields, but replacing the daemon with a policy-unaware version still requires separate installation safeguards.
+
+## Shared provider removal
+
+Clients require `server_info.features.installationProviderRemoval === true` from each configured environment before removing a provider from the shared catalog. The optional `removed` marker preserves identity and credentials while disabling new launches.
+
+Owner settings requests opt into this marker with `X-Vorteo-Provider-Removal: 1`. Responses to older clients omit it because their provider schema rejects unknown fields. While a removed provider exists, older clients cannot replace the provider catalog; they receive a revision conflict and must refresh to the current client. Other shared settings remain editable. Upgraded clients restore a definition explicitly with `removed: false`.

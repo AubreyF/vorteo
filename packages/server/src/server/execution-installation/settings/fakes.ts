@@ -27,7 +27,9 @@ export class SettingsEnvironmentFake implements SettingsEnvironment {
 
   constructor(readonly serverId: string) {}
 
+  readGate: Promise<void> | null = null;
   async read() {
+    if (this.readGate) await this.readGate;
     if (this.offline) throw new Error("private diagnostic that must not appear in snapshots");
     return structuredClone(this.config);
   }
@@ -114,7 +116,11 @@ export class SettingsEnvironmentFake implements SettingsEnvironment {
     };
   }
 
+  patchGate: Promise<void> | null = null;
+  onPatch: (() => void) | null = null;
   async patch(patch: MutableDaemonConfigPatch, confirmedSkillRemovals: readonly string[] = []) {
+    this.onPatch?.();
+    if (this.patchGate) await this.patchGate;
     if (this.rejectPatch) throw new Error("private patch diagnostic");
     this.patches.push(structuredClone(patch));
     if (!this.ignorePatch) {

@@ -2056,7 +2056,8 @@ export const en = {
     editor: {
       title: "Editor",
       vimKeybindings: "Vim keybindings",
-      vimHint: "Applies to source files on web and desktop.",
+      vimHint:
+        "Edit source files with keyboard commands on web and desktop. Press i to enter Insert mode and type normally; press Esc to return to Normal mode. In Normal mode, h/j/k/l move left/down/up/right, w advances a word, u undoes, and / starts a search. The editor shows your current mode. Turn this off to restore standard editing.",
     },
     notifications: {
       title: "Notifications",

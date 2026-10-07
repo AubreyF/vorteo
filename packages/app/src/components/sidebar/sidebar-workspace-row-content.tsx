@@ -1,3 +1,4 @@
+import { WorkspaceLifecycleIndicators } from "@/workspace/lifecycle/indicators";
 import {
   ExecutionEnvironmentIcon,
   useHasExecutionEnvironment,
@@ -201,6 +202,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             <Text style={workspaceBranchTextStyle} numberOfLines={1}>
               {workspaceLabel}
             </Text>
+            <WorkspaceLifecycleIndicators workspace={workspace} />
             <View style={[sidebarWorkspaceRowStyles.rowRight, styles.alignedActions]}>
               {inlineService ? (
                 <View style={[styles.serviceSlot, actionSize]}>

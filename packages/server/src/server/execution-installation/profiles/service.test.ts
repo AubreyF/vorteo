@@ -4,7 +4,12 @@ import { startProfileSynchronization } from "./runtime.js";
 import { resolveProfileLaunch } from "../../agent/create-agent/profile.js";
 import { sharedWorkflowProfileId } from "@getpaseo/protocol/provider-preferences";
 import { materializeSharedProfiles } from "@getpaseo/protocol/provider-preferences";
-import { importEnvironmentProfiles, projectEnvironmentProfiles } from "./migration.js";
+import {
+  importEnvironmentProfiles,
+  projectEnvironmentProfiles,
+  consolidateProfileDefinitions,
+  normalizeLegacyProfileValues,
+} from "./migration.js";
 import { expect, test } from "vitest";
 import {
   MutableDaemonConfigSchema,
@@ -502,7 +507,7 @@ test("profile polling synchronizes immediately, repeats, and stops on cleanup", 
   }
 }, 15000);
 
-test("legacy reasoning choices become distinct canonical definitions without binding value overrides", async () => {
+test("distinct saved reasoning choices remain separate while legacy bindings retain historical values", async () => {
   const { host, service } = fixture();
   const profiles = [
     { id: "review", name: "Review", provider: "codex", model: "model-b", thinkingOptionId: "high" },
@@ -522,8 +527,8 @@ test("legacy reasoning choices become distinct canonical definitions without bin
   await service.synchronize();
   const bindings = host.config.sharedProviderPreferences?.legacyProfiles;
   expect(bindings?.review.workflowId).not.toBe(bindings?.careful.workflowId);
-  expect(bindings?.review).not.toHaveProperty("model");
-  expect(bindings?.careful).not.toHaveProperty("thinkingOptionId");
+  expect(bindings?.review.model).toBe("model-b");
+  expect(bindings?.careful.thinkingOptionId).toBe("medium");
   const review = resolveProfileLaunch(
     { provider: "codex", profileId: "review" },
     [],
@@ -670,11 +675,9 @@ test.each([
     expect(after.model).toBe(expectedModel);
     expect(before.thinkingOptionId).toBe(expectedThinking);
     expect(after.thinkingOptionId).toBe(expectedThinking);
-    expect(host.config.sharedProviderPreferences?.legacyProfiles.review).not.toHaveProperty(
-      "model",
-    );
-    expect(host.config.sharedProviderPreferences?.legacyProfiles.review).not.toHaveProperty(
-      "thinkingOptionId",
+    expect(host.config.sharedProviderPreferences?.legacyProfiles.review.model).toBe(model);
+    expect(host.config.sharedProviderPreferences?.legacyProfiles.review.thinkingOptionId).toBe(
+      thinking,
     );
   },
 );
@@ -878,7 +881,8 @@ test("deletion rejects a concrete shared launch alias even without a legacy prof
   const { host, service } = fixture();
   const preferences = host.config.sharedProviderPreferences;
   if (!preferences) throw new Error("missing preferences");
-  preferences.legacyProfiles.review.model = "legacy-model";
+  preferences.legacyProfiles = {};
+  host.config.agentProfiles = [];
   await service.synchronize();
   const snapshot = service.snapshot();
   const state = service.inspect();
@@ -1045,4 +1049,105 @@ test("legacy journal upgrade recovers worker account bindings from the original 
     container.config,
   );
   expect(moved.profileLaunch?.worker?.provider).toBe("devWorker");
+});
+
+test("legacy overrides stay compatibility records instead of creating account profiles", () => {
+  const { preferences } = planProviderPreferencesMigration({
+    profiles: [
+      {
+        id: "shared",
+        name: "Review",
+        provider: "codex",
+        model: "astra",
+        thinkingOptionId: "medium",
+      },
+    ],
+    providers: {},
+  });
+  preferences.legacyProfiles.old = {
+    provider: "account-two",
+    providerType: "codex",
+    workflowId: "shared",
+    model: "astra",
+    thinkingOptionId: "ultra",
+  };
+  const normalized = normalizeLegacyProfileValues(preferences);
+  expect(normalized.providers.codex.workflows).toEqual(preferences.providers.codex.workflows);
+  expect(normalized.legacyProfiles.old).toEqual(preferences.legacyProfiles.old);
+});
+
+test("consolidation merges exact duplicates while preserving aliases and different reasoning", () => {
+  const { preferences } = planProviderPreferencesMigration({
+    profiles: [
+      {
+        id: "shared",
+        name: "Review",
+        provider: "codex",
+        model: "astra",
+        thinkingOptionId: "medium",
+      },
+    ],
+    providers: {},
+  });
+  const workflow = preferences.providers.codex.workflows[0];
+  preferences.providers.codex.workflows.push(
+    { ...workflow, id: "account-copy" },
+    { ...workflow, id: "deep", thinkingOptionId: "ultra" },
+  );
+  preferences.legacyProfiles.old = {
+    provider: "account-two",
+    providerType: "codex",
+    workflowId: "account-copy",
+  };
+  const normalized = consolidateProfileDefinitions(preferences);
+  expect(normalized.providers.codex.workflows.map((item) => item.id)).toEqual(["shared", "deep"]);
+  expect(normalized.workflowAliases?.codex["account-copy"]).toBe("shared");
+  expect(normalized.legacyProfiles.old).toEqual({
+    provider: "account-two",
+    providerType: "codex",
+    workflowId: "shared",
+  });
+  expect(consolidateProfileDefinitions(normalized)).toEqual(normalized);
+  expect(preferences.providers.codex.workflows).toHaveLength(3);
+});
+
+test("existing installations consolidate once and keep old launch references usable", async () => {
+  const { container, host, journal, service } = fixture();
+  await service.synchronize();
+  const state = service.inspect()!;
+  const original = state.providers.codex.workflows[0];
+  state.providers.codex.workflows.push({ ...original, id: "account-copy" });
+  for (const source of Object.values(state.sources)) {
+    source.projection!.providers = structuredClone(state.providers);
+    source.projection!.legacyProfiles["old-copy"] = {
+      provider: "codex",
+      providerType: "codex",
+      workflowId: "account-copy",
+    };
+  }
+  journal.state = state;
+  const restarted = new InstallationProfiles(
+    journal,
+    [container, host],
+    "00000000-0000-4000-8000-000000000001",
+  );
+  await restarted.synchronize();
+  const consolidated = restarted.inspect()!;
+  expect(consolidated.providers.codex.workflows).toHaveLength(
+    state.providers.codex.workflows.length - 1,
+  );
+  expect(consolidated.sources.host.projection!.workflowAliases?.codex["account-copy"]).toBe(
+    original.id,
+  );
+  const launch = resolveProfileLaunch(
+    { provider: "codex", profileId: "shared-workflow/codex/account-copy" },
+    [],
+    0,
+    host.config,
+  );
+  expect(launch.model).toBe(original.model ?? state.providers.codex.defaults.model);
+  const revision = consolidated.revision;
+  await restarted.synchronize();
+  expect(restarted.inspect()!.revision).toBe(revision);
+  expect(journal.backups).toBe(2);
 });

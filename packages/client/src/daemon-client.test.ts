@@ -7867,3 +7867,24 @@ test("skill package transfers refuse older environments before sending a request
   ).rejects.toThrow("Update this environment");
   expect(mock.sent.length).toBe(sent);
 });
+
+test("canonical profile launches require account-independent profile support", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "canonical-profile-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { sharedProviderPreferences: true } });
+  await connecting;
+  const config = { provider: "mock", cwd: "/tmp", profileId: "shared-profile/mock/review" };
+  await expect(client.createAgent({ config })).rejects.toThrow("account-independent profiles");
+  await expect(
+    client.createWorkspace({ source: { kind: "directory", path: "/tmp" }, agent: { config } }),
+  ).rejects.toThrow("account-independent profiles");
+  expect(mock.sent).toEqual([]);
+});

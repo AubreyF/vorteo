@@ -2033,6 +2033,7 @@ export class VoiceAssistantWebSocketServer {
         providerSubagentNesting: true,
         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
         workspacePinning: true,
+        workspaceLifecycle: true,
         // COMPAT(workspaceMarkUnread): added in v0.5.0, remove after 2027-08-20.
         workspaceMarkUnread: true,
         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
@@ -2077,12 +2078,14 @@ export class VoiceAssistantWebSocketServer {
         agentProfiles: true,
         agentProfileLaunch: true,
         sharedProviderPreferences: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
+        accountIndependentProfiles: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         profileWorkflowAliases: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         installationProfileAuthority: Boolean(
           this.daemonConfigStore.get().sharedProviderPreferences,
         ),
         installationResourceBindings: true,
         installationSettingsAuthority: true,
+        installationProviderRemoval: true,
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: true,
       },

@@ -33,7 +33,10 @@ import { InstallationRestarts, RestartRequestError, type RestartExecutor } from 
 import type { InstallationConfig } from "./config.js";
 import { connectInstallationDaemon } from "./daemon.js";
 import { delegateToContainer, DelegationRequestSchema } from "./delegation.js";
-import { InstallationSettingsUpdateSchema } from "@getpaseo/protocol/installation-settings";
+import {
+  InstallationSettingsUpdateSchema,
+  type InstallationSettingsSnapshot,
+} from "@getpaseo/protocol/installation-settings";
 import { AgentSkillSelectionSchema } from "@getpaseo/protocol/messages";
 import {
   createInstallationSettings,
@@ -47,6 +50,15 @@ import {
   InstallationSettingsNotInitialized,
   type InstallationSettingsService,
 } from "./settings/service.js";
+
+// COMPAT(providerRemovalOwner): added in v155, remove after legacy strict catalog clients are unsupported.
+function ownerSettingsSnapshot(snapshot: InstallationSettingsSnapshot, removalAware: boolean) {
+  if (removalAware) return snapshot;
+  const catalogs = [snapshot.settings, ...Object.values(snapshot.conflicts?.candidates ?? {})];
+  for (const catalog of catalogs)
+    for (const provider of catalog?.providerDefinitions ?? []) delete provider.removed;
+  return snapshot;
+}
 
 function matchesToken(token: string | null, hash: string): boolean {
   if (!token) return false;
@@ -340,8 +352,10 @@ export function createInstallationServer(
     sendConnections(req, res);
   });
   app.post("/api/installation/owner/profiles/query", (_req, res) => res.json(profiles.status()));
-  app.post("/api/installation/owner/settings/read", (_req, res) => {
-    res.json(settings.snapshot());
+  app.post("/api/installation/owner/settings/read", (req, res) => {
+    res.json(
+      ownerSettingsSnapshot(settings.snapshot(), req.get("X-Vorteo-Provider-Removal") === "1"),
+    );
   });
   app.post("/api/installation/owner/settings/plugins/resolve", (req, res, next) => {
     const input = PluginSourceResolutionInputSchema.parse(req.body);
@@ -379,7 +393,18 @@ export function createInstallationServer(
   });
   app.patch("/api/installation/owner/settings", (req, res, next) => {
     const input = InstallationSettingsUpdateSchema.parse(req.body);
-    void settings.update(input).then((snapshot) => res.json(snapshot), next);
+    const removalAware = req.get("X-Vorteo-Provider-Removal") === "1";
+    const current = settings.snapshot();
+    if (
+      !removalAware &&
+      input.settings.providerDefinitions &&
+      (input.settings.providerDefinitions.some((provider) => provider.removed !== undefined) ||
+        current.settings?.providerDefinitions?.some((provider) => provider.removed))
+    )
+      throw new InstallationSettingsConflict(current.revision);
+    void settings
+      .update(input)
+      .then((snapshot) => res.json(ownerSettingsSnapshot(snapshot, removalAware)), next);
   });
   const readProfiles = (_req: Request, res: Response) => {
     const snapshot = profiles.snapshot();

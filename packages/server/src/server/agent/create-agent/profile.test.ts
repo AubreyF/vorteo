@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveProfileLaunch } from "./profile.js";
 import { MutableDaemonConfigSchema } from "@getpaseo/protocol/messages";
 import { planProviderPreferencesMigration } from "../provider-preferences/migration.js";
-import { sharedWorkflowProfileId } from "@getpaseo/protocol/provider-preferences";
+import { sharedWorkflowProfileId, sharedProfileId } from "@getpaseo/protocol/provider-preferences";
 import { ProviderDefaultsSchema } from "@getpaseo/protocol/provider-preferences";
 import { AgentProfileSchema } from "@getpaseo/protocol/messages";
 
@@ -332,4 +332,80 @@ it("canonical installation profiles ignore local model and reasoning edits", () 
       settings,
     ),
   ).toThrow("not found");
+});
+
+it("one canonical profile launches on either account without changing its identity", () => {
+  const providers = { one: { extends: "codex" }, two: { extends: "codex" } };
+  const profiles = [
+    { id: "review", name: "Review", provider: "one", model: "astra", thinkingOptionId: "high" },
+  ];
+  const preferences = planProviderPreferencesMigration({ profiles, providers }).preferences;
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    providers,
+    sharedProviderPreferences: preferences,
+  });
+  const profileId = sharedProfileId("codex", "review");
+  for (const provider of ["one", "two"]) {
+    const launch = resolveProfileLaunch({ provider, profileId }, [], 0, settings);
+    expect(launch.provider).toBe(provider);
+    expect(launch.profileLaunch?.profile.id).toBe(profileId);
+    expect(launch.profileLaunch?.workflowId).toBe("review");
+    expect(launch.model).toBe("astra");
+    expect(launch.thinkingOptionId).toBe("high");
+  }
+});
+
+it("new teams bind same-provider workers to the parent account and retain local worker providers", () => {
+  const providers = { one: { extends: "codex" }, two: { extends: "codex" }, pi: {} };
+  const profiles = [
+    { id: "team", name: "Team", provider: "one", model: "astra", workerProfileId: "worker" },
+    { id: "worker", name: "Worker", provider: "two", model: "sol", thinkingOptionId: "low" },
+    {
+      id: "local-team",
+      name: "Local team",
+      provider: "one",
+      model: "astra",
+      workerProfileId: "local",
+    },
+    { id: "local", name: "Local", provider: "pi", model: "local-model" },
+  ];
+  const preferences = planProviderPreferencesMigration({ profiles, providers }).preferences;
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    providers,
+    sharedProviderPreferences: preferences,
+  });
+  for (const provider of ["one", "two"]) {
+    const team = resolveProfileLaunch(
+      { provider, profileId: sharedProfileId("codex", "team") },
+      [],
+      0,
+      settings,
+    );
+    expect(team.profileLaunch?.worker).toMatchObject({
+      id: sharedProfileId("codex", "worker"),
+      provider,
+      model: "sol",
+      thinkingOptionId: "low",
+    });
+    const local = resolveProfileLaunch(
+      { provider, profileId: sharedProfileId("codex", "local-team") },
+      [],
+      0,
+      settings,
+    );
+    expect(local.profileLaunch?.worker).toMatchObject({
+      id: sharedProfileId("pi", "local"),
+      provider: "pi",
+      model: "local-model",
+    });
+  }
+  const oldTeam = resolveProfileLaunch(
+    { provider: "one", profileId: sharedWorkflowProfileId("one", "team") },
+    [],
+    0,
+    settings,
+  );
+  expect(oldTeam.profileLaunch?.worker?.provider).toBe("two");
 });

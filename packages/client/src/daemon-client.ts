@@ -3139,6 +3139,22 @@ export class DaemonClient {
     if (!payload.accepted) throw new Error(payload.error ?? "Failed to move workspace");
   }
 
+  async setWorkspaceLifecycle(
+    options: Omit<
+      Extract<SessionInboundMessage, { type: "workspace.lifecycle.set.request" }>,
+      "type" | "requestId"
+    >,
+  ): Promise<void> {
+    if (this.lastServerInfoMessage?.features?.workspaceLifecycle !== true) {
+      throw new Error("Update this host to manage Standing and Protected workspaces.");
+    }
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.lifecycle.set.response">({
+        message: { type: "workspace.lifecycle.set.request", ...options },
+      });
+    if (!payload.accepted) throw new Error(payload.error ?? "Failed to update workspace");
+  }
+
   async setWorkspacePinned(
     workspaceId: string,
     pinned: boolean,
@@ -5324,6 +5340,12 @@ export class DaemonClient {
 
   private requireWorkflowLaunchSupport(profileId: string | undefined): void {
     if (profileId && isSharedWorkflowProfile(profileId)) this.requireSharedProviderPreferences();
+    if (
+      profileId?.startsWith("shared-profile/") &&
+      this.lastServerInfoMessage?.features?.accountIndependentProfiles !== true
+    ) {
+      throw new Error("Update the host to use account-independent profiles.");
+    }
   }
 
   private requireSharedProviderPreferences(): void {
@@ -5456,6 +5478,7 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.connection.preview_remove.response">(
       {
         message: { type: "provider.connection.preview_remove.request", providerId },
+        timeout: 10000,
       },
     );
   }
@@ -5463,6 +5486,7 @@ export class DaemonClient {
   async removeProvider(providerId: string, revision: string) {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.connection.remove.response">({
       message: { type: "provider.connection.remove.request", providerId, revision },
+      timeout: 10000,
     });
   }
 

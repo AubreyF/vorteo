@@ -1,3 +1,4 @@
+import { splitStandingWorkspaces } from "@/workspace/lifecycle/grouping";
 import { describe, expect, it } from "vitest";
 import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceStructureProject } from "@/projects/workspace-structure";
@@ -982,6 +983,69 @@ function workerSidebarFixture() {
 }
 
 describe("managed worker sidebar placement", () => {
+  it.each([true, false])(
+    "keeps an explicitly moved worker in its chosen project with terminal presence %s",
+    (presence) => {
+      const fixture = workerSidebarFixture();
+      fixture.execution.projectMembership = { key: "misc-dev", name: "Misc Dev" };
+      fixture.projects[1] = project({
+        projectKey: "misc-dev",
+        projectName: "Misc Dev",
+        workspaceKeys: ["srv:execution"],
+        hosts: [
+          {
+            serverId: "dev",
+            projectId: "dev-project",
+            iconWorkingDir: "/dev",
+            worktreeSupport: "unsupported",
+          },
+        ],
+      });
+      for (const hydrated of [false, true, false, true]) {
+        fixture.session.hasHydratedAgents = hydrated;
+        const model = buildSidebarWorkspacePlacementModel({
+          projects: fixture.projects,
+          managedWorkspaces: collectManagedWorkspacePlacements({
+            projects: fixture.projects,
+            sessions: [fixture.session],
+          }),
+          terminalPresence: new Map([["srv:execution", presence]]),
+        });
+        expect(model.projects.map((entry) => entry.viewKey)).toEqual([
+          "origin-project",
+          "misc-dev",
+        ]);
+        expect(model.projects[1]?.workspaces.map((entry) => entry.workspaceId)).toEqual([
+          "execution",
+        ]);
+        expect(
+          model.workspaces.find((entry) => entry.workspaceId === "execution")?.projectViewKey,
+        ).toBe("misc-dev");
+      }
+    },
+  );
+
+  it("still folds a worker that inherits its parent's chosen project", () => {
+    const fixture = workerSidebarFixture();
+    const membership = { key: "origin-project", name: "Origin" };
+    fixture.origin.projectMembership = membership;
+    fixture.execution.projectMembership = membership;
+    fixture.projects[0] = project({
+      projectKey: membership.key,
+      workspaceKeys: ["srv:origin", "srv:execution"],
+    });
+    fixture.projects[1] = project({ projectKey: "worker-project", workspaceKeys: [] });
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces: collectManagedWorkspacePlacements({
+        projects: fixture.projects,
+        sessions: [fixture.session],
+      }),
+      terminalPresence: new Map([["srv:execution", false]]),
+    });
+    expect(model.workspaces.map((entry) => entry.workspaceId)).toEqual(["origin"]);
+    expect(model.workspaces[0]?.managedWorkspaceIds).toEqual(["execution"]);
+  });
   it("folds a confirmed worker-only worktree beneath its originating task and project", () => {
     const fixture = workerSidebarFixture();
     const managedWorkspaces = collectManagedWorkspacePlacements({
@@ -1261,5 +1325,28 @@ describe("managed worker sidebar placement", () => {
         sessions: [fixture.session],
       }),
     ).toEqual([]);
+  });
+});
+
+it("keeps standing work separate without inferring Standing from protection or titles", () => {
+  const base = workspaceWithForge(undefined, "https://github.com/acme/repo/pull/42");
+  const standing = createSidebarWorkspaceEntry({
+    serverId: "one",
+    workspace: { ...base, id: "standing", standing: true, protected: true },
+  });
+  const protectedWork = createSidebarWorkspaceEntry({
+    serverId: "one",
+    workspace: { ...base, id: "protected", protected: true, name: "Recurring" },
+  });
+  const ordinary = createSidebarWorkspaceEntry({
+    serverId: "two",
+    workspace: { ...base, id: "standing" },
+  });
+  const entries = new Map(
+    [standing, protectedWork, ordinary].map((entry) => [entry.workspaceKey, entry]),
+  );
+  expect(splitStandingWorkspaces([protectedWork, standing, ordinary], entries)).toEqual({
+    work: [protectedWork, ordinary],
+    standing: [standing],
   });
 });

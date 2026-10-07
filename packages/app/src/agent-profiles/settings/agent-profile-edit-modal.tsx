@@ -1,3 +1,5 @@
+import { canonicalProfileId } from "@getpaseo/protocol/provider-preferences";
+import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { ProfileSkillPolicy } from "@/agent-skills/profile-policy";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
@@ -153,7 +155,14 @@ function ProfileLaunchFields({
   state,
   controlSize,
 }: ProfileLaunchFieldsProps) {
-  const { profiles, legacyProfiles, supportsLaunch } = useAgentProfiles(serverId);
+  const { profiles, legacyProfiles, supportsLaunch, accountIndependent } =
+    useAgentProfiles(serverId);
+  const { config } = useDaemonConfig(serverId);
+  const preferences = config?.sharedProviderPreferences;
+  const currentWorkerId =
+    preferences && accountIndependent
+      ? canonicalProfileId(state.workerProfileId, preferences, config.providers)
+      : state.workerProfileId;
   const workerOptions = useMemo(
     () => [
       { id: "none", value: "", label: "No workers" },
@@ -162,13 +171,13 @@ function ProfileLaunchFields({
         ...legacyProfiles.filter(
           (entry) =>
             entry.id === state.workerProfileId &&
-            !profiles?.some((candidate) => candidate.id === entry.id),
+            !profiles?.some((candidate) => candidate.id === currentWorkerId),
         ),
       ]
         .filter((entry) => entry.id !== profile?.id && !entry.workerProfileId)
         .map((entry) => ({ id: entry.id, value: entry.id, label: entry.name })),
     ],
-    [profiles, legacyProfiles, profile?.id, state.workerProfileId],
+    [profiles, legacyProfiles, profile?.id, state.workerProfileId, currentWorkerId],
   );
   const selectedLimit =
     WORKER_LIMIT_OPTIONS.find((entry) => entry.value === state.maxWorkers) ?? null;
@@ -210,10 +219,8 @@ function ProfileLaunchFields({
       </Field>
       <SelectField
         label="Worker preset"
-        value={state.workerProfileId}
-        selectedDisplay={
-          workerOptions.find((entry) => entry.value === state.workerProfileId) ?? null
-        }
+        value={currentWorkerId}
+        selectedDisplay={workerOptions.find((entry) => entry.value === currentWorkerId) ?? null}
         placeholder="No workers"
         emptyText="Create a worker preset first"
         options={workerOptions}

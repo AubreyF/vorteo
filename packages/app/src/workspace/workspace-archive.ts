@@ -1,3 +1,4 @@
+import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import {
   clearWorkspaceArchivePending,
@@ -83,6 +84,13 @@ export async function archiveWorkspaceOptimistically(input: {
   client: WorkspaceArchiveClient;
   workspace: WorkspaceArchiveTarget;
 }): Promise<void> {
+  const existing = selectWorkspace(
+    useSessionStore.getState(),
+    input.workspace.serverId,
+    input.workspace.workspaceId,
+  );
+  if (existing?.protected)
+    throw new Error("This workspace is protected. Remove protection before archiving.");
   const snapshot = hideWorkspaceOptimistically(input.workspace);
 
   try {

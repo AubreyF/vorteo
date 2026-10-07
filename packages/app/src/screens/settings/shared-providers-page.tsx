@@ -1,16 +1,24 @@
+import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
+import type { DraggableListDragHandleProps } from "@/components/draggable-list.types";
+import { ChevronDown, ChevronRight, GripVertical } from "lucide-react-native";
+import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
+import {
+  groupInstallationProviders,
+  type ProviderFamily,
+  type ProviderAccount,
+} from "./shared-providers-model";
 import { AGENT_PROVIDER_DEFINITIONS } from "@getpaseo/protocol/provider-manifest";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useMutation } from "@tanstack/react-query";
-import { GripVertical } from "lucide-react-native";
 import type { InstallationProvider } from "@getpaseo/protocol/installation-provider";
 import type { InstallationEnvironment } from "@getpaseo/protocol/execution-installation";
 import type {
   InstallationSettingsSnapshot,
+  InstallationSettings,
   InstallationSettingsUpdate,
 } from "@getpaseo/protocol/installation-settings";
-import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
 import { AdaptiveRenameModal } from "@/components/rename-modal";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { Alert } from "@/components/ui/alert";
@@ -30,14 +38,14 @@ import { ProviderReconnectControl } from "@/provider-usage/reconnect-control";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
 import { settingsStyles } from "@/styles/settings";
+import type { Theme } from "@/styles/theme";
 import { ProvidersSection } from "./providers-section";
 
-const ThemedGrip = withUnistyles(GripVertical, (theme) => ({
-  size: theme.iconSize.md,
-  color: theme.colors.foregroundMuted,
-}));
+const ThemedGrip = withUnistyles(GripVertical);
+const gripColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 interface RenameRequest {
+  ids: string[];
   provider: InstallationProvider;
   snapshot: InstallationSettingsSnapshot;
 }
@@ -241,125 +249,223 @@ function ProviderEnvironment({
   );
 }
 
-function ProviderCard({
-  item: provider,
-  drag,
-  dragHandleProps,
+function ProviderFamilyCard({
+  family,
   snapshot,
-  environments,
   busy,
   save,
-  rename,
-}: DraggableRenderItemInfo<InstallationProvider> & {
+  manage,
+  drag,
+  remove,
+  canRemove,
+  dragHandleProps,
+}: {
+  family: ProviderFamily;
   snapshot: InstallationSettingsSnapshot;
-  environments: InstallationEnvironment[];
   busy: boolean;
   save(update: InstallationSettingsUpdate): void;
-  rename(request: RenameRequest): void;
+  manage(account: ProviderAccount): void;
+  drag(): void;
+  remove(family: ProviderFamily): void;
+  canRemove: boolean;
+  dragHandleProps?: DraggableListDragHandleProps;
 }) {
-  const name = providerName(provider);
+  const [expanded, setExpanded] = useState(false);
   const toggle = useCallback(
     (enabled: boolean) =>
       save({
         expectedRevision: snapshot.revision,
         settings: {
           providerDefinitions: snapshot.settings?.providerDefinitions?.map((entry) =>
-            entry.id === provider.id ? { ...entry, policy: { ...entry.policy, enabled } } : entry,
+            entry.providerType === family.id && !entry.removed
+              ? { ...entry, policy: { ...entry.policy, enabled } }
+              : entry,
           ),
         },
       }),
-    [save, snapshot, provider.id],
+    [save, snapshot, family.id],
   );
-  const startRename = useCallback(
-    () => rename({ provider, snapshot }),
-    [rename, provider, snapshot],
-  );
+  const removeFamily = useCallback(() => remove(family), [remove, family]);
+  const expandedState = useMemo(() => ({ expanded }), [expanded]);
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   return (
-    <View style={[settingsStyles.card, styles.card]} testID={`shared-provider-${provider.id}`}>
+    <View style={[settingsStyles.card, styles.card]} testID={`provider-family-${family.id}`}>
       <View style={styles.heading}>
         <View
           {...dragHandleProps?.attributes}
           {...(!busy ? dragHandleProps?.listeners : undefined)}
           ref={dragHandleProps?.setActivatorNodeRef}
-          testID={`shared-provider-drag-${provider.id}`}
+          accessibilityLabel={`Reorder ${family.name}`}
+          testID={`provider-family-drag-${family.id}`}
         >
-          <Pressable
-            onLongPress={drag}
-            disabled={busy}
-            accessibilityLabel={`Reorder ${name}`}
-            style={styles.dragHandle}
-          >
-            <ThemedGrip />
+          <Pressable onLongPress={drag} disabled={busy} style={styles.dragHandle}>
+            <ThemedGrip size={18} uniProps={gripColor} />
           </Pressable>
         </View>
-        <View style={styles.content}>
-          <Text style={settingsStyles.rowTitle}>{name}</Text>
-          {provider.policy.description ? (
-            <Text style={settingsStyles.rowHint}>{provider.policy.description}</Text>
-          ) : null}
-        </View>
-        <View style={styles.controls}>
-          <Button
-            variant="outline"
-            onPress={startRename}
-            disabled={busy}
-            testID={`shared-provider-rename-${provider.id}`}
-          >
-            Rename
-          </Button>
-          <Switch
-            value={
-              provider.policy.enabled ??
-              AGENT_PROVIDER_DEFINITIONS.find((manifest) => manifest.id === provider.providerType)
-                ?.enabledByDefault ??
-              true
-            }
-            onValueChange={toggle}
-            disabled={busy}
-            accessibilityLabel={`Enable ${name} everywhere`}
-            testID={`shared-provider-enabled-${provider.id}`}
-          />
-        </View>
-      </View>
-      {environments.map((environment) => (
-        <ProviderEnvironment
-          key={environment.serverId}
-          provider={provider}
-          environment={environment}
-          excluded={
-            snapshot.settings?.resourceExclusions[environment.serverId]?.providerIds?.includes(
-              provider.id,
-            ) ?? false
-          }
+        <Button
+          variant="ghost"
+          onPress={toggleExpanded}
+          accessibilityState={expandedState}
+          leftIcon={expanded ? ChevronDown : ChevronRight}
+          style={[styles.content, styles.familyTitle]}
+        >
+          {family.name}
+        </Button>
+        <Switch
+          value={family.enabled}
+          onValueChange={toggle}
+          disabled={busy}
+          accessibilityLabel={`Enable ${family.name} everywhere`}
         />
-      ))}
+      </View>
+      {expanded && canRemove ? (
+        <Button variant="outline" disabled={busy} onPress={removeFamily}>
+          Remove provider
+        </Button>
+      ) : null}
+      {expanded
+        ? family.accounts.map((account) => (
+            <ProviderAccountRow
+              key={account.id}
+              account={account}
+              manage={manage}
+              snapshot={snapshot}
+              save={save}
+              busy={busy}
+            />
+          ))
+        : null}
     </View>
   );
 }
 
-function providerKey(provider: InstallationProvider) {
-  return provider.id;
+function ProviderAccountRow({
+  account,
+  manage,
+  snapshot,
+  save,
+  busy,
+}: {
+  account: ProviderAccount;
+  snapshot: InstallationSettingsSnapshot;
+  save(update: InstallationSettingsUpdate): void;
+  busy: boolean;
+  manage(account: ProviderAccount): void;
+}) {
+  const open = useCallback(() => manage(account), [manage, account]);
+  const toggle = useCallback(
+    (enabled: boolean) => {
+      const ids = new Set(account.definitions.map((entry) => entry.id));
+      save({
+        expectedRevision: snapshot.revision,
+        settings: {
+          providerDefinitions: snapshot.settings?.providerDefinitions?.map((entry) =>
+            ids.has(entry.id) ? { ...entry, policy: { ...entry.policy, enabled } } : entry,
+          ),
+        },
+      });
+    },
+    [account, snapshot, save],
+  );
+  return (
+    <View style={styles.heading} testID={`provider-account-${account.id}`}>
+      <Text style={[settingsStyles.rowTitle, styles.content]}>{account.name}</Text>
+      <Switch
+        value={account.enabled}
+        onValueChange={toggle}
+        disabled={busy}
+        accessibilityLabel={`Enable ${account.name}`}
+      />
+      <Button variant="outline" onPress={open}>
+        Manage
+      </Button>
+    </View>
+  );
 }
+
+function RestoreProviderRow({
+  family,
+  restore,
+  busy,
+}: {
+  family: ProviderFamily;
+  restore(family: ProviderFamily): void;
+  busy: boolean;
+}) {
+  const onRestore = useCallback(() => restore(family), [restore, family]);
+  return (
+    <View style={styles.heading}>
+      <Text style={[settingsStyles.rowTitle, styles.content]}>{family.name}</Text>
+      <Button variant="outline" onPress={onRestore} disabled={busy}>
+        Restore disabled provider
+      </Button>
+    </View>
+  );
+}
+
+function useProviderRemovalCapability(environments: InstallationEnvironment[]) {
+  const hostId = environments.find((environment) => environment.kind === "host")?.serverId ?? null;
+  const devId =
+    environments.find((environment) => environment.kind === "container")?.serverId ?? null;
+  const hostRemoval = useHostFeature(hostId, "installationProviderRemoval");
+  const devRemoval = useHostFeature(devId, "installationProviderRemoval");
+  const canRemove = hostRemoval && (!devId || devRemoval);
+  return canRemove;
+}
+
+function familyKey(family: ProviderFamily) {
+  return family.id;
+}
+
+type ProviderCatalogSnapshot = InstallationSettingsSnapshot & {
+  settings: InstallationSettings & { providerDefinitions: InstallationProvider[] };
+};
 
 export function SharedProvidersPage() {
   const { data, installation, save } = useInstallationSettings();
+  const environments = useMemo(() => installation?.environments ?? [], [installation]);
+  const snapshot = useMemo(
+    () =>
+      data?.settings?.providerDefinitions
+        ? {
+            ...data,
+            settings: { ...data.settings, providerDefinitions: data.settings.providerDefinitions },
+          }
+        : null,
+    [data],
+  );
+  if (!snapshot)
+    return <Alert description="Complete shared provider migration to manage the catalog." />;
+  return <ProviderCatalog data={snapshot} environments={environments} save={save} />;
+}
+
+function ProviderCatalog({
+  data,
+  environments,
+  save,
+}: {
+  data: ProviderCatalogSnapshot;
+  environments: InstallationEnvironment[];
+  save: ReturnType<typeof useInstallationSettings>["save"];
+}) {
   const [renaming, setRenaming] = useState<RenameRequest | null>(null);
+  const [managing, setManaging] = useState<ProviderAccount | null>(null);
+  const [adding, setAdding] = useState(false);
   const [runtimeServerId, setRuntimeServerId] = useState<string | null>(null);
   const change = useMutation({ mutationFn: save });
   const definitions = useMemo(
     () =>
       [
         ...((change.isPending ? change.variables?.settings.providerDefinitions : undefined) ??
-          data?.settings?.providerDefinitions ??
+          data.settings.providerDefinitions ??
           []),
       ].sort(
         (left, right) =>
           (left.policy.order ?? Number.MAX_SAFE_INTEGER) -
           (right.policy.order ?? Number.MAX_SAFE_INTEGER),
       ),
-    [data?.settings?.providerDefinitions, change.isPending, change.variables],
+    [data.settings.providerDefinitions, change.isPending, change.variables],
   );
-  const environments = useMemo(() => installation?.environments ?? [], [installation]);
   const selectedServerId =
     runtimeServerId ??
     environments.find((environment) => environment.kind === "host")?.serverId ??
@@ -380,7 +486,7 @@ export function SharedProvidersPage() {
         expectedRevision: renaming.snapshot.revision,
         settings: {
           providerDefinitions: renaming.snapshot.settings?.providerDefinitions?.map((provider) =>
-            provider.id === renaming.provider.id
+            renaming.ids.includes(provider.id)
               ? { ...provider, policy: { ...provider.policy, label: name.trim() } }
               : provider,
           ),
@@ -389,39 +495,106 @@ export function SharedProvidersPage() {
     },
     [renaming, save],
   );
-  const reorder = useCallback(
-    (ordered: InstallationProvider[]) => {
-      if (!data) return;
+  const removedFamilies = useMemo(
+    () => groupInstallationProviders(definitions, "removed"),
+    [definitions],
+  );
+  const restore = useCallback(
+    (family: ProviderFamily) => {
       change.mutate({
         expectedRevision: data.revision,
         settings: {
-          providerDefinitions: ordered.map((provider, order) => ({
-            ...provider,
-            policy: { ...provider.policy, order },
+          providerDefinitions: data.settings.providerDefinitions.map((entry) =>
+            entry.providerType === family.id
+              ? { ...entry, removed: false, policy: { ...entry.policy, enabled: false } }
+              : entry,
+          ),
+        },
+      });
+    },
+    [data, change],
+  );
+  const families = useMemo(() => groupInstallationProviders(definitions), [definitions]);
+  const openAdd = useCallback(() => setAdding(true), []);
+  const closeAdd = useCallback(() => setAdding(false), []);
+  const closeManage = useCallback(() => setManaging(null), []);
+  const addHeader = useMemo(() => ({ title: "Add provider" }), []);
+  const currentAccount = families
+    .flatMap((family) => family.accounts)
+    .find((account) => account.id === managing?.id);
+  const manageHeader = useMemo(
+    () => ({ title: currentAccount?.name ?? "Provider" }),
+    [currentAccount],
+  );
+  const canRemove = useProviderRemovalCapability(environments);
+  const remove = useCallback(
+    async (family: ProviderFamily) => {
+      const confirmed = await confirmDialog({
+        title: `Remove ${family.name}?`,
+        message:
+          "Remove this provider from the shared list and prevent new launches in every environment. Saved profiles, credentials and existing task histories remain. You can restore it from Add provider.",
+        confirmLabel: "Remove provider",
+        destructive: true,
+      });
+      if (!confirmed) return;
+      change.mutate({
+        expectedRevision: data.revision,
+        settings: {
+          providerDefinitions: data.settings.providerDefinitions.map((entry) =>
+            entry.providerType === family.id
+              ? { ...entry, removed: true, policy: { ...entry.policy, enabled: false } }
+              : entry,
+          ),
+        },
+      });
+    },
+    [data, change],
+  );
+  const reorder = useCallback(
+    (ordered: ProviderFamily[]) => {
+      const rank = new Map(ordered.map((family, index) => [family.id, index]));
+      change.mutate({
+        expectedRevision: data.revision,
+        settings: {
+          providerDefinitions: data.settings.providerDefinitions.map((entry) => ({
+            ...entry,
+            policy: { ...entry.policy, order: rank.get(entry.providerType) ?? ordered.length },
           })),
         },
       });
     },
     [data, change],
   );
-  const renderProvider = useCallback(
-    (item: DraggableRenderItemInfo<InstallationProvider>) =>
-      data ? (
-        <ProviderCard
-          {...item}
-          snapshot={data}
-          environments={environments}
-          busy={change.isPending}
-          save={change.mutate}
-          rename={setRenaming}
-        />
-      ) : (
-        <View />
-      ),
-    [data, environments, change.isPending, change.mutate],
+  const renderFamily = useCallback(
+    ({ item, drag, dragHandleProps }: DraggableRenderItemInfo<ProviderFamily>) => (
+      <ProviderFamilyCard
+        family={item}
+        snapshot={data}
+        busy={change.isPending}
+        save={change.mutate}
+        manage={setManaging}
+        drag={drag}
+        dragHandleProps={dragHandleProps}
+        remove={remove}
+        canRemove={canRemove}
+      />
+    ),
+    [data, change, remove, canRemove],
   );
-  if (!data?.settings?.providerDefinitions)
-    return <Alert description="Complete shared provider migration to manage the catalog." />;
+  const selectedDefinition =
+    currentAccount?.definitions.find((entry) => entry.bindings[selectedServerId]) ??
+    currentAccount?.definitions[0];
+  const renameSelected = useCallback(() => {
+    if (selectedDefinition && data)
+      setRenaming({
+        provider: selectedDefinition,
+        snapshot: data,
+        ids: managing?.definitions.map((entry) => entry.id) ?? [selectedDefinition.id],
+      });
+  }, [selectedDefinition, data, managing]);
+  const manageEnvironment = environments.find(
+    (environment) => environment.serverId === selectedServerId,
+  );
   return (
     <View>
       <SettingsSection
@@ -433,29 +606,76 @@ export function SharedProvidersPage() {
           <Text style={settingsStyles.rowHint}>Saving shared provider settings...</Text>
         ) : null}
         <DraggableList
-          data={definitions}
-          keyExtractor={providerKey}
-          renderItem={renderProvider}
+          data={families}
+          keyExtractor={familyKey}
+          renderItem={renderFamily}
           onDragEnd={reorder}
-          useDragHandle
           scrollEnabled={false}
+          useDragHandle
           testID="shared-provider-order-list"
         />
+        <Button variant="outline" onPress={openAdd}>
+          Add provider
+        </Button>
       </SettingsSection>
-      {selectedServerId ? (
-        <SettingsSection
-          title="Account sign-in and runtime installation"
-          info="New accounts are shared. Choose where to sign in or install a provider runtime."
-        >
-          <SegmentedControl
-            options={options}
-            value={selectedServerId}
-            onValueChange={setRuntimeServerId}
-            testID="provider-runtime-environment"
+      <AdaptiveModalSheet
+        testID="provider-add-sheet"
+        visible={adding}
+        onClose={closeAdd}
+        header={addHeader}
+      >
+        {change.isError ? <Alert variant="error" description={change.error.message} /> : null}
+        <Text style={settingsStyles.rowHint}>
+          Choose where authentication or runtime installation is needed. Provider settings are
+          shared.
+        </Text>
+        <SegmentedControl
+          options={options}
+          value={selectedServerId}
+          onValueChange={setRuntimeServerId}
+          testID="provider-runtime-environment"
+        />
+        {removedFamilies.map((family) => (
+          <RestoreProviderRow
+            key={family.id}
+            family={family}
+            restore={restore}
+            busy={change.isPending}
           />
-          <ProvidersSection serverId={selectedServerId} runtimeOnly />
-        </SettingsSection>
-      ) : null}
+        ))}
+        {selectedServerId ? <ProvidersSection serverId={selectedServerId} runtimeOnly /> : null}
+      </AdaptiveModalSheet>
+      <AdaptiveModalSheet
+        testID="provider-manage-sheet"
+        visible={managing !== null}
+        onClose={closeManage}
+        header={manageHeader}
+      >
+        <Text style={settingsStyles.rowHint}>
+          Local sign-in and runtime details. Availability exceptions are managed in Environments.
+        </Text>
+        <SegmentedControl
+          options={options}
+          value={selectedServerId}
+          onValueChange={setRuntimeServerId}
+        />
+        {selectedDefinition ? (
+          <Button variant="outline" onPress={renameSelected}>
+            Rename
+          </Button>
+        ) : null}
+        {selectedDefinition && manageEnvironment ? (
+          <ProviderEnvironment
+            provider={selectedDefinition}
+            environment={manageEnvironment}
+            excluded={
+              data.settings.resourceExclusions[manageEnvironment.serverId]?.providerIds?.includes(
+                selectedDefinition.id,
+              ) ?? false
+            }
+          />
+        ) : null}
+      </AdaptiveModalSheet>
       {renaming ? (
         <AdaptiveRenameModal
           key={renaming.provider.id}
@@ -481,6 +701,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     padding: theme.spacing[3],
   },
+  familyTitle: { justifyContent: "flex-start" },
   content: { flex: 1, minWidth: 120 },
   controls: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: theme.spacing[2] },
   environment: {

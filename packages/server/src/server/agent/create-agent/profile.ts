@@ -5,8 +5,9 @@ import type {
 } from "@getpaseo/protocol/messages";
 import {
   isSharedWorkflowProfile,
+  canonicalProfileId,
   sharedWorkflowProfileId,
-  materializeSharedProfiles,
+  resolveSharedWorkflow,
   materializeLegacyProfiles,
   resolveProviderType,
 } from "@getpaseo/protocol/provider-preferences";
@@ -27,19 +28,45 @@ export class ProfileLaunchError extends Error {
   }
 }
 
-function resolveWorkerProfile(profile: AgentProfile, profiles: readonly AgentProfile[]) {
+function resolveWorkerProfile(
+  profile: AgentProfile,
+  profiles: readonly AgentProfile[],
+  settings?: MutableDaemonConfig,
+) {
   const workerId = profile.workerProfileId?.trim();
-  const worker = workerId ? profiles.find((entry) => entry.id === workerId) : undefined;
-  if (workerId && !worker) {
+  if (!workerId) return undefined;
+  let worker = profiles.find((entry) => entry.id === workerId);
+  if (!worker && settings && isSharedWorkflowProfile(workerId)) {
+    try {
+      worker = resolveSharedReference(
+        workerId,
+        decodeURIComponent(workerId.split("/")[1]),
+        settings,
+      );
+    } catch (error) {
+      if (!(error instanceof ProfileLaunchError)) throw error;
+      throw new ProfileLaunchError(workerId, "Worker profile not found.");
+    }
+  }
+  if (!worker) {
     throw new ProfileLaunchError(workerId, "Worker profile not found.");
   }
-  if (worker && (worker.id === profile.id || worker.workerProfileId?.trim())) {
+  if (worker.id === profile.id || worker.workerProfileId?.trim()) {
     throw new ProfileLaunchError(worker.id, "A worker profile cannot supervise another team.");
   }
-  if (worker && !worker.model?.trim()) {
+  if (!worker.model?.trim()) {
     throw new ProfileLaunchError(worker.id, "Select an explicit model for the worker profile.");
   }
-  return worker;
+  const snapshot = structuredClone(worker);
+  if (profile.id.startsWith("shared-profile/") && settings?.sharedProviderPreferences) {
+    snapshot.id = canonicalProfileId(
+      snapshot.id,
+      settings.sharedProviderPreferences,
+      settings.providers,
+    );
+    profile.workerProfileId = snapshot.id;
+  }
+  return snapshot;
 }
 
 function applySharedSelection(
@@ -68,24 +95,14 @@ function resolveProfileSelection(
   let provenance = {};
   let resolvedProfileId = config.profileId;
   if (settings && preferences) {
-    const providerIds = [
-      ...new Set([
-        config.provider,
-        ...Object.keys(settings.providers),
-        ...Object.keys(preferences.providers),
-      ]),
-    ];
-    candidates.push(
-      ...materializeSharedProfiles({ preferences, providers: settings.providers, providerIds }),
-    );
     const binding = preferences.legacyProfiles[profileId];
     const requestedWorkflowId = decodeURIComponent(profileId.split("/")[2] ?? "");
-    const providerType = resolveProviderType(config.provider, settings.providers);
-    const workflowId =
-      preferences.workflowAliases?.[providerType]?.[requestedWorkflowId] ?? requestedWorkflowId;
+    const canonical = canonicalProfileId(profileId, preferences, settings.providers);
+    const workflowId = decodeURIComponent(canonical.split("/")[2] ?? requestedWorkflowId);
     if (shared) {
-      const selectedProvider = decodeURIComponent(profileId.split("/")[1]);
-      resolvedProfileId = sharedWorkflowProfileId(selectedProvider, workflowId);
+      const profile = resolveSharedReference(profileId, config.provider, settings);
+      candidates.push(profile);
+      resolvedProfileId = profile.id;
     }
 
     if (shared || binding) {
@@ -103,6 +120,38 @@ function resolveProfileSelection(
   if (shared) applySharedSelection(profile, config, preferences);
 
   return { profile, candidates, provenance, shared };
+}
+
+function resolveSharedReference(
+  reference: string,
+  provider: string,
+  settings: MutableDaemonConfig,
+): AgentProfile {
+  const parts = reference.split("/");
+  if (parts.length !== 3) throw new ProfileLaunchError(reference, "Invalid profile reference.");
+  const referenceProvider = decodeURIComponent(parts[1]);
+  const providerType = resolveProviderType(provider, settings.providers);
+  // Canonical references name the provider type. Old references remain bound to their account.
+  const canonical = parts[0] === "shared-profile";
+  const expectedProvider = canonical ? providerType : provider;
+  if (referenceProvider !== expectedProvider)
+    throw new ProfileLaunchError(reference, "The selected workflow belongs to another account.");
+  const preferences = settings.sharedProviderPreferences;
+  const profile =
+    preferences &&
+    resolveSharedWorkflow({
+      preferences,
+      providers: settings.providers,
+      provider,
+      workflowId: decodeURIComponent(parts[2]),
+      accountBound: !canonical,
+    });
+  if (!profile) throw new ProfileLaunchError(reference, "Selected profile not found.");
+  if (!canonical) {
+    const workflowId = decodeURIComponent(profile.id.split("/")[2]);
+    profile.id = sharedWorkflowProfileId(referenceProvider, workflowId);
+  }
+  return profile;
 }
 
 function legacyProfileCandidates(
@@ -127,7 +176,7 @@ function resolveProfileConfiguration(
   const selection = resolveProfileSelection(config, profiles, sharedConfig);
   const { profile, candidates, provenance, shared } = selection;
   assertProfileEnvironment(profile, environment);
-  const worker = resolveWorkerProfile(profile, candidates);
+  const worker = resolveWorkerProfile(profile, candidates, sharedConfig);
   if (worker) assertProfileEnvironment(worker, environment);
   const instructions = [profile.instructions?.trim(), config.systemPrompt?.trim()];
   if (worker) {

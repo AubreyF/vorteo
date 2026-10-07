@@ -1,3 +1,4 @@
+import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
 import { promises as fs } from "node:fs";
 
 import type { Logger } from "pino";
@@ -103,6 +104,8 @@ const PersistedWorkspaceRecordSchema = z.object({
     .optional()
     .transform((value) => value ?? null),
   labels: z.array(z.string()).optional(),
+  standing: z.boolean().optional(),
+  protected: z.boolean().optional(),
   untrustedSource: UntrustedWorkspaceSourceSchema.optional(),
 });
 
@@ -570,20 +573,29 @@ export class FileBackedWorkspaceRegistry
     archivedAt: string,
     context?: WorkspaceArchiveContext,
   ): Promise<void> {
-    const workspace = await super.update(workspaceId, (existing) => ({
-      ...existing,
-      updatedAt: archivedAt,
-      archivedAt,
-      ...(context?.autoArchivedChangeRequestUrl
-        ? { autoArchivedChangeRequestUrl: context.autoArchivedChangeRequestUrl }
-        : {}),
-    }));
+    const workspace = await super.update(workspaceId, (existing) => {
+      assertWorkspaceUnprotected(existing);
+      return {
+        ...existing,
+        updatedAt: archivedAt,
+        archivedAt,
+        ...(context?.autoArchivedChangeRequestUrl
+          ? { autoArchivedChangeRequestUrl: context.autoArchivedChangeRequestUrl }
+          : {}),
+      };
+    });
     if (!workspace) return;
     await this.notifyMutation({ kind: "archive", workspaceId, workspace });
   }
 
   override async remove(workspaceId: string): Promise<void> {
-    const workspace = await this.removeIfPresent(workspaceId);
+    const workspace = await this.mutateCache((records) => {
+      const existing = records.get(workspaceId);
+      if (!existing) return null;
+      assertWorkspaceUnprotected(existing);
+      records.delete(workspaceId);
+      return existing;
+    });
     if (!workspace) return;
     await this.notifyMutation({ kind: "remove", workspaceId, workspace: null });
   }

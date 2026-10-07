@@ -206,9 +206,9 @@ async function tapHelpNearTargetEdge(page: Page): Promise<void> {
   await button.tap({ position: { x: 40, y: 40 } });
 }
 
-test("interleaves Vorteo and upstream notes with one Show more", async ({ page }) => {
+test("automatically reveals older interleaved release notes while scrolling", async ({ page }) => {
   await serveChangelog(page, [
-    "## 9.2.0 - 2026-10-06",
+    "## 9.2.0 - 2030-01-01",
     "",
     "- Newest upstream feature",
     "",
@@ -230,9 +230,15 @@ test("interleaves Vorteo and upstream notes with one Show more", async ({ page }
   await expect(entries.first().getByText("Paseo", { exact: true })).toBeVisible();
   await expect(entries.nth(1).getByText("Vorteo", { exact: true })).toBeVisible();
   await expect(release(sheet, latestCustomRelease.version)).toBeVisible();
-  await expect(sheet.getByTestId("changelog-show-more")).toHaveCount(1);
-  await sheet.getByTestId("changelog-show-more").click();
-  await expect(release(sheet, "9.0.0")).toBeVisible();
+  await expect(sheet.getByTestId("changelog-show-more")).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      await entries.last().scrollIntoViewIfNeeded();
+      await entries.last().hover();
+      await page.mouse.wheel(0, 1800);
+      return entries.count();
+    })
+    .toBeGreaterThan(5);
   await expect(sheet.getByTestId("changelog-show-more")).toHaveCount(0);
   const dates = await entries.evaluateAll((elements) =>
     elements.map((element) => {

@@ -14,6 +14,7 @@ import {
   Circle,
   CircleCheck,
   Copy,
+  FolderInput,
   MoreVertical,
   Pencil,
   Pin,
@@ -68,6 +69,8 @@ const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedPin = withUnistyles(Pin);
 const ThemedPinOff = withUnistyles(PinOff);
 const ThemedTag = withUnistyles(Tag);
+const ThemedFolderInput = withUnistyles(FolderInput);
+const moveLeadingIcon = <ThemedFolderInput size={14} uniProps={foregroundMutedColorMapping} />;
 
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
 const renameLeadingIcon = <ThemedPencil size={14} uniProps={foregroundMutedColorMapping} />;
@@ -204,6 +207,7 @@ function SidebarWorkspaceMenuItems({
         <WorkspaceMenuItem
           surface={surface}
           testID={`sidebar-workspace-menu-move-project-${workspaceKey}`}
+          leading={moveLeadingIcon}
           onSelect={moveProject}
         >
           Move to project
@@ -245,7 +249,7 @@ function SidebarWorkspaceMenuItems({
           leading={labelLeading}
           testID={`sidebar-workspace-menu-labels-${workspaceKey}`}
         >
-          {t("workspaceLabels.title")}
+          Tag As
         </DropdownMenuSubTrigger>
       ) : null}
       <OpenInFileManagerMenuItem
