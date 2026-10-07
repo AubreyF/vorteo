@@ -17,17 +17,19 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 ## Power Tools to Manage Your Fleet
 
-- **Automated upgrade restarts that wait for idle.** Once an upgrade is prepared, approve a queued restart for the Host or Dev container daemon. Vorteo waits for active agents and workers to finish, then restarts automatically, even with your browser closed. You can cancel before dispatch; clients reconnect after the restart.
+- **Move between phone, tablet and desktop.** Pick up your tasks from another device with shared message queues, saved profiles and controls that fit the screen.
+
+<img width="400" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
+
+- **Automated daemon upgrades and restarts for zero downtime operations.** Once an upgrade is prepared, approve a queued restart for the Host or Dev container daemon. Vorteo waits for active agents and workers to finish, then restarts automatically, even with your browser closed.
+
+<img width="400" alt="CleanShot 2026-10-06 at 21 08 02" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
 
 - **Put local workers to work.** Let a supervisor delegate tasks to a saved worker profile, including Pi models on local or private endpoints. Set a concurrency limit and follow each worker beneath its originating task, even when it uses a separate worktree.
 
 - **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene.
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
-
-- **Move between phone, tablet and desktop.** Pick up your tasks from another device with shared message queues, saved profiles and controls that fit the screen.
-
-<img width="400" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
 
 - **Line up the next steps.** Queue messages with files or images, then edit, reorder, pause or send them from any connected device. The daemon keeps delivering queued work after you close the client.
 
