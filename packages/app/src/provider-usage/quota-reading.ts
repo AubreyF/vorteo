@@ -1,3 +1,4 @@
+import { formatAmount } from "./format";
 import type { ProviderUsage, ProviderUsageView } from "./types";
 
 export const PROVIDER_USAGE_STALE_TIME_MS = 5 * 60 * 1000;
@@ -35,11 +36,44 @@ export function quotaReading(view: ProviderUsageView, providerId: string | undef
   else if (!window) statusLabel = view.kind === "loading" ? "Loading usage" : "Usage unavailable";
   else if (issue) statusLabel = "Last known usage; refresh unavailable";
   else if (stale) statusLabel = "Last known usage";
+  const remaining = window?.remainingPct ?? null;
+  const prepaidLabel = prepaidBalanceLabel(usage, remaining);
   return {
+    prepaidLabel,
     usage,
     authRecovery: usage?.authRecovery,
     window,
-    remaining: window?.remainingPct ?? null,
+    remaining,
     statusLabel,
   };
+}
+
+function prepaidBalanceLabel(
+  usage: ProviderUsage | undefined,
+  remaining: number | null,
+): string | null {
+  if (!usage || remaining !== 0) return null;
+  const balance = usage.balances?.find(
+    (entry) =>
+      entry.unit !== "requests" &&
+      typeof entry.remaining === "number" &&
+      Number.isFinite(entry.remaining) &&
+      entry.remaining > 0,
+  );
+  if (balance && typeof balance.remaining === "number") {
+    let unit = balance.unit;
+    // COMPAT(codexCreditUnit): added in v0.11.0-beta.3.vorteo.165; remove after 2027-04-07 once daemon floor includes the credit-unit correction.
+    const legacyCodexCredits =
+      (usage.providerId === "codex" || usage.providerId.startsWith("codex-")) &&
+      balance.id === "credits" &&
+      unit === "usd";
+    if (legacyCodexCredits) unit = "credits";
+    const label = unit === "usd" ? "credit" : unit;
+    const amount =
+      unit === "tokens"
+        ? balance.remaining.toLocaleString()
+        : formatAmount(balance.remaining, unit);
+    return `${amount} ${label} left`;
+  }
+  return null;
 }

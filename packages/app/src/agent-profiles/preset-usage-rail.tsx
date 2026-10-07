@@ -100,7 +100,6 @@ export function PresetUsageRail({
           serverId={serverId}
           providerId={providerId}
           name={name}
-          critical={critical}
         />
       </UsageControlSlot>
     </>
@@ -125,7 +124,6 @@ function UsageControls({
   serverId,
   providerId,
   name,
-  critical,
 }: {
   connectionAction: ReturnType<typeof providerConnectionAction>;
   showConnectionActions: boolean;
@@ -133,7 +131,6 @@ function UsageControls({
   serverId: string | null;
   providerId: string;
   name: string;
-  critical: boolean;
 }) {
   if (connectionAction) {
     if (!showConnectionActions) return null;
@@ -151,7 +148,6 @@ function UsageControls({
       serverId={serverId}
       providerId={providerId}
       name={name}
-      critical={critical}
       compact
       preloaded
     />

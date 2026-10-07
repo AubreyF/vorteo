@@ -196,7 +196,7 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
         id: "credits",
         label: "Credits",
         remaining: resp.credits.balance,
-        unit: "usd",
+        unit: "credits",
         tone: balanceToneFromRemaining(resp.credits.balance),
       });
     }

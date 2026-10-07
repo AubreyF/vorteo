@@ -65,6 +65,9 @@ it.each([
       }),
   });
   const usage = await provider.fetchUsage();
+  expect(usage.balances).toEqual([
+    expect.objectContaining({ id: "credits", remaining: 100, unit: "credits" }),
+  ]);
   expect(usage.reserveWindowIds).toEqual(ids);
   expect(
     evaluateQuotaReserve({

@@ -95,3 +95,115 @@ it("keeps cached readings through disconnect and refresh errors, then clears the
   expect(providerUsageView({ ...input, data: undefined }).kind).toBe("loading");
   expect(providerUsageView({ ...input, data: undefined, connected: false }).kind).toBe("error");
 });
+
+it("shows prepaid credits when either coding allowance is exhausted", () => {
+  const prepaidView: ProviderUsageView = {
+    ...view,
+    payload: {
+      ...payload,
+      providers: [
+        {
+          ...payload.providers[0],
+          windows: [
+            { id: "session", label: "5-hour", remainingPct: 0 },
+            { id: "weekly", label: "Weekly", remainingPct: 40 },
+          ],
+          balances: [{ id: "credits", label: "Credits", remaining: 12500, unit: "credits" }],
+        },
+      ],
+    },
+  };
+  expect(quotaReading(prepaidView, "secondary", 1).prepaidLabel).toBe("12,500 credits left");
+  expect(quotaReading(prepaidView, "secondary", 1).remaining).toBe(0);
+});
+
+it.each([
+  { remainingPct: 1, balance: 12500, expected: null },
+  { remainingPct: 0.1, balance: 12500, expected: null },
+  { remainingPct: 0, balance: 0, expected: null },
+  { remainingPct: 0, balance: -1, expected: null },
+  { remainingPct: 0, balance: NaN, expected: null },
+  { remainingPct: 0, balance: Infinity, expected: null },
+  { remainingPct: 0, balance: undefined, expected: null },
+  { remainingPct: 0, balance: 12.5, expected: "12.5 credits left" },
+])(
+  "uses actual exhaustion and a positive known balance: $remainingPct / $balance",
+  ({ remainingPct, balance, expected }) => {
+    const prepaidView: ProviderUsageView = {
+      ...view,
+      payload: {
+        ...payload,
+        providers: [
+          {
+            ...payload.providers[0],
+            windows: [{ id: "weekly", label: "Weekly", remainingPct }],
+            balances: [{ id: "credits", label: "Credits", remaining: balance, unit: "credits" }],
+          },
+        ],
+      },
+    };
+    expect(quotaReading(prepaidView, "secondary", 1).prepaidLabel).toBe(expected);
+  },
+);
+
+it("does not treat exhausted code review or another account as prepaid", () => {
+  const prepaidView: ProviderUsageView = {
+    ...view,
+    payload: {
+      ...payload,
+      providers: [
+        {
+          ...payload.providers[0],
+          balances: [{ id: "credits", label: "Credits", remaining: 12500, unit: "credits" }],
+        },
+      ],
+    },
+  };
+  expect(quotaReading(prepaidView, "secondary", 1).prepaidLabel).toBeNull();
+  expect(quotaReading(prepaidView, "missing", 1).prepaidLabel).toBeNull();
+});
+
+it.each([
+  { providerId: "codex", unit: "usd" as const, expected: "12,500 credits left" },
+  { providerId: "codex-account-example", unit: "usd" as const, expected: "12,500 credits left" },
+  { providerId: "other", unit: "usd" as const, expected: "$12500.00 credit left" },
+  { providerId: "other", unit: "tokens" as const, expected: "12,500 tokens left" },
+])(
+  "preserves provider units and corrects older credit reports: $providerId / $unit",
+  ({ providerId, unit, expected }) => {
+    const prepaidView: ProviderUsageView = {
+      ...view,
+      payload: {
+        ...payload,
+        providers: [
+          {
+            ...payload.providers[0],
+            providerId,
+            windows: [{ id: "weekly", label: "Weekly", remainingPct: 0 }],
+            balances: [{ id: "credits", label: "Credits", remaining: 12500, unit }],
+          },
+        ],
+      },
+    };
+    expect(quotaReading(prepaidView, providerId, 1).prepaidLabel).toBe(expected);
+    expect(quotaReading(prepaidView, providerId, 600000).statusLabel).toBe("Last known usage");
+  },
+);
+
+it("hides prepaid usage after authentication fails", () => {
+  const disconnected: ProviderUsageView = {
+    ...view,
+    payload: {
+      ...payload,
+      providers: [
+        {
+          ...payload.providers[0],
+          authRecovery: { instructions: "Sign in again." },
+          windows: [{ id: "weekly", label: "Weekly", remainingPct: 0 }],
+          balances: [{ id: "credits", label: "Credits", remaining: 12500, unit: "credits" }],
+        },
+      ],
+    },
+  };
+  expect(quotaReading(disconnected, "secondary", 1).prepaidLabel).toBeNull();
+});

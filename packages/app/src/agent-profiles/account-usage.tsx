@@ -14,7 +14,7 @@ interface UsageProps {
 }
 
 export function AccountUsageBadge({ view, providerId, now }: UsageProps) {
-  const { window, statusLabel } = quotaReading(view, providerId, now);
+  const { window, statusLabel, prepaidLabel } = quotaReading(view, providerId, now);
   const loading = view.kind === "loading" || (view.kind === "ready" && view.isRefreshing);
   const critical = Boolean(window && window.remainingPct < 5);
   const meterValue = useMemo(
@@ -28,7 +28,15 @@ export function AccountUsageBadge({ view, providerId, now }: UsageProps) {
           <ProfileLoadingSpinner />
         </View>
       ) : null}
-      {window ? (
+      {prepaidLabel ? (
+        <Text
+          style={[styles.remaining, styles.prepaid]}
+          accessibilityLabel={[prepaidLabel, statusLabel].filter(Boolean).join(", ")}
+        >
+          {prepaidLabel}
+        </Text>
+      ) : null}
+      {window && !prepaidLabel ? (
         <>
           <Text
             style={[styles.remaining, critical && styles.critical]}
@@ -70,19 +78,31 @@ export function AccountUsageDetails({
   resetLoading: boolean;
   localStatus?: string;
 }) {
-  const { window, statusLabel, authRecovery } = quotaReading(view, providerId, now);
+  const { window, statusLabel, authRecovery, prepaidLabel } = quotaReading(view, providerId, now);
   let reset = formatResetLabel(window?.resetsAt)
     ?.replace(/^resets /, "Resets in ")
     .replace(/(\d+)d$/, (_, days) => `${days} ${days === "1" ? "day" : "days"}`);
   if (reset === "resetting now") reset = "Resetting now";
   const description = localStatus ?? (window ? (reset ?? "Reset time unavailable") : statusLabel);
+  const prepaidStatus = Boolean(prepaidLabel && !localStatus);
+  let prepaidDescription = "Using prepaid";
+  if (statusLabel) prepaidDescription = "Prepaid (last known)";
+  const accessibleDescription = [
+    prepaidStatus && prepaidDescription,
+    description,
+    window && statusLabel,
+  ]
+    .filter(Boolean)
+    .join(". ");
   return (
     <>
       <Text
         style={profileTileStyles.subtitle}
         numberOfLines={1}
-        accessibilityLabel={[description, window && statusLabel].filter(Boolean).join(". ")}
+        accessibilityLabel={accessibleDescription}
       >
+        {prepaidStatus ? <Text style={styles.prepaid}>● {prepaidDescription}</Text> : null}
+        {prepaidStatus && description ? " · " : null}
         {description}
       </Text>
       {resetLoading ? <ProfileLoadingSpinner /> : null}
@@ -92,7 +112,6 @@ export function AccountUsageDetails({
             serverId={serverId}
             providerId={providerId}
             name={name}
-            critical={Boolean(window && window.remainingPct < 5)}
             compact
             preloaded
           />
@@ -109,6 +128,7 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: Math.ceil(theme.fontSize.base * 1.25),
     color: theme.colors.foregroundMuted,
   },
+  prepaid: { color: theme.colors.statusWarning },
   critical: { color: theme.colors.destructive },
   track: {
     width: 32,

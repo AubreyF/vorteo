@@ -2,6 +2,17 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.165 - 2026-10-07
+
+### Changed
+
+- Show prepaid balances and Using prepaid in account selection when included usage runs out, while keeping the reset time visible.
+
+### Fixed
+
+- Keep reset button text gray even when account usage is nearly exhausted.
+- Display Codex usage credits as credits rather than dollars.
+
 ## 0.11.0-beta.3.vorteo.159 - 2026-10-06
 
 ### Changed
