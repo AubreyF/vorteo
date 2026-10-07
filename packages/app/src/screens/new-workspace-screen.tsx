@@ -1,3 +1,5 @@
+import { NewWorkspaceEnvironment } from "@/task-environments/new-workspace-environment";
+import { transferTaskAttachments } from "@/task-environments/attachments";
 import {
   readExecutionInstallation,
   installationDefaultServerId,
@@ -952,10 +954,48 @@ function runCreateChatAgent(input: CreateChatAgentInput): Promise<SubmitOutcome>
   return submission;
 }
 
+async function transferNewWorkspaceFiles(
+  attachments: ComposerAttachment[],
+  serverId: string,
+  destination: DaemonClient,
+) {
+  const result: ComposerAttachment[] = [];
+  for (const attachment of attachments) {
+    if (
+      attachment.kind !== "file" ||
+      !attachment.sourceServerId ||
+      attachment.sourceServerId === serverId
+    ) {
+      result.push(attachment);
+      continue;
+    }
+    const source = getHostRuntimeStore().getClient(attachment.sourceServerId);
+    if (!source)
+      throw new Error(
+        `Reconnect to the original environment to transfer ${attachment.attachment.fileName}.`,
+      );
+    const transferred = await transferTaskAttachments({
+      attachments: [attachment.attachment],
+      source,
+      destination,
+    });
+    const file = transferred?.[0];
+    if (!file || file.type !== "uploaded_file")
+      throw new Error("The uploaded file could not be transferred.");
+    result.push({ ...attachment, attachment: file, sourceServerId: serverId });
+  }
+  return result;
+}
+
 async function createWorkspaceChatAgent(input: CreateChatAgentInput): Promise<SubmitOutcome> {
   const { payload, composerState, ensureWorkspace, serverId, clearDraft } = input;
   const clearConsumedDraft = captureWorkspaceDraftCleanup(input);
-  const { text, attachments, cwd } = payload;
+  const { text, cwd } = payload;
+  const attachments = await transferNewWorkspaceFiles(
+    payload.attachments,
+    serverId,
+    input.resolveClient(),
+  );
   if (!composerState) {
     throw new Error(input.labels.composerStateRequired);
   }
@@ -1444,7 +1484,7 @@ interface NewWorkspaceFormStackInput {
 function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactElement {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
-  const { isCompact, isPending, project, isolation, base, launch } = input;
+  const { isCompact, isPending, project, host, isolation, base, launch } = input;
 
   const isolationTriggerLabel = isolationLabel(t, isolation.effectiveIsolation);
   const addProjectAction = useMemo(
@@ -1560,6 +1600,17 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
     </View>
   ) : null;
 
+  const environmentControl = (
+    <View style={desktopControlStyle}>
+      <NewWorkspaceEnvironment
+        hosts={host.allHosts}
+        serverId={host.selectedServerId}
+        onChange={host.onSelect}
+        disabled={isPending}
+      />
+    </View>
+  );
+
   const launchControl = (
     <LaunchControl
       serverId={launch.serverId}
@@ -1574,6 +1625,7 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
   return isCompact ? (
     <View testID="new-workspace-ref-picker-row" style={styles.formStack} pointerEvents="box-none">
       <FormRow>{projectControl}</FormRow>
+      <FormRow>{environmentControl}</FormRow>
       {isolationControl ? <FormRow>{isolationControl}</FormRow> : null}
       {baseControl ? <FormRow>{baseControl}</FormRow> : null}
       <FormRow>{launchControl}</FormRow>
@@ -1588,6 +1640,7 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
       pointerEvents="box-none"
     >
       {projectControl}
+      {environmentControl}
       {isolationControl}
       {baseControl}
       <View style={styles.launchSpacer} pointerEvents="none" />
@@ -1914,10 +1967,29 @@ export function NewWorkspaceScreen({
         });
         if (!approved) return;
       }
+      if (
+        id !== selectedServerId &&
+        chatDraft.attachments.some(
+          (attachment) =>
+            attachment.kind === "workspace_file" || attachment.kind === "plugin_resource",
+        )
+      ) {
+        setErrorMessage(
+          "Remove workspace file references and plugin attachments before changing environments. The draft stays here.",
+        );
+        return;
+      }
+      chatDraft.setAttachments((current) =>
+        current.map((attachment) =>
+          attachment.kind === "file"
+            ? { ...attachment, sourceServerId: attachment.sourceServerId ?? selectedServerId }
+            : attachment,
+        ),
+      );
       handleSelectHost(id);
       clearPickerSelectionForTargetChange(selectedServerId, id);
     },
-    [clearPickerSelectionForTargetChange, handleSelectHost, selectedServerId],
+    [clearPickerSelectionForTargetChange, handleSelectHost, selectedServerId, chatDraft],
   );
 
   const handleAddProject = useCallback(() => {

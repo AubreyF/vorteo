@@ -86,6 +86,17 @@ export function navigateToWorkspace(
   input: NavigateToWorkspaceInput,
   deps: NavigateToWorkspaceDeps,
 ): string {
+  const originalWorkspace = deps.getSessionWorkspaces(input.serverId)?.get(input.workspaceId);
+  const owner = originalWorkspace?.projectMembership?.environmentOwner;
+  if (owner && deps.getSessionWorkspaces(owner.serverId)?.has(owner.workspaceId)) {
+    const target = input.target
+      ? {
+          ...input.target,
+          environment: { serverId: input.serverId, workspaceId: input.workspaceId },
+        }
+      : undefined;
+    input = { ...input, ...owner, target };
+  }
   const workspaces = deps.getSessionWorkspaces(input.serverId);
   const resolvedWorkspaceId = resolveWorkspaceMapKeyByIdentity({
     workspaces,

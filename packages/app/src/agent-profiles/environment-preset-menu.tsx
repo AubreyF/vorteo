@@ -40,7 +40,8 @@ interface EnvironmentPresetMenuProps {
   onClose: () => void;
 }
 export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
-  const [serverId, setServerId] = useState(props.serverId);
+  const [inspectedServerId, setServerId] = useState(props.serverId);
+  const serverId = props.profiles.currentEnvironmentOnly ? props.serverId : inspectedServerId;
   const [inspectedByServer, setInspectedByServer] = useState<Record<string, string>>({});
   const [accountByServer, setAccountByServer] = useState<Record<string, string>>({});
   const { config } = useDaemonConfig(serverId);
@@ -230,6 +231,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
     <AccountPresetMenu
       serverId={serverId}
       environments={environments}
+      hideEnvironment={props.profiles.currentEnvironmentOnly}
       onEnvironment={setServerId}
       accounts={accounts}
       definitions={definitions ?? []}

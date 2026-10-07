@@ -48,6 +48,7 @@ export interface PresetEnvironment {
 interface AccountPresetMenuProps {
   serverId: string | null;
   environments: PresetEnvironment[];
+  hideEnvironment?: boolean;
   onEnvironment: (serverId: string) => void;
   loading?: boolean;
   error?: string | null;
@@ -201,6 +202,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
       </View>
       {compact ? (
         <CompactSelector
+          hideEnvironment={props.hideEnvironment}
           navigation={navigation.section}
           onSection={showSection}
           environmentLabel={environment?.label ?? "Current environment"}
@@ -213,13 +215,15 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
         />
       ) : (
         <View style={styles.split}>
-          <View
-            style={[settingsStyles.card, styles.environmentCard]}
-            testID="preset-environment-card"
-          >
-            <ColumnHeading section="environment" label="Environment" />
-            <ScrollView>{environments}</ScrollView>
-          </View>
+          {!props.hideEnvironment ? (
+            <View
+              style={[settingsStyles.card, styles.environmentCard]}
+              testID="preset-environment-card"
+            >
+              <ColumnHeading section="environment" label="Environment" />
+              <ScrollView>{environments}</ScrollView>
+            </View>
+          ) : null}
           <View style={[settingsStyles.card, styles.accountCard]}>
             <ColumnHeading section="account" label="Account" />
             <ScrollView keyboardShouldPersistTaps="handled">{list}</ScrollView>
@@ -281,6 +285,7 @@ function AccountList({
 }
 
 function CompactSelector({
+  hideEnvironment,
   navigation,
   onSection,
   environmentLabel,
@@ -298,24 +303,27 @@ function CompactSelector({
   profileLabel?: string;
   environmentIcon: ReactNode;
   environments: ReactNode;
+  hideEnvironment?: boolean;
   accounts: ReactNode;
   details: ReactNode;
 }) {
   return (
     <View style={styles.compactBody}>
-      <View style={settingsStyles.card}>
-        <SectionButton
-          section="environment"
-          label="Environment"
-          value={environmentLabel}
-          icon={environmentIcon}
-          expanded={navigation === "environment"}
-          onSection={onSection}
-        />
-        {navigation === "environment" ? (
-          <BottomSheetScrollView style={styles.compactList}>{environments}</BottomSheetScrollView>
-        ) : null}
-      </View>
+      {!hideEnvironment ? (
+        <View style={settingsStyles.card}>
+          <SectionButton
+            section="environment"
+            label="Environment"
+            value={environmentLabel}
+            icon={environmentIcon}
+            expanded={navigation === "environment"}
+            onSection={onSection}
+          />
+          {navigation === "environment" ? (
+            <BottomSheetScrollView style={styles.compactList}>{environments}</BottomSheetScrollView>
+          ) : null}
+        </View>
+      ) : null}
       <View style={settingsStyles.card}>
         <SectionButton
           section="account"

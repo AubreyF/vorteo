@@ -5,12 +5,12 @@ import { packageHash } from "../../../server/src/server/orchestration-skills/int
 import { InstallationSettingsSnapshotSchema } from "@getpaseo/protocol/installation-settings";
 import {
   buildHostAgentDetailRoute,
-  buildNewWorkspaceRoute,
+  buildHostWorkspaceOpenRoute,
 } from "../../../app/src/utils/host-routes";
 import { sidebarProjectForWorkspace } from "../support/helpers/workspace-ui";
 import { expectComposerVisible, fillComposerDraft } from "../support/helpers/composer";
 import { test, expect, type Page, type TestInfo } from "@playwright/test";
-import { cp, mkdir, mkdtemp, readFile, writeFile, rm, rename } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, writeFile, rm, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -783,85 +783,6 @@ async function verifyCrossEnvironmentWorkspaceMove(input: {
   ).toEqual(moved.projectMembership);
 }
 
-async function verifyCrossEnvironmentDraft(input: {
-  page: Page;
-  testInfo: TestInfo;
-  destinationClient: Awaited<ReturnType<typeof connectInstallationDaemon>>;
-  sourceServerId: string;
-  destinationServerId: string;
-  sourcePath: string;
-  destinationPath: string;
-  sourceProject: { projectId: string; projectKey?: string; projectDisplayName: string };
-}) {
-  const {
-    page,
-    testInfo,
-    destinationClient,
-    sourceServerId,
-    destinationServerId,
-    sourcePath,
-    destinationPath,
-    sourceProject,
-  } = input;
-  const beforeIds = new Set(
-    (await destinationClient.fetchWorkspaces()).entries.map((entry) => entry.id),
-  );
-  await page.goto(
-    `${origin}${buildNewWorkspaceRoute({
-      serverId: sourceServerId,
-      projectId: sourceProject.projectId,
-      sourceDirectory: sourcePath,
-      displayName: sourceProject.projectDisplayName,
-    })}`,
-  );
-  await expectComposerVisible(page, { timeout: 60_000 });
-  await page.getByTestId("agent-preset-selector").click();
-  if (testInfo.project.name === "phone")
-    await page.getByTestId("preset-section-environment").click();
-  await page.getByTestId(`preset-environment-${destinationServerId}`).click();
-  await page.getByTestId("preset-account-mock").click();
-  await page.getByTestId("preset-use-profile").click();
-  await expect(page.getByTestId("preset-handoff-modal")).toBeVisible();
-  await expect(page.getByTestId("preset-destination-project")).toHaveCount(0);
-  await expect(page.getByTestId("preset-destination-directory")).toHaveValue(destinationPath);
-  await page.getByTestId("preset-handoff-confirm").click();
-  await expect(page.getByTestId("preset-handoff-modal")).not.toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`/h/${destinationServerId}/workspace/`));
-  await expectComposerVisible(page, { timeout: 60_000 });
-  const created = (await destinationClient.fetchWorkspaces()).entries.filter(
-    (entry) => !beforeIds.has(entry.id),
-  );
-  expect(created).toHaveLength(1);
-  expect(created[0]!.workspaceDirectory).toBe(destinationPath);
-  expect(sourceProject.projectKey).toBeTruthy();
-  expect(created[0]!.projectMembership?.key).toBe(sourceProject.projectKey);
-  expect(
-    (await destinationClient.fetchAgents()).entries.filter(
-      ({ agent }) => agent.workspaceId === created[0]!.id,
-    ),
-  ).toHaveLength(0);
-  await page.screenshot({
-    path: testInfo.outputPath("new-draft-retains-project.png"),
-    fullPage: true,
-  });
-  await fillComposerDraft(page, "Start a new thread in the same project on this environment.");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await expect
-    .poll(
-      async () =>
-        (await destinationClient.fetchAgents()).entries.filter(
-          ({ agent }) => agent.workspaceId === created[0]!.id,
-        ).length,
-    )
-    .toBe(1);
-  const started = (await destinationClient.fetchAgents()).entries.find(
-    ({ agent }) => agent.workspaceId === created[0]!.id,
-  )!.agent;
-  expect(started.cwd).toBe(destinationPath);
-  expect(started.provider).toBe("mock");
-  expect(started.model).toBe("ten-second-stream");
-}
-
 for (const destinationMode of ["existing", "new"] as const) {
   const sourceKind = destinationMode === "new" ? "container" : "host";
   const destinationKind = destinationMode === "new" ? "host" : "container";
@@ -961,15 +882,12 @@ for (const destinationMode of ["existing", "new"] as const) {
         .fill("Continue this task in the same project. Preserve the original chat.");
       const directory = page.getByTestId("preset-destination-directory");
       if (destinationMode === "existing") {
-        await expect(directory).toHaveValue(destinationPath);
+        await directory.fill(destinationPath);
       } else {
         await directory.fill(path.join(root, "does-not-exist"));
         await page.getByTestId("preset-handoff-confirm").click();
         await expect(
-          page
-            .getByTestId("installation-panel")
-            .getByRole("alert")
-            .filter({ hasText: "Directory not found:" }),
+          page.getByRole("alert").filter({ hasText: "Directory not found:" }),
         ).toBeVisible();
         await directory.fill(destinationPath);
       }
@@ -1011,17 +929,6 @@ for (const destinationMode of ["existing", "new"] as const) {
       expect(successor.labels?.["paseo:continued-from-server"]).toBe(sourceServerId);
       expect((await sourceClient.fetchAgent(source.id))?.agent.cwd).toBe(sourcePath);
       await expect(page).toHaveURL(new RegExp(`/h/${destinationServerId}/workspace/`));
-      if (destinationMode === "existing")
-        await verifyCrossEnvironmentDraft({
-          page,
-          testInfo,
-          destinationClient,
-          sourceServerId,
-          destinationServerId,
-          sourcePath,
-          destinationPath,
-          sourceProject,
-        });
       if (destinationMode === "new")
         await verifyCrossEnvironmentWorkspaceMove({
           page,
@@ -2912,3 +2819,172 @@ test("shared policy saves preserve drafts and show retryable errors", async ({ p
   await expect(page).toHaveURL(/settings\/general\?installation=1/);
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
 });
+
+for (const sourceKind of ["host", "container"] as const) {
+  test(`new tasks switch from ${sourceKind} without abandoning the draft or workspace`, async ({
+    page,
+  }, info) => {
+    const sourceIndex = sourceKind === "host" ? 1 : 0;
+    const destinationIndex = sourceKind === "host" ? 0 : 1;
+    const destinationKind = sourceKind === "host" ? "container" : "host";
+    const sourceDaemon = daemons[sourceIndex]!;
+    const destinationDaemon = daemons[destinationIndex]!;
+    const source = await connectInstallationDaemon(config, sourceKind);
+    const destination = await connectInstallationDaemon(config, destinationKind);
+    const sourceDirectory = path.join(sourceDaemon.paseoHome, "draft-source");
+    const destinationDirectory = path.join(destinationDaemon.paseoHome, "draft-destination");
+    await mkdir(sourceDirectory, { recursive: true });
+    await mkdir(destinationDirectory, { recursive: true });
+    try {
+      const created = await source.createWorkspace({
+        source: { kind: "directory", path: sourceDirectory },
+        title: "Mixed environment work",
+      });
+      if (!created.workspace) throw new Error(created.error ?? "Missing test workspace");
+      const workspace = created.workspace;
+      const before = (await destination.fetchWorkspaces()).entries.map((item) => item.id);
+      const uploadDirectory = path.join(destinationDaemon.paseoHome, "uploads");
+      const previousUploads = await readdir(uploadDirectory, { recursive: true }).catch(
+        () => [] as string[],
+      );
+      await page.goto(origin);
+      await page.getByTestId("installation-password").fill(ownerPassword);
+      await page.getByTestId("installation-unlock").click();
+      await expect(page.getByTestId("installation-password")).not.toBeVisible();
+      const openDraft = (id: string) =>
+        page.goto(
+          `${origin}${buildHostWorkspaceOpenRoute(sourceDaemon.serverId, workspace.id, `draft:${id}`)}`,
+        );
+      await openDraft(`environment-${sourceKind}`);
+      await expectComposerVisible(page, { timeout: 60_000 });
+      await fillComposerDraft(page, "Keep this exact draft while switching environments.");
+      await page.getByRole("button", { name: "Add attachment", exact: true }).click();
+      const chooser = page.waitForEvent("filechooser");
+      await page.getByText("Upload file", { exact: true }).click();
+      await (
+        await chooser
+      ).setFiles({
+        name: "environment-notes.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("Keep these attachment bytes."),
+      });
+      await expect(page.getByTestId("composer-file-attachment-pill")).toContainText(
+        "environment-notes.txt",
+      );
+      await page.getByTestId("task-environment").getByRole("button").click();
+      if (destinationKind === "host") page.once("dialog", (dialog) => void dialog.accept());
+      await page
+        .getByText(destinationKind === "host" ? "Host" : "Dev container", { exact: true })
+        .last()
+        .click();
+      await expect(
+        page.getByText(
+          `Choose this workspace's folder in ${destinationKind === "host" ? "Host" : "Dev container"}.`,
+        ),
+      ).toBeVisible();
+      await expect(page.getByTestId("preset-handoff-modal")).toHaveCount(0);
+      expect((await destination.fetchWorkspaces()).entries.map((item) => item.id)).toEqual(before);
+      await page.getByTestId("task-environment-folder").click();
+      await page.getByTestId("project-directory-host-path").fill("/missing-task-directory");
+      await page.getByTestId("project-directory-open-path").click();
+      await expect(page.getByTestId("project-directory-error")).toBeVisible();
+      await page.getByRole("button", { name: "Shared folders", exact: true }).click();
+      await page.getByTestId("project-directory-root-home").click();
+      await page.getByTestId("project-directory-child-draft-destination").click();
+      await page.getByRole("button", { name: "Select this folder", exact: true }).click();
+      await expect(page.getByTestId("task-environment")).toContainText(
+        destinationKind === "host" ? "Host" : "Dev container",
+      );
+      await expect(page.getByRole("textbox", { name: "Message agent..." }).first()).toHaveValue(
+        "Keep this exact draft while switching environments.",
+      );
+      await page.screenshot({
+        path: info.outputPath("task-environment-draft.png"),
+        fullPage: true,
+      });
+      await page.getByTestId("agent-preset-selector").click();
+      await expect(page.getByTestId("preset-environment-card")).toHaveCount(0);
+      if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
+      await page.getByTestId("preset-account-mock").click();
+      await page.getByTestId("preset-use-profile").click();
+      await page.getByRole("button", { name: "Send message", exact: true }).click();
+      await expect
+        .poll(
+          async () =>
+            (await destination.fetchAgents()).entries.filter(
+              ({ agent }) => agent.cwd === destinationDirectory,
+            ).length,
+        )
+        .toBe(1);
+      const task = (await destination.fetchAgents()).entries.find(
+        ({ agent }) => agent.cwd === destinationDirectory,
+      )!.agent;
+      const uploadedFiles = (await readdir(uploadDirectory, { recursive: true })).filter(
+        (file) => file.endsWith("environment-notes.txt") && !previousUploads.includes(file),
+      );
+      expect(uploadedFiles).toHaveLength(1);
+      expect(await readFile(path.join(uploadDirectory, uploadedFiles[0]!), "utf8")).toBe(
+        "Keep these attachment bytes.",
+      );
+      const companion = (await destination.fetchWorkspaces()).entries.find(
+        (item) => item.id === task.workspaceId,
+      )!;
+      expect(companion.projectMembership?.environmentOwner).toEqual({
+        serverId: sourceDaemon.serverId,
+        workspaceId: workspace.id,
+      });
+      await expect(page).toHaveURL(
+        new RegExp(`/h/${sourceDaemon.serverId}/workspace/${workspace.id}`),
+      );
+      await page.reload();
+      await expectComposerVisible(page, { timeout: 60_000 });
+      if (info.project.name === "desktop") {
+        await expect(
+          page.getByTestId(`sidebar-workspace-row-${sourceDaemon.serverId}:${workspace.id}`),
+        ).toBeVisible();
+        await expect(
+          page.getByTestId(`sidebar-workspace-row-${destinationDaemon.serverId}:${companion.id}`),
+        ).toHaveCount(0);
+      }
+      await page.screenshot({
+        path: info.outputPath("mixed-environment-workspace.png"),
+        fullPage: true,
+      });
+      await openDraft(`second-environment-${sourceKind}`);
+      await expectComposerVisible(page, { timeout: 60_000 });
+      await page.getByTestId("task-environment").getByRole("button").click();
+      if (destinationKind === "host") page.once("dialog", (dialog) => void dialog.accept());
+      await page
+        .getByText(destinationKind === "host" ? "Host" : "Dev container", { exact: true })
+        .last()
+        .click();
+      await expect(page.getByText(destinationDirectory, { exact: true })).toBeVisible();
+      await expect(page.getByTestId("task-environment-folder")).toHaveCount(0);
+      expect(
+        (await destination.fetchWorkspaces()).entries.filter((item) => !before.includes(item.id)),
+      ).toHaveLength(1);
+      await page.goto(`${origin}/new?serverId=${sourceDaemon.serverId}`);
+      await expectComposerVisible(page, { timeout: 60_000 });
+      await fillComposerDraft(page, "Keep the new workspace draft too.");
+      await page.getByTestId("new-workspace-environment").getByRole("button").click();
+      if (destinationKind === "host") page.once("dialog", (dialog) => void dialog.accept());
+      await page
+        .getByText(destinationKind === "host" ? "Host" : "Dev container", { exact: true })
+        .last()
+        .click();
+      await expect(page.getByRole("textbox", { name: "Message agent..." }).first()).toHaveValue(
+        "Keep the new workspace draft too.",
+      );
+      await expect(page.getByTestId("preset-handoff-modal")).toHaveCount(0);
+      await expect(page.getByText("Environment", { exact: true })).toHaveCount(1);
+      await expect(page.getByRole("button", { name: /^(Send message|Create)$/ })).toBeInViewport();
+      await page.screenshot({
+        path: info.outputPath("new-workspace-environment.png"),
+        fullPage: true,
+      });
+    } finally {
+      await source.close();
+      await destination.close();
+    }
+  });
+}

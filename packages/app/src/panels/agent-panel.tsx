@@ -393,13 +393,25 @@ function DraftPanel() {
   invariant(target.kind === "draft", "DraftPanel requires draft target");
 
   const handleCreated = useCallback(
-    (agentSnapshot: Parameters<typeof normalizeAgentSnapshot>[0]) => {
-      const normalized = normalizeAgentSnapshot(agentSnapshot, serverId);
-      const agent = applyLegacyDaemonWorkspaceOwnership({ serverId, agent: normalized });
-      getHostRuntimeStore().acceptAgentSnapshot(serverId, agent);
-      retargetCurrentTab({ kind: "agent", agentId: agentSnapshot.id });
+    (
+      agentSnapshot: Parameters<typeof normalizeAgentSnapshot>[0],
+      environment: { serverId: string; workspaceId: string },
+    ) => {
+      const normalized = normalizeAgentSnapshot(agentSnapshot, environment.serverId);
+      const agent = applyLegacyDaemonWorkspaceOwnership({
+        serverId: environment.serverId,
+        agent: normalized,
+      });
+      getHostRuntimeStore().acceptAgentSnapshot(environment.serverId, agent);
+      const sameEnvironment =
+        environment.serverId === serverId && environment.workspaceId === workspaceId;
+      retargetCurrentTab({
+        kind: "agent",
+        agentId: agentSnapshot.id,
+        environment: sameEnvironment ? undefined : environment,
+      });
     },
-    [retargetCurrentTab, serverId],
+    [retargetCurrentTab, serverId, workspaceId],
   );
 
   return (

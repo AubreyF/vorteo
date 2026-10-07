@@ -110,3 +110,23 @@ test("pane retargeting replaces the viewed agent and duplicate panes collapse to
     }),
   }).toEqual({ duplicate: ["agent-a"], retargeted: ["agent-a", "agent-b"] });
 });
+
+test("routes visible task details to their execution environment", async () => {
+  const { groupVisibleAgentsByEnvironment } = await import("./visible-agent-ids");
+  const tabs: WorkspaceTab[] = [
+    { tabId: "local", target: { kind: "agent", agentId: "local" }, createdAt: 1 },
+    {
+      tabId: "remote",
+      target: {
+        kind: "agent",
+        agentId: "remote",
+        environment: { serverId: "container", workspaceId: "bound" },
+      },
+      createdAt: 2,
+    },
+  ];
+  expect(groupVisibleAgentsByEnvironment("host", ["local", "remote"], tabs)).toEqual({
+    host: ["local"],
+    container: ["remote"],
+  });
+});

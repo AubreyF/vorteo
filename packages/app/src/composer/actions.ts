@@ -123,6 +123,7 @@ export async function pickAndPersistImages(input: {
 }
 
 export async function uploadFileAttachments(input: {
+  serverId?: string;
   client: ComposerSendClient;
   files: SelectedFile[];
 }): Promise<Extract<ComposerAttachment, { kind: "file" }>[]> {
@@ -148,7 +149,11 @@ export async function uploadFileAttachments(input: {
     if (response.error || !response.file) {
       throw new Error(response.error ?? "Upload failed.");
     }
-    result.push({ kind: "file", attachment: response.file });
+    result.push({
+      kind: "file",
+      attachment: response.file,
+      ...(input.serverId ? { sourceServerId: input.serverId } : {}),
+    });
   }
 
   return result;

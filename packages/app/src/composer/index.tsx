@@ -1777,7 +1777,7 @@ function ComposerContentImpl({
       const placeholders = files.map((file) => ({ id: nextPendingFileId.current++, file }));
       setPendingFiles((pending) => [...pending, ...placeholders]);
       try {
-        const uploaded = await uploadFileAttachments({ client, files });
+        const uploaded = await uploadFileAttachments({ client, files, serverId });
         addFiles(uploaded);
       } catch (error) {
         console.error("[Composer] Failed to upload file:", error);
@@ -1788,7 +1788,7 @@ function ComposerContentImpl({
         setPendingFiles((pending) => pending.filter((entry) => !placeholders.includes(entry)));
       }
     },
-    [addFiles, client, t],
+    [addFiles, client, serverId, t],
   );
 
   const handlePickFile = useCallback(async () => {

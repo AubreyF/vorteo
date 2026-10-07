@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.173 - 2026-10-07
+
+### Added
+
+- Integrate task environment selection, retained drafts and uploads, companion workspace associations and mixed-environment task tabs with the current installation source
+
+### Fixed
+
+- Preflight protection for every associated workspace before cross-environment archival
+
 ## 0.11.0-beta.3.vorteo.172 - 2026-10-07
 
 ### Added
@@ -160,6 +170,19 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Fixed
 
 - Keep empty projects visible through sidebar refreshes on daemons without a separate project list
+
+## 0.11.0-beta.3.vorteo.152 - 2026-10-07
+
+### Changed
+
+- Select a new task's environment separately from its account and profile, keeping the draft in place
+- Keep Host and Dev container tasks in one visible workspace, with environment labels on task tabs
+- Reuse exact shared-folder mappings or an explicitly chosen destination folder instead of guessing from another workspace
+
+### Fixed
+
+- Preserve drafts on connection and attachment-transfer failures when starting a task in another environment
+- Route conversation loading and task actions to the task's environment after reload
 
 ## 0.11.0-beta.3.vorteo.150 - 2026-10-06
 
