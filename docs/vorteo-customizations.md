@@ -90,6 +90,7 @@ No complete replacement of these custom workflows was established in this review
 October 8, 2026: Integrated the published checklist controls and separate supervisor request queue. Preserved the live interface changelog history as an unchanged suffix and retained pending source contributions.
 
 October 8, 2026: Supervisor repairs can wait alongside unapproved source batches without cancelling their contributions or sharing approval. Both requests remain visible; approval serialization still prevents concurrent interruption of one target.
+October 8, 2026: Reconciled persistent checklist delivery with installed source ancestry and retained historical installation release notes. Application source matches the validated public implementation; runtime acceptance remains pending exact update approval.
 
 October 8, 2026: Added durable thread checklist tools and manual editing, with dependency, ownership, metadata and stale-edit handling. Focused storage, lifecycle, protocol and provider tests cover persistence and native task coexistence. Desktop and phone browser checks cover manual controls, save failures, concurrent edits, deletion, ordering and workspace aggregation. Source installation and live tool acceptance remain pending.
 
