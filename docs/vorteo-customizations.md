@@ -89,6 +89,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Agent instructions submit prepared restart requests directly and use the recorded owner button decision as approval. Coordinator maintenance has the same boundary; these instruction changes do not add a coordinator reload request capability.
+
 October 8, 2026: Workspace creation acceptance waits for both agent creation and project membership persistence before checking the destination group.
 
 October 8, 2026: Shared-project browser acceptance follows the existing profile menu remount after changing environments before choosing the destination account and profile.
