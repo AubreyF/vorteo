@@ -3436,6 +3436,8 @@ test("new shared project workspace follows the existing profile environment sele
     if (info.project.name === "phone") await page.getByTestId("preset-section-environment").click();
     page.once("dialog", (dialog) => void dialog.accept());
     await page.getByTestId(`preset-environment-${daemons[1]!.serverId}`).click();
+    await page.keyboard.press("Escape");
+    await page.getByTestId("agent-preset-selector").click();
     if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
     await page.getByTestId("preset-account-mock").click();
     await page.getByRole("button", { name: "Browser handoff", exact: true }).click();
