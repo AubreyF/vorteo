@@ -563,3 +563,12 @@ it("persists installation skill selections without fabricating a profile", () =>
   expect(stored.config?.skillSnapshot).toEqual(snapshot);
   expect(stored.config?.profileLaunch).toBeUndefined();
 });
+
+it("retains a checklist in live, persisted, and closed directory snapshots", () => {
+  const tasks = [{ id: "one", text: "Verify", completed: true }];
+  const agent = createManagedAgent({ tasks });
+  expect(toAgentPayload(agent).tasks).toEqual(tasks);
+  const stored = parseStoredAgentRecord(toStoredAgentRecord(agent));
+  expect(stored.tasks).toEqual(tasks);
+  expect(buildStoredAgentPayload(stored, ["claude"]).tasks).toEqual(tasks);
+});

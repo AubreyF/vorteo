@@ -270,3 +270,55 @@ async function mockGoalObservation(page: Page, agentId: string, goalState: unkno
     });
   });
 }
+
+test("workspace checklist donut combines unopened threads and survives reload", async ({
+  page,
+}, info) => {
+  test.setTimeout(180_000);
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "checklist-progress-",
+    title: "Checklist parent",
+    initialPrompt: "emit 2 agent stream updates",
+  });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "checklist-progress" });
+  try {
+    const sibling = await client.createAgent({
+      provider: "mock",
+      cwd: agent.cwd,
+      workspaceId: agent.workspaceId,
+      title: "Unopened checklist thread",
+      modeId: "load-test",
+      model: "e2e-fast-stream",
+      initialPrompt: "emit 1 agent stream updates",
+    });
+    await openAgentRoute(page, agent);
+    const card = page.getByTestId("agent-task-progress-card");
+    const ring = page.getByTestId(/^workspace-task-progress-/);
+    await expect(card).toContainText("0/1 tasks");
+    await expect(card).toContainText("stress-update-1");
+    await expect(ring).toHaveAttribute("aria-valuenow", "1");
+    await expect(ring).toHaveAttribute("aria-valuemax", "2");
+    await expect(ring).toHaveAttribute("aria-label", "1/2 tasks (50%)");
+    await client.sendAgentMessage(sibling.id, "emit 2 agent stream updates");
+    await expect(ring).toHaveAttribute("aria-valuenow", "0");
+    await page.reload();
+    await expect(card).toContainText("0/1 tasks");
+    await expect(ring).toHaveAttribute("aria-label", "0/2 tasks (0%)");
+    await client.archiveAgent(sibling.id);
+    await expect(ring).toHaveAttribute("aria-valuemax", "1");
+    await client.sendAgentMessage(agent.agentId, "emit 1 agent stream updates");
+    await expect(card).toContainText("1/1 tasks");
+    await expect(ring).toHaveAttribute("aria-label", "1/1 tasks (100%)");
+    for (const width of [1400, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(card).toBeAttached();
+      await info.attach(`checklist-${width}`, {
+        body: await page.screenshot(),
+        contentType: "image/png",
+      });
+    }
+  } finally {
+    await client.close();
+    await agent.cleanup();
+  }
+});

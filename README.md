@@ -17,6 +17,8 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 ## Power Tools to Manage Your Fleet
 
+- **Track a build across threads.** Each thread keeps its native checklist below the conversation. The workspace donut combines completed items across its active threads, and planning instructions carry accepted checklist items into implementation. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
+
 - **Cross-device, server-managed message queuing.** Line up your task messages with files or images - then edit, reorder, pause, and send them from any connected device. The daemon in each environment will continue executing queued work even if your client is offline.
 
 <img width="400" alt="Server managed cross-device message queuing." src="https://github.com/user-attachments/assets/59dfdb03-e1ec-40d2-b66e-9683134e3811" />

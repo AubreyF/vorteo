@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.176 - 2026-10-08
+
+### Added
+
+- Show workspace checklist completion across all unarchived threads, including unopened threads, with a donut beside the workspace row and progress on each thread's bottom card.
+- Persist native checklist snapshots in daemon records and the client cache so completion survives reloads.
+
+### Changed
+
+- Prepare implementation checklist items with completion criteria in plans and carry accepted plans into new threads through launch and handoff instructions.
+
+### Maintenance
+
+- Cover aggregation, native task persistence, client cache recovery and browser reload behavior. Older threads populate snapshots when their history loads or a provider updates its checklist.
+
 ## 0.11.0-beta.3.vorteo.175 - 2026-10-07
 
 ### Fixed

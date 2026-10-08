@@ -1,3 +1,4 @@
+import { TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
 import { CodexGoals } from "./providers/codex/goals.js";
 import type { AgentGoal } from "@getpaseo/protocol/agent-goals";
 import { expect, test, vi } from "vitest";
@@ -3368,7 +3369,9 @@ test("createAgent injects daemon append system prompt at runtime only", async ()
   const record = await storage.get(snapshot.id);
 
   expect(client.createdConfigs[0]?.systemPrompt).toBe("Agent instructions.");
-  expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe("Daemon instructions.");
+  expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe(
+    `${TASK_CHECKLIST_GUIDANCE}\n\nDaemon instructions.`,
+  );
   expect(snapshot.config).not.toHaveProperty("daemonAppendSystemPrompt");
   expect(record?.config?.systemPrompt).toBe("Agent instructions.");
   expect(record?.config).not.toHaveProperty("daemonAppendSystemPrompt");
@@ -3402,7 +3405,9 @@ test("daemon append system prompt is injected into Pi configs", async () => {
     { workspaceId: undefined },
   );
 
-  expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe("Daemon instructions.");
+  expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe(
+    `${TASK_CHECKLIST_GUIDANCE}\n\nDaemon instructions.`,
+  );
 });
 
 test("setAgentMode persists the selected mode across session reload", async () => {
@@ -4007,6 +4012,7 @@ test("createAgent passes daemon launch env through the provider launch context",
   );
 
   expect(client.lastConfig).toEqual({
+    daemonAppendSystemPrompt: TASK_CHECKLIST_GUIDANCE,
     provider: "codex",
     cwd: workdir,
     model: "gpt-5.4",
@@ -13036,5 +13042,44 @@ test("restart drain preserves a held goal and cancellation can resume it without
     expect(goal.status).toBe("paused");
   } finally {
     await fixture.cleanup();
+  }
+});
+
+test("native task snapshots persist without timeline subscribers and restore after reopening", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-checklist-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    const tasks = [
+      { id: "1", text: "Verify navigation", completed: true, status: "completed" as const },
+    ];
+    client.sessions[0]!.pushEvent({
+      type: "timeline",
+      provider: "codex",
+      item: { type: "todo", items: tasks },
+    });
+    await vi.waitFor(() => expect(manager.getAgent(agent.id)?.tasks).toEqual(tasks));
+    await manager.flush();
+    expect((await storage.get(agent.id))?.tasks).toEqual(tasks);
+    await manager.closeAgent(agent.id);
+    const record = await storage.get(agent.id);
+    expect(record?.tasks).toEqual(tasks);
+    await ensureAgentLoaded(agent.id, { agentManager: manager, agentStorage: storage, logger });
+    expect(manager.getAgent(agent.id)?.tasks).toEqual(tasks);
+    // A replacement history with no task list must remove the old completion ring.
+    await manager.hydrateTimelineFromProvider(agent.id, { force: true });
+    expect(manager.getAgent(agent.id)?.tasks).toEqual([]);
+    await manager.flush();
+    expect((await storage.get(agent.id))?.tasks).toEqual([]);
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
   }
 });
