@@ -11,6 +11,16 @@ import uuid
 from https_broker import Broker, Runtime, atomic, safe_read, validate
 
 
+class DaemonIdentityTests(unittest.TestCase):
+    def test_managed_and_legacy_process_identity(self):
+        # Execute the broker's Linux probe against isolated procfs fixtures on any host.
+        result = subprocess.run(
+            ['node', '--test', str(Path(__file__).with_name('https-broker-identity.test.cjs'))],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 class WorkspacePolicyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)

@@ -27,6 +27,8 @@ python3 host-recovery.py resume
 
 Pause before planned Docker maintenance or rollback. The worker starts Docker if absent, with three attempts spaced ten minutes apart. It starts an existing stopped serving container with three attempts spaced five minutes apart. It never recreates a container or restarts a running unhealthy daemon. A running rollback container suppresses replacement recovery. Restore operations run as the agent user with all capabilities removed. Review private `recovery-status.json` and logs when manual attention is needed.
 
+Managed Dev workers retain their process arguments. Preview recovery verifies their selected release, Node executable, supervisor parent, ownership and boot/start identity instead of depending on the process title. Legacy workers retain their existing process-title check; an invalid managed supervisor marker fails closed.
+
 ## Preview lifecycle and private HTTPS
 
 On the Mac host, run these commands from this source directory, then install against the retained serving container:

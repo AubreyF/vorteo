@@ -130,21 +130,47 @@ class Runtime:
         code = r"""
 const fs=require('node:fs');const path=require('node:path');const found=[];
 const home=process.env.PASEO_HOME||path.join(require('node:os').homedir(),'.paseo');
-const owner=JSON.parse(fs.readFileSync(path.join(home,'paseo.pid'),'utf8')).pid;
+const ownerFile=path.join(home,'paseo.pid');
+const ownerText=fs.readFileSync(ownerFile,'utf8');
+const owner=JSON.parse(ownerText).pid;
 if(!Number.isSafeInteger(owner)||owner<=0)process.exit(1);
 const boot=fs.readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim();
+const start=pid=>{const stat=fs.readFileSync(`/proc/${pid}/stat`,'utf8');return stat.slice(stat.lastIndexOf(')')+2).split(' ')[19];};
+const owned=status=>{const ids=status.match(/^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$/m);return ids&&ids.slice(1).every(id=>Number(id)===process.getuid());};
+const ownerStart=start(owner);
+if(!owned(fs.readFileSync(`/proc/${owner}/status`,'utf8')))process.exit(1);
+const markerFile=path.join(home,'managed-supervisor.json');
+let markerText,selected,entry,node,marker;
+if(fs.existsSync(markerFile)){
+  markerText=fs.readFileSync(markerFile,'utf8');marker=JSON.parse(markerText);
+  if(marker.version!==1||marker.pid!==owner||!path.isAbsolute(marker.root)||!path.isAbsolute(marker.link)||path.dirname(marker.link)!==marker.root||fs.realpathSync(marker.root)!==marker.root)process.exit(1);
+  const env=fs.readFileSync(`/proc/${owner}/environ`,'utf8').split('\0');
+  if(!env.includes(`PASEO_MANAGED_RELEASE_LINK=${marker.link}`)||!env.includes(`PASEO_MANAGED_RELEASE_ROOT=${marker.root}`))process.exit(1);
+  selected=fs.realpathSync(marker.link);
+  if(!selected.startsWith(marker.root+path.sep))process.exit(1);
+  entry=path.join(selected,'packages/server/dist/server/server/daemon-worker.js');
+  if(fs.realpathSync(entry)!==entry)process.exit(1);
+  node=fs.realpathSync(`/proc/${owner}/exe`);
+}
 for(const pid of fs.readdirSync('/proc').filter(p=>/^\d+$/.test(p))){
   try{
+    const ticks=start(pid);
+    if(!/^\d+$/.test(ticks))process.exit(1);
     const status=fs.readFileSync(`/proc/${pid}/status`,'utf8');
-    if(!/^Name:\s+Paseo Daemon$/m.test(status))continue;
+    if(!owned(status))continue;
     const parent=Number(status.match(/^PPid:\s+(\d+)$/m)?.[1]);
-    if(Number(pid)!==owner&&parent!==owner)continue;
-    const stat=fs.readFileSync(`/proc/${pid}/stat`,'utf8');
-    found.push(`${boot}:${pid}:${stat.slice(stat.lastIndexOf(')')+2).split(' ')[19]}`);
+    if(marker){
+      if(parent!==owner)continue;
+      const argv=fs.readFileSync(`/proc/${pid}/cmdline`,'utf8').split('\0');
+      if(argv.pop()!==''||argv.length!==2||argv[1]!==entry||fs.realpathSync(argv[0])!==node||fs.realpathSync(`/proc/${pid}/exe`)!==node)continue;
+    }else if(!/^Name:\s+Paseo Daemon$/m.test(status)||(Number(pid)!==owner&&parent!==owner))continue;
+    found.push({pid,ticks,value:`${boot}:${pid}:${ticks}`});
   }catch(e){if(!['ENOENT','EACCES','ESRCH'].includes(e.code))throw e;}
 }
 if(found.length!==1)process.exit(1);
-process.stdout.write(found[0]);
+if(fs.readFileSync(ownerFile,'utf8')!==ownerText||start(owner)!==ownerStart||start(found[0].pid)!==found[0].ticks||fs.readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim()!==boot)process.exit(1);
+if(marker&&(fs.readFileSync(markerFile,'utf8')!==markerText||fs.realpathSync(marker.link)!==selected))process.exit(1);
+process.stdout.write(found[0].value);
 """
         return self.docker(['exec', '--user', 'paseo', self.c['container'], '/usr/local/bin/node', '-e', code]).strip()
 
