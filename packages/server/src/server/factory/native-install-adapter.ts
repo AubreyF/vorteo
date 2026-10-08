@@ -41,6 +41,32 @@ interface InstallDependencies {
 
 const reconciliationHolds = new WeakSet<GovernedScheduleRuntime>();
 
+export type NativeFactoryInstallAdapter = ReturnType<typeof createNativeFactoryInstallAdapter>;
+interface AdapterOrigin {
+  runtime: GovernedScheduleRuntime;
+  serverId: string;
+  projectId: string;
+  readSetup: NativeFactoryInstallAdapter["readSetup"];
+  install: NativeFactoryInstallAdapter["install"];
+}
+const adapterOrigins = new WeakMap<object, AdapterOrigin>();
+
+/** Private native provenance. A shape-compatible object is not a startup-owned adapter. */
+export function nativeFactoryInstallAdapterOrigin(
+  adapter: NativeFactoryInstallAdapter,
+): Readonly<AdapterOrigin> | null {
+  const origin = adapterOrigins.get(adapter);
+  if (!origin || adapter.readSetup !== origin.readSetup || adapter.install !== origin.install)
+    return null;
+  return { ...origin };
+}
+
+/** A failed public dispatch must not permit a fresh adapter to bypass reconciliation. */
+export function holdNativeFactoryInstallAdapter(adapter: NativeFactoryInstallAdapter): void {
+  const origin = adapterOrigins.get(adapter);
+  if (origin) reconciliationHolds.add(origin.runtime);
+}
+
 /** Does not start a controller or register RPCs. Startup must supply a reconciled retained owner. */
 export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
   const captured = { ...deps };
@@ -159,7 +185,13 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
       const matches =
         checkpoint?.serverId === captured.serverId && checkpoint.projectId === projectId;
       const installationId = matches ? checkpoint.installationId : null;
-      if (matches && checkpoint.stage === "attached" && confirmed && !uncertain) {
+      if (
+        matches &&
+        checkpoint.stage === "attached" &&
+        confirmed &&
+        !uncertain &&
+        !reconciliationHolds.has(captured.runtime)
+      ) {
         const observation = new NativeFactoryObservationService(confirmed, captured);
         await observation.invoke("factory.snapshot", { projectId });
         const profiles = captured.readProfiles().filter((entry) => entry.id === captured.profileId);
@@ -327,5 +359,13 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
     }
   }
 
-  return { readSetup, install };
+  const adapter = { readSetup, install };
+  adapterOrigins.set(adapter, {
+    runtime: captured.runtime,
+    serverId: captured.serverId,
+    projectId: binding.projectId,
+    readSetup,
+    install,
+  });
+  return adapter;
 }

@@ -1,3 +1,10 @@
+import {
+  AgentTaskItemSchema,
+  ChecklistGetRequestSchema,
+  ChecklistMutateRequestSchema,
+  ChecklistGetResponseSchema,
+  ChecklistMutateResponseSchema,
+} from "./task-checklist.js";
 import { InstallationProviderProjectionSchema } from "./installation-provider.js";
 import { PluginDirectoryBindingSchema, ResolvedPluginSourceSchema } from "./plugin-installation.js";
 import { InstallationResourceBindingsSchema } from "./installation-settings.js";
@@ -828,13 +835,7 @@ export const CompactionInspectionSchema = z.object({
 });
 export type CompactionInspection = z.infer<typeof CompactionInspectionSchema>;
 
-export const AgentTaskItemSchema = z.object({
-  text: z.string(),
-  completed: z.boolean(),
-  id: z.string().optional(),
-  status: z.enum(["pending", "in_progress", "completed"]).optional(),
-  activeForm: z.string().optional(),
-});
+export { AgentTaskItemSchema } from "./task-checklist.js";
 
 // zod-aot 0.20.4 miscompiles this as a nested discriminated union by omitting
 // the inner tool_call branch from the generated outer dispatch.
@@ -3463,6 +3464,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   QueueReadRequestSchema,
   QueueMutateRequestSchema,
   QueueSubscribeRequestSchema,
+  ChecklistGetRequestSchema,
+  ChecklistMutateRequestSchema,
   AgentGoalGetRequestSchema,
   AgentGoalSetRequestSchema,
   AgentGoalClearRequestSchema,
@@ -3859,7 +3862,7 @@ export const ServerInfoStatusPayloadSchema = z
         worktreeRestore: z.boolean().optional(),
         // COMPAT(workspaceRecovery): added in v0.1.105, remove after 2027-01-11 once daemon floor >= v0.1.105.
         workspaceRecovery: z.boolean().optional(),
-        // COMPAT(workspaceRecoveryGuard): introduced for v0.11.0-beta.3.vorteo.195; remove after 2027-04-08 only once the daemon floor enforces guarded recovery.
+        // COMPAT(workspaceRecoveryGuard): introduced for v0.11.0-beta.3.vorteo.203; remove after 2027-04-08 only once the daemon floor enforces guarded recovery.
         workspaceRecoveryGuard: z.boolean().optional(),
         // COMPAT(workspaceFileEditing): added in v0.2.0, remove after 2027-01-18 once daemon floor >= v0.2.0.
         workspaceFileEditing: z.boolean().optional(),
@@ -3889,6 +3892,7 @@ export const ServerInfoStatusPayloadSchema = z
         providerSubagents: z.boolean().optional(),
         // COMPAT(agentTaskSnapshots): added October 2026; gate until the supported daemon floor includes it.
         agentTaskSnapshots: z.boolean().optional(),
+        agentChecklistMutations: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
         projectedSubagentTimeline: z.boolean().optional(),
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.
@@ -7200,6 +7204,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   QueueMutateResponseSchema,
   QueueSubscribeResponseSchema,
   QueueChangedSchema,
+  ChecklistGetResponseSchema,
+  ChecklistMutateResponseSchema,
   AgentGoalGetResponseSchema,
   AgentGoalSetResponseSchema,
   AgentGoalClearResponseSchema,

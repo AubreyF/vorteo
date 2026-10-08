@@ -13315,3 +13315,78 @@ test("native task snapshots persist without timeline subscribers and restore aft
     rmSync(workdir, { recursive: true, force: true });
   }
 });
+
+test("restart drain leaves loaded archived history out of preparation", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "restart-archived-history-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+  });
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    await manager.archiveAgent(agent.id);
+    await ensureAgentLoaded(agent.id, { agentManager: manager, agentStorage: storage, logger });
+    expect(manager.getAgent(agent.id)).toBeDefined();
+    const id = randomUUID();
+    expect(manager.beginRestartDrain(id)).toBe(true);
+    expect(manager.getRestartImpact()).toEqual({ agents: [], pendingStarts: 0 });
+    expect(manager.cancelRestartDrain(id)).toBe(true);
+  } finally {
+    for (const agent of manager.listAgents()) await manager.closeAgent(agent.id);
+    await storage.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("Vorteo checklist mutations survive provider updates, history refresh, and reopening", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-managed-checklist-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  try {
+    await Promise.all([
+      manager.mutateChecklist(agent.id, { operation: "create", id: "api", text: "Build API" }),
+      manager.mutateChecklist(agent.id, { operation: "create", id: "ui", text: "Build UI" }),
+    ]);
+    expect(manager.readChecklist(agent.id).map((task) => task.id)).toEqual(["api", "ui"]);
+    await manager.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "api",
+      status: "completed",
+    });
+    const managed = manager.readChecklist(agent.id);
+    const rejectedWrite = vi
+      .spyOn(storage, "mutateChecklist")
+      .mockRejectedValueOnce(new Error("Disk full"));
+    await expect(
+      manager.mutateChecklist(agent.id, { operation: "update", id: "ui", status: "completed" }),
+    ).rejects.toThrow("Disk full");
+    expect(manager.readChecklist(agent.id)).toEqual(managed);
+    rejectedWrite.mockRestore();
+    const native = { id: "native", text: "Provider plan", completed: false };
+    client.sessions[0]!.pushEvent({
+      type: "timeline",
+      provider: "codex",
+      item: { type: "todo", items: [native] },
+    });
+    await vi.waitFor(() => expect(manager.readChecklist(agent.id)).toEqual([native, ...managed]));
+    await manager.hydrateTimelineFromProvider(agent.id, { force: true });
+    expect(manager.readChecklist(agent.id)).toEqual(managed);
+    await manager.flush();
+    expect((await storage.get(agent.id))?.tasks).toEqual(managed);
+    await manager.closeAgent(agent.id);
+    await ensureAgentLoaded(agent.id, { agentManager: manager, agentStorage: storage, logger });
+    expect(manager.readChecklist(agent.id)).toEqual(managed);
+  } finally {
+    await manager.closeAgent(agent.id);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});

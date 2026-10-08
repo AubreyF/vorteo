@@ -1,5 +1,6 @@
 import type { QueuePresentation } from "@getpaseo/protocol/message-queue";
 import type {
+  AgentTaskItem,
   AgentProvider,
   AgentTimelineItem,
   JsonValue,
@@ -845,13 +846,7 @@ export interface PluginTimelineStreamItem {
   data: JsonValue;
 }
 
-export interface TodoEntry {
-  text: string;
-  completed: boolean;
-  id?: string;
-  status?: "pending" | "in_progress" | "completed";
-  activeForm?: string;
-}
+export type TodoEntry = AgentTaskItem;
 
 export type TaskActivity =
   | { type: "created"; count: number }
@@ -1322,13 +1317,7 @@ function appendTodoList(
   timestamp: Date,
   timelineCursor?: TimelinePosition,
 ): StreamItem[] {
-  const normalizedItems = items.map((item) => ({
-    text: item.text,
-    completed: item.completed,
-    ...(item.id ? { id: item.id } : {}),
-    ...(item.status ? { status: item.status } : {}),
-    ...(item.activeForm ? { activeForm: item.activeForm } : {}),
-  }));
+  const normalizedItems = items;
 
   const previousIndex = state.findLastIndex(
     (item) => item.kind === "todo_list" && item.provider === provider,
@@ -1589,13 +1578,7 @@ function reduceTimelineEvent(
         reduceTimelineToolCall(state, event, item, timestamp, timelineCursor),
       );
     case "todo": {
-      const items: TodoEntry[] = (item.items ?? []).map((todo) => ({
-        text: todo.text,
-        completed: todo.completed,
-        id: todo.id,
-        status: todo.status,
-        activeForm: todo.activeForm,
-      }));
+      const items = item.items ?? [];
       return finalizeActiveThoughts(
         appendTodoList(state, event.provider, items, timestamp, timelineCursor),
       );

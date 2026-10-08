@@ -78,6 +78,10 @@ export async function prepareSourceBatch(
           "-c",
           "core.hooksPath=/dev/null",
           "-c",
+          "gc.auto=0",
+          "-c",
+          "maintenance.auto=false",
+          "-c",
           "protocol.allow=never",
           "-c",
           "protocol.file.allow=always",
@@ -173,16 +177,17 @@ export async function prepareSourceBatch(
           parents.add(update.sourceCommit);
           continue;
         }
+        const commonBase = await contributionMergeBase(git, head, update.sourceCommit);
         const metadata = hasReleaseMetadata
-          ? await reconcileReleaseMetadata(git, update.baseCommit, head, update.sourceCommit)
+          ? await reconcileReleaseMetadata(git, commonBase, head, update.sourceCommit)
           : null;
         let mergeHead = head;
-        let mergeBase = update.baseCommit;
+        let mergeBase = commonBase;
         let tree = await git("rev-parse", `${update.sourceCommit}^{tree}`);
         if (metadata) {
           mergeBase = await git(
             "commit-tree",
-            await replaceFiles(update.baseCommit, metadata.base),
+            await replaceFiles(commonBase, metadata.base),
             "-m",
             "Normalized release base",
           );
@@ -196,7 +201,7 @@ export async function prepareSourceBatch(
           );
           tree = await replaceFiles(update.sourceCommit, metadata.right);
         }
-        // A synthetic single-parent commit fixes the declared merge base on Git 2.38+.
+        // A synthetic single-parent commit pins the verified common base on Git 2.38+.
         const delta = await git(
           "commit-tree",
           tree,
@@ -290,7 +295,7 @@ export async function prepareSourceBatch(
     input.stage(update, bundle);
     return { batch: { status: "ready", contributions, webCommit }, update };
   } finally {
-    rmSync(temporary, { recursive: true, force: true });
+    rmSync(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 }
 
@@ -344,4 +349,13 @@ async function isAncestor(git: InertGit, ancestor: string, head: string) {
     if (error instanceof Error && "code" in error && error.code === 1) return false;
     throw error;
   }
+}
+
+async function contributionMergeBase(git: InertGit, head: string, incoming: string) {
+  // The upload base is a bundle prerequisite, not necessarily the latest shared
+  // source. Reapplying already integrated work creates false conflicts.
+  const bases = (await git("merge-base", "--all", head, incoming)).split("\n");
+  if (bases.length !== 1 || !/^[a-f0-9]{40}$/.test(bases[0]!))
+    throw new Error("Source has multiple merge bases; integrate explicitly");
+  return bases[0]!;
 }

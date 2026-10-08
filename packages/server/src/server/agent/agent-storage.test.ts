@@ -138,6 +138,47 @@ describe("AgentStorage", () => {
   let storage: AgentStorage;
   const logger = createTestLogger();
 
+  test("checklist commits survive stale snapshots, deletion, and fresh storage instances", async () => {
+    const agent = createManagedAgent({ id: "checklist" });
+    await storage.applySnapshot(agent);
+    await Promise.all([
+      storage.mutateChecklist(agent.id, { operation: "create", id: "a", text: "A" }),
+      storage.mutateChecklist(agent.id, { operation: "create", id: "b", text: "B" }),
+    ]);
+    await storage.applySnapshot(agent);
+    const saved = await storage.get(agent.id);
+    expect(saved?.tasks?.map((task) => task.id)).toEqual(["a", "b"]);
+    await storage.mutateChecklist(agent.id, { operation: "delete", id: "a" });
+    await storage.applySnapshot(createManagedAgent({ id: agent.id, tasks: saved?.tasks }));
+    const reopened = new AgentStorage(storagePath, logger);
+    expect((await reopened.get(agent.id))?.tasks?.map((task) => task.id)).toEqual(["b"]);
+  });
+
+  test("a failed checklist write leaves the saved checklist unchanged and can be retried", async () => {
+    const agent = createManagedAgent({ id: "failed-checklist" });
+    await storage.applySnapshot(agent);
+    const original = await storage.mutateChecklist(agent.id, {
+      operation: "create",
+      id: "a",
+      text: "A",
+    });
+    await fs.rename(storagePath, `${storagePath}-backup`);
+    await fs.writeFile(storagePath, "not a directory");
+    try {
+      await expect(
+        storage.mutateChecklist(agent.id, { operation: "update", id: "a", status: "completed" }),
+      ).rejects.toThrow();
+      expect((await storage.get(agent.id))?.tasks).toEqual(original);
+    } finally {
+      await fs.unlink(storagePath);
+      await fs.rename(`${storagePath}-backup`, storagePath);
+    }
+    await storage.mutateChecklist(agent.id, { operation: "update", id: "a", status: "completed" });
+    expect((await new AgentStorage(storagePath, logger).get(agent.id))?.tasks?.[0].completed).toBe(
+      true,
+    );
+  });
+
   beforeEach(() => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), "agent-registry-"));
     storagePath = path.join(tmpDir, "agents");

@@ -64,7 +64,15 @@ export const InstallationConfigSchema = z.strictObject({
       })
       .optional(),
   }),
-  container: DaemonConnectionSchema,
+  container: DaemonConnectionSchema.extend({
+    supervisorMaintenance: z
+      .strictObject({
+        node: z.string().startsWith("/"),
+        script: z.string().startsWith("/"),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .optional(),
+  }),
 });
 export type InstallationConfig = z.infer<typeof InstallationConfigSchema>;
 

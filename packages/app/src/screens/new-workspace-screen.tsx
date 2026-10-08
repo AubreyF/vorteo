@@ -857,6 +857,13 @@ async function createMultiplicityWorkspace(input: {
   if (payload.error || !payload.workspace) {
     throw new Error(payload.error ?? input.createFailedMessage);
   }
+  if (input.project.membership) {
+    await input.client.setWorkspaceProject({
+      workspaceId: payload.workspace.id,
+      membership: input.project.membership,
+    });
+    payload.workspace.projectMembership = input.project.membership;
+  }
   const normalizedWorkspace = normalizeWorkspaceDescriptor(payload.workspace);
   const workspaceForInitialMerge = input.withInitialAgent
     ? { ...normalizedWorkspace, status: "running" as const, statusEnteredAt: new Date() }

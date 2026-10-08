@@ -1,4 +1,11 @@
 import { AgentTaskItemSchema } from "@getpaseo/protocol/messages";
+import type { AgentTaskItem } from "@getpaseo/protocol/agent-types";
+import {
+  mutateChecklist,
+  mergeProviderChecklist,
+  ChecklistError,
+  type ChecklistMutation,
+} from "./task-checklist/model.js";
 import { SkillSnapshotSchema } from "@getpaseo/protocol/skill-library";
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
@@ -250,9 +257,31 @@ export class AgentStorage {
     return this.queueRecordMutation(record.id, () => record);
   }
 
+  async mutateChecklist(agentId: string, mutation: ChecklistMutation): Promise<AgentTaskItem[]> {
+    await this.load();
+    let committed: AgentTaskItem[] | null = null;
+    await this.queueRecordMutation(
+      agentId,
+      (record) => {
+        if (!record || record.archivedAt)
+          throw new ChecklistError("not_found", "Only an active thread can edit its checklist.");
+        committed = mutateChecklist(record.tasks ?? [], mutation);
+        return { ...record, tasks: committed, updatedAt: new Date().toISOString() };
+      },
+      { checklistWrite: true },
+    );
+    if (committed === null)
+      throw new ChecklistError(
+        "not_found",
+        "The thread was deleted before the checklist could be saved.",
+      );
+    return committed;
+  }
+
   private queueRecordMutation(
     agentId: string,
     mutate: (existing: StoredAgentRecord | null) => StoredAgentRecord | null,
+    options?: { checklistWrite?: boolean },
   ): Promise<void> {
     const prev = this.pendingWrites.get(agentId) ?? Promise.resolve();
     const next = prev.then(async () => {
@@ -263,6 +292,7 @@ export class AgentStorage {
       const existing = this.cache.get(agentId) ?? null;
       const record = mutate(existing);
       if (!record) return undefined;
+      if (!options?.checklistWrite) preserveManagedChecklist(record, existing);
       // Loading sessions and metadata writers can hold snapshots from before
       // a reserve transition. All writes preserve the newest durable revision.
       const reserve = existing?.config?.quotaReserve;
@@ -552,4 +582,14 @@ function projectDirNameFromCwd(cwd: string): string {
     return sanitizedRoot || "root";
   }
   return prefix + withoutRoot.replace(/[\\/]+/g, "-");
+}
+
+/** Background snapshots preserve the checklist's latest committed mutation. */
+function preserveManagedChecklist(
+  record: StoredAgentRecord,
+  existing: StoredAgentRecord | null,
+): void {
+  if (!existing) return;
+  if (record.tasks === undefined && existing.tasks === undefined) return;
+  record.tasks = mergeProviderChecklist(record.tasks ?? [], existing.tasks ?? []);
 }

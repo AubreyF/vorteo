@@ -325,3 +325,94 @@ test("workspace checklist donut combines unopened threads and survives reload", 
     await agent.cleanup();
   }
 });
+
+for (const width of [1400, 390]) {
+  test(`manual checklist controls preserve drafts and report conflicts at ${width}px`, async ({
+    page,
+  }, info) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize({ width, height: 900 });
+    const agent = await seedMockAgentWorkspace({
+      repoPrefix: "manual-checklist-",
+      title: "Manual checklist",
+    });
+    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "manual-checklist" });
+    try {
+      await openAgentRoute(page, agent);
+      await page.getByTestId("checklist-add").click();
+      await page.getByTestId("checklist-title").fill("Build API");
+      await page.getByTestId("checklist-description").fill("Updates survive reload");
+      await page.getByTestId("checklist-save").click();
+      await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
+      const tasks = await client.getAgentChecklist(agent.agentId);
+      const api = tasks.find((task) => task.text === "Build API");
+      expect(api).toMatchObject({
+        id: expect.any(String),
+        text: "Build API",
+        description: "Updates survive reload",
+      });
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id: "dependent",
+        text: "Build card",
+        blockedBy: [api!.id!],
+      });
+      await page.getByRole("button", { name: "Complete Build card", exact: true }).click();
+      await expect(
+        page.getByTestId("agent-task-progress-card").getByRole("alert").first(),
+      ).toContainText("Complete dependency");
+      await page.getByRole("button", { name: "Complete Build API", exact: true }).click();
+      await page.getByRole("button", { name: "Complete Build card", exact: true }).click();
+      await expect(page.getByTestId("agent-task-progress-card")).toContainText("2/2 tasks");
+      await page.getByRole("button", { name: "Details for Build API", exact: true }).click();
+      await page.getByTestId("checklist-title").fill("My retained draft");
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "update",
+        id: api!.id!,
+        text: "Agent revision",
+      });
+      await page.getByTestId("checklist-save").click();
+      await expect(page.getByTestId("checklist-editor").getByRole("alert")).toContainText(
+        "changed while you were editing",
+      );
+      await expect(page.getByTestId("checklist-title")).toHaveValue("My retained draft");
+      await page.getByRole("button", { name: "Close", exact: true }).last().click();
+      await page.getByRole("button", { name: "Reopen Agent revision", exact: true }).click();
+      await expect(page.getByTestId("agent-task-progress-card")).toContainText("1/2 tasks");
+      await page.reload();
+      await expect(
+        page.getByRole("button", { name: "Complete Agent revision", exact: true }),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "Move up Build card", exact: true }).click();
+      await expect
+        .poll(async () => (await client.getAgentChecklist(agent.agentId)).map((task) => task.id))
+        .toEqual(["dependent", api!.id!]);
+      await page.getByRole("button", { name: "Details for Build card", exact: true }).click();
+      await page.getByRole("textbox", { name: "Task owner", exact: true }).fill("Reviewer");
+      await page.getByRole("button", { name: "Pending", exact: true }).click();
+      await page
+        .getByTestId("checklist-editor")
+        .getByRole("button", { name: "✓ Agent revision", exact: true })
+        .click();
+      await page.getByTestId("checklist-save").click();
+      await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
+      await expect(page.getByTestId("agent-task-progress-card")).toContainText("Reviewer");
+      await page.getByRole("button", { name: "Complete Build card", exact: true }).click();
+      await info.attach(`manual-checklist-${width}`, {
+        body: await page.screenshot({ path: info.outputPath("manual-checklist.png") }),
+        contentType: "image/png",
+      });
+      await page.getByRole("button", { name: "Details for Build card", exact: true }).click();
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.getByRole("button", { name: "Delete task", exact: true }).click();
+      await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
+      await expect(page.getByTestId("agent-task-progress-card")).toContainText("0/1 tasks");
+      expect((await client.getAgentChecklist(agent.agentId)).map((task) => task.id)).toEqual([
+        api!.id!,
+      ]);
+    } finally {
+      await client.close();
+      await agent.cleanup();
+    }
+  });
+}

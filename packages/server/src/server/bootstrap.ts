@@ -246,6 +246,11 @@ import {
   createNativeFactoryObservationResolver,
 } from "./factory/observation-service.js";
 import { attachFactoryControllerObservation } from "./factory/attach-controller-observation.js";
+import {
+  createNativeFactoryInstallStartup,
+  createNativeFactoryInstallerResolver,
+  type NativeFactoryInstaller,
+} from "./factory/native-install-startup.js";
 import { NativeFactorySetupService } from "./factory/setup-service.js";
 import { createFactoryCoordinatorBinder } from "./factory/create-coordinator-binder.js";
 import { createFactoryControllerObservationSource } from "./factory/create-controller-observation-source.js";
@@ -660,9 +665,11 @@ export async function createPaseoDaemon(
   const browserToolsBroker = new BrowserToolsBroker({});
   let resolveFactoryObservation: () => NativeFactoryObservationService | null = () => null;
   let factorySetupService: NativeFactorySetupService | null = null;
+  let resolveFactoryInstaller: () => NativeFactoryInstaller | null = () => null;
   const pluginRuntime: PluginService = new PluginService(logger, daemonConfigStore, daemonVersion, {
     factoryObservation: () => resolveFactoryObservation(),
     factorySetup: () => factorySetupService,
+    factoryInstallation: () => (resolveFactoryInstaller() ? factorySetupService : null),
     usageAgents: {
       hasAgent: (id) => agentManager.getAgent(id) !== null,
       usageSession: (id) => agentManager.usageSession(id),
@@ -928,7 +935,11 @@ export async function createPaseoDaemon(
     path.join(config.paseoHome, "projects", "projects.json"),
     logger,
   );
-  factorySetupService = new NativeFactorySetupService({ serverId, projects: projectRegistry });
+  factorySetupService = new NativeFactorySetupService({
+    serverId,
+    projects: projectRegistry,
+    installer: () => resolveFactoryInstaller(),
+  });
   workspaceRegistry = new FileBackedWorkspaceRegistry(
     path.join(config.paseoHome, "projects", "workspaces.json"),
     logger,
@@ -1433,10 +1444,26 @@ export async function createPaseoDaemon(
   const governorObservations = new ProviderQuotaObservationService({
     getClient: (provider) => agentManager.getQuotaObservationClient(provider),
   });
+  const governorStore = new QuotaGovernorStore(path.join(config.paseoHome, "quota-governor"));
+  const loadedBuiltin = pluginRuntime.isBuiltinPluginLoaded;
+  const canDispatchFactory = () =>
+    pluginRuntime.isBuiltinPluginLoaded === loadedBuiltin &&
+    loadedBuiltin.call(pluginRuntime, "factory");
   const governedRuntime = await dependencies.createGovernedScheduleRuntime?.({
     hostId: serverId,
     paseoHome: config.paseoHome,
-    store: new QuotaGovernorStore(path.join(config.paseoHome, "quota-governor")),
+    store: governorStore,
+    factoryInstallation: {
+      create: createNativeFactoryInstallStartup({
+        serverId,
+        projects: projectRegistry,
+        workspaces: workspaceRegistry,
+        agents: agentStorage,
+        readProfiles: () => daemonConfigStore.get().agentProfiles ?? [],
+        store: governorStore,
+        canDispatch: canDispatchFactory,
+      }),
+    },
     factoryCoordinators: {
       bind: createFactoryCoordinatorBinder({
         serverId,
@@ -1461,6 +1488,11 @@ export async function createPaseoDaemon(
         }),
       ),
   });
+  resolveFactoryInstaller = createNativeFactoryInstallerResolver(
+    governedRuntime,
+    serverId,
+    canDispatchFactory,
+  );
   resolveFactoryObservation = createNativeFactoryObservationResolver(governedRuntime, {
     serverId,
     projects: projectRegistry,

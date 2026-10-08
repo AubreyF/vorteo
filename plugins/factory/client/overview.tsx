@@ -5,6 +5,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-na
 import type { FactorySnapshot } from "../shared/contracts.js";
 import type { FactoryDataSource, FactorySetupObservationState } from "./observation.js";
 import { FactorySetupStatus } from "./setup.js";
+import type { FactoryInstallationState } from "./installation.js";
 
 interface OverviewProps extends PluginHostProps {
   source: FactoryDataSource;
@@ -15,6 +16,8 @@ interface OverviewProps extends PluginHostProps {
   setupState?: FactorySetupObservationState;
   onRetrySetup?: () => void;
   setupPending?: boolean;
+  installation?: FactoryInstallationState;
+  onInstall?: () => void;
 }
 
 const statusLabels = {
@@ -308,6 +311,14 @@ function ObservationHeader({
   );
 }
 
+function installationControls(
+  kind: string,
+  installation: OverviewProps["installation"],
+  onInstall: OverviewProps["onInstall"],
+) {
+  return kind === "fixture" ? {} : { installation, onInstall };
+}
+
 export function FactoryOverview({
   source,
   theme,
@@ -319,6 +330,8 @@ export function FactoryOverview({
   setupState,
   onRetrySetup,
   setupPending = false,
+  installation,
+  onInstall,
 }: OverviewProps) {
   const [selectedIssue, setSelectedIssue] = useState<string | null>(null);
   const { snapshot } = source;
@@ -369,6 +382,7 @@ export function FactoryOverview({
           theme={theme}
           onRetry={onRetrySetup}
           pending={setupPending}
+          {...installationControls(source.kind, installation, onInstall)}
         />
       ) : null}
 

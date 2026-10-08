@@ -3718,6 +3718,38 @@ export class DaemonClient {
     });
   }
 
+  async getAgentChecklist(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-types").AgentTaskItem[]> {
+    this.assertChecklistSupport();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.checklist.get.response">({
+        message: { type: "agent.checklist.get.request", agentId },
+      });
+    if (result.error || !result.tasks) throw new Error(result.error ?? "Checklist unavailable");
+    return result.tasks;
+  }
+
+  async mutateAgentChecklist(
+    agentId: string,
+    mutation: import("@getpaseo/protocol/task-checklist").ChecklistMutation,
+  ): Promise<import("@getpaseo/protocol/agent-types").AgentTaskItem[]> {
+    this.assertChecklistSupport();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.checklist.mutate.response">({
+        message: { type: "agent.checklist.mutate.request", agentId, mutation },
+      });
+    if (result.error || !result.tasks)
+      throw new Error(result.error ?? "Checklist update unconfirmed");
+    return result.tasks;
+  }
+
+  private assertChecklistSupport(): void {
+    if (this.lastServerInfoMessage?.features?.agentChecklistMutations !== true) {
+      throw new Error("Update the daemon before editing thread checklists.");
+    }
+  }
+
   async getAgentGoal(
     agentId: string,
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {

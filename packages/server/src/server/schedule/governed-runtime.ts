@@ -8,6 +8,8 @@ import { pathToFileURL } from "node:url";
 import type { NativeFactoryObservationProvider } from "../factory/observation-service.js";
 import type { attachFactoryControllerObservation } from "../factory/attach-controller-observation.js";
 import type { createFactoryControllerObservationSource } from "../factory/create-controller-observation-source.js";
+import type { createNativeFactoryInstallStartup } from "../factory/native-install-startup.js";
+import type { NativeFactoryInstallAdapter } from "../factory/native-install-adapter.js";
 
 import type { createFactoryCoordinatorBinder } from "../factory/create-coordinator-binder.js";
 
@@ -24,12 +26,16 @@ export interface GovernedScheduleRuntimeContext {
     createSource: typeof createFactoryControllerObservationSource;
     attach: typeof attachFactoryControllerObservation;
   };
+  /** Constructor only. Caller supplies the same retained owner and explicit reconciliation permit. */
+  factoryInstallation?: { create: ReturnType<typeof createNativeFactoryInstallStartup> };
 }
 
 /** Trusted host integration only. No runtime factory or callback enters worker RPC configuration. */
 export interface GovernedScheduleRuntime extends QuotaScheduleExecution {
   /** Optional read-only projection from this same retained controller owner. */
   factoryObservation?: NativeFactoryObservationProvider;
+  /** Native adapter from this runtime's startup context; never created by plugin reload or RPC. */
+  factoryInstallation?: NativeFactoryInstallAdapter;
   /** Bind authentication and persist estimated accounting before preflight admission. */
   readObservation(providerId: string): Promise<QuotaObservation>;
   /** Revoke synchronously, then settle captured work or reject with retained recovery custody. */

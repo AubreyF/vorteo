@@ -102,6 +102,7 @@ import type {
 import type { ProviderPaseoToolsPolicy } from "@getpaseo/protocol/provider-config";
 import { isPaseoToolEnabled } from "../paseo-tool-policy.js";
 import { createPauseGoalTool } from "./pause-goal.js";
+import { createChecklistTools } from "../task-checklist/tools.js";
 
 export interface PaseoToolHostDependencies {
   agentManager: AgentManager;
@@ -1240,6 +1241,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   }
 
   if (callerAgentId) {
+    for (const tool of createChecklistTools(agentManager, callerAgentId)) {
+      registerTool(tool.name, tool, tool.handler);
+    }
     const pauseGoal = createPauseGoalTool(agentManager, callerAgentId);
     registerTool(pauseGoal.name, pauseGoal, pauseGoal.handler);
   }

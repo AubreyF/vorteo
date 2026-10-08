@@ -73,6 +73,14 @@ export function hostProjectFromWorkspace(input: {
         serverId: input.serverId,
         projectId,
       }),
+    ...(input.workspace.projectMembership
+      ? {
+          membership: {
+            key: input.workspace.projectMembership.key,
+            name: input.workspace.projectMembership.name,
+          },
+        }
+      : {}),
     projectKey: input.workspace.project?.projectKey ?? null,
     projectName:
       input.workspace.projectMembership?.name ?? (input.workspace.projectDisplayName || projectId),

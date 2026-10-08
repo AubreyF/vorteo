@@ -8,11 +8,24 @@ import {
 } from "@getpaseo/plugin/client";
 import { Pressable, Text, ScrollView, StyleSheet } from "react-native";
 import { factorySnapshot } from "../shared/contracts.js";
-import { factorySetup } from "../shared/operations.js";
-import { useMemo, useCallback } from "react";
+import { factorySetup, factoryInstall } from "../shared/operations.js";
+import { useMemo, useCallback, useRef, useSyncExternalStore, useEffect } from "react";
 import { FactoryOverview } from "./overview.js";
 import { resolveFactoryObservation, resolveFactorySetupObservation } from "./observation.js";
 import { FactorySetupStatus } from "./setup.js";
+import {
+  getFactoryInstallation,
+  createFactoryOperationId,
+  type FactoryInstallationState,
+} from "./installation.js";
+
+const idleInstallation: FactoryInstallationState = { kind: "idle" };
+function readIdleInstallation() {
+  return idleInstallation;
+}
+function subscribeIdleInstallation() {
+  return () => {};
+}
 
 export function FactoryPanel(props: PluginWorkspacePanelProps) {
   const projectId = useWorkspace(props.workspaceId, (workspace) => workspace.projectId);
@@ -27,6 +40,25 @@ function FactoryObservation(props: PluginSurfaceProps & { projectId: string | nu
   const { projectId } = props;
   const readSnapshot = useRpc(factorySnapshot);
   const readSetup = useRpc(factorySetup);
+  const installFactory = useRpc(factoryInstall);
+  const scope = useRef({ hostId: props.host.id, projectId });
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  scope.current = { hostId: props.host.id, projectId };
+  const installation = useMemo(
+    () => (projectId === null ? null : getFactoryInstallation(props.host.id, projectId)),
+    [props.host.id, projectId],
+  );
+  const installationState = useSyncExternalStore(
+    installation?.subscribe ?? subscribeIdleInstallation,
+    installation?.getSnapshot ?? readIdleInstallation,
+    installation?.getSnapshot ?? readIdleInstallation,
+  );
   const query = useQuery({
     queryKey: ["factory.snapshot", props.host.id, projectId],
     queryFn: () => {
@@ -84,12 +116,43 @@ function FactoryObservation(props: PluginSurfaceProps & { projectId: string | nu
     failed: setupQuery.isError,
     paused: setupQuery.fetchStatus === "paused",
   });
+  const install = useCallback(async () => {
+    if (
+      !installation ||
+      projectId === null ||
+      setupState.kind !== "observed" ||
+      setupState.retained
+    )
+      return;
+    const hostId = props.host.id;
+    await installation.run(setupState.setup, createFactoryOperationId(), {
+      readSetup: () => readSetup({ projectId }),
+      install: installFactory,
+      isCurrent: () =>
+        mounted.current && scope.current.hostId === hostId && scope.current.projectId === projectId,
+    });
+    if (scope.current.hostId === hostId && scope.current.projectId === projectId) {
+      void refetch();
+      void refetchSetup();
+    }
+  }, [
+    installation,
+    projectId,
+    setupState,
+    props.host.id,
+    readSetup,
+    installFactory,
+    refetch,
+    refetchSetup,
+  ]);
   const setupView = (
     <FactorySetupStatus
       state={setupState}
       theme={props.theme}
       onRetry={retrySetup}
       pending={setupQuery.isFetching}
+      installation={installationState}
+      onInstall={install}
     />
   );
   const openAgent = props.navigation?.openAgent;
@@ -155,6 +218,8 @@ function FactoryObservation(props: PluginSurfaceProps & { projectId: string | nu
       setupState={setupState}
       onRetrySetup={retrySetup}
       setupPending={setupQuery.isFetching}
+      installation={installationState}
+      onInstall={install}
     />
   );
 }

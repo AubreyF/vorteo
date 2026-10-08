@@ -49,9 +49,9 @@ the read. A plugin reload resolves the same observer and does not replace or sto
 
 The service parses bounded canonical DTOs and validates GitHub delivery links against the bound
 repository. Current snapshots require a coherent revision and observation time. Archived
-coordinators require a visible recovery hold. All action capabilities remain false. The actual
-controller provider is not wired yet; installation and independently verified delivery evidence
-remain required. The projection must exclude journal records, credentials, account inventories
+coordinators require a visible recovery hold. All action capabilities remain false. The retained-controller provider and native startup boundary are implemented in source.
+Production owner attachment, installation and independently verified delivery evidence remain
+required. The projection must exclude journal records, credentials, account inventories
 and private paths. Reading a release journal does not establish a verified publication.
 
 ## Native binding and lifecycle boundary
@@ -61,8 +61,9 @@ The optional wire relationship is `WorkspaceDescriptor.factoryMembership`, conta
 The proposed capability is `factoryWorkspaceMembership`. Native source now persists the
 relationship through an internal authority seam and reserves coordinator roles in the registry
 transaction. Ordinary archive and removal reject retained ownership, including archived
-backing paths shared with an ordinary sibling. The authority adapter and capability advertisement
-remain unimplemented. The interface cannot infer membership from titles, directories, labels
+backing paths shared with an ordinary sibling. The native authority adapter, atomic coordinator binder and initial installation service are
+implemented in source. A production owner reconciliation permit and installation remain
+unavailable; the daemon does not advertise membership support merely because source exists. The interface cannot infer membership from titles, directories, labels
 or Standing state.
 
 A later native binding service must validate the exact relationship and persist it before
@@ -79,13 +80,12 @@ The source candidate adds `paseo factory status <project-id>` with the existing 
 selector and table, JSON and YAML output. It reads the same `factory.snapshot` contract
 as the interface, checks the serving host and exact project, and preserves unavailable
 measurements. It does not substitute fixtures when transport or validation fails.
-Only status is exposed until the installation service supports reviewed mutations.
+Setup and guarded initial installation also use the shared native service when the selected daemon supports it.
 The server package builds and exports the canonical plugin contracts for the CLI;
 the schemas remain authored in `plugins/factory/shared/contracts.ts`.
 
 Install, status, configure, pause, resume, upgrade and disable must share one native installation
-service with the project menu. No placeholder mutation RPC or successful install command exists
-in the observer slice. Repeat installation must discover and adopt an existing identity instead
+service with the project menu. An observer without a reconciled native adapter cannot advertise installation or dispatch a successful mutation. Repeat installation must discover and adopt an existing identity instead
 of creating another controller or coordinator. Commands need the expected installation identity
 and coherent observed revision; a null revision does not establish mutation preconditions.
 
@@ -93,3 +93,18 @@ Pause stops new admission while admitted work continues. Stop retains recovery c
 and upgrade reconcile ownership before replacing or shutting down coordination. These operations
 must use native schedule, account and execution mechanisms; they do not add a scheduler, quota
 polling loop or merge cap.
+
+### Guarded CLI installation
+
+`paseo factory setup <project-id>` reports the serving identity, native revision, setup state
+and install availability. It reads no fixtures. `paseo factory install <project-id>` requires
+`--expected-server-id`, `--expected-revision` and a stable `--operation-id` from that attempt.
+The command reads setup again from the selected host and rejects changed, held or already
+installed state before dispatch. The native adapter supplies the selected account, configured
+profile and exact coordinator pair; the command has no selectors for those values.
+
+A refused or uncertain result exits with an error and retains its correlated native details
+in structured output. Transport loss or invalid identity after dispatch requires reconciliation
+of the original operation. The command never retries installation. These source commands do
+not authorize controller adoption, deployment, account changes or a daemon restart. Other
+operations remain unavailable until their reconciled native handlers exist.

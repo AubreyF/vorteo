@@ -33,6 +33,10 @@ import {
   createPersistedWorkspaceRecord,
   FileBackedProjectRegistry,
 } from "../../workspace-registry.js";
+import {
+  createNativeFactoryInstallStartup,
+  createNativeFactoryInstallerResolver,
+} from "../../factory/native-install-startup.js";
 import { NativeFactorySetupService } from "../../factory/setup-service.js";
 import { createNativeFactoryInstallAdapter } from "../../factory/native-install-adapter.js";
 import { writeJsonFileAtomic } from "../../atomic-file.js";
@@ -1350,7 +1354,7 @@ async function fixture(root: string, id: string, client = false): Promise<string
 }
 
 test("bundled Factory observes serving identity without creating or adopting work", async () => {
-  const version = "0.11.0-beta.3.vorteo.195";
+  const version = "0.11.0-beta.3.vorteo.203";
   const root = await mkdtemp(path.join(os.tmpdir(), "factory-observation-"));
   roots.push(root);
   const daemon = await createTestPaseoDaemon({
@@ -1596,3 +1600,151 @@ test("directory, Git, and npm installs reject a built-in ID", async () => {
     await daemon.close();
   }
 }, 60_000);
+
+async function nativeStartupInstallerFixture() {
+  const f = await nativeInstallFixture();
+  let dispatchable = true;
+  const contract = createAccountingContract(f.source.policy);
+  const store = { accountingContract: vi.fn(async () => contract) };
+  const canDispatch = () => dispatchable;
+  const create = createNativeFactoryInstallStartup({
+    serverId: f.deps.serverId,
+    projects: f.deps.projects,
+    workspaces: f.deps.workspaces,
+    agents: f.deps.agents,
+    readProfiles: f.deps.readProfiles,
+    store,
+    canDispatch,
+  });
+  const options = {
+    runtime: f.runtime,
+    source: f.source,
+    provider: f.deps.provider,
+    profileId: f.deps.profileId,
+    assertReconciled: f.deps.assertReconciled,
+  };
+  const adapter = await create(options);
+  f.runtime.factoryInstallation = adapter;
+  const installer = createNativeFactoryInstallerResolver(f.runtime, f.deps.serverId, canDispatch);
+  const service = new NativeFactorySetupService({
+    serverId: f.deps.serverId,
+    projects: f.deps.projects,
+    installer,
+  });
+  return {
+    ...f,
+    adapter,
+    create,
+    options,
+    store,
+    installer,
+    service,
+    setDispatchable(value: boolean) {
+      dispatchable = value;
+    },
+  };
+}
+
+test("native Factory startup dispatches only the account-wrapped branded owner and preserves RPC identity", async () => {
+  const f = await nativeStartupInstallerFixture();
+  const setup = await f.service.read({ projectId: f.request.projectId });
+  expect(setup).toMatchObject({ state: "ready", operations: { install: true } });
+  const result = await f.service.install({ ...f.request, expectedRevision: setup.revision });
+  expect(result).toMatchObject({
+    outcome: "applied",
+    serverId: setup.serverId,
+    projectId: setup.projectId,
+    operationId: f.request.operationId,
+    installationId: f.source.binding.installationId,
+    setup: { state: "installed", operations: { install: false } },
+  });
+  expect(f.store.accountingContract).toHaveBeenCalled();
+  expect(f.stop).not.toHaveBeenCalled();
+});
+
+test("native Factory startup does not enable install without a loaded dispatch boundary", async () => {
+  const f = await nativeStartupInstallerFixture();
+  f.setDispatchable(false);
+  expect(await f.service.read({ projectId: f.request.projectId })).toMatchObject({
+    state: "unavailable",
+    operations: { install: false },
+  });
+  expect(await f.service.install(f.request)).toMatchObject({
+    outcome: "refused",
+    code: "unavailable",
+  });
+  expect((await f.deps.projects.get(f.request.projectId))?.factoryInstallation).toBeUndefined();
+});
+
+test("native Factory startup refuses shape-compatible and foreign-runtime adapters", async () => {
+  const f = await nativeStartupInstallerFixture();
+  const foreign = { ...f.runtime };
+  expect(createNativeFactoryInstallerResolver(foreign, f.deps.serverId, () => true)()).toBeNull();
+  f.runtime.factoryInstallation = { readSetup: f.adapter.readSetup, install: f.adapter.install };
+  expect(createNativeFactoryInstallerResolver(f.runtime, f.deps.serverId, () => true)()).toBeNull();
+  expect(() => f.installer()).toThrow("startup owner");
+  expect((await f.deps.projects.get(f.request.projectId))?.factoryInstallation).toBeUndefined();
+});
+
+test("native Factory startup refuses foreign host and project before effects", async () => {
+  const f = await nativeStartupInstallerFixture();
+  expect(
+    await f.service.install({ ...f.request, expectedServerId: "another-daemon" }),
+  ).toMatchObject({ outcome: "refused", code: "identity_mismatch", serverId: f.deps.serverId });
+  expect(await f.service.install({ ...f.request, projectId: "another-project" })).toMatchObject({
+    outcome: "refused",
+    code: "unavailable",
+  });
+  expect((await f.deps.projects.get(f.request.projectId))?.factoryInstallation).toBeUndefined();
+});
+
+test("native Factory startup loses dispatch after checkpoint with typed uncertainty and durable protection", async () => {
+  const f = await nativeStartupInstallerFixture();
+  const unsubscribe = f.deps.projects.subscribeToMutations((mutation) => {
+    if (mutation.project?.factoryInstallation) f.setDispatchable(false);
+  });
+  expect(await f.service.install(f.request)).toMatchObject({
+    outcome: "uncertain",
+    reconciliationRequired: true,
+    operationId: f.request.operationId,
+  });
+  unsubscribe();
+  expect((await f.deps.projects.get(f.request.projectId))?.factoryInstallation?.stage).toBe(
+    "binding",
+  );
+  f.setDispatchable(true);
+  expect(await f.service.read({ projectId: f.request.projectId })).toMatchObject({
+    state: "held",
+    operations: { install: false },
+  });
+  expect(await f.service.install({ ...f.request, operationId: "fresh-attempt" })).toMatchObject({
+    outcome: "refused",
+    code: "held",
+  });
+});
+
+test("native Factory startup replacement of adapter methods cannot advertise or dispatch installation", async () => {
+  const f = await nativeStartupInstallerFixture();
+  const install = vi.fn(f.adapter.install);
+  f.adapter.install = install;
+  expect(() => f.installer()).toThrow("startup owner");
+  await expect(f.service.read({ projectId: f.request.projectId })).rejects.toThrow("startup owner");
+  expect(install).not.toHaveBeenCalled();
+});
+
+test("native Factory startup fresh adapter never upgrades a persisted attached checkpoint to installed", async () => {
+  const f = await nativeStartupInstallerFixture();
+  expect(await f.service.install(f.request)).toMatchObject({ outcome: "applied" });
+  const replacement = await f.create(f.options);
+  f.runtime.factoryInstallation = replacement;
+  const installer = createNativeFactoryInstallerResolver(f.runtime, f.deps.serverId, () => true);
+  const service = new NativeFactorySetupService({
+    serverId: f.deps.serverId,
+    projects: f.deps.projects,
+    installer,
+  });
+  expect(await service.read({ projectId: f.request.projectId })).toMatchObject({
+    state: "held",
+    operations: { install: false },
+  });
+});

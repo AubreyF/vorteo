@@ -83,6 +83,7 @@ interface PluginServiceDependencies {
   /** Startup-owned observer; plugin reload cannot create or replace its owner. */
   factoryObservation?: () => Pick<NativeFactoryObservationService, "invoke"> | null;
   factorySetup?: () => Pick<NativeFactorySetupService, "read"> | null;
+  factoryInstallation?: () => Pick<NativeFactorySetupService, "install"> | null;
   usageAgents?: AgentUsageLookup;
   settingsDirectory?: string;
   runtime?: PluginRuntimePort;
@@ -682,6 +683,14 @@ export class PluginService {
   async invokePluginRpc(pluginId: string, method: string, input: unknown): Promise<unknown> {
     if (
       pluginId === "factory" &&
+      method === "factory.install" &&
+      this.isBuiltinPluginLoaded(pluginId)
+    ) {
+      const installer = this.dependencies.factoryInstallation?.();
+      if (installer) return installer.install(input);
+    }
+    if (
+      pluginId === "factory" &&
       method === "factory.setup" &&
       this.builtinPluginIds.has(pluginId) &&
       this.runtime.isBuiltinPluginLoaded?.(pluginId) === true
@@ -699,6 +708,12 @@ export class PluginService {
       if (observer) return observer.invoke(method, input);
     }
     return this.runtime.invoke(pluginId, method, input);
+  }
+
+  isBuiltinPluginLoaded(pluginId: string): boolean {
+    return (
+      this.builtinPluginIds.has(pluginId) && this.runtime.isBuiltinPluginLoaded?.(pluginId) === true
+    );
   }
 
   async stopAllPlugins(): Promise<void> {

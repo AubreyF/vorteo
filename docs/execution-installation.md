@@ -158,6 +158,14 @@ Coordinator recovery retries approved waiting work and hold release, never an
 ambiguous disruptive dispatch. A new daemon uses existing goal and queue recovery;
 this does not add an independent continuation scheduler.
 
+### Tracked Dev supervisor maintenance
+
+A supervisor or launcher repair uses the same coordinator journal, sidebar notice and owner controls as daemon restarts. A trusted Host operator prepares a protected Node maintenance script, its SHA-256 digest and rollback procedure, then configures `container.supervisorMaintenance` with absolute `node` and `script` paths and `sha256`. Keep the executable, script and configuration outside guest-writable mounts. The script owns validation of its exact installation targets, preservation, activation and rollback evidence; it must not restart unrelated services or replay a failed operation.
+
+The Host client discovers `supervisorMaintenance` through `capabilities` and submits `request-restart --target container-daemon --supervisor-plan <sha256> --reason-file <file>`. Submission is inert. The owner reviews **Dev supervisor**, then chooses **Finish turns and restart** or **Cancel**. Approval binds the request revision and configured script digest. A plain worker restart cannot share that approval. A supervisor repair can remain pending alongside an unapproved source batch; both stay visible and only one operation per target can be approved at a time. Container credentials cannot submit supervisor maintenance, and old clients must reload before approving it.
+
+The coordinator holds new work through its existing drain workflow, waits for active turns and registrations, and executes the verified script bytes once. It then verifies a replacement worker and the pinned daemon identity. Unknown activity and preparation failures remain blockers. For older workers, an exact disconnected-session error may be excluded only after a fresh record confirms archived, inactive history with no active turn or permissions. Updated daemons skip preparing that archived history. Cancellation before dispatch releases the matching hold; interrupted dispatch is recorded as failed and never replayed. Force restart remains an explicit operator escalation for an approved queue.
+
 ## Reviewed source updates
 
 The installed maintenance client exposes `capabilities` for target readiness and bootstrap blockers. Dev can submit committed source for either available target:
@@ -223,3 +231,9 @@ Once that supervisor and its pinned daemon are ready, run the trusted installer 
 Each Dev update rechecks source and bundle digests before building. Git processing on Host remains inert. Approved code and dependency scripts execute only inside Dev. Build and validation failure leave selection untouched. Activation compares the installed base and current selection before switching. Failed readiness restores selection without replaying a restart; retain the failed receipt and inspect the actual runtime. Previous releases remain available. Receipt-write failures after replacement require reconciliation before another update.
 
 Acceptance is complete only when the installed client inside Dev reports both intended targets available, both target submissions remain pending without owner approval, old owner tabs cannot approve a Dev build, and an approved Dev fixture reaches the exact submitted executable while retaining its supervisor, workspace state and Factory connection. Verify a subsequent update through the same client without a Host handoff. Test failures before activation and restore-on-readiness-failure in an isolated installation. Do not exercise destructive failure cases on the owner's daemon.
+
+### Concurrent release-note history
+
+Source batches reconcile complete release-note entries, so integration may interleave unchanged history without blocking an update. Both branches must retain every historical entry, including repeated entries; edits or deletions require explicit source correction. The accepted document is retained and missing incoming entries are added. The upload base is only a bundle prerequisite; merging uses the verified common ancestor so previously integrated work is not applied again. Multiple merge bases require explicit integration. Source and dependency conflicts remain separate validation failures.
+
+After a coordinator reload, pending conflicted batches are checked again against the installed validator. Their contribution receipts remain unchanged, their review revision changes, and they still require exact owner approval. Dispatched installations are never replayed. The sidebar reports correction and validation states instead of describing every pending update as ready for approval.
