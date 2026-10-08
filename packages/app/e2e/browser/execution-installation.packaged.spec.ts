@@ -680,7 +680,7 @@ test("restart banner names daemons and keeps its top divider fixed while scrolli
   }
 });
 
-test("both restart requests stay visible with simple actions and sidebar force confirmation", async ({
+test("force restart requires an approved queue and operator escalation", async ({
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
@@ -745,9 +745,22 @@ test("both restart requests stay visible with simple actions and sidebar force c
     await expect(
       page.getByRole("button", { name: "All restart requests", exact: true }),
     ).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Force restart now", exact: true })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByRole("button", { name: "Restart appears stuck", exact: true }),
+    ).toHaveCount(0);
     await card.screenshot({ path: testInfo.outputPath("restart-pending.png") });
     await card.getByRole("button", { name: "Restart when idle", exact: true }).click();
-    await expect(card.getByRole("button")).toHaveText(["Details", "Cancel", "Force restart now"]);
+    await expect(card.getByRole("button")).toHaveText([
+      "Details",
+      "Cancel",
+      "Restart appears stuck",
+    ]);
+    await expect(page.getByRole("button", { name: "Force restart now", exact: true })).toHaveCount(
+      0,
+    );
     const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
     // Compact navigation hides the sidebar until opened.
     if (await banner.count()) {
@@ -756,11 +769,13 @@ test("both restart requests stay visible with simple actions and sidebar force c
       );
       await expect(
         banner.getByRole("button", { name: "Force restart now", exact: true }),
-      ).toHaveCount(2);
-      page.once("dialog", (dialog) => dialog.dismiss());
-      await banner.getByTestId(`restart-force-${dev.id}`).click();
-      await expect(card).toContainText("Queued until idle");
+      ).toHaveCount(0);
     }
+    await card.getByRole("button", { name: "Restart appears stuck", exact: true }).click();
+    await expect(card.getByTestId(`restart-force-${dev.id}`)).toBeVisible();
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await card.getByTestId(`restart-force-${dev.id}`).click();
+    await expect(card).toContainText("Queued until idle");
     await card.screenshot({ path: testInfo.outputPath("restart-queued.png") });
     await card.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(card).toContainText("Rejected");
@@ -782,8 +797,10 @@ test("both restart requests stay visible with simple actions and sidebar force c
     await expect(retryCard.getByRole("button")).toHaveText([
       "Details",
       "Cancel",
-      "Force restart now",
+      "Restart appears stuck",
     ]);
+    await expect(retryCard.getByTestId(`restart-force-${retry.id}`)).toHaveCount(0);
+    await retryCard.getByRole("button", { name: "Restart appears stuck", exact: true }).click();
     page.once("dialog", (dialog) => dialog.accept());
     await retryCard.getByRole("button", { name: "Force restart now", exact: true }).click();
     await expect(retryCard).toContainText("Restarted", { timeout: 150_000 });
