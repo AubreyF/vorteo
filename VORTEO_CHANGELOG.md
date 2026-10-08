@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.198 - 2026-10-08
+
+### Fixed
+
+- Reconcile intact release-note entries across concurrent source deliveries without requiring historical entries to remain a contiguous suffix. Edited or deleted history still requires explicit correction.
+- Merge divergent contributions from their verified shared ancestor instead of replaying changes since an older bundle prerequisite. Ambiguous ancestry still requires explicit integration.
+- Recheck pending source conflicts after coordinator recovery without approving or replaying installation. Show blocked update status and its cause in the sidebar.
+
 ## 0.11.0-beta.3.vorteo.197 - 2026-10-08
 
 ### Fixed

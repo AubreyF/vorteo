@@ -1548,3 +1548,182 @@ test("supervisor repair preserves a pending source batch and serializes both app
   expect(queue.contribution(receipt.contribution.id)!.batch.status).toBe("pending");
   expect(queue.list().find((entry) => entry.id === job.id)?.status).toBe("succeeded");
 });
+
+test("release notes preserve interleaved history and reject edits or missing duplicates", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const old = "## 0.11.0-beta.3.vorteo.177 - 2026-10-07\n\n- Existing note";
+  const older = "## 0.11.0-beta.3.vorteo.176 - 2026-10-07\n\n- Earlier note";
+  const added = "## 0.11.0-beta.3.vorteo.178 - 2026-10-07\n\n- New note";
+  const other = "## 0.11.0-beta.3.vorteo.178 - 2026-10-07\n\n- Concurrent note";
+  const base = `${prefix}${old}\n\n${older}\n`;
+  const accepted = `${prefix}${old}\n\n${added}\n\n${older}\n`;
+  const incoming = `${prefix}${other}\n\n${old}\n\n${older}\n`;
+  const result = reconcileReleaseNotes(base, accepted, incoming);
+  expect(result).toBe(`${prefix}${other}\n\n${accepted.slice(prefix.length)}`);
+  expect(reconcileReleaseNotes(base, result, incoming)).toBe(result);
+  expect(reconcileReleaseNotes(base.replace(prefix, prefix + "\n"), accepted, incoming)).toBe(
+    result,
+  );
+  expect(() =>
+    reconcileReleaseNotes(base, accepted, incoming.replace("Existing note", "Edited")),
+  ).toThrow("Existing release notes were edited");
+  expect(() => reconcileReleaseNotes(base, accepted, `${prefix}${old}\n`)).toThrow(
+    "Existing release notes were edited",
+  );
+  const duplicate = `${prefix}${old}\n\n${old}\n`;
+  expect(() => reconcileReleaseNotes(duplicate, duplicate, `${prefix}${old}\n`)).toThrow(
+    "Existing release notes were edited",
+  );
+  expect(() =>
+    reconcileReleaseNotes(base, accepted, incoming.replace("# Vorteo changelog", "# Changed")),
+  ).toThrow("introduction changed");
+});
+
+test("coordinator recovery revalidates pending conflicts without approving or installing", async () => {
+  const journal = new MemoryJournal();
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 1,
+  };
+  const contribution = {
+    id: crypto.randomUUID(),
+    update,
+    reason: "Feature",
+    requestedBy: "container-agent" as const,
+    createdAt: new Date().toISOString(),
+    status: "invalid" as const,
+    detail: "Existing release notes were edited; resolve explicitly",
+  };
+  journal.jobs = [
+    {
+      id: crypto.randomUUID(),
+      revision: crypto.randomUUID(),
+      target: "host",
+      requestedBy: "container-agent",
+      reason: "Feature",
+      createdAt: contribution.createdAt,
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "pending",
+      detail: "Needs correction",
+      sourceBatch: { status: "conflict", contributions: [contribution] },
+    },
+  ];
+  const previous = structuredClone(journal.jobs[0]!);
+  let preparations = 0;
+  let installations = 0;
+  const queue = new InstallationRestarts(journal, {
+    restart: async () => {
+      installations++;
+      return "unexpected";
+    },
+    sourceBase: () => update.baseCommit,
+    sourceWeb: () => update.baseCommit,
+    prepareUpdate: async (contributions) => {
+      preparations++;
+      return {
+        batch: {
+          status: "ready",
+          webCommit: update.baseCommit,
+          contributions: contributions.map((item) => ({
+            ...item,
+            status: "included",
+            detail: "Included",
+          })),
+        },
+        update,
+      };
+    },
+  });
+  expect(queue.list()[0]?.revision).not.toBe(previous.revision);
+  await queue.prepareBatches();
+  await queue.prepareBatches();
+  expect(preparations).toBe(1);
+  expect(installations).toBe(0);
+  expect(queue.list()[0]).toMatchObject({
+    id: previous.id,
+    status: "pending",
+    sourceBatch: { status: "ready", contributions: [{ id: contribution.id, update }] },
+  });
+  expect(() => queue.decide(previous.id, previous.revision, "approve")).toThrow("changed");
+});
+
+test("source batching uses shared ancestry instead of replaying the bundle prerequisite", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { prepareSourceBatch } = await import("./source-batches.js");
+  const root = await mkdtemp(path.join(tmpdir(), "batch-ancestry-"));
+  const repository = path.join(root, "repository");
+  const directory = path.join(root, "bundles");
+  await mkdir(repository);
+  await mkdir(directory);
+  const git = (...args: string[]) =>
+    execFileSync("git", args, {
+      cwd: repository,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@localhost",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@localhost",
+      },
+    }).trim();
+  try {
+    git("init", "--initial-branch=integration");
+    await writeFile(path.join(repository, "feature.txt"), "original\n");
+    git("add", ".");
+    git("commit", "-m", "installed prerequisite");
+    const baseCommit = git("rev-parse", "HEAD");
+    await writeFile(path.join(repository, "feature.txt"), "shared implementation\n");
+    git("commit", "-am", "shared feature");
+    const common = git("rev-parse", "HEAD");
+    await writeFile(path.join(repository, "feature.txt"), "accepted refinement\n");
+    git("commit", "-am", "live refinement");
+    const webCommit = git("rev-parse", "HEAD");
+    git("checkout", "-B", "integration", common);
+    await writeFile(path.join(repository, "new.txt"), "new feature\n");
+    git("add", ".");
+    git("commit", "-m", "parallel feature");
+    const sourceCommit = git("rev-parse", "HEAD");
+    const bundleFile = path.join(root, "incoming.bundle");
+    git("bundle", "create", bundleFile, `${baseCommit}..refs/heads/integration`);
+    const bundle = await readFile(bundleFile);
+    const sha256 = createHash("sha256").update(bundle).digest("hex");
+    await writeFile(path.join(directory, `${sha256}.bundle`), bundle);
+    let combined: Buffer | undefined;
+    const result = await prepareSourceBatch({
+      repository,
+      directory,
+      integrationRef: "refs/heads/integration",
+      baseCommit,
+      webCommit,
+      contributions: [
+        {
+          id: crypto.randomUUID(),
+          requestedBy: "container-agent",
+          createdAt: new Date().toISOString(),
+          reason: "Parallel feature",
+          status: "queued",
+          detail: "",
+          update: { sourceCommit, baseCommit, sha256, bytes: bundle.length },
+        },
+      ],
+      stage: (_update, bytes) => {
+        combined = bytes;
+      },
+    });
+    expect(result.batch.status, JSON.stringify(result.batch)).toBe("ready");
+    const output = path.join(root, "combined.bundle");
+    await writeFile(output, combined!);
+    git("fetch", output, "refs/heads/integration:refs/heads/combined");
+    expect(git("show", "combined:feature.txt")).toBe("accepted refinement");
+    expect(git("show", "combined:new.txt")).toBe("new feature");
+    git("merge-base", "--is-ancestor", webCommit, "combined");
+    git("merge-base", "--is-ancestor", sourceCommit, "combined");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

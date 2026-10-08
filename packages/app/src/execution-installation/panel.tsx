@@ -18,7 +18,12 @@ import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runti
 import { useVortonTouch } from "@/vorton-touch";
 import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
-import { InstallationPanelModel, restartExplanation } from "./panel-model";
+import {
+  InstallationPanelModel,
+  restartExplanation,
+  restartBannerTitle,
+  restartBlockingReason,
+} from "./panel-model";
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
 
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
@@ -491,7 +496,8 @@ function RestartRequest({
         </View>
         <Text style={styles.text} testID={`restart-summary-${job.id}`}>
           {restartExplanation(job.reason).summary}
-          {source && job.status === "pending"
+          {restartBlockingReason(job) ? ` Needs correction: ${restartBlockingReason(job)}` : null}
+          {source && job.status === "pending" && !restartBlockingReason(job)
             ? ` Approval lets the submitted code and build scripts run on ${job.target === "host" ? "Host" : "Dev"} and may interrupt its tasks and terminals.`
             : null}
           {source && job.status === "running"
@@ -846,7 +852,9 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
   const description = useMemo(
     () => (
       <View style={styles.details}>
-        <Text style={styles.text}>{restartExplanation(job.reason).summary}</Text>
+        <Text style={styles.text}>
+          {restartBlockingReason(job) ?? restartExplanation(job.reason).summary}
+        </Text>
         {job.status === "approved" || job.status === "running" ? (
           <RestartActivity job={job} />
         ) : null}
@@ -859,14 +867,7 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
     ),
     [job, open],
   );
-  let target = job.target === "host" ? "Host daemon" : "Dev daemon";
-  if (job.supervisorPlanSha256) target = "Dev supervisor";
-  let title = `${target} restart needs approval`;
-  if (job.status === "approved") title = `${target} restart queued`;
-  if (job.finishCurrentTurns) title = `${target} finishing current turns`;
-  if (job.status === "running") {
-    title = job.update || job.sourceBatch ? `Updating ${target}` : `Restarting ${target}`;
-  }
+  const title = restartBannerTitle(job);
   const inProgress = job.status === "approved" || job.status === "running";
   const icon = useMemo(
     () =>

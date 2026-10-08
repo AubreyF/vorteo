@@ -59,6 +59,17 @@ export class InstallationRestarts {
     this.jobs = journal.read();
     // A coordinator crash leaves execution ambiguous. Never replay a disruptive action.
     this.jobs = this.jobs.map((job) => {
+      // Retry inert validation once after a coordinator upgrade. Never carry an
+      // approval into a recomputed batch or replay dispatched installation work.
+      if (job.status === "pending" && job.sourceBatch?.status === "conflict") {
+        return {
+          ...job,
+          revision: randomUUID(),
+          update: undefined,
+          sourceBatch: { ...job.sourceBatch, status: "preparing" as const },
+          detail: "Rechecking source contributions",
+        };
+      }
       if (job.status === "approved" && job.whenIdle) return job;
       if (job.status !== "running" && job.status !== "approved") return job;
       return {
