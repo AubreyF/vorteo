@@ -4,6 +4,39 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.198 - 2026-10-08
+
+### Maintenance
+
+- Integrate accepted checklist controls and independent supervisor requests while preserving the live interface history and queued source contributions.
+
+## 0.11.0-beta.3.vorteo.197 - 2026-10-08
+
+### Fixed
+
+- Keep supervisor repair requests separate from pending source-update batches, preserving both contributions and owner controls. Approvals for the same environment still execute one at a time.
+
+## 0.11.0-beta.3.vorteo.196 - 2026-10-08
+
+### Added
+
+- Add persistent, caller-scoped checklist read and mutation tools across providers, with stable task IDs, status, completion criteria, ownership, dependencies, metadata, deletion and ordering.
+- Add manual task creation, editing, completion, reopening, deletion and ordering to the thread checklist card, with blocked-task errors and stale-edit protection.
+
+### Fixed
+
+- Preserve managed tasks through native provider events, history refreshes, concurrent storage writes and agent reloads. Broadcast checklist changes only after persistence succeeds.
+- Retain Claude task details, dependency changes and metadata through native task updates and list refreshes; ignore failed tool writes and reconcile missing tasks.
+
+### Changed
+
+- Carry accepted pending checklist items and their completion criteria through planning, implementation and handoff instructions. Preserve native provider task ownership.
+- Gate manual controls and client mutations on daemon capability; older installations retain their native checklist display.
+
+### Maintenance
+
+- Cover durable writes, lifecycle restoration, tool scope, live RPC updates and desktop and phone manual controls. Verify workspace completion across unopened threads and reloads. Updated daemon and interface installation remains required.
+
 ## 0.11.0-beta.3.vorteo.197 - 2026-10-08
 
 ### Maintenance

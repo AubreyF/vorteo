@@ -4,7 +4,7 @@ import { useSubagentsForParent, useArchiveFinishedSubagents } from "@/subagents"
 import { useHasPluginComposerPills } from "@/plugins";
 import { memo, useCallback, type ReactElement } from "react";
 
-import { AgentTaskList } from "@/composer/task-list";
+import { ChecklistCard } from "@/task-checklist/card";
 
 import { supportsDesktopPaneSplits, useIsCompactFormFactor } from "@/constants/layout";
 import { usePaneContext } from "@/panels/pane-context";
@@ -50,6 +50,9 @@ export const AgentTracks = memo(function AgentTracks({
   const canSplit = supportsDesktopPaneSplits() && !isCompact;
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
   const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
+  const canEditChecklist = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.agentChecklistMutations === true,
+  );
   const canDetachSubagents = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.agentDetach === true,
   );
@@ -105,6 +108,7 @@ export const AgentTracks = memo(function AgentTracks({
   );
 
   if (
+    !canEditChecklist &&
     !hasAgentTracks({
       subagentRows,
       tasks,
@@ -138,7 +142,7 @@ export const AgentTracks = memo(function AgentTracks({
         archiveFinishedStatus={archiveFinishedStatus}
         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
       />
-      <AgentTaskList inline tasks={tasks} />
+      <ChecklistCard serverId={serverId} agentId={agentId} tasks={tasks} />
     </>
   );
 });

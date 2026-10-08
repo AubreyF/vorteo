@@ -45,7 +45,7 @@ The receiving agent has zero context. Include:
 
 ## Accepted plan and checklist
 [Preserve the accepted items, their current status, dependencies, and completion evidence.]
-[Initialize or update the receiving thread's native task checklist from these items.]
+[Read the receiving thread's checklist first. Reuse existing items and IDs when continuing; create pending items through update_checklist when starting a new thread. Carry completion evidence and map dependencies to the receiving thread's IDs.]
 
 ## Acceptance criteria
 - [ ] [Criterion]

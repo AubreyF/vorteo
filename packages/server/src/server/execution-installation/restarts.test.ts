@@ -1508,3 +1508,43 @@ test("supervisor maintenance dispatches once after held turns finish and never r
   expect(recovered.list()[0]?.status).toBe("failed");
   expect(calls.filter((call) => call === "supervisor")).toHaveLength(1);
 });
+
+test("supervisor repair preserves a pending source batch and serializes both approvals", async () => {
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 1,
+  };
+  const sha = "d".repeat(64);
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    supervisorPlan: () => sha,
+    restartSupervisor: async () => "repaired",
+    restart: async () => "plain",
+    supportsUpdate: () => true,
+    installUpdate: async () => "installed",
+    sourceBase: () => update.baseCommit,
+    prepareUpdate: async (contributions) => ({ batch: { status: "ready", contributions }, update }),
+  });
+  const receipt = queue.contribute(
+    { target: "container-daemon", reason: "Retain another task" },
+    "container-agent",
+    update,
+    crypto.randomUUID(),
+  );
+  await queue.prepareBatches();
+  const batch = queue.contribution(receipt.contribution.id)!.batch;
+  const job = queue.request(
+    { target: "container-daemon", reason: "Repair launcher", supervisorPlanSha256: sha },
+    "host-agent",
+  );
+  expect(job.id).not.toBe(batch.id);
+  expect(queue.contribution(receipt.contribution.id)!.batch).toEqual(batch);
+  queue.decide(job.id, job.revision, "approve", undefined, sha);
+  expect(() => queue.decide(batch.id, batch.revision, "approve", update.sha256)).toThrow(
+    "earlier request",
+  );
+  await queue.drain();
+  expect(queue.contribution(receipt.contribution.id)!.batch.status).toBe("pending");
+  expect(queue.list().find((entry) => entry.id === job.id)?.status).toBe("succeeded");
+});

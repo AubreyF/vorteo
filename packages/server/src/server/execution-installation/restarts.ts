@@ -87,11 +87,7 @@ export class InstallationRestarts {
     if (update && !this.supportsUpdate(input.target))
       throw new RestartRequestError("Source updates are unavailable for this target");
     this.reconcilePending();
-    const active = this.jobs.find((job) => {
-      if (job.target !== input.target) return false;
-      if (job.status === "approved" || job.status === "running") return true;
-      return job.status === "pending";
-    });
+    const active = this.jobs.find((job) => this.conflictsWithRequest(job, input));
     if (active?.status === "running")
       throw new RestartRequestError(
         "This target is already restarting. Wait for its result before requesting another restart.",
@@ -219,6 +215,15 @@ export class InstallationRestarts {
       throw new RestartRequestError("Only your conflicted or invalid contribution can be replaced");
     original.status = "superseded";
     original.supersededBy = input.id;
+  }
+
+  private conflictsWithRequest(job: RestartJob, input: RestartRequest): boolean {
+    if (job.target !== input.target) return false;
+    if (job.status === "approved" || job.status === "running") return true;
+    if (job.status !== "pending") return false;
+    // Maintenance must not discard another task's unapproved source contribution.
+    const separateMaintenance = input.supervisorPlanSha256 && (job.update || job.sourceBatch);
+    return !separateMaintenance;
   }
 
   private validateSupervisorRequest(

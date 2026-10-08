@@ -75,7 +75,7 @@ export function toStoredAgentRecord(
   const runtimeInfo = sanitizeRuntimeInfo(agent.runtimeInfo);
 
   return {
-    tasks: agent.tasks,
+    ...(agent.tasks === undefined ? {} : { tasks: agent.tasks }),
     goalSubmissions: agent.goalSubmissions,
     queueGoalHold: agent.queueGoalHold,
     id: agent.id,
@@ -134,7 +134,7 @@ export function toAgentPayload(
   });
 
   const payload: AgentSnapshotPayload = {
-    tasks: agent.tasks,
+    ...(agent.tasks === undefined ? {} : { tasks: agent.tasks }),
     id: agent.id,
     ...projectLaunchMetadata(agent.config),
     provider: agent.provider,
@@ -248,7 +248,7 @@ export function buildStoredAgentPayload(
   );
 
   return {
-    tasks: record.tasks,
+    ...(record.tasks === undefined ? {} : { tasks: record.tasks }),
     id: record.id,
     ...projectLaunchMetadata(record.config),
     provider: record.provider,

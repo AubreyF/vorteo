@@ -3309,6 +3309,9 @@ export class Session {
       case "agent.queue.mutate.request":
       case "agent.queue.subscribe.request":
         return this.handleMessageQueueRequest(msg);
+      case "agent.checklist.get.request":
+      case "agent.checklist.mutate.request":
+        return this.handleChecklistRequest(msg);
       case "agent.goal.get.request":
       case "agent.goal.set.request":
       case "agent.goal.clear.request":
@@ -5502,6 +5505,47 @@ export class Session {
           requestId: msg.requestId,
           snapshot: null,
           error: { code, message },
+        },
+      });
+    }
+  }
+
+  private async handleChecklistRequest(
+    msg: Extract<
+      SessionInboundMessage,
+      { type: "agent.checklist.get.request" | "agent.checklist.mutate.request" }
+    >,
+  ): Promise<void> {
+    const type =
+      msg.type === "agent.checklist.get.request"
+        ? "agent.checklist.get.response"
+        : "agent.checklist.mutate.response";
+    try {
+      const load =
+        msg.type === "agent.checklist.get.request"
+          ? ensureAgentLoaded
+          : ensureUnarchivedAgentLoaded;
+      await load(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const tasks =
+        msg.type === "agent.checklist.get.request"
+          ? this.agentManager.readChecklist(msg.agentId)
+          : await this.agentManager.mutateChecklist(msg.agentId, msg.mutation);
+      this.emit({
+        type,
+        payload: { agentId: msg.agentId, requestId: msg.requestId, tasks, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type,
+        payload: {
+          agentId: msg.agentId,
+          requestId: msg.requestId,
+          tasks: null,
+          error: error instanceof Error ? error.message : "Checklist operation failed",
         },
       });
     }
