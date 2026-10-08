@@ -161,6 +161,9 @@ export class QueueOutbox {
         revision: record.revision + 1,
         error: result.error,
       });
+      // Rejections can include a newer queue after another client delivered or
+      // changed a message. Keep the local operation, but refresh its server state.
+      if (result.snapshot) this.port.changed(result.snapshot, record.serverId);
       this.notifyLocalChange(record.serverId, false);
       return false;
     }

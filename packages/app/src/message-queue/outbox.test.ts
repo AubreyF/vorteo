@@ -325,3 +325,33 @@ it("discards attachment bytes only after explicit removal of a rejected local co
   expect(await outbox.list()).toEqual([]);
   expect(cleaned[0].localAttachments).toEqual(localAttachments);
 });
+
+it("refreshes the shared queue on rejection without losing or replaying the local change", async () => {
+  const storage = memoryStorage();
+  const observed: unknown[] = [];
+  let attempts = 0;
+  let discarded = 0;
+  const rejected = { code: "missing", message: "The queued message no longer exists." };
+  const outbox = new QueueOutbox(storage, {
+    ...port,
+    mutate: async () => {
+      attempts += 1;
+      return { snapshot: { ...snapshot, revision: 16 }, error: rejected };
+    },
+    changed: (value, serverId) => observed.push({ value, serverId }),
+    discarded: async () => {
+      discarded += 1;
+    },
+    acknowledged: async () => {
+      discarded += 1;
+    },
+  });
+  const edit: QueueOperation = { ...operation, kind: "edit", expectedRevision: 0 };
+  await outbox.commit({ ...input, operation: edit });
+  await outbox.flush("host");
+  expect(observed).toEqual([{ value: { ...snapshot, revision: 16 }, serverId: "host" }]);
+  expect(await outbox.list()).toMatchObject([{ operation: edit, error: rejected }]);
+  await outbox.flush("host");
+  expect(attempts).toBe(1);
+  expect(discarded).toBe(0);
+});
