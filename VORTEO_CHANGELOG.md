@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.212 - 2026-10-08
+
+### Fixed
+
+- Recognize verified Claude account authentication when quota reporting cannot read saved macOS credentials. Explicit authentication failures still show Reconnect.
+- Integrate desktop and compact sign-in, reload and sign-out coverage while preserving existing installation changes.
+
 ## 0.11.0-beta.3.vorteo.211 - 2026-10-08
 
 ### Fixed
