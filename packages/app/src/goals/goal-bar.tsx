@@ -36,7 +36,7 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
   const label = goalBarLabel(control);
 
   return (
-    <View style={taskCardStyles.container} testID="agent-goal-bar">
+    <View style={[taskCardStyles.container, styles.container]} testID="agent-goal-bar">
       <View
         style={[
           taskCardStyles.header,
@@ -48,7 +48,7 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
           <Text style={taskCardStyles.heading}>{label}</Text>
         </View>
         {goal ? <Text style={styles.elapsed}>{formatGoalElapsed(elapsed)}</Text> : null}
-        <View style={taskCardStyles.actions}>
+        <View style={[taskCardStyles.actions, styles.actions]}>
           <Button
             variant="ghost"
             size="sm"
@@ -138,6 +138,8 @@ function editIcon(color: string) {
 }
 
 const styles = StyleSheet.create((theme) => ({
+  container: { paddingBottom: theme.spacing[4] },
+  actions: { alignSelf: "flex-start", marginTop: theme.spacing[2] },
   row: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
   copy: { flex: 1, minWidth: 0 },
   objective: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
