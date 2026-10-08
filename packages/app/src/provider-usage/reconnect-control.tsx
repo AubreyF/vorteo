@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { CompactAccountButton } from "./compact-account-button";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { accountProviderKind, providerConnectionAction } from "./connection-action";
 import { providerUsageQueryKey } from "./use-provider-usage";
@@ -38,11 +39,13 @@ export function ProviderReconnectControl({
   providerId?: string;
 }) {
   const { config } = useDaemonConfig(serverId);
+  const { entries } = useProvidersSnapshot(serverId);
   const claude = accountProviderKind(providerId, config?.providers) === "claude";
   const action = providerConnectionAction({
     providerId,
     providers: config?.providers,
     usage,
+    snapshot: entries?.find((entry) => entry.provider === providerId),
   });
   const client = useHostRuntimeClient(serverId ?? "");
   const connected = useHostRuntimeIsConnected(serverId ?? "");
