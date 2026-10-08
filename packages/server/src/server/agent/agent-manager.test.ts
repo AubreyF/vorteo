@@ -13103,3 +13103,29 @@ test("native task snapshots persist without timeline subscribers and restore aft
     rmSync(workdir, { recursive: true, force: true });
   }
 });
+
+test("restart drain leaves loaded archived history out of preparation", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "restart-archived-history-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+  });
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    await manager.archiveAgent(agent.id);
+    await ensureAgentLoaded(agent.id, { agentManager: manager, agentStorage: storage, logger });
+    expect(manager.getAgent(agent.id)).toBeDefined();
+    const id = randomUUID();
+    expect(manager.beginRestartDrain(id)).toBe(true);
+    expect(manager.getRestartImpact()).toEqual({ agents: [], pendingStarts: 0 });
+    expect(manager.cancelRestartDrain(id)).toBe(true);
+  } finally {
+    for (const agent of manager.listAgents()) await manager.closeAgent(agent.id);
+    await storage.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});

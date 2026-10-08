@@ -79,7 +79,21 @@ function restartReply(
   sourceUpdates = false,
   sourceBatches = false,
   containerSourceUpdates = false,
+  supervisorMaintenance = false,
 ) {
+  // COMPAT(supervisorMaintenance): keep strict old clients readable, but never accept their approval.
+  if (job.supervisorPlanSha256 && !supervisorMaintenance) {
+    const { supervisorPlanSha256: _plan, ...compatible } = job;
+    return restartReply(
+      {
+        ...compatible,
+        reason: "Dev supervisor maintenance. Reload Vorteo to review the exact operation.",
+        detail: "Reload to review supervisor maintenance. Cancellation remains available.",
+      },
+      details,
+      graceful,
+    );
+  }
   // COMPAT(containerSourceUpdates): v189; old owner tabs must reload before reviewing Dev builds.
   if (
     job.target === "container-daemon" &&
@@ -267,14 +281,31 @@ export function createInstallationServer(
       };
     }
   }
-  app.get("/api/installation/capabilities", authenticateUpdate, (_req, res, next) => {
+  app.get("/api/installation/capabilities", authenticateUpdate, (req, res, next) => {
+    const host = matchesToken(
+      extractHttpBearerToken(req.header("authorization")),
+      config.hostAgentTokenHash,
+    );
+    const supervisorPlan = host ? executor.supervisorPlan?.() : undefined;
     void Promise.all(
       (["host", "container-daemon"] as const).map(async (target) => ({
         target,
         restart: true,
         sourceUpdate: await updateCapability(target),
       })),
-    ).then((targets) => res.json({ version: 1, targets, ownerApprovalRequired: true }), next);
+    ).then(
+      (targets) =>
+        res.json({
+          version: 1,
+          targets,
+          ownerApprovalRequired: true,
+          supervisorMaintenance: {
+            available: Boolean(supervisorPlan && executor.restartSupervisor),
+            ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
+          },
+        }),
+      next,
+    );
   });
   const updateTarget = (req: Request) => RestartTargetSchema.parse(req.query.target ?? "host");
   function requireUpdate(req: Request, res: Response, next: NextFunction) {
@@ -687,6 +718,7 @@ export function createInstallationServer(
             req.query.sourceUpdates === "1",
             req.query.sourceBatches === "1",
             req.query.containerSourceUpdates === "1",
+            req.query.supervisorMaintenance === "1",
           ),
         ),
     );
@@ -726,6 +758,7 @@ export function createInstallationServer(
       decision.revision,
       decision.decision,
       decision.updateSha256,
+      decision.supervisorPlanSha256,
     );
     res.json(
       restartReply(
@@ -735,6 +768,7 @@ export function createInstallationServer(
         req.query.sourceUpdates === "1",
         req.query.sourceBatches === "1",
         req.query.containerSourceUpdates === "1",
+        req.query.supervisorMaintenance === "1",
       ),
     );
     void restarts

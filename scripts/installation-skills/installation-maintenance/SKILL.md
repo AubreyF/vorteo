@@ -29,6 +29,10 @@ Use `restart-status <request-id>` to read the durable result. Pending means no a
 
 The coordinator survives either daemon restarting. Container-daemon restart retains the existing container and supervisor. It does not recreate a container, resize Docker Desktop, or replace a release. Host restart uses the installation-owned native service. Daemon restart requests must not interrupt the coordinator or unrelated services. When the owner explicitly requests a coordinator update, prepare and validate its replacement and rollback first, preserve the restart journal, and verify that no restart is dispatching before a controlled coordinator reload. Updating the coordinator never grants approval to restart an agent daemon.
 
+## Tracked supervisor maintenance
+
+Supervisor and launcher repairs remain trusted Host maintenance. Prepare a protected script, exact digest, validation and rollback plan before configuring the coordinator. Use `capabilities` to discover its configured supervisor plan, then `request-restart --target container-daemon --supervisor-plan <sha256> --reason-file <file>`. Return the exact approval URL. The owner reviews **Dev supervisor** and chooses **Finish turns and restart** or **Cancel**. Only the coordinator may place the hold and execute the approved repair. A plain worker restart, guest request or prior chat approval cannot substitute. Verify the durable outcome, new supervisor and worker identities, inherited configuration and application behavior. Changed scripts need new review; interrupted execution must not replay.
+
 ## Agent communication boundary
 
 Ordinary Paseo agent tools address only the current daemon. Container agents can spawn and communicate with other agents in that container. They cannot address host agents, other environments, or approve host operations.

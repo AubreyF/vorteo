@@ -12,6 +12,7 @@ const { values, positionals } = parseArgs({
     config: { type: "string" },
     target: { type: "string" },
     update: { type: "boolean" },
+    "supervisor-plan": { type: "string" },
     repository: { type: "string" },
     "contribution-id": { type: "string" },
     replaces: { type: "string" },
@@ -20,12 +21,31 @@ const { values, positionals } = parseArgs({
     "request-file": { type: "string" },
   },
 });
+if (
+  values["supervisor-plan"] &&
+  (values.update || values.target !== "container-daemon" || positionals[0] !== "request-restart")
+)
+  throw new Error("--supervisor-plan requires a Dev maintenance request, not a source update");
 if (!values.config) throw new Error("An installed client config is required");
 const config = JSON.parse(readFileSync(values.config, "utf8"));
 const base = new URL(config.origin);
 const local = base.hostname === "127.0.0.1" || base.hostname === "localhost";
 if (base.protocol !== "https:" && !(base.protocol === "http:" && local))
   throw new Error("TLS is required");
+if (values["supervisor-plan"]) {
+  if (config.kind !== "host-agent")
+    throw new Error("Supervisor maintenance requires the trusted Host client");
+  const response = await fetch(new URL("/api/installation/capabilities", base), {
+    headers: { Authorization: `Bearer ${config.token}` },
+    redirect: "error",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok)
+    throw new Error("Coordinator cannot advertise supervisor maintenance. No restart requested.");
+  const capability = (await response.json()).supervisorMaintenance;
+  if (!capability?.available || capability.sha256 !== values["supervisor-plan"])
+    throw new Error("Reviewed supervisor plan is unavailable or changed. No restart requested.");
+}
 let resource;
 let body;
 switch (positionals[0]) {
@@ -38,6 +58,7 @@ switch (positionals[0]) {
     resource = "/api/installation/restart-requests";
     body = {
       target: values.target,
+      ...(values["supervisor-plan"] ? { supervisorPlanSha256: values["supervisor-plan"] } : {}),
       reason: readFileSync(values["reason-file"], "utf8"),
       ...(values.requester ? { requester: values.requester } : {}),
     };

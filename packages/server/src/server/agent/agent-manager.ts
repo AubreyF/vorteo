@@ -1486,6 +1486,9 @@ export class AgentManager {
     if (this.restartDrainId && this.restartDrainId !== requestId) return false;
     this.restartDrainId = requestId;
     for (const agent of this.agents.values()) {
+      const archivedHistory = this.registry?.getLoadedRecord(agent.id)?.archivedAt;
+      if (archivedHistory && agent.lifecycle !== "initializing" && !this.hasInFlightRun(agent.id))
+        continue;
       if (
         agent.lifecycle === "initializing" ||
         this.restartDrainTasks.has(agent.id) ||
