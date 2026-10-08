@@ -1,3 +1,4 @@
+import { isStandingSchedule } from "@getpaseo/protocol/workspace-lifecycle";
 import type { ScheduleSummary } from "@getpaseo/protocol/schedule/types";
 
 interface HostSchedules {
@@ -15,10 +16,7 @@ export function scheduledWorkspaceStates(
   const states = new Map<string, WorkspaceScheduleState>();
   for (const host of hosts) {
     for (const schedule of host.schedules) {
-      const ended =
-        schedule.status === "completed" ||
-        (schedule.expiresAt !== null && Date.parse(schedule.expiresAt) <= now);
-      if (ended || schedule.target.type !== "agent") continue;
+      if (!isStandingSchedule(schedule, now) || schedule.target.type !== "agent") continue;
       const agent = host.agents.get(schedule.target.agentId);
       if (!agent?.workspaceId || agent.archivedAt) continue;
       const key = `${host.serverId}:${agent.workspaceId}`;

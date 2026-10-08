@@ -1,4 +1,3 @@
-import { NewWorkspaceEnvironment } from "@/task-environments/new-workspace-environment";
 import { transferTaskAttachments } from "@/task-environments/attachments";
 import {
   readExecutionInstallation,
@@ -1484,7 +1483,7 @@ interface NewWorkspaceFormStackInput {
 function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactElement {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
-  const { isCompact, isPending, project, host, isolation, base, launch } = input;
+  const { isCompact, isPending, project, isolation, base, launch } = input;
 
   const isolationTriggerLabel = isolationLabel(t, isolation.effectiveIsolation);
   const addProjectAction = useMemo(
@@ -1600,17 +1599,6 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
     </View>
   ) : null;
 
-  const environmentControl = (
-    <View style={desktopControlStyle}>
-      <NewWorkspaceEnvironment
-        hosts={host.allHosts}
-        serverId={host.selectedServerId}
-        onChange={host.onSelect}
-        disabled={isPending}
-      />
-    </View>
-  );
-
   const launchControl = (
     <LaunchControl
       serverId={launch.serverId}
@@ -1625,7 +1613,6 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
   return isCompact ? (
     <View testID="new-workspace-ref-picker-row" style={styles.formStack} pointerEvents="box-none">
       <FormRow>{projectControl}</FormRow>
-      <FormRow>{environmentControl}</FormRow>
       {isolationControl ? <FormRow>{isolationControl}</FormRow> : null}
       {baseControl ? <FormRow>{baseControl}</FormRow> : null}
       <FormRow>{launchControl}</FormRow>
@@ -1640,7 +1627,6 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
       pointerEvents="box-none"
     >
       {projectControl}
-      {environmentControl}
       {isolationControl}
       {baseControl}
       <View style={styles.launchSpacer} pointerEvents="none" />
@@ -2353,10 +2339,11 @@ export function NewWorkspaceScreen({
         ? {
             ...composerState.agentControls,
             project: selectedProject,
+            onSelectEnvironment: handleSelectWorkspaceHost,
             disabled: isPending,
           }
         : undefined,
-    [composerState, isPending, selectedProject],
+    [composerState, isPending, selectedProject, handleSelectWorkspaceHost],
   );
 
   const pickerEmptyText =

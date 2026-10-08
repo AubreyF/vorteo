@@ -1,7 +1,4 @@
-import {
-  ScheduledWorkspaceProvider,
-  useWorkspaceScheduleStates,
-} from "@/workspace/lifecycle/scheduled";
+import { useWorkspaceScheduleStates } from "@/workspace/lifecycle/scheduled";
 import { useProjectExpansion } from "./use-project-expansion";
 import React, { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import {
@@ -52,15 +49,13 @@ interface SidebarModel extends SidebarWorkspacesListResult {
 
 const SidebarModelContext = createContext<SidebarModel | null>(null);
 
-export function SidebarModelProvider(props: { active?: boolean; children: ReactNode }) {
-  return (
-    <ScheduledWorkspaceProvider>
-      <SidebarModelContent {...props} />
-    </ScheduledWorkspaceProvider>
-  );
-}
-
-function SidebarModelContent({ active, children }: { active?: boolean; children: ReactNode }) {
+export function SidebarModelProvider({
+  active,
+  children,
+}: {
+  active?: boolean;
+  children: ReactNode;
+}) {
   const list = useSidebarWorkspacesList({ enabled: active });
   const groupMode = useSidebarViewStore((state) => state.groupMode);
   const labelFilter = useSidebarViewStore((state) => state.labelFilter);

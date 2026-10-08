@@ -1,3 +1,6 @@
+import { useIsCompactFormFactor } from "@/constants/layout";
+import { useVortonTouch } from "@/vorton-touch";
+import { useWorkspaceArchiveBlockReason } from "@/workspace/lifecycle/archive";
 import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import {
   useCallback,
@@ -12,6 +15,7 @@ import { type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   Archive,
+  LockKeyhole,
   Circle,
   CircleCheck,
   Copy,
@@ -64,6 +68,8 @@ const foregroundMutedColorMapping = (theme: Theme) => ({
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedArchive = withUnistyles(Archive);
+const ThemedLock = withUnistyles(LockKeyhole);
+const lockedLeadingIcon = <ThemedLock size={14} uniProps={foregroundMutedColorMapping} />;
 const ThemedCircle = withUnistyles(Circle);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
@@ -141,6 +147,55 @@ function WorkspaceMenuItem({
   return <DropdownMenuItem {...props}>{children}</DropdownMenuItem>;
 }
 
+function WorkspaceArchiveMenuItem({
+  surface,
+  serverId,
+  workspaceId,
+  workspaceKey,
+  onArchive,
+  archiveLabel,
+  archiveStatus,
+  archivePendingLabel,
+  archiveShortcutKeys,
+}: Pick<
+  SidebarWorkspaceMenuProps,
+  | "serverId"
+  | "workspaceId"
+  | "workspaceKey"
+  | "onArchive"
+  | "archiveLabel"
+  | "archiveStatus"
+  | "archivePendingLabel"
+  | "archiveShortcutKeys"
+> & { surface: MenuSurface }) {
+  const { t } = useTranslation();
+  const archiveBlockReason = useWorkspaceArchiveBlockReason(serverId ?? "", workspaceId ?? "");
+  const archiveProtected = archiveBlockReason !== null;
+  const compact = useIsCompactFormFactor();
+  const touch = useVortonTouch();
+  const showArchiveHint = archiveProtected && (compact || touch);
+  const archiveTrailing = useMemo(
+    () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
+    [archiveShortcutKeys],
+  );
+  return (
+    <WorkspaceMenuItem
+      surface={surface}
+      testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
+      leading={archiveProtected ? lockedLeadingIcon : archiveLeadingIcon}
+      trailing={archiveProtected ? null : archiveTrailing}
+      disabled={archiveProtected}
+      description={showArchiveHint ? (archiveBlockReason ?? undefined) : undefined}
+      tooltip={archiveProtected ? (archiveBlockReason ?? undefined) : undefined}
+      status={archiveStatus}
+      pendingLabel={archivePendingLabel}
+      onSelect={onArchive}
+    >
+      {archiveLabel ?? t("sidebar.workspace.actions.archive")}
+    </WorkspaceMenuItem>
+  );
+}
+
 function SidebarWorkspaceMenuItems({
   surface,
   workspaceKey,
@@ -164,10 +219,6 @@ function SidebarWorkspaceMenuItems({
   const moveProject = useCallback(() => {
     if (serverId && workspaceId) useProjectMoveRequest.getState().open({ serverId, workspaceId });
   }, [serverId, workspaceId]);
-  const archiveTrailing = useMemo(
-    () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
-    [archiveShortcutKeys],
-  );
   const labelLeading = useMemo(
     () => <ThemedTag size={14} uniProps={foregroundMutedColorMapping} />,
     [],
@@ -260,17 +311,17 @@ function SidebarWorkspaceMenuItems({
         testID={`sidebar-workspace-menu-open-folder-${workspaceKey}`}
       />
       {onArchive ? (
-        <WorkspaceMenuItem
+        <WorkspaceArchiveMenuItem
           surface={surface}
-          testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
-          leading={archiveLeadingIcon}
-          trailing={archiveTrailing}
-          status={archiveStatus}
-          pendingLabel={archivePendingLabel}
-          onSelect={onArchive}
-        >
-          {archiveLabel ?? t("sidebar.workspace.actions.archive")}
-        </WorkspaceMenuItem>
+          serverId={serverId}
+          workspaceId={workspaceId}
+          workspaceKey={workspaceKey}
+          onArchive={onArchive}
+          archiveLabel={archiveLabel}
+          archiveStatus={archiveStatus}
+          archivePendingLabel={archivePendingLabel}
+          archiveShortcutKeys={archiveShortcutKeys}
+        />
       ) : null}
     </>
   );

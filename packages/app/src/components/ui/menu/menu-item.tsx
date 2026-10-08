@@ -370,9 +370,12 @@ export function MenuItem({
     return content;
   }
 
+  // Disabled Pressables drop pointer events; the wrapper keeps their tooltip reachable.
   return (
     <Tooltip delayDuration={250} enabledOnDesktop enabledOnMobile={false}>
-      <TooltipTrigger asChild>{content}</TooltipTrigger>
+      <TooltipTrigger asChild>
+        <View>{content}</View>
+      </TooltipTrigger>
       <TooltipContent side="right" align="center" offset={10}>
         <Text style={styles.tooltipText}>{tooltip}</Text>
       </TooltipContent>

@@ -3888,8 +3888,10 @@ export class Session {
 
       // Preflight all children before stopping any work in a project removal.
       for (const workspace of projectWorkspaces) {
-        if (!workspace.archivedAt && !workspace.projectMembership)
+        if (!workspace.archivedAt && !workspace.projectMembership) {
+          await this.agentManager.assertWorkspaceArchiveAllowed?.(workspace.workspaceId);
           assertWorkspaceUnprotected(workspace);
+        }
       }
       if (activeWorkspaceIds.length > 0) {
         this.markWorkspaceArchiving(activeWorkspaceIds, new Date().toISOString());

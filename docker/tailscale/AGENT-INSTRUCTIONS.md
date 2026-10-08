@@ -24,7 +24,7 @@ Bind loopback for Tailscale Serve. Preserve any explicitly approved private list
 
 HTTPS does not add application authentication, change tailnet access, or grant clipboard/microphone permission. Test the rendered application, not only HTTP health. Keep URLs, credentials, clipboard content and installation receipts out of public source or logs.
 
-The broker runs while the Mac is awake and the user session is available. It revalidates owned mappings but does not revive stopped, crashed, moved or reconfigured services. After a daemon restart, use explicit start for a broker-managed preview. Legacy preview restoration remains separate for services not adopted by the broker. Host startup cannot bypass FileVault or login. Agents cannot administer host recovery.
+The broker runs while the Mac is awake and the user session is available. Administrators can opt into restart recovery for previously verified previews whose workspace and service configuration remain unchanged. Recovery retains the HTTPS reservation and verifies the replacement managed listener. Explicit stops, same-daemon service exits, archived workspaces and configuration changes remain stopped. Without that policy, use explicit start after a daemon restart. Legacy preview restoration remains separate for services not adopted by the broker. Host startup cannot bypass FileVault or login. Agents cannot administer host recovery.
 
 ## Owner preview preference
 

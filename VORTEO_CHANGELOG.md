@@ -4,6 +4,27 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.182 - 2026-10-07
+
+### Changed
+
+- Show the selected account beside both expanded and compact profile captions.
+- Restore environment, account and profile selection in three desktop columns and compact sections while retaining draft text, files and directory choices.
+- Balance conversation-card top spacing at four pixels and match accordion controls to adjacent actions on desktop and touch layouts.
+- Align Standing disclosure arrows with workspace status indicators and use the standard collapsed count badge.
+
+### Fixed
+
+- Block workspace and thread archival for explicit protection and active or paused schedules. Explain the blockers with a disabled lock action and guard archive shortcuts.
+- Refuse blocked agent archive requests before cancelling the running turn, and preflight companion workspaces before archival.
+- Preserve current main changes, preview-globe styling and verified-preview recovery source. Add the label icon to browser test fixtures.
+
+## 0.11.0-beta.3.vorteo.181 - 2026-10-07
+
+### Fixed
+
+- Keep sidebar preview globes neutral across healthy and unhealthy services, and inset them four pixels from the right edge to align with neighboring content. Service health remains available in accessible labels.
+
 ## 0.11.0-beta.3.vorteo.180 - 2026-10-07
 
 ### Added
@@ -27,6 +48,15 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Integrate Standing and schedule controls, pull request activity, card spacing and repository links with the reviewed Host update workflow
 
 - Cover Git integration, release metadata, hostile configuration, concurrency, recovery and approval races; coordinator installation remains separate from source validation
+
+### Added
+
+- Opt-in recovery of previously verified workspace previews after daemon restarts, retaining their private HTTPS reservations and rechecking service, listener and certificate identity.
+- Bounded retry coverage and installer controls that preserve existing policy when omitted. Explicit stops, archived or changed workspaces, and unrecognized replacement processes remain protected.
+
+### Maintenance
+
+- Update preview operation, host acceptance and customization documentation. Real restart acceptance remains a separate installation check.
 
 ## 0.11.0-beta.3.vorteo.179 - 2026-10-07
 

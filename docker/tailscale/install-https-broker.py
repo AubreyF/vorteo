@@ -46,6 +46,8 @@ def main():
     parser.add_argument('--approve-workspace', action='append', default=[], metavar='WORKSPACE_ID=PATH')
     parser.add_argument('--reserved-port', type=int, action='append', default=[443, 6767, 6768, 44443])
     parser.add_argument('--rollback')
+    parser.add_argument('--restore-after-restart', action=argparse.BooleanOptionalAction, default=None,
+                        help='restore previously verified previews after daemon/container restart; omission preserves existing policy')
     args = parser.parse_args()
     if sys.platform != 'darwin':
         raise ValueError('Install on the existing macOS host')
@@ -56,6 +58,8 @@ def main():
     c['brokerLabel'] = label
     previous = json.loads((root / 'host-config.json').read_text()) if (root / 'host-config.json').exists() else {}
     c = {**previous, **c}
+    if args.restore_after_restart is not None:
+        c['restoreAfterRestart'] = args.restore_after_restart
     mappings = {m['Destination']: m['Source'] for m in inspected['Mounts'] if m['Type'] == 'bind'}
     for destination, host in previous.get('hostPathMappings', {}).items():
         if mappings.get(destination) != host:

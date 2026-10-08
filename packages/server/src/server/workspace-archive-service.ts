@@ -40,7 +40,10 @@ export interface ArchiveDependencies {
   paseoWorktreesBaseRoot?: string;
   github: ForgeService;
   workspaceGitService: Pick<WorkspaceGitService, "getSnapshot">;
-  agentManager: Pick<AgentManager, "listAgents" | "getAgent" | "archiveAgent" | "archiveSnapshot">;
+  agentManager: Pick<
+    AgentManager,
+    "listAgents" | "getAgent" | "archiveAgent" | "archiveSnapshot" | "assertWorkspaceArchiveAllowed"
+  >;
   agentStorage: Pick<AgentStorage, "listByWorkspace">;
   // Resolves the worktree at a path to its workspaceId for archive-by-path. The
   // path uniquely identifies a worktree workspace; this is a directory lookup for
@@ -214,6 +217,7 @@ async function resolveArchiveTarget(
       );
       return { backing: null, teardownTargets: [], setupWorkspaceIds: [], workspaceIds: [] };
     }
+    await dependencies.agentManager.assertWorkspaceArchiveAllowed?.(workspaceId);
     assertWorkspaceUnprotected(record);
     const isArchived = "archivedAt" in record && Boolean(record.archivedAt);
     return {
@@ -234,7 +238,10 @@ async function resolveArchiveTarget(
       }),
     )
   ).filter((workspace): workspace is ActiveWorkspaceRef => workspace !== null);
-  for (const workspace of targetWorkspaces) assertWorkspaceUnprotected(workspace);
+  for (const workspace of targetWorkspaces) {
+    await dependencies.agentManager.assertWorkspaceArchiveAllowed?.(workspace.workspaceId);
+    assertWorkspaceUnprotected(workspace);
+  }
   const persistedMainRepoRoot = targetWorkspaces.find(
     (workspace) => workspace.mainRepoRoot,
   )?.mainRepoRoot;

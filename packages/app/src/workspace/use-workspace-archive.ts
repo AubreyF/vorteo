@@ -1,5 +1,7 @@
-import { useSessionStore } from "@/stores/session-store";
-import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
+import {
+  getWorkspaceArchiveBlockReason,
+  useWorkspaceArchiveBlockReason,
+} from "./lifecycle/archive";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -36,6 +38,8 @@ export interface ArchiveWorkspaceInput {
 
 export interface WorkspaceArchiveController {
   archive: () => void;
+  archiveProtected: boolean;
+  archiveBlockReason: string | null;
 }
 
 export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArchiveController {
@@ -53,18 +57,27 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
   } = input;
   const { t } = useTranslation();
   const toast = useToast();
+  const archiveBlockReason = useWorkspaceArchiveBlockReason(serverId, workspaceId);
+  const archiveProtected = archiveBlockReason !== null;
 
   const archiveWorkspaceRecord = useCallback(async () => {
+    const reason = getWorkspaceArchiveBlockReason(serverId, workspaceId);
+    if (reason) {
+      toast.error(reason);
+      return;
+    }
     const client = getHostRuntimeStore().getClient(serverId);
     if (!client) {
       toast.error(t("sidebar.workspace.toasts.hostDisconnected"));
       return;
     }
-    onSetHiding?.(true);
     try {
-      onArchiveStarted();
       await archiveWorkspaceOptimistically({
         client,
+        onArchiveStarted: () => {
+          onSetHiding?.(true);
+          onArchiveStarted();
+        },
         workspace: {
           serverId,
           workspaceId,
@@ -82,11 +95,9 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
 
   const archive = useCallback(() => {
     void (async () => {
-      const workspace = selectWorkspace(useSessionStore.getState(), serverId, workspaceId);
-      if (workspace?.protected) {
-        toast.error(
-          "This workspace is protected. Remove protection from its menu before archiving.",
-        );
+      const reason = getWorkspaceArchiveBlockReason(serverId, workspaceId);
+      if (reason) {
+        toast.error(reason);
         return;
       }
       if (workspaceKind === "worktree") {
@@ -120,5 +131,7 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
 
   return {
     archive,
+    archiveProtected,
+    archiveBlockReason,
   };
 }

@@ -1,4 +1,5 @@
 import "@/styles/unistyles";
+import { ScheduledWorkspaceProvider } from "@/workspace/lifecycle/scheduled";
 import { ProjectMoveModalHost } from "@/workspace/project-move/modal";
 import { InstallationSessionHost } from "@/execution-installation/panel";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
@@ -1004,7 +1005,11 @@ export default function RootLayout() {
     return () => subscription.remove();
   }, []);
 
-  return <RootAppTree />;
+  return (
+    <ScheduledWorkspaceProvider>
+      <RootAppTree />
+    </ScheduledWorkspaceProvider>
+  );
 }
 
 const layoutStyles = StyleSheet.create((theme) => ({

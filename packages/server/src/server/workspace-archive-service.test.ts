@@ -189,6 +189,36 @@ function assertArchiveResult(
 }
 
 describe("archiveByScope", () => {
+  test.each(["workspace", "worktree"] as const)(
+    "schedule guard refuses %s archival before side effects",
+    async (kind) => {
+      const { repoDir } = createGitRepo();
+      const deps = createArchiveDeps({
+        activeWorkspaces: [{ workspaceId: "scheduled", cwd: repoDir, kind: "local_checkout" }],
+      });
+      deps.stopWorkspaceSetup = vi.fn(async () => {});
+      const guarded = {
+        ...deps,
+        agentManager: {
+          ...deps.agentManager,
+          assertWorkspaceArchiveAllowed: async () => {
+            throw new Error("Remove schedules to archive");
+          },
+        },
+      };
+      const scope =
+        kind === "workspace" ? { kind, workspaceId: "scheduled" } : { kind, targetPath: repoDir };
+      await expect(
+        archiveByScope(guarded, { scope, requestId: "scheduled-guard" }),
+      ).rejects.toThrow("Remove schedules to archive");
+      expect(deps.stopWorkspaceSetup).not.toHaveBeenCalled();
+      expect(deps.markWorkspaceArchiving).not.toHaveBeenCalled();
+      expect(deps.killTerminalsForWorkspace).not.toHaveBeenCalled();
+      expect(deps.archivedAgentIds).toEqual([]);
+      expect(existsSync(repoDir)).toBe(true);
+    },
+  );
+
   test("workspace scope archives the record and removes the directory on last reference", async () => {
     const { tempDir, repoDir } = createGitRepo();
     const paseoHome = path.join(tempDir, ".paseo");

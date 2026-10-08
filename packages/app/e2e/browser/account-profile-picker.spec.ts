@@ -189,6 +189,19 @@ test("active profile hides the action until a different profile is selected", as
     await openAgentRoute(page, { ...workspace, agentId: agent.id });
     await expectComposerVisible(page);
     await expect(page.getByTestId("agent-preset-selector")).toContainText("Astra Medium");
+    const account = (await workspace.client.getProvidersSnapshot()).entries.find(
+      (entry) => entry.provider === "mock",
+    );
+    if (!account?.label) throw new Error("Expected the selected account label");
+    const caption = page.getByTestId("agent-preset-selector");
+    await expect(caption).toContainText(`${account.label} Astra Medium`);
+    await expect(caption).toHaveAttribute("aria-label", new RegExp(`account ${account.label}`));
+    await page.screenshot({ path: test.info().outputPath("profile-account-desktop.png") });
+    const desktopViewport = page.viewportSize();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(caption).toContainText(account.label);
+    await page.screenshot({ path: test.info().outputPath("profile-account-compact.png") });
+    if (desktopViewport) await page.setViewportSize(desktopViewport);
     await page.getByTestId("agent-preset-selector").click();
     await expect(page.getByTestId("preset-row-shared-profile/mock/account-medium")).toBeVisible();
     await expect(page.getByTestId("preset-use-profile")).toHaveCount(0);

@@ -158,12 +158,14 @@ export function SubagentsTrack({
   if (inline) {
     return (
       <View style={[taskCardStyles.container, styles.card]} testID="subagents-card">
-        <View style={[taskCardStyles.header, styles.cardHeader]}>
+        <View
+          style={[taskCardStyles.header, touch && taskCardStyles.touchHeader, styles.cardHeader]}
+        >
           <Button
             variant="ghost"
             size="sm"
             hitSlop={6}
-            style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchHeader]}
+            style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchAccordionTrigger]}
             textStyle={taskCardStyles.heading}
             trailing={headerTrailing}
             accessibilityLabel={t("subagents.title")}
@@ -248,7 +250,7 @@ export function ArchiveFinishedRow({
     return (
       <Button
         variant="outline"
-        size={touch ? "md" : "xs"}
+        size={touch ? "md" : "sm"}
         textStyle={styles.archiveHeaderText}
         onPress={onPress}
         disabled={disabled}

@@ -3,7 +3,6 @@ import { View, Text } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useHosts, useHostRuntimeClient } from "@/runtime/host-runtime";
 import { readExecutionInstallation } from "@/execution-installation/policy";
-import { SelectField } from "@/components/ui/select-field";
 import { Button } from "@/components/ui/button";
 import { ProjectDirectoryBrowser } from "@/components/project-directory-browser";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
@@ -37,12 +36,6 @@ export function TaskEnvironmentSelection({
     [hosts, installation],
   );
   const label = options.find((option) => option.value === state.serverId)?.label ?? "Environment";
-  const select = useCallback(
-    (serverId: string) => {
-      void model.select(serverId);
-    },
-    [model],
-  );
   const choose = useCallback(
     (directory: string) => {
       model.chooseDirectory(directory);
@@ -50,7 +43,6 @@ export function TaskEnvironmentSelection({
     },
     [model],
   );
-  const display = useMemo(() => ({ label }), [label]);
   const header = useMemo(() => ({ title: `Choose folder in ${label}` }), [label]);
   const retry = useCallback(() => {
     void model.select(state.serverId);
@@ -59,27 +51,18 @@ export function TaskEnvironmentSelection({
   const close = useCallback(() => setBrowsing(false), []);
   return (
     <View style={styles.row}>
-      <SelectField
-        label="Environment"
-        value={state.serverId}
-        selectedDisplay={display}
-        options={options}
-        onChange={select}
-        placeholder="Choose environment"
-        emptyText="No environments"
-        testID="task-environment"
-        disabled={disabled}
-        loading={state.status === "resolving"}
-        error={state.error}
-      />
+      {state.status === "resolving" ? (
+        <Text style={styles.text}>Connecting to environment...</Text>
+      ) : null}
       {state.status === "folder" ? (
         <Text style={styles.text}>{`Choose this workspace's folder in ${label}.`}</Text>
       ) : null}
-      {state.directory ? (
+      {canChooseFolder && state.directory ? (
         <Text style={styles.text} numberOfLines={1}>
           {state.directory}
         </Text>
       ) : null}
+      {state.error ? <Text style={styles.text}>{state.error}</Text> : null}
       {state.status === "error" ? (
         <Button variant="ghost" onPress={retry}>
           Retry

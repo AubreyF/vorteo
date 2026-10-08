@@ -45,6 +45,7 @@ import { useAgentProfiles } from "./use-agent-profiles";
 export interface DraftAgentProfileControls {
   project?: HostProjectListItem | null;
   applyProfile: (profile: MaterializedAgentProfile) => void;
+  selectEnvironment?: (serverId: string) => void;
 }
 
 export type AgentProfileApplyTarget =
@@ -72,7 +73,7 @@ export interface AgentProfilePickerRow {
 }
 
 export interface AgentProfilePicker {
-  currentEnvironmentOnly?: boolean;
+  selectEnvironment?: (serverId: string) => void;
   refreshStatus?: () => void;
   isRefreshingStatus?: boolean;
   isLoadingStatus?: boolean;
@@ -458,7 +459,8 @@ export function useAgentProfilePicker(
       isSupported && profiles !== null
         ? {
             rows,
-            currentEnvironmentOnly: target.kind === "draft",
+            selectEnvironment:
+              target.kind === "draft" ? target.controls.selectEnvironment : undefined,
             applyProfile,
             applyDestinationProfile,
             isApplying,
@@ -471,7 +473,7 @@ export function useAgentProfilePicker(
     [
       applyProfile,
       applyDestinationProfile,
-      target.kind,
+      target,
       isSupported,
       profiles,
       rows,

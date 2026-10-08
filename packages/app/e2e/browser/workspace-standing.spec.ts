@@ -1,3 +1,4 @@
+import { openMobileAgentSidebar } from "../support/helpers/sidebar";
 import { z } from "zod";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
@@ -119,14 +120,17 @@ test("Standing follows schedules and protection, and failed changes can be retri
     const headingBox = await heading.boundingBox();
     const dotBox = await dot.boundingBox();
     if (!headingBox || !dotBox) throw new Error("Expected Standing heading and workspace dot");
-    expect(Math.abs(headingBox.x - dotBox.x)).toBeLessThan(1);
+
     const titleSize = await workspaceRow
       .getByText("main", { exact: true })
       .evaluate((element) => getComputedStyle(element).fontSize);
     await expect(heading).toHaveCSS("font-size", titleSize);
     const arrowBox = await section.locator("svg").first().boundingBox();
     if (!arrowBox) throw new Error("Expected leading disclosure arrow");
-    expect(arrowBox.x + arrowBox.width).toBeLessThanOrEqual(headingBox.x);
+    expect(Math.abs(arrowBox.x + arrowBox.width / 2 - dotBox.x - dotBox.width / 2)).toBeLessThan(1);
+    expect(headingBox.x - arrowBox.x - arrowBox.width).toBeGreaterThanOrEqual(8);
+    const workspaceTitleBox = await workspaceRow.getByText("main", { exact: true }).boundingBox();
+    expect(Math.abs(headingBox.x - workspaceTitleBox!.x)).toBeLessThan(1);
     await section.hover();
     expect(await section.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(
       "rgba(0, 0, 0, 0)",
@@ -137,6 +141,10 @@ test("Standing follows schedules and protection, and failed changes can be retri
 
     await section.click();
     await expect(section).toContainText("1");
+    const collapsedBadge = section.getByTestId(/^count-sidebar-standing-section-/);
+    await expect(collapsedBadge).toHaveCSS("min-width", "20px");
+    expect((await collapsedBadge.boundingBox())!.width).toBeGreaterThanOrEqual(20);
+    await page.screenshot({ path: test.info().outputPath("standing-collapsed.png") });
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeHidden();
     await section.click();
     await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeVisible();
@@ -206,15 +214,16 @@ test("Standing follows schedules and protection, and failed changes can be retri
     expect((await client.archiveWorkspace(agent.workspaceId)).error).toContain("protected");
     await expect(client.archiveAgent(agent.agentId)).rejects.toThrow("protected");
     await openMenu(page, agent.workspaceId);
-    await page
-      .getByTestId(`sidebar-workspace-menu-archive-${getServerId()}:${agent.workspaceId}`)
-      .click();
+    const archive = page.getByTestId(
+      `sidebar-workspace-menu-archive-${getServerId()}:${agent.workspaceId}`,
+    );
+    await expect(archive).toBeDisabled();
+    await archive.locator("..").hover();
     await expect(
-      page.getByText(
-        "This workspace is protected. Remove protection from its menu before archiving.",
-      ),
+      page.getByText("Unprotect and remove schedules to archive", { exact: true }),
     ).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("standing-desktop.png") });
+    await page.keyboard.press("Escape");
     await openMenu(page, agent.workspaceId);
     await page
       .getByTestId(`sidebar-workspace-menu-labels-${getServerId()}:${agent.workspaceId}`)
@@ -412,4 +421,174 @@ test("workspace schedule creation, pause, resume and deletion drive Standing", a
     await client.close();
     await agent.cleanup();
   }
+});
+
+for (const state of ["protected", "scheduled", "paused", "protected-scheduled"] as const) {
+  test(`archive stays locked for ${state} until blockers are removed`, async ({ page }) => {
+    test.setTimeout(180_000);
+    page.setDefaultTimeout(15_000);
+    const agent = await seedMockAgentWorkspace({
+      repoPrefix: "archive-lock-",
+      title: "Archive lock",
+    });
+    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "archive-lock" });
+    const protectedWorkspace = state === "protected" || state === "protected-scheduled";
+    const scheduled = state !== "protected";
+    const reasons = {
+      protected: "Unprotect to archive",
+      active: "Remove schedules to archive",
+      scheduled: "Remove schedules to archive",
+      paused: "Remove schedules to archive",
+      "protected-scheduled": "Unprotect and remove schedules to archive",
+    };
+    const reason = reasons[state];
+    let scheduleId: string | undefined;
+    try {
+      await client.setWorkspaceLifecycle({
+        workspaceId: agent.workspaceId,
+        protected: protectedWorkspace,
+      });
+      if (scheduled) {
+        const created = await client.scheduleCreate({
+          name: "Archive guard schedule",
+          prompt: "Review",
+          target: { type: "agent", agentId: agent.agentId },
+          cadence: { type: "cron", expression: "0 0 1 1 *", timezone: "UTC" },
+          runOnCreate: false,
+        });
+        if (!created.schedule) throw new Error(created.error ?? "Expected schedule");
+        scheduleId = created.schedule.id;
+        if (state === "paused") await client.schedulePause({ id: scheduleId });
+      }
+      await openAgentRoute(page, agent);
+      const key = `${getServerId()}:${agent.workspaceId}`;
+      const row = page.getByTestId(`sidebar-workspace-row-${key}`).first();
+      await expect(row).toBeVisible();
+      await openMenu(page, agent.workspaceId);
+      const archive = page.getByTestId(`sidebar-workspace-menu-archive-${key}`);
+      await expect(archive).toBeDisabled();
+      await archive.locator("..").hover();
+      await expect(page.getByText(reason, { exact: true })).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath(`${state}-archive-locked.png`) });
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+Shift+Backspace");
+      await page.keyboard.press("Meta+Shift+Backspace");
+      await expect(row).toBeVisible();
+      expect((await client.archiveWorkspace(agent.workspaceId)).error).toContain(reason);
+      // The context menu uses the same lock and tooltip as the overflow menu.
+      await row.click({ button: "right" });
+      await expect(archive).toBeDisabled();
+      await page.keyboard.press("Escape");
+      if (protectedWorkspace) {
+        await openMenu(page, agent.workspaceId);
+        await page.getByTestId(`sidebar-workspace-menu-labels-${key}`).click();
+        await page.getByTestId(`workspace-protected-${agent.workspaceId}`).click();
+        await expect(page.getByTestId(`workspace-shield-${agent.workspaceId}`)).toBeHidden();
+        await page.keyboard.press("Escape");
+      }
+      await openMenu(page, agent.workspaceId);
+      if (scheduleId) {
+        await expect(archive).toBeDisabled();
+        await archive.locator("..").hover();
+        await expect(page.getByText("Remove schedules to archive", { exact: true })).toBeVisible();
+        const retained = await client.scheduleList();
+        expect(retained.schedules.some((schedule) => schedule.id === scheduleId)).toBe(true);
+        await client.scheduleDelete({ id: scheduleId });
+        scheduleId = undefined;
+        await page.keyboard.press("Escape");
+        await expect(page.getByTestId(`workspace-scheduled-${agent.workspaceId}`)).toBeHidden({
+          timeout: 30_000,
+        });
+        // Leaving derived Standing moves the row and closes its old menu.
+        await openMenu(page, agent.workspaceId);
+      }
+      await expect(archive).toBeEnabled({ timeout: 30_000 });
+      await archive.click();
+      await expect(row).toBeHidden();
+    } finally {
+      if (scheduleId) await client.scheduleDelete({ id: scheduleId });
+      const exists = (await client.fetchWorkspaces()).entries.some(
+        (entry) => entry.id === agent.workspaceId,
+      );
+      if (exists)
+        await client.setWorkspaceLifecycle({ workspaceId: agent.workspaceId, protected: false });
+      await client.close();
+      await agent.cleanup();
+    }
+  });
+}
+
+test.describe("compact archive lock", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+  test("shows why Archive is locked without hover", async ({ page }) => {
+    test.setTimeout(180_000);
+    page.setDefaultTimeout(15_000);
+    const agent = await seedMockAgentWorkspace({
+      repoPrefix: "archive-lock-touch-",
+      title: "Protected touch",
+    });
+    const client = await connectDaemonClient<DaemonClient>({
+      clientIdPrefix: "archive-lock-touch",
+    });
+    try {
+      await client.setWorkspaceLifecycle({ workspaceId: agent.workspaceId, protected: true });
+      await openAgentRoute(page, agent);
+      await openMobileAgentSidebar(page);
+      const key = `${getServerId()}:${agent.workspaceId}`;
+      await page.getByTestId(`sidebar-workspace-kebab-${key}`).first().click();
+      await expect(page.getByTestId(`sidebar-workspace-menu-archive-${key}`)).toBeDisabled();
+      const hint = page.getByText("Unprotect to archive", { exact: true });
+      await hint.scrollIntoViewIfNeeded();
+      await expect(hint).toBeInViewport({ ratio: 1 });
+      await page.screenshot({ path: test.info().outputPath("compact-archive-lock.png") });
+    } finally {
+      await client.setWorkspaceLifecycle({ workspaceId: agent.workspaceId, protected: false });
+      await client.close();
+      await agent.cleanup();
+    }
+  });
+  test("compact Git Archive explains the schedule lock outside the sidebar", async ({ page }) => {
+    test.setTimeout(180_000);
+    page.setDefaultTimeout(15_000);
+    const agent = await seedMockAgentWorkspace({
+      repoPrefix: "archive-lock-git-",
+      title: "Scheduled Git guard",
+    });
+    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "archive-lock-git" });
+    let scheduleId: string | undefined;
+    try {
+      const created = await client.scheduleCreate({
+        prompt: "Review",
+        target: { type: "agent", agentId: agent.agentId },
+        cadence: { type: "cron", expression: "0 0 1 1 *", timezone: "UTC" },
+        runOnCreate: false,
+      });
+      if (!created.schedule) throw new Error(created.error ?? "Expected schedule");
+      scheduleId = created.schedule.id;
+      await client.schedulePause({ id: scheduleId });
+      await openAgentRoute(page, agent);
+      const changesTab = page.getByTestId("explorer-tab-changes").filter({ visible: true });
+      if (!(await changesTab.isVisible()))
+        await page.getByTestId("workspace-explorer-toggle").first().click();
+      await expect(changesTab).toBeVisible();
+      await changesTab.click();
+      const explorer = page.getByTestId("explorer-content-area").filter({ visible: true });
+      await explorer.getByTestId("changes-actions-menu-trigger").click();
+      const archive = page.getByTestId("workspace-archive-action");
+      await expect(archive).toBeDisabled();
+      const hint = archive.getByText("Remove schedules to archive", { exact: true });
+      await hint.scrollIntoViewIfNeeded();
+      await expect(hint).toBeInViewport({ ratio: 1 });
+      await page.screenshot({ path: test.info().outputPath("compact-git-archive-lock.png") });
+      await client.setWorkspaceLifecycle({ workspaceId: agent.workspaceId, protected: false });
+      await expect(archive).toBeDisabled();
+      await client.scheduleDelete({ id: scheduleId });
+      scheduleId = undefined;
+      await expect(archive).toBeEnabled({ timeout: 30_000 });
+    } finally {
+      if (scheduleId) await client.scheduleDelete({ id: scheduleId });
+      await client.close();
+      await agent.cleanup();
+    }
+  });
 });

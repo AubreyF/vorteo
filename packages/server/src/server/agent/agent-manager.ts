@@ -1199,7 +1199,7 @@ export class AgentManager {
   private readonly getSharedProviderConfig?: () => MutableDaemonConfig;
   private readonly installationSettingsReader?: InstallationSettingsReader;
 
-  private readonly assertWorkspaceArchiveAllowed?: AgentManagerOptions["assertWorkspaceArchiveAllowed"];
+  readonly assertWorkspaceArchiveAllowed?: AgentManagerOptions["assertWorkspaceArchiveAllowed"];
 
   constructor(options: AgentManagerOptions) {
     this.getSharedProviderConfig = options.getSharedProviderConfig;
@@ -2693,6 +2693,11 @@ export class AgentManager {
       });
       this.dispatch({ type: "provider_subagent", event });
     }
+  }
+
+  async assertAgentArchiveAllowed(agentId: string): Promise<void> {
+    const agent = this.getAgent(agentId) ?? (await this.registry?.get(agentId));
+    if (agent?.workspaceId) await this.assertWorkspaceArchiveAllowed?.(agent.workspaceId);
   }
 
   async archiveAgent(agentId: string): Promise<{ archivedAt: string }> {

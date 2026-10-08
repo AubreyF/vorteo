@@ -29,6 +29,11 @@ class FakeLifecycleAgentStorage implements LifecycleAgentStorage {
 }
 
 class FakeLifecycleAgentManager implements LifecycleAgentManager {
+  archiveBlocked = false;
+  async assertAgentArchiveAllowed(): Promise<void> {
+    if (this.archiveBlocked) throw new Error("Unprotect to archive");
+  }
+
   readonly liveAgents = new Map<string, LifecycleAgentSnapshot>();
   readonly cancelledAgentIds: string[] = [];
   readonly cancellationReasons: Array<"manual" | undefined> = [];
@@ -166,6 +171,24 @@ class FakeLifecycleAgentManager implements LifecycleAgentManager {
 const logger = createTestLogger();
 
 describe("agent lifecycle commands", () => {
+  test("a protected agent receives a refusal without cancelling its running turn", async () => {
+    const storage = new FakeLifecycleAgentStorage();
+    const manager = new FakeLifecycleAgentManager(storage);
+    manager.archiveBlocked = true;
+    manager.liveAgents.set("agent-1", managedAgent("agent-1", "running"));
+    manager.inFlightAgentIds.add("agent-1");
+    await expect(
+      archiveAgentCommand(
+        { agentManager: manager, agentStorage: storage, logger: createTestLogger() },
+        "agent-1",
+      ),
+    ).rejects.toThrow("Unprotect to archive");
+    expect(manager.inFlightAgentIds.has("agent-1")).toBe(true);
+    expect(manager.cancelledAgentIds).toEqual([]);
+    expect(manager.clearedAttentionAgentIds).toEqual([]);
+    expect(manager.archivedAgentIds).toEqual([]);
+  });
+
   test("passes explicit Stop intent to the manager", async () => {
     const storage = new FakeLifecycleAgentStorage();
     const manager = new FakeLifecycleAgentManager(storage);

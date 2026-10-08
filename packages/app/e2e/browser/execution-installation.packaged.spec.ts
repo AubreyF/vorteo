@@ -3092,12 +3092,13 @@ for (const sourceKind of ["host", "container"] as const) {
       await expect(page.getByTestId("composer-file-attachment-pill")).toContainText(
         "environment-notes.txt",
       );
-      await page.getByTestId("task-environment").getByRole("button").click();
+      await expect(page.getByTestId("task-environment")).toHaveCount(0);
+      await page.getByTestId("agent-preset-selector").click();
+      if (info.project.name === "phone")
+        await page.getByTestId("preset-section-environment").click();
       if (destinationKind === "host") page.once("dialog", (dialog) => void dialog.accept());
-      await page
-        .getByText(destinationKind === "host" ? "Host" : "Dev container", { exact: true })
-        .last()
-        .click();
+      await page.getByTestId(`preset-environment-${destinationDaemon.serverId}`).click();
+      await page.keyboard.press("Escape");
       await expect(
         page.getByText(
           `Choose this workspace's folder in ${destinationKind === "host" ? "Host" : "Dev container"}.`,
@@ -3113,9 +3114,7 @@ for (const sourceKind of ["host", "container"] as const) {
       await page.getByTestId("project-directory-root-home").click();
       await page.getByTestId("project-directory-child-draft-destination").click();
       await page.getByRole("button", { name: "Select this folder", exact: true }).click();
-      await expect(page.getByTestId("task-environment")).toContainText(
-        destinationKind === "host" ? "Host" : "Dev container",
-      );
+      await expect(page.getByTestId("task-environment")).toHaveCount(0);
       await expect(page.getByRole("textbox", { name: "Message agent..." }).first()).toHaveValue(
         "Keep this exact draft while switching environments.",
       );
@@ -3124,7 +3123,11 @@ for (const sourceKind of ["host", "container"] as const) {
         fullPage: true,
       });
       await page.getByTestId("agent-preset-selector").click();
-      await expect(page.getByTestId("preset-environment-card")).toHaveCount(0);
+      if (info.project.name === "desktop") {
+        await expect(page.getByTestId("preset-environment-card")).toBeVisible();
+      } else {
+        await expect(page.getByTestId("preset-section-environment")).toBeVisible();
+      }
       if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
       await page.getByTestId("preset-account-mock").click();
       await page.getByRole("button", { name: "Browser handoff", exact: true }).click();
@@ -3174,12 +3177,13 @@ for (const sourceKind of ["host", "container"] as const) {
       });
       await openDraft(`second-environment-${sourceKind}`);
       await expectComposerVisible(page, { timeout: 60_000 });
-      await page.getByTestId("task-environment").getByRole("button").click();
+      await expect(page.getByTestId("task-environment")).toHaveCount(0);
+      await page.getByTestId("agent-preset-selector").click();
+      if (info.project.name === "phone")
+        await page.getByTestId("preset-section-environment").click();
       if (destinationKind === "host") page.once("dialog", (dialog) => void dialog.accept());
-      await page
-        .getByText(destinationKind === "host" ? "Host" : "Dev container", { exact: true })
-        .last()
-        .click();
+      await page.getByTestId(`preset-environment-${destinationDaemon.serverId}`).click();
+      await page.keyboard.press("Escape");
       await expect(page.getByText(destinationDirectory, { exact: true })).toBeVisible();
       await expect(page.getByTestId("task-environment-folder")).toHaveCount(0);
       expect(
@@ -3188,17 +3192,18 @@ for (const sourceKind of ["host", "container"] as const) {
       await page.goto(`${origin}/new?serverId=${sourceDaemon.serverId}`);
       await expectComposerVisible(page, { timeout: 60_000 });
       await fillComposerDraft(page, "Keep the new workspace draft too.");
-      await page.getByTestId("new-workspace-environment").getByRole("button").click();
+      await expect(page.getByTestId("new-workspace-environment")).toHaveCount(0);
+      await page.getByTestId("agent-preset-selector").click();
+      if (info.project.name === "phone")
+        await page.getByTestId("preset-section-environment").click();
       if (destinationKind === "host") page.once("dialog", (dialog) => void dialog.accept());
-      await page
-        .getByText(destinationKind === "host" ? "Host" : "Dev container", { exact: true })
-        .last()
-        .click();
+      await page.getByTestId(`preset-environment-${destinationDaemon.serverId}`).click();
+      await page.keyboard.press("Escape");
       await expect(page.getByRole("textbox", { name: "Message agent..." }).first()).toHaveValue(
         "Keep the new workspace draft too.",
       );
       await expect(page.getByTestId("preset-handoff-modal")).toHaveCount(0);
-      await expect(page.getByText("Environment", { exact: true })).toHaveCount(1);
+      await expect(page.getByTestId("new-workspace-environment")).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^(Send message|Create)$/ })).toBeInViewport();
       await page.screenshot({
         path: info.outputPath("new-workspace-environment.png"),

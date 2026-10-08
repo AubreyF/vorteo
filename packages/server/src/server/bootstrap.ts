@@ -1,4 +1,5 @@
-import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
+import { ScheduleStore } from "./schedule/store.js";
+import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
 import express from "express";
@@ -916,10 +917,22 @@ export async function createPaseoDaemon(
     path.join(config.paseoHome, "projects", "projects.json"),
     logger,
   );
-  workspaceRegistry = new FileBackedWorkspaceRegistry(
+  const archiveScheduleStore = new ScheduleStore(path.join(config.paseoHome, "schedules"), logger);
+  const assertArchiveAllowed = (workspaceId: string): Promise<void> =>
+    assertWorkspaceArchiveAllowed(
+      {
+        workspaces: archiveWorkspaceRegistry,
+        schedules: archiveScheduleStore,
+        agents: agentStorage,
+      },
+      workspaceId,
+    );
+  const archiveWorkspaceRegistry = new FileBackedWorkspaceRegistry(
     path.join(config.paseoHome, "projects", "workspaces.json"),
     logger,
+    { assertArchiveAllowed },
   );
+  workspaceRegistry = archiveWorkspaceRegistry;
   const workspaceLabelService = createWorkspaceLabelService({
     paseoHome: config.paseoHome,
     workspaceRegistry,
@@ -978,10 +991,7 @@ export async function createPaseoDaemon(
   const initialAgentManagerState = providerSnapshotManager.getAgentManagerProviderState();
   const agentManager = new AgentManager({
     getSharedProviderConfig: () => daemonConfigStore.get(),
-    assertWorkspaceArchiveAllowed: async (workspaceId) => {
-      const workspace = await workspaceRegistry.get(workspaceId);
-      if (workspace) assertWorkspaceUnprotected(workspace);
-    },
+    assertWorkspaceArchiveAllowed: assertArchiveAllowed,
     pluginLifecycle: pluginRuntime,
     clients: initialAgentManagerState.clients,
     providerDefinitions: initialAgentManagerState.providerDefinitions,

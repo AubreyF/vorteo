@@ -156,6 +156,7 @@ export interface DraftAgentControlsProps {
   selectedThinkingOptionId: string;
   onSelectThinkingOption: (thinkingOptionId: string) => void;
   onApplyAgentProfile: DraftAgentProfileControls["applyProfile"];
+  onSelectEnvironment?: DraftAgentProfileControls["selectEnvironment"];
   features?: AgentFeature[];
   onSetFeature?: (featureId: string, value: unknown) => void;
   onDropdownClose?: () => void;
@@ -1887,6 +1888,7 @@ export function DraftAgentControls({
   selectedThinkingOptionId,
   onSelectThinkingOption,
   onApplyAgentProfile,
+  onSelectEnvironment,
   project,
   features,
   onSetFeature,
@@ -1927,10 +1929,11 @@ export function DraftAgentControls({
       kind: "draft",
       controls: {
         applyProfile: onApplyAgentProfile,
+        selectEnvironment: onSelectEnvironment,
         project,
       },
     }),
-    [onApplyAgentProfile, project],
+    [onApplyAgentProfile, onSelectEnvironment, project],
   );
   const agentProfiles = useAgentProfilePicker({
     serverId: modelSelectorServerId,

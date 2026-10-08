@@ -22,7 +22,7 @@ export function ScheduledWorkspaceProvider({ children }: PropsWithChildren) {
     useShallow((state) => serverIds.map((id) => state.sessions[id]?.agents)),
   );
   // One query per host preserves its last known association while disconnected.
-  // Polling is collection-owned and stops when the sidebar is retained but hidden.
+  // One collection feeds Standing membership and archive guards, including Git actions outside the sidebar.
   const queries = useFetchQueries(
     serverIds.map((serverId) => ({
       queryKey: ["schedules", "workspace-indicators", serverId],

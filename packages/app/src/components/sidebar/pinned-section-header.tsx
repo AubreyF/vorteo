@@ -7,8 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { isNative } from "@/constants/platform";
 import { useSidebarRowDensity } from "./use-sidebar-row-density";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { STATUS_INDICATOR_FILLED_DOT_SIZE } from "@/utils/status-indicator-geometry";
+import { SidebarCountBadge } from "./sidebar-count-badge";
 import type { Theme } from "@/styles/theme";
 
 const ThemedChevronDown = withUnistyles(ChevronDown);
@@ -71,7 +70,11 @@ export function PinnedSectionHeader({
             {title ?? t("sidebar.pinned.title")}
           </Text>
           {collapsed && count !== undefined ? (
-            <StatusBadge label={String(count)} size="xs" shape="row" />
+            <SidebarCountBadge
+              label={String(count)}
+              accessibilityLabel={`${title ?? t("sidebar.pinned.title")}: ${count}`}
+              testID={`count-${testID}`}
+            />
           ) : null}
           {!indented && (hovered || isNative || showTouchControls) ? (
             <Chevron size={12} uniProps={foregroundMutedColorMapping} />
@@ -96,11 +99,17 @@ const styles = StyleSheet.create((theme) => ({
   },
   hovered: { backgroundColor: theme.colors.surfaceSidebarHover },
   pressed: { backgroundColor: theme.colors.surface2 },
-  chevron: { position: "absolute", left: theme.spacing[2] },
+  chevron: {
+    width: theme.iconSize.md,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
   indented: {
     alignSelf: "stretch",
-    // Match the filled dot inside the grouped workspace row’s centered icon slot.
-    paddingLeft: theme.spacing[2] * 2 + (theme.iconSize.md - STATUS_INDICATOR_FILLED_DOT_SIZE) / 2,
+    // Share the workspace status slot so different circle sizes keep the same center.
+    paddingLeft: theme.spacing[4],
+    gap: theme.spacing[2],
   },
   workspaceTitle: { fontSize: theme.fontSize.base, lineHeight: 20 },
   touchHeader: { minHeight: 44 },

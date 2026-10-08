@@ -1,3 +1,7 @@
+import { ScheduleStore } from "./schedule/store.js";
+import { createTestLogger } from "../test-utils/test-logger.js";
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -582,3 +586,110 @@ test("persists an environment association without changing directory ownership",
   );
   expect(workspace).toMatchObject({ workspaceDirectory: cwd, projectMembership: membership });
 });
+
+test.each(["protected", "active", "paused", "protected-scheduled"] as const)(
+  "%s agents receive a guardian refusal through their own MCP without losing the turn",
+  async (state) => {
+    const cwd = makeTempDir("workspace-archive-guardian-");
+    const workspaceId = await createLocalWorkspace(cwd, "Protected guardian task");
+    const agent = await ctx.client.createAgent({
+      provider: "claude",
+      model: "claude-test-model",
+      modeId: "default",
+      cwd,
+      workspaceId,
+      initialPrompt: "Edit guardian.txt",
+    });
+    const manager = ctx.daemon.daemon.agentManager;
+    await expect.poll(() => manager.getAgent(agent.id)?.pendingPermissions.size).toBe(1);
+    const protectedWorkspace = state === "protected" || state === "protected-scheduled";
+    const scheduled = state !== "protected";
+    await ctx.client.setWorkspaceLifecycle({ workspaceId, protected: protectedWorkspace });
+    let scheduleId: string | undefined;
+    if (scheduled) {
+      const created = await ctx.client.scheduleCreate({
+        prompt: "Review",
+        target: { type: "agent", agentId: agent.id },
+        cadence: { type: "cron", expression: "0 0 1 1 *", timezone: "UTC" },
+        runOnCreate: false,
+      });
+      if (!created.schedule) throw new Error(created.error ?? "Missing schedule");
+      scheduleId = created.schedule.id;
+      if (state === "paused") await ctx.client.schedulePause({ id: scheduleId });
+    }
+    const reasons = {
+      protected: "Unprotect to archive",
+      active: "Remove schedules to archive",
+      scheduled: "Remove schedules to archive",
+      paused: "Remove schedules to archive",
+      "protected-scheduled": "Unprotect and remove schedules to archive",
+    };
+    const reason = reasons[state];
+    const client = new McpClient({ name: "guardian-regression", version: "1.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(
+        new URL(`http://127.0.0.1:${ctx.daemon.port}/mcp/agents?callerAgentId=${agent.id}`),
+        { requestInit: { headers: { Authorization: `Bearer ${manager.getMcpAuthToken()}` } } },
+      ),
+    );
+    try {
+      for (const request of [
+        { name: "archive_agent", arguments: { agentId: agent.id } },
+        { name: "archive_workspace", arguments: { workspaceId } },
+      ]) {
+        const result = await client.callTool(request);
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringContaining(reason),
+            }),
+          ]),
+        );
+        expect(manager.hasInFlightRun(agent.id)).toBe(true);
+        expect(manager.getAgent(agent.id)?.pendingPermissions.size).toBe(1);
+        expect(await activeWorkspaceIds()).toContain(workspaceId);
+        expect(await activeAgentIds()).toContain(agent.id);
+        expect(await archivedAgentIds()).not.toContain(agent.id);
+      }
+    } finally {
+      await client.close();
+      if (scheduleId) await ctx.client.scheduleDelete({ id: scheduleId });
+      await ctx.client.setWorkspaceLifecycle({ workspaceId, protected: false });
+    }
+  },
+);
+
+test.each(["completed", "expired-active", "expired-paused"] as const)(
+  "%s schedules no longer block workspace archival",
+  async (state) => {
+    const cwd = makeTempDir("workspace-ended-schedule-");
+    const workspaceId = await createLocalWorkspace(cwd, "Ended schedule");
+    const agent = await ctx.client.createAgent({
+      ...getFullAccessConfig("claude"),
+      cwd,
+      workspaceId,
+    });
+    const created = await ctx.client.scheduleCreate({
+      prompt: "Review",
+      target: { type: "agent", agentId: agent.id },
+      cadence: { type: "cron", expression: "0 0 1 1 *", timezone: "UTC" },
+      runOnCreate: false,
+    });
+    if (!created.schedule) throw new Error(created.error ?? "Missing schedule");
+    const store = new ScheduleStore(
+      path.join(ctx.daemon.daemon.config.paseoHome, "schedules"),
+      createTestLogger(),
+    );
+    await store.update(created.schedule.id, (schedule) => ({
+      ...schedule,
+      status: state === "completed" ? "completed" : "paused",
+      expiresAt: state === "completed" ? null : "2020-01-01T00:00:00.000Z",
+    }));
+    if (state === "expired-active")
+      await store.update(created.schedule.id, (schedule) => ({ ...schedule, status: "active" }));
+    expect((await ctx.client.archiveWorkspace(workspaceId)).error).toBeNull();
+    expect(await activeWorkspaceIds()).not.toContain(workspaceId);
+  },
+);

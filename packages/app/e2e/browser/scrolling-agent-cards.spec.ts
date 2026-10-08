@@ -143,18 +143,22 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
       expect(geometry[0].frame[3]).toBe("8px");
-      expect(geometry[2].padding).toBe("0px 8px 8px");
+      expect(geometry[2].padding).toBe("4px 8px 8px");
       for (const card of geometry.slice(2)) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
       const toggle = stack.getByTestId("subagents-card-toggle");
       const headerHeight = await toggle.evaluate((node) => node.getBoundingClientRect().height);
       const rowHeight = await stack.getByTestId("subagents-card").evaluate((card) => {
-        const row = card.lastElementChild?.firstElementChild;
-        if (!row) throw new Error("Subagent row missing");
+        const row = card.firstElementChild;
+        if (!row) throw new Error("Subagent header row missing");
         return row.getBoundingClientRect().height;
       });
-      expect(headerHeight).toBe(rowHeight);
+      expect(headerHeight).toBe(rowHeight - 8);
+      const clearFinished = stack.getByTestId("subagents-track-archive-finished");
+      await expect(clearFinished).toBeVisible();
+      expect((await clearFinished.boundingBox())?.height).toBe(headerHeight);
+      expect(headerHeight).toBe(width === 390 ? 44 : 32);
       if (width === 1400) {
         await toggle.hover();
         expect((await toggle.boundingBox())?.height).toBe(headerHeight);
@@ -166,9 +170,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       await expect(toggle).toHaveAttribute("aria-expanded", "true");
       const subagentBottomInset = await stack.getByTestId("subagents-card").evaluate((card) => {
         const rows = card.lastElementChild;
-        const lastRow = rows?.lastElementChild;
-        if (!lastRow) throw new Error("Subagent rows missing");
-        return card.getBoundingClientRect().bottom - lastRow.getBoundingClientRect().bottom;
+        if (!rows) throw new Error("Subagent rows missing");
+        return card.getBoundingClientRect().bottom - rows.getBoundingClientRect().bottom;
       });
       expect(subagentBottomInset).toBeCloseTo(9, 0);
       if (width === 1400) {
@@ -180,7 +183,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       for (const card of geometry.slice(3)) {
         expect(card.frame).toEqual(geometry[2].frame);
-        expect(card.padding).toBe(width === 390 ? "0px 8px 8px 12px" : "0px 8px 8px 16px");
+        expect(card.padding).toBe(width === 390 ? "4px 8px 8px 12px" : "4px 8px 8px 16px");
         expect(card.width).toBe(geometry[2].width);
       }
       const movement = await stack.evaluate(async (element) => {
