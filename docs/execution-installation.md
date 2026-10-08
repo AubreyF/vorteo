@@ -158,6 +158,14 @@ Coordinator recovery retries approved waiting work and hold release, never an
 ambiguous disruptive dispatch. A new daemon uses existing goal and queue recovery;
 this does not add an independent continuation scheduler.
 
+### Tracked Dev supervisor maintenance
+
+A supervisor or launcher repair uses the same coordinator journal, sidebar notice and owner controls as daemon restarts. A trusted Host operator prepares a protected Node maintenance script, its SHA-256 digest and rollback procedure, then configures `container.supervisorMaintenance` with absolute `node` and `script` paths and `sha256`. Keep the executable, script and configuration outside guest-writable mounts. The script owns validation of its exact installation targets, preservation, activation and rollback evidence; it must not restart unrelated services or replay a failed operation.
+
+The Host client discovers `supervisorMaintenance` through `capabilities` and submits `request-restart --target container-daemon --supervisor-plan <sha256> --reason-file <file>`. Submission is inert. The owner reviews **Dev supervisor**, then chooses **Finish turns and restart** or **Cancel**. Approval binds the request revision and configured script digest. A plain worker restart cannot share that approval. Container credentials cannot submit supervisor maintenance, and old clients must reload before approving it.
+
+The coordinator holds new work through its existing drain workflow, waits for active turns and registrations, and executes the verified script bytes once. It then verifies a replacement worker and the pinned daemon identity. Unknown activity and preparation failures remain blockers. For older workers, an exact disconnected-session error may be excluded only after a fresh record confirms archived, inactive history with no active turn or permissions. Updated daemons skip preparing that archived history. Cancellation before dispatch releases the matching hold; interrupted dispatch is recorded as failed and never replayed. Force restart remains an explicit operator escalation for an approved queue.
+
 ## Reviewed source updates
 
 The installed maintenance client exposes `capabilities` for target readiness and bootstrap blockers. Dev can submit committed source for either available target:
@@ -209,6 +217,8 @@ Use the existing guarded publisher to adopt any legacy web directory before enab
 Acceptance requires a real Dev upload, visible revision and digest in the owner approval screen, refusal of unauthenticated and legacy approvals, a platform-native build after approval, verified daemon identity and replacement PID, and a rendered interface whose release receipt matches the approved source. Bootstrap requires the trusted Host installer. After bootstrap, Dev can submit source, read readiness and follow installation receipts through the scoped client; owner approval remains separate.
 
 ### Dev updater bootstrap and new installations
+
+Verify that both the managed supervisor and worker inherit `VORTEO_INSTALLATION_CLIENT_CONFIG` pointing to the installation-owned scoped client. Older container launchers may lack this export even when the client file exists. Repair the owned launcher and obtain approval to restart its supervisor before enabling Dev updates; a worker restart inherits the same incomplete supervisor environment. Bootstrap refuses this missing binding.
 
 The protected configuration optionally includes `containerSourceUpdates`. It owns the protected source repository, integration ref, tooling directory and installed-source receipt. It also pins the Host Docker executable, full immutable container ID, regular container user, Node executable, daemon home, release root and current-release symlink. These are installer settings, never upload parameters. The guest receives only the request credential. Container recreation requires the installer to rebind its identity after checking the preserved runtime and state.
 

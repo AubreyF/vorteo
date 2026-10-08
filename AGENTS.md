@@ -39,6 +39,12 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 
 ## Work outside the container
 
+### Required restart control path
+
+Every Host or Dev daemon restart, supervisor replacement, and preparatory finish-turns hold must use the installation coordinator's tracked lifecycle workflow. The request must be visible in the sidebar and installation controls, with live status and owner cancellation before dispatch. Chat approval does not authorize bypassing these controls.
+
+Never call daemon drain/restart RPCs directly or use launchctl, supervisorctl, Docker restart, kill, or a private polling loop to perform or manage a Host/Dev daemon restart outside that workflow. Do not create an invisible hold while waiting for agents to finish. If the coordinator cannot represent the required operation, extend and validate the managed workflow before placing a hold or interrupting anything. Supervisor maintenance is not an exception. Report the unsupported operation explicitly; do not substitute a worker restart or fabricate a coordinator receipt.
+
 - Before handing host work back to the owner, inspect the available skills, tools and installed clients for a supported operation. Use them within the task's authorization. Being in the container or lacking a host shell does not by itself require a continuity prompt.
 - For Host or Dev daemon restart requests and status queries, read the installed `installation-maintenance` skill and use its scoped client. Use `request-restart` only after preparation and validation, return the exact request's approval link, and use `restart-status` to inspect an existing request. Do not substitute a host continuity prompt for these supported operations. The owner still approves the exact restart; the client cannot approve it or grant host-shell access. See [restart routing](docs/host-handoff.md#use-supported-operations-first).
 - For source deployment, inspect the maintenance client's `capabilities` and use `request-restart --target host|container-daemon --update` for each affected target. Host installs its daemon and shared interface; Dev installs its daemon in the existing container. Complete validation before submitting, retain contribution receipts, and wait for exact owner approval. Only a missing capability or concrete policy failure justifies handing routine deployment back to Host.

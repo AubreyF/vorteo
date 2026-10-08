@@ -9,7 +9,7 @@ import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { createInstallationRestartExecutor, validateHostStartup } from "./daemon.js";
 import type { InstallationConfig } from "./config.js";
 import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
-import { InstallationRestarts, type RestartJournal } from "./restarts.js";
+import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
 
 class MemoryJournal implements RestartJournal {
   jobs: RestartJob[] = [];
@@ -1362,4 +1362,149 @@ test("Host and Dev contributions have separate batches and exact target approval
   await queue.drain();
   expect(installs).toEqual(["container-daemon"]);
   expect(queue.contribution(host.contribution.id)!.batch.status).toBe("pending");
+});
+
+test("supervisor maintenance requires exact review and stays visible and cancellable", async () => {
+  const sha = "a".repeat(64);
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    supervisorPlan: () => sha,
+    restartSupervisor: async () => {
+      calls.push("supervisor");
+      return "ready";
+    },
+    restart: async () => {
+      calls.push("worker");
+      return "wrong";
+    },
+    restartWhenIdle: async () => "wrong",
+    holdCurrentTurns: async () => {
+      calls.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      calls.push("release");
+    },
+    inspect: async () => ({
+      target: "container-daemon",
+      checkedAt: new Date().toISOString(),
+      agents: [{ id: "busy", title: "Busy", status: "running" }],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      gracefulRestartSupported: true,
+      error: null,
+    }),
+  });
+  const request = queue.request(
+    { target: "container-daemon", reason: "Repair launcher", supervisorPlanSha256: sha },
+    "host-agent",
+  );
+  expect(queue.list()[0]?.status).toBe("pending");
+  await queue.drain();
+  expect(calls).toEqual([]);
+  expect(() => queue.decide(request.id, request.revision, "finish-current-turns")).toThrow(
+    "exact supervisor",
+  );
+  expect(() =>
+    queue.decide(request.id, request.revision, "approve-when-idle", undefined, sha),
+  ).toThrow("Finish turns");
+  expect(() =>
+    queue.request({ target: "container-daemon", reason: "Worker" }, "host-agent"),
+  ).toThrow("different");
+  const approved = queue.decide(
+    request.id,
+    request.revision,
+    "finish-current-turns",
+    undefined,
+    sha,
+  );
+  await queue.drain();
+  expect(calls).toEqual(["hold"]);
+  expect(queue.list()[0]?.status).toBe("approved");
+  queue.decide(approved.id, approved.revision, "cancel");
+  await queue.drain();
+  expect(calls).toEqual(["hold", "release"]);
+  expect(queue.list()[0]?.status).toBe("rejected");
+});
+
+test("supervisor requests reject guest submission and changed plans before dispatch", async () => {
+  let sha = "a".repeat(64);
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    supervisorPlan: () => sha,
+    restartSupervisor: async () => {
+      calls.push("supervisor");
+      return "ready";
+    },
+    restart: async () => "worker",
+  });
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Repair launcher",
+    supervisorPlanSha256: sha,
+  };
+  expect(() => queue.request(input, "container-agent")).toThrow("Host");
+  const job = queue.request(input, "host-agent");
+  queue.decide(job.id, job.revision, "approve", undefined, sha);
+  sha = "b".repeat(64);
+  await queue.drain();
+  expect(calls).toEqual([]);
+  expect(queue.list()[0]?.status).toBe("failed");
+});
+
+test("supervisor maintenance dispatches once after held turns finish and never replays an interrupted dispatch", async () => {
+  const sha = "a".repeat(64);
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  let busy = true;
+  const executor: RestartExecutor = {
+    supervisorPlan: () => sha,
+    restartSupervisor: async () => {
+      calls.push("supervisor");
+      return "Supervisor ready";
+    },
+    restart: async () => {
+      throw new Error("Worker restart cannot execute supervisor maintenance");
+    },
+    restartWhenIdle: async () => {
+      throw new Error("Worker restart cannot execute supervisor maintenance");
+    },
+    holdCurrentTurns: async () => {
+      calls.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      calls.push("release");
+    },
+    inspect: async () => ({
+      target: "container-daemon",
+      checkedAt: new Date().toISOString(),
+      agents: busy ? [{ id: "active", title: "Active", status: "running" }] : [],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      gracefulRestartSupported: true,
+      error: null,
+    }),
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const job = queue.request(
+    { target: "container-daemon", reason: "Repair launcher", supervisorPlanSha256: sha },
+    "host-agent",
+  );
+  queue.decide(job.id, job.revision, "finish-current-turns", undefined, sha);
+  await queue.drain();
+  expect(calls).toEqual(["hold"]);
+  busy = false;
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  expect(calls.filter((call) => call === "supervisor")).toHaveLength(1);
+  await new InstallationRestarts(journal, executor).drain();
+  expect(calls.filter((call) => call === "supervisor")).toHaveLength(1);
+  const interrupted = queue.list();
+  for (const entry of interrupted) entry.status = "running";
+  journal.write(interrupted);
+  const recovered = new InstallationRestarts(journal, executor);
+  await recovered.drain();
+  expect(recovered.list()[0]?.status).toBe("failed");
+  expect(calls.filter((call) => call === "supervisor")).toHaveLength(1);
 });

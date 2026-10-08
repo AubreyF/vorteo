@@ -4,9 +4,39 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
-## 0.11.0-beta.3.vorteo.193 - 2026-10-08
+## 0.11.0-beta.3.vorteo.196 - 2026-10-08
 
 ### Maintenance
+
+- Integrate tracked supervisor maintenance and profile launcher validation with the installed source history, retaining preview recovery and Host build repairs.
+
+## 0.11.0-beta.3.vorteo.195 - 2026-10-08
+
+### Fixed
+
+- Route Dev supervisor repairs through visible, cancellable installation requests with exact-plan approval and verified replacement readiness. Keep ordinary worker restarts separate and refuse guest maintenance requests.
+- Exclude inactive archived history from restart preparation while preserving active work, unknown failures and interruption safeguards.
+
+### Maintenance
+
+- Cover approval binding, cancellation, legacy clients, changed scripts and interrupted dispatch. Document protected Host preparation and the managed supervisor repair workflow.
+
+## 0.11.0-beta.3.vorteo.194 - 2026-10-08
+
+### Maintenance
+
+- Require coordinator-tracked, visible and cancellable workflows for all Host and Dev daemon holds, restarts and supervisor maintenance. Prohibit direct lifecycle RPCs and shell restart bypasses even when chat approval exists.
+- Require unsupported maintenance operations to be implemented in the managed workflow before draining or interrupting tasks.
+
+## 0.11.0-beta.3.vorteo.193 - 2026-10-08
+
+### Fixed
+
+- Refuse Dev updater bootstrap when the managed supervisor or worker lacks the installation-owned profile client binding. Explain the required launcher repair and reviewed supervisor restart.
+
+### Maintenance
+
+- Cover missing and mismatched profile client paths and document acceptance of the inherited launcher environment.
 
 - Integrate managed preview recovery and exact-source Host build preparation with the installed Dev and interface histories. Retain their existing features and release notes.
 

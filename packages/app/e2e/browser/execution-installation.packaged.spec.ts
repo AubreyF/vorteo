@@ -207,7 +207,13 @@ test.beforeAll(async () => {
   const settings = createInstallationSettings(config);
   const app = createInstallationServer(
     config,
-    createInstallationRestartExecutor(config),
+    {
+      ...createInstallationRestartExecutor(config),
+      supervisorPlan: () => "a".repeat(64),
+      restartSupervisor: async () => {
+        throw new Error("The UI fixture must not dispatch supervisor maintenance");
+      },
+    },
     pino({ level: "silent" }),
     profiles,
     settings,
@@ -3358,3 +3364,40 @@ for (const target of ["host", "container-daemon"]) {
     await card.screenshot({ path: info.outputPath("source-batch-review.png") });
   });
 }
+
+test("supervisor maintenance is visible and cancellable without offering an initial force restart", async ({
+  page,
+}, testInfo) => {
+  const created = await request("restart-requests", hostToken, {
+    target: "container-daemon",
+    reason: "Repair the Dev profile launcher. Dev tasks and terminals will reconnect.",
+    supervisorPlanSha256: "a".repeat(64),
+  });
+  expect(created.status).toBe(201);
+  const job = RestartJobSchema.parse(await created.json());
+  await page.goto(`${origin}/settings/general?installation=1&restart=${job.id}`);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const card = page.getByTestId(`restart-request-${job.id}`);
+  await expect(card).toContainText("Dev supervisor");
+  await expect(card.getByRole("button")).toHaveText([
+    "Details",
+    "Finish turns and restart",
+    "Cancel",
+  ]);
+  await expect(page.getByTestId(`restart-force-${job.id}`)).toHaveCount(0);
+  await card.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(card).toContainText("a".repeat(64));
+  await page.screenshot({
+    path: testInfo.outputPath("supervisor-maintenance-review.png"),
+    fullPage: true,
+  });
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: "Finish turns and restart", exact: true }),
+  ).toHaveCount(0);
+  const outcome = await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
+    headers: { Authorization: `Bearer ${hostToken}`, Origin: origin },
+  });
+  expect((await outcome.json()).status).toBe("rejected");
+});

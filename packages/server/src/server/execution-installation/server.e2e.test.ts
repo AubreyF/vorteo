@@ -400,6 +400,11 @@ async function fixture(
   const app = createInstallationServer(
     config,
     {
+      supervisorPlan: () => "a".repeat(64),
+      restartSupervisor: async () => {
+        calls.push("supervisor");
+        return "verified supervisor";
+      },
       restart: async (target) => {
         calls.push(target);
         return "verified ready";
@@ -1206,4 +1211,82 @@ test("capability discovery reports the Dev bootstrap blocker without exposing co
       )
     ).status,
   ).toBe(503);
+});
+
+test("supervisor maintenance stays visible to old clients but requires exact owner review", async () => {
+  const { request, calls } = await fixture();
+  const input = {
+    target: "container-daemon",
+    reason: "Repair profile launcher",
+    supervisorPlanSha256: "a".repeat(64),
+  };
+  const route = "/api/installation/restart-requests";
+  expect((await request(route, "guest-agent-test-token", input)).status).toBe(409);
+  const created = await request(route, "host-agent-test-token", input);
+  expect(created.status).toBe(201);
+  const job = RestartJobSchema.parse(await created.json());
+  expect(job.supervisorPlanSha256).toBe(input.supervisorPlanSha256);
+  expect(calls).toEqual([]);
+  const unlocked = await request("/api/installation/owner/unlock", "owner-test-password", {});
+  const cookie = unlocked.headers.get("set-cookie")?.split(";")[0];
+  if (!cookie) throw new Error("Missing owner cookie");
+  const old = await request(
+    "/api/installation/owner/restarts/query",
+    undefined,
+    {},
+    undefined,
+    cookie,
+  );
+  expect(old.status).toBe(200);
+  const visible = await old.json();
+  expect(JSON.stringify(visible)).toContain("Reload Vorteo");
+  expect(JSON.stringify(visible)).not.toContain("supervisorPlanSha256");
+  const decision = `/api/installation/owner/restarts/${job.id}/decision`;
+  expect(
+    (
+      await request(
+        decision,
+        undefined,
+        { revision: job.revision, decision: "approve" },
+        undefined,
+        cookie,
+      )
+    ).status,
+  ).toBe(409);
+  const cancelled = await request(
+    decision,
+    undefined,
+    { revision: job.revision, decision: "reject" },
+    undefined,
+    cookie,
+  );
+  expect(cancelled.status).toBe(200);
+  expect(calls).toEqual([]);
+});
+
+test("supervisor capability is Host scoped and exact approval dispatches the maintenance executor", async () => {
+  const { request, calls } = await fixture();
+  const guest = await request("/api/installation/capabilities", "guest-agent-test-token");
+  expect((await guest.json()).supervisorMaintenance).toEqual({ available: false });
+  const host = await request("/api/installation/capabilities", "host-agent-test-token");
+  const sha = "a".repeat(64);
+  expect((await host.json()).supervisorMaintenance).toEqual({ available: true, sha256: sha });
+  const created = await request("/api/installation/restart-requests", "host-agent-test-token", {
+    target: "container-daemon",
+    reason: "Reviewed fixture",
+    supervisorPlanSha256: sha,
+  });
+  const job = RestartJobSchema.parse(await created.json());
+  const response = await request(
+    `/api/installation/owner/restarts/${job.id}/decision?supervisorMaintenance=1`,
+    "owner-test-password",
+    { revision: job.revision, decision: "approve", supervisorPlanSha256: sha },
+  );
+  expect(response.status).toBe(200);
+  await expect.poll(() => calls).toEqual(["supervisor"]);
+  const status = await request(
+    `/api/installation/restart-requests/${job.id}`,
+    "host-agent-test-token",
+  );
+  expect((await status.json()).status).toBe("succeeded");
 });

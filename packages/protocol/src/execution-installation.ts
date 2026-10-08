@@ -39,6 +39,11 @@ export type InstallationUnlock = z.infer<typeof InstallationUnlockSchema>;
 
 export const RestartTargetSchema = z.enum(["host", "container-daemon"]);
 export const RestartRequestSchema = z.strictObject({
+  // COMPAT(supervisorMaintenance): optional exact-plan binding; old approvals cannot authorize it.
+  supervisorPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   target: RestartTargetSchema,
   reason: z.string().trim().min(1).max(2000),
   requester: z.string().trim().min(1).max(200).optional(),
@@ -118,6 +123,10 @@ export const RestartJobSchema = RestartRequestSchema.extend({
 export type RestartJob = z.infer<typeof RestartJobSchema>;
 
 export const RestartDecisionSchema = z.strictObject({
+  supervisorPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   updateSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
