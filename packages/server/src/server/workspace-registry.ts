@@ -1,9 +1,13 @@
 import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
 import { promises as fs } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 
 import type { Logger } from "pino";
 import { z } from "zod";
-import { WorkspaceProjectMembershipSchema } from "@getpaseo/protocol/messages";
+import {
+  WorkspaceFactoryMembershipSchema,
+  WorkspaceProjectMembershipSchema,
+} from "@getpaseo/protocol/messages";
 
 import { writeJsonFileAtomic } from "./atomic-file.js";
 import { areEquivalentPaths } from "../utils/path.js";
@@ -13,6 +17,11 @@ import {
   type PersistedWorkspaceKind,
 } from "./workspace-registry-model.js";
 import type { UntrustedWorkspaceSource } from "./workspace-automation-gate.js";
+import {
+  FactoryInstallCheckpointSchema,
+  FactoryInstallCheckpointError,
+  type FactoryInstallCheckpoint,
+} from "./factory/install-checkpoint.js";
 
 const UntrustedWorkspaceSourceSchema = z.object({
   kind: z.literal("change_request"),
@@ -48,12 +57,15 @@ const PersistedProjectRecordSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   archivedAt: z.string().nullable(),
+  factoryInstallation: FactoryInstallCheckpointSchema.optional(),
 });
 
 const PersistedWorkspaceRecordSchema = z.object({
   workspaceId: z.string(),
   projectId: z.string(),
   projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
+  // Native installation lifecycle owns this relationship; ordinary requests cannot set it.
+  factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
   cwd: z.string(),
   kind: z.enum(["local_checkout", "worktree", "directory"]),
   displayName: z.string(),
@@ -172,6 +184,12 @@ export interface WorkspaceRegistry {
     context?: WorkspaceArchiveContext,
   ): Promise<void>;
   remove(workspaceId: string): Promise<void>;
+  /** Native-only binding seam; role reservation and record comparison share one transaction. */
+  bindFactoryMember?(input: {
+    expected: PersistedWorkspaceRecord;
+    membership: NonNullable<PersistedWorkspaceRecord["factoryMembership"]>;
+    assertCurrent(): void;
+  }): Promise<PersistedWorkspaceRecord | null>;
   /** Central lifecycle seam for daemon-global workspace observers. */
   subscribeToMutations?(
     listener: (mutation: WorkspaceMutation) => void | Promise<void>,
@@ -229,6 +247,12 @@ class FileBackedRegistry<TRecord extends RegistryRecord> {
 
   async get(id: string): Promise<TRecord | null> {
     await this.load();
+    return this.cache.get(id) ?? null;
+  }
+
+  /** Native lifecycle guards must recheck initialized identity without yielding. */
+  getLoadedRecord(id: string): TRecord | null {
+    if (!this.loaded) throw new Error("Workspace registry has not been initialized.");
     return this.cache.get(id) ?? null;
   }
 
@@ -408,6 +432,18 @@ export class FileBackedProjectRegistry
     this.projectIdFactory = options?.projectIdFactory ?? generateProjectId;
   }
 
+  override async get(projectId: string): Promise<PersistedProjectRecord | null> {
+    return structuredClone(await super.get(projectId));
+  }
+
+  override async list(): Promise<PersistedProjectRecord[]> {
+    return structuredClone(await super.list());
+  }
+
+  override getLoadedRecord(projectId: string): PersistedProjectRecord | null {
+    return structuredClone(super.getLoadedRecord(projectId));
+  }
+
   async getOrCreateActiveByRoot(input: {
     rootPath: string;
     kind: PersistedProjectKind;
@@ -474,7 +510,12 @@ export class FileBackedProjectRegistry
   }
 
   override async upsert(record: PersistedProjectRecord): Promise<void> {
-    await super.upsert(record);
+    await this.mutateCache((records) => {
+      const existing = records.get(record.projectId);
+      if (!isDeepStrictEqual(existing?.factoryInstallation, record.factoryInstallation))
+        throw new Error("Factory installation state requires the native installation operation.");
+      records.set(record.projectId, PersistedProjectRecordSchema.parse(record));
+    });
     await this.notifyMutation({ kind: "upsert", projectId: record.projectId, project: record });
   }
 
@@ -482,22 +523,134 @@ export class FileBackedProjectRegistry
     projectId: string,
     updater: (record: PersistedProjectRecord) => PersistedProjectRecord,
   ): Promise<PersistedProjectRecord | null> {
-    const project = await super.update(projectId, updater);
+    const project = await super.update(projectId, (record) => {
+      const next = updater(structuredClone(record));
+      if (!isDeepStrictEqual(record.factoryInstallation, next.factoryInstallation))
+        throw new Error("Factory installation state requires the native installation operation.");
+      return next;
+    });
     if (!project) return null;
     await this.notifyMutation({ kind: "upsert", projectId, project });
-    return project;
+    return structuredClone(project);
   }
 
   override async archive(projectId: string, archivedAt: string): Promise<void> {
-    const project = await this.archiveIfActive(projectId, archivedAt);
+    const project = await this.mutateCache((records) => {
+      const current = records.get(projectId);
+      if (!current || current.archivedAt) return null;
+      if (current.factoryInstallation)
+        throw new Error("Factory installation requires reconciled owner disable before archive.");
+      const next = PersistedProjectRecordSchema.parse({
+        ...current,
+        updatedAt: archivedAt,
+        archivedAt,
+      });
+      records.set(projectId, next);
+      return structuredClone(next);
+    });
     if (!project) return;
     await this.notifyMutation({ kind: "archive", projectId, project });
   }
 
   override async remove(projectId: string): Promise<void> {
-    const project = await this.removeIfPresent(projectId);
+    const project = await this.mutateCache((records) => {
+      const current = records.get(projectId);
+      if (!current) return null;
+      if (current.factoryInstallation)
+        throw new Error("Factory installation requires reconciled owner disable before removal.");
+      records.delete(projectId);
+      return current;
+    });
     if (!project) return;
     await this.notifyMutation({ kind: "remove", projectId, project: null });
+  }
+
+  /** Startup-owned installer only; any retained checkpoint blocks a new attempt. */
+  async beginFactoryInstallation(input: {
+    expected: PersistedProjectRecord;
+    checkpoint: FactoryInstallCheckpoint;
+    assertCurrent(): void;
+  }): Promise<PersistedProjectRecord> {
+    if (input.checkpoint.stage !== "binding" || input.expected.factoryInstallation)
+      throw new Error("Factory installation already requires reconciliation.");
+    return this.persistFactoryInstallation(input);
+  }
+
+  async completeFactoryInstallation(input: {
+    expected: PersistedProjectRecord;
+    checkpoint: FactoryInstallCheckpoint;
+    assertCurrent(): void;
+  }): Promise<PersistedProjectRecord> {
+    const pending = input.expected.factoryInstallation;
+    const sameBinding =
+      pending?.stage === "binding" &&
+      input.checkpoint.stage === "attached" &&
+      isDeepStrictEqual(
+        { ...pending, stage: "attached", revision: input.checkpoint.revision },
+        input.checkpoint,
+      );
+    if (!sameBinding || pending?.revision === input.checkpoint.revision)
+      throw new Error("Factory installation completion does not match its retained attempt.");
+    return this.persistFactoryInstallation(input);
+  }
+
+  private async persistFactoryInstallation(input: {
+    expected: PersistedProjectRecord;
+    checkpoint: FactoryInstallCheckpoint;
+    assertCurrent(): void;
+  }): Promise<PersistedProjectRecord> {
+    const expected = structuredClone(input.expected);
+    const checkpoint = FactoryInstallCheckpointSchema.parse(input.checkpoint);
+    const assertOwner = input.assertCurrent;
+    function assertCurrent(): void {
+      assertOwner();
+      if (
+        input.assertCurrent !== assertOwner ||
+        !isDeepStrictEqual(input.expected, expected) ||
+        !isDeepStrictEqual(input.checkpoint, checkpoint)
+      )
+        throw new Error("Factory installation invocation changed before persistence.");
+    }
+    if (
+      checkpoint.projectId !== expected.projectId ||
+      expected.archivedAt ||
+      expected.kind !== "git"
+    )
+      throw new Error("Factory installation project identity is unavailable.");
+    let writeAttempted = false;
+    try {
+      const next = await this.mutateCache(
+        (records) => {
+          assertCurrent();
+          const current = records.get(expected.projectId);
+          if (!isDeepStrictEqual(current, expected))
+            throw new Error("Factory installation project changed before persistence.");
+          const updated = PersistedProjectRecordSchema.parse({
+            ...expected,
+            factoryInstallation: checkpoint,
+          });
+          records.set(expected.projectId, updated);
+          return updated;
+        },
+        {
+          beforeWrite: async () => {
+            assertCurrent();
+            writeAttempted = true;
+          },
+          afterCommit: assertCurrent,
+        },
+      );
+      await this.notifyMutation({ kind: "upsert", projectId: next.projectId, project: next });
+      return structuredClone(next);
+    } catch (error) {
+      if (!writeAttempted) throw error;
+      this.freezeMutationsUntilRestart();
+      throw new FactoryInstallCheckpointError(
+        checkpoint.operationId,
+        checkpoint.installationId,
+        error,
+      );
+    }
   }
 
   private async notifyMutation(mutation: {
@@ -505,7 +658,9 @@ export class FileBackedProjectRegistry
     projectId: string;
     project: PersistedProjectRecord | null;
   }): Promise<void> {
-    await Promise.all([...this.mutationListeners].map((listener) => listener(mutation)));
+    await Promise.all(
+      [...this.mutationListeners].map((listener) => listener(structuredClone(mutation))),
+    );
   }
 }
 
@@ -517,13 +672,10 @@ export class FileBackedWorkspaceRegistry
     (mutation: WorkspaceMutation) => void | Promise<void>
   >();
 
-  private readonly assertArchiveAllowed?: (workspaceId: string) => Promise<void>;
-
   constructor(
     filePath: string,
     logger: Logger,
     options?: {
-      assertArchiveAllowed?: (workspaceId: string) => Promise<void>;
       writeRecords?: (
         filePath: string,
         records: readonly PersistedWorkspaceRecord[],
@@ -538,7 +690,6 @@ export class FileBackedWorkspaceRegistry
       component: "workspaces",
       writeRecords: options?.writeRecords,
     });
-    this.assertArchiveAllowed = options?.assertArchiveAllowed;
   }
 
   subscribeToMutations(
@@ -555,6 +706,51 @@ export class FileBackedWorkspaceRegistry
     const workspace = await super.update(workspaceId, updater);
     if (workspace) {
       await this.notifyMutation({ kind: "upsert", workspaceId, workspace });
+    }
+    return workspace;
+  }
+
+  async bindFactoryMember(input: {
+    expected: PersistedWorkspaceRecord;
+    membership: NonNullable<PersistedWorkspaceRecord["factoryMembership"]>;
+    assertCurrent(): void;
+  }): Promise<PersistedWorkspaceRecord | null> {
+    const membership = WorkspaceFactoryMembershipSchema.parse(input.membership);
+    const workspace = await this.mutateCache((records) => {
+      input.assertCurrent();
+      const current = records.get(input.expected.workspaceId);
+      if (!current) return null;
+      if (!isDeepStrictEqual(current, input.expected))
+        throw new Error("Workspace changed before Factory binding.");
+      if (current.archivedAt || membership.projectId !== current.projectId)
+        throw new Error("Factory workspace is archived or belongs to another project.");
+      if (current.factoryMembership) {
+        if (!isDeepStrictEqual(current.factoryMembership, membership))
+          throw new Error("Workspace already belongs to a different Factory relationship.");
+      }
+      // Include archived members: retained ownership is not a vacant role.
+      for (const retained of records.values()) {
+        if (retained.workspaceId === current.workspaceId) continue;
+        const binding = retained.factoryMembership;
+        if (retained.projectId !== current.projectId || !binding) continue;
+        if (binding.projectId !== retained.projectId || binding.serverId !== membership.serverId)
+          throw new Error("Retained Factory membership does not match this host and project.");
+        if (binding.installationId !== membership.installationId)
+          throw new Error("Project already belongs to another Factory installation.");
+        if (membership.role !== "worker" && binding.role === membership.role)
+          throw new Error("Factory coordinator role already has a retained workspace.");
+      }
+      if (current.factoryMembership) return current;
+      const bound = {
+        ...current,
+        factoryMembership: membership,
+        updatedAt: new Date().toISOString(),
+      };
+      records.set(current.workspaceId, bound);
+      return bound;
+    });
+    if (workspace) {
+      await this.notifyMutation({ kind: "upsert", workspaceId: workspace.workspaceId, workspace });
     }
     return workspace;
   }
@@ -577,7 +773,6 @@ export class FileBackedWorkspaceRegistry
     archivedAt: string,
     context?: WorkspaceArchiveContext,
   ): Promise<void> {
-    await this.assertArchiveAllowed?.(workspaceId);
     const workspace = await super.update(workspaceId, (existing) => {
       assertWorkspaceUnprotected(existing);
       return {
@@ -594,7 +789,6 @@ export class FileBackedWorkspaceRegistry
   }
 
   override async remove(workspaceId: string): Promise<void> {
-    await this.assertArchiveAllowed?.(workspaceId);
     const workspace = await this.mutateCache((records) => {
       const existing = records.get(workspaceId);
       if (!existing) return null;

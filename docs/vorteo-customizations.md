@@ -71,6 +71,8 @@ This inventory describes the reviewed source. Availability depends on the instal
 
 ## Incomplete integrations
 
+- **Plugin version floors.** Explicit prerelease requirements enforce the authored minimum. Stable-only range branches retain prerelease compatibility, including caret, tilde and wildcard ranges.
+- **Bundled Factory observer.** A source candidate provides bounded project snapshots and an explicitly unavailable receipt feed. Controller adoption, native lifecycle binding, installation commands and live acceptance remain incomplete. The observer does not replace existing controller custody or schedules. See [Factory boundaries](factory.md).
 - **Quota reserve controls.** The daemon includes policy validation, frozen launch policy, admission, usage observation, persistence and restart reconciliation. The app still needs reserve controls, launch-policy selection, capability integration and end-to-end acceptance. Do not advertise Cruise Reserve or Redline as an available user workflow. See [implementation status](agent-presets.md#implementation-and-deployment-status).
 - **Acceptance across installations and devices.** Native host setup, real account sign-in, supervisor/Pi workflows, physical devices, dictation, accessibility and performance require environment-specific acceptance. A source test or responsive browser layout does not establish those results. See [host acceptance](host-handoff.md#acceptance). Keep deployment evidence private.
 
@@ -87,10 +89,13 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Composed the read-only Factory setup client, native checkpoint protections and retained-owner installation transaction with current maintenance fixes. Partial installation preserves native protection and requires reconciliation. Startup attachment, installed source verification and live client acceptance remain separate gates.
+
 October 8, 2026: Tightened agent instructions so Host and Dev holds, restarts and supervisor maintenance must use visible coordinator requests and owner controls. Chat approval does not permit an untracked lifecycle operation. This instruction change does not add supervisor maintenance support to the coordinator.
 
 October 8, 2026: Dev bootstrap now verifies the installation profile client binding in both the supervisor and worker before changing configuration. Regression checks cover missing and mismatched bindings. Existing launchers require a reviewed supervisor restart after repair; worker updates cannot repair the parent environment.
 
+October 8, 2026: Composed Factory source with current main, retaining Dev update build and running-release verification fixes. Explicit native startup binding resolves the configured profile, checks retained coordinator identity and preserves protection on partial persistence. Installation, controller adoption and client actions still require live acceptance.
 October 8, 2026: Host update preparation now fetches the exact approved commit into an independent repository. Native build fixtures cover source isolation, retained provenance and an unchanged live interface. Digest, bundle and ancestry validation still precede preparation; installation still requires exact owner approval.
 
 October 8, 2026: Reconciled preview recovery with managed Dev workers that preserve their process arguments. Broker identity checks require the selected worker entrypoint, Node executable, supervisor parent, process ownership and stable boot/start times. Regression coverage rejects stale selectors, ambiguous processes and PID reuse. This does not add Host metadata export or verified project delivery evidence.

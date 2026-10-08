@@ -17,7 +17,7 @@ import {
   type TimelineSubscription,
 } from "./connection/index.js";
 import { CreationClient } from "./creation/index.js";
-import type { CreationSnapshot } from "@getpaseo/protocol/messages";
+import type { CreationSnapshot, WorkspaceRecoveryGuard } from "@getpaseo/protocol/messages";
 import type {
   ProjectDirectoryBrowseRequest,
   ProjectDirectoryBrowsePayload,
@@ -3190,13 +3190,26 @@ export class DaemonClient {
     return payload.state;
   }
 
-  async restoreWorkspace(workspaceId: string, requestId?: string): Promise<void> {
+  async restoreWorkspace(
+    workspaceId: string,
+    requestId?: string,
+    guard?: WorkspaceRecoveryGuard,
+  ): Promise<void> {
+    if (guard) {
+      const info = this.getLastServerInfoMessage();
+      // Old hosts can strip unknown request fields. Never send a guard to one.
+      if (info?.features?.workspaceRecoveryGuard !== true)
+        throw new Error("Update the host before using guarded workspace recovery.");
+      if (info.serverId !== guard.serverId)
+        throw new Error("Workspace recovery host identity changed.");
+    }
     const payload =
       await this.sendNamespacedCorrelatedSessionRequest<"workspace.recovery.restore.response">({
         requestId,
         message: {
           type: "workspace.recovery.restore.request",
           workspaceId,
+          ...(guard ? { guard } : {}),
         },
         timeout: 150_000,
       });

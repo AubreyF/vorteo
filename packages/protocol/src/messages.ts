@@ -1169,6 +1169,14 @@ export const WorkspaceProjectMembershipSchema = z.object({
   environmentOwner: WorkspaceEnvironmentOwnerSchema.optional(),
 });
 
+/** Daemon-owned lifecycle identity. Titles, paths and labels never establish membership. */
+export const WorkspaceFactoryMembershipSchema = z.object({
+  installationId: z.string().min(1).max(200),
+  projectId: z.string().min(1).max(200),
+  serverId: z.string().min(1).max(200),
+  role: z.enum(["factory", "builds", "worker"]),
+});
+
 export const WorkspaceProjectSetRequestSchema = z.object({
   type: z.literal("workspace.project.set.request"),
   workspaceId: z.string(),
@@ -1271,10 +1279,23 @@ export const WorkspaceRecoveryInspectRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const WorkspaceRecoveryGuardSchema = z.object({
+  action: z.literal("unarchive"),
+  serverId: z.string().min(1),
+  projectId: z.string().min(1),
+  cwd: z.string().min(1),
+  kind: z.enum(["local_checkout", "worktree", "directory"]),
+  archivedAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+  recordHash: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type WorkspaceRecoveryGuard = z.infer<typeof WorkspaceRecoveryGuardSchema>;
+
 export const WorkspaceRecoveryRestoreRequestSchema = z.object({
   type: z.literal("workspace.recovery.restore.request"),
   workspaceId: z.string(),
   requestId: z.string(),
+  guard: WorkspaceRecoveryGuardSchema.optional(),
 });
 
 export const SetVoiceModeMessageSchema = z.object({
@@ -2246,6 +2267,7 @@ export const WorkspaceRecoveryStateSchema = z.discriminatedUnion("kind", [
     workspaceName: z.string(),
     action: z.string(),
     branch: z.string().nullable(),
+    guard: WorkspaceRecoveryGuardSchema.optional(),
   }),
   z.object({
     kind: z.literal("unavailable"),
@@ -3837,6 +3859,8 @@ export const ServerInfoStatusPayloadSchema = z
         worktreeRestore: z.boolean().optional(),
         // COMPAT(workspaceRecovery): added in v0.1.105, remove after 2027-01-11 once daemon floor >= v0.1.105.
         workspaceRecovery: z.boolean().optional(),
+        // COMPAT(workspaceRecoveryGuard): introduced for v0.11.0-beta.3.vorteo.195; remove after 2027-04-08 only once the daemon floor enforces guarded recovery.
+        workspaceRecoveryGuard: z.boolean().optional(),
         // COMPAT(workspaceFileEditing): added in v0.2.0, remove after 2027-01-18 once daemon floor >= v0.2.0.
         workspaceFileEditing: z.boolean().optional(),
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
@@ -3873,6 +3897,7 @@ export const ServerInfoStatusPayloadSchema = z
         workspacePinning: z.boolean().optional(),
         // COMPAT(workspaceLifecycle): added in v0.11.0-beta.3.vorteo.153, remove after 2027-04-06 once the daemon floor includes it.
         workspaceLifecycle: z.boolean().optional(),
+        factoryWorkspaceMembership: z.boolean().optional(),
         // COMPAT(workspaceMarkUnread): added in v0.5.0, remove after 2027-08-20.
         workspaceMarkUnread: z.boolean().optional(),
         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
@@ -4220,6 +4245,7 @@ export const WorkspaceDescriptorPayloadSchema = z
     id: z.string(),
     projectId: z.string(),
     projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
+    factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
     projectDisplayName: z.string(),
     // COMPAT(projectCustomName): added in v0.1.76, drop the optional gate when floor >= v0.1.76.
     // When the user has renamed a project, projectDisplayName carries the resolved

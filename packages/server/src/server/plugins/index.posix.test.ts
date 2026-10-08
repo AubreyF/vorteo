@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import pino from "pino";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DaemonConfigStore } from "../daemon-config-store.js";
 import { PluginService } from "./index.js";
 import { BuiltinPluginLoader } from "./builtin/index.js";
@@ -35,6 +35,132 @@ const emptyUsageRuntime = {
   fetchUsage: async () => undefined,
   discoverUsage: async () => [],
 } satisfies Pick<TestPluginRuntime, "getUsageSourceRegistrations" | "fetchUsage" | "discoverUsage">;
+
+it.each([
+  { builtin: true, loaded: true, method: "factory.snapshot", delegated: true },
+  { builtin: true, loaded: true, method: "activity.receipts", delegated: true },
+  { builtin: false, loaded: true, method: "factory.snapshot", delegated: false },
+  { builtin: true, loaded: false, method: "factory.snapshot", delegated: false },
+  { builtin: true, loaded: true, method: "factory.command", delegated: false },
+  { builtin: true, loaded: true, configured: true, method: "factory.snapshot", delegated: false },
+])("Factory delegation requires exact loaded builtin and read-only method %j", async (scenario) => {
+  const home = await mkdtemp(path.join(tmpdir(), "factory-delegate-"));
+  roots.push(home);
+  const fallback = vi.fn(async () => "plugin-result");
+  const native = vi.fn(async () => "native-result");
+  const runtime: TestPluginRuntime = {
+    ...emptyUsageRuntime,
+    catalog: () => (scenario.loaded ? [{ id: "factory", clientBundle: "bundle" }] : []),
+    isBuiltinPluginLoaded: () => scenario.builtin && scenario.loaded && !("configured" in scenario),
+    invoke: fallback,
+    getLogs: () => [],
+    clearLogs: () => {},
+    connectProvider: async () => {
+      throw new Error("Not used");
+    },
+    startPlugin: async () => {},
+    stopPluginById: async () => false,
+    stopAll: async () => {},
+    subscribe: () => () => {},
+    bindPaseoSessionHost: () => {},
+  };
+  const service = createService(
+    home,
+    {},
+    {
+      runtime,
+      builtinPlugins: new BuiltinPluginLoader(home, scenario.builtin ? ["factory"] : []),
+      factoryObservation: () => ({ invoke: native }),
+    },
+  );
+  const input = { projectId: "project" };
+  expect(await service.invokePluginRpc("factory", scenario.method, input)).toBe(
+    scenario.delegated ? "native-result" : "plugin-result",
+  );
+  expect(scenario.delegated ? native : fallback).toHaveBeenCalledTimes(1);
+  expect(scenario.delegated ? fallback : native).not.toHaveBeenCalled();
+});
+
+it("Factory delegation rejects native observation failure without plugin fallback", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "factory-failed-delegate-"));
+  roots.push(home);
+  const fallback = vi.fn(async () => "plugin-result");
+  const runtime: TestPluginRuntime = {
+    ...emptyUsageRuntime,
+    catalog: () => [{ id: "factory", clientBundle: "bundle" }],
+    isBuiltinPluginLoaded: () => true,
+    invoke: fallback,
+    getLogs: () => [],
+    clearLogs: () => {},
+    connectProvider: async () => {
+      throw new Error("Not used");
+    },
+    startPlugin: async () => {},
+    stopPluginById: async () => false,
+    stopAll: async () => {},
+    subscribe: () => () => {},
+    bindPaseoSessionHost: () => {},
+  };
+  const service = createService(
+    home,
+    {},
+    {
+      runtime,
+      builtinPlugins: new BuiltinPluginLoader(home, ["factory"]),
+      factoryObservation: () => ({
+        invoke: async () => {
+          throw new Error("Owner changed");
+        },
+      }),
+    },
+  );
+  await expect(
+    service.invokePluginRpc("factory", "factory.snapshot", { projectId: "project" }),
+  ).rejects.toThrow("Owner changed");
+  expect(fallback).not.toHaveBeenCalled();
+});
+
+it("does not delegate after builtin failure when persisted Factory configuration loads", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "factory-provenance-"));
+  roots.push(home);
+  const native = vi.fn(async () => "native-result");
+  const runtime = {
+    ...emptyUsageRuntime,
+    catalog: () => [{ id: "factory", clientBundle: "configured" }],
+    isBuiltinPluginLoaded: () => false,
+    invoke: vi.fn(async () => "configured-result"),
+    getLogs: () => [],
+    clearLogs: () => {},
+    connectProvider: async () => {
+      throw new Error("Not used");
+    },
+    startBuiltinPlugin: vi.fn(async () => {
+      throw new Error("Builtin failed");
+    }),
+    startPlugin: vi.fn(async () => {}),
+    stopPluginById: async () => true,
+    stopAll: async () => {},
+    subscribe: () => () => {},
+    bindPaseoSessionHost: () => {},
+  } satisfies TestPluginRuntime;
+  const service = createService(
+    home,
+    { factory: { source: "directory", path: home } },
+    {
+      runtime,
+      builtinPlugins: new BuiltinPluginLoader(home, ["factory"]),
+      factoryObservation: () => ({ invoke: native }),
+    },
+  );
+  await service.start();
+  expect(runtime.startBuiltinPlugin).toHaveBeenCalledTimes(1);
+  expect(runtime.startPlugin).toHaveBeenCalledTimes(1);
+  expect(await service.invokePluginRpc("factory", "factory.snapshot", {})).toBe(
+    "configured-result",
+  );
+  expect(native).not.toHaveBeenCalled();
+  await service.stopAllPlugins();
+});
 
 async function createPlugin(id: string, source: string): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "paseo-plugin-service-"));

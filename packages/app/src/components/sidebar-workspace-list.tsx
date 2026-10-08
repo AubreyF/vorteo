@@ -1,4 +1,5 @@
-import { splitStandingWorkspaces } from "@/workspace/lifecycle/grouping";
+import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
+import { splitFactoryWorkspaces, factoryOverviewTargets } from "@/workspace/lifecycle/grouping";
 import {
   ProjectMoveProvider,
   ProjectDropTarget,
@@ -49,7 +50,7 @@ import { getSidebarRowBackdrop } from "@/components/sidebar/sidebar-row-backdrop
 import { type GestureType } from "react-native-gesture-handler";
 import { WorkspaceRenameModal } from "@/components/workspace-rename-modal";
 import { useWorkspaceClipboardActions } from "@/hooks/use-workspace-clipboard-actions";
-import { ExternalLink, Settings, MoreVertical, Plus, Trash2 } from "lucide-react-native";
+import { ExternalLink, Settings, MoreVertical, Plus, Trash2, Factory } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
 import type { DraggableListDragHandleProps } from "./draggable-list.types";
@@ -61,6 +62,8 @@ import {
 } from "@/hooks/use-sidebar-workspace-pin";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
 import { useHostFeatureMap } from "@/runtime/host-features";
+import { useInstalledPlugins } from "@/plugins/registry";
+import { buildPluginSurfaceRoute } from "@/plugins/routes";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useProjectIcons } from "@/projects/icons";
 import {
@@ -417,6 +420,37 @@ const prBadgeStyles = StyleSheet.create((theme) => ({
   },
 }));
 
+function FactoryOverviewRow({
+  target,
+  multiple,
+}: {
+  target: { serverId: string; projectId: string };
+  multiple: boolean;
+}) {
+  const openOverview = useCallback(
+    () =>
+      router.navigate(
+        buildPluginSurfaceRoute(
+          target.serverId,
+          "factory",
+          { kind: "surface", id: "overview" },
+          { projectId: target.projectId },
+        ),
+      ),
+    [target.serverId, target.projectId],
+  );
+  return (
+    <SidebarHeaderRow
+      icon={Factory}
+      label={multiple ? `Overview (${target.serverId.slice(-8)})` : "Overview"}
+      accessibilityLabel={`Factory overview for host ${target.serverId} project ${target.projectId}`}
+      variant="compact"
+      testID={`sidebar-factory-overview-${target.serverId}-${target.projectId}`}
+      onPress={openOverview}
+    />
+  );
+}
+
 function ProjectRowTrailingActions({
   projectViewKey,
   displayName,
@@ -572,6 +606,23 @@ function ProjectMenuItems({
 }) {
   const { t } = useTranslation();
   const toast = useToast();
+  const plugins = useInstalledPlugins();
+  const factoryPlugin = plugins.find(
+    (plugin) => plugin.id === "factory" && plugin.serverId === settingsTarget?.serverId,
+  );
+  const factoryScreenAvailable =
+    factoryPlugin?.surfaces.some((screen) => screen.id === "overview") === true;
+  const handleOpenFactory = useCallback(() => {
+    if (!settingsTarget || !factoryScreenAvailable) return;
+    router.navigate(
+      buildPluginSurfaceRoute(
+        settingsTarget.serverId,
+        "factory",
+        { kind: "surface", id: "overview" },
+        { projectId: settingsTarget.projectId },
+      ),
+    );
+  }, [settingsTarget, factoryScreenAvailable]);
   const handleOpenProjectSettings = useCallback(() => {
     if (!settingsTarget) return;
     router.navigate(buildProjectSettingsRoute(settingsTarget.serverId, settingsTarget.projectId));
@@ -590,6 +641,24 @@ function ProjectMenuItems({
 
   return (
     <>
+      {factoryScreenAvailable ? (
+        <>
+          <ProjectMenuItem
+            surface={surface}
+            testID={`sidebar-project-menu-open-factory-${projectViewKey}`}
+            onSelect={handleOpenFactory}
+          >
+            Open Factory
+          </ProjectMenuItem>
+          <ProjectMenuItem
+            surface={surface}
+            testID={`sidebar-project-menu-factory-setup-unavailable-${projectViewKey}`}
+            disabled
+          >
+            Factory setup unavailable
+          </ProjectMenuItem>
+        </>
+      ) : null}
       {settingsTarget ? (
         <ProjectMenuItem
           surface={surface}
@@ -1670,9 +1739,14 @@ function ProjectBlock({
     [project.viewKey, workspaceEntriesByKey],
   );
   const showTaskSummary = collapsed;
+  const factoryHostIds = useMemo(
+    () => Array.from(new Set(project.workspaces.map((workspace) => workspace.serverId))),
+    [project.workspaces],
+  );
+  const supportsFactory = useHostFeatureMap(factoryHostIds, "factoryWorkspaceMembership");
   const groups = useMemo(
-    () => splitStandingWorkspaces(project.workspaces, workspaceEntriesByKey),
-    [project.workspaces, workspaceEntriesByKey],
+    () => splitFactoryWorkspaces(project.workspaces, workspaceEntriesByKey, supportsFactory),
+    [project.workspaces, workspaceEntriesByKey, supportsFactory],
   );
   const ordinaryWorkspaces = groups.work;
   const standingKey = `standing:${project.viewKey}`;
@@ -1687,6 +1761,33 @@ function ProjectBlock({
     [toggleGroupCollapsed, standingKey],
   );
   const standingGroup = useLimitedSidebarGroup(groups.standing);
+  const factoryKey = `factory:${project.viewKey}`;
+  const factoryCollapsed = useSidebarCollapsedSectionsStore((state) =>
+    state.collapsedWorkspaceGroupKeys.has(factoryKey),
+  );
+  const toggleFactory = useCallback(
+    () => toggleGroupCollapsed(factoryKey),
+    [toggleGroupCollapsed, factoryKey],
+  );
+  const factoryGroup = useLimitedSidebarGroup(groups.factory);
+  const installedPlugins = useInstalledPlugins();
+  const overviewTargets = useMemo(
+    () =>
+      factoryOverviewTargets(
+        groups.factory,
+        workspaceEntriesByKey,
+        new Set(
+          installedPlugins
+            .filter(
+              (plugin) =>
+                plugin.id === "factory" &&
+                plugin.surfaces.some((surface) => surface.id === "overview"),
+            )
+            .map((plugin) => plugin.serverId),
+        ),
+      ),
+    [groups.factory, workspaceEntriesByKey, installedPlugins],
+  );
 
   const {
     visibleItems: visibleWorkspaces,
@@ -1871,6 +1972,50 @@ function ProjectBlock({
               onPress={toggleWorkspacesExpanded}
               testID={`sidebar-project-show-more-${project.viewKey}`}
             />
+          ) : null}
+          {groups.factory.length > 0 ? (
+            <>
+              <PinnedSectionHeader
+                title="Factory"
+                count={groups.factory.length}
+                indented
+                testID={`sidebar-factory-section-${project.viewKey}`}
+                collapsed={factoryCollapsed}
+                onToggle={toggleFactory}
+              />
+              {!factoryCollapsed ? (
+                <>
+                  {overviewTargets.map((target) => (
+                    <FactoryOverviewRow
+                      key={`${target.serverId}:${target.projectId}`}
+                      target={target}
+                      multiple={overviewTargets.length > 1}
+                    />
+                  ))}
+                  <DraggableList
+                    testID={`sidebar-factory-list-${project.viewKey}`}
+                    data={factoryGroup.visibleItems}
+                    keyExtractor={workspaceKeyExtractor}
+                    renderItem={renderWorkspace}
+                    onDragEnd={handleWorkspaceDragEnd}
+                    extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+                    scrollEnabled={false}
+                    useDragHandle
+                    nestable={useNestable}
+                    simultaneousGestureRef={parentGestureRef}
+                    gestureHostPresented={dragGestureHostActive}
+                    containerStyle={styles.workspaceListContainer}
+                  />
+                  {factoryGroup.canToggle ? (
+                    <SidebarGroupToggleRow
+                      expanded={factoryGroup.expanded}
+                      onPress={factoryGroup.toggleExpanded}
+                      testID={`sidebar-factory-show-more-${project.viewKey}`}
+                    />
+                  ) : null}
+                </>
+              ) : null}
+            </>
           ) : null}
           {groups.standing.length > 0 ? (
             <>

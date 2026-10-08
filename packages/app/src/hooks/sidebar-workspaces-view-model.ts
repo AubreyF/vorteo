@@ -48,6 +48,7 @@ export interface SidebarWorkspaceEntry extends SidebarStatusWorkspacePlacement {
   title: string | null;
   pinnedAt?: string | null;
   standing?: boolean;
+  factoryMembership?: WorkspaceDescriptor["factoryMembership"];
   protected?: boolean;
   labels?: string[];
   // Checkout branch (null when not a git checkout or detached HEAD).
@@ -161,6 +162,9 @@ export function createSidebarWorkspaceEntry(input: {
 }): SidebarWorkspaceEntry {
   const projectViewKey = input.projectViewKey ?? input.workspace.projectId;
   const effectiveStatus = deriveEffectiveWorkspaceStatus(input);
+  const membership = input.workspace.factoryMembership;
+  const matchesFactoryIdentity =
+    membership?.projectId === input.workspace.projectId && membership?.serverId === input.serverId;
   return {
     workspaceKey: `${input.serverId}:${input.workspace.id}`,
     serverId: input.serverId,
@@ -177,6 +181,7 @@ export function createSidebarWorkspaceEntry(input: {
     title: input.workspace.title ?? null,
     pinnedAt: input.workspace.pinnedAt,
     standing: input.workspace.standing,
+    factoryMembership: matchesFactoryIdentity ? membership : undefined,
     protected: input.workspace.protected,
     labels: input.workspace.labels ?? EMPTY_WORKSPACE_LABELS,
     currentBranch: normalizeCurrentBranch(input.workspace.gitRuntime?.currentBranch),

@@ -2,6 +2,7 @@ import { AgentTaskItemSchema } from "@getpaseo/protocol/messages";
 import { SkillSnapshotSchema } from "@getpaseo/protocol/skill-library";
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { Logger } from "pino";
 import { QueueGoalHoldSchema, type QueueGoalHold } from "../message-queue/goal-hold.js";
@@ -206,6 +207,27 @@ export class AgentStorage {
     await this.queueRecordMutation(agentId, (record) =>
       record ? { ...record, queueGoalHold } : null,
     );
+  }
+
+  /** Exact-record mutation for reconciled recovery, not an execution permit. */
+  async clearRetainedArchive(
+    expected: StoredAgentRecord,
+    assertCurrent: () => void,
+  ): Promise<StoredAgentRecord> {
+    const captured = structuredClone(expected);
+    await this.load();
+    let committed: StoredAgentRecord | null = null;
+    await this.queueRecordMutation(captured.id, (current) => {
+      assertCurrent();
+      if (!current?.archivedAt || !isDeepStrictEqual(current, captured))
+        throw new Error("Retained agent changed before archive-state recovery.");
+      committed = { ...current, archivedAt: null, updatedAt: new Date().toISOString() };
+      return committed;
+    });
+    if (!committed) throw new Error("Retained agent is being deleted.");
+    // A failed post-write assertion is a partial result, never a safe retry.
+    assertCurrent();
+    return structuredClone(committed);
   }
 
   async updateQuotaReserve(
