@@ -89,6 +89,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Workspace creation acceptance waits for both agent creation and project membership persistence before checking the destination group.
+
 October 8, 2026: Shared-project browser acceptance follows the existing profile menu remount after changing environments before choosing the destination account and profile.
 
 October 8, 2026: Logical project groups retain unambiguous native project placements for each environment. New workspace creation uses the existing profile environment selector and preserves project membership. Offline or ambiguous checkouts are not inferred.

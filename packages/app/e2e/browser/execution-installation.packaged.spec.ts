@@ -3456,10 +3456,14 @@ test("new shared project workspace follows the existing profile environment sele
             .length,
       )
       .toBe(1);
-    const created = (await host.fetchWorkspaces()).entries.filter(
-      (item) => item.projectMembership?.key === membership.key,
-    );
-    expect(created).toHaveLength(2);
+    await expect
+      .poll(
+        async () =>
+          (await host.fetchWorkspaces()).entries.filter(
+            (item) => item.projectMembership?.key === membership.key,
+          ).length,
+      )
+      .toBe(2);
     expect(
       (await dev.fetchAgents()).entries.filter(({ agent }) => agent.cwd === directories[0]),
     ).toHaveLength(0);
