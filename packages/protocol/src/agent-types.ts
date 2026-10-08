@@ -377,6 +377,11 @@ export interface AgentTaskItem {
   id?: string;
   status?: "pending" | "in_progress" | "completed";
   activeForm?: string;
+  description?: string;
+  owner?: string;
+  blockedBy?: string[];
+  metadata?: Record<string, JsonValue>;
+  source?: "vorteo" | "provider";
 }
 
 export type AgentTimelineItem =

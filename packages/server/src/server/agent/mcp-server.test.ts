@@ -922,6 +922,76 @@ function createPaseoWorktreeForMcpTest(options: {
   };
 }
 
+describe("thread checklist MCP tools", () => {
+  it("exposes object schemas, persists mutations, and refuses cross-thread arguments", async () => {
+    const logger = createTestLogger();
+    const workdir = await mkdtemp(join(tmpdir(), "mcp-checklist-"));
+    const storage = new AgentStorage(join(workdir, "agents"), logger);
+    const agentManager = new AgentManager({
+      clients: createTestAgentClients(),
+      registry: storage,
+      logger,
+    });
+    const agent = await agentManager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage: storage,
+      callerAgentId: agent.id,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      logger,
+    });
+    const client = await connectInMemoryMcpClient(server);
+    try {
+      const { tools } = await client.listTools();
+      expect(tools.find((tool) => tool.name === "update_checklist")?.inputSchema.type).toBe(
+        "object",
+      );
+      const created = await client.callTool({
+        name: "update_checklist",
+        arguments: {
+          mutation: {
+            operation: "create",
+            id: "verify",
+            text: "Verify the card",
+            description: "Card updates without reloading",
+          },
+        },
+      });
+      expect(created.isError).not.toBe(true);
+      const completed = await client.callTool({
+        name: "update_checklist",
+        arguments: { mutation: { operation: "update", id: "verify", status: "completed" } },
+      });
+      expect(completed.isError).not.toBe(true);
+      const read = await client.callTool({ name: "get_checklist", arguments: { id: "verify" } });
+      const task = {
+        id: "verify",
+        source: "vorteo",
+        text: "Verify the card",
+        description: "Card updates without reloading",
+        status: "completed",
+        completed: true,
+      };
+      expect(read.structuredContent).toEqual({ task, blocks: [] });
+      expect((await storage.get(agent.id))?.tasks).toEqual([task]);
+      const invalid = await client.callTool({
+        name: "update_checklist",
+        arguments: { agentId: "another-thread", mutation: { operation: "delete", id: "verify" } },
+      });
+      expect(invalid.isError).toBe(true);
+      expect(agentManager.readChecklist(agent.id)).toEqual([task]);
+    } finally {
+      await client.close();
+      await server.close();
+      await agentManager.closeAgent(agent.id);
+      await agentManager.flush();
+      await rm(workdir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("browser MCP tools", () => {
   const logger = createTestLogger();
 
