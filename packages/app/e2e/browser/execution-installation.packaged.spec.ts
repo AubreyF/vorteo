@@ -3473,3 +3473,50 @@ test("new shared project workspace follows the existing profile environment sele
     await dev.close();
   }
 });
+
+test("disabled restart explains the correction on hover, focus and touch without approval", async ({
+  page,
+}, info) => {
+  const id = randomUUID();
+  const job = {
+    id,
+    revision: randomUUID(),
+    target: "container-daemon",
+    requestedBy: "host-agent",
+    reason: "Install prepared changes",
+    createdAt: new Date().toISOString(),
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "pending",
+    detail: "Existing release notes were edited; resolve explicitly",
+    sourceBatch: { status: "conflict", contributions: [] },
+  };
+  await page.route("**/api/installation/owner/restarts/query?*", (route) =>
+    route.fulfill({ json: [job] }),
+  );
+  const decisions: unknown[] = [];
+  await page.route(`**/api/installation/owner/restarts/${id}/decision?*`, (route) => {
+    decisions.push(route.request().postDataJSON());
+    return route.fulfill({ status: 500, json: { error: "Unexpected approval" } });
+  });
+  await page.goto(`${origin}/settings/general?installation=1&restart=${id}`);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const button = page.getByTestId(`restart-install-${id}`);
+  const explanation = page.getByTestId(`restart-install-${id}-explanation`);
+  const tooltip = page.getByTestId(`restart-install-${id}-tooltip`);
+  await expect(button).toBeDisabled();
+  if (info.project.name === "phone") {
+    await explanation.tap();
+  } else {
+    await explanation.hover();
+  }
+  await expect(tooltip).toContainText("reconcile the release-note history and resubmit");
+  if (info.project.name === "desktop") {
+    await page.mouse.move(0, 0);
+    await page.keyboard.press("Tab");
+    await explanation.focus();
+    await expect(tooltip).toBeVisible();
+  }
+  expect(decisions).toEqual([]);
+  await expect(button).toBeDisabled();
+});

@@ -5,6 +5,7 @@ import {
   restartExplanation,
   restartBannerTitle,
   restartBlockingReason,
+  restartActionDisabledReason,
 } from "./panel-model";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 
@@ -321,4 +322,60 @@ test("sidebar distinguishes blocked source updates from owner approval", () => {
   expect(restartBannerTitle({ ...job, target: "container-daemon" })).toBe(
     "Dev daemon update needs correction",
   );
+});
+
+test("disabled restart actions explain their blocker and recovery without enabling approval", () => {
+  const job: RestartJob = {
+    id: "request",
+    revision: "revision",
+    target: "host",
+    requestedBy: "container-agent",
+    reason: "Install features",
+    createdAt: new Date().toISOString(),
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "pending",
+    detail: "Existing release notes were edited; resolve explicitly",
+    sourceBatch: { status: "conflict", contributions: [] },
+  };
+  expect(restartActionDisabledReason(job, "install", false)).toContain(
+    "reconcile the release-note history and resubmit",
+  );
+  expect(restartActionDisabledReason(job, "install", true)).toContain("Wait for it to finish");
+  expect(restartActionDisabledReason(job, "finish", false, false)).toContain(
+    "Restore its connection",
+  );
+  expect(restartActionDisabledReason(job, "finish", false, true)).toBeNull();
+  expect(
+    restartActionDisabledReason(
+      { ...job, sourceBatch: { status: "preparing", contributions: [] } },
+      "install",
+      false,
+    ),
+  ).toContain("Wait for preparation");
+  expect(
+    restartActionDisabledReason(
+      { ...job, sourceBatch: { status: "waiting", contributions: [] } },
+      "install",
+      false,
+    ),
+  ).toContain("earlier installation");
+  const ready = { ...job, sourceBatch: { status: "ready" as const, contributions: [] } };
+  expect(restartActionDisabledReason(ready, "install", false)).toContain(
+    "No validated installation artifact",
+  );
+  expect(
+    restartActionDisabledReason(
+      {
+        ...ready,
+        update: {
+          sourceCommit: "a".repeat(40),
+          baseCommit: "b".repeat(40),
+          sha256: "c".repeat(64),
+          bytes: 100,
+        },
+      },
+      "install",
+      false,
+    ),
+  ).toBeNull();
 });
