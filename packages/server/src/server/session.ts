@@ -1249,7 +1249,7 @@ export class Session {
       logger: this.sessionLogger,
       projectRegistry: this.projectRegistry,
       workspaceRegistry: this.workspaceRegistry,
-      listAgentPayloads: () => this.listAgentPayloads(),
+      listAgentPayloads: () => this.listAgentPayloads({ includeUnavailablePersisted: true }),
       listProviderSubagentActivity: async () => this.agentManager.listProviderSubagentActivity(),
       listTerminalActivityContributions: () => this.listTerminalActivityContributions(),
       isProviderVisibleToClient: (provider) => this.isProviderVisibleToClient(provider),
@@ -6122,7 +6122,7 @@ export class Session {
     let agents = await this.listAgentPayloads({
       labels: filter?.labels,
       includeArchived: filter?.includeArchived,
-      includeUnavailablePersisted: request.type === "fetch_agent_history_request",
+      includeUnavailablePersisted: true,
     });
     const activePlacementsByWorkspaceId =
       scope === "active" ? await this.buildActiveProjectPlacementsByWorkspaceId() : null;
@@ -8349,18 +8349,24 @@ export class Session {
       : undefined;
 
     try {
-      const snapshot = await ensureAgentLoaded(msg.agentId, {
-        agentManager: this.agentManager,
-        agentStorage: this.agentStorage,
-        logger: this.sessionLogger,
-      });
-      const agentPayload = await this.buildAgentPayload(snapshot);
-
-      const fetchedControlTimeline = this.agentManager.fetchTimeline(msg.agentId, {
-        direction,
-        cursor,
-        limit: pageLimit,
-      });
+      const record = this.agentManager.getAgent(msg.agentId)
+        ? null
+        : await this.agentStorage.get(msg.agentId);
+      const registeredProviders = this.providerSnapshotManager.listRegisteredProviderIds();
+      const savedOnly = record && !isStoredAgentProviderAvailable(record, registeredProviders);
+      const agentPayload = savedOnly
+        ? this.buildStoredAgentPayload(record, new Set(registeredProviders))
+        : await this.buildAgentPayload(
+            await ensureAgentLoaded(msg.agentId, {
+              agentManager: this.agentManager,
+              agentStorage: this.agentStorage,
+              logger: this.sessionLogger,
+            }),
+          );
+      const fetchOptions = { direction, cursor, limit: pageLimit };
+      const fetchedControlTimeline = savedOnly
+        ? await this.agentManager.fetchSavedTimeline(msg.agentId, fetchOptions)
+        : this.agentManager.fetchTimeline(msg.agentId, fetchOptions);
       const selectedTimeline = {
         timeline: fetchedControlTimeline,
         entries: fetchedControlTimeline.rows,
@@ -8402,7 +8408,7 @@ export class Session {
             ...(msg.mergeWindow === true ? { mergeWindow: true } : {}),
             entries: entries.map((entry) => {
               const payloadEntry = {
-                provider: snapshot.provider,
+                provider: agentPayload.provider,
                 item: entry.item,
                 timestamp: entry.timestamp,
                 seqStart: entry.seqStart,
