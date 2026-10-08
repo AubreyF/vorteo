@@ -326,7 +326,6 @@ test("Dev builds remain inactive until exact-source activation and retain the pr
       scripts: {
         postinstall: "node build.cjs",
         "build:server": "node build.cjs",
-        "build:cli": "node build.cjs",
       },
     }),
   );

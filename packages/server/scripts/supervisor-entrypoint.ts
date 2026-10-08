@@ -117,6 +117,8 @@ async function main(): Promise<void> {
   // Release selection belongs to this supervisor, not agents or isolated daemons they launch.
   delete workerEnv.PASEO_MANAGED_RELEASE_LINK;
   delete workerEnv.PASEO_MANAGED_RELEASE_ROOT;
+  delete workerEnv.PASEO_MANAGED_WORKER;
+  if (process.env.PASEO_MANAGED_RELEASE_LINK) workerEnv.PASEO_MANAGED_WORKER = "1";
   const packagedNodeEntrypointRunner =
     process.env.ELECTRON_RUN_AS_NODE === "1"
       ? resolvePackagedNodeEntrypointRunnerPath(fileURLToPath(import.meta.url))

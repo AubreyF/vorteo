@@ -150,7 +150,7 @@ test("a managed supervisor selects the approved release on restart without repla
       entry,
       `
       const fs = require("fs");
-      fs.appendFileSync(${JSON.stringify(report)}, JSON.stringify({ pid: process.pid, parent: process.ppid, release: ${JSON.stringify(release)} }) + "\\n");
+      fs.appendFileSync(${JSON.stringify(report)}, JSON.stringify({ pid: process.pid, parent: process.ppid, release: ${JSON.stringify(release)}, managed: process.env.PASEO_MANAGED_WORKER }) + "\\n");
       process.on("message", message => { if (message.type === "paseo:graceful-shutdown") process.exit(0); });
       process.send({ type: "paseo:ready", listen: "test-endpoint", serverId: "srv_managed_test" });
       const timer = setInterval(() => {
@@ -199,6 +199,7 @@ test("a managed supervisor selects the approved release on restart without repla
     await expect.poll(readWorkers, { timeout: 15000, message: output }).toHaveLength(2);
     const workers = await readWorkers();
     expect(workers.map((worker) => worker.release)).toEqual([first, second]);
+    expect(workers.map((worker) => worker.managed)).toEqual(["1", "1"]);
     expect(workers.map((worker) => worker.parent)).toEqual([child.pid, child.pid]);
     expect(workers[0].pid).not.toBe(workers[1].pid);
     const helper = await readFile(
@@ -246,3 +247,54 @@ test("a managed supervisor selects the approved release on restart without repla
     await rm(root, { recursive: true, force: true });
   }
 }, 40000);
+
+// Linux installation verification reads the real worker argv after startup.
+test.runIf(process.platform === "linux")(
+  "a managed daemon keeps its executable arguments after becoming ready",
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "paseo-managed-argv-"));
+    const entry = fileURLToPath(new URL("../dist/server/server/daemon-worker.js", import.meta.url));
+    const cleanEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_")),
+    );
+    const child = spawn(process.execPath, [entry], {
+      env: {
+        ...cleanEnv,
+        PASEO_HOME: root,
+        PASEO_LISTEN: path.join(root, "daemon.sock"),
+        PASEO_MANAGED_WORKER: "1",
+      },
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    });
+    let ready = false;
+    child.on("message", (message) => {
+      if (
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "paseo:ready"
+      )
+        ready = true;
+    });
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+    try {
+      await expect.poll(() => ready, { timeout: 30000, message: output }).toBe(true);
+      const command = (await readFile(`/proc/${child.pid}/cmdline`, "utf8")).split("\0");
+      expect(command).toContain(entry);
+    } finally {
+      if (child.exitCode === null) {
+        const closed = new Promise((resolve) => child.once("close", resolve));
+        child.kill("SIGTERM");
+        await closed;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  45000,
+);

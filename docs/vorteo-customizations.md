@@ -116,3 +116,5 @@ October 7, 2026: Updated task-environment and conversation-handoff browser fixtu
 Restart maintenance review: The installation browser suite checks both daemon labels and divider positions. Repository and preview instructions prioritize supported restart requests and status queries before host handoffs; owner approval and host access boundaries remain unchanged.
 
 October 7, 2026: Reviewed both shared footer placements and replaced their upstream social links with the Vorteo repository link. The README overview and onboarding are unchanged. Live deployment requires separate verification.
+
+Dev updater maintenance review: Container builds use the existing server build, which also builds the CLI. Managed workers retain their OS entrypoint arguments for verification against the pinned Node executable and supervisor parent.

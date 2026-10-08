@@ -93,7 +93,6 @@ if (action === "inspect") {
     run("npm", ["rebuild", "--foreground-scripts"]);
     run("npm", ["run", "postinstall"]);
     run("npm", ["run", "build:server"]);
-    run("npm", ["run", "build:cli"]);
     run(
       settings.node,
       [path.join(release, "packages/server/dist/scripts/supervisor-entrypoint.js")],
@@ -137,6 +136,7 @@ if (action === "inspect") {
   if (
     previous !== input.release ||
     receipt(previous).sourceCommit !== input.update.sourceCommit ||
+    fs.realpathSync(`/proc/${input.pid}/exe`) !== fs.realpathSync(settings.node) ||
     !command.includes(workerEntry(previous)) ||
     parent !== marker.pid
   )
