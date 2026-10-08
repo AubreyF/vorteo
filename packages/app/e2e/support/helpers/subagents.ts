@@ -128,17 +128,15 @@ export async function seedParentWithCrossWorkspaceSubagent(
   };
 }
 
-/**
- * Opens the subagents panel, and leaves it open if it already is — the pill is a toggle, and a
- * second click would close the thing the caller is about to assert on. The panel also closes on
- * its own whenever a row navigates away, so a flow that comes back to the parent reopens it.
- */
+/** Expand each available group without closing one that is already open. */
 export async function openSubagentsTrack(page: Page): Promise<void> {
   const card = page.getByTestId("subagents-card");
   await expect(card).toBeVisible({ timeout: 30_000 });
-  const toggle = card.getByTestId("subagents-card-toggle");
-  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  const toggles = card.getByTestId(/^subagents-group-(paseo|provider)-toggle$/);
+  for (const toggle of await toggles.all()) {
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  }
 }
 
 export async function expectSubagentRowVisible(page: Page, childId: string): Promise<void> {
@@ -172,7 +170,10 @@ export async function expectManagedSubagentArchived(
 }
 
 export async function archiveFinishedSubagents(page: Page): Promise<void> {
-  await page.getByTestId("subagents-track-archive-finished").click();
+  await page
+    .getByTestId("subagents-group-paseo")
+    .getByTestId("subagents-track-archive-finished")
+    .click();
 }
 
 export async function expectArchiveFinishedInProgress(
@@ -180,16 +181,21 @@ export async function expectArchiveFinishedInProgress(
   completed: number,
   total: number,
 ): Promise<void> {
-  await expect(page.getByTestId("subagents-track-archive-finished")).toBeDisabled();
+  await expect(
+    page.getByTestId("subagents-group-paseo").getByTestId("subagents-track-archive-finished"),
+  ).toBeDisabled();
   await expect(
     page
+      .getByTestId("subagents-group-paseo")
       .getByTestId("subagents-track-archive-finished")
       .getByText(`Clearing ${completed}/${total}`, { exact: true }),
   ).toBeVisible();
 }
 
 export async function expectArchiveFinishedRetry(page: Page): Promise<void> {
-  const action = page.getByTestId("subagents-track-archive-finished");
+  const action = page
+    .getByTestId("subagents-group-paseo")
+    .getByTestId("subagents-track-archive-finished");
   await expect(action).toHaveAccessibleName("Retry clearing finished");
   await expect(action).toBeEnabled();
 }

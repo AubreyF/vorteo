@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.210 - 2026-10-08
+
+### Fixed
+
+- Add room below goal content and align its controls. Give managed and provider subagents independent sections and scoped cleanup actions.
+- Add vertical room to question forms and align wrapping Dismiss, Next and Submit actions to the right at desktop and compact widths.
+- Integrate the reviewed spacing commits while preserving project selection, saved history, agent retry and queue refresh fixes.
+
 ## 0.11.0-beta.3.vorteo.208 - 2026-10-08
 
 ### Fixed

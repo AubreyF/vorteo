@@ -1,16 +1,16 @@
-import { SettingsGroup } from "@/components/settings/headings/settings-group";
+import { SettingsInfoTip } from "@/components/settings/headings/settings-info-tip";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CountBadge } from "@/components/ui/count-badge";
 import { Button } from "@/components/ui/button";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Archive, ChevronDown, ChevronRight, Unlink, X } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useProviderIcon } from "@/components/provider-icons";
-import { ComposerTrackActions, ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
+import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isNative } from "@/constants/platform";
@@ -81,103 +81,29 @@ export function SubagentsTrack({
   archiveFinishedStatus = IDLE_ARCHIVE_FINISHED_STATUS,
   onDetachSubagent,
 }: SubagentsTrackProps): ReactElement | null {
-  const touch = useVortonTouch();
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(true);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
-
   const pill = buildSubagentPillPresentation(t, rows);
-  const headerTrailing = useMemo(
-    () => (
-      <>
-        <CountBadge
-          label={String(rows.length)}
-          accessibilityLabel={pill.accessibilityLabel}
-          testID="subagents-card-count"
-        />
-        {expanded ? (
-          <ThemedChevronDown size={16} uniProps={foregroundMutedColorMapping} />
-        ) : (
-          <ThemedChevronRight size={16} uniProps={foregroundMutedColorMapping} />
-        )}
-      </>
-    ),
-    [rows.length, pill.accessibilityLabel, expanded],
-  );
+  if (rows.length === 0 && archiveFinishedStatus.kind === "idle") return null;
 
-  const isArchivingFinished = archiveFinishedStatus.kind === "archiving";
-  const isArchiveFinishedFailed = archiveFinishedStatus.kind === "failed";
-  if (rows.length === 0 && !isArchivingFinished && !isArchiveFinishedFailed) {
-    return null;
-  }
-
-  const finishedCount = countFinishedSubagents(rows);
-  const showArchiveFinished = finishedCount > 0 || isArchivingFinished || isArchiveFinishedFailed;
-
-  const rowsContent = (["paseo", "provider"] as const).map((kind) => {
-    const children = rows.filter((row) => row.kind === kind);
-    if (children.length === 0) return null;
-    const title = kind === "paseo" ? t("subagents.workersTitle") : t("subagents.providerTitle");
-    const info = kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo");
-    return (
-      <SettingsGroup
-        key={kind}
-        title={`${title} (${children.length})`}
-        info={info}
-        testID={`subagents-group-${kind}`}
-        style={styles.group}
-      >
-        {children.map((row, index) => (
-          <View
-            key={`${row.kind}:${row.id}`}
-            style={index > 0 ? taskCardStyles.separator : undefined}
-          >
-            <SubagentsTrackRow
-              inline={inline}
-              row={row}
-              serverId={serverId}
-              onOpenSubagent={onOpenSubagent}
-              onOpenProviderSubagent={onOpenProviderSubagent}
-              onArchiveSubagent={onArchiveSubagent}
-              onDetachSubagent={onDetachSubagent}
-            />
-          </View>
-        ))}
-      </SettingsGroup>
-    );
-  });
-  const archiveAction =
-    showArchiveFinished && onArchiveFinished ? (
-      <ArchiveFinishedRow
-        inline={inline}
-        status={archiveFinishedStatus}
-        disabled={isArchivingFinished}
-        onPress={onArchiveFinished}
-      />
-    ) : null;
+  const groups = (["paseo", "provider"] as const).map((kind) => (
+    <SubagentsGroup
+      key={kind}
+      kind={kind}
+      inline={inline}
+      serverId={serverId}
+      rows={rows.filter((row) => row.kind === kind)}
+      onOpenSubagent={onOpenSubagent}
+      onOpenProviderSubagent={onOpenProviderSubagent}
+      onArchiveSubagent={onArchiveSubagent}
+      onDetachSubagent={onDetachSubagent}
+      onArchiveFinished={onArchiveFinished}
+      archiveFinishedStatus={archiveFinishedStatus}
+    />
+  ));
   if (inline) {
     return (
       <View style={[taskCardStyles.container, styles.card]} testID="subagents-card">
-        <View
-          style={[taskCardStyles.header, touch && taskCardStyles.touchHeader, styles.cardHeader]}
-        >
-          <Button
-            variant="ghost"
-            size="sm"
-            hitSlop={6}
-            style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchAccordionTrigger]}
-            textStyle={taskCardStyles.heading}
-            trailing={headerTrailing}
-            accessibilityLabel={t("subagents.title")}
-            aria-expanded={expanded}
-            testID="subagents-card-toggle"
-            onPress={toggleExpanded}
-          >
-            {t("subagents.title")}
-          </Button>
-          {archiveAction}
-        </View>
-        {expanded ? <View style={styles.cardRows}>{rowsContent}</View> : null}
+        {groups}
       </View>
     );
   }
@@ -188,11 +114,93 @@ export function SubagentsTrack({
       accessibilityLabel={pill.accessibilityLabel}
       panelTitle={t("subagents.title")}
     >
-      {archiveAction ? (
-        <ComposerTrackActions divided={rows.length > 0}>{archiveAction}</ComposerTrackActions>
-      ) : null}
-      {rowsContent}
+      {groups}
     </ComposerTrackPill>
+  );
+}
+
+interface SubagentsGroupProps extends SubagentsTrackProps {
+  kind: SubagentRow["kind"];
+}
+
+function SubagentsGroup({
+  kind,
+  inline,
+  serverId,
+  rows,
+  onArchiveFinished,
+  archiveFinishedStatus = IDLE_ARCHIVE_FINISHED_STATUS,
+  ...rowActions
+}: SubagentsGroupProps): ReactElement | null {
+  const { t } = useTranslation();
+  const touch = useVortonTouch();
+  const [expanded, setExpanded] = useState(true);
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  const status = kind === "paseo" ? archiveFinishedStatus : IDLE_ARCHIVE_FINISHED_STATUS;
+  const clearFinished = useCallback(() => {
+    if (kind === "paseo") {
+      onArchiveFinished?.();
+      return;
+    }
+    for (const row of rows) {
+      if (row.kind === "provider" && isFinishedSubagent(row)) {
+        useProviderSubagentStore.getState().hideFromTrack(serverId, row.parentAgentId, [row.id]);
+      }
+    }
+  }, [kind, onArchiveFinished, rows, serverId]);
+  if (rows.length === 0 && status.kind === "idle") return null;
+  const title = kind === "paseo" ? t("subagents.workersTitle") : t("subagents.providerTitle");
+  const canClear = kind === "provider" || Boolean(onArchiveFinished);
+  const showClear = canClear && (countFinishedSubagents(rows) > 0 || status.kind !== "idle");
+  return (
+    <View testID={`subagents-group-${kind}`}>
+      <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+        <Button
+          variant="ghost"
+          size="sm"
+          style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchAccordionTrigger]}
+          textStyle={taskCardStyles.heading}
+          accessibilityLabel={title}
+          aria-expanded={expanded}
+          testID={`subagents-group-${kind}-toggle`}
+          onPress={toggleExpanded}
+          trailing={
+            <>
+              <CountBadge label={String(rows.length)} accessibilityLabel={title} />
+              {expanded ? (
+                <ThemedChevronDown size={16} uniProps={foregroundMutedColorMapping} />
+              ) : (
+                <ThemedChevronRight size={16} uniProps={foregroundMutedColorMapping} />
+              )}
+            </>
+          }
+        >
+          {title}
+        </Button>
+        <SettingsInfoTip
+          title={title}
+          info={kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo")}
+          testID={`subagents-group-${kind}-info`}
+        />
+        {showClear ? (
+          <ArchiveFinishedRow
+            inline
+            status={status}
+            disabled={status.kind === "archiving"}
+            onPress={clearFinished}
+          />
+        ) : null}
+      </View>
+      {expanded ? (
+        <View style={styles.cardRows}>
+          {rows.map((row, index) => (
+            <View key={row.id} style={index > 0 ? taskCardStyles.separator : undefined}>
+              <SubagentsTrackRow inline={inline} row={row} serverId={serverId} {...rowActions} />
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -500,7 +508,6 @@ function SubagentActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  group: { marginBottom: theme.spacing[4], paddingHorizontal: theme.spacing[2] },
   statusLine: { alignItems: "flex-start" },
   rowTextColumn: {
     flexGrow: 1,
@@ -509,7 +516,6 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
   },
   card: { paddingLeft: theme.spacing[2] },
-  cardHeader: { alignItems: "center" },
   cardRows: {
     marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
   },

@@ -147,10 +147,10 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (const card of geometry.slice(2)) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
-      const toggle = stack.getByTestId("subagents-card-toggle");
+      const toggle = stack.getByTestId("subagents-group-paseo-toggle");
       const headerHeight = await toggle.evaluate((node) => node.getBoundingClientRect().height);
       const rowHeight = await stack.getByTestId("subagents-card").evaluate((card) => {
-        const row = card.firstElementChild;
+        const row = card.querySelector('[data-testid="subagents-group-paseo"]')?.firstElementChild;
         if (!row) throw new Error("Subagent header row missing");
         return row.getBoundingClientRect().height;
       });
@@ -169,9 +169,10 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       await toggle.click();
       await expect(toggle).toHaveAttribute("aria-expanded", "true");
       const subagentBottomInset = await stack.getByTestId("subagents-card").evaluate((card) => {
-        const rows = card.lastElementChild;
-        if (!rows) throw new Error("Subagent rows missing");
-        return card.getBoundingClientRect().bottom - rows.getBoundingClientRect().bottom;
+        const rows = card.querySelectorAll('[data-testid^="subagents-track-row-"]');
+        const lastRow = rows.item(rows.length - 1);
+        if (!lastRow) throw new Error("Subagent rows missing");
+        return card.getBoundingClientRect().bottom - lastRow.getBoundingClientRect().bottom;
       });
       expect(subagentBottomInset).toBeCloseTo(9, 0);
       if (width === 1400) {
@@ -183,9 +184,18 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       for (const card of geometry.slice(3)) {
         expect(card.frame).toEqual(geometry[2].frame);
-        expect(card.padding).toBe(width === 390 ? "4px 8px 8px 12px" : "4px 8px 8px 16px");
+        const bottomPadding = card.id === "agent-goal-bar" ? 16 : 8;
+        const leftPadding = width === 390 ? 12 : 16;
+        expect(card.padding).toBe(`4px 8px ${bottomPadding}px ${leftPadding}px`);
         expect(card.width).toBe(geometry[2].width);
       }
+      const goalActionInset = await stack.getByTestId("agent-goal-bar").evaluate((card) => {
+        const header = card.firstElementChild;
+        const action = card.querySelector('[data-testid="agent-goal-clear"]');
+        if (!header || !action) throw new Error("Goal controls missing");
+        return action.getBoundingClientRect().top - header.getBoundingClientRect().top;
+      });
+      expect(goalActionInset).toBe(8);
       const movement = await stack.evaluate(async (element) => {
         let scroll = element.parentElement;
         while (

@@ -102,9 +102,19 @@ test.describe("Archive finished subagents", () => {
     const providers = page.getByTestId("subagents-group-provider");
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 844 });
-      await expect(workers).toContainText("Vorteo workers (1)");
+      await expect(workers).toContainText("Vorteo sub-agents");
       await expect(workers).toContainText("Managed review worker");
-      await expect(providers).toContainText("Provider subagents (1)");
+      const workerToggle = workers.getByTestId("subagents-group-paseo-toggle");
+      const providerToggle = providers.getByTestId("subagents-group-provider-toggle");
+      await workerToggle.click();
+      await expect(workers.getByTestId(`subagents-track-row-${agents.child.id}`)).toHaveCount(0);
+      await expect(providers.getByTestId("subagents-track-row-provider-review")).toBeVisible();
+      await workerToggle.click();
+      await providerToggle.click();
+      await expect(workers.getByTestId(`subagents-track-row-${agents.child.id}`)).toBeVisible();
+      await expect(providers.getByTestId("subagents-track-row-provider-review")).toHaveCount(0);
+      await providerToggle.click();
+      await expect(providers).toContainText("System sub-agents");
       await expect(providers).toContainText("Completed");
       await expect(providers).toContainText("Model not reported");
       await expect(
@@ -136,12 +146,26 @@ test.describe("Archive finished subagents", () => {
         contentType: "image/png",
       });
     }
-    await providers
-      .getByRole("button", { name: "Dismiss Provider review child", exact: true })
-      .click();
+    await providers.getByTestId("subagents-track-archive-finished").click();
     await expect(providers).toHaveCount(0);
     await expectManagedSubagentUnarchived(workspace, agents.child.id);
     await expect(workers).toBeVisible();
+  });
+
+  test("clearing Vorteo children leaves system children visible", async ({ page }) => {
+    const agents = await seedParentWithSubagent(workspace, {
+      parentTitle: "Independent cleanup supervisor",
+      childTitle: "Finished Vorteo child",
+    });
+    await provideCompletedChild(page, agents.parent.id);
+    await openAgentRoute(page, { workspaceId: agents.workspaceId, agentId: agents.parent.id });
+    const workers = page.getByTestId("subagents-group-paseo");
+    const providers = page.getByTestId("subagents-group-provider");
+    await expect(providers).toBeVisible();
+    await workers.getByTestId("subagents-track-archive-finished").click();
+    await expectManagedSubagentArchived(workspace, agents.child.id);
+    await expect(workers).toHaveCount(0);
+    await expect(providers.getByTestId("subagents-track-row-provider-review")).toBeVisible();
   });
 
   test("archives a finished managed child from the track", async ({ page }) => {
