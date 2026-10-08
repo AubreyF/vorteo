@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.204 - 2026-10-08
+
+### Maintenance
+
+- Integrate disabled restart explanations and button approval instructions with the deployed installation source.
+
+## 0.11.0-beta.3.vorteo.203 - 2026-10-08
+
+### Fixed
+
+- Explain disabled installation and restart actions with the blocker and recovery steps on hover, keyboard focus and touch, without allowing approval through the tooltip.
+
+## 0.11.0-beta.3.vorteo.202 - 2026-10-08
+
+### Documentation
+
+- Submit prepared maintenance requests without verbal approval prompts. Require the owner's exact button approval, including coordinator maintenance, and report unsupported request types without bypassing the managed workflow.
+
 ## 0.11.0-beta.3.vorteo.202 - 2026-10-08
 
 ### Maintenance

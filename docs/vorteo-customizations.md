@@ -89,10 +89,6 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
-October 8, 2026: Integrated environment placement and source batch reconciliation with the protected installation history. Existing profile controls remain the environment selector.
+October 8, 2026: Disabled restart actions expose their blocker and recovery steps through an accessible tooltip on hover, focus and touch. Tooltip interaction never submits approval.
 
-October 8, 2026: Workspace creation acceptance waits for both agent creation and project membership persistence before checking the destination group.
-
-October 8, 2026: Shared-project browser acceptance follows the existing profile menu remount after changing environments before choosing the destination account and profile.
-
-October 8, 2026: Logical project groups retain unambiguous native project placements for each environment. New workspace creation uses the existing profile environment selector and preserves project membership. Offline or ambiguous checkouts are not inferred.
+October 8, 2026: Agent instructions submit prepared restart requests directly and use the recorded owner button decision as approval. Coordinator maintenance has the same boundary; these instruction changes do not add a coordinator reload request capability.
