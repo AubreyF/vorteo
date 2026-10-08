@@ -1,3 +1,4 @@
+import { workspaceChecklistProgress, checklistProgress } from "@/task-checklist/progress";
 import { describe, expect, it } from "vitest";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import { aggregateProjectTasks } from "./project-task-summary";
@@ -80,6 +81,46 @@ describe("project task totals", () => {
       count: 0,
       additions: 0,
       deletions: 0,
+    });
+  });
+});
+
+describe("workspace checklist completion", () => {
+  it("sums checklist entities across threads rather than averaging percentages", () => {
+    const agents = [
+      { id: "one", workspaceId: "w", tasks: [{ id: "1", text: "Done", completed: true }] },
+      {
+        id: "two",
+        workspaceId: "w",
+        tasks: Array.from({ length: 3 }, (_, index) => ({
+          id: String(index + 1),
+          text: "Open",
+          completed: false,
+        })),
+      },
+      { id: "other", workspaceId: "other", tasks: [{ text: "Excluded", completed: true }] },
+      {
+        id: "archived",
+        workspaceId: "w",
+        archivedAt: new Date(),
+        tasks: [{ text: "Excluded", completed: true }],
+      },
+      { id: "pending", workspaceId: "w", tasks: [{ text: "Excluded", completed: true }] },
+    ];
+    expect(workspaceChecklistProgress(agents, "w", new Set(["pending"]))).toEqual({
+      completed: 1,
+      total: 4,
+    });
+  });
+  it("counts status-only completion and preserves an empty checklist", () => {
+    expect(checklistProgress([{ text: "Done", completed: false, status: "completed" }])).toEqual({
+      completed: 1,
+      total: 1,
+    });
+    expect(checklistProgress([])).toEqual({ completed: 0, total: 0 });
+    expect(workspaceChecklistProgress([{ id: "new", workspaceId: "w" }], "w", new Set())).toEqual({
+      completed: 0,
+      total: 0,
     });
   });
 });

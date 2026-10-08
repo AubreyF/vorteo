@@ -43,6 +43,10 @@ The receiving agent has zero context. Include:
 ## Decisions
 - [Decision — rationale]
 
+## Accepted plan and checklist
+[Preserve the accepted items, their current status, dependencies, and completion evidence.]
+[Initialize or update the receiving thread's native task checklist from these items.]
+
 ## Acceptance criteria
 - [ ] [Criterion]
 

@@ -1,3 +1,4 @@
+import { AgentTaskItemSchema } from "@getpaseo/protocol/messages";
 import { SkillSnapshotSchema } from "@getpaseo/protocol/skill-library";
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
@@ -65,6 +66,7 @@ export const GoalSubmissionSchema = z.object({
 export type GoalSubmission = z.infer<typeof GoalSubmissionSchema>;
 
 const STORED_AGENT_SCHEMA = z.object({
+  tasks: z.array(AgentTaskItemSchema).optional(),
   goalSubmissions: z.array(GoalSubmissionSchema).optional(),
   queueGoalHold: QueueGoalHoldSchema.optional(),
   id: z.string(),

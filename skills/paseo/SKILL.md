@@ -1,11 +1,21 @@
 ---
 name: paseo
-description: Vorteo reference for managing projects, workspaces, workspace scripts, agents, schedules, and heartbeats.
+description: Vorteo reference for managing projects, workspaces, workspace scripts, agents, task checklists, schedules, and heartbeats; prepare implementation plans and carry approved plans into new threads.
 ---
 
 Vorteo is a remote daemon that manages coding agents, terminals. Control it through MCP tools or the CLI.
 
 In this fork, daemon commands, provider credentials and project paths belong to the container. Use the checkout's `docs/docker.md` for installation and lifecycle operations. Host Docker administration belongs to the operator; never mount the Docker socket into the agent environment.
+
+## Plans and thread checklists
+
+When the user says "build a plan", "prepare a plan", or "draft a plan", produce a reviewable plan with concrete checklist items. Each item names a deliverable and how to verify it. Include dependencies, unresolved decisions, constraints, and relevant validation and delivery steps. Keep the detail proportional to the work. Planning alone does not authorize implementation.
+
+After implementation is authorized, initialize the thread's native task checklist from the accepted items. For a new thread, include the accepted plan, checklist, decisions, constraints, and existing authorization in `create_agent.initialPrompt`. A handoff carries completed, pending, and blocked work with its evidence; it does not start the checklist over or request authorization already given.
+
+Vorteo displays the checklist at the bottom of the thread and combines checklist item completion across unarchived threads in the workspace's sidebar donut. Use the provider's available native tools: Claude's `TaskCreate`/`TaskUpdate`, Codex's `update_plan`, or another supported task tool. Plain Markdown checkboxes do not update that interface. If the tools are unavailable, retain the plan in text and state that the native checklist could not be updated.
+
+Use checklists for substantial multi-step work. Update the existing items as progress changes; do not append duplicate copies on each turn. Check off an item when its completion criteria hold, retain unfinished or blocked items, and explain material scope changes. Worker completion alone does not complete its parent's integration or acceptance item. Checklist updates do not grant permission to delegate, publish, deploy, or restart services.
 
 ## Projects
 

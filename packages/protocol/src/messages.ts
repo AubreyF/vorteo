@@ -828,6 +828,14 @@ export const CompactionInspectionSchema = z.object({
 });
 export type CompactionInspection = z.infer<typeof CompactionInspectionSchema>;
 
+export const AgentTaskItemSchema = z.object({
+  text: z.string(),
+  completed: z.boolean(),
+  id: z.string().optional(),
+  status: z.enum(["pending", "in_progress", "completed"]).optional(),
+  activeForm: z.string().optional(),
+});
+
 // zod-aot 0.20.4 miscompiles this as a nested discriminated union by omitting
 // the inner tool_call branch from the generated outer dispatch.
 export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknown> = z.union([
@@ -851,15 +859,7 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
   ToolCallTimelineItemPayloadSchema,
   z.object({
     type: z.literal("todo"),
-    items: z.array(
-      z.object({
-        text: z.string(),
-        completed: z.boolean(),
-        id: z.string().optional(),
-        status: z.enum(["pending", "in_progress", "completed"]).optional(),
-        activeForm: z.string().optional(),
-      }),
-    ),
+    items: z.array(AgentTaskItemSchema),
   }),
   z.object({
     type: z.literal("error"),
@@ -981,6 +981,7 @@ const AgentActiveTurnPayloadSchema = z.object({
 });
 
 export const AgentSnapshotPayloadSchema = z.object({
+  tasks: z.array(AgentTaskItemSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
   profile: z.object({ id: z.string(), name: z.string() }).optional(),
@@ -3862,6 +3863,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
         providerSubagents: z.boolean().optional(),
+        // COMPAT(agentTaskSnapshots): added October 2026; gate until the supported daemon floor includes it.
+        agentTaskSnapshots: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
         projectedSubagentTimeline: z.boolean().optional(),
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.
