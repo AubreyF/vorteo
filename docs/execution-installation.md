@@ -210,6 +210,8 @@ Acceptance requires a real Dev upload, visible revision and digest in the owner 
 
 ### Dev updater bootstrap and new installations
 
+Verify that both the managed supervisor and worker inherit `VORTEO_INSTALLATION_CLIENT_CONFIG` pointing to the installation-owned scoped client. Older container launchers may lack this export even when the client file exists. Repair the owned launcher and obtain approval to restart its supervisor before enabling Dev updates; a worker restart inherits the same incomplete supervisor environment. Bootstrap refuses this missing binding.
+
 The protected configuration optionally includes `containerSourceUpdates`. It owns the protected source repository, integration ref, tooling directory and installed-source receipt. It also pins the Host Docker executable, full immutable container ID, regular container user, Node executable, daemon home, release root and current-release symlink. These are installer settings, never upload parameters. The guest receives only the request credential. Container recreation requires the installer to rebind its identity after checking the preserved runtime and state.
 
 Dev needs Git, npm, Python, a C/C++ compiler and Make to build native dependencies. Include these in newly paired managed containers, or install them during the existing container’s bootstrap before enabling updates. Build as the regular daemon user.

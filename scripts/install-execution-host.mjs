@@ -579,6 +579,14 @@ async function installationStatus(record) {
   );
 }
 
+export function assertContainerProfileLauncher({ expected, supervisor, worker }) {
+  if (supervisor !== expected || worker !== expected) {
+    throw new Error(
+      "The Dev supervisor and worker must inherit VORTEO_INSTALLATION_CLIENT_CONFIG from the owned launcher before bootstrap. Repair the launcher and obtain approval for a supervisor restart.",
+    );
+  }
+}
+
 /** Prepare the scoped Dev updater without restarting any service or changing its launcher. */
 export async function configureContainerUpdates(planFile) {
   const input = JSON.parse(readFileSync(planFile, "utf8"));
@@ -655,6 +663,24 @@ export async function configureContainerUpdates(planFile) {
       release: selected.release,
       update: { sourceCommit: selected.sourceCommit },
     });
+    const profileLauncher = JSON.parse(
+      await run(settings.docker, [
+        "exec",
+        "--user",
+        settings.user,
+        settings.containerId,
+        settings.node,
+        "--input-type=module",
+        "--eval",
+        `import fs from 'node:fs';import path from 'node:path';import os from 'node:os';
+const marker=JSON.parse(fs.readFileSync(path.join(process.argv[1],'managed-supervisor.json'),'utf8'));
+const read=pid=>fs.readFileSync('/proc/'+pid+'/environ','utf8').split('\\0').find(value=>value.startsWith('VORTEO_INSTALLATION_CLIENT_CONFIG='))?.slice('VORTEO_INSTALLATION_CLIENT_CONFIG='.length)??null;
+console.log(JSON.stringify({expected:path.join(os.homedir(),'.local/share/vorteo-installation-client/client.json'),supervisor:read(marker.pid),worker:read(process.argv[2])}));`,
+        settings.home,
+        String(pid),
+      ]),
+    );
+    assertContainerProfileLauncher(profileLauncher);
   } finally {
     await client.close();
   }

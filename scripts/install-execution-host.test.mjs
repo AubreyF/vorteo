@@ -14,7 +14,29 @@ import { createServer } from "node:http";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import os from "node:os";
-import { assertProtectedPaths, validateInstallPlan } from "./install-execution-host.mjs";
+import {
+  assertContainerProfileLauncher,
+  assertProtectedPaths,
+  validateInstallPlan,
+} from "./install-execution-host.mjs";
+
+test("Dev bootstrap requires the fixed profile client in both supervisor and worker", () => {
+  const expected = "/fixture/.local/share/vorteo-installation-client/client.json";
+  expect(() =>
+    assertContainerProfileLauncher({ expected, supervisor: expected, worker: expected }),
+  ).not.toThrow();
+  for (const [supervisor, worker] of [
+    [null, null],
+    [expected, null],
+    [null, expected],
+    ["/other/client.json", expected],
+    [expected, "/other/client.json"],
+  ]) {
+    expect(() => assertContainerProfileLauncher({ expected, supervisor, worker })).toThrow(
+      "VORTEO_INSTALLATION_CLIENT_CONFIG",
+    );
+  }
+});
 
 test("protected paths cannot enter a guest bind, including through a symlink ancestor", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "installation-paths-"));
