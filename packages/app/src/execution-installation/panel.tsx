@@ -584,7 +584,7 @@ function RestartActions({
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
-          <ForceRestartButton job={job} model={model} busy={busy} />
+          <RestartEscalation job={job} model={model} busy={busy} />
         </View>
       ) : null}
     </>
@@ -682,6 +682,30 @@ function SourceUpdateDetails({ job }: { job: RestartJob }) {
         </Text>
       ) : null}
     </View>
+  );
+}
+
+function RestartEscalation({
+  job,
+  model,
+  busy,
+}: {
+  job: RestartJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+}) {
+  const [appearsStuck, setAppearsStuck] = useState(false);
+  const reportStuck = useCallback(() => setAppearsStuck(true), []);
+  if (appearsStuck) return <ForceRestartButton job={job} model={model} busy={busy} />;
+  return (
+    <Button
+      variant="outline"
+      disabled={busy}
+      onPress={reportStuck}
+      testID={`restart-stuck-${job.id}`}
+    >
+      Restart appears stuck
+    </Button>
   );
 }
 
@@ -788,29 +812,13 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
         </Text>
       ) : null}
       {jobs.map((job, index) => (
-        <RestartBannerItem
-          key={job.id}
-          job={job}
-          model={model}
-          busy={state.busy}
-          showTopBorder={index > 0}
-        />
+        <RestartBannerItem key={job.id} job={job} showTopBorder={index > 0} />
       ))}
     </ScrollView>
   );
 }
 
-function RestartBannerItem({
-  job,
-  model,
-  busy,
-  showTopBorder,
-}: {
-  job: RestartJob;
-  model: InstallationPanelModel;
-  busy: boolean;
-  showTopBorder: boolean;
-}) {
+function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBorder: boolean }) {
   const router = useRouter();
   const open = useCallback(
     () =>
@@ -828,16 +836,13 @@ function RestartBannerItem({
           <RestartActivity job={job} />
         ) : null}
         <View style={styles.actions}>
-          {job.status !== "running" && !job.update && !job.sourceBatch ? (
-            <ForceRestartButton job={job} model={model} busy={busy} />
-          ) : null}
           <Button variant="outline" onPress={open}>
             Review restart
           </Button>
         </View>
       </View>
     ),
-    [job, open, model, busy],
+    [job, open],
   );
   const target = job.target === "host" ? "Host daemon" : "Dev daemon";
   let title = `${target} restart needs approval`;
