@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.183 - 2026-10-07
+
+### Maintenance
+
+- Integrate the latest main publication with the reviewed workspace and profile refinements. Preserve both source histories and reconcile release notes and version metadata without changing the validated implementation.
+
 ## 0.11.0-beta.3.vorteo.182 - 2026-10-07
 
 ### Changed
@@ -18,6 +24,14 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Block workspace and thread archival for explicit protection and active or paused schedules. Explain the blockers with a disabled lock action and guard archive shortcuts.
 - Refuse blocked agent archive requests before cancelling the running turn, and preflight companion workspaces before archival.
 - Preserve current main changes, preview-globe styling and verified-preview recovery source. Add the label icon to browser test fixtures.
+
+### Added
+
+- Integrate reviewed Dev source uploads and digest-bound Host daemon and interface installation into main, preserving current preview and interface changes.
+
+### Maintenance
+
+- Preserve the installed source-update commit in main history and reconcile version metadata and release notes.
 
 ## 0.11.0-beta.3.vorteo.181 - 2026-10-07
 

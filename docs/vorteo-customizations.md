@@ -86,11 +86,15 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 7, 2026: Reconciled the latest main publication with the reviewed workspace and profile refinements. Both source histories and release notes are preserved; this merge changes only documentation and version metadata.
+
 October 7, 2026: Integrated the profile chooser, conversation-card spacing, Standing heading alignment and archive protection refinements with current source. Preserved account reset counters, subagent ownership and the sidebar overlay. Added the missing label icon to the browser test fixture. Reviewed the README and documented schedule archive protection.
 
 October 7, 2026: Integrated pending source batching, shared plain restarts and simplified restart controls with the current installation source. Preserved contribution provenance, exact approval boundaries and separately pinned coordinator tooling. Restored account reset counters from the enabled account catalog. Source acceptance remains separate from installation acceptance.
 
 October 7, 2026: Combined accepted Standing/schedule and PR activity changes, shared card spacing, repository footer, subagent ownership presentation and the eased sidebar action fade with the deployed reviewed-source-update workflow. Runtime activation remains separately reviewed.
+
+October 7, 2026: Integrated reviewed source updates with current main while retaining preview recovery, sidebar and conversation-card changes. The source-update implementation matches the installed revision; this merge changes version metadata and documentation.
 
 October 7, 2026: Reviewed the sidebar preview globe against the current trailing badge layout. Its neutral color and right inset preserve service health labels and named-service status text. The README overview and onboarding are unchanged.
 
