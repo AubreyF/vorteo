@@ -525,19 +525,19 @@ function RestartActionButton({
   ...props
 }: ComponentProps<typeof Button> & { disabledReason: string | null }) {
   if (!disabledReason) return <Button {...props} />;
-  // The wrapper remains interactive so a disabled action can explain itself.
+  // A separate hit target avoids browsers suppressing taps on a disabled descendant.
   return (
     <Tooltip enabledOnMobile>
-      <TooltipTrigger
-        accessibilityRole="button"
-        accessibilityLabel={`Why ${String(props.children)} is unavailable`}
-        accessibilityHint={disabledReason}
-        testID={`${props.testID}-explanation`}
-      >
-        <View pointerEvents="none">
-          <Button {...props} disabled accessible={false} focusable={false} />
-        </View>
-      </TooltipTrigger>
+      <View style={styles.disabledAction}>
+        <Button {...props} disabled accessible={false} focusable={false} />
+        <TooltipTrigger
+          style={StyleSheet.absoluteFillObject}
+          accessibilityRole="button"
+          accessibilityLabel={`Why ${String(props.children)} is unavailable`}
+          accessibilityHint={disabledReason}
+          testID={`${props.testID}-explanation`}
+        />
+      </View>
       <TooltipContent maxWidth={360} testID={`${props.testID}-tooltip`}>
         <Text style={styles.text}>{disabledReason}</Text>
       </TooltipContent>
@@ -927,6 +927,7 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
 }
 
 const styles = StyleSheet.create((theme) => ({
+  disabledAction: { position: "relative", alignSelf: "flex-start" },
   banner: { maxHeight: 280, flexGrow: 0, borderTopWidth: 1, borderTopColor: theme.colors.border },
   details: { gap: theme.spacing[2] },
   unlockRow: {

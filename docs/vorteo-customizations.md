@@ -89,6 +89,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Integrated the separate disabled-action explanation hit target with the approved Host source. Browser taps no longer depend on events bubbling through a disabled button.
+
 October 8, 2026: Retained the approved Host update source while integrating disabled-action explanations; application code is unchanged by this ancestry reconciliation.
 
 October 8, 2026: Compact tooltip triggers use touch interaction consistently so pointer leave does not immediately dismiss a tapped explanation.
