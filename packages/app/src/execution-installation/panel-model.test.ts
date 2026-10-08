@@ -255,3 +255,36 @@ test("restart summaries omit version and source metadata without dangling labels
     ).summary,
   ).toBe("Activate task environments.");
 });
+
+test("pending supervisor repair remains visible alongside an active source update", async () => {
+  const base: RestartJob = {
+    id: "source",
+    revision: "revision",
+    target: "container-daemon",
+    requestedBy: "host-agent",
+    reason: "Source update",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    status: "running",
+    detail: "Installing",
+  };
+  const jobs: RestartJob[] = [
+    base,
+    { ...base, id: "supervisor", status: "pending", supervisorPlanSha256: "a".repeat(64) },
+  ];
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => true,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: true,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    unlock: async () => {},
+    listRestarts: async () => jobs,
+    decide: async () => {},
+  });
+  await model.initialize();
+  expect(model.getState().pendingJobs.map((job) => job.id)).toEqual(["supervisor"]);
+  expect(model.getState().jobs).toEqual(jobs);
+});

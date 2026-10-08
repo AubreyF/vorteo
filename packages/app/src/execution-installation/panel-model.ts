@@ -158,7 +158,7 @@ export class InstallationPanelModel {
       );
       const pending = jobs.toReversed().filter((job) => {
         if (job.status !== "pending") return false;
-        if (job.update || job.sourceBatch) return true;
+        if (job.update || job.sourceBatch || job.supervisorPlanSha256) return true;
         if (targets.has(job.target)) return false;
         targets.add(job.target);
         return true;

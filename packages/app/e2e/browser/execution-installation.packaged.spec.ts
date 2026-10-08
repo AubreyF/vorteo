@@ -3380,6 +3380,7 @@ test("supervisor maintenance is visible and cancellable without offering an init
   await page.getByTestId("installation-unlock").click();
   const card = page.getByTestId(`restart-request-${job.id}`);
   await expect(card).toContainText("Dev supervisor");
+  await expect(page.getByTestId(`restart-finish-${job.id}`)).toBeEnabled({ timeout: 30_000 });
   await expect(card.getByRole("button")).toHaveText([
     "Details",
     "Finish turns and restart",

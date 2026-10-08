@@ -87,6 +87,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Supervisor repairs can wait alongside unapproved source batches without cancelling their contributions or sharing approval. Both requests remain visible; approval serialization still prevents concurrent interruption of one target.
+
 October 8, 2026: Added durable thread checklist tools and manual editing, with dependency, ownership, metadata and stale-edit handling. Focused storage, lifecycle, protocol and provider tests cover persistence and native task coexistence. Desktop and phone browser checks cover manual controls, save failures, concurrent edits, deletion, ordering and workspace aggregation. Source installation and live tool acceptance remain pending.
 
 October 8, 2026: Tightened agent instructions so Host and Dev holds, restarts and supervisor maintenance must use visible coordinator requests and owner controls. Chat approval does not permit an untracked lifecycle operation. The coordinator now supports trusted Host supervisor maintenance with an exact protected script digest, visible review and cancellation; guest requests and old-client approvals are refused. Archived inactive history no longer blocks drain preparation.
