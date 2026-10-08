@@ -1,6 +1,15 @@
 import { promisify } from "node:util";
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+  mkdir,
+  symlink,
+  rename,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -117,3 +126,175 @@ test("startup preflight accepts disabled providers without creating runtime stat
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a managed supervisor selects the approved release on restart without replacing itself", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "paseo-managed-supervisor-"));
+  const releases = path.join(root, "releases");
+  const home = path.join(root, "home");
+  const link = path.join(releases, "current");
+  const report = path.join(root, "workers.jsonl");
+  await mkdir(home);
+  const first = path.join(releases, "first");
+  const second = path.join(releases, "second");
+  for (const [release, commit] of [
+    [first, "a".repeat(40)],
+    [second, "b".repeat(40)],
+  ]) {
+    const entry = path.join(release!, "packages/server/dist/server/server/daemon-worker.js");
+    await mkdir(path.dirname(entry), { recursive: true });
+    await writeFile(
+      path.join(release!, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: commit }),
+    );
+    await writeFile(
+      entry,
+      `
+      const fs = require("fs");
+      fs.appendFileSync(${JSON.stringify(report)}, JSON.stringify({ pid: process.pid, parent: process.ppid, release: ${JSON.stringify(release)}, managed: process.env.PASEO_MANAGED_WORKER }) + "\\n");
+      process.on("message", message => { if (message.type === "paseo:graceful-shutdown") process.exit(0); });
+      process.send({ type: "paseo:ready", listen: "test-endpoint", serverId: "srv_managed_test" });
+      const timer = setInterval(() => {
+        if (${release === first} && fs.existsSync(${JSON.stringify(path.join(root, "restart"))})) {
+          clearInterval(timer); process.send({ type: "paseo:restart" });
+        }
+      }, 20);
+    `,
+    );
+  }
+  await symlink(first, link);
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_")),
+  );
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", fileURLToPath(new URL("./supervisor-entrypoint.ts", import.meta.url))],
+    {
+      env: {
+        ...cleanEnv,
+        PASEO_HOME: home,
+        PASEO_MANAGED_RELEASE_LINK: link,
+        PASEO_MANAGED_RELEASE_ROOT: releases,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let output = "";
+  child.stderr.on("data", (chunk) => {
+    output += chunk;
+  });
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
+  const readWorkers = async () =>
+    (await readFile(report, "utf8").catch(() => ""))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  try {
+    await expect.poll(readWorkers, { timeout: 15000, message: output }).toHaveLength(1);
+    await symlink(second, `${link}.next`);
+    await rename(`${link}.next`, link);
+    await writeFile(path.join(root, "restart"), "owner approved");
+    await expect.poll(readWorkers, { timeout: 15000, message: output }).toHaveLength(2);
+    const workers = await readWorkers();
+    expect(workers.map((worker) => worker.release)).toEqual([first, second]);
+    expect(workers.map((worker) => worker.managed)).toEqual(["1", "1"]);
+    expect(workers.map((worker) => worker.parent)).toEqual([child.pid, child.pid]);
+    expect(workers[0].pid).not.toBe(workers[1].pid);
+    const helper = await readFile(
+      new URL("../../../scripts/installation-container-runtime.mjs", import.meta.url),
+      "utf8",
+    );
+    const settings = {
+      releaseRoot: releases,
+      currentReleaseLink: link,
+      home,
+      node: process.execPath,
+    };
+    const run = promisify(execFile);
+    const verification = await run(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      helper,
+      JSON.stringify({
+        action: "verify",
+        settings,
+        release: second,
+        pid: workers[1].pid,
+        update: { sourceCommit: "b".repeat(40) },
+      }),
+    ]);
+    expect(JSON.parse(verification.stdout).sourceCommit).toBe("b".repeat(40));
+    await expect(
+      run(process.execPath, [
+        "--input-type=module",
+        "--eval",
+        helper,
+        JSON.stringify({
+          action: "verify",
+          settings,
+          release: first,
+          pid: workers[1].pid,
+          update: { sourceCommit: "a".repeat(40) },
+        }),
+      ]),
+    ).rejects.toThrow("approved release");
+  } finally {
+    const closed = new Promise((resolve) => child.once("close", resolve));
+    child.kill("SIGTERM");
+    if (child.exitCode === null) await closed;
+    await rm(root, { recursive: true, force: true });
+  }
+}, 40000);
+
+// Linux installation verification reads the real worker argv after startup.
+test.runIf(process.platform === "linux")(
+  "a managed daemon keeps its executable arguments after becoming ready",
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "paseo-managed-argv-"));
+    const entry = fileURLToPath(new URL("../dist/server/server/daemon-worker.js", import.meta.url));
+    const cleanEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_")),
+    );
+    const child = spawn(process.execPath, [entry], {
+      env: {
+        ...cleanEnv,
+        PASEO_HOME: root,
+        PASEO_LISTEN: path.join(root, "daemon.sock"),
+        PASEO_MANAGED_WORKER: "1",
+      },
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    });
+    let ready = false;
+    child.on("message", (message) => {
+      if (
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "paseo:ready"
+      )
+        ready = true;
+    });
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+    try {
+      await expect.poll(() => ready, { timeout: 30000, message: output }).toBe(true);
+      const command = (await readFile(`/proc/${child.pid}/cmdline`, "utf8")).split("\0");
+      expect(command).toContain(entry);
+    } finally {
+      if (child.exitCode === null) {
+        const closed = new Promise((resolve) => child.once("close", resolve));
+        child.kill("SIGTERM");
+        await closed;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  45000,
+);

@@ -3,7 +3,15 @@ import type { InstallationPluginSourceResolver } from "./settings/runtime.js";
 import { createInstallationSettingsReader } from "./settings/admission.js";
 import { InstallationSourceUpdates } from "./source-updates.js";
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, symlinkSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  mkdirSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -311,7 +319,7 @@ async function fixture(
   profiles?: InstallationProfiles,
   settings?: InstallationSettingsService,
   resolvePluginSource?: InstallationPluginSourceResolver,
-  sourceUpdates = false,
+  sourceUpdates: boolean | "both" = false,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
   writeFileSync(
@@ -363,6 +371,29 @@ async function fixture(
       webDirectory: root,
       toolingDirectory: root,
       integrationRef: "refs/heads/main",
+    };
+  }
+  if (sourceUpdates === "both") {
+    const docker = path.join(root, "docker-fixture");
+    writeFileSync(
+      docker,
+      `#!${process.execPath}\nprocess.stdout.write(JSON.stringify({release:"/dev/releases/base",sourceCommit:"${"c".repeat(40)}"}));`,
+    );
+    chmodSync(docker, 0o700);
+    const receiptFile = path.join(root, "dev-source.json");
+    writeFileSync(receiptFile, JSON.stringify({ sourceCommit: "c".repeat(40) }));
+    config.containerSourceUpdates = {
+      docker,
+      receiptFile,
+      sourceRepository: root,
+      toolingDirectory: path.resolve("scripts"),
+      integrationRef: "refs/heads/main",
+      containerId: "d".repeat(64),
+      user: "paseo",
+      node: process.execPath,
+      home: "/dev/home",
+      releaseRoot: "/dev/releases",
+      currentReleaseLink: "/dev/releases/current",
     };
   }
   const calls: string[] = [];
@@ -1092,4 +1123,87 @@ test("batch uploads retain scoped receipts and require a batch-aware exact owner
     install.mockRestore();
     prepare.mockRestore();
   }
+});
+
+test("scoped Dev updates require target-aware owner review and never reuse Host approval", async () => {
+  const { request, url, calls } = await fixture(undefined, undefined, undefined, "both");
+  const capabilities = await request("/api/installation/capabilities", "guest-agent-test-token");
+  expect(await capabilities.json()).toMatchObject({
+    ownerApprovalRequired: true,
+    targets: [
+      { target: "host", sourceUpdate: { available: true } },
+      { target: "container-daemon", sourceUpdate: { available: true } },
+    ],
+  });
+  const source = await request(
+    "/api/installation/update-source?target=container-daemon",
+    "guest-agent-test-token",
+  );
+  expect(await source.json()).toMatchObject({
+    target: "container-daemon",
+    baseCommit: "c".repeat(40),
+    baseCandidates: ["c".repeat(40)],
+  });
+  const bundle = Buffer.from("inert Dev test bundle");
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "c".repeat(40),
+    sha256: createHash("sha256").update(bundle).digest("hex"),
+    bytes: bundle.length,
+  };
+  const metadata = {
+    request: { target: "container-daemon", reason: "Prepare Dev update" },
+    update,
+  };
+  const upload = (target: string) =>
+    fetch(`${url}/api/installation/source-update-requests?target=${target}`, {
+      method: "POST",
+      headers: {
+        Host: "owner.example.test",
+        Authorization: "Bearer guest-agent-test-token",
+        "Content-Type": "application/octet-stream",
+        "x-vorteo-update": Buffer.from(JSON.stringify(metadata)).toString("base64"),
+      },
+      body: bundle,
+    });
+  expect((await upload("host")).status).toBe(400);
+  const result = await upload("container-daemon");
+  expect(result.status).toBe(201);
+  const job = RestartJobSchema.parse(await result.json());
+  const decision = { revision: job.revision, decision: "approve", updateSha256: update.sha256 };
+  const route = `/api/installation/owner/restarts/${job.id}/decision`;
+  expect(
+    (await request(`${route}?containerSourceUpdates=1`, "guest-agent-test-token", decision)).status,
+  ).toBe(401);
+  expect(
+    (await request(`${route}?sourceUpdates=1&sourceBatches=1`, "owner-test-password", decision))
+      .status,
+  ).toBe(409);
+  const oldTab = await request(
+    "/api/installation/owner/restarts/query?sourceUpdates=1&sourceBatches=1",
+    "owner-test-password",
+    {},
+  );
+  expect(await oldTab.json()).toEqual([expect.not.objectContaining({ update })]);
+  expect(calls).toEqual([]);
+});
+
+test("capability discovery reports the Dev bootstrap blocker without exposing configuration", async () => {
+  const { request } = await fixture();
+  expect((await request("/api/installation/capabilities", "wrong")).status).toBe(401);
+  const response = await request("/api/installation/capabilities", "guest-agent-test-token");
+  expect(await response.json()).toMatchObject({
+    targets: [
+      { target: "host", sourceUpdate: { available: false } },
+      { target: "container-daemon", sourceUpdate: { available: false } },
+    ],
+  });
+  expect(
+    (
+      await request(
+        "/api/installation/update-source?target=container-daemon",
+        "guest-agent-test-token",
+      )
+    ).status,
+  ).toBe(503);
 });

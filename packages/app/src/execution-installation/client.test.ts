@@ -134,7 +134,10 @@ test("session-capable clients discard the password and restore verified connecti
     expect(await client.restoreSession()).toBe(false);
     await client.unlock("recovery-password");
     await client.listRestarts();
-    expect(calls.at(-1)).toEqual(["restarts/query?sourceUpdates=1&sourceBatches=1", ""]);
+    expect(calls.at(-1)).toEqual([
+      "restarts/query?sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1",
+      "",
+    ]);
     expect(await client.restoreSession()).toBe(true);
     expect(calls.at(-1)).toEqual(["connections", ""]);
     await client.lock();
@@ -167,6 +170,6 @@ test("capable installation clients request extended restart details without chan
   await client.listRestarts();
   expect(calls).toEqual([
     "unlock",
-    "restarts/query?idleRestarts=1&sourceUpdates=1&sourceBatches=1",
+    "restarts/query?idleRestarts=1&sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1",
   ]);
 });

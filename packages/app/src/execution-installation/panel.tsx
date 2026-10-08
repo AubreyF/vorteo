@@ -494,7 +494,7 @@ function RestartRequest({
         <Text style={styles.text} testID={`restart-summary-${job.id}`}>
           {restartExplanation(job.reason).summary}
           {source && job.status === "pending"
-            ? " Approval lets the submitted code and build scripts run on Host and may interrupt Host tasks and terminals."
+            ? ` Approval lets the submitted code and build scripts run on ${job.target === "host" ? "Host" : "Dev"} and may interrupt its tasks and terminals.`
             : null}
           {source && job.status === "running"
             ? " The approved update is being built and installed."
@@ -675,10 +675,13 @@ function SourceUpdateDetails({ job }: { job: RestartJob }) {
       ) : null}
       {job.update ? (
         <Text selectable style={styles.text}>
-          Install interface and Host daemon from source {job.update.sourceCommit}
+          {job.target === "host" ? "Install interface and Host daemon" : "Install Dev daemon"} from
+          source {job.update.sourceCommit}
           {"\n"}Bundle SHA-256: {job.update.sha256}
-          {"\n"}Approval allows this code and its build scripts to run on Host. The coordinator and
-          Dev container are not updated.
+          {"\n"}
+          {job.target === "host"
+            ? "Approval allows this code and its build scripts to run on Host. The coordinator and Dev container are not updated."
+            : "Approval allows this code and its build scripts to run inside Dev. The existing container and supervisor remain running. Host and the shared interface are not updated."}
         </Text>
       ) : null}
     </View>
