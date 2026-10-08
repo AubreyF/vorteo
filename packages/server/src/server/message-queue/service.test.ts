@@ -277,3 +277,73 @@ it("allows goal continuation after restarting with a paused nonempty queue", asy
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("recovers held goals without a stored message queue after daemon replacement", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-held-goal-recovery-"));
+  const service = new MessageQueueService(
+    new MessageQueueStore(root),
+    new QueueAttachmentStore(root),
+  );
+  const recovered: string[] = [];
+  try {
+    await service.startDelivery({
+      recoveryAgentIds: async () => ["held-goal"],
+      prepare: async () => true,
+      load: async (item) => item.text,
+      start: () => null,
+      complete: async (id, eligible) => {
+        if (await eligible()) recovered.push(id);
+      },
+      failed: (error) => {
+        throw error;
+      },
+    });
+    await expect.poll(() => recovered).toEqual(["held-goal"]);
+  } finally {
+    service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("persists one restart continuation and respects a manually paused queue", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-restart-continuation-"));
+  const service = new MessageQueueService(
+    new MessageQueueStore(root),
+    new QueueAttachmentStore(root),
+  );
+  try {
+    await service.queueRestartContinuation("thread", "restart");
+    await service.queueRestartContinuation("thread", "restart");
+    await service.pause("paused-thread");
+    await service.queueRestartContinuation("paused-thread", "restart");
+    service.close();
+    const recovered = new MessageQueueService(
+      new MessageQueueStore(root),
+      new QueueAttachmentStore(root),
+    );
+    expect((await recovered.read("thread")).items).toHaveLength(1);
+    expect((await recovered.read("paused-thread")).items).toHaveLength(0);
+    const attempted: string[] = [];
+    let held = true;
+    await recovered.startDelivery({
+      canStartWork: () => !held,
+      prepare: async () => true,
+      load: async (item) => item.text,
+      start: (id) => {
+        attempted.push(id);
+        return null;
+      },
+      failed: (error) => {
+        throw error;
+      },
+    });
+    expect(attempted).toEqual([]);
+    held = false;
+    recovered.wake("thread");
+    await expect.poll(() => attempted).toEqual(["thread"]);
+    recovered.close();
+  } finally {
+    service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -4,6 +4,7 @@ import { MessageQueueStore } from "./store.js";
 
 export interface QueueDeliveryPort {
   canStartWork?(): boolean;
+  recoveryAgentIds?(): Promise<string[]>;
   history?(agentId: string): Promise<AgentStreamEvent[]>;
   prepare(
     agentId: string,

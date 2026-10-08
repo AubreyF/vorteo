@@ -27,7 +27,23 @@ export class MessageQueueService {
       ...port,
       changed: (snapshot) => this.publish(snapshot),
     });
-    for (const agentId of await this.store.listAgentIds()) void this.delivery.wake(agentId);
+    const stored = await this.store.listAgentIds();
+    const held = (await port.recoveryAgentIds?.()) ?? [];
+    for (const agentId of new Set([...stored, ...held])) void this.delivery.wake(agentId);
+  }
+
+  async queueRestartContinuation(agentId: string, requestId: string): Promise<void> {
+    const snapshot = await this.read(agentId);
+    // Existing queued work already supplies continuation. User-paused queues stay paused.
+    if (snapshot.paused || snapshot.items.length) return;
+    const id = `restart-${requestId}-${agentId}`;
+    await this.mutate(agentId, {
+      kind: "enqueue",
+      operationId: id,
+      messageId: id,
+      attachments: [],
+      text: "The installation restart hold has ended. Continue the work you saved for this restart, following the owner's latest instructions.",
+    });
   }
 
   wake(agentId: string): void {

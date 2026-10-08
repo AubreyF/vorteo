@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.186 - 2026-10-07
+
+### Fixed
+
+- Keep restart review to a short paragraph with technical details collapsed, and label source installation Updating while builds are running.
+- Recover restart-held goals without queued messages and retain durable continuation for ordinary threads asked to finish. Preserve manual pauses, block new goal activation during a hold, and distinguish restart pauses in the interface.
+
 ## 0.11.0-beta.3.vorteo.185 - 2026-10-07
 
 ### Fixed
