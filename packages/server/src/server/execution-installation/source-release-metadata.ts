@@ -100,33 +100,48 @@ export async function releaseMetadata(git: InertGit, commit: string) {
   };
 }
 
-function combineNotes(base: string, left: string, right: string) {
+export function reconcileReleaseNotes(base: string, left: string, right: string) {
   const split = base.indexOf("\n## ");
   if (split < 0) throw new Error("Changelog requires explicit integration");
   const prefix = base.slice(0, split + 1);
-  const history = base.slice(split + 1);
-  const additions: string[] = [];
-  for (const text of [left, right]) {
-    if (!text.startsWith(prefix) || !text.endsWith(history))
-      throw new Error("Existing release notes were edited; resolve explicitly");
-    additions.push(text.slice(prefix.length, text.length - history.length).trim());
+  function blocks(text: string) {
+    const entryStart = text.indexOf("\n## ") + 1;
+    if (entryStart === 0 || text.slice(0, entryStart).trimEnd() !== prefix.trimEnd())
+      throw new Error("Release-note introduction changed; resolve explicitly");
+    return text
+      .slice(entryStart)
+      .split(/(?=^## )/m)
+      .map((block) => block.trim())
+      .filter(Boolean);
   }
-  const entries = new Map<string, string[]>();
-  for (const addition of additions) {
-    for (const block of addition.split(/(?=^## )/m).filter(Boolean)) {
-      const [heading, ...body] = block.trim().split("\n");
-      if (!/^## \S+ - \d{4}-\d{2}-\d{2}$/.test(heading!))
+  const history = blocks(base);
+  const accepted = blocks(left);
+  const incoming = blocks(right);
+  for (const entries of [accepted, incoming]) {
+    // Compare complete entries, including duplicate counts. Concurrent integration
+    // can interleave intact history without editing or deleting a single note.
+    const remaining = [...entries];
+    for (const entry of history) {
+      const index = remaining.indexOf(entry);
+      if (index < 0) throw new Error("Existing release notes were edited; resolve explicitly");
+      remaining.splice(index, 1);
+    }
+    for (const entry of remaining) {
+      if (!/^## \S+ - \d{4}-\d{2}-\d{2}\n/.test(entry))
         throw new Error("Release-note heading requires review");
-      const bodies = entries.get(heading!) ?? [];
-      const content = body.join("\n").trim();
-      if (!bodies.includes(content)) bodies.push(content);
-      entries.set(heading!, bodies);
     }
   }
-  const added = [...entries]
-    .map(([heading, bodies]) => `${heading}\n\n${bodies.join("\n\n")}`)
-    .join("\n\n");
-  return `${prefix}${added ? added + "\n\n" : ""}${history}`;
+  const remaining = [...accepted];
+  const additions: string[] = [];
+  for (const entry of incoming) {
+    const index = remaining.indexOf(entry);
+    if (index < 0) additions.push(entry);
+    else remaining.splice(index, 1);
+  }
+  // Keep the accepted document verbatim and prepend only missing incoming entries.
+  const added = additions.length ? additions.join("\n\n") + "\n\n" : "";
+  const acceptedStart = left.indexOf("\n## ") + 1;
+  return `${left.slice(0, acceptedStart)}${added}${left.slice(acceptedStart)}`;
 }
 
 export async function reconcileReleaseMetadata(
@@ -145,7 +160,7 @@ export async function reconcileReleaseMetadata(
   )
     throw new Error("Workspace membership changed; resolve explicitly");
   const version = releaseVersion([left!.version, right!.version], 0);
-  const notes = combineNotes(before!.notes, left!.notes, right!.notes);
+  const notes = reconcileReleaseNotes(before!.notes, left!.notes, right!.notes);
   return {
     base: before!.files(before!.version, before!.notes),
     left: left!.files(before!.version, before!.notes),

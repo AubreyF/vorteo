@@ -4,6 +4,38 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.202 - 2026-10-08
+
+### Maintenance
+
+- Integrate project environment selection and source batch corrections with the installed interface and pending checklist delivery ancestry.
+
+## 0.11.0-beta.3.vorteo.201 - 2026-10-08
+
+### Tests
+
+- Wait for project membership persistence when verifying new workspace creation after a profile environment switch.
+
+## 0.11.0-beta.3.vorteo.200 - 2026-10-08
+
+### Tests
+
+- Reopen the existing profile menu after an environment change in shared-project workspace acceptance, matching the composer's environment transition.
+
+## 0.11.0-beta.3.vorteo.199 - 2026-10-08
+
+### Fixed
+
+- Retain unambiguous native project folders in shared project groups so the existing profile environment selector can start new workspace drafts. Keep the chosen shared project membership when creating the workspace.
+
+## 0.11.0-beta.3.vorteo.198 - 2026-10-08
+
+### Fixed
+
+- Reconcile intact release-note entries across concurrent source deliveries without requiring historical entries to remain a contiguous suffix. Edited or deleted history still requires explicit correction.
+- Merge divergent contributions from their verified shared ancestor instead of replaying changes since an older bundle prerequisite. Ambiguous ancestry still requires explicit integration.
+- Recheck pending source conflicts after coordinator recovery without approving or replaying installation. Show blocked update status and its cause in the sidebar.
+
 ## 0.11.0-beta.3.vorteo.199 - 2026-10-08
 
 ### Maintenance

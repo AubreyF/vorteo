@@ -29,6 +29,8 @@ This inventory describes the reviewed source. Availability depends on the instal
 
 ## Execution environments and installation
 
+Source batching preserves complete historical release-note entries, including duplicate counts, across interleaved integrations. Historical edits and deletions remain blocked. Coordinator recovery retries pending conflict validation without transferring approval or replaying installation; the sidebar distinguishes correction, validation, waiting and approval states.
+
 - **Automated upgrade restarts that wait for idle.** After preparing release files, queue an owner-approved restart of the Host or Dev container daemon. The coordinator persists approval, waits for running agents, initializing sessions and native workers, and dispatches automatically with the browser closed. A final daemon-side idle check closes admission before restart; cancellation remains available before dispatch. This automates the restart step, not release preparation, and does not provide zero downtime: the daemon becomes briefly unavailable and terminals may disconnect. Installation controls show the requested change, waiting time and history. Owners can also hold new work, let current turns finish, and restart after draining; canceling the hold retains goal intent. Both restart targets remain visible together. Pending cards offer Restart when idle, Finish turns and restart, and Cancel; queued cards offer Cancel and Restart appears stuck. Force restart now appears only after the operator reports the queued restart stuck and still requires interruption confirmation. Sidebar notices only offer review. Later plain requesters share an existing plain restart approval. Source updates require the separate exact-source approval below. See [restart and recovery](execution-installation.md#restart-and-recovery) and [idle restart tests](../packages/server/src/server/execution-installation/restarts.test.ts).
 - **Container installation with private HTTPS.** The installer builds the application, creates private storage and starts a development container with Tailscale access and application authentication. Agents can modify mounted projects and container storage; unmounted host files remain outside their filesystem access. New builds include Chromium libraries and fonts for browser testing. Connect additional devices through Tailscale with the environment address and existing authentication; QR and pairing-link onboarding are retired. See the [container installer](../docker/multiplex/README.md), [security boundaries](container-tailscale.md) and [browser setup](development.md#chromium-in-the-development-container).
 - **Host and Dev container in one installation.** An explicitly authorized macOS host extension adds a native daemon and protected interface alongside the existing container. Choose the execution environment with the account and profile. Host runtime, state and credentials stay outside guest-writable mounts. Native agents run with the owner's host authority; this is not equivalent to container confinement. See [host and container execution](execution-installation.md).
@@ -87,58 +89,10 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
-October 8, 2026: Integrated the published checklist controls and separate supervisor request queue. Preserved the live interface changelog history as an unchanged suffix and retained pending source contributions.
+October 8, 2026: Integrated environment placement and source batch reconciliation with the protected installation history. Existing profile controls remain the environment selector.
 
-October 8, 2026: Supervisor repairs can wait alongside unapproved source batches without cancelling their contributions or sharing approval. Both requests remain visible; approval serialization still prevents concurrent interruption of one target.
-October 8, 2026: Reconciled persistent checklist delivery with installed source ancestry and retained historical installation release notes. Application source matches the validated public implementation; runtime acceptance remains pending exact update approval.
+October 8, 2026: Workspace creation acceptance waits for both agent creation and project membership persistence before checking the destination group.
 
-October 8, 2026: Added durable thread checklist tools and manual editing, with dependency, ownership, metadata and stale-edit handling. Focused storage, lifecycle, protocol and provider tests cover persistence and native task coexistence. Desktop and phone browser checks cover manual controls, save failures, concurrent edits, deletion, ordering and workspace aggregation. Source installation and live tool acceptance remain pending.
+October 8, 2026: Shared-project browser acceptance follows the existing profile menu remount after changing environments before choosing the destination account and profile.
 
-October 8, 2026: Reconciled the live interface receipt into installation ancestry before the supervisor-controls build. Only version and release-note reconciliation was required; deployed implementation is preserved.
-
-October 8, 2026: Integrated tracked supervisor maintenance with the protected installation branch. Retained the installed preview recovery and exact-source build repairs; runtime activation remains separately reviewed.
-
-October 8, 2026: Tightened agent instructions so Host and Dev holds, restarts and supervisor maintenance must use visible coordinator requests and owner controls. Chat approval does not permit an untracked lifecycle operation. The coordinator now supports trusted Host supervisor maintenance with an exact protected script digest, visible review and cancellation; guest requests and old-client approvals are refused. Archived inactive history no longer blocks drain preparation.
-
-October 8, 2026: Dev bootstrap now verifies the installation profile client binding in both the supervisor and worker before changing configuration. Regression checks cover missing and mismatched bindings. Existing launchers require a reviewed supervisor restart after repair; worker updates cannot repair the parent environment.
-
-October 8, 2026: Integrated managed preview recovery and exact-source Host build preparation with the installed source history. Implementation matches the two published fixes; this merge reconciles version metadata and release notes. Runtime activation remains separately reviewed.
-
-October 8, 2026: Host update preparation now fetches the exact approved commit into an independent repository. Native build fixtures cover source isolation, retained provenance and an unchanged live interface. Digest, bundle and ancestry validation still precede preparation; installation still requires exact owner approval.
-
-October 8, 2026: Reconciled preview recovery with managed Dev workers that preserve their process arguments. Broker identity checks require the selected worker entrypoint, Node executable, supervisor parent, process ownership and stable boot/start times. Regression coverage rejects stale selectors, ambiguous processes and PID reuse. This does not add Host metadata export or verified project delivery evidence.
-
-October 8, 2026: Added target-specific Dev source installation, capability discovery, managed worker release selection and bootstrap validation. Focused tests cover approval boundaries, failed builds and retained rollback selection; browser checks cover Host and Dev review on desktop and phone layouts. Existing installation bootstrap and live update acceptance remain pending.
-
-October 7, 2026: Corrected batching of explicitly integrated source when the published interface already contains reconciled historical release notes. Exact-source approval, bundle verification, source ancestry and divergent-source conflict checks remain enforced.
-
-October 7, 2026: Reconciled the latest main publication with the reviewed workspace and profile refinements. Both source histories and release notes are preserved; this merge changes only documentation and version metadata.
-
-October 7, 2026: Integrated the profile chooser, conversation-card spacing, Standing heading alignment and archive protection refinements with current source. Preserved account reset counters, subagent ownership and the sidebar overlay. Added the missing label icon to the browser test fixture. Reviewed the README and documented schedule archive protection.
-
-October 7, 2026: Integrated pending source batching, shared plain restarts and simplified restart controls with the current installation source. Preserved contribution provenance, exact approval boundaries and separately pinned coordinator tooling. Restored account reset counters from the enabled account catalog. Source acceptance remains separate from installation acceptance.
-
-October 7, 2026: Combined accepted Standing/schedule and PR activity changes, shared card spacing, repository footer, subagent ownership presentation and the eased sidebar action fade with the deployed reviewed-source-update workflow. Runtime activation remains separately reviewed.
-
-October 7, 2026: Integrated reviewed source updates with current main while retaining preview recovery, sidebar and conversation-card changes. The source-update implementation matches the installed revision; this merge changes version metadata and documentation.
-
-October 7, 2026: Reviewed the sidebar preview globe against the current trailing badge layout. Its neutral color and right inset preserve service health labels and named-service status text. The README overview and onboarding are unchanged.
-
-October 7, 2026: Added opt-in preview recovery after daemon restarts, preserving reservations, explicit-stop barriers and ownership checks. Fixture coverage exercises bounded retries and rejected replacements. A real maintenance-window restart remains an installation acceptance check.
-
-October 7, 2026: Removed redundant top padding from shared conversation cards and updated desktop and compact geometry assertions. Header heights and touch targets remain unchanged.
-
-Subagent presentation review: Reconciled the ownership groups, missing-model explanation and provider dismissal controls with the current source. Focused selector and browser tests cover the mixed list and desktop/compact layouts. README overview and onboarding are unchanged; runtime policy is unchanged.
-
-October 7, 2026: Integrated the accepted restart controls, workspace badge changes, Claude sign-in completion, settings navigation and tabs, provider catalog selection, worker model display and dismissal, and explicit worker account editing with current main. Integrated the accepted compact badge and fixed menu overlay follow-up. Preserved the newer README and account usage behavior; minor badge details belong in this inventory and the workspace guide. Integrated the completed changelog enforcement and Settings link changes, with focused hook and browser coverage. Source validation and publication do not establish live runtime acceptance.
-
-October 7, 2026: Updated task-environment and conversation-handoff browser fixtures to select the saved profile explicitly after the account. This test maintenance does not change application or runtime behavior.
-
-Restart maintenance review: The installation browser suite checks both daemon labels and divider positions. Repository and preview instructions prioritize supported restart requests and status queries before host handoffs; owner approval and host access boundaries remain unchanged.
-
-October 7, 2026: Reviewed both shared footer placements and replaced their upstream social links with the Vorteo repository link. The README overview and onboarding are unchanged. Live deployment requires separate verification.
-
-Maintenance review: integrated the installed release with restart recovery and compact review; retained both release histories and unchanged runtime dependencies.
-Dev updater maintenance review: Container builds use the existing server build, which also builds the CLI. Managed workers retain their OS entrypoint arguments for verification against the pinned Node executable and supervisor parent.
-
-Bootstrap integration review: Retained the deployed interface, restart recovery and accepted checklist contribution while integrating managed Dev updates. Live activation remains subject to exact owner approval.
+October 8, 2026: Logical project groups retain unambiguous native project placements for each environment. New workspace creation uses the existing profile environment selector and preserves project membership. Offline or ambiguous checkouts are not inferred.

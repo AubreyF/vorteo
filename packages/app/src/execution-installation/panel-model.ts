@@ -260,3 +260,30 @@ export function restartExplanation(reason: string): { summary: string; details: 
     details: opening === summary ? details.join("\n\n") : text,
   };
 }
+
+export function restartBannerTitle(job: RestartJob): string {
+  let target = job.target === "host" ? "Host daemon" : "Dev daemon";
+  if (job.supervisorPlanSha256) target = "Dev supervisor";
+  if (job.status === "running") {
+    return job.update || job.sourceBatch ? `Updating ${target}` : `Restarting ${target}`;
+  }
+  if (job.finishCurrentTurns) return `${target} finishing current turns`;
+  if (job.status === "approved") return `${target} restart queued`;
+  if (job.sourceBatch && job.sourceBatch.status !== "ready") {
+    const labels = {
+      conflict: "update needs correction",
+      preparing: "update is being checked",
+      waiting: "update is waiting",
+    };
+    return `${target} ${labels[job.sourceBatch.status]}`;
+  }
+  return `${target} restart needs approval`;
+}
+
+export function restartBlockingReason(job: RestartJob): string | null {
+  if (job.status !== "pending" || job.sourceBatch?.status !== "conflict") return null;
+  const reasons = job.sourceBatch.contributions
+    .filter((item) => item.status === "invalid" || item.status === "conflict")
+    .map((item) => item.detail.split("\n")[0]!);
+  return [...new Set(reasons)].join("; ") || job.detail;
+}
