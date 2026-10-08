@@ -266,10 +266,20 @@ test.each(["host", "container-daemon"])(
           resultFile,
         }),
       );
+      // Installation should acquire only the approved commit, not unrelated source branches.
+      writeFileSync(path.join(hostRepository, "refs/heads/unrelated"), baseCommit + "\n");
       await run(
         process.execPath,
         [path.resolve("scripts/prepare-installation-update.mjs"), request],
         { timeout: 60_000 },
+      );
+      const candidateRepository = path.join(work, "repository");
+      const candidateRefs = await run("git", ["for-each-ref", "--format=%(refname)"], {
+        cwd: candidateRepository,
+      });
+      expect(candidateRefs.stdout.trim()).toBe("refs/heads/main");
+      expect(existsSync(path.join(candidateRepository, ".git/objects/info/alternates"))).toBe(
+        false,
       );
       const prepared = JSON.parse(readFileSync(resultFile, "utf8"));
       expect(
