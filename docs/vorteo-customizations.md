@@ -88,6 +88,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Reconciled the live interface receipt into installation ancestry before the supervisor-controls build. Only version and release-note reconciliation was required; deployed implementation is preserved.
+
 October 8, 2026: Integrated tracked supervisor maintenance with the protected installation branch. Retained the installed preview recovery and exact-source build repairs; runtime activation remains separately reviewed.
 
 October 8, 2026: Tightened agent instructions so Host and Dev holds, restarts and supervisor maintenance must use visible coordinator requests and owner controls. Chat approval does not permit an untracked lifecycle operation. The coordinator now supports trusted Host supervisor maintenance with an exact protected script digest, visible review and cancellation; guest requests and old-client approvals are refused. Archived inactive history no longer blocks drain preparation.
