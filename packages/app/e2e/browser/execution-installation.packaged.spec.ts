@@ -3515,6 +3515,7 @@ test("disabled restart explains the correction on hover, focus and touch without
     await page.mouse.move(0, 0);
     await page.keyboard.press("Tab");
     await explanation.focus();
+    await expect(tooltip).toHaveCount(1);
     await expect(tooltip).toBeVisible();
   }
   expect(decisions).toEqual([]);
