@@ -89,6 +89,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Disabled restart explanations use a separate hit target so browsers do not suppress touch events on a nested disabled button. Approval remains disabled; overview and onboarding are unchanged.
+
 October 8, 2026: Compact tooltip triggers use touch interaction consistently so pointer leave does not immediately dismiss a tapped explanation.
 
 October 8, 2026: Disabled restart actions expose their blocker and recovery steps through an accessible tooltip on hover, focus and touch. Tooltip interaction never submits approval.
