@@ -3240,13 +3240,17 @@ test("source batch review shows every contribution and cannot approve a changed 
     update,
     sourceBatch: {
       status: "ready",
-      contributions: ["Sidebar correction", "Complementary workflow"].map((reason) => ({
+      contributions: [
+        "Superseded sidebar correction",
+        "Sidebar correction",
+        "Complementary workflow",
+      ].map((reason, index) => ({
         id: randomUUID(),
         update,
         reason,
         requestedBy: "container-agent",
         createdAt: new Date().toISOString(),
-        status: "included",
+        status: index === 0 ? "superseded" : "included",
         detail: "Included",
       })),
     },
@@ -3264,7 +3268,22 @@ test("source batch review shows every contribution and cannot approve a changed 
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
   const card = page.getByTestId(`restart-request-${id}`);
-  await expect(card.getByRole("button")).toHaveText(["Install update and restart", "Cancel"]);
+  await expect(card.getByRole("button")).toHaveText([
+    "Previous submissions (1)",
+    "Install update and restart",
+    "Cancel",
+  ]);
+  await expect(
+    card.getByText("Superseded sidebar correction (superseded)", { exact: true }),
+  ).toHaveCount(0);
+  await card.getByTestId(`source-history-${id}`).click();
+  await expect(
+    card.getByText("Superseded sidebar correction (superseded)", { exact: true }),
+  ).toBeVisible();
+  await card.getByTestId(`source-history-${id}`).click();
+  await expect(
+    card.getByText("Superseded sidebar correction (superseded)", { exact: true }),
+  ).toHaveCount(0);
   await expect(card).toContainText("Sidebar correction");
   await expect(card).toContainText("Complementary workflow");
   await expect(card).toContainText(update.sourceCommit);

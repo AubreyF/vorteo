@@ -600,27 +600,59 @@ function RestartActions({
   );
 }
 
+function SourceContribution({
+  item,
+}: {
+  item: NonNullable<RestartJob["sourceBatch"]>["contributions"][number];
+}) {
+  return (
+    <View>
+      <Text style={styles.text}>
+        {item.reason} ({item.status})
+      </Text>
+      <Text selectable style={styles.text}>
+        {item.update.sourceCommit}
+      </Text>
+      {item.status === "conflict" || item.status === "invalid" ? (
+        <Text selectable style={styles.error}>
+          {item.detail}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function SourceUpdateDetails({ job }: { job: RestartJob }) {
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const toggleHistory = useCallback(() => setHistoryVisible((value) => !value), []);
+  const controlSize = useVortonTouch() ? "md" : "sm";
+  const contributions = job.sourceBatch?.contributions ?? [];
+  const current = contributions.filter((item) => item.status !== "superseded");
+  const history = contributions.filter((item) => item.status === "superseded");
   return (
     <View style={styles.details}>
       {job.sourceBatch ? (
         <>
           <Text style={styles.text}>{job.detail}</Text>
-          {job.sourceBatch.contributions.map((item) => (
-            <View key={item.id}>
-              <Text style={styles.text}>
-                {item.reason} ({item.status})
-              </Text>
-              <Text selectable style={styles.text}>
-                {item.update.sourceCommit}
-              </Text>
-              {item.status === "conflict" || item.status === "invalid" ? (
-                <Text selectable style={styles.error}>
-                  {item.detail}
-                </Text>
-              ) : null}
-            </View>
+          {current.map((item) => (
+            <SourceContribution key={item.id} item={item} />
           ))}
+          {history.length ? (
+            <View>
+              <Button
+                variant="ghost"
+                size={controlSize}
+                onPress={toggleHistory}
+                {...disclosureProps(historyVisible)}
+                testID={`source-history-${job.id}`}
+              >
+                {`Previous submissions (${history.length})`}
+              </Button>
+              {historyVisible
+                ? history.map((item) => <SourceContribution key={item.id} item={item} />)
+                : null}
+            </View>
+          ) : null}
         </>
       ) : null}
       {job.update ? (
