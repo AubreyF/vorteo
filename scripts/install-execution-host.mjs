@@ -579,6 +579,150 @@ async function installationStatus(record) {
   );
 }
 
+/** Prepare the scoped Dev updater without restarting any service or changing its launcher. */
+export async function configureContainerUpdates(planFile) {
+  const input = JSON.parse(readFileSync(planFile, "utf8"));
+  const configFile = path.resolve(input.configFile);
+  const originalConfig = readFileSync(configFile, "utf8");
+  const config = JSON.parse(originalConfig);
+  const root = path.dirname(configFile);
+  const serverDir = path.join(
+    sourceRoot,
+    "packages/server/dist/server/server/execution-installation",
+  );
+  const { ContainerSourceUpdatesSchema } = await import(
+    pathToFileURL(path.join(serverDir, "config.js"))
+  );
+  const { connectInstallationDaemon } = await import(
+    pathToFileURL(path.join(serverDir, "daemon.js"))
+  );
+  if (!/^[a-f0-9]{40}$/.test(input.revision))
+    throw new Error("Use the verified installed Dev source commit");
+  if (!path.isAbsolute(input.docker))
+    throw new Error("Use the trusted Host Docker executable's absolute path");
+  const containers = JSON.parse(await run(input.docker, ["inspect", input.containerName]));
+  if (containers.length !== 1 || !containers[0].State.Running)
+    throw new Error("Configured Dev container must be running");
+  const settings = ContainerSourceUpdatesSchema.parse({
+    sourceRepository: input.sourceRepository,
+    integrationRef: input.integrationRef,
+    toolingDirectory: path.join(root, "container-update-tools"),
+    receiptFile: path.join(config.stateDir, "container-source.json"),
+    docker: input.docker,
+    containerId: containers[0].Id,
+    user: input.user,
+    node: input.node,
+    home: input.home,
+    releaseRoot: input.releaseRoot,
+    currentReleaseLink: input.currentReleaseLink,
+  });
+  assertProtectedPaths(
+    [configFile, settings.sourceRepository, settings.toolingDirectory, settings.receiptFile],
+    await writableBindRoots(settings.docker),
+  );
+  const helper = readFileSync(
+    path.join(sourceRoot, "scripts/installation-container-runtime.mjs"),
+    "utf8",
+  );
+  const inContainer = async (operation) =>
+    JSON.parse(
+      await run(settings.docker, [
+        "exec",
+        "--user",
+        settings.user,
+        settings.containerId,
+        settings.node,
+        "--input-type=module",
+        "--eval",
+        helper,
+        JSON.stringify({ ...operation, settings }),
+      ]),
+    );
+  const selected = await inContainer({ action: "inspect" });
+  if (selected.sourceCommit !== input.revision)
+    throw new Error("Installed Dev release differs from the reviewed bootstrap plan");
+  const object = await run("git", ["cat-file", "-t", selected.sourceCommit], {
+    cwd: settings.sourceRepository,
+  });
+  if (object !== "commit")
+    throw new Error("Protected source repository lacks the installed Dev commit");
+  const client = await connectInstallationDaemon(config, "container");
+  try {
+    const { pid } = await client.getDaemonStatus({ timeout: 30_000 });
+    await inContainer({
+      action: "verify",
+      pid,
+      release: selected.release,
+      update: { sourceCommit: selected.sourceCommit },
+    });
+  } finally {
+    await client.close();
+  }
+  // Finish every check before installing configuration. Preserve exact previous bytes for rollback.
+  if (readFileSync(configFile, "utf8") !== originalConfig)
+    throw new Error(
+      "Installation configuration changed during bootstrap; reconcile before retrying",
+    );
+  const backup = `${configFile}.${randomUUID()}.before-dev-updates`;
+  privateWrite(backup, readFileSync(configFile));
+  privateWrite(path.join(settings.toolingDirectory, "installation-container-runtime.mjs"), helper);
+  json(settings.receiptFile, { sourceCommit: selected.sourceCommit, release: selected.release });
+  json(configFile, { ...config, containerSourceUpdates: settings });
+  // Refresh request-only tooling in the already paired guest. Never copy Host credentials.
+  const guestHome = await run(settings.docker, [
+    "exec",
+    "--user",
+    settings.user,
+    settings.containerId,
+    settings.node,
+    "-p",
+    "require('os').homedir()",
+  ]);
+  const guestDir = path.join(guestHome, ".local/share/vorteo-installation-client");
+  const skill = readFileSync(
+    path.join(sourceRoot, "scripts/installation-skills/installation-maintenance/SKILL.md"),
+    "utf8",
+  )
+    .replaceAll(
+      "INSTALLATION_SETTINGS_URL",
+      `${config.public.origin}/settings/general?installation=1`,
+    )
+    .replaceAll(
+      "INSTALLATION_CLIENT_COMMAND",
+      `${shellQuote(settings.node)} ${shellQuote(path.join(guestDir, "installation-agent.mjs"))} --config ${shellQuote(path.join(guestDir, "client.json"))}`,
+    );
+  const guestFiles = [
+    [
+      path.join(guestDir, "installation-agent.mjs"),
+      readFileSync(path.join(sourceRoot, "scripts/installation-agent.mjs"), "utf8"),
+    ],
+    ...[".agents", ".claude", ".codex"].map((directory) => [
+      path.join(guestHome, directory, "skills/installation-maintenance/SKILL.md"),
+      skill,
+    ]),
+  ];
+  await run(settings.docker, [
+    "exec",
+    "--user",
+    settings.user,
+    settings.containerId,
+    settings.node,
+    "-e",
+    "const fs=require('fs'),path=require('path'); for(const [file,content] of JSON.parse(process.argv[1])) { fs.mkdirSync(path.dirname(file),{recursive:true}); const next=file+'.next'; fs.writeFileSync(next,content,{mode:0o600}); fs.renameSync(next,file); }",
+    JSON.stringify(guestFiles),
+  ]);
+  process.stdout.write(
+    JSON.stringify({
+      configured: true,
+      configFile,
+      backup,
+      target: "container-daemon",
+      coordinatorReloadRequired: true,
+      restarted: false,
+    }) + "\n",
+  );
+}
+
 async function stopOwnedServices(record) {
   for (const service of [record.coordinatorService, record.hostService]) {
     let registered = false;
@@ -655,9 +799,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
     options: { plan: { type: "string" }, root: { type: "string" } },
   });
   if (positionals[0] === "install" && values.plan) await install(values.plan);
+  else if (positionals[0] === "configure-dev-updates" && values.plan)
+    await configureContainerUpdates(values.plan);
   else if (values.root) await manage(positionals[0], values.root);
   else
     throw new Error(
-      "Use install --plan <private-plan.json> or status/remove --root <installation-root>",
+      "Use install/configure-dev-updates --plan <private-plan.json> or status/remove --root <installation-root>",
     );
 }

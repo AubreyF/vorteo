@@ -4,6 +4,23 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.189 - 2026-10-08
+
+### Added
+
+- Expose installation capability discovery and scoped Dev source updates through the installed maintenance client, with separate Host and Dev batches and exact owner approval.
+- Build approved Dev source inside its existing container, select releases on worker restart, and verify the replacement executable while retaining the supervisor.
+- Add Host bootstrap validation, private configuration backup and guest client and skill refresh for the managed Dev updater.
+
+### Changed
+
+- Require updated approval copy for Dev source installation and bind contribution retries and replacements to their target and requester.
+- Teach planning and maintenance instructions to use supported installation operations before preparing a Host handoff.
+
+### Maintenance
+
+- Cover target isolation, authorization, release selection, failed builds, activation checks, retained rollback releases and client compatibility. Existing installations still require bootstrap and live acceptance; coordinator and supervisor replacement remain Host maintenance operations.
+
 ## 0.11.0-beta.3.vorteo.188 - 2026-10-08
 
 ### Added

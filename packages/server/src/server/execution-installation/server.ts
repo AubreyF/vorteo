@@ -52,6 +52,8 @@ import {
   type InstallationSettingsService,
 } from "./settings/service.js";
 
+import { inspectContainerSource } from "./container-updates.js";
+import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationSourceUpdates } from "./source-updates.js";
 
 // COMPAT(providerRemovalOwner): added in v155, remove after legacy strict catalog clients are unsupported.
@@ -76,7 +78,24 @@ function restartReply(
   graceful = false,
   sourceUpdates = false,
   sourceBatches = false,
+  containerSourceUpdates = false,
 ) {
+  // COMPAT(containerSourceUpdates): v189; old owner tabs must reload before reviewing Dev builds.
+  if (
+    job.target === "container-daemon" &&
+    (job.update || job.sourceBatch) &&
+    !containerSourceUpdates
+  ) {
+    const { update: _update, sourceBatch: _batch, ...compatible } = job;
+    return restartReply(
+      {
+        ...compatible,
+        detail: "Dev source update pending. Reload Vorteo to review and approve its installation.",
+      },
+      details,
+      graceful,
+    );
+  }
   if (job.sourceBatch && !sourceBatches) {
     const { sourceBatch: _batch, ...compatible } = job;
     return restartReply(
@@ -126,16 +145,26 @@ export function createInstallationServer(
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const journal = path.join(config.stateDir, "restart-jobs.json");
-  const updates = config.sourceUpdates ? new InstallationSourceUpdates(config) : null;
-  const restartExecutor: RestartExecutor = updates
-    ? {
-        ...executor,
-        sourceBase: () => updates.source().baseCommit,
-        sourceWeb: () => updates.source().webCommit,
-        prepareUpdate: (items) => updates.prepare(items),
-        installUpdate: (job) => updates.install(job, executor.restart),
-      }
-    : executor;
+  const updates = {
+    host: config.sourceUpdates ? new InstallationSourceUpdates(config) : null,
+    "container-daemon": config.containerSourceUpdates
+      ? new InstallationSourceUpdates(config, "container-daemon")
+      : null,
+  };
+  const forTarget = (target: RestartJob["target"]) => {
+    const updater = updates[target];
+    if (!updater)
+      throw new RestartRequestError("Source updates require installation setup for this target");
+    return updater;
+  };
+  const restartExecutor: RestartExecutor = {
+    ...executor,
+    supportsUpdate: (target) => updates[target] !== null,
+    sourceBase: (target) => forTarget(target).source().baseCommit,
+    sourceWeb: (target) => forTarget(target).source().webCommit,
+    prepareUpdate: (items, target) => forTarget(target).prepare(items),
+    installUpdate: (job) => forTarget(job.target).install(job, executor.restart),
+  };
   const restarts = new InstallationRestarts(
     {
       read: () =>
@@ -222,31 +251,67 @@ export function createInstallationServer(
       res.sendStatus(401);
       return;
     }
-    if (!updates) {
-      res.status(503).json({ error: "Source updates require Host installation setup" });
-      return;
-    }
     res.locals.updateRequester = host ? "host-agent" : "container-agent";
     next();
   }
-  app.get("/api/installation/update-source", authenticateUpdate, (_req, res) => {
-    if (!updates) {
-      res.sendStatus(503);
-      return;
+  async function updateCapability(target: RestartJob["target"]) {
+    try {
+      forTarget(target).source();
+      if (target === "container-daemon" && config.containerSourceUpdates)
+        await inspectContainerSource(config.containerSourceUpdates);
+      return { available: true };
+    } catch {
+      return {
+        available: false,
+        reason: `The ${target === "host" ? "Host" : "Dev"} source updater is not ready. Bootstrap or repair its installation configuration and managed release receipt on Host.`,
+      };
     }
-    const source = updates.source();
+  }
+  app.get("/api/installation/capabilities", authenticateUpdate, (_req, res, next) => {
+    void Promise.all(
+      (["host", "container-daemon"] as const).map(async (target) => ({
+        target,
+        restart: true,
+        sourceUpdate: await updateCapability(target),
+      })),
+    ).then((targets) => res.json({ version: 1, targets, ownerApprovalRequired: true }), next);
+  });
+  const updateTarget = (req: Request) => RestartTargetSchema.parse(req.query.target ?? "host");
+  function requireUpdate(req: Request, res: Response, next: NextFunction) {
+    const target = updateTarget(req);
+    void (async () => {
+      try {
+        const capability = await updateCapability(target);
+        if (!capability.available) res.status(503).json({ error: capability.reason });
+        else next();
+      } catch (error) {
+        next(error);
+      }
+    })();
+  }
+  app.get("/api/installation/update-source", authenticateUpdate, requireUpdate, (req, res) => {
+    const target = updateTarget(req);
+    const source = forTarget(target).source();
     const previousBases = restarts
       .list()
       .filter(
-        (job) => job.update && ["approved", "running", "succeeded", "failed"].includes(job.status),
+        (job) =>
+          job.target === target &&
+          job.update &&
+          ["approved", "running", "succeeded", "failed"].includes(job.status),
       )
       .toReversed()
       .map((job) => job.update!.baseCommit);
-    res.json({ ...source, baseCandidates: [...new Set([source.baseCommit, ...previousBases])] });
+    res.json({
+      ...source,
+      target,
+      baseCandidates: [...new Set([source.baseCommit, ...previousBases])],
+    });
   });
   app.post(
     "/api/installation/source-update-requests",
     authenticateUpdate,
+    requireUpdate,
     (req, res, next) => {
       const batching = req.query.sourceBatches === "1";
       if (uploads >= 2) {
@@ -256,10 +321,14 @@ export function createInstallationServer(
       const active = restarts
         .list()
         .some(
-          (job) => job.target === "host" && ["pending", "approved", "running"].includes(job.status),
+          (job) =>
+            job.target === updateTarget(req) &&
+            ["pending", "approved", "running"].includes(job.status),
         );
       if (!batching && (uploads > 0 || active)) {
-        res.status(409).json({ error: "A Host request or source upload is already active" });
+        res
+          .status(409)
+          .json({ error: "A request for this target or source upload is already active" });
         return;
       }
       uploads++;
@@ -289,7 +358,7 @@ export function createInstallationServer(
           replaces: z.string().uuid().optional(),
         })
         .parse(JSON.parse(Buffer.from(metadata, "base64").toString("utf8")));
-      if (input.request.target !== "host") {
+      if (input.request.target !== updateTarget(req)) {
         res.sendStatus(400);
         return;
       }
@@ -297,7 +366,9 @@ export function createInstallationServer(
       const active = restarts
         .list()
         .some(
-          (job) => job.target === "host" && ["pending", "approved", "running"].includes(job.status),
+          (job) =>
+            job.target === updateTarget(req) &&
+            ["pending", "approved", "running"].includes(job.status),
         );
       const batching = req.query.sourceBatches === "1";
       if (batching && !input.contributionId) {
@@ -308,11 +379,7 @@ export function createInstallationServer(
         res.sendStatus(409);
         return;
       }
-      if (!updates) {
-        res.sendStatus(503);
-        return;
-      }
-      updates.stage(input.update, req.body, batching);
+      forTarget(input.request.target).stage(input.update, req.body, batching);
       const requester = z.enum(["host-agent", "container-agent"]).parse(res.locals.updateRequester);
       if (batching && input.contributionId) {
         const receipt = restarts.contribute(
@@ -427,7 +494,7 @@ export function createInstallationServer(
       res.sendStatus(404);
       return;
     }
-    res.json(restartReply(job, true, true, true, req.query.sourceBatches === "1"));
+    res.json(restartReply(job, true, true, true, req.query.sourceBatches === "1", true));
   });
 
   app.post("/api/installation/container-agents", (req, res, next) => {
@@ -619,6 +686,7 @@ export function createInstallationServer(
             req.query.gracefulRestarts === "1",
             req.query.sourceUpdates === "1",
             req.query.sourceBatches === "1",
+            req.query.containerSourceUpdates === "1",
           ),
         ),
     );
@@ -640,6 +708,15 @@ export function createInstallationServer(
   app.post("/api/installation/owner/restarts/:id/decision", (req, res) => {
     const decision = RestartDecisionSchema.parse(req.body);
     const reviewed = restarts.list().find((item) => item.id === req.params.id);
+    if (
+      reviewed?.target === "container-daemon" &&
+      (reviewed.update || reviewed.sourceBatch) &&
+      req.query.containerSourceUpdates !== "1" &&
+      decision.decision !== "reject"
+    )
+      throw new RestartRequestError(
+        "Reload Vorteo to review Dev source installation before approval",
+      );
     if (reviewed?.sourceBatch && req.query.sourceBatches !== "1" && decision.decision !== "reject")
       throw new RestartRequestError(
         "Reload Vorteo to review all source contributions before approval",
@@ -657,6 +734,7 @@ export function createInstallationServer(
         req.query.gracefulRestarts === "1",
         req.query.sourceUpdates === "1",
         req.query.sourceBatches === "1",
+        req.query.containerSourceUpdates === "1",
       ),
     );
     void restarts

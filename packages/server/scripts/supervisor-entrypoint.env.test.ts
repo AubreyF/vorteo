@@ -1,6 +1,15 @@
 import { promisify } from "node:util";
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+  mkdir,
+  symlink,
+  rename,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -117,3 +126,123 @@ test("startup preflight accepts disabled providers without creating runtime stat
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a managed supervisor selects the approved release on restart without replacing itself", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "paseo-managed-supervisor-"));
+  const releases = path.join(root, "releases");
+  const home = path.join(root, "home");
+  const link = path.join(releases, "current");
+  const report = path.join(root, "workers.jsonl");
+  await mkdir(home);
+  const first = path.join(releases, "first");
+  const second = path.join(releases, "second");
+  for (const [release, commit] of [
+    [first, "a".repeat(40)],
+    [second, "b".repeat(40)],
+  ]) {
+    const entry = path.join(release!, "packages/server/dist/server/server/daemon-worker.js");
+    await mkdir(path.dirname(entry), { recursive: true });
+    await writeFile(
+      path.join(release!, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: commit }),
+    );
+    await writeFile(
+      entry,
+      `
+      const fs = require("fs");
+      fs.appendFileSync(${JSON.stringify(report)}, JSON.stringify({ pid: process.pid, parent: process.ppid, release: ${JSON.stringify(release)} }) + "\\n");
+      process.on("message", message => { if (message.type === "paseo:graceful-shutdown") process.exit(0); });
+      process.send({ type: "paseo:ready", listen: "test-endpoint", serverId: "srv_managed_test" });
+      const timer = setInterval(() => {
+        if (${release === first} && fs.existsSync(${JSON.stringify(path.join(root, "restart"))})) {
+          clearInterval(timer); process.send({ type: "paseo:restart" });
+        }
+      }, 20);
+    `,
+    );
+  }
+  await symlink(first, link);
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_")),
+  );
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", fileURLToPath(new URL("./supervisor-entrypoint.ts", import.meta.url))],
+    {
+      env: {
+        ...cleanEnv,
+        PASEO_HOME: home,
+        PASEO_MANAGED_RELEASE_LINK: link,
+        PASEO_MANAGED_RELEASE_ROOT: releases,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let output = "";
+  child.stderr.on("data", (chunk) => {
+    output += chunk;
+  });
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
+  const readWorkers = async () =>
+    (await readFile(report, "utf8").catch(() => ""))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  try {
+    await expect.poll(readWorkers, { timeout: 15000, message: output }).toHaveLength(1);
+    await symlink(second, `${link}.next`);
+    await rename(`${link}.next`, link);
+    await writeFile(path.join(root, "restart"), "owner approved");
+    await expect.poll(readWorkers, { timeout: 15000, message: output }).toHaveLength(2);
+    const workers = await readWorkers();
+    expect(workers.map((worker) => worker.release)).toEqual([first, second]);
+    expect(workers.map((worker) => worker.parent)).toEqual([child.pid, child.pid]);
+    expect(workers[0].pid).not.toBe(workers[1].pid);
+    const helper = await readFile(
+      new URL("../../../scripts/installation-container-runtime.mjs", import.meta.url),
+      "utf8",
+    );
+    const settings = {
+      releaseRoot: releases,
+      currentReleaseLink: link,
+      home,
+      node: process.execPath,
+    };
+    const run = promisify(execFile);
+    const verification = await run(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      helper,
+      JSON.stringify({
+        action: "verify",
+        settings,
+        release: second,
+        pid: workers[1].pid,
+        update: { sourceCommit: "b".repeat(40) },
+      }),
+    ]);
+    expect(JSON.parse(verification.stdout).sourceCommit).toBe("b".repeat(40));
+    await expect(
+      run(process.execPath, [
+        "--input-type=module",
+        "--eval",
+        helper,
+        JSON.stringify({
+          action: "verify",
+          settings,
+          release: first,
+          pid: workers[1].pid,
+          update: { sourceCommit: "a".repeat(40) },
+        }),
+      ]),
+    ).rejects.toThrow("approved release");
+  } finally {
+    const closed = new Promise((resolve) => child.once("close", resolve));
+    child.kill("SIGTERM");
+    if (child.exitCode === null) await closed;
+    await rm(root, { recursive: true, force: true });
+  }
+}, 40000);
