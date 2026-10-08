@@ -162,9 +162,14 @@ export async function prepareSourceBatch(
           throw new Error("Source must be a commit");
         await git("merge-base", "--is-ancestor", update.baseCommit, input.baseCommit);
         await git("merge-base", "--is-ancestor", update.baseCommit, update.sourceCommit);
-        if (await isAncestor(git, update.sourceCommit, head)) {
-          contribution.status = "included";
-          contribution.detail = `Already included in ${head}`;
+        const relatedHead = await acceptRelatedContribution(
+          git,
+          head,
+          contribution,
+          hasReleaseMetadata,
+        );
+        if (relatedHead) {
+          head = relatedHead;
           parents.add(update.sourceCommit);
           continue;
         }
@@ -287,6 +292,27 @@ export async function prepareSourceBatch(
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
+}
+
+async function acceptRelatedContribution(
+  git: InertGit,
+  head: string,
+  contribution: SourceContribution,
+  hasReleaseMetadata: boolean,
+): Promise<string | null> {
+  const source = contribution.update.sourceCommit;
+  if (await isAncestor(git, source, head)) {
+    contribution.status = "included";
+    contribution.detail = `Already included in ${head}`;
+    return head;
+  }
+  if (!(await isAncestor(git, head, source))) return null;
+  // This commit already integrates the accepted source. Preserve its reviewed
+  // tree instead of reconciling release history against an older runtime again.
+  if (hasReleaseMetadata) await releaseMetadata(git, source);
+  contribution.status = "included";
+  contribution.detail = `Included integrated source ${source}`;
+  return source;
 }
 
 async function mergeContribution(

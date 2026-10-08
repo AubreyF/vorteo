@@ -1189,6 +1189,66 @@ test("repo-shaped batching reconciles generated versions and every note while pr
     });
     expect(overLimit.batch.status).toBe("conflict");
     expect(overLimit.batch.contributions[0]?.detail).toContain("128 MiB");
+
+    // A published interface may already contain deliberately reconciled historical
+    // notes. An explicitly integrated descendant must not merge that history again.
+    git("checkout", "-B", "integration", web);
+    const reviewedNotes = (
+      await readFile(path.join(repository, "VORTEO_CHANGELOG.md"), "utf8")
+    ).replace("Existing note", "Reviewed historical note");
+    await writeFile(path.join(repository, "VORTEO_CHANGELOG.md"), reviewedNotes);
+    git("commit", "-am", "reconcile published history");
+    const reviewedWeb = git("rev-parse", "HEAD");
+    await metadata(179, "Integrated feature");
+    await writeFile(
+      path.join(repository, "VORTEO_CHANGELOG.md"),
+      reviewedNotes.replace(
+        "## ",
+        "## 0.11.0-beta.3.vorteo.179 - 2026-10-07\n\n### Fixed\n\n- Integrated feature\n\n## ",
+      ),
+    );
+    await writeFile(path.join(repository, "integrated.txt"), "reviewed\n");
+    git("add", ".");
+    git("commit", "-m", "integrate current published source");
+    const integratedCommit = git("rev-parse", "HEAD");
+    const integratedFile = path.join(root, "integrated.bundle");
+    git("bundle", "create", integratedFile, `${base}..refs/heads/integration`);
+    const integratedBundle = await readFile(integratedFile);
+    const digest = createHash("sha256").update(integratedBundle).digest("hex");
+    await writeFile(path.join(directory, `${digest}.bundle`), integratedBundle);
+    const integrated = await prepareSourceBatch({
+      ...input,
+      webCommit: reviewedWeb,
+      contributions: [
+        {
+          ...first,
+          id: crypto.randomUUID(),
+          update: {
+            sourceCommit: integratedCommit,
+            baseCommit: base,
+            sha256: digest,
+            bytes: integratedBundle.length,
+          },
+        },
+      ],
+    });
+    expect(integrated.batch.status, JSON.stringify(integrated.batch)).toBe("ready");
+    await writeFile(file, output!);
+    git("fetch", file, "refs/heads/integration:refs/heads/integrated-result");
+    expect(git("show", `${integrated.update!.sourceCommit}:integrated.txt`)).toBe("reviewed");
+    expect(git("show", `${integrated.update!.sourceCommit}:VORTEO_CHANGELOG.md`)).toContain(
+      "Reviewed historical note",
+    );
+    git("merge-base", "--is-ancestor", integratedCommit, integrated.update!.sourceCommit);
+    const stillDivergent = await prepareSourceBatch({
+      ...input,
+      webCommit: reviewedWeb,
+      contributions: [first],
+    });
+    expect(stillDivergent.batch.status).toBe("conflict");
+    expect(stillDivergent.batch.contributions[0]?.detail).toContain(
+      "Existing release notes were edited",
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
