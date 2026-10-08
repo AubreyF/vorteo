@@ -1,3 +1,4 @@
+import { useNewWorkspaceProjectDirectory } from "./new-workspace/project-directory";
 import { transferTaskAttachments } from "@/task-environments/attachments";
 import {
   readExecutionInstallation,
@@ -829,7 +830,7 @@ async function createMultiplicityWorkspace(input: {
   createFailedMessage: string;
 }): Promise<WorkspaceCreationResult> {
   const projectId = getHostProjectId(input.project, input.serverId);
-  if (!projectId) throw new Error("Project is not available on the selected host");
+
   const isWorktree = input.isolation === "worktree";
   const firstAgentContext = buildFirstAgentContext({
     prompt: input.prompt,
@@ -843,26 +844,29 @@ async function createMultiplicityWorkspace(input: {
       ? {
           kind: "worktree",
           cwd: input.sourceDirectory,
-          projectId,
+          ...(projectId ? { projectId } : {}),
           worktreeSlug: input.worktreeSlug,
           ...input.checkoutRequest,
         }
       : {
           kind: "directory",
           path: input.sourceDirectory,
-          projectId,
+          ...(projectId ? { projectId } : {}),
         },
     ...(firstAgentContext ? { firstAgentContext } : {}),
   });
   if (payload.error || !payload.workspace) {
     throw new Error(payload.error ?? input.createFailedMessage);
   }
-  if (input.project.membership) {
+  const membership =
+    input.project.membership ??
+    (!projectId ? { key: input.project.viewKey, name: input.project.projectName } : null);
+  if (membership) {
     await input.client.setWorkspaceProject({
       workspaceId: payload.workspace.id,
-      membership: input.project.membership,
+      membership,
     });
-    payload.workspace.projectMembership = input.project.membership;
+    payload.workspace.projectMembership = membership;
   }
   const normalizedWorkspace = normalizeWorkspaceDescriptor(payload.workspace);
   const workspaceForInitialMerge = input.withInitialAgent
@@ -2081,6 +2085,8 @@ export function NewWorkspaceScreen({
     setProjectPickerOpen(nextOpen);
   }, []);
 
+  const projectDirectory = useNewWorkspaceProjectDirectory();
+  const resolveProjectDirectory = projectDirectory.resolve;
   const ensureWorkspace = useCallback(
     async (input: {
       cwd: string;
@@ -2096,17 +2102,17 @@ export function NewWorkspaceScreen({
       if (!selectedProject) {
         throw new Error("Choose a project");
       }
-      if (!selectedSourceDirectory) {
-        throw new Error("Choose a host for this project");
-      }
       const connectedClient = withConnectedClient();
+      const sourceDirectory =
+        selectedSourceDirectory ??
+        (await resolveProjectDirectory(selectedProject, connectedClient));
       const createsWorktree = !supportsWorkspaceMultiplicity || effectiveIsolation === "worktree";
       const checkoutStatusForCreate = createsWorktree
         ? await ensureCheckoutStatus({
             queryClient,
             client: connectedClient,
             serverId: selectedServerId,
-            cwd: selectedSourceDirectory,
+            cwd: sourceDirectory,
           })
         : null;
       const checkoutRequest = checkoutStatusForCreate
@@ -2120,12 +2126,15 @@ export function NewWorkspaceScreen({
         client: connectedClient,
         isolation: createsWorktree ? "worktree" : "local",
         project: selectedProject,
-        sourceDirectory: selectedSourceDirectory,
+        sourceDirectory,
         checkoutRequest,
         withInitialAgent: input.withInitialAgent,
         prompt: input.prompt,
         attachments: input.attachments,
-        agent: input.agent,
+        agent:
+          input.agent?.config && !selectedSourceDirectory
+            ? { ...input.agent, config: { ...input.agent.config, cwd: sourceDirectory } }
+            : input.agent,
         onEvent: input.onEvent,
         mergeWorkspaces,
         serverId: selectedServerId,
@@ -2135,6 +2144,7 @@ export function NewWorkspaceScreen({
       return normalizedWorkspace;
     },
     [
+      resolveProjectDirectory,
       creationIdentity,
       creationResult,
       effectiveIsolation,
@@ -2500,6 +2510,7 @@ export function NewWorkspaceScreen({
         </NewWorkspaceLayout>
       </View>
       {importSession.sheet}
+      {projectDirectory.sheet}
     </FileDropZone>
   );
 }

@@ -669,6 +669,22 @@ async function startAndSteerThroughManager(
   return { manager, agentId: agent.id, workdir };
 }
 
+test("saved timeline can be read without loading or starting a provider", async () => {
+  const store = new RecordingTimelineStore();
+  await store.appendCommitted("saved-outbox", {
+    type: "assistant_message",
+    text: "Permanent run history",
+  });
+  const manager = new AgentManager({ clients: {}, durableTimelineStore: store, logger });
+  const result = await manager.fetchSavedTimeline("saved-outbox", { limit: 0 });
+  expect(result.rows).toContainEqual(
+    expect.objectContaining({
+      item: { type: "assistant_message", text: "Permanent run history" },
+    }),
+  );
+  expect(manager.listAgents()).toEqual([]);
+});
+
 test("uses an injected timeline store without making it a production requirement", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-timeline-store-"));
   const store = new RecordingTimelineStore();

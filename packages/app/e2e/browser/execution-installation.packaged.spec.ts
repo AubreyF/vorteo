@@ -3423,6 +3423,25 @@ test("new shared project workspace follows the existing profile environment sele
       if (!created.workspace) throw new Error(created.error ?? "Missing member");
       await client.setWorkspaceProject({ workspaceId: created.workspace.id, membership });
     }
+    const twin = { key: `aubos-${randomUUID()}`, name: "AubOS fixture" };
+    const sibling = await host.createWorkspace({
+      source: { kind: "directory", path: directories[1]! },
+      title: "Same directory, different project",
+    });
+    if (!sibling.workspace) throw new Error("Missing sibling");
+    await host.setWorkspaceProject({ workspaceId: sibling.workspace.id, membership: twin });
+    const remote = { key: `remote-${randomUUID()}`, name: "Remote only project" };
+    const remoteDir = path.join(daemons[0]!.paseoHome, "remote-only");
+    await mkdir(remoteDir, { recursive: true });
+    const remoteWorkspace = await dev.createWorkspace({
+      source: { kind: "directory", path: remoteDir },
+      title: "Remote member",
+    });
+    if (!remoteWorkspace.workspace) throw new Error("Missing remote member");
+    await dev.setWorkspaceProject({
+      workspaceId: remoteWorkspace.workspace.id,
+      membership: remote,
+    });
     await page.goto(origin);
     await page.getByTestId("installation-password").fill(ownerPassword);
     await page.getByTestId("installation-unlock").click();
@@ -3448,6 +3467,17 @@ test("new shared project workspace follows the existing profile environment sele
     await expect(page.getByTestId("new-workspace-project-picker-trigger")).toContainText(
       membership.name,
     );
+    await page.getByTestId("new-workspace-project-picker-trigger").click();
+    await expect(
+      page.getByTestId(`new-workspace-project-picker-option-${remote.key}`),
+    ).toBeVisible();
+    await page.getByTestId(`new-workspace-project-picker-option-${twin.key}`).click();
+    await expect(page.getByTestId("new-workspace-project-picker-trigger")).toContainText(twin.name);
+    await page.getByTestId("new-workspace-project-picker-trigger").click();
+    await page.getByTestId(`new-workspace-project-picker-option-${membership.key}`).click();
+    await expect(page.getByTestId("new-workspace-project-picker-trigger")).toContainText(
+      membership.name,
+    );
     await page.getByRole("button", { name: /^(Send message|Create)$/ }).click();
     await expect
       .poll(
@@ -3468,6 +3498,31 @@ test("new shared project workspace follows the existing profile environment sele
       (await dev.fetchAgents()).entries.filter(({ agent }) => agent.cwd === directories[0]),
     ).toHaveLength(0);
     await page.screenshot({ path: info.outputPath("shared-project-created.png"), fullPage: true });
+    await page.goto(`${origin}/new?serverId=${daemons[1]!.serverId}`);
+    await expectComposerVisible(page, { timeout: 60_000 });
+    await page.getByTestId("new-workspace-project-picker-trigger").click();
+    await page.getByTestId(`new-workspace-project-picker-option-${remote.key}`).click();
+    await fillComposerDraft(page, "Create the remote project on Host in my chosen folder.");
+    await page.getByRole("button", { name: /^(Send message|Create)$/ }).click();
+    await expect(page.getByTestId("project-directory-browser")).toBeVisible();
+    await page.getByTestId("project-directory-host-path").fill(directories[1]!);
+    await page.getByTestId("project-directory-open-path").click();
+    await page.getByTestId("project-directory-select").click();
+    await expect
+      .poll(
+        async () =>
+          (await host.fetchWorkspaces()).entries.filter(
+            (item) => item.projectMembership?.key === remote.key,
+          ).length,
+      )
+      .toBe(1);
+    await expect
+      .poll(
+        async () =>
+          (await host.fetchAgents()).entries.filter(({ agent }) => agent.cwd === directories[1])
+            .length,
+      )
+      .toBe(2);
   } finally {
     await host.close();
     await dev.close();
