@@ -89,6 +89,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Logical project groups retain unambiguous native project placements for each environment. New workspace creation uses the existing profile environment selector and preserves project membership. Offline or ambiguous checkouts are not inferred.
+
 October 8, 2026: Supervisor repairs can wait alongside unapproved source batches without cancelling their contributions or sharing approval. Both requests remain visible; approval serialization still prevents concurrent interruption of one target.
 
 October 8, 2026: Added durable thread checklist tools and manual editing, with dependency, ownership, metadata and stale-edit handling. Focused storage, lifecycle, protocol and provider tests cover persistence and native task coexistence. Desktop and phone browser checks cover manual controls, save failures, concurrent edits, deletion, ordering and workspace aggregation. Source installation and live tool acceptance remain pending.

@@ -3402,3 +3402,68 @@ test("supervisor maintenance is visible and cancellable without offering an init
   });
   expect((await outcome.json()).status).toBe("rejected");
 });
+
+test("new shared project workspace follows the existing profile environment selector", async ({
+  page,
+}, info) => {
+  const host = await connectInstallationDaemon(config, "host");
+  const dev = await connectInstallationDaemon(config, "container");
+  const membership = { key: `shared-project-${randomUUID()}`, name: "Shared creation project" };
+  const clients = [dev, host];
+  const directories: string[] = [];
+  try {
+    for (const [index, client] of clients.entries()) {
+      const directory = path.join(daemons[index]!.paseoHome, "shared-creation");
+      directories.push(directory);
+      await mkdir(directory, { recursive: true });
+      const created = await client.createWorkspace({
+        source: { kind: "directory", path: directory },
+        title: "Existing member",
+      });
+      if (!created.workspace) throw new Error(created.error ?? "Missing member");
+      await client.setWorkspaceProject({ workspaceId: created.workspace.id, membership });
+    }
+    await page.goto(origin);
+    await page.getByTestId("installation-password").fill(ownerPassword);
+    await page.getByTestId("installation-unlock").click();
+    await expect(page.getByTestId("installation-password")).not.toBeVisible();
+    await page.goto(`${origin}/new?serverId=${daemons[0]!.serverId}`);
+    await expectComposerVisible(page, { timeout: 60_000 });
+    await page.getByTestId("new-workspace-project-picker-trigger").click();
+    await page.getByTestId(`new-workspace-project-picker-option-${membership.key}`).click();
+    await fillComposerDraft(page, "Keep this draft and start it in Host.");
+    await page.getByTestId("agent-preset-selector").click();
+    if (info.project.name === "phone") await page.getByTestId("preset-section-environment").click();
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByTestId(`preset-environment-${daemons[1]!.serverId}`).click();
+    if (info.project.name === "phone") await page.getByTestId("preset-section-account").click();
+    await page.getByTestId("preset-account-mock").click();
+    await page.getByRole("button", { name: "Browser handoff", exact: true }).click();
+    await page.getByTestId("preset-use-profile").click();
+    await expect(page.getByRole("textbox", { name: "Message agent..." }).first()).toHaveValue(
+      "Keep this draft and start it in Host.",
+    );
+    await expect(page.getByTestId("new-workspace-project-picker-trigger")).toContainText(
+      membership.name,
+    );
+    await page.getByRole("button", { name: /^(Send message|Create)$/ }).click();
+    await expect
+      .poll(
+        async () =>
+          (await host.fetchAgents()).entries.filter(({ agent }) => agent.cwd === directories[1])
+            .length,
+      )
+      .toBe(1);
+    const created = (await host.fetchWorkspaces()).entries.filter(
+      (item) => item.projectMembership?.key === membership.key,
+    );
+    expect(created).toHaveLength(2);
+    expect(
+      (await dev.fetchAgents()).entries.filter(({ agent }) => agent.cwd === directories[0]),
+    ).toHaveLength(0);
+    await page.screenshot({ path: info.outputPath("shared-project-created.png"), fullPage: true });
+  } finally {
+    await host.close();
+    await dev.close();
+  }
+});
