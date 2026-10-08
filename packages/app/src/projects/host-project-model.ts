@@ -179,17 +179,24 @@ export function resolveExactHostProjectCandidate(input: {
   projects: readonly HostProjectListItem[];
   serverId: string;
 }): HostProjectListItem | null {
+  const exactView = input.projects.find((project) => project.viewKey === input.candidate.viewKey);
+  if (exactView && exactView.projectKey === input.candidate.projectKey) return exactView;
+  // Logical project identity wins over a shared native execution directory.
+  // Multiple memberships can deliberately use the same host-local project.
+  if (input.candidate.membership) {
+    return (
+      input.projects.find(
+        (project) => project.membership?.key === input.candidate.membership?.key,
+      ) ?? null
+    );
+  }
   const candidatePlacement = getHostProjectId(input.candidate, input.serverId);
   if (candidatePlacement) {
     const exactPlacement = input.projects.find(
-      (project) => getHostProjectId(project, input.serverId) === candidatePlacement,
+      (project) =>
+        !project.membership && getHostProjectId(project, input.serverId) === candidatePlacement,
     );
     if (exactPlacement) return exactPlacement;
-  }
-
-  const exactView = input.projects.find((project) => project.viewKey === input.candidate.viewKey);
-  if (input.candidate.projectKey !== null && exactView?.projectKey === input.candidate.projectKey) {
-    return exactView;
   }
 
   return null;

@@ -2025,6 +2025,15 @@ export class AgentManager {
     return this.timelineStore.fetch(id, options);
   }
 
+  async fetchSavedTimeline(
+    id: string,
+    options?: AgentTimelineFetchOptions,
+  ): Promise<AgentTimelineFetchResult> {
+    // Reading committed history must not require starting its original provider.
+    if (!this.durableTimelineStore) throw new Error("Saved timeline storage is unavailable");
+    return this.durableTimelineStore.fetchCommitted(id, options);
+  }
+
   listProviderSubagents(parentAgentId: string): ProviderSubagentDescriptor[] {
     this.requirePublicAgent(parentAgentId);
     return this.providerSubagents.list(parentAgentId);

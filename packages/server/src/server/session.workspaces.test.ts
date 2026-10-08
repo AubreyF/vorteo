@@ -136,6 +136,7 @@ interface SessionTestAccess {
     ): Promise<unknown>;
     hydrateTimelineFromProvider(agentId: string): Promise<unknown>;
     getTimeline(agentId: string): readonly unknown[];
+    fetchSavedTimeline(agentId: string, options?: unknown): Promise<unknown>;
     setTitle(agentId: string, title: string): Promise<unknown>;
   };
   workspaceRegistry: {
@@ -2635,6 +2636,120 @@ test("workspace placements preserve checkout facts independently from the projec
       }),
     }),
   );
+});
+
+test("timeline requests read saved history without resuming an unavailable provider", async () => {
+  const session = createSessionForWorkspaceTests({ appVersion: "0.1.45" });
+  const record = {
+    ...makeStoredAgent({
+      id: "saved-outbox",
+      cwd: "/tmp/outbox",
+      updatedAt: "2026-03-01T12:00:00.000Z",
+    }),
+    provider: "codex-retired-account",
+  };
+  session.agentStorage.get = async () => record;
+  const saved = vi.fn(async () => ({
+    epoch: "saved",
+    direction: "tail",
+    reset: false,
+    staleCursor: false,
+    gap: false,
+    window: { minSeq: 1, maxSeq: 1, nextSeq: 2 },
+    hasOlder: false,
+    hasNewer: false,
+    startSeq: 1,
+    endSeq: 1,
+    rows: [
+      {
+        item: { type: "assistant_message", text: "Permanent run history" },
+        timestamp: record.updatedAt,
+        seqStart: 1,
+        seqEnd: 1,
+        sourceSeqRanges: [],
+        collapsed: [],
+      },
+    ],
+  }));
+  session.agentManager.fetchSavedTimeline = saved;
+  const resume = vi.fn();
+  session.agentManager.resumeAgentFromPersistence = resume;
+  const emitted: unknown[] = [];
+  session.emit = (message) => emitted.push(message);
+  await session.handleMessage({
+    type: "fetch_agent_timeline_request",
+    requestId: "saved-history",
+    agentId: record.id,
+  });
+  expect(saved).toHaveBeenCalledOnce();
+  expect(resume).not.toHaveBeenCalled();
+  expect(emitted).toContainEqual(
+    expect.objectContaining({
+      type: "fetch_agent_timeline_response",
+      payload: expect.objectContaining({
+        error: null,
+        agent: expect.objectContaining({ providerUnavailable: true }),
+        entries: [
+          expect.objectContaining({
+            item: { type: "assistant_message", text: "Permanent run history" },
+          }),
+        ],
+      }),
+    }),
+  );
+});
+
+test("active directory retains scheduled history when its saved provider is unavailable", async () => {
+  const session = createSessionForWorkspaceTests({ appVersion: "0.1.45" });
+  const now = "2026-03-01T12:00:00.000Z";
+  const project = createPersistedProjectRecord({
+    projectId: "outbox-project",
+    rootPath: "/tmp/outbox",
+    kind: "non_git",
+    displayName: "Outbox",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const workspace = createPersistedWorkspaceRecord({
+    workspaceId: "outbox-workspace",
+    projectId: project.projectId,
+    cwd: "/tmp/outbox",
+    kind: "directory",
+    displayName: "Outbox",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const record = {
+    ...makeStoredAgent({
+      id: "outbox-agent",
+      cwd: "/tmp/outbox",
+      workspaceId: "outbox-workspace",
+      updatedAt: now,
+    }),
+    provider: "codex-retired-account",
+  };
+  session.projectRegistry.list = async () => [project];
+  session.projectRegistry.get = async () => project;
+  session.workspaceRegistry.list = async () => [workspace];
+  session.agentStorage.list = async () => [
+    record,
+    { ...record, id: "archived-history", archivedAt: now },
+  ];
+  const result = await session.listFetchAgentsEntries({
+    type: "fetch_agents_request",
+    requestId: "outbox-directory",
+    scope: "active",
+  });
+  expect(result.entries).toEqual([
+    expect.objectContaining({
+      agent: expect.objectContaining({
+        id: record.id,
+        workspaceId: "outbox-workspace",
+        providerUnavailable: true,
+        archivedAt: null,
+      }),
+    }),
+  ]);
 });
 
 test("active-scoped fetch_agents includes only unarchived agents in active workspaces", async () => {
