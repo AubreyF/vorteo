@@ -255,7 +255,7 @@ export function Tooltip({
   const enabled = useTouchInteraction ? enabledOnMobile : enabledOnDesktop;
 
   useEffect(() => {
-    if (!isWeb || !touch || !enabled || !isOpen) return;
+    if (!isWeb || !useTouchInteraction || !enabled || !isOpen) return;
     const dismissOutside = (event: PointerEvent) => {
       const trigger: unknown = triggerRef.current;
       if (
@@ -268,7 +268,7 @@ export function Tooltip({
     };
     document.addEventListener("pointerdown", dismissOutside, true);
     return () => document.removeEventListener("pointerdown", dismissOutside, true);
-  }, [touch, enabled, isOpen, setIsOpen]);
+  }, [useTouchInteraction, enabled, isOpen, setIsOpen]);
 
   const value = useMemo<TooltipContextValue>(
     () => ({
@@ -277,10 +277,10 @@ export function Tooltip({
       triggerRef,
       enabled,
       openOnPress: useTouchInteraction,
-      touch,
+      touch: useTouchInteraction,
       delayDuration,
     }),
-    [isOpen, setIsOpen, enabled, useTouchInteraction, delayDuration, touch],
+    [isOpen, setIsOpen, enabled, useTouchInteraction, delayDuration],
   );
 
   return <TooltipContext.Provider value={value}>{children}</TooltipContext.Provider>;
