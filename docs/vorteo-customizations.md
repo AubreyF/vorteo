@@ -87,6 +87,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Host update preparation now fetches the exact approved commit into an independent repository. Native build fixtures cover source isolation, retained provenance and an unchanged live interface. Digest, bundle and ancestry validation still precede preparation; installation still requires exact owner approval.
+
 October 8, 2026: Reconciled preview recovery with managed Dev workers that preserve their process arguments. Broker identity checks require the selected worker entrypoint, Node executable, supervisor parent, process ownership and stable boot/start times. Regression coverage rejects stale selectors, ambiguous processes and PID reuse. This does not add Host metadata export or verified project delivery evidence.
 
 October 8, 2026: Added target-specific Dev source installation, capability discovery, managed worker release selection and bootstrap validation. Focused tests cover approval boundaries, failed builds and retained rollback selection; browser checks cover Host and Dev review on desktop and phone layouts. Existing installation bootstrap and live update acceptance remain pending.
