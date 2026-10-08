@@ -1876,10 +1876,10 @@ export const en = {
     archiveAction: "Archive {{label}}",
     archiveTooltip: "Archive subagent",
     archiveFinishedAction: "Clear finished",
-    workersTitle: "Vorteo workers",
+    workersTitle: "Vorteo sub-agents",
     workersInfo:
       "Separate agents managed by Vorteo. Their profile, model and reasoning settings appear below each task. Archive removes a worker from the active list; detach makes it an independent task.",
-    providerTitle: "Provider subagents",
+    providerTitle: "System sub-agents",
     providerInfo:
       "Created inside the coding provider’s session, outside Vorteo’s worker profile and concurrency controls. Model not reported means model metadata is missing. Dismiss hides finished children until this app reloads; it does not archive their sessions. Clear finished archives Vorteo workers and dismisses provider children.",
     dismissAction: "Dismiss {{label}}",

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.206 - 2026-10-08
+
+### Fixed
+
+- Add bottom clearance to goal cards and lower their action buttons within the header.
+- Replace the nested sub-agent sections with independent Vorteo and System accordions, each with its own finished-agent cleanup. Remove extra space below the final row.
+
 ## 0.11.0-beta.3.vorteo.205 - 2026-10-08
 
 ### Fixed

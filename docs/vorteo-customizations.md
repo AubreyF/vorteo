@@ -146,3 +146,5 @@ Restart maintenance review: The installation browser suite checks both daemon la
 October 7, 2026: Reviewed both shared footer placements and replaced their upstream social links with the Vorteo repository link. The README overview and onboarding are unchanged. Live deployment requires separate verification.
 
 Dev updater maintenance review: Container builds use the existing server build, which also builds the CLI. Managed workers retain their OS entrypoint arguments for verification against the pinned Node executable and supervisor parent.
+
+Goal and sub-agent card review: Goal cards retain 16 px below their content and place action buttons 8 px below the header edge. Vorteo and System sub-agents have separate expansion and cleanup controls within one card. Removing the group bottom margin keeps the final row close to the card edge. Focused browser checks cover independent cleanup, retry, desktop and compact geometry. This source change does not establish live publication; the README overview and onboarding are unchanged.
