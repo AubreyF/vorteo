@@ -87,6 +87,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Reconciled persistent checklist delivery with installed source ancestry and retained historical installation release notes. Application source matches the validated public implementation; runtime acceptance remains pending exact update approval.
+
 October 8, 2026: Added durable thread checklist tools and manual editing, with dependency, ownership, metadata and stale-edit handling. Focused storage, lifecycle, protocol and provider tests cover persistence and native task coexistence. Desktop and phone browser checks cover manual controls, save failures, concurrent edits, deletion, ordering and workspace aggregation. Source installation and live tool acceptance remain pending.
 
 October 8, 2026: Tightened agent instructions so Host and Dev holds, restarts and supervisor maintenance must use visible coordinator requests and owner controls. Chat approval does not permit an untracked lifecycle operation. The coordinator now supports trusted Host supervisor maintenance with an exact protected script digest, visible review and cancellation; guest requests and old-client approvals are refused. Archived inactive history no longer blocks drain preparation.
@@ -127,4 +129,7 @@ Restart maintenance review: The installation browser suite checks both daemon la
 
 October 7, 2026: Reviewed both shared footer placements and replaced their upstream social links with the Vorteo repository link. The README overview and onboarding are unchanged. Live deployment requires separate verification.
 
+Maintenance review: integrated the installed release with restart recovery and compact review; retained both release histories and unchanged runtime dependencies.
 Dev updater maintenance review: Container builds use the existing server build, which also builds the CLI. Managed workers retain their OS entrypoint arguments for verification against the pinned Node executable and supervisor parent.
+
+Bootstrap integration review: Retained the deployed interface, restart recovery and accepted checklist contribution while integrating managed Dev updates. Live activation remains subject to exact owner approval.
