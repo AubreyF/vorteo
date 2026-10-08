@@ -87,6 +87,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Tightened agent instructions so Host and Dev holds, restarts and supervisor maintenance must use visible coordinator requests and owner controls. Chat approval does not permit an untracked lifecycle operation. This instruction change does not add supervisor maintenance support to the coordinator.
+
 October 8, 2026: Dev bootstrap now verifies the installation profile client binding in both the supervisor and worker before changing configuration. Regression checks cover missing and mismatched bindings. Existing launchers require a reviewed supervisor restart after repair; worker updates cannot repair the parent environment.
 
 October 8, 2026: Host update preparation now fetches the exact approved commit into an independent repository. Native build fixtures cover source isolation, retained provenance and an unchanged live interface. Digest, bundle and ancestry validation still precede preparation; installation still requires exact owner approval.
