@@ -286,3 +286,5 @@ October 9, 2026: Reconciled the blocked checklist contribution with published in
 Maintenance review: goal editing uses an optional provider-owned revision independent of usage timestamps. Accounting preserves the revision; goal mutations, same-value owner writes and uncertain provider observations invalidate it. Older clients keep strict timestamp checks. Restart holds, queue holds, limits and caller isolation remain enforced.
 
 October 9, 2026: Preserved the already-accepted goal-edit source unchanged as an ancestor of the checklist correction, avoiding legacy coordinator history reconciliation. No coordinator code or other contribution receipt was changed.
+
+October 9, 2026: Completed Host live acceptance of discretionary blocked checklist status and integrated its validated source for public publication. Preserved all installed release entries and concurrent goal-edit and interface changes.
