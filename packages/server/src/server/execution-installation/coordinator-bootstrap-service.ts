@@ -275,6 +275,36 @@ export function loadedCoordinatorPid(service: string, output: string): number {
   return pid;
 }
 
+/** A stopped launch job has no process to inspect. Bind its loaded arguments
+ * before removing it; the selected plist alone does not prove loaded identity. */
+export function isStoppedBootstrapCandidate(
+  plan: CoordinatorBootstrapPlan,
+  output: string,
+): boolean {
+  if (!output.startsWith(`${plan.service} = {\n`) || !output.trimEnd().endsWith("\n}"))
+    throw new BootstrapRequestConflict("Loaded coordinator service identity does not match");
+  if (/^\tpid = /m.test(output)) return false;
+  const argumentBlocks = [...output.matchAll(/^\targuments = \{\n([\s\S]*?)^\t\}$/gm)];
+  const expected = [
+    plan.candidate.node.path,
+    plan.candidate.entrypoint.path,
+    plan.candidate.configuration.path,
+  ];
+  const args = argumentBlocks[0]?.[1]
+    ?.trim()
+    .split("\n")
+    .map((line) => line.trim());
+  const programs = [...output.matchAll(/^\tprogram = (.+)$/gm)];
+  if (
+    argumentBlocks.length !== 1 ||
+    programs.length !== 1 ||
+    programs[0]?.[1] !== expected[0] ||
+    !isDeepStrictEqual(args, expected)
+  )
+    throw new BootstrapRequestConflict("Stopped coordinator does not match approved candidate");
+  return true;
+}
+
 /** The output and kernel observation come from trusted read-only Host collectors.
  * File integrity, protected paths and a second observation still gate dispatch. */
 export function verifyBootstrapServiceIdentity(input: {

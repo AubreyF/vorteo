@@ -11,6 +11,7 @@ import type {
 import { BootstrapRequestConflict, CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
 import {
   loadedCoordinatorPid,
+  isStoppedBootstrapCandidate,
   verifyLoadedBootstrapService,
   verifyBootstrapReplacement,
   verifyBootstrapServiceIdentity,
@@ -212,6 +213,23 @@ export function createBootstrapNativeLifecycle(
         service = await context.reader.readService(request.plan.service);
       } catch {
         await context.reader.verifyServiceAbsent(request.plan.service);
+      }
+      if (service !== null && isStoppedBootstrapCandidate(request.plan, service)) {
+        await readBootstrapPreparedFile(
+          { path: context.launcherFile, sha256: request.plan.candidate.launcher.sha256 },
+          roots,
+        );
+        await requireStage(request, "rollback_pending");
+        if (
+          !isStoppedBootstrapCandidate(
+            request.plan,
+            await context.reader.readService(request.plan.service),
+          )
+        )
+          throw new BootstrapRequestConflict("Stopped coordinator started during recovery");
+        await command.run(["bootout", request.plan.service]);
+        await waitFor(() => context.reader.verifyServiceAbsent(request.plan.service));
+        service = null;
       }
       if (service !== null) {
         const pid = loadedCoordinatorPid(request.plan.service, service);

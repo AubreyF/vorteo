@@ -22,6 +22,7 @@ import {
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
   loadedCoordinatorPid,
+  isStoppedBootstrapCandidate,
   verifyBootstrapReplacement,
   verifyBootstrapServiceIdentity,
   verifyLoadedBootstrapService,
@@ -1535,4 +1536,23 @@ test("a fresh review after restoration preserves the failed receipt and rejects 
       configuration: candidate.configuration.path,
     }).kind,
   ).toBe("fenced");
+});
+
+test("stopped candidate recovery verifies loaded arguments and refuses unrelated jobs", () => {
+  const { plan } = fixture();
+  const output = `${plan.service} = {\n\tprogram = ${plan.candidate.node.path}\n\targuments = {\n\t\t${plan.candidate.node.path}\n\t\t${plan.candidate.entrypoint.path}\n\t\t${plan.candidate.configuration.path}\n\t}\n}`;
+  expect(isStoppedBootstrapCandidate(plan, output)).toBe(true);
+  expect(isStoppedBootstrapCandidate(plan, output.replace("\n}", "\n\tpid = 456\n}"))).toBe(false);
+  expect(() =>
+    isStoppedBootstrapCandidate(
+      plan,
+      output.replace("\tprogram = /protected/file", "\tprogram = /other"),
+    ),
+  ).toThrow("Stopped coordinator");
+  expect(() =>
+    isStoppedBootstrapCandidate(plan, output.replace("\t\t/protected/file", "\t\t/other")),
+  ).toThrow("Stopped coordinator");
+  expect(() =>
+    isStoppedBootstrapCandidate(plan, output.replace(plan.service, "gui/501/other")),
+  ).toThrow("service identity");
 });
