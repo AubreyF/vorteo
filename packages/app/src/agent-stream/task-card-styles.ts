@@ -57,6 +57,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       justifyContent: "flex-start",
       paddingHorizontal: theme.spacing[2],
     },
+    headingRow: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
     heading: {
       lineHeight: Math.max(16, Math.round(theme.fontSize.sm * 1.4)),
       color: theme.colors.foreground,

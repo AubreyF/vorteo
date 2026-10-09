@@ -1,3 +1,4 @@
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
 import { taskCardStyles } from "./task-card-styles";
@@ -1678,7 +1679,10 @@ function PermissionRequestCard({
       ]}
       testID="permission-request-card"
     >
-      <Text style={permissionStyles.title}>{title}</Text>
+      <View style={taskCardStyles.headingRow}>
+        <TaskCardIcon kind="permission" />
+        <Text style={[permissionStyles.title, { flexShrink: 1 }]}>{title}</Text>
+      </View>
 
       {description ? <Text style={permissionStyles.description}>{description}</Text> : null}
 

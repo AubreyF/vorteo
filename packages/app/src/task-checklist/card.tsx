@@ -1,3 +1,4 @@
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
@@ -90,7 +91,11 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     <>
       <TaskCard testID="agent-task-progress-card">
         <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-          <ChecklistProgressRing {...progress} />
+          {progress.total > 0 ? (
+            <ChecklistProgressRing {...progress} />
+          ) : (
+            <TaskCardIcon kind="tasks" />
+          )}
           <Button
             variant="ghost"
             size="sm"

@@ -1,3 +1,4 @@
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
 import { CountBadge } from "@/components/ui/count-badge";
 import { QueueMessageIndicator } from "./queue-indicator";
@@ -140,6 +141,7 @@ function QueueHeader({ control }: { control: MessageQueueControl }) {
   }, [control, snapshot]);
   return (
     <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+      <TaskCardIcon kind="messages" />
       <Text style={taskCardStyles.heading}>Messages</Text>
       <QueueCountBadge control={control} />
       <View style={styles.heading} />

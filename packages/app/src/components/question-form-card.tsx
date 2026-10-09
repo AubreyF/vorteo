@@ -1,3 +1,4 @@
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useState, useCallback, useMemo, useRef, type RefObject } from "react";
@@ -529,6 +530,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
         onSelect={handleSelectQuestion}
       />
       <View style={styles.questionHeader}>
+        <TaskCardIcon kind="question" />
         <Text testID="question-form-current-question" style={questionTextStyle}>
           {activeQuestion?.question}
         </Text>

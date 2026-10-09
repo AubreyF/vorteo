@@ -1,3 +1,4 @@
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
 import { SettingsInfoTip } from "@/components/settings/headings/settings-info-tip";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -156,6 +157,7 @@ function SubagentsGroup({
   return (
     <View testID={`subagents-group-${kind}`}>
       <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+        <TaskCardIcon kind="subagents" />
         <Button
           variant="ghost"
           size="sm"

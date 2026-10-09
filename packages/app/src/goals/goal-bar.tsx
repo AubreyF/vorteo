@@ -1,3 +1,4 @@
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useGoalElapsed } from "./use-goal-elapsed";
@@ -45,6 +46,7 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
           !touch && styles.actionInset,
         ]}
       >
+        <TaskCardIcon kind="goal" />
         <View style={styles.copy}>
           <Text style={taskCardStyles.heading}>{label}</Text>
         </View>

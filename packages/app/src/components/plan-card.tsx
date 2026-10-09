@@ -1,3 +1,4 @@
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
@@ -257,6 +258,7 @@ function PlanCardContent({
         onPress={toggleExpanded}
         style={styles.header}
       >
+        <TaskCardIcon kind="plan" />
         <View style={chevronStyle}>
           <ThemedChevron size={16} uniProps={chevronColor} />
         </View>
