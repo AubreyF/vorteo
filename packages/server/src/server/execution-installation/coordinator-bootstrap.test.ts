@@ -1337,3 +1337,202 @@ test("bootstrap state refuses exposed sessions and substituted state files", asy
   await expect(preserveBootstrapState(context)).rejects.toThrow();
   expect(readFileSync(target, "utf8")).toBe("[]");
 });
+
+test.each([false, true])(
+  "approved automatic recovery restores once and never replays the update (failure=%s)",
+  async (fail) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-previous";
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const record = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "selection_pending" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [record]);
+    let restores = 0;
+    const operations = {
+      withOwnership: async <T>(operation: () => Promise<T>) => operation(),
+      verifyExecutorExited: async () => {},
+      resumePrevious: async () => {
+        throw new Error("Not a resume");
+      },
+      restorePrevious: async () => {
+        restores++;
+        expect(f.service().list()[0]?.execution?.stage).toBe("rollback_pending");
+        expect(f.service().list()[0]?.execution?.rollbackAttemptedAt).toBeTruthy();
+        if (fail) throw new Error("Readiness failed");
+      },
+    };
+    const expected = { id: record.id, generation: record.execution.generation };
+    const result = await recoverAbandonedBootstrap(f.service(), expected, operations);
+    expect(result.execution?.stage).toBe(fail ? "recovery_required" : "rolled_back");
+    expect(result.planSha256).toBe(approved.planSha256);
+    await recoverAbandonedBootstrap(f.service(), expected, operations);
+    expect(restores).toBe(1);
+  },
+);
+
+test("automatic rollback cannot be added to an existing approval", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "recovery_required" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [record]);
+  expect(() =>
+    f.service().advanceDispatch(
+      {
+        id: record.id,
+        revision: record.revision,
+        planSha256: record.planSha256,
+        generation: record.execution.generation,
+      },
+      "rollback_pending",
+    ),
+  ).toThrow("unused exact plan approval");
+  const altered = {
+    ...record,
+    plan: { ...record.plan, automaticRecovery: "restore-previous" as const },
+  };
+  f.journal.replace([record], [altered]);
+  expect(() => f.service().list()).toThrow("digest");
+});
+
+test("rollback startup accepts only the previous launch arguments, including its active config path", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-previous";
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.plan.state.directory,
+    node: f.plan.previous.node.path,
+    entrypoint: f.plan.previous.entrypoint.path,
+    configuration: "/protected/active-config.json",
+  };
+  f.plan.expectedProcess.argumentsSha256 = createHash("sha256")
+    .update(JSON.stringify([identity.node, identity.entrypoint, identity.configuration]))
+    .digest("hex");
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "rollback_pending" as const,
+      updatedAt: new Date().toISOString(),
+      rollbackAttemptedAt: new Date().toISOString(),
+    },
+  };
+  expect(coordinatorStartupAdmission([record], identity)).toEqual({ kind: "ordinary" });
+  expect(() =>
+    coordinatorStartupAdmission([record], { ...identity, configuration: "/other/config.json" }),
+  ).toThrow();
+});
+
+test("a fresh review after restoration preserves the failed receipt and rejects stale recovery references", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const failed = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "recovery_required" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [failed]);
+  const recoveredFrom = {
+    id: failed.id,
+    revision: failed.revision,
+    planSha256: failed.planSha256,
+    generation: failed.execution.generation,
+  };
+  const nextPlan = { ...f.plan, recoveredFrom, automaticRecovery: "restore-previous" as const };
+  await expect(
+    f.service().prepare({
+      id: randomUUID(),
+      plan: { ...nextPlan, recoveredFrom: { ...recoveredFrom, revision: randomUUID() } },
+      reason: "Fresh review",
+    }),
+  ).rejects.toThrow("history changed");
+  await expect(
+    f.service().prepare({
+      id: randomUUID(),
+      plan: { ...nextPlan, previous: { ...nextPlan.previous, sourceCommit: "f".repeat(40) } },
+      reason: "Fresh review",
+    }),
+  ).rejects.toThrow("restored release");
+  const next = await f
+    .service()
+    .prepare({ id: randomUUID(), plan: nextPlan, reason: "Fresh review" });
+  expect(next.status).toBe("pending");
+  expect(next.execution).toBeUndefined();
+  expect(f.service().list()[0]).toEqual(failed);
+  const decided = await f
+    .service()
+    .decide(
+      { id: next.id, revision: next.revision, planSha256: next.planSha256, decision: "approve" },
+      ownerPassword,
+    );
+  const started = {
+    ...decided,
+    execution: {
+      generation: randomUUID(),
+      stage: "start_pending" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const candidate = started.plan.candidate;
+  expect(
+    coordinatorStartupAdmission([failed, started], {
+      installationId: f.plan.installationId,
+      stateDirectory: f.plan.state.directory,
+      node: candidate.node.path,
+      entrypoint: candidate.entrypoint.path,
+      configuration: candidate.configuration.path,
+    }).kind,
+  ).toBe("fenced");
+});

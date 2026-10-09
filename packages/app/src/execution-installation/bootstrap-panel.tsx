@@ -15,6 +15,7 @@ import {
   bootstrapDecisionDisabledReason,
   bootstrapNeedsAttention,
   bootstrapStatus,
+  currentBootstrapRequests,
 } from "./bootstrap-model";
 import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
 
@@ -57,7 +58,7 @@ export function BootstrapReview({ model }: { model: BootstrapPanelModel }) {
           </Button>
         </View>
       ) : null}
-      {state.requests.map((request) => (
+      {currentBootstrapRequests(state.requests).map((request) => (
         <BootstrapRequestCard key={request.id} request={request} model={model} />
       ))}
     </View>
@@ -110,6 +111,13 @@ function BootstrapRequestCard({
           <Text selectable style={styles.text}>
             {request.reason}
           </Text>
+          {request.plan.automaticRecovery === "restore-previous" ? (
+            <Text style={styles.text}>
+              If the updater stalls for three minutes or replacement fails, the system stops only
+              that updater and restores the verified previous coordinator. Host and Dev tasks keep
+              running; the failed update is not retried.
+            </Text>
+          ) : null}
           {request.plan.nativeHelperConfiguration !== undefined ? (
             <Text style={styles.text}>
               {request.plan.nativeHelperConfiguration === null
@@ -206,7 +214,7 @@ function BootstrapRequestCard({
 export function BootstrapBanner({ model }: { model: BootstrapPanelModel }) {
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const router = useRouter();
-  const request = state.requests.find(bootstrapNeedsAttention);
+  const request = currentBootstrapRequests(state.requests).find(bootstrapNeedsAttention);
   const requestId = request?.id;
   const open = useCallback(
     () =>

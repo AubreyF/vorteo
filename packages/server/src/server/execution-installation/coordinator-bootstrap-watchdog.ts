@@ -18,10 +18,12 @@ export interface BootstrapWatchdogOperations {
   /** Recheck the original coordinator kernel identity before any resume, and
    * verify the same process running afterward. Never touch another process. */
   resumePrevious(request: CoordinatorBootstrapRequest): Promise<void>;
+  /** One rollback of the exact previous release, only when included in the approved plan. */
+  restorePrevious?(request: CoordinatorBootstrapRequest): Promise<void>;
 }
 
-/** Recover only an abandoned generation. No watchdog path unloads a service,
- * selects a release, starts a replacement or edits the restart journal. */
+/** Recover only an abandoned generation under the same kernel exclusion.
+ * Never replay the update or restore task, session or credential state. */
 export async function recoverAbandonedBootstrap(
   requests: CoordinatorBootstrapRequests,
   expected: BootstrapWatchdogOwnership,
@@ -34,8 +36,10 @@ export async function recoverAbandonedBootstrap(
     if (!request?.execution || request.execution.generation !== ownership.generation)
       throw new BootstrapRequestConflict("Bootstrap watchdog ownership changed");
     const stage = request.execution.stage;
-    if (["succeeded", "resumed", "recovery_required"].includes(stage)) return request;
-    const advance = (next: "resume_pending" | "resumed" | "recovery_required") => {
+    if (["succeeded", "resumed", "rolled_back"].includes(stage)) return request;
+    const advance = (
+      next: "resume_pending" | "resumed" | "recovery_required" | "rollback_pending" | "rolled_back",
+    ) => {
       if (!request?.execution)
         throw new BootstrapRequestConflict("Bootstrap generation is missing");
       request = requests.advanceDispatch(
@@ -50,9 +54,17 @@ export async function recoverAbandonedBootstrap(
       return request;
     };
     if (!["freeze_pending", "frozen", "resume_pending"].includes(stage)) {
-      // unload_pending is ambiguous even if the old process can still be seen.
-      // Resuming it could race removal or recreate two installation writers.
-      return advance("recovery_required");
+      if (stage !== "recovery_required") advance("recovery_required");
+      const authorized = request.plan.automaticRecovery === "restore-previous";
+      if (!authorized || request.execution?.rollbackAttemptedAt || !operations.restorePrevious)
+        return request;
+      advance("rollback_pending");
+      try {
+        await operations.restorePrevious(request);
+      } catch {
+        return advance("recovery_required");
+      }
+      return advance("rolled_back");
     }
     if (stage !== "resume_pending") advance("resume_pending");
     try {

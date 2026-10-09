@@ -170,6 +170,8 @@ const stageLabels: Record<CoordinatorBootstrapStage, string> = {
   resume_pending: "Resuming coordinator",
   resumed: "Coordinator resumed; update not installed",
   recovery_required: "Recovery required",
+  rollback_pending: "Restoring previous coordinator",
+  rolled_back: "Previous coordinator restored; update not installed",
 };
 export function bootstrapStatus(request: CoordinatorBootstrapRequest): string {
   if (request.execution) return stageLabels[request.execution.stage];
@@ -179,5 +181,22 @@ export function bootstrapStatus(request: CoordinatorBootstrapRequest): string {
 }
 export function bootstrapNeedsAttention(request: CoordinatorBootstrapRequest): boolean {
   if (request.status === "canceled") return false;
-  return request.execution?.stage !== "succeeded" && request.execution?.stage !== "resumed";
+  return (
+    request.execution?.stage !== "succeeded" &&
+    request.execution?.stage !== "resumed" &&
+    request.execution?.stage !== "rolled_back"
+  );
+}
+
+/** Keep failed receipts in the journal while the fresh review owns the active callout. */
+export function currentBootstrapRequests(
+  requests: CoordinatorBootstrapRequest[],
+): CoordinatorBootstrapRequest[] {
+  const superseded = new Set(
+    requests
+      .filter((request) => request.status !== "canceled")
+      .map((request) => request.plan.recoveredFrom?.id)
+      .filter((id) => id !== undefined),
+  );
+  return requests.filter((request) => !superseded.has(request.id));
 }

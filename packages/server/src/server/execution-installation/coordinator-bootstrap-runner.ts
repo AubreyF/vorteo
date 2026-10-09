@@ -22,9 +22,27 @@ import {
 import { requireBootstrapOwnership } from "./coordinator-bootstrap-ownership.js";
 import { createNativeBootstrapServiceReader } from "./coordinator-bootstrap-service.js";
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
-import { createBootstrapNativeOperations } from "./coordinator-bootstrap-runtime.js";
+import {
+  readBootstrapHealth,
+  createBootstrapNativeOperations,
+} from "./coordinator-bootstrap-runtime.js";
 import { executeCoordinatorBootstrap } from "./coordinator-bootstrap-executor.js";
 import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
+import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
+
+function watchdogRecoveryArguments(request: CoordinatorBootstrapRequest): string[] {
+  return request.plan.automaticRecovery === "restore-previous" ? ["automatic-recovery"] : [];
+}
+
+function findRunnerRequest(
+  requests: CoordinatorBootstrapRequest[],
+  role: "executor" | "watchdog",
+  identifier: string,
+) {
+  return requests.find((request) =>
+    role === "executor" ? request.id === identifier : request.execution?.generation === identifier,
+  );
+}
 
 const FileSchema = z.strictObject({
   path: z.string().startsWith("/"),
@@ -39,11 +57,6 @@ export const BootstrapRunnerSetupSchema = z.strictObject({
   ownershipVerifier: FileSchema,
   runtimeDirectory: z.string().startsWith("/"),
   runtimeSha256: z.string().regex(/^[a-f0-9]{64}$/),
-});
-const ExecutorSchema = z.strictObject({
-  id: z.string().uuid(),
-  generation: z.string().uuid(),
-  pid: z.number().int().positive(),
 });
 
 /** The watchdog acknowledges its pre-lock wait; the executor acknowledges a
@@ -82,6 +95,13 @@ export function waitForBootstrapWatchdog(
   });
 }
 
+function nativeRunnerUid(): number {
+  const uid = process.getuid?.();
+  if (process.platform !== "darwin" || uid === undefined)
+    throw new BootstrapRequestConflict("Native Host runner required");
+  return uid;
+}
+
 /** Only the fixed protected Host launcher invokes this entrypoint. Browser input
  * supplies neither setup paths nor commands. An existing execution is never replayed. */
 export async function runNativeBootstrap(
@@ -90,9 +110,7 @@ export async function runNativeBootstrap(
   identifier: string,
   descriptor: number,
 ): Promise<void> {
-  const uid = process.getuid?.();
-  if (process.platform !== "darwin" || uid === undefined)
-    throw new BootstrapRequestConflict("Native Host runner required");
+  const uid = nativeRunnerUid();
   z.string().uuid().parse(identifier);
   const readSetup = () =>
     BootstrapRunnerSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
@@ -119,11 +137,7 @@ export async function runNativeBootstrap(
   for (const file of [setup.entrypoint, setup.ownerLauncher, setup.ownershipVerifier])
     await readBootstrapPreparedFile(file, roots);
   const requests = await createBootstrapReviewService(setup.admissionSetupFile, setup.daemonId);
-  const request = requests
-    .list()
-    .find((item) =>
-      role === "executor" ? item.id === identifier : item.execution?.generation === identifier,
-    );
+  const request = findRunnerRequest(requests.list(), role, identifier);
   if (!request || request.status !== "approved")
     throw new BootstrapRequestConflict("Exact bootstrap approval is unavailable");
   if (
@@ -132,7 +146,8 @@ export async function runNativeBootstrap(
     !isDeepStrictEqual(request.plan.candidate.node, setup.node)
   )
     throw new BootstrapRequestConflict("Runner does not belong to the approved candidate");
-  await verifyBootstrapReleaseArtifacts(request.plan.candidate, roots);
+  // The watchdog must not depend on reading the failed candidate tree to restore service.
+  if (role === "executor") await verifyBootstrapReleaseArtifacts(request.plan.candidate, roots);
   const lockFile = path.join(request.plan.state.directory, "coordinator-bootstrap-execution.lock");
   const verifySetup = async () => {
     if (
@@ -160,7 +175,7 @@ export async function runNativeBootstrap(
   const executorFile = (generation: string) =>
     path.join(request.plan.state.directory, `coordinator-executor-${generation}.json`);
   if (role === "watchdog") {
-    const record = ExecutorSchema.parse(
+    const record = BootstrapExecutorRecordSchema.parse(
       readPrivateBootstrapConfiguration(executorFile(identifier), uid),
     );
     if (record.id !== request.id || record.generation !== identifier)
@@ -173,7 +188,12 @@ export async function runNativeBootstrap(
       writableMountRoots: () => inspectBootstrapWritableMountRoots(host),
       requireOwnership,
       readHealth: async () => {
-        throw new BootstrapRequestConflict("Watchdog cannot release replacement startup");
+        const config = readPrivateBootstrapConfiguration(
+          request.plan.previous.configuration.path,
+          uid,
+        );
+        const port = z.object({ listenPort: z.number().int().positive() }).parse(config).listenPort;
+        return readBootstrapHealth(port);
       },
     });
     await recoverAbandonedBootstrap(
@@ -199,6 +219,7 @@ export async function runNativeBootstrap(
           }
         },
         resumePrevious: native.resumePrevious,
+        restorePrevious: native.restorePrevious,
       },
     );
     return;
@@ -209,10 +230,14 @@ export async function runNativeBootstrap(
     if (!claimed.execution)
       throw new BootstrapRequestConflict("Bootstrap dispatch generation is missing");
     await requireOwnership();
-    const record = ExecutorSchema.parse({
+    const audited = await reader.inspectAuditedProcess(process.pid);
+    const record = BootstrapExecutorRecordSchema.parse({
       id: claimed.id,
       generation: claimed.execution.generation,
       pid: process.pid,
+      planSha256: claimed.planSha256,
+      process: audited.identity,
+      auditToken: audited.auditToken,
     });
     const file = await open(executorFile(record.generation), "wx", 0o600);
     try {
@@ -244,6 +269,7 @@ export async function runNativeBootstrap(
         setupFile,
         "watchdog",
         record.generation,
+        ...watchdogRecoveryArguments(claimed),
       ],
       { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { PATH: "/usr/bin:/bin" } },
     );

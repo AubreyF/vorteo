@@ -16,11 +16,13 @@ import {
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
 import {
+  assertRecoveredBootstrapBase,
   BootstrapRequestConflict,
   CoordinatorBootstrapRequests,
   type BootstrapHostBinding,
 } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { InstallationConfigSchema } from "./config.js";
 import {
@@ -162,6 +164,22 @@ export async function verifyBootstrapPlan(
     configurationFile: host.configurationFile,
     reader,
   });
+  const recovered = assertRecoveredBootstrapBase(
+    plan,
+    new FileBootstrapRequestJournal(initial.stateDirectory).read(),
+  );
+  if (recovered) {
+    const recordPath = path.join(
+      initial.stateDirectory,
+      `coordinator-executor-${plan.recoveredFrom!.generation}.json`,
+    );
+    const record = BootstrapExecutorRecordSchema.parse(
+      readPrivateBootstrapConfiguration(recordPath, process.getuid!()),
+    );
+    if (record.id !== recovered.id || record.generation !== plan.recoveredFrom!.generation)
+      throw new BootstrapRequestConflict("Previous updater record changed");
+    await reader.verifyProcessExited(record.pid);
+  }
   // Async collection is not a lock. Reject changed evidence before admitting the
   // request, and repeat this entire check under the dispatch fence before acting.
   const finalRoots = await inspectBootstrapWritableMountRoots(host);

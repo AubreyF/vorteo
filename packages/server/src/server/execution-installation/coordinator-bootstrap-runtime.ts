@@ -4,7 +4,10 @@ import type { BootstrapExecutorOperations } from "./coordinator-bootstrap-execut
 import { BootstrapRequestConflict, CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
 import { requireBootstrapOwnership } from "./coordinator-bootstrap-ownership.js";
-import { createNativeBootstrapServiceReader } from "./coordinator-bootstrap-service.js";
+import {
+  createNativeBootstrapServiceReader,
+  verifyBootstrapReplacement,
+} from "./coordinator-bootstrap-service.js";
 import { readBootstrapPreparedFile } from "./coordinator-bootstrap-artifact.js";
 import {
   inspectBootstrapWritableMountRoots,
@@ -82,7 +85,15 @@ export async function createBootstrapNativeOperations(input: {
       // The executor's durable succeeded transition releases the startup fence.
       // Recheck before that write; this operation never sends a release RPC.
       await requireRequest(request);
-      await native.verifyReplacement(request);
+      if (!request.execution) throw new BootstrapRequestConflict("Bootstrap generation is missing");
+      await verifyBootstrapReplacement({
+        plan: request.plan,
+        generation: request.execution.generation,
+        hostUid: process.getuid!(),
+        reader,
+        readHealth: () => readBootstrapHealth(config.listenPort),
+      });
+      await requireRequest(request);
     },
   };
 }

@@ -13,15 +13,10 @@ import {
 
 const execute = promisify(execFile);
 
-const ProcessObservationSchema = z.strictObject({
-  pid: z.number().int().positive(),
-  parentPid: z.number().int().positive(),
-  uid: z.number().int().nonnegative(),
-  bootId: z.string().uuid(),
-  startIdentity: z.string().regex(/^\d+:\d+$/),
-  argumentsSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  executable: z.string().startsWith("/"),
-});
+import {
+  ProcessObservationSchema,
+  AuditedProcessObservationSchema,
+} from "./coordinator-bootstrap-process.js";
 
 const RunningProcessObservationSchema = ProcessObservationSchema.extend({
   stopped: z.literal(false),
@@ -44,6 +39,7 @@ export interface BootstrapServiceReader {
 }
 
 export interface NativeBootstrapServiceReader extends BootstrapServiceReader {
+  inspectAuditedProcess(pid: number): Promise<z.infer<typeof AuditedProcessObservationSchema>>;
   inspectRunningProcess(pid: number): Promise<z.infer<typeof RunningProcessObservationSchema>>;
   verifyProcessExited(pid: number): Promise<void>;
   verifyServiceAbsent(service: string): Promise<void>;
@@ -232,6 +228,15 @@ export async function createNativeBootstrapServiceReader(input: {
         options,
       );
       return ProcessObservationSchema.parse(JSON.parse(result.stdout));
+    },
+    async inspectAuditedProcess(pid) {
+      z.number().int().positive().parse(pid);
+      const result = await execute(
+        "/usr/bin/python3",
+        ["-I", "-B", "-c", source, String(pid), "--audit-token"],
+        options,
+      );
+      return AuditedProcessObservationSchema.parse(JSON.parse(result.stdout));
     },
   };
 }

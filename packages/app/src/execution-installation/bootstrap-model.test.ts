@@ -9,6 +9,7 @@ import {
   bootstrapDecisionDisabledReason,
   bootstrapNeedsAttention,
   bootstrapStatus,
+  currentBootstrapRequests,
 } from "./bootstrap-model";
 
 function request(): CoordinatorBootstrapRequest {
@@ -208,4 +209,26 @@ test("recorded approval unlocks status and cancellation while a late decision re
   expect(model.getState().requests).toEqual([canceled]);
   expect(model.getState().error).toBeNull();
   expect(model.getState().busy).toBe(false);
+});
+
+test("rollback outcome is distinct from success and fresh review replaces only its recovered callout", () => {
+  const failed = request();
+  failed.status = "approved";
+  failed.execution = {
+    generation: randomUUID(),
+    stage: "rolled_back",
+    updatedAt: new Date().toISOString(),
+  };
+  expect(bootstrapStatus(failed)).toBe("Previous coordinator restored; update not installed");
+  expect(bootstrapNeedsAttention(failed)).toBe(false);
+  const next = request();
+  next.plan.recoveredFrom = {
+    id: failed.id,
+    revision: failed.revision,
+    planSha256: failed.planSha256,
+    generation: failed.execution.generation,
+  };
+  expect(currentBootstrapRequests([failed, next])).toEqual([next]);
+  next.status = "canceled";
+  expect(currentBootstrapRequests([failed, next])).toEqual([failed, next]);
 });

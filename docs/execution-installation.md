@@ -260,6 +260,14 @@ The native Host launcher may supply `VORTEO_COORDINATOR_BOOTSTRAP_SETUP` pointin
 
 An exact owner approval starts the fixed runner under its inherited kernel lock. The decision response waits for acknowledgement that dispatch is durably claimed and the watchdog is armed; this does not mean installation has completed. Refresh the recorded request to observe completion or recovery. A timeout or lost response never automatically relaunches the runner. Existing approvals are not replayed when Host starts. Cancellation remains available until dispatch claims the request.
 
+A plan with `automaticRecovery: "restore-previous"` includes one automatic rollback in the exact owner approval. Its independent native watchdog observes durable stage changes. After three minutes without a stage change, it signals only the recorded updater process generation, first with SIGTERM and then, if necessary after ten seconds, SIGKILL. macOS audit tokens bind signals to the PID version. Neither a recycled PID nor an observation timeout establishes ownership; restoration starts only after the updater exits and the watchdog acquires the same kernel lock.
+
+After a failed post-unload update, the watchdog verifies the retained previous release, current selection, process identities and preserved state before restoring the coordinator. It can remove only the exact approved candidate service. A different running service or changed rollback artifacts require inspection. The receipt records rollback intent before any effect, then reports the verified result. A failed or interrupted rollback is not retried automatically. Task databases, credentials, settings and owner sessions are never restored from backups.
+
+After verified restoration, a new plan can name the exact failed request, revision, plan digest and execution generation in `recoveredFrom`. Admission verifies the previous updater has exited and the currently loaded service matches the restored release. The failed receipt stays intact; the new request starts pending and requires its own approval. The current callout follows the new review.
+
+Older plans retain their original behavior and do not gain automatic recovery retroactively. Install compatible Host review support, inspector, runner and interface before preparing a plan with this field. An emergency restoration outside the installed controls requires the owner's explicit exception; it does not authorize replaying the failed update or silently changing its receipt.
+
 This source path still requires protected installation setup and live acceptance before it is available in an existing installation.
 
 Artifact verification accepts npm hard links only when every physical link is inside the release. It binds their paths as well as contents and rejects external aliases or changes during verification. Individually prepared executables, configuration and launcher files still require a single link.
