@@ -311,7 +311,7 @@ test("workspace checklist flower combines unopened threads and survives reload",
     await openAgentRoute(page, agent);
     const card = page.getByTestId("agent-task-progress-card");
     const ring = page.getByTestId(/^workspace-task-progress-/);
-    await expect(card.getByTestId("checklist-count")).toHaveText("0/1");
+    await expect(card.getByTestId("checklist-count")).toHaveText("0 / 1");
     await expect(card).toContainText("stress-update-1");
     await expect(ring).toHaveAttribute("aria-valuenow", "1");
     await expect(ring).toHaveAttribute("aria-valuemax", "2");
@@ -319,12 +319,12 @@ test("workspace checklist flower combines unopened threads and survives reload",
     await client.sendAgentMessage(sibling.id, "emit 2 agent stream updates");
     await expect(ring).toHaveAttribute("aria-valuenow", "0");
     await page.reload();
-    await expect(card.getByTestId("checklist-count")).toHaveText("0/1");
+    await expect(card.getByTestId("checklist-count")).toHaveText("0 / 1");
     await expect(ring).toHaveAttribute("aria-label", /0\/2 tasks \(0%\).*active/);
     await client.archiveAgent(sibling.id);
     await expect(ring).toHaveAttribute("aria-valuemax", "1");
     await client.sendAgentMessage(agent.agentId, "emit 1 agent stream updates");
-    await expect(card.getByTestId("checklist-count")).toHaveText("1/1");
+    await expect(card.getByTestId("checklist-count")).toHaveText("1 / 1");
     await expect(ring).toHaveAttribute("aria-label", /1\/1 tasks \(100%\).*active/);
     for (const width of [1400, 390]) {
       await page.setViewportSize({ width, height: 900 });
@@ -367,7 +367,7 @@ for (const width of [1400, 390]) {
         id: "first",
         text: "First agent-created task",
       });
-      await expect(page.getByTestId("checklist-count")).toHaveText("0/1");
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 1");
       const single = page
         .getByTestId("checklist-progress")
         .locator("svg path[fill]:not([fill='none'])");
@@ -393,7 +393,7 @@ for (const width of [1400, 390]) {
       await page.screenshot({ path: info.outputPath("active-task-spinner.png") });
       await firstRow.getByRole("checkbox", { name: "Complete First agent-created task" }).click();
       await expect(spinner).not.toBeAttached();
-      await expect(page.getByTestId("checklist-count")).toHaveText("1/1");
+      await expect(page.getByTestId("checklist-count")).toHaveText("1 / 1");
       await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "first" });
       await expect(page.getByTestId("agent-task-progress-card")).not.toBeAttached();
       await client.mutateAgentChecklist(agent.agentId, {
@@ -426,7 +426,7 @@ for (const width of [1400, 390]) {
       ).toContainText("Complete dependency");
       await page.getByRole("checkbox", { name: "Complete Build API", exact: true }).click();
       await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
-      await expect(page.getByTestId("checklist-count")).toHaveText("2/2");
+      await expect(page.getByTestId("checklist-count")).toHaveText("2 / 2");
       await page.getByRole("button", { name: "Details for Build API", exact: true }).click();
       await page.getByTestId("checklist-title").fill("My retained draft");
       await client.mutateAgentChecklist(agent.agentId, {
@@ -441,7 +441,7 @@ for (const width of [1400, 390]) {
       await expect(page.getByTestId("checklist-title")).toHaveValue("My retained draft");
       await page.getByRole("button", { name: "Close", exact: true }).last().click();
       await page.getByRole("checkbox", { name: "Reopen Agent revision", exact: true }).click();
-      await expect(page.getByTestId("checklist-count")).toHaveText("1/2");
+      await expect(page.getByTestId("checklist-count")).toHaveText("1 / 2");
       await page.reload();
       await expect(
         page.getByRole("checkbox", { name: "Complete Agent revision", exact: true }),
@@ -476,7 +476,7 @@ for (const width of [1400, 390]) {
       ).toBe("Reviewer");
       await page.getByTestId("checklist-toggle").click();
       await expect(page.getByTestId("checklist-row-dependent")).not.toBeAttached();
-      await expect(page.getByTestId("checklist-count")).toHaveText("0/2");
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
       await expectCenteredHeader();
       await page.getByTestId("checklist-toggle").click();
       await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
@@ -488,7 +488,7 @@ for (const width of [1400, 390]) {
       page.once("dialog", (dialog) => dialog.accept());
       await page.getByRole("button", { name: "Delete task", exact: true }).click();
       await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
-      await expect(page.getByTestId("checklist-count")).toHaveText("0/1");
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 1");
       expect((await client.getAgentChecklist(agent.agentId)).map((task) => task.id)).toEqual([
         api!.id!,
       ]);
