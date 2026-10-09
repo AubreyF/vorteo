@@ -61,3 +61,5 @@ Use this index to find the document that owns your task. Read relevant subjects 
 Host and container setup, trust boundaries, restart requests and removal: [Host and container execution](execution-installation.md).
 
 - [Skill library](skill-library.md): inventory, ownership, reviewed changes, and profile selection.
+
+Factory worker retention and deferred configurable cleanup: [Factory follow-on updates](factory-future-updates.md).

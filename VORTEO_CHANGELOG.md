@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Fixed
+
+- Keep worker conversations visible in their own execution workspaces while retaining parent grouping. Opening a worker tab there no longer redirects to the parent workspace.
+
+### Maintenance
+
+- Retain completed Factory workers and defer opt-in age-based archival until a future update.
+
 ## 0.11.0-beta.3.vorteo.269 - 2026-10-09
 
 ### Fixed

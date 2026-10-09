@@ -62,19 +62,15 @@ afterEach(() => {
   useSessionStore.getState().clearSession(input.serverId);
 });
 
-it("hands an already open worker to the parent task and pauses physical workspace pruning", () => {
+it("keeps an explicitly opened worker in its native execution workspace", () => {
   const { result } = renderHook(() =>
     useAgentPresentationNavigation({
       ...input,
       tab: { descriptor: { target: { kind: "agent", agentId: "worker" } } },
     }),
   );
-  expect(result.current).toBe(true);
-  expect(navigate).toHaveBeenCalledWith({
-    serverId: input.serverId,
-    agentId: "worker",
-    workspaceId: "origin",
-  });
+  expect(result.current).toBe(false);
+  expect(navigate).not.toHaveBeenCalled();
   expect(useSessionStore.getState().sessions[input.serverId]?.agents.get("worker")?.cwd).toBe(
     "/worktrees/execution",
   );
