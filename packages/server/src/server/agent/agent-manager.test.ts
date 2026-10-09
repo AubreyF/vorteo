@@ -1337,18 +1337,23 @@ test("steering records concurrent early echoes as canonical submitted prompts", 
     })();
     await manager.waitForAgentRunStart(agent.id);
     await Promise.all([
-      manager.steerAgentRun(agent.id, "one", { clientMessageId: "client-one" }),
+      manager.steerAgentRun(agent.id, "one", { clientMessageId: "client-one", origin: "agent" }),
       manager.steerAgentRun(agent.id, "two", { clientMessageId: "client-two" }),
     ]);
     const rows = manager.getTimeline(agent.id).filter((item) => item.type === "user_message");
     expect(rows).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ messageId: "client-one", clientMessageId: "client-one" }),
+        expect.objectContaining({
+          messageId: "client-one",
+          clientMessageId: "client-one",
+          origin: "agent",
+        }),
         expect.objectContaining({ messageId: "client-two", clientMessageId: "client-two" }),
       ]),
     );
     expect(rows.filter((item) => item.clientMessageId === "client-one")).toHaveLength(1);
     expect(rows.filter((item) => item.clientMessageId === "client-two")).toHaveLength(1);
+    expect(rows.find((item) => item.clientMessageId === "client-two")).not.toHaveProperty("origin");
   } finally {
     if (agentId) await manager.closeAgent(agentId);
     rmSync(workdir, { recursive: true, force: true });
@@ -11750,10 +11755,12 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
     }
   }
 
+  const store = new RecordingTimelineStore();
   const client = new SubmittedUserMessageClient();
   const manager = new AgentManager({
     clients: { codex: client },
     registry: storage,
+    durableTimelineStore: store,
     logger,
     idFactory: () => "00000000-0000-4000-8000-000000000402",
   });
@@ -11786,6 +11793,7 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
 
     const run = manager.runAgent(snapshot.id, "hello from composer", {
       clientMessageId: "msg-client-1",
+      origin: "agent",
     });
     await manager.waitForAgentRunStart(snapshot.id);
 
@@ -11822,6 +11830,7 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
           text: "hello from composer",
           messageId: "msg-client-1",
           clientMessageId: "msg-client-1",
+          origin: "agent",
         },
       },
       {
@@ -11831,6 +11840,15 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
         item: { type: "assistant_message", text: "output before provider echo" },
       },
     ]);
+
+    await manager.flush();
+    const reader = new AgentManager({ clients: {}, durableTimelineStore: store, logger });
+    const saved = await reader.fetchSavedTimeline(snapshot.id, { limit: 0 });
+    expect(saved.rows[0]?.item).toMatchObject({
+      type: "user_message",
+      origin: "agent",
+      clientMessageId: "msg-client-1",
+    });
 
     manager.setMessageQueueControl({
       queueRestartContinuation: async () => {},
@@ -11914,7 +11932,7 @@ test("authoritative timeline records a daemon-handled submitted prompt before it
     });
 
     await startAgentRun(manager, snapshot.id, "/handled", logger, {
-      runOptions: { clientMessageId: "msg-client-daemon-handled" },
+      runOptions: { clientMessageId: "msg-client-daemon-handled", origin: "agent" },
     });
     await commandCompleted.promise;
 
@@ -11926,6 +11944,7 @@ test("authoritative timeline records a daemon-handled submitted prompt before it
       {
         type: "user_message",
         text: "/handled",
+        origin: "agent",
         clientMessageId: "msg-client-daemon-handled",
       },
       { type: "assistant_message", text: "Handled by the daemon" },
@@ -11936,6 +11955,7 @@ test("authoritative timeline records a daemon-handled submitted prompt before it
       {
         type: "user_message",
         text: "/handled",
+        origin: "agent",
         clientMessageId: "msg-client-daemon-handled",
       },
       { type: "assistant_message", text: "Handled by the daemon" },

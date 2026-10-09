@@ -843,6 +843,7 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
   z.object({
     type: z.literal("user_message"),
     intent: z.literal("goal").optional(),
+    origin: z.literal("agent").optional(),
     queue: QueuePresentationSchema.optional(),
     text: z.string(),
     messageId: z.string().optional(),
@@ -4891,6 +4892,7 @@ export const AgentTimelineListPromptsResponseMessageSchema = z.object({
         seq: z.number().int().nonnegative(),
         timestamp: z.string(),
         preview: z.string(),
+        origin: z.literal("agent").optional(),
       }),
     ),
     error: z.string().nullable(),
