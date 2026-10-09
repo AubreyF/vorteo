@@ -117,7 +117,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
             leftIcon={Plus}
           />
         </View>
-        {expanded ? (
+        {expanded && tasks.length > 0 ? (
           <ChecklistRows
             tasks={tasks}
             canMutate={canMutate}

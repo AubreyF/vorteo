@@ -144,7 +144,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
       expect(geometry[0].frame[3]).toBe("8px");
-      expect(geometry[2].padding).toBe("4px 8px 8px");
+      expect(geometry[2].padding).toBe("8px");
       for (const card of geometry.slice(2)) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
@@ -190,7 +190,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         expect(card.frame).toEqual(geometry[2].frame);
         const bottomPadding = card.id === "agent-goal-bar" ? 16 : 8;
         const leftPadding = width === 390 ? 12 : 16;
-        expect(card.padding).toBe(`4px 8px ${bottomPadding}px ${leftPadding}px`);
+        expect(card.padding).toBe(`8px 8px ${bottomPadding}px ${leftPadding}px`);
         expect(card.width).toBe(geometry[2].width);
       }
       const goalActionInset = await stack.getByTestId("agent-goal-bar").evaluate((card) => {
@@ -353,6 +353,15 @@ for (const width of [1400, 390]) {
     const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "manual-checklist" });
     try {
       await openAgentRoute(page, agent);
+      const expectCenteredHeader = async () => {
+        const clearance = await page.getByTestId("agent-task-progress-card").evaluate((card) => {
+          const box = card.getBoundingClientRect();
+          const header = card.firstElementChild!.firstElementChild!.getBoundingClientRect();
+          return { top: header.top - box.top, bottom: box.bottom - header.bottom };
+        });
+        expect(clearance.top).toBeCloseTo(clearance.bottom, 0);
+      };
+      await expectCenteredHeader();
       await page.getByTestId("checklist-add").click();
       await page.getByTestId("checklist-title").fill("Build API");
       await page.getByTestId("checklist-description").fill("Updates survive reload");
@@ -426,6 +435,7 @@ for (const width of [1400, 390]) {
       await page.getByTestId("checklist-toggle").click();
       await expect(page.getByTestId("checklist-row-dependent")).not.toBeAttached();
       await expect(page.getByTestId("checklist-count")).toHaveText("0/2");
+      await expectCenteredHeader();
       await page.getByTestId("checklist-toggle").click();
       await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
       await info.attach(`manual-checklist-${width}`, {
