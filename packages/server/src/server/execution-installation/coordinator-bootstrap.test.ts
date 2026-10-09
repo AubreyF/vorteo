@@ -1556,3 +1556,54 @@ test("stopped candidate recovery verifies loaded arguments and refuses unrelated
     isStoppedBootstrapCandidate(plan, output.replace(plan.service, "gui/501/other")),
   ).toThrow("service identity");
 });
+
+test("concurrent exact approvals share verification and commit only once", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const service = f.service();
+  let checks = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.setVerify(async () => {
+    checks++;
+    await gate;
+  });
+  const input = {
+    id: pending.id,
+    revision: pending.revision,
+    planSha256: pending.planSha256,
+    decision: "approve" as const,
+  };
+  const attempts = [service.decide(input, ownerPassword), service.decide(input, ownerPassword)];
+  const outcomes = Promise.allSettled(attempts);
+  await expect.poll(() => checks).toBe(1);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(checks).toBe(1);
+  release();
+  const results = await outcomes;
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect(service.list()[0]?.status).toBe("approved");
+});
+
+test("failed approval verification is never reused by a later attempt", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const service = f.service();
+  let checks = 0;
+  f.setVerify(async () => {
+    checks++;
+    if (checks === 1) throw new Error("fixture changed bytes");
+  });
+  const input = {
+    id: pending.id,
+    revision: pending.revision,
+    planSha256: pending.planSha256,
+    decision: "approve" as const,
+  };
+  await expect(service.decide(input, ownerPassword)).rejects.toThrow("fixture changed bytes");
+  expect(service.list()[0]?.status).toBe("pending");
+  await expect(service.decide(input, ownerPassword)).resolves.toMatchObject({ status: "approved" });
+  expect(checks).toBe(2);
+});

@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.278 - 2026-10-09
+
+### Fixed
+
+- Share in-flight verification for concurrent approvals of the same coordinator request, retaining independent authentication and guarded decision writes.
+- Explain long-running coordinator decision checks in both Installation controls and the sidebar, and discourage duplicate submissions.
 
 ## 0.11.0-beta.3.vorteo.277 - 2026-10-09
 

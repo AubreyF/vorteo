@@ -323,3 +323,5 @@ Workspace replica persistence retains protection, standing status and Factory me
 Maintenance review: root and app instructions now route interface delivery through the supported Host source updater when static publication is unavailable. Exact installation approval, restart disclosure and preview-only boundaries remain required. This documentation change does not alter runtime behavior or README onboarding.
 
 Conversation column integration maintenance: preserved deployed journal controls, neutral blocked icons, clipboard controls and workspace recovery while merging independently resizable columns and shared heading hover regions. Historical release entries from both branches remain intact.
+
+Coordinator review maintenance: concurrent approvals of one exact request share only the active artifact check. Completed checks are never cached, each caller authenticates independently, cancellation still wins through guarded writes, and dispatch verifies again. The review and sidebar explain that checking the prepared release can take several minutes.
