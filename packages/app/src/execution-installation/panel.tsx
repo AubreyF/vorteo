@@ -24,6 +24,7 @@ import type { Theme } from "@/styles/theme";
 
 import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
+import { getBootstrapPanel, BootstrapReview, BootstrapBanner } from "./bootstrap-panel";
 import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
 import {
@@ -87,8 +88,10 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
   const pathname = usePathname();
   useEffect(() => {
     void model.initialize();
+    void getBootstrapPanel()?.refresh();
     const timer = setInterval(() => {
       void model.refresh();
+      void getBootstrapPanel()?.refresh(true);
     }, 5000);
     return () => clearInterval(timer);
   }, [model]);
@@ -138,6 +141,7 @@ function InstallationPanel({
   model: InstallationPanelModel;
   requestId: string | null;
 }) {
+  const bootstrap = getBootstrapPanel();
   const controlSize = useVortonTouch() ? "md" : "sm";
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const [historyVisible, setHistoryVisible] = useState(false);
@@ -168,6 +172,7 @@ function InstallationPanel({
     <SettingsSection title="Installation" testID="installation-panel">
       <View style={settingsStyles.card} testID="installation-card">
         <InstallationOwnerAccess model={model} state={state} />
+        {bootstrap ? <BootstrapReview model={bootstrap} /> : null}
         {state.error ? (
           <Text accessibilityRole="alert" style={[styles.textInset, styles.error]}>
             {state.error}
@@ -836,7 +841,13 @@ function RestartActivity({ job }: { job: RestartJob }) {
 
 export function InstallationRestartBanner() {
   const model = getInstallationPanel(useHostRegistryLoaded());
-  return model ? <RestartBanner model={model} /> : null;
+  const bootstrap = getBootstrapPanel();
+  return (
+    <>
+      {bootstrap ? <BootstrapBanner model={bootstrap} /> : null}
+      {model ? <RestartBanner model={model} /> : null}
+    </>
+  );
 }
 
 function RestartBanner({ model }: { model: InstallationPanelModel }) {
