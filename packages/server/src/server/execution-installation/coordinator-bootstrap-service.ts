@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { constants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
+import { promisify, isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
+import { assertBootstrapPathsProtected } from "./coordinator-bootstrap-artifact.js";
+
+const execute = promisify(execFile);
 
 const ProcessObservationSchema = z.strictObject({
   pid: z.number().int().positive(),
@@ -16,6 +23,114 @@ const ProcessObservationSchema = z.strictObject({
 export interface BootstrapServiceReader {
   readService(service: string): Promise<string>;
   inspectProcess(pid: number): Promise<unknown>;
+}
+
+/** Plists are decoded by the fixed Host parser. Preserve environment, logs and
+ * lifetime settings while changing only the approved executable/config paths. */
+export function verifyBootstrapLaunchers(input: {
+  plan: CoordinatorBootstrapPlan;
+  configurationFile: string;
+  current: unknown;
+  previous: unknown;
+  candidate: unknown;
+}): void {
+  const schema = z.record(z.string(), z.unknown());
+  const current = schema.parse(input.current);
+  const previous = schema.parse(input.previous);
+  const candidate = schema.parse(input.candidate);
+  const currentArguments = [
+    input.plan.previous.node.path,
+    input.plan.previous.entrypoint.path,
+    input.configurationFile,
+  ];
+  const label = input.plan.service.split("/").slice(2).join("/");
+  const matchingLauncher =
+    current.Label === label &&
+    isDeepStrictEqual(current.ProgramArguments, currentArguments) &&
+    (current.Program === undefined || current.Program === input.plan.previous.node.path);
+  if (!matchingLauncher || !isDeepStrictEqual(current, previous))
+    throw new BootstrapRequestConflict(
+      "Current coordinator launcher no longer matches preparation",
+    );
+  const expected: Record<string, unknown> = {
+    ...current,
+    ProgramArguments: [
+      input.plan.candidate.node.path,
+      input.plan.candidate.entrypoint.path,
+      input.plan.candidate.configuration.path,
+    ],
+  };
+  if (current.Program !== undefined) expected.Program = input.plan.candidate.node.path;
+  if (!isDeepStrictEqual(candidate, expected))
+    throw new BootstrapRequestConflict("Candidate launcher changes unapproved service settings");
+}
+
+/** Helper identity is supplied by protected Host setup, never by a review RPC.
+ * Execute the verified buffer, not a pathname that can change after hashing. */
+export async function createNativeBootstrapServiceReader(input: {
+  helperPath: string;
+  helperSha256: string;
+  writableMountRoots: readonly string[];
+}): Promise<BootstrapServiceReader> {
+  if (process.platform !== "darwin" || !process.getuid)
+    throw new BootstrapRequestConflict("Coordinator inspection requires native macOS Host");
+  const uid = process.getuid();
+  z.string()
+    .regex(/^[a-f0-9]{64}$/)
+    .parse(input.helperSha256);
+  if ((await realpath(input.helperPath)) !== input.helperPath)
+    throw new BootstrapRequestConflict("Coordinator inspector requires its canonical path");
+  await assertBootstrapPathsProtected([input.helperPath], input.writableMountRoots);
+  const fd = await open(
+    input.helperPath,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  let source: string;
+  try {
+    const before = await fd.stat({ bigint: true });
+    if (
+      !before.isFile() ||
+      before.uid !== BigInt(uid) ||
+      before.nlink !== 1n ||
+      (before.mode & 0o022n) !== 0n ||
+      before.size > 1024n * 1024n
+    )
+      throw new BootstrapRequestConflict("Coordinator inspector must be a protected owned file");
+    const bytes = await fd.readFile();
+    const after = await fd.stat({ bigint: true });
+    const changed =
+      before.ctimeNs !== after.ctimeNs ||
+      before.mtimeNs !== after.mtimeNs ||
+      before.size !== after.size ||
+      before.mode !== after.mode;
+    if (changed || createHash("sha256").update(bytes).digest("hex") !== input.helperSha256)
+      throw new BootstrapRequestConflict("Coordinator inspector bytes changed");
+    source = bytes.toString("utf8");
+  } finally {
+    await fd.close();
+  }
+  const options = { env: { PATH: "/usr/bin:/bin" }, timeout: 10_000, maxBuffer: 1024 * 1024 };
+  return {
+    async readService(service) {
+      const label = z
+        .string()
+        .regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation$/)
+        .parse(service);
+      if (!label.startsWith(`gui/${uid}/`))
+        throw new BootstrapRequestConflict("Coordinator service belongs to another Host account");
+      const result = await execute("/bin/launchctl", ["print", label], options);
+      return result.stdout;
+    },
+    async inspectProcess(pid) {
+      z.number().int().positive().parse(pid);
+      const result = await execute(
+        "/usr/bin/python3",
+        ["-I", "-B", "-c", source, String(pid)],
+        options,
+      );
+      return ProcessObservationSchema.parse(JSON.parse(result.stdout));
+    },
+  };
 }
 
 export async function verifyLoadedBootstrapService(input: {

@@ -7,6 +7,7 @@ import {
   rmSync,
   chmodSync,
   symlinkSync,
+  readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -21,6 +22,7 @@ import {
   verifyBootstrapConfiguration,
 } from "./coordinator-bootstrap-host.js";
 import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
+import { createNativeBootstrapServiceReader } from "./coordinator-bootstrap-service.js";
 
 const roots: string[] = [];
 
@@ -64,6 +66,27 @@ test.runIf(process.platform === "darwin")(
         "startIdentity",
         "uid",
       ]);
+      const { root } = fixture();
+      const helperPath = path.join(root, "inspector.py");
+      const bytes = readFileSync(script);
+      writeFileSync(helperPath, bytes, { mode: 0o600 });
+      const options = {
+        helperPath,
+        helperSha256: createHash("sha256").update(bytes).digest("hex"),
+        writableMountRoots: [],
+      };
+      await expect(
+        createNativeBootstrapServiceReader({ ...options, helperSha256: "f".repeat(64) }),
+      ).rejects.toThrow("bytes changed");
+      await expect(
+        createNativeBootstrapServiceReader({ ...options, writableMountRoots: [root] }),
+      ).rejects.toThrow("mount");
+      const reader = await createNativeBootstrapServiceReader(options);
+      writeFileSync(helperPath, 'raise RuntimeError("unreviewed replacement")');
+      expect(await reader.inspectProcess(child.pid!)).toEqual(identity);
+      await expect(
+        reader.readService("gui/999999/local.vorteo.fixture.installation"),
+      ).rejects.toThrow("another Host account");
     } finally {
       child.kill();
       await closed;

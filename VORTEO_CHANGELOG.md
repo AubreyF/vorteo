@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.233 - 2026-10-08
+
+### Maintenance
+
+- Restore missing task-card icon exports in the browser test stub so task-card imports do not block component validation
+- Add a native read-only service collector that verifies the process inspector's bytes and executes the captured source with fixed system tools
+- Reject guest-writable inspector paths, incorrect digests and foreign service owners; verify that a later helper-file replacement cannot change executed code
+- Preserve coordinator launcher environment, logging and lifetime settings while permitting only approved executable and configuration arguments; complete admission and lifecycle activation remain unfinished
+
 ## 0.11.0-beta.3.vorteo.232 - 2026-10-08
 
 ### Maintenance

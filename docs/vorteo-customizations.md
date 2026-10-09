@@ -95,6 +95,10 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Browser test stubs export all icons used by task-card headings, restoring component dependency scanning.
+
+October 8, 2026: The native bootstrap collector verifies inspector bytes outside writable guest mounts and executes the captured source with fixed system commands. Its disposable-process test rejects substituted digests and proves pathname replacement cannot change executed code. Launcher validation preserves service environment and lifetime settings, permitting only exact planned executable and configuration arguments. Complete plan admission and lifecycle activation remain unfinished.
+
 October 8, 2026: Coordinator service verification now matches the top-level loaded PID against prepared kernel identity, Host ownership, launchd parent and exact executable arguments. Repeated observations reject service replacement and changed process birth identity without inspecting an unexpected PID. Focused race tests pass; trusted collector wiring and production lifecycle admission remain unfinished.
 
 October 8, 2026: A read-only macOS helper now inspects process ownership, kernel birth and boot identity, executable and argument digest for coordinator bootstrap. It omits raw arguments and environment contents and rechecks observations before returning. A disposable-process test covers stable identity and termination; a read-only installed-coordinator probe matched its launcher. Trusted helper admission and loaded-service integration remain pending, so this does not enable coordinator replacement.

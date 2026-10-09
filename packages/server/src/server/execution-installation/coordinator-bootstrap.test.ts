@@ -19,6 +19,7 @@ import {
   loadedCoordinatorPid,
   verifyBootstrapServiceIdentity,
   verifyLoadedBootstrapService,
+  verifyBootstrapLaunchers,
 } from "./coordinator-bootstrap-service.js";
 
 const roots: string[] = [];
@@ -27,6 +28,41 @@ afterEach(() => {
 });
 const ownerPassword = "fixture-installation-owner";
 const ownerHash = hashSync(ownerPassword, 4);
+
+test("bootstrap launchers preserve environment and lifetime settings with exact approved arguments", () => {
+  const { plan } = fixture();
+  const configurationFile = "/protected/active-config.json";
+  const current = {
+    Label: plan.service.split("/").slice(2).join("/"),
+    ProgramArguments: [plan.previous.node.path, plan.previous.entrypoint.path, configurationFile],
+    EnvironmentVariables: { PATH: "/usr/bin:/bin", PRESERVED: "fixture-value" },
+    KeepAlive: true,
+    RunAtLoad: true,
+  };
+  const candidate = {
+    ...current,
+    ProgramArguments: [
+      plan.candidate.node.path,
+      plan.candidate.entrypoint.path,
+      plan.candidate.configuration.path,
+    ],
+  };
+  const input = { plan, configurationFile, current, previous: structuredClone(current), candidate };
+  expect(() => verifyBootstrapLaunchers(input)).not.toThrow();
+  for (const change of [
+    { EnvironmentVariables: { PATH: "/unapproved" } },
+    { KeepAlive: false },
+    { Program: "/unapproved/executable" },
+    { Label: "another-service" },
+    { ProgramArguments: [...candidate.ProgramArguments, "--unapproved"] },
+  ])
+    expect(() =>
+      verifyBootstrapLaunchers({ ...input, candidate: { ...candidate, ...change } }),
+    ).toThrow("unapproved service settings");
+  expect(() =>
+    verifyBootstrapLaunchers({ ...input, previous: { ...current, RunAtLoad: false } }),
+  ).toThrow("no longer matches");
+});
 
 test("loaded coordinator PID parsing rejects nested, foreign and incomplete records", () => {
   const service = "gui/501/local.vorteo.fixture.installation";
