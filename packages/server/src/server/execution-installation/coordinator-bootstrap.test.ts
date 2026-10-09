@@ -37,6 +37,8 @@ import {
   coordinatorStartupReleased,
 } from "./coordinator-bootstrap-startup.js";
 
+import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
+
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -916,4 +918,118 @@ test("native startup fence reloads its durable generation and refuses deleted or
   f.journal.replace([], [success]);
   expect(fence?.released()).toBe(true);
   expect(loadCoordinatorStartupFence(identity)).toBeUndefined();
+});
+
+test.each([
+  "claimed",
+  "freeze_pending",
+  "frozen",
+  "resume_pending",
+  "unload_pending",
+  "unloaded",
+  "selection_pending",
+  "selected",
+  "start_pending",
+  "started",
+  "verifying",
+  "succeeded",
+  "resumed",
+  "recovery_required",
+] as const)("watchdog crash recovery at %s never resumes after transfer intent", async (stage) => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: { generation: randomUUID(), stage, updatedAt: new Date().toISOString() },
+  };
+  f.journal.replace([approved], [record]);
+  const calls: string[] = [];
+  const result = await recoverAbandonedBootstrap(
+    f.service(),
+    { id: record.id, generation: record.execution.generation },
+    {
+      withOwnership: async (operation) => {
+        calls.push("exclusive");
+        return operation();
+      },
+      verifyExecutorExited: async () => {
+        calls.push("exited");
+      },
+      resumePrevious: async () => {
+        expect(f.service().list()[0]?.execution?.stage).toBe("resume_pending");
+        calls.push("resume");
+      },
+    },
+  );
+  const resumable = ["freeze_pending", "frozen", "resume_pending"].includes(stage);
+  const terminal = ["succeeded", "resumed", "recovery_required"].includes(stage);
+  let expectedStage: string = "recovery_required";
+  if (terminal) expectedStage = stage;
+  if (resumable) expectedStage = "resumed";
+  expect(result.execution?.stage).toBe(expectedStage);
+  expect(calls).toEqual(["exclusive", "exited", ...(resumable ? ["resume"] : [])]);
+});
+
+test("watchdog refuses uncertain executor death and changed ownership before any resume", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "frozen" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [record]);
+  const expected = { id: record.id, generation: record.execution.generation };
+  let resumes = 0;
+  const operations = {
+    withOwnership: async <T>(operation: () => Promise<T>) => operation(),
+    verifyExecutorExited: async () => {
+      throw new Error("Observation unavailable");
+    },
+    resumePrevious: async () => {
+      resumes++;
+    },
+  };
+  await expect(recoverAbandonedBootstrap(f.service(), expected, operations)).rejects.toThrow(
+    "Observation unavailable",
+  );
+  expect(f.service().list()).toEqual([record]);
+  await expect(
+    recoverAbandonedBootstrap(
+      f.service(),
+      { ...expected, generation: randomUUID() },
+      { ...operations, verifyExecutorExited: async () => {} },
+    ),
+  ).rejects.toThrow("ownership changed");
+  expect(resumes).toBe(0);
+  const result = await recoverAbandonedBootstrap(f.service(), expected, {
+    ...operations,
+    verifyExecutorExited: async () => {},
+    resumePrevious: async () => {
+      throw new Error("Old process identity changed");
+    },
+  });
+  expect(result.execution?.stage).toBe("recovery_required");
+  expect(resumes).toBe(0);
 });

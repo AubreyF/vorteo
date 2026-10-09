@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.239 - 2026-10-08
+
+### Maintenance
+
+- Add generation-bound watchdog recovery that resumes only verified pre-transfer freezes and refuses ambiguous executor death
+- Preserve recovery-required state after unload intent without replaying service operations
+- Add a native ownership launcher whose kernel lock survives Node execution and releases on process death, verified with disposable fixtures
+- Keep native lifecycle adapters, watchdog launching and visible review controls pending before activation
+
 ## 0.11.0-beta.3.vorteo.238 - 2026-10-08
 
 ### Maintenance

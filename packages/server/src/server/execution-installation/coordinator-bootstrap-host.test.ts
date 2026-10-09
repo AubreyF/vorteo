@@ -522,3 +522,81 @@ test.runIf(process.platform === "darwin")(
     await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("mounts changed");
   },
 );
+
+test.runIf(process.platform === "darwin")(
+  "native ownership survives exec and releases on fixture process death",
+  async () => {
+    const { root } = fixture();
+    const entry = path.join(root, "owner.mjs");
+    const setup = path.join(root, "setup.json");
+    const lock = path.join(root, "coordinator-bootstrap-execution.lock");
+    writeFileSync(setup, "{}", { mode: 0o600 });
+    writeFileSync(
+      entry,
+      `import fs from 'node:fs';
+    const fd=Number(process.env.VORTEO_BOOTSTRAP_LOCK_FD);
+    if(!Number.isInteger(fd)||!fs.fstatSync(fd).isFile())process.exit(2);
+    process.stdout.write('owned\\n');
+    process.stdin.resume();
+    process.stdin.on('end',()=>process.exit(0));`,
+      { mode: 0o600 },
+    );
+    const helper = path.resolve("../../scripts/run-coordinator-owner.py");
+    const launch = () =>
+      spawn(
+        "/usr/bin/python3",
+        [helper, lock, realpathSync(process.execPath), entry, setup, "executor", randomUUID()],
+        { stdio: ["pipe", "pipe", "pipe"] },
+      );
+    const first = launch();
+    const firstClosed = once(first, "close");
+    await once(first.stdout!, "data");
+    try {
+      const probe = await promisify(execFile)("/usr/bin/python3", [
+        "-c",
+        `
+import fcntl,os,sys
+fd=os.open(sys.argv[1],os.O_RDWR)
+try:
+    fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    print("unlocked")
+except BlockingIOError:
+    print("locked")
+finally:
+    os.close(fd)
+`,
+        lock,
+      ]);
+      expect(probe.stdout.trim()).toBe("locked");
+    } catch (error) {
+      first.kill("SIGKILL");
+      await firstClosed;
+      throw error;
+    }
+    const second = launch();
+    const secondClosed = once(second, "close");
+    const secondReady = once(second.stdout!, "data");
+    let secondOwned = false;
+    void secondReady.then(() => {
+      secondOwned = true;
+      return undefined;
+    });
+    try {
+      // A kernel query provides a scheduling opportunity without treating a
+      // timeout as process death or using a production service as a fixture.
+      await promisify(execFile)("/bin/ps", ["-p", String(second.pid), "-o", "pid="]);
+      expect(secondOwned).toBe(false);
+      first.kill("SIGKILL");
+      await firstClosed;
+      const [ready] = await secondReady;
+      expect(String(ready)).toBe("owned\n");
+      second.stdin!.end();
+      const [code] = await secondClosed;
+      expect(code).toBe(0);
+    } finally {
+      first.kill("SIGKILL");
+      second.kill("SIGKILL");
+      await Promise.all([firstClosed, secondClosed]);
+    }
+  },
+);
