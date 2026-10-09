@@ -195,6 +195,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         expect(card.frame).toEqual(geometry[0].frame);
       }
       await checkHeadingGeometry(stack, width);
+      await checkHeadingHover(page, stack, width, info);
       const journalCard = stack.getByTestId("agent-journal-card");
       const toggleJournal = stack.getByTestId("agent-journal-toggle");
       await toggleJournal.scrollIntoViewIfNeeded();
@@ -338,6 +339,63 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
   }
 });
 
+async function checkHeadingHover(page: Page, stack: Locator, width: number, info: TestInfo) {
+  const toggles = [
+    "agent-goal-toggle",
+    "checklist-toggle",
+    "agent-journal-toggle",
+    "subagents-group-paseo-toggle",
+    "message-queue-toggle",
+  ];
+  let highlight: string | undefined;
+  for (const id of toggles) {
+    const toggle = stack.getByTestId(id);
+    await toggle.scrollIntoViewIfNeeded();
+    await page.mouse.move(0, 0);
+    const idle = await toggle.evaluate((node) => getComputedStyle(node).backgroundColor);
+    const geometry = await toggle.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const icon = node.firstElementChild!.getBoundingClientRect();
+      const wrapper = node.parentElement!;
+      const header = wrapper.parentElement!;
+      const next = wrapper.nextElementSibling;
+      const card = header.parentElement!.parentElement!.parentElement!;
+      return {
+        leftInset: box.left - card.getBoundingClientRect().left,
+        iconInset: icon.left - box.left,
+        rightGap:
+          (next ? next.getBoundingClientRect().left : header.getBoundingClientRect().right) -
+          box.right,
+        width: box.width,
+        height: box.height,
+      };
+    });
+    expect(geometry.height, id).toBe(width === 390 ? 44 : 32);
+    expect(geometry.leftInset, id).toBeCloseTo(1, 0);
+    expect(geometry.iconInset, id).toBeCloseTo(12, 0);
+    expect(geometry.rightGap, id).toBeLessThanOrEqual(8);
+    await toggle.hover({ position: { x: 4, y: geometry.height / 2 } });
+    await expect
+      .poll(() => toggle.evaluate((node) => getComputedStyle(node).backgroundColor))
+      .not.toBe(idle);
+    const color = await toggle.evaluate((node) => getComputedStyle(node).backgroundColor);
+    highlight ??= color;
+    expect(color, id).toBe(highlight);
+    await toggle.hover({ position: { x: geometry.width - 4, y: geometry.height / 2 } });
+    await expect
+      .poll(() => toggle.evaluate((node) => getComputedStyle(node).backgroundColor))
+      .toBe(highlight);
+    await info.attach(`heading-hover-${id}-${width}`, {
+      body: await page.screenshot({ path: info.outputPath(`heading-hover-${id}-${width}.png`) }),
+      contentType: "image/png",
+    });
+    await toggle.click({ position: { x: 4, y: geometry.height / 2 } });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click({ position: { x: geometry.width - 4, y: geometry.height / 2 } });
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  }
+}
+
 // Measure the rendered contract, not component-specific padding implementations.
 async function checkHeadingGeometry(stack: Locator, width: number) {
   const ids = [
@@ -353,10 +411,9 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
       cardIds.map((id) => {
         const card = root.querySelector(`[data-testid="${id}"]`)!;
         const header = card.querySelector(`[data-testid="${id}-header"]`)!.firstElementChild!;
-        const icon = header.firstElementChild!;
-        const trigger = icon.nextElementSibling!;
-        const title =
-          trigger.getAttribute("role") === "button" ? trigger.firstElementChild! : trigger;
+        const disclosure = header.querySelector("[aria-expanded]");
+        const icon = disclosure ? disclosure.firstElementChild! : header.firstElementChild!;
+        const title = icon.nextElementSibling!;
         const box = header.getBoundingClientRect();
         const center = (node: Element) => {
           const rect = node.getBoundingClientRect();

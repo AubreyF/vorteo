@@ -177,18 +177,21 @@ function QueueHeader({
         })
         .catch(() => {});
   }, [control, snapshot]);
+  const headerStatus = useMemo(
+    () => <CardHeaderStatus text={status} testID="message-queue-header-status" />,
+    [status],
+  );
   return (
     <>
-      <TaskCardIcon kind="messages" />
       <CardDisclosure
+        icon={HEADING_ICON}
+        trailing={headerStatus}
         title="Messages"
         expanded={expanded}
         onPress={toggleExpanded}
-        compact
         testID="message-queue-toggle"
         count={countBadge}
       />
-      <CardHeaderStatus text={status} testID="message-queue-header-status" />
       <Button
         variant="ghost"
         size="sm"
@@ -823,3 +826,5 @@ const styles = StyleSheet.create((theme) => ({
     textAlignVertical: "top",
   },
 }));
+
+const HEADING_ICON = <TaskCardIcon kind="messages" />;

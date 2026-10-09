@@ -30,8 +30,8 @@ export function JournalCard({ serverId, agentId }: { serverId: string; agentId: 
   return (
     <TaskCard testID="agent-journal-card" bodyVisible={expanded}>
       <TaskCardHeader>
-        <TaskCardIcon kind="journal" />
         <CardDisclosure
+          icon={HEADING_ICON}
           title="Journal"
           expanded={expanded}
           onPress={toggle}
@@ -88,3 +88,5 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: Math.round(theme.fontSize.sm * 1.5),
   },
 }));
+
+const HEADING_ICON = <TaskCardIcon kind="journal" />;
