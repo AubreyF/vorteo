@@ -25,6 +25,7 @@ Use this index to find the document that owns your task. Read relevant subjects 
 | [docs/forge-providers.md](forge-providers.md)                         | Adding a git forge: registry/manifest, drop-in checklist, self-host/GHES, the two facts tiers                                  |
 | [docs/custom-providers.md](custom-providers.md)                       | Custom provider config: Z.AI, Alibaba/Qwen, ACP agents, profiles, custom binaries                                              |
 | [docs/plugins.md](plugins.md)                                         | Local plugin manifest, directory source config, RPCs, native surfaces, and attachment sources                                  |
+| [Bundled Factory](factory.md)                                         | Read-only observer candidate, controller adoption, native lifecycle and installation boundaries                                |
 | [docs/service-proxy.md](service-proxy.md)                             | Service proxy: exposing workspace scripts at public URLs, DNS setup, reverse proxy config                                      |
 | [docs/development.md](development.md)                                 | Dev server, build sync gotchas, CLI reference, agent state, Playwright MCP                                                     |
 | [docs/rpc-namespacing.md](rpc-namespacing.md)                         | WebSocket RPC naming convention — dotted namespaces and `.request`/`.response` pairs                                           |

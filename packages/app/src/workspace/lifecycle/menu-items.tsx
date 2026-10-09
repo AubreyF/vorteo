@@ -10,6 +10,11 @@ import type { Theme } from "@/styles/theme";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
+import {
+  FACTORY_MANAGED_EXPLANATION,
+  selectFactoryMembership,
+  useFactoryMembership,
+} from "./factory-membership";
 
 const ScheduleIcon = withUnistyles(Repeat2);
 const ProtectedIcon = withUnistyles(LockKeyhole);
@@ -25,6 +30,7 @@ export function WorkspaceLifecycleMenuItems({
   workspaceId: string;
 }) {
   const scheduleState = useWorkspaceScheduleState(serverId, workspaceId);
+  const membership = useFactoryMembership(serverId, workspaceId);
   const scheduleLabel = scheduleState === "paused" ? "Paused" : "Scheduled";
   const scheduleAction = scheduleState ? "Manage schedules…" : "Add schedule…";
   const openSchedules = useCallback(() => {
@@ -39,6 +45,11 @@ export function WorkspaceLifecycleMenuItems({
   const mutation = useMutation({
     mutationKey: ["workspace-lifecycle", serverId, workspaceId],
     mutationFn: async (change: { protected: boolean }) => {
+      if (
+        !change.protected &&
+        selectFactoryMembership(useSessionStore.getState(), serverId, workspaceId)
+      )
+        throw new Error(FACTORY_MANAGED_EXPLANATION);
       const client = getHostRuntimeStore().getClient(serverId);
       if (!client) throw new Error("Host disconnected. Reconnect and try again.");
       await client.setWorkspaceLifecycle({ workspaceId, ...change });
@@ -52,7 +63,7 @@ export function WorkspaceLifecycleMenuItems({
   const changingProtection = mutation.isPending && mutation.variables?.protected !== undefined;
   return (
     <>
-      <MenuHint>Standing</MenuHint>
+      <MenuHint>{membership ? "Factory" : "Standing"}</MenuHint>
       {scheduleState ? <MenuHint>{scheduleLabel}</MenuHint> : null}
       <MenuItem
         leading={scheduleLeading}
@@ -66,13 +77,17 @@ export function WorkspaceLifecycleMenuItems({
         testID={`workspace-protected-${workspaceId}`}
         selected={protectedWorkspace}
         closeOnSelect={false}
-        disabled={!supported || mutation.isPending}
+        disabled={!supported || mutation.isPending || Boolean(membership)}
         status={changingProtection ? "pending" : "idle"}
         onSelect={toggleProtected}
       >
         Protected
       </MenuItem>
-      <MenuHint>Protected workspaces cannot be archived.</MenuHint>
+      <MenuHint>
+        {membership
+          ? "Turn Factory off before removing protection."
+          : "Protected workspaces cannot be archived."}
+      </MenuHint>
       {mutation.isError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {mutation.error.message}

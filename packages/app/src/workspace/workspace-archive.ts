@@ -12,6 +12,10 @@ import {
 import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
 import { resolveWorkspaceMapKeyByIdentity } from "@/utils/workspace-identity";
 import { i18n } from "@/i18n/i18next";
+import {
+  FACTORY_MANAGED_EXPLANATION,
+  selectFactoryMembership,
+} from "./lifecycle/factory-membership";
 
 export interface WorkspaceArchiveTarget {
   serverId: string;
@@ -85,17 +89,24 @@ async function archiveWorkspaceOrThrow(input: {
   }
 }
 
+function assertArchiveTargetsCurrent(targets: readonly WorkspaceArchiveTarget[]): void {
+  for (const workspace of targets) {
+    if (
+      selectFactoryMembership(useSessionStore.getState(), workspace.serverId, workspace.workspaceId)
+    )
+      throw new Error(FACTORY_MANAGED_EXPLANATION);
+    const reason = getWorkspaceArchiveBlockReason(workspace.serverId, workspace.workspaceId);
+    if (reason) throw new Error(reason);
+  }
+}
+
 export async function archiveWorkspaceOptimistically(input: {
   client: WorkspaceArchiveClient;
   workspace: WorkspaceArchiveTarget;
   getCompanionClient?: (serverId: string) => WorkspaceArchiveClient | null;
   onArchiveStarted?: () => void;
 }): Promise<void> {
-  const reason = getWorkspaceArchiveBlockReason(
-    input.workspace.serverId,
-    input.workspace.workspaceId,
-  );
-  if (reason) throw new Error(reason);
+  assertArchiveTargetsCurrent([input.workspace]);
   const members = workspaceEnvironmentMembers(useSessionStore.getState().sessions, input.workspace);
   const isOwner =
     members[0]?.serverId === input.workspace.serverId &&
@@ -105,14 +116,8 @@ export async function archiveWorkspaceOptimistically(input: {
       member.serverId !== input.workspace.serverId ||
       member.workspaceId !== input.workspace.workspaceId,
   );
-  // Preflight every environment before archiving any member of the visible workspace.
-  for (const workspace of companions) {
-    const companionReason = getWorkspaceArchiveBlockReason(
-      workspace.serverId,
-      workspace.workspaceId,
-    );
-    if (companionReason) throw new Error(companionReason);
-  }
+  const targets = [input.workspace, ...companions];
+  assertArchiveTargetsCurrent(targets);
   const getCompanionClient =
     input.getCompanionClient ?? ((serverId: string) => getHostRuntimeStore().getClient(serverId));
   const operations = companions.map((workspace) => {
@@ -128,21 +133,28 @@ export async function archiveWorkspaceOptimistically(input: {
       operation.workspace.workspaceId,
     );
     if (freshReason) throw new Error(freshReason);
+    assertArchiveTargetsCurrent(targets);
   }
+  assertArchiveTargetsCurrent(targets);
   input.onArchiveStarted?.();
+  assertArchiveTargetsCurrent(targets);
   for (const operation of operations) {
+    assertArchiveTargetsCurrent(targets);
     await archiveWorkspaceOrThrow({
       client: operation.client,
       workspaceId: operation.workspace.workspaceId,
     });
+    assertArchiveTargetsCurrent(targets);
     getHostRuntimeStore().removeWorkspaceSnapshot(
       operation.workspace.serverId,
       operation.workspace.workspaceId,
     );
   }
+  assertArchiveTargetsCurrent(targets);
   const snapshot = hideWorkspaceOptimistically(input.workspace);
 
   try {
+    assertArchiveTargetsCurrent(targets);
     await archiveWorkspaceOrThrow({
       client: input.client,
       workspaceId: input.workspace.workspaceId,

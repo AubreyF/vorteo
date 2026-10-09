@@ -3,7 +3,12 @@ import {
   type BootstrapReviewService,
 } from "./execution-installation/coordinator-bootstrap-session.js";
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
-import { assertWorkspaceUnprotected, setWorkspaceLifecycle } from "./workspace-lifecycle/policy.js";
+import {
+  assertWorkspaceNotFactoryManaged,
+  assertWorkspaceUnprotected,
+  factoryMembershipForDescriptor,
+  setWorkspaceLifecycle,
+} from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
 import {
   planProviderRemoval,
@@ -27,6 +32,7 @@ import type {
   SessionEventSubscription,
   UsageReportEntry,
   ProviderUsage,
+  WorkspaceRecoveryGuard,
 } from "@getpaseo/protocol/messages";
 import { relative } from "node:path";
 import { isAbsolute } from "node:path";
@@ -231,6 +237,7 @@ import {
 } from "./session/workspace-provisioning/workspace-provisioning-service.js";
 import {
   createWorkspaceRecoveryService,
+  unarchiveWorkspaceGuarded,
   type WorkspaceRecoveryService,
 } from "./session/workspace-recovery/workspace-recovery-service.js";
 import {
@@ -745,6 +752,7 @@ export class Session {
   );
   private readonly browserToolsBroker: SessionOptions["browserToolsBroker"];
   private readonly clientId: string;
+  private readonly serverId: string | undefined;
   private readonly authorization: SessionAuthorization;
   private readonly ownerEvidence: TaskOwnerEvidenceStore;
   private readonly principalId: string | null | undefined;
@@ -924,6 +932,7 @@ export class Session {
     this.queueDownloadTokens = downloadTokenStore;
     this.browserToolsBroker = options.browserToolsBroker;
     this.clientId = clientId;
+    this.serverId = serverId;
     this.authorization = new SessionAuthorization(permissions);
     this.principalId = options.principalId;
     this.ownerEvidence = new TaskOwnerEvidenceStore(paseoHome);
@@ -985,6 +994,7 @@ export class Session {
       logger: this.sessionLogger,
     });
     this.workspaceRecovery = createWorkspaceRecoveryService({
+      serverId,
       paseoHome: this.paseoHome,
       worktreesRoot: this.worktreesRoot,
       getWorkspace: (workspaceId) => this.workspaceRegistry.get(workspaceId),
@@ -993,6 +1003,8 @@ export class Session {
       unarchiveWorkspace: async (workspace) => {
         await this.workspaceProvisioning.ensureWorkspaceRecordUnarchived(workspace);
       },
+      unarchiveWorkspaceGuarded: (expected) =>
+        unarchiveWorkspaceGuarded(this.workspaceRegistry, expected),
     });
     this.checkoutSession = new CheckoutSession({
       host: {
@@ -1159,6 +1171,7 @@ export class Session {
       logger: this.sessionLogger,
       hubRelationships: options.hubRelationships,
       reloadConfig: () => daemonConfigStore.reload(),
+      originAdmission: daemonConfigStore,
     });
     this.hubExecutionController = options.hubExecutionAgents
       ? new HubExecutionController({
@@ -1211,6 +1224,7 @@ export class Session {
       archiveAgentForClose: (agentId) => this.archiveAgentForClose(agentId),
       findWorkspaceIdForCwd: (cwd) => this.findWorkspaceIdForCwd(cwd),
       listActiveWorkspaces: () => this.listActiveWorkspaceRefs(),
+      listRetainedFactoryWorkspaces: () => this.listRetainedFactoryWorkspaceRefs(),
       archiveWorkspaceRecord: (workspaceId) => this.archiveWorkspaceRecord(workspaceId),
       emit: (message) => this.emit(message),
       emitAgentRemove: (agentId) => this.agentUpdates.removeAgent(agentId),
@@ -2934,6 +2948,19 @@ export class Session {
     }
   }
 
+  private dispatchOriginAdmissionMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "daemon.config.get_origin_admission.request":
+        this.daemonSession.handleOriginAdmissionInspectRequest(msg);
+        return Promise.resolve();
+      case "daemon.config.admit_origin.request":
+        this.daemonSession.handleOriginAdmissionRequest(msg);
+        return Promise.resolve();
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchAgentConfigMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "set_agent_mode_request":
@@ -2980,7 +3007,7 @@ export class Session {
       case "write_project_config_request":
         return this.projectConfigSession.handleWriteProjectConfigRequest(msg);
       default:
-        return this.dispatchAccountCreationMessage(msg);
+        return this.dispatchOriginAdmissionMessage(msg) ?? this.dispatchAccountCreationMessage(msg);
     }
   }
 
@@ -3905,6 +3932,7 @@ export class Session {
 
       // Preflight all children before stopping any work in a project removal.
       for (const workspace of projectWorkspaces) {
+        assertWorkspaceNotFactoryManaged(workspace);
         if (!workspace.archivedAt && !workspace.projectMembership) {
           await this.agentManager.assertWorkspaceArchiveAllowed?.(workspace.workspaceId);
           assertWorkspaceUnprotected(workspace);
@@ -4126,6 +4154,7 @@ export class Session {
     let error: string | null = null;
     try {
       const updated = await this.workspaceRegistry.update(msg.workspaceId, (workspace) => {
+        assertWorkspaceNotFactoryManaged(workspace);
         if (workspace.archivedAt) throw new Error("Restore this workspace before moving it.");
         return {
           ...workspace,
@@ -4236,7 +4265,7 @@ export class Session {
     request: Extract<SessionInboundMessage, { type: "workspace.recovery.restore.request" }>,
   ): Promise<void> {
     try {
-      await this.restoreWorkspaceAndEmit(request.workspaceId);
+      await this.restoreWorkspaceAndEmit(request.workspaceId, request.guard);
       this.emit({
         type: "workspace.recovery.restore.response",
         payload: {
@@ -5857,6 +5886,7 @@ export class Session {
         agentStorage: this.agentStorage,
         findWorkspaceIdForCwd: (cwd) => this.findWorkspaceIdForCwd(cwd),
         listActiveWorkspaces: () => this.listActiveWorkspaceRefs(),
+        listRetainedFactoryWorkspaces: () => this.listRetainedFactoryWorkspaceRefs(),
         archiveWorkspaceRecord: (workspaceId) => this.archiveWorkspaceRecord(workspaceId),
         emit: (message) => this.emit(message),
         emitWorkspaceUpdatesForWorkspaceIds: (workspaceIds) =>
@@ -6267,6 +6297,7 @@ export class Session {
       id: workspace.workspaceId,
       projectId: workspace.projectId,
       projectMembership: workspace.projectMembership,
+      ...factoryMembershipForDescriptor({ workspace, serverId: this.serverId }),
       projectDisplayName: resolvedProjectRecord
         ? resolveProjectDisplayName(resolvedProjectRecord)
         : workspace.projectId,
@@ -6549,8 +6580,11 @@ export class Session {
     };
   }
 
-  private async restoreWorkspaceAndEmit(workspaceId: string): Promise<void> {
-    await this.workspaceRecovery.restore(workspaceId);
+  private async restoreWorkspaceAndEmit(
+    workspaceId: string,
+    guard?: WorkspaceRecoveryGuard,
+  ): Promise<void> {
+    await this.workspaceRecovery.restore(workspaceId, guard);
     const workspace = await this.workspaceRegistry.get(workspaceId);
     if (!workspace) {
       throw new Error(`Recovered workspace record not found: ${workspaceId}`);
@@ -6624,7 +6658,13 @@ export class Session {
         isPaseoOwnedWorktree: workspace.isPaseoOwnedWorktree,
         mainRepoRoot: workspace.mainRepoRoot,
         protected: workspace.protected,
+        factoryMembership: workspace.factoryMembership,
       }));
+  }
+
+  private async listRetainedFactoryWorkspaceRefs(): Promise<ActiveWorkspaceRef[]> {
+    // Includes archived members. Their backing paths remain lifecycle-owned.
+    return (await this.workspaceRegistry.list()).filter((workspace) => workspace.factoryMembership);
   }
 
   private async archiveWorkspaceRecord(workspaceId: string, archivedAt?: string): Promise<void> {
@@ -8072,6 +8112,7 @@ export class Session {
           findWorkspaceIdForCwd: (cwd) => this.findWorkspaceIdForCwd(cwd),
           getWorkspace: (workspaceId) => this.workspaceRegistry.get(workspaceId),
           listActiveWorkspaces: () => this.listActiveWorkspaceRefs(),
+          listRetainedFactoryWorkspaces: () => this.listRetainedFactoryWorkspaceRefs(),
           archiveWorkspaceRecord: (workspaceId) => this.archiveWorkspaceRecord(workspaceId),
           emitWorkspaceUpdatesForWorkspaceIds: (workspaceIds) =>
             this.emitWorkspaceUpdatesForWorkspaceIds(workspaceIds),

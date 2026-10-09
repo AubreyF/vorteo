@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.252 - 2026-10-09
+
+### Added
+
+- Package the existing Factory qualification, delivery and Builds pipeline behind native scheduling, account, custody and governed-stage ports.
+- Add guarded setup and one-shot installation controls in the client and CLI, with persistent reconciliation holds after partial outcomes.
+- Identify native Factory-managed workspaces with an icon and badge, and block ordinary archive and unprotect actions.
+
+### Fixed
+
+- Fence supported settings writers and origin admission, preserving unrelated settings and typed uncertainty after persistence.
+- Preserve native inspection revocation, prepaid authorization expiry, paired admission holds and retained recovery records.
+
+### Maintenance
+
+- Integrate current coordinator bootstrap, account setup and worker sidebar changes without starting another controller or changing live custody.
+- Preserve standard Factory contract compilation, generated asset copying and complete historical release notes. Live installation, authentication and controller acceptance remain required.
+
 ## 0.11.0-beta.3.vorteo.251 - 2026-10-09
 
 ### Fixed
@@ -1560,6 +1578,240 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Kept goal permission updates consistent with the selected workflow
 - Preserved account usage in context details for Vorteo hosts
+
+## 0.9.0-beta.2.vorteo.45 - 2026-10-05
+
+### Added
+
+- Chromium libraries and fonts in new container builds, with setup and browser checks for existing Debian 12 development containers
+
+### Fixed
+
+- Disposable browser-test daemons no longer inherit the installation password unless a test explicitly supplies one
+
+## 0.9.0-beta.2.vorteo.44 - 2026-10-04
+
+### Added
+
+- Drag a workspace onto another project in the web or desktop sidebar to recreate one selected chat with an editable handoff
+- Choose the destination environment and profile before starting, with a warning when other chats would be left behind
+- Keep the original workspace and its files available after recreation
+
+### Changed
+
+- Remembered owner access for seven days per browser, with an explicit Lock controls action
+- Showed the generated owner password's recovery path and explained its origin and trust boundary
+- Kept restart approval separate from unlocking and restoring owner access
+- Added a direct link to Installation controls and matched its cards to Settings
+- Replaced sidebar environment subtitles with a golden host and key icon before host titles
+- Improved spacing between the host icon and the message profile selector label
+
+## 0.9.0-beta.2.vorteo.43 - 2026-10-04
+
+### Added
+
+- Added Vorteo release notes alongside Paseo's upstream notes in What's new
+- Bundled Vorteo's release history with the app so it remains available offline
+
+### Changed
+
+- Changed new custom version suffixes from `vorton` to `vorteo`, preserving the existing counter
+
+## 0.9.0-beta.2.vorton.42 - 2026-10-04
+
+### Changed
+
+- Reorganized Installation settings around environment status and owner access
+- Explained owner access requirements beside installation controls
+
+## 0.9.0-beta.2.vorton.40 - 2026-10-03
+
+This baseline summarizes custom features and fixes present through this version, including earlier Vorteo builds.
+
+### Accounts and profiles
+
+- Added multiple isolated Codex and Claude accounts with account switching per task
+- Added browser sign-in, reconnect, rename, disable and removal for subscription accounts
+- Added account usage and reset times beside profiles
+- Added reusable profiles with model, reasoning, permissions and instructions
+- Shared provider preferences across sibling accounts and protected installation environments
+- Added editable context handoffs when switching profiles on an existing task
+- Added discovered Pi model details and local worker connection status
+- Preserved migrated workflow identities and local worker teams
+
+### Agent workflows
+
+- Added native goals with optional token budgets, progress, pause and resume controls
+- Added durable message queues with attachments, reordering and cross-device editing
+- Preserved unsaved queue text and attachment edits across reloads
+- Separated queue pausing from stopping an active goal
+- Added bounded local worker teams for Pi profiles
+- Added schedule quota admission and recovery
+
+### Installation and updates
+
+- Added container installation with private HTTPS access and optional custom domains
+- Added protected native host execution with owner-approved installation restarts
+- Added private workspace previews and shared host folders
+- Added source update checks and editable host update and upstream merge tasks
+- Preserved installation connections across reloads and domain migration
+
+### Interface
+
+- Added Vorteo branding and app icons
+- Added customizable sidebar navigation and task activity badges
+- Added compact account pickers and touch controls for phones and tablets
+- Added iOS Home Screen toolbar clearance below the system status-bar blur
+- Returned archived workspaces to the empty New workspace page
+
+## 0.11.0-beta.3.vorteo.220 - 2026-10-09
+
+### Added
+
+- Guard daemon and CLI configuration writes against competing supported writers and stale saved records
+- Add origin inspection and one-shot admission with exact serving identity and separate active and persisted preconditions
+
+### Maintenance
+
+- Preserve current main and installed release-note history alongside reviewed Factory source; controller startup and live origin admission require separate review
+
+## 0.11.0-beta.3.vorteo.211 - 2026-10-09
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.211 - 2026-10-08
+
+### Fixed
+
+- Hide Connect for Claude accounts whose configured CLI has verified authentication, including macOS accounts with saved credentials that usage reporting cannot read. Keep explicit authentication recovery and unavailable quota separate.
+- Cover successful sign-in without a credential file, reload, and subsequent sign-out at desktop and compact widths. Document the account and environment boundaries.
+
+## 0.11.0-beta.3.vorteo.210 - 2026-10-08
+
+### Fixed
+
+- Add room below goal content and align its controls. Give managed and provider subagents independent sections and scoped cleanup actions.
+- Add vertical room to question forms and align wrapping Dismiss, Next and Submit actions to the right at desktop and compact widths.
+- Integrate the reviewed spacing commits while preserving project selection, saved history, agent retry and queue refresh fixes.
+
+## 0.11.0-beta.3.vorteo.210 - 2026-10-08
+
+### Fixed
+
+- Integrate the published moved-workspace history repair. Active agent and workspace directories share membership policy, preserving saved threads after their original backing project is archived while retaining archive exclusions.
+
+## 0.11.0-beta.3.vorteo.209 - 2026-10-09
+
+### Maintenance
+
+- Combine 4 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.208 - 2026-10-08
+
+### Fixed
+
+- Refresh the shared message queue from rejected operation responses while retaining unsynchronized local changes and attachments. Do not replay a rejected operation automatically.
+
+## 0.11.0-beta.3.vorteo.208 - 2026-10-08
+
+### Fixed
+
+- Restore installation profile admission for paired managed Dev workers by discovering their validated private pairing client when supervisor inheritance is missing. Retain exact coordinator identity checks and the installed Factory source.
+
+## 0.11.0-beta.3.vorteo.207 - 2026-10-08
+
+### Fixed
+
+- Allow an edited agent draft to retry after a confirmed pre-creation rejection while retaining its reserved agent identity. Keep changed requests blocked after execution, ambiguous failure, or workspace changes.
+
+## 0.11.0-beta.3.vorteo.207 - 2026-10-08
+
+### Changed
+
+- Preserve explicit provenance for local agent sends, worker creation and steering, and draw shorter conversation navigation marks for these messages. Integrate the reviewed source without changing Factory code or existing release notes.
+
+## 0.11.0-beta.3.vorteo.206 - 2026-10-08
+
+### Fixed
+
+- Preserve logical project selection when projects share a Host directory. List projects before their selected environment has a placement, and use existing folder mapping or folder selection at submission.
+- Keep unarchived saved threads visible when their provider is unavailable, preserving workspace history and schedule badge associations after restart. Read saved history without starting an unavailable provider.
+
+## 0.11.0-beta.3.vorteo.206 - 2026-10-08
+
+### Fixed
+
+- Allow edited agent drafts to retry confirmed pre-creation failures with their reserved identity. Preserve conflict protection for ambiguous or completed attempts and retain installed source and prior history repairs.
+
+## 0.11.0-beta.3.vorteo.205 - 2026-10-08
+
+### Fixed
+
+- Keep restart explanations tappable by separating their hit target from the disabled approval button.
+
+## 0.11.0-beta.3.vorteo.205 - 2026-10-08
+
+### Fixed
+
+- Keep unarchived saved threads and scheduled workspace associations visible when a provider is unavailable. Read durable history without starting the provider.
+- Preserve logical project identity and resolve the chosen environment folder at submission. Retain the installed Dev source and Factory integration.
+
+## 0.11.0-beta.3.vorteo.204 - 2026-10-08
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.203 - 2026-10-08
+
+### Added
+
+- Connect the native Factory setup and initial installation RPC to the same startup-owned adapter, with fresh identity and revision checks and durable reconciliation holds after uncertain dispatch.
+- Add CLI setup observations and guarded initial installation with explicit serving identity, revision and operation correlation. Transport loss never retries the mutation.
+- Add initial installation controls that recheck the displayed native setup revision, send one correlated request and retain uncertain results across panel remounts without automatic retry. Fixtures cannot dispatch installation.
+
+### Maintenance
+
+- Preserve incoming installation policy requiring the matching control button approval before restart or update execution.
+
+- Preserve incoming project-folder/profile-environment selection fixes and their acceptance tests from current main.
+
+- Preserve current main checklist and installation controls, the real installed Dev source ancestry and every parent release-note block alongside independently reviewed Factory and interface source.
+- Keep default observer installation separate from retained-controller adoption. Controller custody, browser origin admission, installed RPC and authenticated client acceptance remain required.
+
+## 0.11.0-beta.3.vorteo.195 - 2026-10-08
+
+### Added
+
+- Bundle Factory project status, read-only setup observations and a client overview with exact host and project identity checks.
+- Add native Factory membership protection, durable installation checkpoints and a retained-owner installation adapter that preserves reconciliation holds after partial effects.
+- Add guarded workspace and retained-agent recovery boundaries and native account-contract observation without another sampler or scheduler.
+
+### Fixed
+
+- Enforce explicit prerelease plugin requirements while preserving ordinary stable-range matching.
+- Preserve reviewed server contract compilation and generated asset copying in the standard build.
+- Keep compact issue details clear of delivery rows and retain failed setup observations with explicit warnings.
+
+### Maintenance
+
+- Preserve current main preview identity, launcher binding and visible coordinator controls alongside reviewed Factory source.
+- Keep installation, controller adoption, execution admission and authenticated client acceptance separate. Loading source does not start another controller or authorize recovery.
+
+## 0.11.0-beta.3.vorteo.192 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.100 - 2026-10-05
+
+### Changed
+
+- Continued Vorteo numbering across upstream Paseo updates, accounting for 99 prior version increments
+- Interleaved Vorteo and Paseo release notes by date with source labels and one Show more control
 
 ## 0.9.0-beta.2.vorteo.45 - 2026-10-05
 

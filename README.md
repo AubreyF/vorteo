@@ -37,6 +37,8 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
 
+- **Factory project status and setup.** Inspect native project observations and setup availability in the Factory screen. Initial installation checks the selected host, project and visible revision, sends one correlated request, and holds uncertain outcomes for reconciliation. It requires a reconciled native owner; lifecycle actions remain unavailable. See [Factory](docs/factory.md).
+
 - **Enclaves for streamlined factory operations.** Workspaces with schedules or archive protection appear in Standing. Paused schedules keep their workspace there and show Paused. Protection and non-ended schedules both block archival until you remove them. Manage workspace schedules and custom labels from Tag As. Sidebar badges share compact padding with room above and below their text, and fade beneath the overlaid workspace menu using the current row background.
 
 <img width="400" alt="Protected and scheduled workspaces" src="https://github.com/user-attachments/assets/757352aa-a2e7-457d-b95f-7ded601444f7" />
