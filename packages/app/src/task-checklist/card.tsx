@@ -21,6 +21,7 @@ import { TaskCard } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { ChecklistProgressFlower } from "./progress-flower";
 import { checklistProgress } from "./progress";
+import { canClearTask, clearCompletedTasks } from "./clear-completed";
 import { ChecklistEditor } from "./editor";
 
 interface ChecklistCardProps {
@@ -60,8 +61,21 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     },
     retry: false,
   });
+  const clearMutation = useMutation({
+    mutationFn: async (snapshot: AgentTaskItem[]) => {
+      if (!client || !connected || readOnly)
+        throw new Error("Reconnect to an active thread before editing its checklist.");
+      await clearCompletedTasks(snapshot, (input) => client.mutateAgentChecklist(agentId, input));
+    },
+    retry: false,
+  });
+  const { mutate: clearTasks, reset: resetClear } = clearMutation;
   const { mutate: sendMutation, reset: resetMutation } = mutation;
-  const canMutate = connected && !readOnly && !mutation.isPending;
+  const clearCompleted = useCallback(() => {
+    resetMutation();
+    clearTasks(tasks);
+  }, [clearTasks, resetMutation, tasks]);
+  const canMutate = connected && !readOnly && !mutation.isPending && !clearMutation.isPending;
   const progress = checklistProgress(tasks);
   const countBadge = useMemo(
     () => (
@@ -77,13 +91,14 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     [progress.completed, progress.total, t],
   );
   const expandedState = useMemo(() => ({ expanded }), [expanded]);
-  const error = mutation.error?.message ?? null;
+  const error = clearMutation.error?.message ?? mutation.error?.message ?? null;
   const open = useCallback(
     (task: AgentTaskItem | null) => {
       resetMutation();
+      resetClear();
       setEditor({ open: true, task });
     },
-    [resetMutation],
+    [resetMutation, resetClear],
   );
   const close = useCallback(() => setEditor({ open: false }), []);
   const add = useCallback(() => open(null), [open]);
@@ -119,6 +134,12 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
             accessibilityLabel="Add task"
             leftIcon={Plus}
           />
+          <ClearCompletedButton
+            available={tasks.some(canClearTask)}
+            pending={clearMutation.isPending}
+            disabled={!canMutate}
+            onPress={clearCompleted}
+          />
         </View>
         {expanded && tasks.length > 0 ? (
           <ChecklistRows
@@ -146,6 +167,35 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
         />
       ) : null}
     </>
+  );
+}
+
+function ClearCompletedButton({
+  available,
+  pending,
+  disabled,
+  onPress,
+}: {
+  available: boolean;
+  pending: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const touch = useVortonTouch();
+  if (!available && !pending) return null;
+  return (
+    <Button
+      variant="outline"
+      size={touch ? "md" : "sm"}
+      textStyle={taskCardStyles.rowText}
+      onPress={onPress}
+      disabled={disabled}
+      loading={pending}
+      testID="checklist-clear-completed"
+      accessibilityLabel="Clear completed tasks"
+    >
+      {pending ? "Clearing…" : "Clear completed"}
+    </Button>
   );
 }
 

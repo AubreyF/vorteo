@@ -394,7 +394,7 @@ for (const width of [1400, 390]) {
       await firstRow.getByRole("checkbox", { name: "Complete First agent-created task" }).click();
       await expect(spinner).not.toBeAttached();
       await expect(page.getByTestId("checklist-count")).toHaveText("1 / 1");
-      await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "first" });
+      await page.getByTestId("checklist-clear-completed").click();
       await expect(page.getByTestId("agent-task-progress-card")).not.toBeAttached();
       await client.mutateAgentChecklist(agent.agentId, {
         operation: "create",
@@ -492,6 +492,38 @@ for (const width of [1400, 390]) {
       expect((await client.getAgentChecklist(agent.agentId)).map((task) => task.id)).toEqual([
         api!.id!,
       ]);
+      await expect(page.getByTestId("checklist-clear-completed")).not.toBeAttached();
+      for (const id of ["finished-a", "finished-b", "active"]) {
+        await client.mutateAgentChecklist(agent.agentId, {
+          operation: "create",
+          id,
+          text: id,
+          blockedBy: id === "finished-b" ? ["finished-a"] : [],
+        });
+        await client.mutateAgentChecklist(agent.agentId, {
+          operation: "update",
+          id,
+          status: id === "active" ? "in_progress" : "completed",
+        });
+      }
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "update",
+        id: api!.id!,
+        blockedBy: ["finished-b"],
+      });
+      const clear = page.getByTestId("checklist-clear-completed");
+      await expect(clear).toBeVisible();
+      await page.screenshot({ path: info.outputPath("clear-completed-tasks.png") });
+      await clear.click();
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
+      await expect(clear).not.toBeAttached();
+      const remaining = await client.getAgentChecklist(agent.agentId);
+      expect(remaining.map((task) => task.id)).toEqual([api!.id!, "active"]);
+      expect(remaining[0].blockedBy).toEqual([]);
+      expect(remaining[1].status).toBe("in_progress");
+      await page.reload();
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
+      await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "active" });
       for (let index = 0; index < 16; index++) {
         await client.mutateAgentChecklist(agent.agentId, {
           operation: "create",

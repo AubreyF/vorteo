@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.230 - 2026-10-09
+
+### Added
+
+- Add a Clear completed button to task headings when completed editable checklist items exist. Cleanup preserves unfinished and provider-owned tasks, removes dependency links, stops on concurrent-edit conflicts, and reports errors.
+
 ## 0.11.0-beta.3.vorteo.229 - 2026-10-09
 
 ### Changed
