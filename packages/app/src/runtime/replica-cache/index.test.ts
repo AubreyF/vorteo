@@ -346,6 +346,45 @@ describe("ReplicaCache", () => {
     expect(restoredTimeline).toEqual(timeline());
   });
 
+  it("refreshes legacy workspace metadata without dropping agent history", async () => {
+    const storage = new MemoryStorage();
+    const writer = createCache(storage);
+    const state = directory({
+      agents: { generation: "g", afterSeq: 12 },
+      workspaces: { generation: "w", afterSeq: 9 },
+    });
+    state.workspaces.get("workspace-1")!.protected = true;
+    state.workspaces.get("workspace-1")!.standing = true;
+    const membership = {
+      installationId: "installation",
+      projectId: "project-1",
+      serverId: SERVER_ID,
+      role: "factory" as const,
+    };
+    state.workspaces.get("workspace-1")!.factoryMembership = membership;
+    commitDirectory(writer, SERVER_ID, state);
+    writer.commitTimeline(SERVER_ID, "agent-1", timeline());
+    await writer.flush();
+    const fresh = await createCache(storage).readDirectory(SERVER_ID);
+    expect(fresh.workspaces.get("workspace-1")).toMatchObject({
+      protected: true,
+      standing: true,
+      factoryMembership: membership,
+    });
+    for (const [key, row] of storage.rows) {
+      if (row.kind !== "workspace") continue;
+      const payload = JSON.parse(row.payload);
+      delete payload.protected;
+      delete payload.standing;
+      storage.rows.set(key, { ...row, payload: JSON.stringify(payload) });
+    }
+    const reader = createCache(storage);
+    const restored = await reader.readDirectory(SERVER_ID);
+    expect(restored.checkpoint).toEqual({ agents: { generation: "g", afterSeq: 12 } });
+    expect(restored.agents.get("agent-1")?.title).toBe("Cached agent");
+    expect(await reader.readTimeline(SERVER_ID, "agent-1")).toEqual(timeline());
+  });
+
   it("preserves pending timeline updates across directory baseline replacement", async () => {
     const storage = new MemoryStorage();
     const writer = createCache(storage);

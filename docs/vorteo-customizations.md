@@ -315,3 +315,5 @@ Maintenance review (2026-10-09): journal descriptions compensate for first-line 
 Factory source integration maintenance: reconciled the accepted Dev blocked-checklist branch with published Factory history through a genuine merge. Current Factory safeguards, blocked-status compatibility and all historical release entries are retained. No runtime behavior changed.
 
 Workspace placement maintenance: protected, standing and Factory-managed workspaces retain their own project even when their agents have a supervisor. Worker conversations remain accessible from their execution workspace. Protected cross-project drags show a blocked icon and an explanation; ordinary protection can be removed through Workspace actions. Factory-managed workspaces cannot move independently of their installation.
+
+Workspace replica persistence retains protection, standing status and Factory membership. Legacy rows missing lifecycle fields invalidate only workspace synchronization metadata, so the daemon repopulates those rows without deleting agent or timeline history. Maintenance review must cover reloads as well as initial workspace navigation.
