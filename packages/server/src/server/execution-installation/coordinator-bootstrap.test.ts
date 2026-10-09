@@ -10,11 +10,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { hashSync } from "bcryptjs";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { CoordinatorBootstrapRequests, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import {
+  loadedCoordinatorPid,
+  verifyBootstrapServiceIdentity,
+  verifyLoadedBootstrapService,
+} from "./coordinator-bootstrap-service.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -22,6 +27,113 @@ afterEach(() => {
 });
 const ownerPassword = "fixture-installation-owner";
 const ownerHash = hashSync(ownerPassword, 4);
+
+test("loaded coordinator PID parsing rejects nested, foreign and incomplete records", () => {
+  const service = "gui/501/local.vorteo.fixture.installation";
+  expect(loadedCoordinatorPid(service, `${service} = {\n\tpid = 123\n}`)).toBe(123);
+  for (const output of [
+    `other = {\n\tpid = 123\n}`,
+    `${service} = {\n\t\tpid = 123\n}`,
+    `${service} = {\n\tpid = 123\n\tpid = 124\n}`,
+    `${service} = {\n\tpid = 123\n`,
+  ])
+    expect(() => loadedCoordinatorPid(service, output)).toThrow();
+});
+
+test("loaded coordinator identity binds kernel birth, owner, parent and exact launch arguments", async () => {
+  const { plan } = fixture();
+  const configurationFile = "/protected/config.json";
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify([plan.previous.node.path, plan.previous.entrypoint.path, configurationFile]),
+    )
+    .digest("hex");
+  plan.expectedProcess = {
+    pid: 123,
+    bootId: randomUUID(),
+    startIdentity: "1234:5678",
+    argumentsSha256: digest,
+  };
+  const observation = {
+    ...plan.expectedProcess,
+    uid: 501,
+    parentPid: 1,
+    executable: plan.previous.node.path,
+  };
+  const input = {
+    plan,
+    configurationFile,
+    hostUid: 501,
+    launchctlOutput: `${plan.service} = {\n\tpid = 123\n}`,
+    process: observation,
+  };
+  expect(() => verifyBootstrapServiceIdentity(input)).not.toThrow();
+  for (const change of [
+    { pid: 124 },
+    { bootId: randomUUID() },
+    { startIdentity: "1234:5679" },
+    { uid: 502 },
+    { parentPid: 99 },
+    { executable: "/other/node" },
+    { argumentsSha256: "f".repeat(64) },
+  ])
+    expect(() =>
+      verifyBootstrapServiceIdentity({ ...input, process: { ...observation, ...change } }),
+    ).toThrow();
+  expect(() =>
+    verifyBootstrapServiceIdentity({ ...input, configurationFile: "/other/config.json" }),
+  ).toThrow("prepared launcher");
+  expect(() =>
+    verifyBootstrapServiceIdentity({
+      ...input,
+      launchctlOutput: `${plan.service} = {\n\tpid = 124\n}`,
+    }),
+  ).toThrow("changed since preparation");
+  for (const changedServiceRead of [0, 1, 2, 3]) {
+    let reads = 0;
+    let processReads = 0;
+    const verification = verifyLoadedBootstrapService({
+      ...input,
+      reader: {
+        async readService(service) {
+          expect(service).toBe(plan.service);
+          reads++;
+          const pid = reads === changedServiceRead ? 124 : 123;
+          return `${service} = {\n\tpid = ${pid}\n}`;
+        },
+        async inspectProcess(pid) {
+          expect(pid).toBe(123);
+          processReads++;
+          return observation;
+        },
+      },
+    });
+    if (changedServiceRead === 0) {
+      await expect(verification).resolves.toBeUndefined();
+      expect(processReads).toBe(2);
+      expect(reads).toBe(3);
+    } else {
+      await expect(verification).rejects.toThrow("PID changed");
+      expect(processReads).toBe(changedServiceRead - 1);
+    }
+  }
+  let inspections = 0;
+  await expect(
+    verifyLoadedBootstrapService({
+      ...input,
+      reader: {
+        async readService() {
+          return input.launchctlOutput;
+        },
+        async inspectProcess() {
+          inspections++;
+          if (inspections === 2) return { ...observation, startIdentity: "1234:5679" };
+          return observation;
+        },
+      },
+    }),
+  ).rejects.toThrow("changed since preparation");
+});
 
 function fixture() {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "coordinator-bootstrap-")));

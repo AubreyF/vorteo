@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.232 - 2026-10-08
+
+### Maintenance
+
+- Bind the loaded coordinator service PID to the prepared kernel process identity, Host ownership, launchd parent and exact executable arguments
+- Reject malformed or ambiguous service records and repeat service/process observations to catch replacement during verification
+- Cover changed PID at each read and changed process birth identity; trusted collector wiring and lifecycle admission remain unfinished
+
 ## 0.11.0-beta.3.vorteo.231 - 2026-10-08
 
 ### Maintenance
