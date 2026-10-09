@@ -92,9 +92,6 @@ function QueueViewContent({
     return null;
   const hasMessages = hasQueueMessages(control);
   const Container = hasMessages ? TaskCard : View;
-  const hasRows =
-    !!snapshot?.items.length ||
-    control.pending.some((record) => record.operation.kind === "enqueue");
   const recovery = control.pending.filter((record) => {
     const operation = record.operation;
     if (operation.kind !== "enqueue") return true;
@@ -124,13 +121,8 @@ function QueueViewContent({
       ) : null}
       <View>
         <QueueRows control={control} serverId={serverId} agentId={agentId} />
-        {recovery.map((record, index) => (
-          <PendingRow
-            key={record.operation.operationId}
-            record={record}
-            control={control}
-            separated={index > 0 || hasRows}
-          />
+        {recovery.map((record) => (
+          <PendingRow key={record.operation.operationId} record={record} control={control} />
         ))}
       </View>
     </Container>
@@ -227,7 +219,6 @@ function QueueRows({
     (info: DraggableRenderItemInfo<QueueDisplayItem>) => (
       <QueueRow
         item={info.item}
-        index={info.index}
         control={control}
         serverId={serverId}
         agentId={agentId}
@@ -338,18 +329,10 @@ function QueueDeliveryError({ control }: { control: MessageQueueControl }) {
   );
 }
 
-function PendingRow({
-  record,
-  control,
-  separated,
-}: {
-  record: OutboxRecord;
-  control: MessageQueueControl;
-  separated: boolean;
-}) {
+function PendingRow({ record, control }: { record: OutboxRecord; control: MessageQueueControl }) {
   const attachments = pendingAttachments(record);
   return (
-    <View style={[taskCardStyles.item, separated && taskCardStyles.separator]}>
+    <View style={taskCardStyles.item}>
       <View style={styles.summary}>
         <QueueMessageIndicator record={record} />
         <QueueAttachmentSummary
@@ -503,7 +486,6 @@ function QueueRow({
   serverId,
   agentId,
   item: row,
-  index,
   control,
   dragInfo,
   reorderEnabled,
@@ -511,7 +493,6 @@ function QueueRow({
   serverId: string;
   agentId: string;
   item: QueueDisplayItem;
-  index: number;
   control: MessageQueueControl;
   dragInfo: DraggableRenderItemInfo<QueueDisplayItem>;
   reorderEnabled: boolean;
@@ -535,11 +516,7 @@ function QueueRow({
   const toggleDetails = useCallback(() => setDetails((value) => !value), []);
   return (
     <View
-      style={[
-        taskCardStyles.item,
-        index > 0 && taskCardStyles.separator,
-        dragInfo.isActive && styles.dragActive,
-      ]}
+      style={[taskCardStyles.item, dragInfo.isActive && styles.dragActive]}
       testID={`queue-message-${row.id}`}
     >
       {!editing.length ? (
