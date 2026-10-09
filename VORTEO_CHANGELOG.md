@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.224 - 2026-10-08
+
+### Fixed
+
+- Keep the profile selector open when switching Host and Dev container, without a Host confirmation dialog.
+- Keep active managed-worker workspaces visible in the sidebar, including workspaces with no terminals or running scripts. Preserve their project grouping and task relationships.
 
 ## 0.11.0-beta.3.vorteo.223 - 2026-10-09
 
