@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.243 - 2026-10-08
+
+### Maintenance
+
+- Verify inherited bootstrap ownership against the kernel lock and canonical private lock inode
+- Reject unlocked descriptors, descriptors owned by another process and changed verifier bytes
+- Extend disposable process tests for ownership across execution and release after process death
+- Keep executor launch wiring, visible review controls and live bootstrap acceptance pending
+
 ## 0.11.0-beta.3.vorteo.242 - 2026-10-08
 
 ### Maintenance

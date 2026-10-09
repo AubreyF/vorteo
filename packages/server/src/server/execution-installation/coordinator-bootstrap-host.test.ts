@@ -1,5 +1,7 @@
 import { afterEach, test, expect, vi } from "vitest";
 import {
+  openSync,
+  closeSync,
   mkdtempSync,
   mkdirSync,
   realpathSync,
@@ -33,6 +35,7 @@ import * as serviceCollector from "./coordinator-bootstrap-service.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
+import { requireBootstrapOwnership } from "./coordinator-bootstrap-ownership.js";
 import { selectBootstrapLauncher } from "./coordinator-bootstrap-selection.js";
 
 const roots: string[] = [];
@@ -661,12 +664,20 @@ test.runIf(process.platform === "darwin")(
     const entry = path.join(root, "owner.mjs");
     const setup = path.join(root, "setup.json");
     const lock = path.join(root, "coordinator-bootstrap-execution.lock");
+    const verifierPath = realpathSync(path.resolve("../../scripts/verify-coordinator-owner.py"));
+    const verifier = {
+      path: verifierPath,
+      sha256: createHash("sha256").update(readFileSync(verifierPath)).digest("hex"),
+    };
     writeFileSync(setup, "{}", { mode: 0o600 });
     writeFileSync(
       entry,
       `import fs from 'node:fs';
+    import {spawnSync} from 'node:child_process';
     const fd=Number(process.env.VORTEO_BOOTSTRAP_LOCK_FD);
     if(!Number.isInteger(fd)||!fs.fstatSync(fd).isFile())process.exit(2);
+    const verified=spawnSync('/usr/bin/python3',['-I','-B',${JSON.stringify(verifierPath)},${JSON.stringify(lock)}],{stdio:['ignore','ignore','pipe',fd]});
+    if(verified.status!==0)process.exit(3);
     process.stdout.write('owned\\n');
     process.stdin.resume();
     process.stdin.on('end',()=>process.exit(0));`,
@@ -699,6 +710,19 @@ finally:
         lock,
       ]);
       expect(probe.stdout.trim()).toBe("locked");
+      const unowned = openSync(lock, "r+");
+      try {
+        await expect(
+          requireBootstrapOwnership({
+            descriptor: unowned,
+            lockFile: lock,
+            verifier,
+            writableMountRoots: [],
+          }),
+        ).rejects.toThrow("kernel ownership");
+      } finally {
+        closeSync(unowned);
+      }
     } catch (error) {
       first.kill("SIGKILL");
       await firstClosed;
@@ -724,6 +748,27 @@ finally:
       second.stdin!.end();
       const [code] = await secondClosed;
       expect(code).toBe(0);
+      const unlocked = openSync(lock, "r+");
+      try {
+        await expect(
+          requireBootstrapOwnership({
+            descriptor: unlocked,
+            lockFile: lock,
+            verifier,
+            writableMountRoots: [],
+          }),
+        ).rejects.toThrow("kernel ownership");
+        await expect(
+          requireBootstrapOwnership({
+            descriptor: unlocked,
+            lockFile: lock,
+            verifier: { ...verifier, sha256: "0".repeat(64) },
+            writableMountRoots: [],
+          }),
+        ).rejects.toThrow("digest changed");
+      } finally {
+        closeSync(unlocked);
+      }
     } finally {
       first.kill("SIGKILL");
       second.kill("SIGKILL");
