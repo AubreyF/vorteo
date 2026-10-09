@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.256 - 2026-10-09
+
+### Maintenance
+
+- Preserve the deployed accordion hover and Node timer typing corrections while integrating the helper query retry fix.
+
 ## 0.11.0-beta.3.vorteo.255 - 2026-10-09
 
 ### Maintenance
@@ -40,6 +46,19 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Retry unsupported native helper queries once per minute while preserving owner authentication and automatic discovery after coordinator upgrades
 - Update installation client assertions for the existing trusted Host approval capability query
+
+## 0.11.0-beta.3.vorteo.254 - 2026-10-09
+
+### Fixed
+
+- Restore hover highlights on conversation card accordion headings without changing their layout
+- Reuse the reviewed Node timer typing fix so browser fixture imports pass typechecking
+
+## 0.11.0-beta.3.vorteo.253 - 2026-10-09
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.252 - 2026-10-09
 

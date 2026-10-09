@@ -274,3 +274,7 @@ On October 9, 2026, the Factory integration was rebased on published GitHub main
 Maintenance review (2026-10-09): the managed delivery correction preserves two older release-note entries without changing Factory implementation. GitHub remains the source coordination authority; compiled .253 validation is reused for unchanged code while normal metadata and commit checks cover the correction.
 
 Maintenance review: integrated the native helper query retry correction with published Factory source, retaining both feature sets and historical release entries.
+
+October 9, 2026: Restored the shared conversation accordion heading hover highlight after the geometry cleanup. The highlight uses the existing interaction color and keeps heading dimensions unchanged. Reused the reviewed Node timer typing correction for browser fixture typechecks. README overview and onboarding are unchanged.
+
+Maintenance review: retained the deployed accordion hover behavior and Node timer typing corrections in the helper query integration.

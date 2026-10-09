@@ -1,5 +1,5 @@
-import { useMemo, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useCallback, useMemo, type ReactNode } from "react";
+import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useVortonTouch } from "@/vorton-touch";
@@ -26,13 +26,19 @@ export function CardDisclosure({
 }) {
   const touch = useVortonTouch();
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
+  const triggerStyle = useCallback(
+    ({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) => [
+      taskCardStyles.accordionTrigger,
+      styles.trigger,
+      hovered && styles.hovered,
+      touch && taskCardStyles.touchAccordionTrigger,
+      compact && styles.compact,
+    ],
+    [touch, compact],
+  );
   return (
     <Pressable
-      style={[
-        taskCardStyles.accordionTrigger,
-        touch && taskCardStyles.touchAccordionTrigger,
-        compact && styles.compact,
-      ]}
+      style={triggerStyle}
       accessibilityRole="button"
       accessibilityLabel={title}
       aria-expanded={expanded}
@@ -67,6 +73,8 @@ export function CollapsibleCardBody({
   );
 }
 const styles = StyleSheet.create((theme) => ({
+  trigger: { borderRadius: theme.borderRadius.md },
+  hovered: { backgroundColor: theme.colors.interactionHighlight },
   compact: { flexGrow: 0, flexShrink: 1, flexBasis: "auto" },
   title: { flexShrink: 1, minWidth: 0 },
   arrow: { width: 16, height: 16, flexShrink: 0 },
