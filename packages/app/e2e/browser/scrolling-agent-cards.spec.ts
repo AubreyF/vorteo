@@ -1,3 +1,4 @@
+import type { Locator, TestInfo } from "@playwright/test";
 import { pluginRequirements } from "../support/helpers/plugin-fixture";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -57,7 +58,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       observedAt: new Date().toISOString(),
       goal: {
         threadId: agent.agentId,
-        objective: "Goal below queued messages",
+        objective: "Goal below queued messages. ".repeat(60),
         status: "paused",
         tokenBudget: null,
         tokensUsed: 0,
@@ -144,18 +145,21 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
       expect(geometry[0].frame[3]).toBe("8px");
-      expect(geometry[2].padding).toBe("8px");
+      expect(geometry[2].padding).toBe("12px");
       for (const card of geometry.slice(2)) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
+      await checkHeadingGeometry(stack, width);
+      await checkDisclosures(stack, width, info);
+      await checkSubagentRows(stack, width, info);
       const toggle = stack.getByTestId("subagents-group-paseo-toggle");
       const headerHeight = await toggle.evaluate((node) => node.getBoundingClientRect().height);
       const rowHeight = await stack.getByTestId("subagents-card").evaluate((card) => {
-        const row = card.querySelector('[data-testid="subagents-group-paseo"]')?.firstElementChild;
+        const row = card.querySelector('[data-testid="subagents-card-header"]');
         if (!row) throw new Error("Subagent header row missing");
         return row.getBoundingClientRect().height;
       });
-      expect(headerHeight).toBe(rowHeight - 8);
+      expect(headerHeight).toBe(rowHeight);
       const clearFinished = stack.getByTestId("subagents-track-archive-finished");
       await expect(clearFinished).toBeVisible();
       expect((await clearFinished.boundingBox())?.height).toBe(headerHeight);
@@ -178,7 +182,10 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
           lastRow.getBoundingClientRect().bottom
         );
       });
-      expect(subagentBottomInset).toBeCloseTo(8, 0);
+      const subagentScrolls = await page
+        .getByTestId("subagents-card-body-scroll")
+        .evaluate((node) => node.scrollHeight > node.clientHeight);
+      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(12, 0);
       if (width === 1400) {
         const composerFrame = await page.getByTestId("message-input-surface").evaluate((node) => {
           const style = getComputedStyle(node);
@@ -188,9 +195,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       for (const card of geometry.slice(3)) {
         expect(card.frame).toEqual(geometry[2].frame);
-        const bottomPadding = card.id === "agent-goal-bar" ? 16 : 8;
-        const leftPadding = width === 390 ? 12 : 16;
-        expect(card.padding).toBe(`8px 8px ${bottomPadding}px ${leftPadding}px`);
+        expect(card.padding).toBe("12px");
         expect(card.width).toBe(geometry[2].width);
       }
       const goalActionInset = await stack.getByTestId("agent-goal-bar").evaluate((card) => {
@@ -199,7 +204,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         if (!header || !action) throw new Error("Goal controls missing");
         return action.getBoundingClientRect().top - header.getBoundingClientRect().top;
       });
-      expect(goalActionInset).toBe(8);
+      expect(goalActionInset).toBe(0);
       const movement = await stack.evaluate(async (element) => {
         let scroll = element.parentElement;
         while (
@@ -232,6 +237,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         contentType: "image/png",
       });
     }
+    await captureConsistentCards(page, stack, info);
+    await checkFixedHeaders(page, info, client, agent.agentId);
     await page.setViewportSize({ width: 1400, height: 900 });
     await expect(stack.getByTestId("subagents-card")).toBeAttached();
     await pill.click();
@@ -249,6 +256,185 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await rm(pluginDirectory, { recursive: true, force: true });
   }
 });
+
+// Measure the rendered contract, not component-specific padding implementations.
+async function checkHeadingGeometry(stack: Locator, width: number) {
+  const ids = [
+    "subagents-card",
+    "agent-task-progress-card",
+    "shared-message-queue",
+    "agent-goal-bar",
+    "question-form-card",
+  ];
+  const geometry = await stack.evaluate(
+    (root, cardIds) =>
+      cardIds.map((id) => {
+        const card = root.querySelector(`[data-testid="${id}"]`)!;
+        const header = card.querySelector(`[data-testid="${id}-header"]`)!.firstElementChild!;
+        const icon = header.firstElementChild!;
+        const trigger = icon.nextElementSibling!;
+        const title =
+          trigger.getAttribute("role") === "button" ? trigger.firstElementChild! : trigger;
+        const box = header.getBoundingClientRect();
+        const center = (node: Element) => {
+          const rect = node.getBoundingClientRect();
+          return rect.y + rect.height / 2;
+        };
+        const marks = [
+          icon,
+          title,
+          ...header.querySelectorAll('[data-testid$="-arrow"], [role="button"]'),
+        ];
+        const count = header.querySelector('[data-testid$="-arrow"]')?.nextElementSibling;
+        if (count) marks.push(count);
+        const button = header.querySelector('[data-testid="subagents-track-archive-finished"]');
+        const buttonBox = button?.getBoundingClientRect();
+        const cardBox = card.getBoundingClientRect();
+        return {
+          id,
+          height: box.height,
+          iconX: icon.getBoundingClientRect().x - cardBox.x,
+          titleX: title.getBoundingClientRect().x - cardBox.x,
+          titleWidth: title.getBoundingClientRect().width,
+          offsets: marks.map((node) => center(node) - center(header)),
+          topClearance: buttonBox && buttonBox.top - cardBox.top,
+          rightClearance: buttonBox && cardBox.right - buttonBox.right,
+          overflow: header.scrollWidth > header.clientWidth,
+        };
+      }),
+    ids,
+  );
+  for (const card of geometry) {
+    expect(card.height, card.id).toBe(width === 390 ? 44 : 32);
+    expect(card.titleWidth, card.id).toBeGreaterThan(10);
+    expect(card.iconX, card.id).toBeCloseTo(geometry[0].iconX, 1);
+    expect(card.titleX, card.id).toBeCloseTo(geometry[0].titleX, 1);
+    for (const offset of card.offsets) expect(Math.abs(offset), card.id).toBeLessThanOrEqual(1);
+    expect(card.overflow, card.id).toBe(false);
+  }
+  expect(geometry[0].topClearance).toBeCloseTo(geometry[0].rightClearance!, 1);
+}
+
+async function captureConsistentCards(page: Page, stack: Locator, info: TestInfo) {
+  await page.setViewportSize({ width: 1400, height: 1600 });
+  for (const id of [
+    "subagents-card",
+    "agent-task-progress-card",
+    "shared-message-queue",
+    "agent-goal-bar",
+    "question-form-card",
+  ]) {
+    const card = stack.getByTestId(id);
+    await card.scrollIntoViewIfNeeded();
+    await page.mouse.move(0, 0);
+    await card.screenshot({ path: info.outputPath(`consistent-${id}.png`) });
+  }
+}
+
+async function checkSubagentRows(stack: Locator, width: number, info: TestInfo) {
+  const rowLayout = await stack.getByTestId("subagents-card").evaluate((card) => {
+    return [...card.querySelectorAll('[data-testid^="subagents-track-row-"]')].map((row) => {
+      const label = row.querySelector('[data-testid^="subagents-track-label-"]')!;
+      const metadata = row.querySelector('[data-testid^="subagents-track-metadata-"]')!;
+      const action = row.querySelector('[data-testid^="subagents-track-detach-"]')!;
+      const a = label.getBoundingClientRect();
+      const b = metadata.getBoundingClientRect();
+      const c = action.getBoundingClientRect();
+      return {
+        centers: [a.y + a.height / 2, b.y + b.height / 2, c.y + c.height / 2],
+        labelRight: a.right,
+        metadataLeft: b.left,
+        metadataRight: b.right,
+        actionLeft: c.left,
+        whiteSpace: getComputedStyle(metadata).whiteSpace,
+        separator: getComputedStyle(row.parentElement!).borderTopWidth,
+        overflow: row.scrollWidth > row.clientWidth,
+      };
+    });
+  });
+  expect(rowLayout).toHaveLength(5);
+  for (const row of rowLayout) {
+    expect(Math.max(...row.centers) - Math.min(...row.centers)).toBeLessThanOrEqual(1);
+    expect(row.labelRight).toBeLessThanOrEqual(row.metadataLeft);
+    expect(row.metadataRight).toBeLessThanOrEqual(row.actionLeft);
+    expect(row.whiteSpace).toBe("nowrap");
+    expect(row.separator).toBe("0px");
+    expect(row.overflow).toBe(false);
+  }
+  await stack
+    .getByTestId("subagents-card")
+    .screenshot({ path: info.outputPath(`single-line-subagents-${width}.png`) });
+}
+
+async function cardHeaderOffset(card: Locator) {
+  // Read both rectangles in one browser frame. Conversation scrolling can occur
+  // between separate boundingBox calls without moving the header inside its card.
+  return card.evaluate((node) => {
+    const header = node.querySelector(
+      `[data-testid="${node.getAttribute("data-testid")}-header"]`,
+    )!;
+    return header.getBoundingClientRect().top - node.getBoundingClientRect().top;
+  });
+}
+
+async function checkFixedHeaders(
+  page: Page,
+  info: TestInfo,
+  client: DaemonClient,
+  agentId: string,
+) {
+  for (let index = 0; index < 10; index++) {
+    const result = await client.mutateMessageQueue(agentId, {
+      kind: "enqueue",
+      operationId: `scroll-queue-${index}`,
+      messageId: `scroll-queue-${index}`,
+      text: `Scroll queue row ${index}`,
+      attachments: [],
+    });
+    expect(result.error).toBeNull();
+    expect(result.snapshot?.items.some((item) => item.id === `scroll-queue-${index}`)).toBe(true);
+  }
+
+  // Load the persisted overflow fixture before measuring layout. Queue push
+  // delivery is covered separately; this check needs all eleven rows present.
+  await page.reload();
+  await expect(page.getByTestId("shared-message-queue")).toContainText("Scroll queue row 9");
+
+  for (const width of [1400, 390]) {
+    await page.setViewportSize({ width, height: 400 });
+    for (const id of [
+      "subagents-card",
+      "shared-message-queue",
+      "agent-goal-bar",
+      "question-form-card",
+    ]) {
+      const card = page.getByTestId(id);
+      await card.scrollIntoViewIfNeeded();
+      const header = page.getByTestId(`${id}-header`);
+      const before = await cardHeaderOffset(card);
+      const result = await page.getByTestId(`${id}-body-scroll`).evaluate(async (node) => {
+        const first = node.firstElementChild!;
+        const contentTop = first.getBoundingClientRect().top;
+        node.scrollTop = node.scrollHeight;
+        await new Promise(requestAnimationFrame);
+        return {
+          offset: node.scrollTop,
+          movement: contentTop - first.getBoundingClientRect().top,
+        };
+      });
+      expect((await card.boundingBox())!.height).toBeLessThanOrEqual(200);
+      expect(result.offset).toBeGreaterThan(0);
+      expect(result.movement).toBeGreaterThan(0);
+      expect(await cardHeaderOffset(card)).toBeCloseTo(before, 0);
+      await header.scrollIntoViewIfNeeded();
+      await expect(header).toBeInViewport();
+      await card.screenshot({ path: info.outputPath(`fixed-header-${id}-${width}.png`) });
+      await page.getByTestId(`${id}-body-scroll`).evaluate((node) => {
+        node.scrollTop = 0;
+      });
+    }
+  }
+}
 
 async function mockGoalObservation(page: Page, agentId: string, goalState: unknown) {
   await page.routeWebSocket(daemonWsRoutePattern(), (socket) => {
@@ -288,7 +474,7 @@ async function mockGoalObservation(page: Page, agentId: string, goalState: unkno
   });
 }
 
-test("workspace checklist donut combines unopened threads and survives reload", async ({
+test("workspace checklist flower combines unopened threads and survives reload", async ({
   page,
 }, info) => {
   test.setTimeout(180_000);
@@ -311,21 +497,21 @@ test("workspace checklist donut combines unopened threads and survives reload", 
     await openAgentRoute(page, agent);
     const card = page.getByTestId("agent-task-progress-card");
     const ring = page.getByTestId(/^workspace-task-progress-/);
-    await expect(card).toContainText("0/1 tasks");
+    await expect(card.getByTestId("checklist-count")).toHaveText("0 / 1");
     await expect(card).toContainText("stress-update-1");
     await expect(ring).toHaveAttribute("aria-valuenow", "1");
     await expect(ring).toHaveAttribute("aria-valuemax", "2");
-    await expect(ring).toHaveAttribute("aria-label", "1/2 tasks (50%)");
+    await expect(ring).toHaveAttribute("aria-label", /1\/2 tasks \(50%\).*active/);
     await client.sendAgentMessage(sibling.id, "emit 2 agent stream updates");
     await expect(ring).toHaveAttribute("aria-valuenow", "0");
     await page.reload();
-    await expect(card).toContainText("0/1 tasks");
-    await expect(ring).toHaveAttribute("aria-label", "0/2 tasks (0%)");
+    await expect(card.getByTestId("checklist-count")).toHaveText("0 / 1");
+    await expect(ring).toHaveAttribute("aria-label", /0\/2 tasks \(0%\).*active/);
     await client.archiveAgent(sibling.id);
     await expect(ring).toHaveAttribute("aria-valuemax", "1");
     await client.sendAgentMessage(agent.agentId, "emit 1 agent stream updates");
-    await expect(card).toContainText("1/1 tasks");
-    await expect(ring).toHaveAttribute("aria-label", "1/1 tasks (100%)");
+    await expect(card.getByTestId("checklist-count")).toHaveText("1 / 1");
+    await expect(ring).toHaveAttribute("aria-label", /1\/1 tasks \(100%\).*active/);
     for (const width of [1400, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(card).toBeAttached();
@@ -361,12 +547,52 @@ for (const width of [1400, 390]) {
         });
         expect(clearance.top).toBeCloseTo(clearance.bottom, 0);
       };
-      await expectCenteredHeader();
+      await expect(page.getByTestId("agent-task-progress-card")).not.toBeAttached();
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id: "first",
+        text: "First agent-created task",
+      });
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 1");
+      const single = page
+        .getByTestId("checklist-progress")
+        .locator("svg path[fill]:not([fill='none'])");
+      await expect(single).toHaveCount(1);
+      const bounds = await single.evaluate((node) => {
+        const box = (node as SVGGraphicsElement).getBBox();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      });
+      expect(bounds.x).toBeCloseTo(12, 1);
+      expect(bounds.y).toBeCloseTo(12, 1);
+      const firstRow = page.getByTestId("checklist-row-first");
+      const spinner = firstRow.getByTestId("task-running-spinner");
+      await expect(spinner).not.toBeAttached();
+      for (const status of ["in_progress", "pending", "in_progress"] as const) {
+        await client.mutateAgentChecklist(agent.agentId, {
+          operation: "update",
+          id: "first",
+          status,
+        });
+        if (status === "in_progress") await expect(spinner).toBeVisible();
+        else await expect(spinner).not.toBeAttached();
+      }
+      await page.screenshot({ path: info.outputPath("active-task-spinner.png") });
+      await firstRow.getByRole("checkbox", { name: "Complete First agent-created task" }).click();
+      await expect(spinner).not.toBeAttached();
+      await expect(page.getByTestId("checklist-count")).toHaveText("1 / 1");
+      await page.getByTestId("checklist-clear-completed").click();
+      await expect(page.getByTestId("agent-task-progress-card")).not.toBeAttached();
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id: "seed",
+        text: "Agent task",
+      });
       await page.getByTestId("checklist-add").click();
       await page.getByTestId("checklist-title").fill("Build API");
       await page.getByTestId("checklist-description").fill("Updates survive reload");
       await page.getByTestId("checklist-save").click();
       await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
+      await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "seed" });
       const tasks = await client.getAgentChecklist(agent.agentId);
       const api = tasks.find((task) => task.text === "Build API");
       expect(api).toMatchObject({
@@ -386,8 +612,34 @@ for (const width of [1400, 390]) {
       ).toContainText("Complete dependency");
       await page.getByRole("checkbox", { name: "Complete Build API", exact: true }).click();
       await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
-      await expect(page.getByTestId("checklist-count")).toHaveText("2/2");
+      await expect(page.getByTestId("checklist-count")).toHaveText("2 / 2");
       await page.getByRole("button", { name: "Details for Build API", exact: true }).click();
+      const footer = page.getByTestId("checklist-editor-actions");
+      await footer.scrollIntoViewIfNeeded();
+      const deleteButton = footer.getByRole("button", { name: "Delete task", exact: true });
+      const closeButton = footer.getByRole("button", { name: "Close", exact: true });
+      const saveButton = footer.getByTestId("checklist-save");
+      const footerBox = (await footer.boundingBox())!;
+      const deleteBox = (await deleteButton.boundingBox())!;
+      const closeBox = (await closeButton.boundingBox())!;
+      const saveBox = (await saveButton.boundingBox())!;
+      expect(deleteBox.x).toBeCloseTo(footerBox.x, 0);
+      expect(saveBox.x + saveBox.width).toBeCloseTo(footerBox.x + footerBox.width, 0);
+      if (Math.abs(closeBox.y - deleteBox.y) < 1) {
+        expect(closeBox.x).toBeGreaterThan(deleteBox.x + deleteBox.width);
+      } else {
+        expect(closeBox.y).toBeGreaterThanOrEqual(deleteBox.y + deleteBox.height + 8);
+      }
+      expect(closeBox.y).toBeCloseTo(saveBox.y, 0);
+      expect(saveBox.x).toBeGreaterThan(closeBox.x + closeBox.width);
+      await expect(footer).toHaveCSS("padding-top", "16px");
+      const deleteColor = await deleteButton.evaluate(
+        (node) => getComputedStyle(node).backgroundColor,
+      );
+      const channels = deleteColor.match(/\d+/g)!.map(Number);
+      expect(channels[0]).toBeGreaterThan(channels[1]);
+      expect(channels[0]).toBeGreaterThan(channels[2]);
+      await page.screenshot({ path: info.outputPath("task-editor-footer.png") });
       await page.getByTestId("checklist-title").fill("My retained draft");
       await client.mutateAgentChecklist(agent.agentId, {
         operation: "update",
@@ -401,12 +653,30 @@ for (const width of [1400, 390]) {
       await expect(page.getByTestId("checklist-title")).toHaveValue("My retained draft");
       await page.getByRole("button", { name: "Close", exact: true }).last().click();
       await page.getByRole("checkbox", { name: "Reopen Agent revision", exact: true }).click();
-      await expect(page.getByTestId("checklist-count")).toHaveText("1/2");
+      await expect(page.getByTestId("checklist-count")).toHaveText("1 / 2");
       await page.reload();
       await expect(
         page.getByRole("checkbox", { name: "Complete Agent revision", exact: true }),
       ).toBeVisible();
+      await page.evaluate(() => {
+        const send = WebSocket.prototype.send;
+        const held: (() => void)[] = [];
+        WebSocket.prototype.send = function (data) {
+          const message = typeof data === "string" ? JSON.parse(data).message : null;
+          if (
+            message?.type === "agent.checklist.mutate.request" &&
+            message.mutation?.operation === "reorder"
+          ) {
+            held.push(() => send.call(this, data));
+          } else send.call(this, data);
+        };
+        Object.assign(window, {
+          releaseTaskOrder: () => held.splice(0).forEach((release) => release()),
+        });
+      });
       const handle = page.getByTestId("checklist-drag-dependent");
+      const checkbox = page.getByTestId("checklist-row-dependent").getByRole("checkbox");
+      expect((await handle.boundingBox())!.x).toBeLessThan((await checkbox.boundingBox())!.x);
       await handle.click();
       await expect(handle).toBeFocused();
       await handle.press("Space");
@@ -416,6 +686,20 @@ for (const width of [1400, 390]) {
         page.getByRole("status").filter({ hasText: "Draggable item vorteo:dependent" }),
       ).toContainText(`over droppable area vorteo:${api!.id!}`);
       await page.keyboard.press("Space");
+      const staysDropped = await page.evaluate(async () => {
+        for (let frame = 0; frame < 30; frame++) {
+          await new Promise(requestAnimationFrame);
+          const rows = [...document.querySelectorAll('[data-testid^="checklist-row-"]')];
+          if (rows[0]?.getAttribute("data-testid") !== "checklist-row-dependent") return false;
+          if (rows[0]!.getBoundingClientRect().top >= rows[1]!.getBoundingClientRect().top)
+            return false;
+        }
+        return true;
+      });
+      expect(staysDropped).toBe(true);
+      await page.evaluate(() =>
+        (window as unknown as { releaseTaskOrder(): void }).releaseTaskOrder(),
+      );
       await expect
         .poll(async () => (await client.getAgentChecklist(agent.agentId)).map((task) => task.id))
         .toEqual(["dependent", api!.id!]);
@@ -432,9 +716,17 @@ for (const width of [1400, 390]) {
         (await client.getAgentChecklist(agent.agentId)).find((task) => task.id === "dependent")
           ?.owner,
       ).toBe("Reviewer");
+      const arrowOrder = await page.getByTestId("checklist-toggle-arrow").evaluate((node) => ({
+        title: node.previousElementSibling!.getBoundingClientRect().right,
+        arrowLeft: node.getBoundingClientRect().left,
+        arrowRight: node.getBoundingClientRect().right,
+        count: node.nextElementSibling!.getBoundingClientRect().left,
+      }));
+      expect(arrowOrder.arrowLeft).toBeGreaterThan(arrowOrder.title);
+      expect(arrowOrder.count).toBeGreaterThan(arrowOrder.arrowRight);
       await page.getByTestId("checklist-toggle").click();
       await expect(page.getByTestId("checklist-row-dependent")).not.toBeAttached();
-      await expect(page.getByTestId("checklist-count")).toHaveText("0/2");
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
       await expectCenteredHeader();
       await page.getByTestId("checklist-toggle").click();
       await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
@@ -446,10 +738,42 @@ for (const width of [1400, 390]) {
       page.once("dialog", (dialog) => dialog.accept());
       await page.getByRole("button", { name: "Delete task", exact: true }).click();
       await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
-      await expect(page.getByTestId("checklist-count")).toHaveText("0/1");
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 1");
       expect((await client.getAgentChecklist(agent.agentId)).map((task) => task.id)).toEqual([
         api!.id!,
       ]);
+      await expect(page.getByTestId("checklist-clear-completed")).not.toBeAttached();
+      for (const id of ["finished-a", "finished-b", "active"]) {
+        await client.mutateAgentChecklist(agent.agentId, {
+          operation: "create",
+          id,
+          text: id,
+          blockedBy: id === "finished-b" ? ["finished-a"] : [],
+        });
+        await client.mutateAgentChecklist(agent.agentId, {
+          operation: "update",
+          id,
+          status: id === "active" ? "in_progress" : "completed",
+        });
+      }
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "update",
+        id: api!.id!,
+        blockedBy: ["finished-b"],
+      });
+      const clear = page.getByTestId("checklist-clear-completed");
+      await expect(clear).toBeVisible();
+      await page.screenshot({ path: info.outputPath("clear-completed-tasks.png") });
+      await clear.click();
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
+      await expect(clear).not.toBeAttached();
+      const remaining = await client.getAgentChecklist(agent.agentId);
+      expect(remaining.map((task) => task.id)).toEqual([api!.id!, "active"]);
+      expect(remaining[0].blockedBy).toEqual([]);
+      expect(remaining[1].status).toBe("in_progress");
+      await page.reload();
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
+      await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "active" });
       for (let index = 0; index < 16; index++) {
         await client.mutateAgentChecklist(agent.agentId, {
           operation: "create",
@@ -460,22 +784,31 @@ for (const width of [1400, 390]) {
       const card = page.getByTestId("agent-task-progress-card");
       const lastTask = page.getByTestId("checklist-row-scroll-15");
       await expect(lastTask).toBeAttached();
+      await expect(
+        page.getByTestId("checklist-progress").locator("svg path[fill]:not([fill='none'])"),
+      ).toHaveCount(12);
       for (const height of [900, 400]) {
         await page.setViewportSize({ width, height });
         await card.scrollIntoViewIfNeeded();
         await expect
           .poll(async () => (await card.boundingBox())!.height)
           .toBeLessThanOrEqual(height / 2);
-        const scroll = await card.evaluate(async (node) => {
+        const header = page.getByTestId("agent-task-progress-card-header");
+        const headerBefore = (await header.boundingBox())!;
+        const body = page.getByTestId("agent-task-progress-card-body-scroll");
+        const scroll = await body.evaluate(async (node) => {
           node.scrollTop = node.scrollHeight;
           await new Promise(requestAnimationFrame);
           return { top: node.scrollTop, overflow: node.scrollHeight > node.clientHeight };
         });
+        const headerAfter = (await header.boundingBox())!;
+        expect(headerAfter.y).toBeCloseTo(headerBefore.y, 0);
+        await expect(page.getByTestId("checklist-toggle")).toBeInViewport();
         expect(scroll.overflow).toBe(true);
         expect(scroll.top).toBeGreaterThan(0);
         await lastTask.scrollIntoViewIfNeeded();
         await expect(lastTask).toBeInViewport();
-        await card.evaluate((node) => {
+        await body.evaluate((node) => {
           node.scrollTop = 0;
         });
         await info.attach(`bounded-tasks-${width}-${height}`, {
@@ -483,7 +816,7 @@ for (const width of [1400, 390]) {
           contentType: "image/png",
         });
       }
-      await card.evaluate((node) => {
+      await page.getByTestId("agent-task-progress-card-body-scroll").evaluate((node) => {
         node.scrollTop = 0;
       });
       await page.getByTestId("checklist-toggle").click();
@@ -494,4 +827,119 @@ for (const width of [1400, 390]) {
       await agent.cleanup();
     }
   });
+}
+
+test("task flowers stay bounded through 300 tasks and follow sidebar labels", async ({
+  page,
+}, info) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  const agent = await seedMockAgentWorkspace({ repoPrefix: "task-flower-", title: "Task flowers" });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "task-flower" });
+  try {
+    await agent.client.setWorkspaceLabel({
+      workspaceId: agent.workspaceId,
+      label: { name: "Later", color: "red" },
+      assigned: true,
+    });
+    await openAgentRoute(page, agent);
+    const flower = page.getByTestId("checklist-progress");
+    const sidebar = page.getByTestId(/^workspace-task-progress-/);
+    for (let index = 0; index < 300; index++) {
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id: `petal-${index}`,
+        text: `Task ${index + 1}`,
+      });
+      if (![1, 2, 3, 4, 8, 12, 33, 300].includes(index + 1)) continue;
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "update",
+        id: "petal-0",
+        status: "in_progress",
+      });
+      // Open the large snapshot after seeding to check a 300-task workspace without
+      // making this test depend on processing hundreds of intermediate UI states.
+      if (index + 1 === 300) await openAgentRoute(page, agent);
+      const count = Math.min(index + 1, 12);
+      await expect(flower.locator("svg path[fill]:not([fill='none'])")).toHaveCount(count);
+      await expect(sidebar.locator("svg path[fill]:not([fill='none'])")).toHaveCount(count);
+      await expect(flower.locator("svg path[fill='none']")).toHaveCount(0);
+      await expect(sidebar).toHaveAttribute("aria-valuemax", String(index + 1));
+      const label = page.getByTestId("workspace-label-chip-Later");
+      const labelBox = (await label.boundingBox())!;
+      expect((await sidebar.boundingBox())!.x).toBeGreaterThan(labelBox.x + labelBox.width);
+      await sidebar.hover();
+      const menu = page.getByTestId("sidebar-menu-backdrop");
+      await expect(menu).toBeVisible();
+      const menuBox = (await menu.boundingBox())!;
+      const flowerBox = (await sidebar.boundingBox())!;
+      expect(menuBox.x + menuBox.width).toBeCloseTo(flowerBox.x + flowerBox.width, 0);
+      const menuOwnsEdge = await menu.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return node.contains(
+          document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+        );
+      });
+      expect(menuOwnsEdge).toBe(true);
+      await page.mouse.move(600, 20);
+      await info.attach(`flowers-${index + 1}`, {
+        body: await page.screenshot({ path: info.outputPath(`flowers-${index + 1}.png`) }),
+        contentType: "image/png",
+      });
+      if (index + 1 === 33) await page.goto("about:blank");
+    }
+    await page.getByTestId("checklist-toggle").click();
+    await expect(page.getByTestId("checklist-row-petal-0")).not.toBeAttached();
+    await expect(flower.locator("svg path[fill]:not([fill='none'])")).toHaveCount(12);
+  } finally {
+    await client.close();
+    await agent.cleanup();
+  }
+});
+
+async function checkDisclosures(stack: Locator, width: number, info: TestInfo) {
+  for (const id of [
+    "subagents-group-paseo-toggle",
+    "checklist-toggle",
+    "message-queue-toggle",
+    "agent-goal-toggle",
+  ]) {
+    const arrow = stack.getByTestId(`${id}-arrow`);
+    const order = await arrow.evaluate((node) => {
+      const arrowBox = node.getBoundingClientRect();
+      const titleBox = node.previousElementSibling!.getBoundingClientRect();
+      const countBox = node.nextElementSibling?.getBoundingClientRect();
+      return {
+        titleRight: titleBox.right,
+        arrowLeft: arrowBox.left,
+        arrowRight: arrowBox.right,
+        countLeft: countBox?.left,
+      };
+    });
+    expect(order.arrowLeft).toBeGreaterThan(order.titleRight);
+    if (order.countLeft !== undefined) expect(order.countLeft).toBeGreaterThan(order.arrowRight);
+  }
+  for (const [toggleId, bodyId, cardId, actionId] of [
+    [
+      "message-queue-toggle",
+      "message-queue-body",
+      "shared-message-queue",
+      "message-queue-pause-resume",
+    ],
+    ["agent-goal-toggle", "agent-goal-body", "agent-goal-bar", "agent-goal-expand"],
+  ]) {
+    const disclosure = stack.getByTestId(toggleId);
+    const body = stack.getByTestId(bodyId);
+    const card = stack.getByTestId(cardId);
+    const expandedHeight = (await card.boundingBox())!.height;
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(body).toBeHidden();
+    await expect(stack.getByTestId(actionId)).toBeVisible();
+    expect((await card.boundingBox())!.height).toBeLessThan(expandedHeight);
+    await card.screenshot({ path: info.outputPath(`${cardId}-collapsed-${width}.png`) });
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(body).toBeVisible();
+  }
 }

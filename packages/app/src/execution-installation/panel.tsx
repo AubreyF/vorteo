@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import {
   useCallback,
   useEffect,
@@ -581,7 +582,7 @@ function RestartActions({
   return (
     <>
       {pending && source ? (
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <RestartActionButton
             variant="destructive"
             disabledReason={restartActionDisabledReason(job, "install", busy)}
@@ -593,10 +594,10 @@ function RestartActions({
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
-        </View>
+        </ActionFooter>
       ) : null}
       {pending && !source ? (
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           {!job.supervisorPlanSha256 ? (
             <RestartActionButton
               variant="outline"
@@ -628,15 +629,15 @@ function RestartActions({
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
-        </View>
+        </ActionFooter>
       ) : null}
       {queued ? (
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
           <RestartEscalation job={job} model={model} busy={busy} />
-        </View>
+        </ActionFooter>
       ) : null}
     </>
   );
@@ -905,11 +906,11 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
         {job.status === "approved" || job.status === "running" ? (
           <RestartActivity job={job} />
         ) : null}
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button variant="outline" onPress={open}>
             Review restart
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     ),
     [job, open],

@@ -1,5 +1,4 @@
 import {
-  ChartPie,
   FileText,
   MessageCircleQuestion,
   MessagesSquare,
@@ -15,7 +14,6 @@ import type { Theme } from "@/styles/theme";
 const palette = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const icons = {
-  tasks: withUnistyles(ChartPie),
   messages: withUnistyles(MessagesSquare),
   goal: withUnistyles(Target),
   subagents: withUnistyles(Users),

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { QueueOperationSchema } from "@getpaseo/protocol/message-queue";
+import { QueueOperationSchema, type QueueSnapshot } from "@getpaseo/protocol/message-queue";
 
 export const LocalQueueAttachmentSchema = z.object({
   kind: z.enum(["image", "file"]),
@@ -31,6 +31,25 @@ export const OutboxRecordSchema = z.object({
 
 export type LocalQueueAttachment = z.infer<typeof LocalQueueAttachmentSchema>;
 export type OutboxRecord = z.infer<typeof OutboxRecordSchema>;
+
+interface ImmediateDeliveryState {
+  snapshot: QueueSnapshot | undefined;
+  records: OutboxRecord[] | null | undefined;
+  agentId: string;
+}
+
+export function canRequestImmediateDelivery({
+  snapshot,
+  records,
+  agentId,
+}: ImmediateDeliveryState): boolean {
+  if (!snapshot || !records || !snapshot.items.length) return false;
+  const deliveryPending = snapshot.items.some(
+    (item) => item.delivery.status !== "queued" || item.sendNow,
+  );
+  const localPending = records.some((record) => record.agentId === agentId && !record.dismissed);
+  return !deliveryPending && !localPending;
+}
 
 export function canKeepRejectedChange(record: OutboxRecord): boolean {
   if (record.operation.kind === "enqueue" || record.dismissed || !record.error) return false;

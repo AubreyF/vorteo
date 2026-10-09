@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.248 - 2026-10-08
+
+### Maintenance
+
+- Integrate the deployed interface and installed Host ancestry with coordinator bootstrap and Claude connection preparation
+- Preserve delivered queue recovery, conversation card geometry, task progress and sidebar refinements
+- Retain both branches' complete release histories; installation and live bootstrap acceptance remain pending
+
+## 0.11.0-beta.3.vorteo.225 - 2026-10-08
+
+### Fixed
+
+- Keep the profile selector open when switching Host and Dev container, without a Host confirmation dialog.
+- Keep active managed-worker workspaces visible in the sidebar, including workspaces with no terminals or running scripts. Preserve their project grouping and task relationships.
+
 ## 0.11.0-beta.3.vorteo.247 - 2026-10-08
 
 ### Maintenance
@@ -217,6 +232,139 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## 0.11.0-beta.3.vorteo.225 - 2026-10-08
 
+## 0.11.0-beta.3.vorteo.242 - 2026-10-09
+
+### Fixed
+
+- Give conversation cards one shared inset, heading height, icon column, title typography and centered action row. Remove the sub-agent left offset and Goal action top margin; keep Clear finished equally inset from the top and right.
+- Put disclosure arrows after titles and before counts, including Plans. Keep question navigation and full prompts below a fixed Questions heading.
+- Prevent per-card content inset overrides. Document the layout contract in app instructions and the design guide, and check rendered alignment, visible titles, clearance, overflow and fixed headers at desktop and phone widths.
+
+## 0.11.0-beta.3.vorteo.241 - 2026-10-09
+
+### Fixed
+
+- Restore workspace three-dot menus to the far-right edge. Hover menus cover the task flower instead of appearing to its left; touch menus retain their reserved action space.
+- Update the sidebar flower browser check to verify menu alignment and pointer targeting.
+
+## 0.11.0-beta.3.vorteo.240 - 2026-10-09
+
+### Changed
+
+- Move the gold Host environment icon from beside workspace names to the trailing metadata group, after line-change counts and before the preview globe, badges, labels and task flower.
+
+## 0.11.0-beta.3.vorteo.239 - 2026-10-09
+
+### Fixed
+
+- Keep conversation card headings outside their scrolling bodies while capping the complete card at half the viewport height. Apply the shared heading slot to tasks, messages, goals, sub-agents, questions, permissions and plans.
+- Give managed and provider sub-agent groups separate bounded cards. Preserve collapsed body state and compact spacing.
+- Extend desktop and phone browser checks for fixed headings, body scrolling and viewport resizing.
+
+## 0.11.0-beta.3.vorteo.238 - 2026-10-09
+
+### Changed
+
+- Keep sub-agent names, status and profile/model/effort metadata on one line, with metadata immediately before right-edge actions. Remove row dividers and preserve action space on narrow screens.
+- Add desktop and phone checks for row alignment, single-line metadata and overflow.
+
+## 0.11.0-beta.3.vorteo.237 - 2026-10-09
+
+### Fixed
+
+- Preserve dropped task, message and provider order during asynchronous saves with a shared web/native handoff. Keep row content current and restore authoritative order on failure.
+- Remove routine message reorder status while preserving rejection and recovery controls. Detect retained queue operations instead of treating their flush as a confirmed reorder.
+- Add delayed-response, mouse rejection and desktop/phone frame checks for stable list positions; document the async drop contract.
+
+## 0.11.0-beta.3.vorteo.236 - 2026-10-09
+
+### Changed
+
+- Make Messages and Goals collapsible while preserving their mounted contents and header actions. Collapsing does not pause execution.
+- Share disclosure headings across managed and provider tasks, messages, goals and sub-agents, with the arrow after the title and before the count. Add desktop and phone collapse and ordering checks.
+
+## 0.11.0-beta.3.vorteo.235 - 2026-10-09
+
+### Fixed
+
+- Keep transient queue operations, settings saves and compaction action feedback in stable single-line heading slots before action buttons. Reordering no longer adds and removes a progress row beneath queued messages.
+- Preserve persistent errors and recovery controls. Add desktop and phone checks for unchanged queue card height, plus missing icon exports needed by browser test fixtures.
+
+## 0.11.0-beta.3.vorteo.234 - 2026-10-09
+
+### Maintenance
+
+- Integrate shared footer layouts with queue recovery containment, preserving both changes and their release history.
+
+## 0.11.0-beta.3.vorteo.233 - 2026-10-09
+
+### Changed
+
+- Standardize modal and card bottom actions with a shared right-aligned footer, spacing above and responsive wrapping. Keep task and label deletion and host removal red and on the far left, separated from ordinary actions.
+- Document footer conventions and check task editor alignment, spacing and delete color at desktop and phone widths. Keep Close and Save together when the task footer wraps, and update label/profile browser navigation to the current interface.
+
+## 0.11.0-beta.3.vorteo.233 - 2026-10-09
+
+### Fixed
+
+- Keep queue recovery controls inside the Messages card when the server queue is empty. Retained local copies no longer display active synchronization errors.
+- Retire rejected send-now controls whose target has left the queue, preserving message content, attachments and concurrent retries. Disable new immediate sends while delivery or local queue changes remain unresolved.
+- Cover reconnect cleanup, retained edits, empty-queue recovery and desktop/mobile card layout with focused tests and a browser regression.
+
+## 0.11.0-beta.3.vorteo.232 - 2026-10-09
+
+### Maintenance
+
+- Correct the sidebar activity badge browser check to inspect the accessible text inside the badge.
+
+## 0.11.0-beta.3.vorteo.231 - 2026-10-09
+
+### Changed
+
+- Remove the sidebar goal badge and show the sub-agent count only for active work. Managed workers count while their turn is open, including waiting for input; provider workers count while running. Finished unarchived workers no longer keep the badge visible.
+
+## 0.11.0-beta.3.vorteo.230 - 2026-10-09
+
+### Added
+
+- Add a Clear completed button to task headings when completed editable checklist items exist. Cleanup preserves unfinished and provider-owned tasks, removes dependency links, stops on concurrent-edit conflicts, and reports errors.
+
+## 0.11.0-beta.3.vorteo.229 - 2026-10-09
+
+### Changed
+
+- Remove outlines from active blue task petals. Make one-, two- and three-task petals wider and fuller, bringing radial tips closer to the center while keeping a single petal centered upright.
+
+## 0.11.0-beta.3.vorteo.228 - 2026-10-09
+
+### Changed
+
+- Add space around the slash in task heading count badges for managed and provider task cards.
+
+## 0.11.0-beta.3.vorteo.227 - 2026-10-09
+
+### Fixed
+
+- Show active task rows with a white foreground outline spinner, using the shared status-ring animation in managed and provider task lists. Keep the completion control clickable while a task is active.
+- Cover pending, active and completed row transitions at desktop and narrow widths.
+
+## 0.11.0-beta.3.vorteo.226 - 2026-10-09
+
+### Fixed
+
+- Keep task flowers to the right of sidebar row actions on hover and touch, so the action menu cannot cover the progress indicator.
+
+## 0.11.0-beta.3.vorteo.225 - 2026-10-09
+
+### Changed
+
+- Replace task-completion donuts with smaller rounded flower petals in sidebar rows and task-card headers. Show green completion, blue activity with an outline halo, and gray pending work; cap the display at twelve petals and summarize larger checklists proportionally.
+- Center a single upright petal within its icon slot and keep sidebar flowers after all labels and badges.
+- Hide empty task cards, move reorder handles to the left, and use the message edit pencil for task details.
+- Expose exact completion and active counts on hover and keyboard focus. The new active-count text uses English fallback in other locales.
+
+## 0.11.0-beta.3.vorteo.224 - 2026-10-08
+
 ### Fixed
 
 - Keep the profile selector open when switching Host and Dev container, without a Host confirmation dialog.
@@ -236,6 +384,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Let agents read and revise their own existing goals, including authorized resumption of blocked work, while preserving usage, budgets and restart holds
 - Reject stale goal edits, foreign-thread selection and indirect limit bypasses; document the goal-tool extension in the README
+
+## 0.11.0-beta.3.vorteo.223 - 2026-10-09
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.222 - 2026-10-08
 

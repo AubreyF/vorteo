@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useMaintenanceTask } from "@/execution-installation/use-maintenance-task";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -63,7 +64,7 @@ export function VortonUpdatesSection() {
             </Text>
           </View>
         </View>
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button
             variant="outline"
             size="md"
@@ -80,7 +81,7 @@ export function VortonUpdatesSection() {
           <Button size="md" onPress={help} testID="vorton-help-update">
             Prepare host update task
           </Button>
-        </View>
+        </ActionFooter>
         <View style={styles.hintArea} testID="vorton-update-feedback-area">
           {/* Keep the instructions in layout so feedback never moves the card or buttons. */}
           <Text

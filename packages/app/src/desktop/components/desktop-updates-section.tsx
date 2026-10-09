@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, { type ReactElement, useCallback, useMemo, useState } from "react";
 import { Alert, Text, View } from "react-native";
@@ -186,14 +187,14 @@ function DaemonCliStatusModal({
         <Text style={styles.logOutput} selectable dataSet={CODE_SURFACE_DATASET}>
           {cliStatusOutput ?? ""}
         </Text>
-        <View style={styles.modalActions}>
+        <ActionFooter style={styles.modalActions}>
           <Button variant="outline" size="sm" onPress={onClose}>
             {t("common.actions.close")}
           </Button>
           <Button size="sm" onPress={onCopy}>
             {t("common.actions.copy")}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );
