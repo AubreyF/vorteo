@@ -4,12 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.222 - 2026-10-08
+
+### Maintenance
+
+- Integrate task status guidance with the published conversation card and attribution fixes, preserving both version 221 release entries
+
 ## 0.11.0-beta.3.vorteo.221 - 2026-10-08
 
 ### Maintenance
 
 - Update queue component test fixtures for shared card scrolling and heading icons
 - Integrate the live conversation card refinements with published account readiness, saved history and delegated message attribution fixes; retain both branches’ release notes
+
+## 0.11.0-beta.3.vorteo.221 - 2026-10-09
+
+### Changed
+
+- Require agents to mark checklist work in progress before starting, update status at work transitions, and complete items only after acceptance checks. Clarify pending and blocked work, parallel activity, and stale-state reconciliation in shared launch guidance, tool help, and repo/skill instructions.
 
 ## 0.11.0-beta.3.vorteo.220 - 2026-10-09
 
