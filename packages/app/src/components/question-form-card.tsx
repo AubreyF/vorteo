@@ -1,4 +1,4 @@
-import { taskCardStyles } from "@/agent-stream/task-card-styles";
+import { TaskCard } from "@/agent-stream/task-card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useState, useCallback, useMemo, useRef, type RefObject } from "react";
 import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
@@ -520,10 +520,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
   const showTextInput = activeQuestion ? questionShowsTextInput(activeQuestion) : false;
 
   return (
-    <View
-      style={[taskCardStyles.surface, taskCardStyles.contentInsets, styles.container]}
-      testID="question-form-card"
-    >
+    <TaskCard contentContainerStyle={styles.container} testID="question-form-card">
       <QuestionNav
         questions={questions}
         activeIndex={resolvedActiveQuestionIndex}
@@ -611,7 +608,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
           )}
         </Pressable>
       </View>
-    </View>
+    </TaskCard>
   );
 }
 

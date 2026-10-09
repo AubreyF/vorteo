@@ -1,21 +1,14 @@
+import { TaskCard } from "@/agent-stream/task-card";
 import { CountBadge } from "@/components/ui/count-badge";
 import { QueueMessageIndicator } from "./queue-indicator";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
-import { isNative } from "@/constants/platform";
+import { ListDragHandle } from "@/components/list-drag-handle";
 import { QueueDragScrollContext } from "./drag-scroll";
 import { queueReorderAction } from "./reorder";
 import { SharedQueueAttachments } from "./shared-attachments";
 import { QueueAttachmentSummary } from "./attachment-summary";
-import {
-  ArrowUp,
-  Pencil,
-  RotateCw,
-  Play,
-  Pause,
-  MoreHorizontal,
-  GripVertical,
-} from "lucide-react-native";
+import { ArrowUp, Pencil, RotateCw, Play, Pause, MoreHorizontal } from "lucide-react-native";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   DropdownMenu,
@@ -24,8 +17,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { isQueueGoalError } from "./goal-error";
-import { useCallback, useState, useRef, useContext, useEffect, type Ref } from "react";
-import { Text, View, Pressable } from "react-native";
+import { useCallback, useState, useRef, useContext, useEffect } from "react";
+import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import type { QueueItem } from "@getpaseo/protocol/message-queue";
@@ -98,6 +91,7 @@ function QueueViewContent({
   )
     return null;
   const hasMessages = hasQueueMessages(control);
+  const Container = hasMessages ? TaskCard : View;
   const hasRows =
     !!snapshot?.items.length ||
     control.pending.some((record) => record.operation.kind === "enqueue");
@@ -107,10 +101,7 @@ function QueueViewContent({
     return !!record.error && !!snapshot?.items.some((item) => item.id === operation.messageId);
   });
   return (
-    <View
-      style={hasMessages ? taskCardStyles.container : undefined}
-      testID={hasMessages ? "shared-message-queue" : "queue-recovery-status"}
-    >
+    <Container testID={hasMessages ? "shared-message-queue" : "queue-recovery-status"}>
       {hasMessages ? <QueueHeader control={control} /> : null}
       {!(goalErrorHandled && isQueueGoalError(snapshot?.deliveryError)) ? (
         <QueueDeliveryError control={control} />
@@ -142,7 +133,7 @@ function QueueViewContent({
           />
         ))}
       </View>
-    </View>
+    </Container>
   );
 }
 
@@ -283,43 +274,6 @@ function QueueRows({
         </Text>
       ) : null}
     </>
-  );
-}
-
-// A plain web activator lets dnd-kit own Space/arrow keys without a Pressable
-// consuming the key event first. Native still uses press-in to acquire the drag.
-const DragHandleSurface = isNative ? Pressable : View;
-
-function QueueDragHandle({
-  info,
-  disabled,
-}: {
-  info: DraggableRenderItemInfo<QueueDisplayItem>;
-  disabled: boolean;
-}) {
-  const touch = useVortonTouch();
-  const handle = disabled ? undefined : info.dragHandleProps;
-  return (
-    <DragHandleSurface
-      {...handle?.attributes}
-      {...handle?.listeners}
-      ref={handle?.setActivatorNodeRef as Ref<View> | undefined}
-      onPressIn={isNative && !disabled ? info.drag : undefined}
-      tabIndex={disabled ? -1 : 0}
-      accessibilityRole="button"
-      accessibilityLabel="Reorder queued message"
-      accessibilityHint="Drag to change the message order."
-      aria-disabled={disabled}
-      testID={`queue-drag-${info.item.id}`}
-      style={[
-        styles.dragHandle,
-        touch && styles.touch,
-        info.isActive && styles.dragGrabbing,
-        disabled && styles.dragDisabled,
-      ]}
-    >
-      <ThemedGrip size={14} uniProps={mutedIconMapping} />
-    </DragHandleSurface>
   );
 }
 
@@ -591,7 +545,14 @@ function QueueRow({
       {!editing.length ? (
         <View style={styles.summary}>
           <QueueMessageIndicator record={record}>
-            {item ? <QueueDragHandle info={dragInfo} disabled={!reorderEnabled} /> : null}
+            {item ? (
+              <ListDragHandle
+                info={dragInfo}
+                disabled={!reorderEnabled}
+                label="Reorder queued message"
+                testID={`queue-drag-${row.id}`}
+              />
+            ) : null}
           </QueueMessageIndicator>
           <QueueAttachmentSummary
             count={attachments.length}
@@ -791,7 +752,6 @@ function QueuePrimaryActions({
   );
 }
 
-const ThemedGrip = withUnistyles(GripVertical);
 const ThemedMore = withUnistyles(MoreHorizontal);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
@@ -813,16 +773,6 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
     borderRadius: theme.borderRadius.full,
   },
-  dragHandle: {
-    width: 24,
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    _web: { cursor: "grab" },
-    touchAction: "none",
-  },
-  dragGrabbing: { _web: { cursor: "grabbing" } },
-  dragDisabled: { opacity: 0.35, _web: { cursor: "auto" } },
   dragActive: { backgroundColor: theme.colors.surface2 },
   editorActions: { flexDirection: "row", justifyContent: "flex-end", gap: theme.spacing[2] },
   editor: { gap: theme.spacing[2], paddingTop: theme.spacing[2] },

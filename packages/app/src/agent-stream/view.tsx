@@ -1,3 +1,4 @@
+import { TaskCard } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
 import { taskCardStyles } from "./task-card-styles";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
@@ -1669,9 +1670,8 @@ function PermissionRequestCard({
   }
 
   return (
-    <View
-      style={[
-        taskCardStyles.surface,
+    <TaskCard
+      contentContainerStyle={[
         permissionStyles.container,
         taskCardStyles.contentInsets,
         permissionStyles.bottomCard,
@@ -1696,7 +1696,7 @@ function PermissionRequestCard({
       ) : null}
 
       {footer}
-    </View>
+    </TaskCard>
   );
 }
 

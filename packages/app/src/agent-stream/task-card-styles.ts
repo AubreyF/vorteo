@@ -21,7 +21,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     surface,
     contentInsets,
     // Header rows supply part of the top clearance; keep a small inset above them.
-    container: { ...surface, ...contentInsets, paddingTop: theme.spacing[1] },
+    scrollContent: { ...contentInsets, paddingTop: theme.spacing[1] },
     item: {
       minHeight: TASK_CARD_ROW_HEIGHT,
       paddingVertical: theme.spacing[1],

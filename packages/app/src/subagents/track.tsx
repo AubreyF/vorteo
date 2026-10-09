@@ -1,3 +1,4 @@
+import { TaskCard } from "@/agent-stream/task-card";
 import { SettingsInfoTip } from "@/components/settings/headings/settings-info-tip";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CountBadge } from "@/components/ui/count-badge";
@@ -102,9 +103,9 @@ export function SubagentsTrack({
   ));
   if (inline) {
     return (
-      <View style={[taskCardStyles.container, styles.card]} testID="subagents-card">
+      <TaskCard contentContainerStyle={styles.card} testID="subagents-card">
         {groups}
-      </View>
+      </TaskCard>
     );
   }
   return (

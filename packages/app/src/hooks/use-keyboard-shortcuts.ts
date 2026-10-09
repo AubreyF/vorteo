@@ -327,6 +327,8 @@ export function useKeyboardShortcuts({
       return;
     }
 
+    if (isReorderKey(event)) return;
+
     const store = useKeyboardShortcutsStore.getState();
     if (store.capturingShortcut) {
       return;
@@ -425,4 +427,21 @@ export function useKeyboardShortcuts({
     resetModifiers,
     shortcutsAvailable,
   ]);
+}
+
+// Sortable handles own activation, movement and cancellation; Space must not mute voice here.
+function isReorderKey(event: KeyboardEvent): boolean {
+  if (!(event.target instanceof Element)) return false;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+  const handle = event.target.closest("[data-keyboard-reorder='true']");
+  const reorderKey = [
+    "Space",
+    "Enter",
+    "Escape",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+  ].includes(event.code);
+  return Boolean(handle) && reorderKey;
 }

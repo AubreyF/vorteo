@@ -130,7 +130,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
             top: box.top,
             bottom: box.bottom,
             width: box.width,
-            padding: style.padding,
+            padding: getComputedStyle(node.firstElementChild!).padding,
             frame: [
               style.backgroundColor,
               style.borderColor,
@@ -140,6 +140,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
           };
         });
       }, ids);
+      for (const card of geometry) expect(card.bottom - card.top).toBeLessThanOrEqual(325);
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
       expect(geometry[0].frame[3]).toBe("8px");
@@ -172,9 +173,12 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         const rows = card.querySelectorAll('[data-testid^="subagents-track-row-"]');
         const lastRow = rows.item(rows.length - 1);
         if (!lastRow) throw new Error("Subagent rows missing");
-        return card.getBoundingClientRect().bottom - lastRow.getBoundingClientRect().bottom;
+        return (
+          card.firstElementChild!.getBoundingClientRect().bottom -
+          lastRow.getBoundingClientRect().bottom
+        );
       });
-      expect(subagentBottomInset).toBeCloseTo(9, 0);
+      expect(subagentBottomInset).toBeCloseTo(8, 0);
       if (width === 1400) {
         const composerFrame = await page.getByTestId("message-input-surface").evaluate((node) => {
           const style = getComputedStyle(node);
@@ -190,7 +194,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         expect(card.width).toBe(geometry[2].width);
       }
       const goalActionInset = await stack.getByTestId("agent-goal-bar").evaluate((card) => {
-        const header = card.firstElementChild;
+        const header = card.firstElementChild?.firstElementChild;
         const action = card.querySelector('[data-testid="agent-goal-clear"]');
         if (!header || !action) throw new Error("Goal controls missing");
         return action.getBoundingClientRect().top - header.getBoundingClientRect().top;
@@ -367,13 +371,13 @@ for (const width of [1400, 390]) {
         text: "Build card",
         blockedBy: [api!.id!],
       });
-      await page.getByRole("button", { name: "Complete Build card", exact: true }).click();
+      await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
       await expect(
         page.getByTestId("agent-task-progress-card").getByRole("alert").first(),
       ).toContainText("Complete dependency");
-      await page.getByRole("button", { name: "Complete Build API", exact: true }).click();
-      await page.getByRole("button", { name: "Complete Build card", exact: true }).click();
-      await expect(page.getByTestId("agent-task-progress-card")).toContainText("2/2 tasks");
+      await page.getByRole("checkbox", { name: "Complete Build API", exact: true }).click();
+      await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
+      await expect(page.getByTestId("checklist-count")).toHaveText("2/2");
       await page.getByRole("button", { name: "Details for Build API", exact: true }).click();
       await page.getByTestId("checklist-title").fill("My retained draft");
       await client.mutateAgentChecklist(agent.agentId, {
@@ -387,13 +391,22 @@ for (const width of [1400, 390]) {
       );
       await expect(page.getByTestId("checklist-title")).toHaveValue("My retained draft");
       await page.getByRole("button", { name: "Close", exact: true }).last().click();
-      await page.getByRole("button", { name: "Reopen Agent revision", exact: true }).click();
-      await expect(page.getByTestId("agent-task-progress-card")).toContainText("1/2 tasks");
+      await page.getByRole("checkbox", { name: "Reopen Agent revision", exact: true }).click();
+      await expect(page.getByTestId("checklist-count")).toHaveText("1/2");
       await page.reload();
       await expect(
-        page.getByRole("button", { name: "Complete Agent revision", exact: true }),
+        page.getByRole("checkbox", { name: "Complete Agent revision", exact: true }),
       ).toBeVisible();
-      await page.getByRole("button", { name: "Move up Build card", exact: true }).click();
+      const handle = page.getByTestId("checklist-drag-dependent");
+      await handle.click();
+      await expect(handle).toBeFocused();
+      await handle.press("Space");
+      await expect(handle).toHaveAttribute("aria-pressed", "true");
+      await page.keyboard.press("ArrowUp");
+      await expect(
+        page.getByRole("status").filter({ hasText: "Draggable item vorteo:dependent" }),
+      ).toContainText(`over droppable area vorteo:${api!.id!}`);
+      await page.keyboard.press("Space");
       await expect
         .poll(async () => (await client.getAgentChecklist(agent.agentId)).map((task) => task.id))
         .toEqual(["dependent", api!.id!]);
@@ -406,8 +419,15 @@ for (const width of [1400, 390]) {
         .click();
       await page.getByTestId("checklist-save").click();
       await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
-      await expect(page.getByTestId("agent-task-progress-card")).toContainText("Reviewer");
-      await page.getByRole("button", { name: "Complete Build card", exact: true }).click();
+      expect(
+        (await client.getAgentChecklist(agent.agentId)).find((task) => task.id === "dependent")
+          ?.owner,
+      ).toBe("Reviewer");
+      await page.getByTestId("checklist-toggle").click();
+      await expect(page.getByTestId("checklist-row-dependent")).not.toBeAttached();
+      await expect(page.getByTestId("checklist-count")).toHaveText("0/2");
+      await page.getByTestId("checklist-toggle").click();
+      await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
       await info.attach(`manual-checklist-${width}`, {
         body: await page.screenshot({ path: info.outputPath("manual-checklist.png") }),
         contentType: "image/png",
@@ -416,10 +436,49 @@ for (const width of [1400, 390]) {
       page.once("dialog", (dialog) => dialog.accept());
       await page.getByRole("button", { name: "Delete task", exact: true }).click();
       await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
-      await expect(page.getByTestId("agent-task-progress-card")).toContainText("0/1 tasks");
+      await expect(page.getByTestId("checklist-count")).toHaveText("0/1");
       expect((await client.getAgentChecklist(agent.agentId)).map((task) => task.id)).toEqual([
         api!.id!,
       ]);
+      for (let index = 0; index < 16; index++) {
+        await client.mutateAgentChecklist(agent.agentId, {
+          operation: "create",
+          id: `scroll-${index}`,
+          text: `Task ${index}`,
+        });
+      }
+      const card = page.getByTestId("agent-task-progress-card");
+      const lastTask = page.getByTestId("checklist-row-scroll-15");
+      await expect(lastTask).toBeAttached();
+      for (const height of [900, 400]) {
+        await page.setViewportSize({ width, height });
+        await card.scrollIntoViewIfNeeded();
+        await expect
+          .poll(async () => (await card.boundingBox())!.height)
+          .toBeLessThanOrEqual(height / 2);
+        const scroll = await card.evaluate(async (node) => {
+          node.scrollTop = node.scrollHeight;
+          await new Promise(requestAnimationFrame);
+          return { top: node.scrollTop, overflow: node.scrollHeight > node.clientHeight };
+        });
+        expect(scroll.overflow).toBe(true);
+        expect(scroll.top).toBeGreaterThan(0);
+        await lastTask.scrollIntoViewIfNeeded();
+        await expect(lastTask).toBeInViewport();
+        await card.evaluate((node) => {
+          node.scrollTop = 0;
+        });
+        await info.attach(`bounded-tasks-${width}-${height}`, {
+          body: await card.screenshot(),
+          contentType: "image/png",
+        });
+      }
+      await card.evaluate((node) => {
+        node.scrollTop = 0;
+      });
+      await page.getByTestId("checklist-toggle").click();
+      await expect(page.getByTestId("checklist-row-scroll-0")).not.toBeAttached();
+      await expect.poll(async () => (await card.boundingBox())!.height).toBeLessThan(100);
     } finally {
       await client.close();
       await agent.cleanup();

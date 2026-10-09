@@ -1,3 +1,4 @@
+import { TaskCard } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { Text, View } from "react-native";
@@ -36,7 +37,7 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
   const label = goalBarLabel(control);
 
   return (
-    <View style={[taskCardStyles.container, styles.container]} testID="agent-goal-bar">
+    <TaskCard contentContainerStyle={styles.container} testID="agent-goal-bar">
       <View
         style={[
           taskCardStyles.header,
@@ -81,7 +82,7 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
           />
         </View>
       </View>
-      <Text style={styles.objective} numberOfLines={2} selectable>
+      <Text style={styles.objective} selectable>
         {goal?.objective}
       </Text>
       {queueError ? (
@@ -115,7 +116,7 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
           </Button>
         </View>
       ) : null}
-    </View>
+    </TaskCard>
   );
 }
 

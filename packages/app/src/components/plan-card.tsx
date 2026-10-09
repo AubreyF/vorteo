@@ -1,3 +1,4 @@
+import { TaskCard } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
@@ -236,22 +237,18 @@ function PlanCardContent({
     [expanded],
   );
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
-  const containerStyle = useMemo(
-    () => [
-      taskCardStyles.surface,
-      styles.container,
-      taskCardStyles.contentInsets,
-      disableOuterSpacing && styles.containerCompact,
-    ],
-    [disableOuterSpacing],
-  );
+  const containerStyle = useMemo(() => [styles.container, taskCardStyles.contentInsets], []);
   const chevronStyle = useMemo(
     () => [styles.chevron, expanded && styles.chevronExpanded],
     [expanded],
   );
 
   return (
-    <View testID={testID} style={containerStyle}>
+    <TaskCard
+      testID={testID}
+      style={!disableOuterSpacing && styles.outerSpacing}
+      contentContainerStyle={containerStyle}
+    >
       <Pressable
         {...webExpandedState}
         accessibilityRole="button"
@@ -272,19 +269,16 @@ function PlanCardContent({
         </View>
       ) : null}
       {footer ? <View style={styles.footer}>{footer}</View> : null}
-    </View>
+    </TaskCard>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
   container: {
-    marginVertical: theme.spacing[3],
     padding: theme.spacing[3],
     gap: theme.spacing[2],
   },
-  containerCompact: {
-    marginVertical: 0,
-  },
+  outerSpacing: { marginVertical: theme.spacing[3] },
   header: {
     flexDirection: "row",
     alignItems: "center",

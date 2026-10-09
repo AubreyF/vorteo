@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.216 - 2026-10-09
+
+### Changed
+
+- Collapse thread tasks into an accordion with a progress tag, an add icon, completion checkboxes, details icons and the same drag handles as queued messages. Keep task rows on one line without separators.
+- Limit task, goal, queue, subagent, plan, question and permission cards to half the viewport height and scroll their contents internally.
+- Let sortable drag handles own their keyboard controls instead of triggering the global voice shortcut.
+- Make guarded interface-only publication the default for validated UI revisions during ongoing work. Preserve daemon installation approvals for changes that require daemon updates.
 
 ## 0.11.0-beta.3.vorteo.215 - 2026-10-09
 
