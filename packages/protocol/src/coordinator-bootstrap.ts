@@ -1,3 +1,4 @@
+import { NativeHelperConfigurationSchema } from "./native-helper-maintenance.js";
 import { z } from "zod";
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -34,6 +35,7 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
     ownerSessions: AbsolutePathSchema,
   }),
   hostRequestsAfter: z.string().datetime().nullable(),
+  nativeHelperConfiguration: NativeHelperConfigurationSchema.nullable().optional(),
 });
 export type CoordinatorBootstrapPlan = z.infer<typeof CoordinatorBootstrapPlanSchema>;
 

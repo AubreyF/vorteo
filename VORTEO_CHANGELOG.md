@@ -4,6 +4,25 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.252 - 2026-10-09
+
+### Added
+
+- Prepare and inspect native helper installations through Host-scoped commands and exact owner review
+- Preserve helper installation, cancellation and recovery receipts in the shared lifecycle journal
+- Verify protected artifacts, signing identities, private state and replacement processes before reporting installation success
+- Bind helper configuration changes to reviewed coordinator plans while preserving the existing Host Docker pairing
+
+### Fixed
+
+- Retain helper recovery errors across interface refreshes and show maintenance status while controls are locked
+- Show signing identities and the correct retained release in helper rollback details
+
+### Maintenance
+
+- Cover lifecycle recovery, scoped HTTP and client commands, and desktop and phone review flows with isolated tests
+- Keep helper activation disabled until compatible coordinator rollback, signing and tracked installation acceptance are complete
+
 ## 0.11.0-beta.3.vorteo.251 - 2026-10-09
 
 ### Fixed

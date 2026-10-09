@@ -1,3 +1,7 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import type { RestartExecutor } from "./restarts.js";
+import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintenance";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { InstallationSkillPackages } from "./settings/skill-packages.js";
 import type { InstallationPluginSourceResolver } from "./settings/runtime.js";
@@ -329,6 +333,10 @@ async function fixture(
   automaticHost = false,
   claudeSetup?: ClaudeSetupRuntime,
   startupFence?: InstallationStartupFence,
+  helperExecutor?: Pick<
+    RestartExecutor,
+    "validateHelperPlan" | "installHelper" | "verifyHelperRecovery"
+  >,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
   writeFileSync(
@@ -429,6 +437,7 @@ async function fixture(
             restartWhenIdle: async () => null,
           }
         : {}),
+      ...helperExecutor,
       supervisorPlan: () => "a".repeat(64),
       restartSupervisor: async () => {
         calls.push("supervisor");
@@ -1488,4 +1497,207 @@ test("bootstrap HTTP readiness stays fenced without journal writes or admitted o
     ).status,
   ).toBe(201);
   expect(f.calls).toEqual([]);
+});
+
+test("helper controls require owner authentication and preparation refuses guest credentials", async () => {
+  const { request } = await fixture();
+  for (const route of ["query", "decision", "verify-installed"]) {
+    const target = "/api/installation/owner/helpers/" + route;
+    for (const token of [undefined, "host-agent-test-token", "guest-agent-test-token"]) {
+      expect((await request(target, token, {})).status).toBe(401);
+    }
+    expect(
+      (await request(target, "owner-test-password", {}, "https://foreign.example.test")).status,
+    ).toBe(403);
+  }
+  expect(
+    await (await request("/api/installation/capabilities", "host-agent-test-token")).json(),
+  ).toMatchObject({ nativeHelper: { available: false, ownerApprovalRequired: true } });
+  const prepare = "/api/installation/helper-requests";
+  expect((await request(prepare, "guest-agent-test-token", {})).status).toBe(401);
+  expect((await request(prepare, "owner-test-password", {})).status).toBe(401);
+  expect((await request(prepare, "host-agent-test-token", {})).status).toBe(503);
+  const listed = await request("/api/installation/owner/helpers/query", "owner-test-password", {});
+  expect(listed.status).toBe(200);
+  expect(await listed.json()).toEqual({ jobs: [] });
+  expect(
+    (
+      await request("/api/installation/owner/helpers/decision", "owner-test-password", {
+        revision: randomUUID(),
+        decision: "approve",
+      })
+    ).status,
+  ).toBe(400);
+});
+
+function helperHttpPreparation() {
+  const digest = "a".repeat(64);
+  const file = { path: "/private/fixture/tool", sha256: digest };
+  return {
+    id: randomUUID(),
+    reason: "Install isolated helper fixture",
+    plan: {
+      version: 1,
+      operation: "native-helper-install",
+      installationId: randomUUID(),
+      candidate: {
+        sourceCommit: "b".repeat(40),
+        directory: "/private/fixture/candidate.app",
+        artifactSha256: digest,
+        signingMode: "local",
+        helperRequirement: "fixture-helper",
+        clientRequirement: "fixture-client",
+      },
+      previous: null,
+      retainedRollback: null,
+      tooling: {
+        sourceCommit: "b".repeat(40),
+        directory: "/private/fixture/tooling",
+        artifactSha256: digest,
+        node: file,
+        installer: file,
+        dispatcher: file,
+        invocationClient: file,
+      },
+      destination: {
+        application: "/private/fixture/Helper.app",
+        runtime: "/private/fixture/runtime",
+      },
+      expectedState: {
+        configurationSha256: null,
+        policySha256: null,
+        installationReceiptSha256: null,
+      },
+    },
+  };
+}
+
+test("helper HTTP approval binds the exact source and cancellation never invokes installation", async () => {
+  const install = vi.fn(async () => "verified fixture helper");
+  const { request, drain, calls, root } = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    {
+      validateHelperPlan: async () => {},
+      installHelper: install,
+      verifyHelperRecovery: async () => "verified recovery",
+    },
+  );
+  expect(
+    await (await request("/api/installation/capabilities", "host-agent-test-token")).json(),
+  ).toMatchObject({ nativeHelper: { available: true, ownerApprovalRequired: true } });
+  expect(
+    await (await request("/api/installation/capabilities", "guest-agent-test-token")).json(),
+  ).toMatchObject({ nativeHelper: { available: false, ownerApprovalRequired: true } });
+  const prepared = await request(
+    "/api/installation/helper-requests",
+    "host-agent-test-token",
+    helperHttpPreparation(),
+  );
+  expect(prepared.status).toBe(201);
+  const job = NativeHelperJobSchema.parse(await prepared.json());
+  expect(job.status).toBe("pending");
+  const publicSummary = await request("/api/installation/restart-summary");
+  expect(publicSummary.status).toBe(200);
+  expect(await publicSummary.json()).toEqual({
+    requested: 0,
+    queued: 0,
+    running: 0,
+    nativeHelper: { requested: 1, queued: 0, running: 0, recovery: 0 },
+  });
+
+  await drain();
+  expect(install).not.toHaveBeenCalled();
+  const decision = {
+    operation: "native-helper-install",
+    id: job.id,
+    revision: job.revision,
+    planSha256: job.planSha256,
+    decision: "approve",
+  };
+  const route = "/api/installation/owner/helpers/decision";
+  expect(
+    (await request(route, "owner-test-password", { ...decision, revision: randomUUID() })).status,
+  ).toBe(409);
+  expect(install).not.toHaveBeenCalled();
+  expect((await request(route, "owner-test-password", decision)).status).toBe(200);
+  await expect.poll(() => install.mock.calls.length).toBe(1);
+  await expect
+    .poll(() => JSON.parse(readFileSync(path.join(root, "restart-jobs.json"), "utf8"))[0].status)
+    .toBe("succeeded");
+  expect(calls).toEqual([]);
+  const canceled = await request(
+    "/api/installation/helper-requests",
+    "host-agent-test-token",
+    helperHttpPreparation(),
+  );
+  const second = NativeHelperJobSchema.parse(await canceled.json());
+  expect(
+    (
+      await request(route, "owner-test-password", {
+        ...decision,
+        id: second.id,
+        revision: second.revision,
+        planSha256: second.planSha256,
+        decision: "cancel",
+      })
+    ).status,
+  ).toBe(200);
+  await drain();
+  expect(install).toHaveBeenCalledTimes(1);
+});
+
+test("scoped helper CLI prepares inert requests and returns their exact review receipt", async () => {
+  let installations = 0;
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    validateHelperPlan: async () => {},
+    installHelper: async () => {
+      installations++;
+      return "installed";
+    },
+    verifyHelperRecovery: async () => "verified",
+  });
+  const client = path.join(f.root, "host-client.json");
+  const guest = path.join(f.root, "guest-client.json");
+  for (const [file, kind, token] of [
+    [client, "host-agent", "host-agent-test-token"],
+    [guest, "container-agent", "guest-agent-test-token"],
+  ])
+    writeFileSync(file, JSON.stringify({ origin: f.url, kind, token }), { mode: 0o600 });
+  const requestFile = path.join(f.root, "helper-request.json");
+  const preparation = helperHttpPreparation();
+  writeFileSync(requestFile, JSON.stringify(preparation), { mode: 0o600 });
+  const command = promisify(execFile);
+  const script = path.resolve("../../scripts/installation-agent.mjs");
+  const run = (config: string, ...args: string[]) =>
+    command(process.execPath, [script, "--config", config, ...args]);
+  await expect(run(guest, "request-helper", "--request-file", requestFile)).rejects.toThrow(
+    "trusted Host",
+  );
+  const result = JSON.parse(
+    (await run(client, "request-helper", "--request-file", requestFile)).stdout,
+  );
+  expect(result).toMatchObject({ id: preparation.id, status: "pending", stage: "prepared" });
+  expect(new URL(result.approvalUrl).searchParams.get("restart")).toBe(preparation.id);
+  const status = JSON.parse((await run(client, "helper-status", preparation.id)).stdout);
+  expect(status).toEqual(result);
+  expect(
+    (
+      await f.request(
+        `/api/installation/helper-requests/${preparation.id}`,
+        "guest-agent-test-token",
+      )
+    ).status,
+  ).toBe(401);
+  expect(
+    (await f.request(`/api/installation/helper-requests/${randomUUID()}`, "host-agent-test-token"))
+      .status,
+  ).toBe(404);
+  await f.drain();
+  expect(installations).toBe(0);
 });

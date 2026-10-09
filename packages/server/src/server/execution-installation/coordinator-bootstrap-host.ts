@@ -126,6 +126,15 @@ export async function verifyBootstrapPlan(
 ): Promise<void> {
   const initial = readBootstrapHostBinding(host.configurationFile, host.daemonId);
   verifyBootstrapConfiguration({ plan, ...host });
+  if (
+    plan.nativeHelperConfiguration &&
+    (plan.nativeHelperConfiguration.docker !== host.docker ||
+      plan.nativeHelperConfiguration.socket !== host.socket ||
+      plan.nativeHelperConfiguration.containerId !== host.containerId)
+  )
+    throw new BootstrapRequestConflict(
+      "Helper configuration must retain the paired Host Docker identity",
+    );
   const roots = await inspectBootstrapWritableMountRoots(host);
   await assertBootstrapPathsProtected(
     [host.configurationFile, host.launcherFile, initial.stateDirectory],
@@ -205,6 +214,9 @@ export function verifyBootstrapConfiguration(input: {
   if (!isDeepStrictEqual(current, previous))
     throw new BootstrapRequestConflict("Previous coordinator configuration no longer matches");
   const expected = { ...current };
+  if (input.plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
+  else if (input.plan.nativeHelperConfiguration !== undefined)
+    expected.nativeHelper = input.plan.nativeHelperConfiguration;
   if (input.plan.hostRequestsAfter !== null)
     expected.restartApprovalPolicy = { hostRequestsAfter: input.plan.hostRequestsAfter };
   if (!isDeepStrictEqual(candidate, expected))

@@ -110,6 +110,13 @@ function BootstrapRequestCard({
           <Text selectable style={styles.text}>
             {request.reason}
           </Text>
+          {request.plan.nativeHelperConfiguration !== undefined ? (
+            <Text style={styles.text}>
+              {request.plan.nativeHelperConfiguration === null
+                ? "Disable new native helper requests. Existing receipts remain in history."
+                : "Enable native helper maintenance for Host requests. Each helper installation still requires its own approval."}
+            </Text>
+          ) : null}
           <Text selectable style={styles.text}>
             Source: {request.plan.candidate.sourceCommit}
           </Text>

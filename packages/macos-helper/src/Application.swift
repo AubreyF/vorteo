@@ -9,7 +9,11 @@ func performOperation(_ operation: String) -> Reply {
     switch operation {
     case "status":
         let permission = safariPermission(prompt: false)
-        return Reply(ok: true, code: "safari_permission_\(permission)")
+        do {
+            return Reply(ok: true, code: "safari_permission_\(permission)", process: try helperProcessIdentity())
+        } catch {
+            return Reply(ok: false, code: "helper_identity_unavailable")
+        }
     case "safari.request-consent":
         #if PREVIEW
         return Reply(ok: false, code: "preview_consent_disabled")

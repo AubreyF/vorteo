@@ -132,7 +132,7 @@ export async function readBootstrapPreparedFile(
   return bytes;
 }
 
-async function readProtectedDocument(file: string): Promise<Buffer> {
+export async function readProtectedDocument(file: string): Promise<Buffer> {
   if ((await realpath(file)) !== file)
     throw new BootstrapRequestConflict("Prepared file requires a canonical path");
   const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);

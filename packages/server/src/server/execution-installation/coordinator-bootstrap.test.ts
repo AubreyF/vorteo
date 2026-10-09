@@ -412,6 +412,23 @@ test("plan digest ignores object key order but binds replacement and policy chan
       candidate: { ...f.plan.candidate, artifactSha256: "f".repeat(64) },
     }),
   ).not.toBe(coordinatorPlanDigest(f.plan));
+  expect(coordinatorPlanDigest({ ...f.plan, nativeHelperConfiguration: null })).not.toBe(
+    coordinatorPlanDigest(f.plan),
+  );
+  const helper = {
+    home: "/private/host",
+    docker: "/usr/local/bin/docker",
+    socket: "/private/docker.sock",
+    containerId: "a".repeat(64),
+  };
+  const enabled = coordinatorPlanDigest({ ...f.plan, nativeHelperConfiguration: helper });
+  expect(enabled).not.toBe(coordinatorPlanDigest(f.plan));
+  expect(
+    coordinatorPlanDigest({
+      ...f.plan,
+      nativeHelperConfiguration: { ...helper, containerId: "b".repeat(64) },
+    }),
+  ).not.toBe(enabled);
   expect(() => coordinatorPlanDigest({ ...f.plan, command: "arbitrary shell" })).toThrow();
 });
 
