@@ -32,6 +32,7 @@ export type ActiveWorkspaceRef = Pick<
   | "isPaseoOwnedWorktree"
   | "mainRepoRoot"
   | "protected"
+  | "factoryMembership"
 >;
 
 export interface ArchiveDependencies {
@@ -55,6 +56,8 @@ export interface ArchiveDependencies {
   // break a same-cwd tie in favor of the worktree-kind record when archiving by
   // path (no explicit workspaceId).
   listActiveWorkspaces: () => Promise<ActiveWorkspaceRef[]>;
+  // Native retained membership protects backing paths even after archival.
+  listRetainedFactoryWorkspaces?: () => Promise<ActiveWorkspaceRef[]>;
   archiveWorkspaceRecord: (workspaceId: string) => Promise<void>;
   emitWorkspaceUpdatesForWorkspaceIds: (workspaceIds: Iterable<string>) => Promise<void>;
   markWorkspaceArchiving: (workspaceIds: Iterable<string>, archivingAt: string) => void;
@@ -220,8 +223,10 @@ async function resolveArchiveTarget(
     await dependencies.agentManager.assertWorkspaceArchiveAllowed?.(workspaceId);
     assertWorkspaceUnprotected(record);
     const isArchived = "archivedAt" in record && Boolean(record.archivedAt);
+    const backing = await resolveWorkspaceBackingDirectory(record, dependencies);
+    await assertBackingNotFactoryManaged(dependencies, backing);
     return {
-      backing: await resolveWorkspaceBackingDirectory(record, dependencies),
+      backing,
       teardownTargets: isArchived ? [] : [{ workspaceId, cwd: record.cwd }],
       setupWorkspaceIds: [workspaceId],
       workspaceIds: isArchived ? [] : [workspaceId],
@@ -229,6 +234,7 @@ async function resolveArchiveTarget(
   }
 
   const backing = await resolveBackingDirectory(scope.targetPath, dependencies);
+  await assertBackingNotFactoryManaged(dependencies, backing);
   const matchesBackingDirectory = createRealpathAwarePathMatcher(backing.path);
   const targetWorkspaces = (
     await Promise.all(
@@ -260,6 +266,19 @@ async function resolveArchiveTarget(
     setupWorkspaceIds: targetWorkspaces.map((workspace) => workspace.workspaceId),
     workspaceIds: targetWorkspaces.map((workspace) => workspace.workspaceId),
   };
+}
+
+// Retained members are ownership holds, never ordinary archive targets.
+async function assertBackingNotFactoryManaged(
+  dependencies: ArchiveDependencies,
+  backing: BackingDirectory,
+): Promise<void> {
+  const matchesBacking = createRealpathAwarePathMatcher(backing.path);
+  for (const workspace of (await dependencies.listRetainedFactoryWorkspaces?.()) ?? []) {
+    if (!workspace.factoryMembership) continue;
+    const retainedBacking = await resolveWorkspaceBackingDirectory(workspace, dependencies);
+    if (matchesBacking(retainedBacking.path)) assertWorkspaceUnprotected(workspace);
+  }
 }
 
 async function stopWorkspaceSetups(
@@ -374,6 +393,7 @@ async function maybeRemoveDirectory(
     return false;
   }
 
+  await assertBackingNotFactoryManaged(dependencies, backing);
   const archivedWorkspaceIdSet = new Set(archivedWorkspaceIds);
   const teardownTargets = target.teardownTargets.filter(
     (teardownTarget) =>
@@ -403,6 +423,7 @@ async function maybeRemoveDirectory(
     throw error;
   }
 
+  await assertBackingNotFactoryManaged(dependencies, backing);
   const remainingActive = await dependencies.listActiveWorkspaces();
   if (
     !(await isDirectoryUnreferenced(

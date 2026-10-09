@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "shared",
+    "outDir": "../../packages/server/dist/server/factory-shared",
+    "declaration": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["shared/contracts.ts", "shared/operations.ts"]
+}

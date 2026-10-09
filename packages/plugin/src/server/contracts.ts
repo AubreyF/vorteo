@@ -8,6 +8,8 @@ import type { PluginLifecycleRegistration } from "./lifecycle.js";
 
 export interface PluginHandlerContext {
   paseo: PaseoApi;
+  /** Identity of the daemon serving this plugin session, obtained from its handshake. */
+  serverId: string;
 }
 
 export type PluginSettingsState<Schema extends ZodType> =

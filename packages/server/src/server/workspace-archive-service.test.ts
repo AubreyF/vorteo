@@ -219,6 +219,125 @@ describe("archiveByScope", () => {
     },
   );
 
+  test.each(["workspace", "worktree"] as const)(
+    "Factory %s archive refuses before touching agents, terminals or backing directory",
+    async (kind) => {
+      const { tempDir, repoDir } = createGitRepo();
+      const dependencies = createArchiveDeps({
+        paseoHome: path.join(tempDir, ".paseo"),
+        activeWorkspaces: [
+          {
+            workspaceId: "managed-member",
+            cwd: repoDir,
+            kind: "local_checkout",
+            protected: false,
+            factoryMembership: {
+              installationId: "installation",
+              projectId: "project",
+              serverId: "server",
+              role: "worker",
+            },
+          },
+        ],
+      });
+      const scope =
+        kind === "workspace"
+          ? { kind, workspaceId: "managed-member" }
+          : { kind, targetPath: repoDir };
+      await expect(
+        archiveByScope(dependencies, { scope, requestId: "factory-archive" }),
+      ).rejects.toThrow("Factory");
+      expect(dependencies.markWorkspaceArchiving).not.toHaveBeenCalled();
+      expect(dependencies.killTerminalsForWorkspace).not.toHaveBeenCalled();
+      expect(dependencies.archivedAgentIds).toEqual([]);
+      expect(dependencies.activeWorkspaces.map((workspace) => workspace.workspaceId)).toEqual([
+        "managed-member",
+      ]);
+      expect(existsSync(repoDir)).toBe(true);
+    },
+  );
+
+  test.each(["archived-only", "shared-path", "shared-workspace"] as const)(
+    "Factory retained backing refuses %s before ordinary archive mutation",
+    async (scenario) => {
+      const { tempDir, repoDir } = createGitRepo();
+      const paseoHome = path.join(tempDir, ".paseo");
+      const worktree = await createPaseoOwnedWorktree(repoDir, paseoHome, "retained-member");
+      const retained: ActiveWorkspaceRef = {
+        workspaceId: "archived-factory",
+        cwd: worktree.worktreePath,
+        kind: "worktree",
+        worktreeRoot: worktree.worktreePath,
+        mainRepoRoot: repoDir,
+        isPaseoOwnedWorktree: true,
+        protected: false,
+        factoryMembership: {
+          installationId: "installation",
+          serverId: "server",
+          projectId: "project",
+          role: "builds",
+        },
+      };
+      const { factoryMembership: membership, ...ordinary } = retained;
+      expect(membership).toBeDefined();
+      const dependencies = createArchiveDeps({
+        paseoHome,
+        activeWorkspaces:
+          scenario === "archived-only" ? [] : [{ ...ordinary, workspaceId: "ordinary-sibling" }],
+      });
+      dependencies.listRetainedFactoryWorkspaces = vi.fn(async () => [retained]);
+      dependencies.stopWorkspaceSetup = vi.fn(async () => {});
+      const scope =
+        scenario === "shared-workspace"
+          ? { kind: "workspace" as const, workspaceId: "ordinary-sibling" }
+          : { kind: "worktree" as const, targetPath: worktree.worktreePath };
+      await expect(
+        archiveByScope(dependencies, { scope, requestId: "retained-path" }),
+      ).rejects.toThrow("Factory");
+      expect(dependencies.stopWorkspaceSetup).not.toHaveBeenCalled();
+      expect(dependencies.markWorkspaceArchiving).not.toHaveBeenCalled();
+      expect(dependencies.killTerminalsForWorkspace).not.toHaveBeenCalled();
+      expect(dependencies.archivedAgentIds).toEqual([]);
+      expect(dependencies.activeWorkspaces).toHaveLength(scenario === "archived-only" ? 0 : 1);
+      expect(existsSync(worktree.worktreePath)).toBe(true);
+    },
+  );
+
+  test("Factory final retained backing check refuses deletion after a new ownership hold", async () => {
+    const { tempDir, repoDir } = createGitRepo();
+    const paseoHome = path.join(tempDir, ".paseo");
+    const worktree = await createPaseoOwnedWorktree(repoDir, paseoHome, "late-retained-member");
+    const dependencies = createArchiveDeps({ paseoHome, activeWorkspaces: [] });
+    let reads = 0;
+    dependencies.listRetainedFactoryWorkspaces = async () =>
+      ++reads < 3
+        ? []
+        : [
+            {
+              workspaceId: "retained-factory",
+              cwd: worktree.worktreePath,
+              kind: "worktree",
+              worktreeRoot: worktree.worktreePath,
+              mainRepoRoot: repoDir,
+              isPaseoOwnedWorktree: true,
+              factoryMembership: {
+                installationId: "installation",
+                serverId: "server",
+                projectId: "project",
+                role: "factory",
+              },
+            },
+          ];
+    await expect(
+      archiveByScope(dependencies, {
+        scope: { kind: "worktree", targetPath: worktree.worktreePath },
+        requestId: "late-hold",
+      }),
+    ).rejects.toThrow("Factory");
+    expect(reads).toBe(3);
+    expect(existsSync(worktree.worktreePath)).toBe(true);
+  });
+
   test("workspace scope archives the record and removes the directory on last reference", async () => {
     const { tempDir, repoDir } = createGitRepo();
     const paseoHome = path.join(tempDir, ".paseo");

@@ -1179,6 +1179,14 @@ export const WorkspaceProjectMembershipSchema = z.object({
   environmentOwner: WorkspaceEnvironmentOwnerSchema.optional(),
 });
 
+/** Daemon-owned lifecycle identity. Titles, paths and labels never establish membership. */
+export const WorkspaceFactoryMembershipSchema = z.object({
+  installationId: z.string().min(1).max(200),
+  projectId: z.string().min(1).max(200),
+  serverId: z.string().min(1).max(200),
+  role: z.enum(["factory", "builds", "worker"]),
+});
+
 export const WorkspaceProjectSetRequestSchema = z.object({
   type: z.literal("workspace.project.set.request"),
   workspaceId: z.string(),
@@ -1281,10 +1289,23 @@ export const WorkspaceRecoveryInspectRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const WorkspaceRecoveryGuardSchema = z.object({
+  action: z.literal("unarchive"),
+  serverId: z.string().min(1),
+  projectId: z.string().min(1),
+  cwd: z.string().min(1),
+  kind: z.enum(["local_checkout", "worktree", "directory"]),
+  archivedAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+  recordHash: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type WorkspaceRecoveryGuard = z.infer<typeof WorkspaceRecoveryGuardSchema>;
+
 export const WorkspaceRecoveryRestoreRequestSchema = z.object({
   type: z.literal("workspace.recovery.restore.request"),
   workspaceId: z.string(),
   requestId: z.string(),
+  guard: WorkspaceRecoveryGuardSchema.optional(),
 });
 
 export const SetVoiceModeMessageSchema = z.object({
@@ -1511,6 +1532,31 @@ export const DaemonGetPairingOfferRequestSchema = z.object({
 export const DaemonConfigReloadRequestSchema = z.object({
   type: z.literal("daemon.config.reload.request"),
   requestId: z.string(),
+});
+
+export const DaemonOriginAdmissionInputSchema = z.object({
+  origin: z.string(),
+  expectedPersistedOrigins: z.array(z.string()),
+  expectedActiveOrigins: z.array(z.string()),
+});
+
+export const DaemonOriginAdmissionStateSchema = z.object({
+  state: z.enum(["ready", "unavailable"]),
+  reason: z.string().nullable(),
+  persistedOrigins: z.array(z.string()),
+  activeOrigins: z.array(z.string()).nullable(),
+});
+
+export const DaemonOriginAdmissionInspectRequestSchema = z.object({
+  type: z.literal("daemon.config.get_origin_admission.request"),
+  requestId: z.string(),
+  expectedServerId: z.string(),
+});
+
+export const DaemonOriginAdmissionRequestSchema = DaemonOriginAdmissionInputSchema.extend({
+  type: z.literal("daemon.config.admit_origin.request"),
+  requestId: z.string(),
+  expectedServerId: z.string(),
 });
 
 export const HubManagementDaemonConnectRequestSchema = z.object({
@@ -2260,6 +2306,7 @@ export const WorkspaceRecoveryStateSchema = z.discriminatedUnion("kind", [
     workspaceName: z.string(),
     action: z.string(),
     branch: z.string().nullable(),
+    guard: WorkspaceRecoveryGuardSchema.optional(),
   }),
   z.object({
     kind: z.literal("unavailable"),
@@ -3374,6 +3421,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   DaemonGetStatusRequestSchema,
   DaemonGetPairingOfferRequestSchema,
   DaemonConfigReloadRequestSchema,
+  DaemonOriginAdmissionInspectRequestSchema,
+  DaemonOriginAdmissionRequestSchema,
   HubManagementDaemonConnectRequestSchema,
   HubManagementDaemonGetStatusRequestSchema,
   HubManagementDaemonDisconnectRequestSchema,
@@ -3758,6 +3807,7 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(scheduleQuotaPolicy): added in v0.7.2; retain while policy-unaware hosts are supported.
         scheduleQuotaPolicy: z.boolean().optional(),
         estimatedHourlyQuota: z.boolean().optional(),
+        prepaidQuotaAuthorization: z.boolean().optional(),
         usageSources: z.boolean().optional(),
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.
         providersSnapshotCwd: z.boolean().optional(),
@@ -3793,6 +3843,7 @@ export const ServerInfoStatusPayloadSchema = z
         daemonStatusRpc: z.boolean().optional(),
         // COMPAT(daemonConfigReload): added in v0.4.0, remove gate after 2027-02-14.
         daemonConfigReload: z.boolean().optional(),
+        guardedOriginAdmission: z.boolean().optional(),
         // COMPAT(relayConfig): added in v0.2.6, remove gate after 2027-01-31.
         relayConfig: z.boolean().optional(),
         // COMPAT(pushTokenRevocation): added in v0.3.2, remove gate after 2027-02-10.
@@ -3856,6 +3907,8 @@ export const ServerInfoStatusPayloadSchema = z
         worktreeRestore: z.boolean().optional(),
         // COMPAT(workspaceRecovery): added in v0.1.105, remove after 2027-01-11 once daemon floor >= v0.1.105.
         workspaceRecovery: z.boolean().optional(),
+        // COMPAT(workspaceRecoveryGuard): introduced for v0.11.0-beta.3.vorteo.254; remove after 2027-04-08 only once the daemon floor enforces guarded recovery.
+        workspaceRecoveryGuard: z.boolean().optional(),
         // COMPAT(workspaceFileEditing): added in v0.2.0, remove after 2027-01-18 once daemon floor >= v0.2.0.
         workspaceFileEditing: z.boolean().optional(),
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
@@ -3894,6 +3947,7 @@ export const ServerInfoStatusPayloadSchema = z
         workspacePinning: z.boolean().optional(),
         // COMPAT(workspaceLifecycle): added in v0.11.0-beta.3.vorteo.153, remove after 2027-04-06 once the daemon floor includes it.
         workspaceLifecycle: z.boolean().optional(),
+        factoryWorkspaceMembership: z.boolean().optional(),
         // COMPAT(workspaceMarkUnread): added in v0.5.0, remove after 2027-08-20.
         workspaceMarkUnread: z.boolean().optional(),
         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
@@ -4241,6 +4295,7 @@ export const WorkspaceDescriptorPayloadSchema = z
     id: z.string(),
     projectId: z.string(),
     projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
+    factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
     projectDisplayName: z.string(),
     // COMPAT(projectCustomName): added in v0.1.76, drop the optional gate when floor >= v0.1.76.
     // When the user has renamed a project, projectDisplayName carries the resolved
@@ -5299,6 +5354,48 @@ export const DaemonConfigReloadResponseSchema = z.object({
       overrideControlledPaths: z.array(z.string()),
     })
     .passthrough(),
+});
+
+export const DaemonOriginAdmissionInspectResponseSchema = z.object({
+  type: z.literal("daemon.config.get_origin_admission.response"),
+  payload: DaemonOriginAdmissionStateSchema.extend({
+    requestId: z.string(),
+    serverId: z.string(),
+    observedAt: z.string(),
+  }),
+});
+
+const OriginAdmissionResponseIdentitySchema = z.object({
+  requestId: z.string(),
+  serverId: z.string().nullable(),
+  observedAt: z.string(),
+});
+const OriginAdmissionFailureSchema = OriginAdmissionResponseIdentitySchema.extend({
+  reason: z.string(),
+  code: z.enum([
+    "host_mismatch",
+    "unavailable",
+    "invalid_origin",
+    "busy",
+    "stale_input",
+    "uncertain",
+  ]),
+  writeAttempted: z.boolean().nullable(),
+});
+export const DaemonOriginAdmissionResponseSchema = z.object({
+  type: z.literal("daemon.config.admit_origin.response"),
+  payload: z.discriminatedUnion("state", [
+    OriginAdmissionResponseIdentitySchema.extend({
+      state: z.literal("applied"),
+      origin: z.string(),
+      addedToPersisted: z.boolean(),
+      addedToActive: z.boolean(),
+      persistedOrigins: z.array(z.string()),
+      activeOrigins: z.array(z.string()),
+    }),
+    OriginAdmissionFailureSchema.extend({ state: z.literal("refused") }),
+    OriginAdmissionFailureSchema.extend({ state: z.literal("uncertain") }),
+  ]),
 });
 
 export const DiagnosticsResponseSchema = z.object({
@@ -7179,6 +7276,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   DaemonGetStatusResponseSchema,
   DaemonGetPairingOfferResponseSchema,
   DaemonConfigReloadResponseSchema,
+  DaemonOriginAdmissionInspectResponseSchema,
+  DaemonOriginAdmissionResponseSchema,
   HubManagementDaemonConnectResponseSchema,
   HubManagementDaemonGetStatusResponseSchema,
   HubManagementDaemonDisconnectResponseSchema,
@@ -7463,6 +7562,12 @@ export type ListAvailableProvidersResponse = z.infer<typeof ListAvailableProvide
 export type DaemonGetStatusResponse = z.infer<typeof DaemonGetStatusResponseSchema>;
 export type DaemonGetPairingOfferResponse = z.infer<typeof DaemonGetPairingOfferResponseSchema>;
 export type DaemonConfigReloadResponse = z.infer<typeof DaemonConfigReloadResponseSchema>;
+export type DaemonOriginAdmissionInput = z.infer<typeof DaemonOriginAdmissionInputSchema>;
+export type DaemonOriginAdmissionState = z.infer<typeof DaemonOriginAdmissionStateSchema>;
+export type DaemonOriginAdmissionInspectResponse = z.infer<
+  typeof DaemonOriginAdmissionInspectResponseSchema
+>;
+export type DaemonOriginAdmissionResponse = z.infer<typeof DaemonOriginAdmissionResponseSchema>;
 export type DiagnosticsResponse = z.infer<typeof DiagnosticsResponseSchema>;
 export type GetProvidersSnapshotResponseMessage = z.infer<
   typeof GetProvidersSnapshotResponseMessageSchema

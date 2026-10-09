@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/server",
-  "version": "0.11.0-beta.3.vorteo.253",
+  "version": "0.11.0-beta.3.vorteo.255",
   "description": "Vorteo backend server",
   "files": [
     "dist/server",
@@ -62,6 +62,36 @@
       "types": "./dist/server/server/agent/agent-response-loop.d.ts",
       "source": "./src/server/agent/agent-response-loop.ts",
       "default": "./dist/server/server/agent/agent-response-loop.js"
+    },
+    "./factory-contracts": {
+      "types": "./dist/server/factory-shared/contracts.d.ts",
+      "source": "../../plugins/factory/shared/contracts.ts",
+      "default": "./dist/server/factory-shared/contracts.js"
+    },
+    "./factory-operations": {
+      "types": "./dist/server/factory-shared/operations.d.ts",
+      "source": "../../plugins/factory/shared/operations.ts",
+      "default": "./dist/server/factory-shared/operations.js"
+    },
+    "./factory-ownership": {
+      "types": "./dist/server/server/factory/ownership.d.ts",
+      "source": "./src/server/factory/ownership.ts",
+      "default": "./dist/server/server/factory/ownership.js"
+    },
+    "./factory-observation": {
+      "types": "./dist/server/server/factory/attach-controller-observation.d.ts",
+      "source": "./src/server/factory/attach-controller-observation.ts",
+      "default": "./dist/server/server/factory/attach-controller-observation.js"
+    },
+    "./factory-observation-source": {
+      "types": "./dist/server/server/factory/create-controller-observation-source.d.ts",
+      "source": "./src/server/factory/create-controller-observation-source.ts",
+      "default": "./dist/server/server/factory/create-controller-observation-source.js"
+    },
+    "./factory-stage-native": {
+      "types": "./dist/server/server/factory/governed-stage-native.d.ts",
+      "source": "./src/server/factory/governed-stage-native.ts",
+      "default": "./dist/server/server/factory/governed-stage-native.js"
     }
   },
   "publishConfig": {
@@ -71,9 +101,9 @@
     "dev": "cross-env PASEO_NODE_ENV=development node --import tsx scripts/dev-runner.ts",
     "dev:tsx": "cross-env PASEO_NODE_ENV=development tsx watch --ignore '**/*.timestamp-*' scripts/dev-runner.ts",
     "clean": "node ../../scripts/clean-package-dist.mjs",
-    "build": "npm run build:lib && npm run build:scripts",
+    "build": "npm run build:factory-contracts && npm run build:lib && npm run build:scripts",
     "build:clean": "npm run clean && npm run build",
-    "build:lib": "tsc -p tsconfig.server.json --incremental false && node scripts/build-opencode-bridge-plugin.mjs && node -e \"const fs=require('node:fs'); fs.mkdirSync('dist/server/server/speech/providers/local/sherpa/assets',{recursive:true}); fs.copyFileSync('src/server/speech/providers/local/sherpa/assets/silero_vad.onnx','dist/server/server/speech/providers/local/sherpa/assets/silero_vad.onnx'); fs.cpSync('src/terminal/shell-integration','dist/server/terminal/shell-integration',{recursive:true}); fs.cpSync('src/terminal/shell-integration','dist/src/terminal/shell-integration',{recursive:true}); fs.copyFileSync('src/terminal/terminal-ts-loader.mjs','dist/server/terminal/terminal-ts-loader.mjs'); fs.copyFileSync('src/server/agent/quota-reserve/linux-custody.py','dist/server/server/agent/quota-reserve/linux-custody.py'); fs.rmSync('dist/server/skills',{recursive:true,force:true}); fs.cpSync('../../skills','dist/server/skills',{recursive:true}); fs.rmSync('dist/server/builtin-plugins',{recursive:true,force:true}); fs.cpSync('../../plugins','dist/server/builtin-plugins',{recursive:true,filter:(source)=>!source.split(require('node:path').sep).some((segment)=>segment==='node_modules'||segment==='test')&&!/\\.(test|spec)\\.[cm]?[jt]sx?$/.test(source)&&!source.endsWith('.tsbuildinfo')});\"",
+    "build:lib": "tsc -p tsconfig.server.json --incremental false && node scripts/build-opencode-bridge-plugin.mjs && node -e \"const fs=require('node:fs'); fs.mkdirSync('dist/server/server/speech/providers/local/sherpa/assets',{recursive:true}); fs.copyFileSync('src/server/speech/providers/local/sherpa/assets/silero_vad.onnx','dist/server/server/speech/providers/local/sherpa/assets/silero_vad.onnx'); fs.rmSync('dist/server/terminal/shell-integration',{recursive:true,force:true}); fs.cpSync('src/terminal/shell-integration','dist/server/terminal/shell-integration',{recursive:true,filter:()=>true}); fs.rmSync('dist/src/terminal/shell-integration',{recursive:true,force:true}); fs.cpSync('src/terminal/shell-integration','dist/src/terminal/shell-integration',{recursive:true,filter:()=>true}); fs.copyFileSync('src/terminal/terminal-ts-loader.mjs','dist/server/terminal/terminal-ts-loader.mjs'); fs.copyFileSync('src/server/agent/quota-reserve/linux-custody.py','dist/server/server/agent/quota-reserve/linux-custody.py'); fs.rmSync('dist/server/skills',{recursive:true,force:true}); fs.cpSync('../../skills','dist/server/skills',{recursive:true,filter:()=>true}); fs.rmSync('dist/server/builtin-plugins',{recursive:true,force:true}); fs.cpSync('../../plugins','dist/server/builtin-plugins',{recursive:true,filter:(source)=>!source.split(require('node:path').sep).some((segment)=>segment==='node_modules'||segment==='test')&&!/\\.(test|spec)\\.[cm]?[jt]sx?$/.test(source)&&!source.endsWith('.tsbuildinfo')});\"",
     "build:scripts": "tsc -p tsconfig.scripts.json --incremental false && node -e \"const fs=require('node:fs'); fs.mkdirSync('dist/scripts',{recursive:true}); fs.copyFileSync('scripts/mcp-stdio-socket-bridge-cli.mjs','dist/scripts/mcp-stdio-socket-bridge-cli.mjs');\"",
     "prepack": "npm run build:clean && npm --prefix ../.. run build:daemon-web-ui",
     "start": "node dist/scripts/supervisor-entrypoint.js",
@@ -101,17 +131,18 @@
     "test:e2e:real": "npm run test:integration:real",
     "test:e2e:local": "npm run test:integration:local",
     "test:e2e:relay:live": "cross-env RUN_LIVE_RELAY_E2E=1 vitest run src/server/daemon-e2e/live-relay.real.e2e.test.ts --maxWorkers=1",
-    "test:e2e:ui": "vitest --ui e2e.test.ts"
+    "test:e2e:ui": "vitest --ui e2e.test.ts",
+    "build:factory-contracts": "tsc -p ../../plugins/factory/tsconfig.shared.json --incremental false"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.17.1",
     "@anthropic-ai/claude-agent-sdk": "0.3.246",
     "@anthropic-ai/sdk": "^0.104.2",
-    "@getpaseo/client": "0.11.0-beta.3.vorteo.253",
-    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.253",
-    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.253",
-    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.253",
-    "@getpaseo/relay": "0.11.0-beta.3.vorteo.253",
+    "@getpaseo/client": "0.11.0-beta.3.vorteo.255",
+    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.255",
+    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.255",
+    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.255",
+    "@getpaseo/relay": "0.11.0-beta.3.vorteo.255",
     "@isaacs/ttlcache": "^2.1.4",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@opencode-ai/sdk": "1.14.46",

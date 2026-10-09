@@ -28,7 +28,15 @@ import {
   type PersistedProjectRecord,
   type PersistedWorkspaceRecord,
 } from "../../workspace-registry.js";
-import { createWorkspaceRecoveryService } from "./workspace-recovery-service.js";
+import {
+  createWorkspaceRecoveryService,
+  unarchiveWorkspaceGuarded,
+} from "./workspace-recovery-service.js";
+import {
+  WorkspaceRecoveryGuardSchema,
+  WorkspaceRecoveryRestoreRequestSchema,
+  type WorkspaceRecoveryGuard,
+} from "@getpaseo/protocol/messages";
 
 const NOW = "2026-07-11T10:12:30.752Z";
 const tempDirectories: string[] = [];
@@ -476,4 +484,185 @@ test("restore rejects a branch checked out elsewhere without inventing another b
       encoding: "utf8",
     }).trim(),
   ).toBe("* feature");
+});
+
+async function createGuardedRecoveryFixture() {
+  const root = mkdtempSync(join(tmpdir(), "paseo-guarded-recovery-"));
+  tempDirectories.push(root);
+  const cwd = join(root, "retained");
+  mkdirSync(cwd);
+  writeFileSync(join(cwd, "retained.txt"), "preserved");
+  const workspace = createWorkspace({ cwd, worktreeRoot: cwd, mainRepoRoot: root });
+  const project = createProject({ rootPath: root });
+  const registry = new FileBackedWorkspaceRegistry(
+    join(root, "workspaces.json"),
+    pino({ level: "silent" }),
+  );
+  await registry.upsert(workspace);
+  let beforeMutation = async () => {};
+  let afterDirectoryCheck = () => {};
+  const service = createWorkspaceRecoveryService({
+    serverId: "srv_recovery",
+    paseoHome: root,
+    getWorkspace: (id) => registry.get(id),
+    getProject: async () => project,
+    isDirectory: async (path) => {
+      const present = existsSync(path) && statSync(path).isDirectory();
+      afterDirectoryCheck();
+      return present;
+    },
+    unarchiveWorkspace: async () => {
+      throw new Error("Guard fell through to ordinary recovery");
+    },
+    unarchiveWorkspaceGuarded: async (expected) => {
+      await beforeMutation();
+      await unarchiveWorkspaceGuarded(registry, expected);
+    },
+  });
+  const inspected = await service.inspect(workspace.workspaceId);
+  if (inspected.kind !== "recoverable" || !inspected.guard)
+    throw new Error("Missing recovery guard");
+  const guard: WorkspaceRecoveryGuard = inspected.guard;
+  return {
+    root,
+    workspace,
+    project,
+    registry,
+    guard,
+    service,
+    beforeMutation: (operation: () => Promise<void>) => {
+      beforeMutation = operation;
+    },
+    afterDirectoryCheck: (operation: () => void) => {
+      afterDirectoryCheck = operation;
+    },
+  };
+}
+
+test("guarded recovery rejects action changing from unarchive to recreation", async () => {
+  const f = await createGuardedRecoveryFixture();
+  expect(await f.service.inspect(f.workspace.workspaceId)).toMatchObject({ action: "unarchive" });
+  rmSync(f.workspace.cwd, { recursive: true });
+  await expect(f.service.restore(f.workspace.workspaceId, f.guard)).rejects.toThrow(
+    "action or retained identity changed",
+  );
+  expect(await f.registry.get(f.workspace.workspaceId)).toEqual(f.workspace);
+  expect(existsSync(f.workspace.cwd)).toBe(false);
+  expect(f.project.archivedAt).toBeNull();
+});
+
+test.each([
+  { serverId: "srv_other" },
+  { projectId: "other-project" },
+  { cwd: "/other-directory" },
+  { kind: "directory" as const },
+  { archivedAt: "changed" },
+  { updatedAt: "changed" },
+])("guarded recovery rejects changed binding %j without mutation", async (change) => {
+  const f = await createGuardedRecoveryFixture();
+  await expect(
+    f.service.restore(f.workspace.workspaceId, { ...f.guard, ...change }),
+  ).rejects.toThrow("identity changed");
+  expect(await f.registry.get(f.workspace.workspaceId)).toEqual(f.workspace);
+  expect(f.project.archivedAt).toBeNull();
+  expect(existsSync(join(f.workspace.cwd, "retained.txt"))).toBe(true);
+});
+
+test("guarded recovery rejects record drift at the serialized mutation boundary", async () => {
+  const f = await createGuardedRecoveryFixture();
+  f.beforeMutation(async () => {
+    await f.registry.update(f.workspace.workspaceId, (current) => ({
+      ...current,
+      title: "Changed concurrently",
+    }));
+  });
+  await expect(f.service.restore(f.workspace.workspaceId, f.guard)).rejects.toThrow(
+    "record changed before unarchive",
+  );
+  expect(await f.registry.get(f.workspace.workspaceId)).toEqual({
+    ...f.workspace,
+    title: "Changed concurrently",
+  });
+});
+
+test("guarded recovery rejects a missing record at the mutation boundary", async () => {
+  const f = await createGuardedRecoveryFixture();
+  f.beforeMutation(() => f.registry.remove(f.workspace.workspaceId));
+  await expect(f.service.restore(f.workspace.workspaceId, f.guard)).rejects.toThrow(
+    "record is no longer available",
+  );
+  expect(await f.registry.get(f.workspace.workspaceId)).toBeNull();
+  expect(existsSync(join(f.workspace.cwd, "retained.txt"))).toBe(true);
+});
+
+test("guarded unarchive preserves retained identity without changing project or files", async () => {
+  const f = await createGuardedRecoveryFixture();
+  const projectBefore = structuredClone(f.project);
+  await expect(f.service.restore(f.workspace.workspaceId, f.guard)).resolves.toEqual({
+    workspaceId: f.workspace.workspaceId,
+    action: "unarchive",
+  });
+  expect(await f.registry.get(f.workspace.workspaceId)).toEqual({
+    ...f.workspace,
+    archivedAt: null,
+    updatedAt: expect.any(String),
+  });
+  expect(f.project).toEqual(projectBefore);
+  expect(existsSync(join(f.workspace.cwd, "retained.txt"))).toBe(true);
+});
+
+test("guard schema preserves ordinary recovery and rejects recreation authority", () => {
+  const legacy = {
+    type: "workspace.recovery.restore.request",
+    workspaceId: "workspace",
+    requestId: "request",
+  };
+  expect(WorkspaceRecoveryRestoreRequestSchema.parse(legacy)).toEqual(legacy);
+  expect(
+    WorkspaceRecoveryGuardSchema.safeParse({
+      action: "restore",
+      serverId: "srv_recovery",
+      projectId: "project",
+      cwd: "/cwd",
+      kind: "worktree",
+      archivedAt: NOW,
+      updatedAt: NOW,
+    }).success,
+  ).toBe(false);
+});
+
+test("guarded recovery rejects another workspace and stale full record hashes", async () => {
+  const f = await createGuardedRecoveryFixture();
+  const other = { ...f.workspace, workspaceId: "another-workspace" };
+  await f.registry.upsert(other);
+  await expect(f.service.restore(other.workspaceId, f.guard)).rejects.toThrow("identity changed");
+  expect(await f.registry.get(other.workspaceId)).toEqual(other);
+  await f.registry.update(f.workspace.workspaceId, (current) => ({
+    ...current,
+    branch: "changed-without-timestamp",
+  }));
+  await expect(f.service.restore(f.workspace.workspaceId, f.guard)).rejects.toThrow(
+    "identity changed",
+  );
+  expect((await f.registry.get(f.workspace.workspaceId))?.archivedAt).toBe(NOW);
+});
+
+test("guarded recovery rejects directory loss during inspection without recreation", async () => {
+  const f = await createGuardedRecoveryFixture();
+  f.afterDirectoryCheck(() => rmSync(f.workspace.cwd, { recursive: true, force: true }));
+  await expect(f.service.restore(f.workspace.workspaceId, f.guard)).rejects.toThrow(
+    "directory is no longer available",
+  );
+  expect(await f.registry.get(f.workspace.workspaceId)).toEqual(f.workspace);
+  expect(existsSync(f.workspace.cwd)).toBe(false);
+});
+
+test("guarded recovery refuses to reactivate the archived parent project", async () => {
+  const f = await createGuardedRecoveryFixture();
+  f.project.archivedAt = NOW;
+  await expect(f.service.restore(f.workspace.workspaceId, f.guard)).rejects.toThrow(
+    "project to remain active",
+  );
+  expect(f.project.archivedAt).toBe(NOW);
+  expect(await f.registry.get(f.workspace.workspaceId)).toEqual(f.workspace);
 });
