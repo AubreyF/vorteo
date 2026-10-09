@@ -33,9 +33,6 @@ function Flower({ petals, ...colors }: FlowerPalette & { petals: PetalStatus[] }
         const angle = (index * 360) / petals.length;
         return (
           <G key={angle} rotation={angle} origin="12, 12">
-            {status === "active" ? (
-              <Path d={geometry.halo} fill="none" stroke={colors.active} strokeWidth={0.35} />
-            ) : null}
             <Path d={geometry.path} fill={colors[status]} />
           </G>
         );

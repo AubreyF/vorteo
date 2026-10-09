@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.229 - 2026-10-09
+
+### Changed
+
+- Remove outlines from active blue task petals. Make one-, two- and three-task petals wider and fuller, bringing radial tips closer to the center while keeping a single petal centered upright.
+
 ## 0.11.0-beta.3.vorteo.228 - 2026-10-09
 
 ### Changed

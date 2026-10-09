@@ -563,7 +563,7 @@ test("task flowers stay bounded through 300 tasks and follow sidebar labels", as
         id: `petal-${index}`,
         text: `Task ${index + 1}`,
       });
-      if (![1, 2, 4, 8, 12, 33, 300].includes(index + 1)) continue;
+      if (![1, 2, 3, 4, 8, 12, 33, 300].includes(index + 1)) continue;
       await client.mutateAgentChecklist(agent.agentId, {
         operation: "update",
         id: "petal-0",
@@ -575,7 +575,7 @@ test("task flowers stay bounded through 300 tasks and follow sidebar labels", as
       const count = Math.min(index + 1, 12);
       await expect(flower.locator("svg path[fill]:not([fill='none'])")).toHaveCount(count);
       await expect(sidebar.locator("svg path[fill]:not([fill='none'])")).toHaveCount(count);
-      await expect(flower.locator("svg path[fill='none']")).toHaveCount(1);
+      await expect(flower.locator("svg path[fill='none']")).toHaveCount(0);
       await expect(sidebar).toHaveAttribute("aria-valuemax", String(index + 1));
       const label = page.getByTestId("workspace-label-chip-Later");
       const labelBox = (await label.boundingBox())!;
