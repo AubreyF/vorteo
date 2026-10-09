@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.240 - 2026-10-09
+
+### Changed
+
+- Move the gold Host environment icon from beside workspace names to the trailing metadata group, after line-change counts and before the preview globe, badges, labels and task flower.
+
 ## 0.11.0-beta.3.vorteo.239 - 2026-10-09
 
 ### Fixed

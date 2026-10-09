@@ -193,7 +193,6 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
         )}
         <View style={styles.workspaceContentColumn}>
           <View style={[styles.workspaceTitleRow, styles.alignedRow]}>
-            <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />
             <Text style={workspaceBranchTextStyle} numberOfLines={1}>
               {workspaceLabel}
             </Text>
@@ -415,6 +414,7 @@ export function SidebarWorkspaceTrailingDetails({
   const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
   return (
     <View style={styles.trailingDetails}>
+      <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />
       {service ? <ServiceItem summary={service} iconOnly /> : null}
       <WorkspaceActivityBadges
         serverId={workspace.serverId}
