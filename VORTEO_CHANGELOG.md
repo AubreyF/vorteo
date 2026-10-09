@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.207 - 2026-10-08
+
+### Changed
+
+- Preserve explicit provenance for local agent sends, worker creation and steering, and draw shorter conversation navigation marks for these messages. Integrate the reviewed source without changing Factory code or existing release notes.
+
 ## 0.11.0-beta.3.vorteo.206 - 2026-10-08
 
 ### Fixed

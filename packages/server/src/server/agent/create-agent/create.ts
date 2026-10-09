@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { assertInstallationProviderLaunch } from "../../execution-installation/settings/provider-admission.js";
 import {
   readInstallationSettingsForLaunch,
@@ -569,6 +570,9 @@ async function resolveMcpCreateAgent(
       env: input.env,
     },
     prompt: trimmedPrompt ? trimmedPrompt : undefined,
+    ...(input.callerAgentId
+      ? { runOptions: { origin: "agent" as const, clientMessageId: randomUUID() } }
+      : {}),
     setupContinuation,
     createdWorktree,
     background: input.background,

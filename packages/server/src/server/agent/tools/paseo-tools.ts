@@ -1,5 +1,6 @@
 import { sharedProfileDefinitions } from "@getpaseo/protocol/provider-preferences";
 import { stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TaskOwnerEvidenceStore } from "../../authorization/task-owner-evidence.js";
 import { ensureValidJson } from "../../json-utils.js";
@@ -1993,6 +1994,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         agentId,
         prompt,
         sessionMode,
+        ...(callerAgentId
+          ? { messageId: randomUUID(), runOptions: { origin: "agent" as const } }
+          : {}),
         logger: childLogger,
       });
 

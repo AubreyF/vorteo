@@ -318,6 +318,7 @@ test("mcp create stamps the new worktree's workspaceId, not the parent's", async
       },
     );
 
+    const streamAgent = vi.spyOn(agentManager, "streamAgent");
     const { snapshot: child } = await createAgentCommand(
       {
         agentManager,
@@ -341,6 +342,11 @@ test("mcp create stamps the new worktree's workspaceId, not the parent's", async
       },
     );
 
+    expect(streamAgent).toHaveBeenCalledWith(
+      child.id,
+      "do the thing",
+      expect.objectContaining({ origin: "agent", clientMessageId: expect.any(String) }),
+    );
     const storedChild = await storage.get(child.id);
     expect(storedChild?.workspaceId).toBe("ws-new-worktree");
     expect(child.cwd).toBe(join(workdir, "worktree", "packages", "app"));
