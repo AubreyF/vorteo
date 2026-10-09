@@ -88,12 +88,13 @@ export function createBootstrapNativeLifecycle(
   const waitFor = async (check: () => Promise<void>) => {
     // This bounded observer belongs to a visible claimed lifecycle request.
     // A timeout is failure, never proof of exit and never a reason to retry a signal.
-    for (let attempt = 0; attempt < 40; attempt++) {
+    const deadline = performance.now() + 15_000;
+    for (;;) {
       try {
         await check();
         return;
       } catch (error) {
-        if (attempt === 39) throw error;
+        if (performance.now() >= deadline) throw error;
       }
       await setTimeout(50);
     }
@@ -141,13 +142,15 @@ export function createBootstrapNativeLifecycle(
       await requireStage(request, "verifying");
       const roots = await context.writableMountRoots();
       await verifyBootstrapReleaseArtifacts(request.plan.candidate, roots);
-      await verifyBootstrapReplacement({
-        plan: request.plan,
-        generation: request.execution!.generation,
-        hostUid: uid,
-        reader: context.reader,
-        readHealth: context.readHealth,
-      });
+      await waitFor(() =>
+        verifyBootstrapReplacement({
+          plan: request.plan,
+          generation: request.execution!.generation,
+          hostUid: uid,
+          reader: context.reader,
+          readHealth: context.readHealth,
+        }),
+      );
       await verifyBootstrapReleaseArtifacts(request.plan.candidate, roots);
       await readBootstrapPreparedFile(
         { path: context.launcherFile, sha256: request.plan.candidate.launcher.sha256 },

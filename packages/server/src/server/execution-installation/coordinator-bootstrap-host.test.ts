@@ -16,6 +16,8 @@ import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:http";
+import { readBootstrapHealth } from "./coordinator-bootstrap-runtime.js";
 import { promisify } from "node:util";
 import { hashSync } from "bcryptjs";
 import {
@@ -776,3 +778,45 @@ finally:
     }
   },
 );
+
+test("bootstrap readiness uses its local endpoint and refuses redirects and oversized bodies", async () => {
+  let status = 200;
+  let body = JSON.stringify({ installationId: randomUUID() });
+  const paths: string[] = [];
+  const server = createServer((request, response) => {
+    paths.push(request.url!);
+    response.writeHead(status, {
+      "Content-Type": "application/json",
+      Location: "/redirect-target",
+    });
+    response.end(body);
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing fixture listener");
+    await expect(readBootstrapHealth(address.port)).resolves.toEqual(JSON.parse(body));
+    status = 302;
+    await expect(readBootstrapHealth(address.port)).rejects.toThrow();
+    status = 503;
+    await expect(readBootstrapHealth(address.port)).rejects.toThrow("unavailable");
+    status = 200;
+    body = "x".repeat(16 * 1024 + 1);
+    await expect(readBootstrapHealth(address.port)).rejects.toThrow("too large");
+    body = "invalid-json";
+    await expect(readBootstrapHealth(address.port)).rejects.toThrow();
+    expect(paths).toEqual(Array(5).fill("/api/installation/health"));
+    await expect(readBootstrapHealth(80)).rejects.toThrow("Invalid");
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      }),
+    );
+  }
+});

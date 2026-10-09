@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.244 - 2026-10-08
+
+### Maintenance
+
+- Compose native coordinator handoff operations with protected setup, kernel ownership and exact approved-plan checks
+- Restrict readiness requests to the configured loopback listener, rejecting redirects, oversized responses and unavailable endpoints
+- Recheck readiness before the durable startup-fence release and bound repeated native observations
+- Keep watchdog launch, visible approval controls and live bootstrap acceptance pending
+
 ## 0.11.0-beta.3.vorteo.243 - 2026-10-08
 
 ### Maintenance
