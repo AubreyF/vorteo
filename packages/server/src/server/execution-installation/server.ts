@@ -155,6 +155,11 @@ function restartReply(
   return { ...legacy, expiresAt: "9999-12-31T23:59:59.999Z" };
 }
 
+export interface InstallationStartupFence {
+  generation: string;
+  released(): boolean;
+}
+
 export function createInstallationServer(
   config: InstallationConfig,
   executor: RestartExecutor,
@@ -164,6 +169,7 @@ export function createInstallationServer(
   resolvePluginSource: InstallationPluginSourceResolver = (input) =>
     resolveInstallationPluginSource(config, input),
   claudeSetup?: ClaudeSetupRuntime,
+  startupFence?: InstallationStartupFence,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const journal = path.join(config.stateDir, "restart-jobs.json");
@@ -209,11 +215,20 @@ export function createInstallationServer(
     restartExecutor,
     Date.now,
     config.restartApprovalPolicy,
+    { fenced: startupFence !== undefined },
   );
-  const drainRestarts = () =>
-    restarts
-      .drain()
-      .catch((error) => logger.error({ err: error }, "Installation restart journal failed"));
+  const startupReleased = () => {
+    if (startupFence && !startupFence.released()) return false;
+    restarts.activate();
+    return true;
+  };
+  const drainRestarts = async () => {
+    try {
+      if (startupReleased()) await restarts.drain();
+    } catch {
+      logger.error("Installation restart journal or startup fence failed");
+    }
+  };
   const sessions = new OwnerSessions(path.join(config.stateDir, "owner-sessions.json"));
   const secureCookies = new URL(config.public.origin).protocol === "https:";
   const cookieName = secureCookies ? "__Host-vorteo-owner" : "vorteo-owner";
@@ -265,6 +280,23 @@ export function createInstallationServer(
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("Cache-Control", "no-store");
     next();
+  });
+  app.use((req, res, next) => {
+    try {
+      if (startupReleased()) return next();
+      if (req.method === "GET" && req.path === "/api/installation/health") {
+        res.json({
+          installationId: config.public.installationId,
+          bootstrap: { generation: startupFence!.generation, pid: process.pid, fenced: true },
+        });
+        return;
+      }
+      res
+        .status(503)
+        .json({ error: "Coordinator maintenance is verifying startup. Try again shortly." });
+    } catch {
+      res.status(503).json({ error: "Coordinator startup requires installation recovery." });
+    }
   });
   let uploads = 0;
   function authenticateUpdate(req: Request, res: Response, next: NextFunction) {

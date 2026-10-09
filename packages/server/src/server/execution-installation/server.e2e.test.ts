@@ -5,6 +5,7 @@ import { createInstallationSettingsReader } from "./settings/admission.js";
 import { InstallationSourceUpdates } from "./source-updates.js";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  existsSync,
   chmodSync,
   mkdtempSync,
   rmSync,
@@ -19,7 +20,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { request as httpRequest, type Server, type IncomingMessage } from "node:http";
 import pino from "pino";
 import { hashDaemonPassword } from "../auth.js";
-import { createInstallationServer } from "./server.js";
+import { createInstallationServer, type InstallationStartupFence } from "./server.js";
 import { InstallationProfiles, type ProfileSharingState } from "./profiles/service.js";
 import { createInstallationProfileReader } from "./profiles/admission.js";
 import { InstallationSettingsService } from "./settings/service.js";
@@ -327,6 +328,7 @@ async function fixture(
   sourceUpdates: boolean | "both" = false,
   automaticHost = false,
   claudeSetup?: ClaudeSetupRuntime,
+  startupFence?: InstallationStartupFence,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
   writeFileSync(
@@ -395,7 +397,7 @@ async function fixture(
       docker,
       receiptFile,
       sourceRepository: root,
-      toolingDirectory: path.resolve("scripts"),
+      toolingDirectory: path.resolve(import.meta.dirname, "../../../../../scripts"),
       integrationRef: "refs/heads/main",
       containerId: "d".repeat(64),
       user: "paseo",
@@ -442,6 +444,7 @@ async function fixture(
     settings,
     resolvePluginSource,
     claudeSetup,
+    startupFence,
   );
   const server: Server = await new Promise((resolve) => {
     const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
@@ -1439,4 +1442,50 @@ test("Claude setup login accepts only owner access and sanitizes code failures",
   });
   expect(rejected.status).toBe(409);
   expect(JSON.stringify(await rejected.json())).not.toContain("synthetic-private-code");
+});
+
+test("bootstrap HTTP readiness stays fenced without journal writes or admitted operations", async () => {
+  let released = false;
+  let broken = false;
+  const generation = randomUUID();
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, {
+    generation,
+    released: () => {
+      if (broken) throw new Error("private failure");
+      return released;
+    },
+  });
+  const health = await f.request("/api/installation/health");
+  expect(health.status).toBe(200);
+  expect((await health.json()).bootstrap).toEqual({ generation, pid: process.pid, fenced: true });
+  for (const route of [
+    "/api/installation/restart-requests",
+    "/api/installation/owner/unlock",
+    "/api/installation/owner/settings/read",
+  ])
+    expect((await f.request(route, "owner-test-password", {})).status).toBe(503);
+  await f.drain();
+  expect(f.calls).toEqual([]);
+  expect(existsSync(path.join(f.root, "restart-jobs.json"))).toBe(false);
+  broken = true;
+  const refused = await f.request("/api/installation/health");
+  expect(refused.status).toBe(503);
+  expect(await refused.json()).toEqual({
+    error: "Coordinator startup requires installation recovery.",
+  });
+  broken = false;
+  released = true;
+  const ready = await f.request("/api/installation/health");
+  expect(ready.status).toBe(200);
+  expect(await ready.json()).not.toHaveProperty("bootstrap");
+  expect(JSON.parse(readFileSync(path.join(f.root, "restart-jobs.json"), "utf8"))).toEqual([]);
+  expect(
+    (
+      await f.request("/api/installation/restart-requests", "guest-agent-test-token", {
+        target: "host",
+        reason: "After verified release",
+      })
+    ).status,
+  ).toBe(201);
+  expect(f.calls).toEqual([]);
 });

@@ -50,6 +50,7 @@ function validateSourceDecision(job: RestartJob, decision: RestartDecision, upda
 /** The coordinator owns this queue, so daemon restarts cannot destroy the receipt. */
 export class InstallationRestarts {
   private jobs: RestartJob[];
+  private active = false;
   private running = false;
   private refreshingImpacts = false;
   private preparing = false;
@@ -60,10 +61,19 @@ export class InstallationRestarts {
     private readonly executor: RestartExecutor,
     private readonly now: () => number = Date.now,
     private readonly approvalPolicy: RestartApprovalPolicy = {},
+    startup: { fenced: boolean } = { fenced: false },
   ) {
     this.jobs = journal.read();
+    if (!startup.fenced) this.activate();
+  }
+
+  /** Only the verified coordinator handoff releases this startup fence. */
+  activate(): void {
+    if (this.active) return;
+    if (JSON.stringify(this.journal.read()) !== JSON.stringify(this.jobs))
+      throw new RestartRequestError("Restart journal changed while startup was fenced");
     // A coordinator crash leaves execution ambiguous. Never replay a disruptive action.
-    this.jobs = this.jobs.map((job) => {
+    const recovered = this.jobs.map((job): RestartJob => {
       // Retry inert validation once after a coordinator upgrade. Never carry an
       // approval into a recomputed batch or replay dispatched installation work.
       if (job.status === "pending" && job.sourceBatch?.status === "conflict") {
@@ -83,8 +93,15 @@ export class InstallationRestarts {
         detail: "Coordinator interrupted. Inspect target and request a new restart.",
       };
     });
-    journal.write(this.jobs);
+    this.journal.write(recovered);
+    this.jobs = recovered;
+    this.active = true;
     this.reconcilePending();
+  }
+
+  private requireActive(): void {
+    if (!this.active)
+      throw new RestartRequestError("Coordinator startup is fenced for maintenance");
   }
 
   list(): RestartJob[] {
@@ -99,6 +116,7 @@ export class InstallationRestarts {
     requestedBy: RestartJob["requestedBy"],
     update?: RestartJob["update"],
   ): RestartJob {
+    this.requireActive();
     this.validateSupervisorRequest(input, requestedBy, update);
     if (update && !this.supportsUpdate(input.target))
       throw new RestartRequestError("Source updates are unavailable for this target");
@@ -150,6 +168,7 @@ export class InstallationRestarts {
     id: string,
     replaces?: string,
   ) {
+    this.requireActive();
     if (input.supervisorPlanSha256)
       throw new RestartRequestError(
         "Supervisor maintenance cannot be submitted as a source contribution",
@@ -265,6 +284,7 @@ export class InstallationRestarts {
   }
 
   async prepareBatches(): Promise<void> {
+    if (!this.active) return;
     if (this.preparing || !this.executor.prepareUpdate) return;
     this.preparing = true;
     try {
@@ -340,6 +360,7 @@ export class InstallationRestarts {
     updateSha256?: string,
     supervisorPlanSha256?: string,
   ): RestartJob {
+    this.requireActive();
     const job = this.jobs.find((candidate) => candidate.id === id);
     if (!job || job.revision !== revision)
       throw new RestartRequestError("Restart request is missing or changed");
@@ -531,6 +552,7 @@ export class InstallationRestarts {
   }
 
   async drain(): Promise<void> {
+    if (!this.active) return;
     if (this.executor.prepareUpdate) await this.prepareBatches();
     if (this.running) return;
     this.running = true;
@@ -646,6 +668,7 @@ export class InstallationRestarts {
   }
 
   async refreshImpacts(): Promise<void> {
+    if (!this.active) return;
     if (this.refreshingImpacts) return;
     this.refreshingImpacts = true;
     try {
@@ -657,6 +680,7 @@ export class InstallationRestarts {
   }
 
   async impacts(): Promise<RestartImpact[]> {
+    this.requireActive();
     return Promise.all(
       (["host", "container-daemon"] as const).map(async (target) => {
         try {
@@ -677,6 +701,7 @@ export class InstallationRestarts {
   }
 
   private reconcilePending(): void {
+    if (!this.active) return;
     const targets = new Set<RestartJob["target"]>();
     let changed = false;
     const jobs = [...this.jobs];
@@ -702,6 +727,7 @@ export class InstallationRestarts {
   }
 
   private commit(jobs: RestartJob[]): void {
+    this.requireActive();
     this.journal.write(jobs);
     this.jobs = jobs;
   }

@@ -1999,3 +1999,68 @@ test("automatic policy leaves requests pending when safe activity inspection is 
   expect(f.queue.list()[0]?.status).toBe("pending");
   expect(f.events).toEqual([]);
 });
+
+test("bootstrap startup fence preserves journal and prevents reconciliation and dispatch until release", async () => {
+  const journal = new MemoryJournal();
+  const existing = new InstallationRestarts(journal, {
+    restart: async () => "unused",
+    restartWhenIdle: async () => null,
+  });
+  const request = existing.request(
+    { target: "host", reason: "Keep pending work" },
+    "container-agent",
+  );
+  existing.decide(request.id, request.revision, "approve-when-idle");
+  const before = journal.read();
+  const write = vi.spyOn(journal, "write");
+  const restart = vi.fn(async () => "ready");
+  const inspect = vi.fn();
+  const prepareUpdate = vi.fn();
+  const queue = new InstallationRestarts(
+    journal,
+    { restart, inspect, prepareUpdate },
+    Date.now,
+    {},
+    { fenced: true },
+  );
+  expect(queue.list()[0]?.status).toBe("approved");
+  await queue.drain();
+  await queue.prepareBatches();
+  await queue.refreshImpacts();
+  await expect(queue.impacts()).rejects.toThrow("fenced");
+  expect(() => queue.request({ target: "host", reason: "Disallowed" }, "host-agent")).toThrow(
+    "fenced",
+  );
+  expect(() => queue.decide(request.id, before[0]!.revision, "cancel")).toThrow("fenced");
+  expect(journal.read()).toEqual(before);
+  expect(write).not.toHaveBeenCalled();
+  expect(restart).not.toHaveBeenCalled();
+  expect(inspect).not.toHaveBeenCalled();
+  expect(prepareUpdate).not.toHaveBeenCalled();
+  queue.activate();
+  expect(write).toHaveBeenCalledTimes(1);
+  queue.activate();
+  expect(write).toHaveBeenCalledTimes(1);
+  expect(queue.list()[0]?.status).toBe("approved");
+});
+
+test("bootstrap startup refuses release after external journal change or failed persistence", () => {
+  const journal = new MemoryJournal();
+  const queue = new InstallationRestarts(
+    journal,
+    { restart: async () => "unused" },
+    Date.now,
+    {},
+    { fenced: true },
+  );
+  journal.failWrite = true;
+  expect(() => queue.activate()).toThrow("disk unavailable");
+  expect(() => queue.request({ target: "host", reason: "No release" }, "host-agent")).toThrow(
+    "fenced",
+  );
+  journal.failWrite = false;
+  const external = new InstallationRestarts(journal, { restart: async () => "unused" });
+  external.request({ target: "host", reason: "External change" }, "container-agent");
+  expect(() => queue.activate()).toThrow("changed while startup was fenced");
+  expect(journal.jobs).toHaveLength(1);
+});

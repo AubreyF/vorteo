@@ -31,6 +31,12 @@ import {
   type BootstrapExecutorOperations,
 } from "./coordinator-bootstrap-executor.js";
 
+import {
+  loadCoordinatorStartupFence,
+  coordinatorStartupAdmission,
+  coordinatorStartupReleased,
+} from "./coordinator-bootstrap-startup.js";
+
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -791,3 +797,123 @@ test.each([false, true])(
     expect(calls).toEqual(["watchdog", "freeze", "resume"]);
   },
 );
+
+test("replacement startup remains fenced until its exact generation succeeds", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.plan.state.directory,
+    node: f.plan.candidate.node.path,
+    entrypoint: f.plan.candidate.entrypoint.path,
+    configuration: f.plan.candidate.configuration.path,
+  };
+  expect(coordinatorStartupAdmission([pending], identity)).toEqual({ kind: "ordinary" });
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "start_pending" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  expect(coordinatorStartupAdmission([record], identity)).toEqual({
+    kind: "fenced",
+    request: record,
+  });
+  expect(coordinatorStartupReleased([record], identity, record)).toBe(false);
+  const success = { ...record, execution: { ...record.execution, stage: "succeeded" as const } };
+  expect(coordinatorStartupReleased([success], identity, record)).toBe(true);
+  expect(() => coordinatorStartupReleased([], identity, record)).toThrow("ownership changed");
+  expect(() =>
+    coordinatorStartupReleased(
+      [{ ...success, execution: { ...success.execution, generation: randomUUID() } }],
+      identity,
+      record,
+    ),
+  ).toThrow("ownership changed");
+  for (const field of ["node", "entrypoint", "configuration", "stateDirectory"] as const)
+    expect(() =>
+      coordinatorStartupAdmission([record], { ...identity, [field]: "/wrong" }),
+    ).toThrow();
+  expect(() =>
+    coordinatorStartupAdmission([record], { ...identity, installationId: randomUUID() }),
+  ).toThrow();
+  expect(() =>
+    coordinatorStartupAdmission([{ ...record, planSha256: "0".repeat(64) }], identity),
+  ).toThrow();
+  expect(() => coordinatorStartupAdmission([record, record], identity)).toThrow("Duplicate");
+  expect(() =>
+    coordinatorStartupAdmission([record, { ...record, id: randomUUID() }], identity),
+  ).toThrow("Multiple");
+  expect(() =>
+    coordinatorStartupAdmission([{ ...record, status: "canceled" }], identity),
+  ).toThrow();
+  for (const stage of [
+    "claimed",
+    "freeze_pending",
+    "frozen",
+    "unload_pending",
+    "unloaded",
+    "selection_pending",
+    "selected",
+    "resume_pending",
+    "recovery_required",
+  ])
+    expect(() =>
+      coordinatorStartupAdmission(
+        [{ ...record, execution: { ...record.execution, stage } }],
+        identity,
+      ),
+    ).toThrow("recovery");
+});
+
+test("native startup fence reloads its durable generation and refuses deleted or replaced records", async () => {
+  const f = fixture();
+  f.plan.state.directory = f.root;
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.root,
+    node: f.plan.candidate.node.path,
+    entrypoint: f.plan.candidate.entrypoint.path,
+    configuration: f.plan.candidate.configuration.path,
+  };
+  expect(loadCoordinatorStartupFence(identity)).toBeUndefined();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "started" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [record]);
+  const fence = loadCoordinatorStartupFence(identity);
+  expect(fence?.generation).toBe(record.execution.generation);
+  expect(fence?.released()).toBe(false);
+  f.journal.replace([record], []);
+  expect(() => fence?.released()).toThrow("ownership changed");
+  const success = { ...record, execution: { ...record.execution, stage: "succeeded" as const } };
+  f.journal.replace([], [success]);
+  expect(fence?.released()).toBe(true);
+  expect(loadCoordinatorStartupFence(identity)).toBeUndefined();
+});

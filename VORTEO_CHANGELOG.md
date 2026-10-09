@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.238 - 2026-10-08
+
+### Maintenance
+
+- Fence replacement coordinator startup by the exact bootstrap generation and approved installation paths
+- Keep the restart journal, queue dispatch and account synchronization inert while serving bounded readiness status
+- Refuse changed or missing handoff records and journal changes before release; retain ordinary startup behavior outside bootstrap
+- Resolve the Dev HTTP test helper from its source location so tests work from the server workspace
+- Keep native bootstrap execution, watchdog and owner review controls pending before activation
+
 ## 0.11.0-beta.3.vorteo.237 - 2026-10-08
 
 ### Maintenance
