@@ -28,7 +28,7 @@ export interface DraggableListDropTarget {
 export interface DraggableListExternalDrop<T> {
   targets: readonly DraggableListDropTarget[];
   onDrop: (item: T, targetId: string) => void;
-  onTargetChange: (targetId: string | null) => void;
+  onTargetChange: (targetId: string | null, item?: T) => void;
 }
 
 export interface DraggableListProps<T> {

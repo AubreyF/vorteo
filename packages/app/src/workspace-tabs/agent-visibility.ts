@@ -33,12 +33,17 @@ export function deriveWorkspaceAgentVisibility(input: {
   const presentations = getAgentPresentationIndex(sessionAgents, input.workspaces);
   for (const agent of sessionAgents.values()) {
     const presentation = presentations.get(agent.id);
-    if (presentation?.workspaceId !== workspaceId) {
+    const belongsToExecutionWorkspace =
+      normalizeWorkspaceOpaqueId(agent.workspaceId) === workspaceId;
+    const belongsToPresentationWorkspace = presentation?.workspaceId === workspaceId;
+    if (!belongsToExecutionWorkspace && !belongsToPresentationWorkspace) {
       continue;
     }
     if (!agent.archivedAt) {
       activeAgentIds.add(agent.id);
-      if (presentation.rootAgentId === agent.id) {
+      // Parent grouping must not make the retained execution workspace unreadable.
+      const isExecutionRecovery = belongsToExecutionWorkspace && !belongsToPresentationWorkspace;
+      if (presentation?.rootAgentId === agent.id || isExecutionRecovery) {
         autoOpenAgentIds.add(agent.id);
       }
     }

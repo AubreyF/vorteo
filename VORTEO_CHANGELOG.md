@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.273 - 2026-10-09
+
+### Fixed
+
+- Keep protected, standing and Factory-managed workspaces in their registered project instead of grouping them under a supervising agent's project.
+- Show a blocked icon and explanation when dragging a protected workspace into another project.
+- Integrate published worker-tab recovery so existing agents remain visible in their own workspaces, while retaining Copy all and journal controls.
+
 ## 0.11.0-beta.3.vorteo.272 - 2026-10-09
 
 ### Fixed
@@ -12,9 +20,26 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## 0.11.0-beta.3.vorteo.271 - 2026-10-09
 
+### Maintenance
+
+- Merge the accepted Dev blocked-checklist source into published Factory history, preserving both parent implementations and every historical release entry.
+- Retain current Factory safeguards and checklist compatibility without changing runtime behavior.
+
+## 0.11.0-beta.3.vorteo.271 - 2026-10-09
+
 ### Improved
 
 - Add Clear journal and Show history controls that retain permanent entries, preserve newly appended entries, and remember the cleared view on this device. Align entry text with inset timestamps without changing date spacing.
+
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Fixed
+
+- Keep worker conversations visible in their own execution workspaces while retaining parent grouping. Opening a worker tab there no longer redirects to the parent workspace.
+
+### Maintenance
+
+- Retain completed Factory workers and defer opt-in age-based archival until a future update.
 
 ## 0.11.0-beta.3.vorteo.270 - 2026-10-09
 
@@ -689,6 +714,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Combine 6 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.214 - 2026-10-09
+
+### Added
+
+- Add discretionary blocked checklist status to Dev agent tools and persisted tasks, independent of prerequisite links.
+- Advertise blocked status support and deliver incomplete pending items to older clients without changing saved task state.
+
+### Changed
+
+- Update checklist instructions for blocked work and retain blocked status in client caches and task drafts. The shared interface is delivered by the separate Host update.
 
 ## 0.11.0-beta.3.vorteo.214 - 2026-10-08
 

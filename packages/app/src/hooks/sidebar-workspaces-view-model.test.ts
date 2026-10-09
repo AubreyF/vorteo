@@ -987,6 +987,22 @@ function workerSidebarFixture() {
 }
 
 describe("managed worker sidebar placement", () => {
+  it.each(["protected", "standing"] as const)("keeps a %s worker in its native project", (flag) => {
+    const fixture = workerSidebarFixture();
+    fixture.execution[flag] = true;
+    const managed = collectManagedWorkspacePlacements({
+      projects: fixture.projects,
+      sessions: [fixture.session],
+    });
+    expect(managed).toEqual([]);
+    const model = buildSidebarWorkspacePlacementModel({
+      projects: fixture.projects,
+      managedWorkspaces: managed,
+    });
+    expect(
+      model.workspaces.find((entry) => entry.workspaceId === "execution")?.projectViewKey,
+    ).toBe("worker-project");
+  });
   it("keeps an explicitly moved worker in its chosen project across hydration", () => {
     const fixture = workerSidebarFixture();
     fixture.execution.projectMembership = { key: "misc-dev", name: "Misc Dev" };
