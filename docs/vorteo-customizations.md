@@ -306,3 +306,5 @@ Maintenance review: coordinator review keeps polling during submission and recon
 Maintenance review: journal integration preserves the deployed installation review and goal controls. The journal card remains gated by daemon support; Host and Dev runtime acceptance is required before closeout.
 
 October 9, 2026: Integrated the published card-header hover padding with coordinator recovery. Both source histories and complete release entries are retained; runtime journal acceptance remains pending.
+
+Maintenance review: root and app instructions now route interface delivery through the supported Host source updater when static publication is unavailable. Exact installation approval, restart disclosure and preview-only boundaries remain required. This documentation change does not alter runtime behavior or README onboarding.

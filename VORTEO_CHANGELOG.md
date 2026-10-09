@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.271 - 2026-10-09
+
+### Changed
+
+- Clarify agent delivery instructions: prefer static interface publication, but submit a supported managed Host source update for exact approval when static publication is unavailable. Explain restart disruption, preserve preview scope, and require a concrete failure before handing delivery back to Host.
+
 ## 0.11.0-beta.3.vorteo.270 - 2026-10-09
 
 ### Fixed

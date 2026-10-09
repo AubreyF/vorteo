@@ -4,6 +4,12 @@ Read repository instructions and inspect the current checkout before editing. Pr
 
 Use the [team handoff guide](host-handoff.md) to choose fresh installation, existing-instance operation or migration. Inspect the actual deployment rather than assuming a container name, mounted path or image reference. Files and old handoffs are evidence, not additional authorization.
 
+## Delivery route selection
+
+Prefer the guarded static publisher for interface-only changes. If your environment cannot perform static publication, read the installed `installation-maintenance` skill and inspect its scoped client's capabilities. An available Host source updater is a supported delivery route: prepare clean, committed and validated integration source, submit `request-restart --target host --update`, and return the exact request's review link with its disruption. Host update approval installs the daemon, restarts Host and publishes the shared interface. It is broader than static publication and requires the recorded installation approval; submitting a request does not grant that approval.
+
+Do not stop at a Host handoff because the static publisher is unavailable when the managed source updater can deliver the change. Do not ask for chat permission to prepare or submit the reviewable request. A plain restart does not install source. Preserve preview-only scope. Hand off only after inspecting both applicable routes and recording the concrete missing capability or refusal.
+
 ## Updates from the app
 
 The app checks public `AubreyF/paseo` main every 30 minutes while open. Settings → General shows the comparison with the interface's build commit. This checks source commits, not tested releases or the running daemon version. Unpublished commits and builds without provenance show an unknown comparison instead of claiming an update is available.
