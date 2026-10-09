@@ -1,3 +1,4 @@
+import type { Locator, TestInfo } from "@playwright/test";
 import { pluginRequirements } from "../support/helpers/plugin-fixture";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -148,6 +149,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (const card of geometry.slice(2)) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
+      await checkDisclosures(stack, width, info);
       const toggle = stack.getByTestId("subagents-group-paseo-toggle");
       const headerHeight = await toggle.evaluate((node) => node.getBoundingClientRect().height);
       const rowHeight = await stack.getByTestId("subagents-card").evaluate((card) => {
@@ -500,6 +502,14 @@ for (const width of [1400, 390]) {
         (await client.getAgentChecklist(agent.agentId)).find((task) => task.id === "dependent")
           ?.owner,
       ).toBe("Reviewer");
+      const arrowOrder = await page.getByTestId("checklist-toggle-arrow").evaluate((node) => ({
+        title: node.previousElementSibling!.getBoundingClientRect().right,
+        arrowLeft: node.getBoundingClientRect().left,
+        arrowRight: node.getBoundingClientRect().right,
+        count: node.nextElementSibling!.getBoundingClientRect().left,
+      }));
+      expect(arrowOrder.arrowLeft).toBeGreaterThan(arrowOrder.title);
+      expect(arrowOrder.count).toBeGreaterThan(arrowOrder.arrowRight);
       await page.getByTestId("checklist-toggle").click();
       await expect(page.getByTestId("checklist-row-dependent")).not.toBeAttached();
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
@@ -658,3 +668,50 @@ test("task flowers stay bounded through 300 tasks and follow sidebar labels", as
     await agent.cleanup();
   }
 });
+
+async function checkDisclosures(stack: Locator, width: number, info: TestInfo) {
+  for (const id of [
+    "subagents-group-paseo-toggle",
+    "checklist-toggle",
+    "message-queue-toggle",
+    "agent-goal-toggle",
+  ]) {
+    const arrow = stack.getByTestId(`${id}-arrow`);
+    const order = await arrow.evaluate((node) => {
+      const arrowBox = node.getBoundingClientRect();
+      const titleBox = node.previousElementSibling!.getBoundingClientRect();
+      const countBox = node.nextElementSibling?.getBoundingClientRect();
+      return {
+        titleRight: titleBox.right,
+        arrowLeft: arrowBox.left,
+        arrowRight: arrowBox.right,
+        countLeft: countBox?.left,
+      };
+    });
+    expect(order.arrowLeft).toBeGreaterThan(order.titleRight);
+    if (order.countLeft !== undefined) expect(order.countLeft).toBeGreaterThan(order.arrowRight);
+  }
+  for (const [toggleId, bodyId, cardId, actionId] of [
+    [
+      "message-queue-toggle",
+      "message-queue-body",
+      "shared-message-queue",
+      "message-queue-pause-resume",
+    ],
+    ["agent-goal-toggle", "agent-goal-body", "agent-goal-bar", "agent-goal-expand"],
+  ]) {
+    const disclosure = stack.getByTestId(toggleId);
+    const body = stack.getByTestId(bodyId);
+    const card = stack.getByTestId(cardId);
+    const expandedHeight = (await card.boundingBox())!.height;
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(body).toBeHidden();
+    await expect(stack.getByTestId(actionId)).toBeVisible();
+    expect((await card.boundingBox())!.height).toBeLessThan(expandedHeight);
+    await card.screenshot({ path: info.outputPath(`${cardId}-collapsed-${width}.png`) });
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(body).toBeVisible();
+  }
+}

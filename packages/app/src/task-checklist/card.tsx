@@ -1,7 +1,8 @@
+import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { Check, Circle, ChevronDown, ChevronRight, Pencil, Plus } from "lucide-react-native";
+import { Check, Circle, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -90,7 +91,6 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     ),
     [progress.completed, progress.total, t],
   );
-  const expandedState = useMemo(() => ({ expanded }), [expanded]);
   const error = clearMutation.error?.message ?? mutation.error?.message ?? null;
   const open = useCallback(
     (task: AgentTaskItem | null) => {
@@ -109,21 +109,13 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
       <TaskCard testID="agent-task-progress-card">
         <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
           <ChecklistProgressFlower {...progress} testID="checklist-progress" />
-          <Button
-            variant="ghost"
-            size="sm"
-            style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchAccordionTrigger]}
-            textStyle={taskCardStyles.heading}
+          <CardDisclosure
+            title="Tasks"
+            expanded={expanded}
             onPress={toggleExpanded}
-            accessibilityLabel="Tasks"
-            aria-expanded={expanded}
-            accessibilityState={expandedState}
+            count={countBadge}
             testID="checklist-toggle"
-            leftIcon={expanded ? ChevronDown : ChevronRight}
-            trailing={countBadge}
-          >
-            Tasks
-          </Button>
+          />
           <Button
             size="sm"
             variant="ghost"

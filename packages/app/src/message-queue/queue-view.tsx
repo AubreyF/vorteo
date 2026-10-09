@@ -1,3 +1,4 @@
+import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
@@ -19,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { isQueueGoalError } from "./goal-error";
-import { useCallback, useState, useRef, useContext, useEffect } from "react";
+import { useCallback, useState, useRef, useContext, useEffect, useMemo } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
@@ -87,6 +88,8 @@ function QueueViewContent({
   control: MessageQueueControl;
   goalErrorHandled?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(true);
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const edits = useQueueEditDrafts();
   const snapshot = control.snapshot;
   if (
@@ -101,36 +104,47 @@ function QueueViewContent({
   });
   return (
     <TaskCard testID="shared-message-queue">
-      <QueueHeader control={control} />
-      {!(goalErrorHandled && isQueueGoalError(snapshot?.deliveryError)) ? (
-        <QueueDeliveryError control={control} />
-      ) : null}
-      {edits.error ? (
-        <Text style={styles.error} accessibilityRole="alert">
-          {edits.error.message}
-        </Text>
-      ) : null}
-      {control.error ? (
-        <View style={styles.row}>
+      <QueueHeader control={control} expanded={expanded} toggleExpanded={toggleExpanded} />
+      <CollapsibleCardBody expanded={expanded} testID="message-queue-body">
+        {!(goalErrorHandled && isQueueGoalError(snapshot?.deliveryError)) ? (
+          <QueueDeliveryError control={control} />
+        ) : null}
+        {edits.error ? (
           <Text style={styles.error} accessibilityRole="alert">
-            {control.error}
+            {edits.error.message}
           </Text>
-          <Button variant="ghost" size="sm" style={styles.inlineAction} onPress={control.refresh}>
-            Retry
-          </Button>
+        ) : null}
+        {control.error ? (
+          <View style={styles.row}>
+            <Text style={styles.error} accessibilityRole="alert">
+              {control.error}
+            </Text>
+            <Button variant="ghost" size="sm" style={styles.inlineAction} onPress={control.refresh}>
+              Retry
+            </Button>
+          </View>
+        ) : null}
+        <View>
+          <QueueRows control={control} serverId={serverId} agentId={agentId} />
+          {recovery.map((record) => (
+            <PendingRow key={record.operation.operationId} record={record} control={control} />
+          ))}
         </View>
-      ) : null}
-      <View>
-        <QueueRows control={control} serverId={serverId} agentId={agentId} />
-        {recovery.map((record) => (
-          <PendingRow key={record.operation.operationId} record={record} control={control} />
-        ))}
-      </View>
+      </CollapsibleCardBody>
     </TaskCard>
   );
 }
 
-function QueueHeader({ control }: { control: MessageQueueControl }) {
+function QueueHeader({
+  control,
+  expanded,
+  toggleExpanded,
+}: {
+  control: MessageQueueControl;
+  expanded: boolean;
+  toggleExpanded: () => void;
+}) {
+  const countBadge = useMemo(() => <QueueCountBadge control={control} />, [control]);
   const touch = useVortonTouch();
   const snapshot = control.snapshot;
   const pending = control.pending.filter(
@@ -162,8 +176,14 @@ function QueueHeader({ control }: { control: MessageQueueControl }) {
       testID="message-queue-header"
     >
       <TaskCardIcon kind="messages" />
-      <Text style={taskCardStyles.heading}>Messages</Text>
-      <QueueCountBadge control={control} />
+      <CardDisclosure
+        title="Messages"
+        expanded={expanded}
+        onPress={toggleExpanded}
+        compact
+        testID="message-queue-toggle"
+        count={countBadge}
+      />
       <CardHeaderStatus text={status} testID="message-queue-header-status" />
       <Button
         variant="ghost"

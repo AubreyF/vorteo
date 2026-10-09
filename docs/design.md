@@ -306,3 +306,7 @@ Installed web app icons and the manifest use content-addressed filenames. Keep o
 ### Transient card status
 
 Brief progress messages belong at the right edge of the heading, immediately before its action buttons. Use `CardHeaderStatus` as a mounted single-line slot, including while idle, so status changes cannot add a row or change card height. Truncate long text visually while preserving its accessible label. Keep persistent errors and recovery controls in the body where users can read and act on them. Settings sections expose the same slot through `status`.
+
+### Conversation card disclosures
+
+Tasks, Messages, Goals and sub-agent cards use `CardDisclosure`. The title comes first, followed by the collapse arrow and then any count badge. Header actions and transient status remain available while collapsed. Keep local draft state mounted when folding Messages or Goals; collapsing changes visibility, not queue delivery or goal execution.

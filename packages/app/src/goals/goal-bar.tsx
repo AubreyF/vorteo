@@ -1,9 +1,10 @@
+import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { Text, View } from "react-native";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Pause, Play, Trash2, Pencil } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,8 @@ interface GoalBarProps {
 
 export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
   const touch = useVortonTouch();
+  const [expanded, setExpanded] = useState(true);
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
   const mutate = control.mutate;
   const toggle = useCallback(() => {
@@ -38,7 +41,10 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
   const label = goalBarLabel(control);
 
   return (
-    <TaskCard contentContainerStyle={styles.container} testID="agent-goal-bar">
+    <TaskCard
+      contentContainerStyle={expanded ? styles.container : undefined}
+      testID="agent-goal-bar"
+    >
       <View
         style={[
           taskCardStyles.header,
@@ -47,9 +53,12 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
         ]}
       >
         <TaskCardIcon kind="goal" />
-        <View style={styles.copy}>
-          <Text style={taskCardStyles.heading}>{label}</Text>
-        </View>
+        <CardDisclosure
+          title={label}
+          expanded={expanded}
+          onPress={toggleExpanded}
+          testID="agent-goal-toggle"
+        />
         {goal ? <Text style={styles.elapsed}>{formatGoalElapsed(elapsed)}</Text> : null}
         <View style={[taskCardStyles.actions, styles.actions]}>
           <Button
@@ -84,40 +93,42 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
           />
         </View>
       </View>
-      <Text style={styles.objective} selectable>
-        {goal?.objective}
-      </Text>
-      {queueError ? (
-        <View style={styles.errorRow}>
-          <Text accessibilityRole="alert" style={styles.error}>
-            {queueGoalRecoveryMessage(queueError)}
-          </Text>
-          <Button
-            variant="default"
-            size="sm"
-            style={[styles.recoveryAction, touch && styles.touch]}
-            testID="agent-goal-review"
-            onPress={onExpand}
-          >
-            Review goal
-          </Button>
-        </View>
-      ) : null}
-      {control.error ? (
-        <View style={styles.errorRow}>
-          <Text accessibilityRole="alert" style={styles.error}>
-            {control.error}
-          </Text>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!control.connected || control.refreshing}
-            onPress={control.refresh}
-          >
-            Refresh
-          </Button>
-        </View>
-      ) : null}
+      <CollapsibleCardBody expanded={expanded} testID="agent-goal-body">
+        <Text style={styles.objective} selectable>
+          {goal?.objective}
+        </Text>
+        {queueError ? (
+          <View style={styles.errorRow}>
+            <Text accessibilityRole="alert" style={styles.error}>
+              {queueGoalRecoveryMessage(queueError)}
+            </Text>
+            <Button
+              variant="default"
+              size="sm"
+              style={[styles.recoveryAction, touch && styles.touch]}
+              testID="agent-goal-review"
+              onPress={onExpand}
+            >
+              Review goal
+            </Button>
+          </View>
+        ) : null}
+        {control.error ? (
+          <View style={styles.errorRow}>
+            <Text accessibilityRole="alert" style={styles.error}>
+              {control.error}
+            </Text>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!control.connected || control.refreshing}
+              onPress={control.refresh}
+            >
+              Refresh
+            </Button>
+          </View>
+        ) : null}
+      </CollapsibleCardBody>
     </TaskCard>
   );
 }

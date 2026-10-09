@@ -1,3 +1,4 @@
+import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCard } from "@/agent-stream/task-card";
 import { ChecklistProgressFlower } from "@/task-checklist/progress-flower";
 import { checklistProgress } from "@/task-checklist/progress";
@@ -5,8 +6,6 @@ import { useVortonTouch } from "@/vorton-touch";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { memo, useMemo, useState, useCallback } from "react";
 import { View } from "react-native";
-import { ChevronDown, ChevronRight } from "lucide-react-native";
-import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -79,26 +78,18 @@ function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
     ),
     [completed, total, t],
   );
-  const expandedState = useMemo(() => ({ expanded }), [expanded]);
   const toggle = useCallback(() => setExpanded((value) => !value), []);
   return (
     <TaskCard testID="agent-task-progress-card">
       <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
         <ChecklistProgressFlower completed={completed} active={active} total={total} />
-        <Button
-          variant="ghost"
-          size="sm"
-          style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchAccordionTrigger]}
-          textStyle={taskCardStyles.heading}
+        <CardDisclosure
+          title="Tasks"
+          expanded={expanded}
           onPress={toggle}
-          accessibilityLabel="Tasks"
-          aria-expanded={expanded}
-          accessibilityState={expandedState}
-          trailing={countBadge}
-          leftIcon={expanded ? ChevronDown : ChevronRight}
-        >
-          Tasks
-        </Button>
+          count={countBadge}
+          testID="agent-task-list-toggle"
+        />
       </View>
       {expanded ? (
         <View>

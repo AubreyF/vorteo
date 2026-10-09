@@ -1,3 +1,4 @@
+import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
 import { SettingsInfoTip } from "@/components/settings/headings/settings-info-tip";
@@ -6,10 +7,10 @@ import { CountBadge } from "@/components/ui/count-badge";
 import { Button } from "@/components/ui/button";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
-import { useCallback, useState, type ReactElement } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { Archive, ChevronDown, ChevronRight, Unlink, X } from "lucide-react-native";
+import { Archive, Unlink, X } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useProviderIcon } from "@/components/provider-icons";
 import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
@@ -35,8 +36,6 @@ import {
 const ThemedX = withUnistyles(X);
 const ThemedArchive = withUnistyles(Archive);
 const ThemedUnlink = withUnistyles(Unlink);
-const ThemedChevronDown = withUnistyles(ChevronDown);
-const ThemedChevronRight = withUnistyles(ChevronRight);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({
@@ -150,36 +149,25 @@ function SubagentsGroup({
       }
     }
   }, [kind, onArchiveFinished, rows, serverId]);
-  if (rows.length === 0 && status.kind === "idle") return null;
   const title = kind === "paseo" ? t("subagents.workersTitle") : t("subagents.providerTitle");
+  const countBadge = useMemo(
+    () => <CountBadge label={String(rows.length)} accessibilityLabel={title} />,
+    [rows.length, title],
+  );
+  if (rows.length === 0 && status.kind === "idle") return null;
   const canClear = kind === "provider" || Boolean(onArchiveFinished);
   const showClear = canClear && (countFinishedSubagents(rows) > 0 || status.kind !== "idle");
   return (
     <View testID={`subagents-group-${kind}`}>
       <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
         <TaskCardIcon kind="subagents" />
-        <Button
-          variant="ghost"
-          size="sm"
-          style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchAccordionTrigger]}
-          textStyle={taskCardStyles.heading}
-          accessibilityLabel={title}
-          aria-expanded={expanded}
-          testID={`subagents-group-${kind}-toggle`}
+        <CardDisclosure
+          title={title}
+          expanded={expanded}
           onPress={toggleExpanded}
-          trailing={
-            <>
-              <CountBadge label={String(rows.length)} accessibilityLabel={title} />
-              {expanded ? (
-                <ThemedChevronDown size={16} uniProps={foregroundMutedColorMapping} />
-              ) : (
-                <ThemedChevronRight size={16} uniProps={foregroundMutedColorMapping} />
-              )}
-            </>
-          }
-        >
-          {title}
-        </Button>
+          testID={`subagents-group-${kind}-toggle`}
+          count={countBadge}
+        />
         <SettingsInfoTip
           title={title}
           info={kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo")}
