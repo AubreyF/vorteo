@@ -1,6 +1,7 @@
+import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useState, useCallback, useMemo, useRef, type RefObject } from "react";
 import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
@@ -523,19 +524,23 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
 
   return (
     <TaskCard contentContainerStyle={styles.container} testID="question-form-card">
-      <QuestionNav
-        questions={questions}
-        activeIndex={resolvedActiveQuestionIndex}
-        isAnswered={navIsAnswered}
-        isResponding={isResponding}
-        onSelect={handleSelectQuestion}
-      />
-      <View style={styles.questionHeader}>
-        <TaskCardIcon kind="question" />
-        <Text testID="question-form-current-question" style={questionTextStyle}>
-          {activeQuestion?.question}
-        </Text>
-      </View>
+      <TaskCardHeader>
+        <View style={taskCardStyles.bodyContent}>
+          <QuestionNav
+            questions={questions}
+            activeIndex={resolvedActiveQuestionIndex}
+            isAnswered={navIsAnswered}
+            isResponding={isResponding}
+            onSelect={handleSelectQuestion}
+          />
+          <View style={styles.questionHeader}>
+            <TaskCardIcon kind="question" />
+            <Text testID="question-form-current-question" style={questionTextStyle}>
+              {activeQuestion?.question}
+            </Text>
+          </View>
+        </View>
+      </TaskCardHeader>
 
       {activeQuestion ? (
         <View key={activeQuestion.question} style={styles.questionBlock}>

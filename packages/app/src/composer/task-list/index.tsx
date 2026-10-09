@@ -1,5 +1,5 @@
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
-import { TaskCard } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { ChecklistProgressFlower } from "@/task-checklist/progress-flower";
 import { checklistProgress } from "@/task-checklist/progress";
 import { useVortonTouch } from "@/vorton-touch";
@@ -80,17 +80,20 @@ function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   );
   const toggle = useCallback(() => setExpanded((value) => !value), []);
   return (
-    <TaskCard testID="agent-task-progress-card">
-      <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-        <ChecklistProgressFlower completed={completed} active={active} total={total} />
-        <CardDisclosure
-          title="Tasks"
-          expanded={expanded}
-          onPress={toggle}
-          count={countBadge}
-          testID="agent-task-list-toggle"
-        />
-      </View>
+    <TaskCard testID="agent-task-progress-card" bodyVisible={expanded}>
+      <TaskCardHeader>
+        <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+          <ChecklistProgressFlower completed={completed} active={active} total={total} />
+          <CardDisclosure
+            title="Tasks"
+            expanded={expanded}
+            onPress={toggle}
+            count={countBadge}
+            testID="agent-task-list-toggle"
+          />
+        </View>
+      </TaskCardHeader>
+
       {expanded ? (
         <View>
           {tasks.map((task, index) => (

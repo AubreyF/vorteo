@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.239 - 2026-10-09
+
+### Fixed
+
+- Keep conversation card headings outside their scrolling bodies while capping the complete card at half the viewport height. Apply the shared heading slot to tasks, messages, goals, sub-agents, questions, permissions and plans.
+- Give managed and provider sub-agent groups separate bounded cards. Preserve collapsed body state and compact spacing.
+- Extend desktop and phone browser checks for fixed headings, body scrolling and viewport resizing.
+
 ## 0.11.0-beta.3.vorteo.238 - 2026-10-09
 
 ### Changed

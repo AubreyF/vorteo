@@ -30,6 +30,22 @@ test.describe("Plan card markdown", () => {
       await expect(planCard).toContainText("---buzz");
       await expect(planCard).not.toContainText("©");
       await expect(planCard).not.toContainText("—buzz");
+      for (const width of [1400, 390]) {
+        await page.setViewportSize({ width, height: 400 });
+        await planCard.scrollIntoViewIfNeeded();
+        const header = page.getByTestId("permission-plan-card-header");
+        const before = (await header.boundingBox())!;
+        const scrolled = await page
+          .getByTestId("permission-plan-card-body-scroll")
+          .evaluate(async (node) => {
+            node.scrollTop = node.scrollHeight;
+            await new Promise(requestAnimationFrame);
+            return node.scrollTop;
+          });
+        expect((await planCard.boundingBox())!.height).toBeLessThanOrEqual(200);
+        expect(scrolled).toBeGreaterThan(0);
+        expect((await header.boundingBox())!.y).toBeCloseTo(before.y, 0);
+      }
     } finally {
       await session.cleanup();
     }

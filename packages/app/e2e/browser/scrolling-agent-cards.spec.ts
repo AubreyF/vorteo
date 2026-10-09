@@ -58,7 +58,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       observedAt: new Date().toISOString(),
       goal: {
         threadId: agent.agentId,
-        objective: "Goal below queued messages",
+        objective: "Goal below queued messages. ".repeat(60),
         status: "paused",
         tokenBudget: null,
         tokensUsed: 0,
@@ -150,43 +150,11 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         expect(card.frame).toEqual(geometry[0].frame);
       }
       await checkDisclosures(stack, width, info);
-      const rowLayout = await stack.getByTestId("subagents-card").evaluate((card) => {
-        return [...card.querySelectorAll('[data-testid^="subagents-track-row-"]')].map((row) => {
-          const label = row.querySelector('[data-testid^="subagents-track-label-"]')!;
-          const metadata = row.querySelector('[data-testid^="subagents-track-metadata-"]')!;
-          const action = row.querySelector('[data-testid^="subagents-track-detach-"]')!;
-          const a = label.getBoundingClientRect();
-          const b = metadata.getBoundingClientRect();
-          const c = action.getBoundingClientRect();
-          return {
-            centers: [a.y + a.height / 2, b.y + b.height / 2, c.y + c.height / 2],
-            labelRight: a.right,
-            metadataLeft: b.left,
-            metadataRight: b.right,
-            actionLeft: c.left,
-            whiteSpace: getComputedStyle(metadata).whiteSpace,
-            separator: getComputedStyle(row.parentElement!).borderTopWidth,
-            overflow: row.scrollWidth > row.clientWidth,
-          };
-        });
-      });
-      expect(rowLayout).toHaveLength(5);
-      for (const row of rowLayout) {
-        expect(Math.max(...row.centers) - Math.min(...row.centers)).toBeLessThanOrEqual(1);
-        expect(row.labelRight).toBeLessThanOrEqual(row.metadataLeft);
-        expect(row.metadataRight).toBeLessThanOrEqual(row.actionLeft);
-        expect(row.whiteSpace).toBe("nowrap");
-        expect(row.separator).toBe("0px");
-        expect(row.overflow).toBe(false);
-      }
-      await stack
-        .getByTestId("subagents-card")
-        .screenshot({ path: info.outputPath(`single-line-subagents-${width}.png`) });
-
+      await checkSubagentRows(stack, width, info);
       const toggle = stack.getByTestId("subagents-group-paseo-toggle");
       const headerHeight = await toggle.evaluate((node) => node.getBoundingClientRect().height);
       const rowHeight = await stack.getByTestId("subagents-card").evaluate((card) => {
-        const row = card.querySelector('[data-testid="subagents-group-paseo"]')?.firstElementChild;
+        const row = card.querySelector('[data-testid="subagents-card-header"]');
         if (!row) throw new Error("Subagent header row missing");
         return row.getBoundingClientRect().height;
       });
@@ -213,7 +181,10 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
           lastRow.getBoundingClientRect().bottom
         );
       });
-      expect(subagentBottomInset).toBeCloseTo(8, 0);
+      const subagentScrolls = await page
+        .getByTestId("subagents-card-body-scroll")
+        .evaluate((node) => node.scrollHeight > node.clientHeight);
+      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(8, 0);
       if (width === 1400) {
         const composerFrame = await page.getByTestId("message-input-surface").evaluate((node) => {
           const style = getComputedStyle(node);
@@ -267,6 +238,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         contentType: "image/png",
       });
     }
+    await checkFixedHeaders(page, info, client, agent.agentId);
     await page.setViewportSize({ width: 1400, height: 900 });
     await expect(stack.getByTestId("subagents-card")).toBeAttached();
     await pill.click();
@@ -284,6 +256,93 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await rm(pluginDirectory, { recursive: true, force: true });
   }
 });
+
+async function checkSubagentRows(stack: Locator, width: number, info: TestInfo) {
+  const rowLayout = await stack.getByTestId("subagents-card").evaluate((card) => {
+    return [...card.querySelectorAll('[data-testid^="subagents-track-row-"]')].map((row) => {
+      const label = row.querySelector('[data-testid^="subagents-track-label-"]')!;
+      const metadata = row.querySelector('[data-testid^="subagents-track-metadata-"]')!;
+      const action = row.querySelector('[data-testid^="subagents-track-detach-"]')!;
+      const a = label.getBoundingClientRect();
+      const b = metadata.getBoundingClientRect();
+      const c = action.getBoundingClientRect();
+      return {
+        centers: [a.y + a.height / 2, b.y + b.height / 2, c.y + c.height / 2],
+        labelRight: a.right,
+        metadataLeft: b.left,
+        metadataRight: b.right,
+        actionLeft: c.left,
+        whiteSpace: getComputedStyle(metadata).whiteSpace,
+        separator: getComputedStyle(row.parentElement!).borderTopWidth,
+        overflow: row.scrollWidth > row.clientWidth,
+      };
+    });
+  });
+  expect(rowLayout).toHaveLength(5);
+  for (const row of rowLayout) {
+    expect(Math.max(...row.centers) - Math.min(...row.centers)).toBeLessThanOrEqual(1);
+    expect(row.labelRight).toBeLessThanOrEqual(row.metadataLeft);
+    expect(row.metadataRight).toBeLessThanOrEqual(row.actionLeft);
+    expect(row.whiteSpace).toBe("nowrap");
+    expect(row.separator).toBe("0px");
+    expect(row.overflow).toBe(false);
+  }
+  await stack
+    .getByTestId("subagents-card")
+    .screenshot({ path: info.outputPath(`single-line-subagents-${width}.png`) });
+}
+
+async function checkFixedHeaders(
+  page: Page,
+  info: TestInfo,
+  client: DaemonClient,
+  agentId: string,
+) {
+  for (let index = 0; index < 10; index++) {
+    await client.mutateMessageQueue(agentId, {
+      kind: "enqueue",
+      operationId: `scroll-queue-${index}`,
+      messageId: `scroll-queue-${index}`,
+      text: `Scroll queue row ${index}`,
+      attachments: [],
+    });
+  }
+
+  for (const width of [1400, 390]) {
+    await page.setViewportSize({ width, height: 400 });
+    for (const id of [
+      "subagents-card",
+      "shared-message-queue",
+      "agent-goal-bar",
+      "question-form-card",
+    ]) {
+      const card = page.getByTestId(id);
+      await card.scrollIntoViewIfNeeded();
+      const header = page.getByTestId(`${id}-header`);
+      const before = (await header.boundingBox())!;
+      const result = await page.getByTestId(`${id}-body-scroll`).evaluate(async (node) => {
+        const first = node.firstElementChild!;
+        const contentTop = first.getBoundingClientRect().top;
+        node.scrollTop = node.scrollHeight;
+        await new Promise(requestAnimationFrame);
+        return {
+          offset: node.scrollTop,
+          movement: contentTop - first.getBoundingClientRect().top,
+        };
+      });
+      expect((await card.boundingBox())!.height).toBeLessThanOrEqual(200);
+      expect(result.offset).toBeGreaterThan(0);
+      expect(result.movement).toBeGreaterThan(0);
+      expect((await header.boundingBox())!.y).toBeCloseTo(before.y, 0);
+      await header.scrollIntoViewIfNeeded();
+      await expect(header).toBeInViewport();
+      await card.screenshot({ path: info.outputPath(`fixed-header-${id}-${width}.png`) });
+      await page.getByTestId(`${id}-body-scroll`).evaluate((node) => {
+        node.scrollTop = 0;
+      });
+    }
+  }
+}
 
 async function mockGoalObservation(page: Page, agentId: string, goalState: unknown) {
   await page.routeWebSocket(daemonWsRoutePattern(), (socket) => {
@@ -642,16 +701,22 @@ for (const width of [1400, 390]) {
         await expect
           .poll(async () => (await card.boundingBox())!.height)
           .toBeLessThanOrEqual(height / 2);
-        const scroll = await card.evaluate(async (node) => {
+        const header = page.getByTestId("agent-task-progress-card-header");
+        const headerBefore = (await header.boundingBox())!;
+        const body = page.getByTestId("agent-task-progress-card-body-scroll");
+        const scroll = await body.evaluate(async (node) => {
           node.scrollTop = node.scrollHeight;
           await new Promise(requestAnimationFrame);
           return { top: node.scrollTop, overflow: node.scrollHeight > node.clientHeight };
         });
+        const headerAfter = (await header.boundingBox())!;
+        expect(headerAfter.y).toBeCloseTo(headerBefore.y, 0);
+        await expect(page.getByTestId("checklist-toggle")).toBeInViewport();
         expect(scroll.overflow).toBe(true);
         expect(scroll.top).toBeGreaterThan(0);
         await lastTask.scrollIntoViewIfNeeded();
         await expect(lastTask).toBeInViewport();
-        await card.evaluate((node) => {
+        await body.evaluate((node) => {
           node.scrollTop = 0;
         });
         await info.attach(`bounded-tasks-${width}-${height}`, {
@@ -659,7 +724,7 @@ for (const width of [1400, 390]) {
           contentType: "image/png",
         });
       }
-      await card.evaluate((node) => {
+      await page.getByTestId("agent-task-progress-card-body-scroll").evaluate((node) => {
         node.scrollTop = 0;
       });
       await page.getByTestId("checklist-toggle").click();

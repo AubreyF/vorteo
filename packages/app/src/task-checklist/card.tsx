@@ -18,7 +18,7 @@ import { DraggableList, type DraggableRenderItemInfo } from "@/components/dragga
 import { ListDragHandle } from "@/components/list-drag-handle";
 import { QueueDragScrollContext } from "@/message-queue/drag-scroll";
 import { AgentTaskList } from "@/composer/task-list";
-import { TaskCard } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { ChecklistProgressFlower } from "./progress-flower";
 import { checklistProgress } from "./progress";
@@ -106,33 +106,36 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   if (!supported) return <AgentTaskList inline tasks={tasks} />;
   return (
     <>
-      <TaskCard testID="agent-task-progress-card">
-        <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-          <ChecklistProgressFlower {...progress} testID="checklist-progress" />
-          <CardDisclosure
-            title="Tasks"
-            expanded={expanded}
-            onPress={toggleExpanded}
-            count={countBadge}
-            testID="checklist-toggle"
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
-            disabled={!canMutate}
-            onPress={add}
-            testID="checklist-add"
-            accessibilityLabel="Add task"
-            leftIcon={Plus}
-          />
-          <ClearCompletedButton
-            available={tasks.some(canClearTask)}
-            pending={clearMutation.isPending}
-            disabled={!canMutate}
-            onPress={clearCompleted}
-          />
-        </View>
+      <TaskCard testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
+        <TaskCardHeader>
+          <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+            <ChecklistProgressFlower {...progress} testID="checklist-progress" />
+            <CardDisclosure
+              title="Tasks"
+              expanded={expanded}
+              onPress={toggleExpanded}
+              count={countBadge}
+              testID="checklist-toggle"
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
+              disabled={!canMutate}
+              onPress={add}
+              testID="checklist-add"
+              accessibilityLabel="Add task"
+              leftIcon={Plus}
+            />
+            <ClearCompletedButton
+              available={tasks.some(canClearTask)}
+              pending={clearMutation.isPending}
+              disabled={!canMutate}
+              onPress={clearCompleted}
+            />
+          </View>
+        </TaskCardHeader>
+
         {expanded && tasks.length > 0 ? (
           <ChecklistRows
             tasks={tasks}

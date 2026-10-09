@@ -22,6 +22,10 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     contentInsets,
     // Equal outer insets keep header-only and collapsed cards vertically centered.
     scrollContent: contentInsets,
+    bodyContent: { gap: theme.spacing[1] },
+    fixedHeader: { flexShrink: 0 },
+    scrollBody: { minHeight: 0, flexShrink: 1, flexGrow: 0 },
+    hiddenBody: { display: "none" },
     item: {
       minHeight: TASK_CARD_ROW_HEIGHT,
       paddingVertical: theme.spacing[1],

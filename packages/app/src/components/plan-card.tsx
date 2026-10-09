@@ -1,5 +1,5 @@
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
@@ -247,23 +247,27 @@ function PlanCardContent({
   return (
     <TaskCard
       testID={testID}
+      bodyVisible={expanded || !!footer}
       style={!disableOuterSpacing && styles.outerSpacing}
       contentContainerStyle={containerStyle}
     >
-      <Pressable
-        {...webExpandedState}
-        accessibilityRole="button"
-        accessibilityLabel={resolvedTitle}
-        accessibilityState={accessibilityState}
-        onPress={toggleExpanded}
-        style={styles.header}
-      >
-        <TaskCardIcon kind="plan" />
-        <View style={chevronStyle}>
-          <ThemedChevron size={16} uniProps={chevronColor} />
-        </View>
-        <Text style={styles.title}>{resolvedTitle}</Text>
-      </Pressable>
+      <TaskCardHeader>
+        <Pressable
+          {...webExpandedState}
+          accessibilityRole="button"
+          accessibilityLabel={resolvedTitle}
+          accessibilityState={accessibilityState}
+          onPress={toggleExpanded}
+          style={styles.header}
+        >
+          <TaskCardIcon kind="plan" />
+          <View style={chevronStyle}>
+            <ThemedChevron size={16} uniProps={chevronColor} />
+          </View>
+          <Text style={styles.title}>{resolvedTitle}</Text>
+        </Pressable>
+      </TaskCardHeader>
+
       {expanded ? (
         <View style={styles.body}>
           {description ? <Text style={styles.description}>{description}</Text> : null}

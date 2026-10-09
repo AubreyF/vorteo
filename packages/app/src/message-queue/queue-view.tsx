@@ -1,7 +1,7 @@
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { CountBadge } from "@/components/ui/count-badge";
 import { QueueMessageIndicator } from "./queue-indicator";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
@@ -103,8 +103,11 @@ function QueueViewContent({
     return !!record.error && !!snapshot?.items.some((item) => item.id === operation.messageId);
   });
   return (
-    <TaskCard testID="shared-message-queue">
-      <QueueHeader control={control} expanded={expanded} toggleExpanded={toggleExpanded} />
+    <TaskCard testID="shared-message-queue" bodyVisible={expanded}>
+      <TaskCardHeader>
+        <QueueHeader control={control} expanded={expanded} toggleExpanded={toggleExpanded} />
+      </TaskCardHeader>
+
       <CollapsibleCardBody expanded={expanded} testID="message-queue-body">
         {!(goalErrorHandled && isQueueGoalError(snapshot?.deliveryError)) ? (
           <QueueDeliveryError control={control} />

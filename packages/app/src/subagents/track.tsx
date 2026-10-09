@@ -1,6 +1,6 @@
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { SettingsInfoTip } from "@/components/settings/headings/settings-info-tip";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CountBadge } from "@/components/ui/count-badge";
@@ -90,6 +90,11 @@ export function SubagentsTrack({
     <SubagentsGroup
       key={kind}
       kind={kind}
+      cardTestID={
+        kind === "paseo" || !rows.some((row) => row.kind === "paseo")
+          ? "subagents-card"
+          : "provider-subagents-card"
+      }
       inline={inline}
       serverId={serverId}
       rows={rows.filter((row) => row.kind === kind)}
@@ -102,11 +107,7 @@ export function SubagentsTrack({
     />
   ));
   if (inline) {
-    return (
-      <TaskCard contentContainerStyle={styles.card} testID="subagents-card">
-        {groups}
-      </TaskCard>
-    );
+    return <View style={styles.groups}>{groups}</View>;
   }
   return (
     <ComposerTrackPill
@@ -122,10 +123,12 @@ export function SubagentsTrack({
 
 interface SubagentsGroupProps extends SubagentsTrackProps {
   kind: SubagentRow["kind"];
+  cardTestID: string;
 }
 
 function SubagentsGroup({
   kind,
+  cardTestID,
   inline,
   serverId,
   rows,
@@ -157,44 +160,58 @@ function SubagentsGroup({
   if (rows.length === 0 && status.kind === "idle") return null;
   const canClear = kind === "provider" || Boolean(onArchiveFinished);
   const showClear = canClear && (countFinishedSubagents(rows) > 0 || status.kind !== "idle");
+  const header = (
+    <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+      <TaskCardIcon kind="subagents" />
+      <CardDisclosure
+        title={title}
+        expanded={expanded}
+        onPress={toggleExpanded}
+        testID={`subagents-group-${kind}-toggle`}
+        count={countBadge}
+      />
+      <SettingsInfoTip
+        title={title}
+        info={kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo")}
+        testID={`subagents-group-${kind}-info`}
+      />
+      {showClear ? (
+        <ArchiveFinishedRow
+          inline
+          status={status}
+          disabled={status.kind === "archiving"}
+          onPress={clearFinished}
+        />
+      ) : null}
+    </View>
+  );
+  const body = expanded ? (
+    <View style={styles.cardRows}>
+      {rows.map((row) => (
+        <SubagentsTrackRow
+          key={row.id}
+          inline={inline}
+          row={row}
+          serverId={serverId}
+          {...rowActions}
+        />
+      ))}
+    </View>
+  ) : null;
   return (
     <View testID={`subagents-group-${kind}`}>
-      <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-        <TaskCardIcon kind="subagents" />
-        <CardDisclosure
-          title={title}
-          expanded={expanded}
-          onPress={toggleExpanded}
-          testID={`subagents-group-${kind}-toggle`}
-          count={countBadge}
-        />
-        <SettingsInfoTip
-          title={title}
-          info={kind === "paseo" ? t("subagents.workersInfo") : t("subagents.providerInfo")}
-          testID={`subagents-group-${kind}-info`}
-        />
-        {showClear ? (
-          <ArchiveFinishedRow
-            inline
-            status={status}
-            disabled={status.kind === "archiving"}
-            onPress={clearFinished}
-          />
-        ) : null}
-      </View>
-      {expanded ? (
-        <View style={styles.cardRows}>
-          {rows.map((row) => (
-            <SubagentsTrackRow
-              key={row.id}
-              inline={inline}
-              row={row}
-              serverId={serverId}
-              {...rowActions}
-            />
-          ))}
-        </View>
-      ) : null}
+      {inline ? (
+        <TaskCard bodyVisible={expanded} contentContainerStyle={styles.card} testID={cardTestID}>
+          <TaskCardHeader>{header}</TaskCardHeader>
+
+          {body}
+        </TaskCard>
+      ) : (
+        <>
+          {header}
+          {body}
+        </>
+      )}
     </View>
   );
 }
@@ -510,6 +527,7 @@ function SubagentActionButton({
 
 const styles = StyleSheet.create((theme) => ({
   rowMetadata: { maxWidth: "50%", textAlign: "right" },
+  groups: { gap: theme.spacing[3] },
   card: { paddingLeft: theme.spacing[2] },
   cardRows: {
     marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },

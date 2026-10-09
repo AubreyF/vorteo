@@ -314,3 +314,7 @@ Tasks, Messages, Goals and sub-agent cards use `CardDisclosure`. The title comes
 ### Reorder persistence
 
 A dropped row stays at its destination while the order saves. Asynchronous `DraggableList` handlers return the save promise so the shared web/native handoff can preserve the order until authoritative data changes. Keep row content current during that interval, retire the preview on rejection, and show the existing error/recovery controls. Synchronous store owners update their data in the drop event. Tasks and Messages do not show routine reorder progress text or spinners.
+
+### Bounded card bodies
+
+Conversation cards stop growing at half the viewport height, including their heading and padding. Put the heading and its controls in `TaskCardHeader`, a direct child of `TaskCard`; only the remaining content scrolls. Preserve the heading when scrolling to the last row. Use `bodyVisible` when collapsed so hidden bodies keep their state without leaving a gap. Managed and provider sub-agent groups each own a card and fixed heading.

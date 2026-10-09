@@ -1,6 +1,6 @@
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { Text, View } from "react-native";
@@ -44,55 +44,59 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
     <TaskCard
       contentContainerStyle={expanded ? styles.container : undefined}
       testID="agent-goal-bar"
+      bodyVisible={expanded}
     >
-      <View
-        style={[
-          taskCardStyles.header,
-          touch && taskCardStyles.touchHeader,
-          !touch && styles.actionInset,
-        ]}
-      >
-        <TaskCardIcon kind="goal" />
-        <CardDisclosure
-          title={label}
-          expanded={expanded}
-          onPress={toggleExpanded}
-          testID="agent-goal-toggle"
-        />
-        {goal ? <Text style={styles.elapsed}>{formatGoalElapsed(elapsed)}</Text> : null}
-        <View style={[taskCardStyles.actions, styles.actions]}>
-          <Button
-            variant="ghost"
-            size="sm"
-            style={iconStyle}
-            accessibilityLabel="Clear goal"
-            testID="agent-goal-clear"
-            leftIcon={trashIcon}
-            disabled={!control.canMutate || !goal}
-            onPress={clear}
+      <TaskCardHeader>
+        <View
+          style={[
+            taskCardStyles.header,
+            touch && taskCardStyles.touchHeader,
+            !touch && styles.actionInset,
+          ]}
+        >
+          <TaskCardIcon kind="goal" />
+          <CardDisclosure
+            title={label}
+            expanded={expanded}
+            onPress={toggleExpanded}
+            testID="agent-goal-toggle"
           />
-          <Button
-            variant="ghost"
-            size="sm"
-            style={iconStyle}
-            accessibilityLabel="Edit goal"
-            testID="agent-goal-expand"
-            leftIcon={editIcon}
-            onPress={onExpand}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            style={iconStyle}
-            accessibilityLabel={action}
-            testID="agent-goal-pause-resume"
-            leftIcon={paused ? playIcon : pauseIcon}
-            disabled={!control.canMutate || !goal}
-            loading={control.pending}
-            onPress={toggle}
-          />
+          {goal ? <Text style={styles.elapsed}>{formatGoalElapsed(elapsed)}</Text> : null}
+          <View style={[taskCardStyles.actions, styles.actions]}>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={iconStyle}
+              accessibilityLabel="Clear goal"
+              testID="agent-goal-clear"
+              leftIcon={trashIcon}
+              disabled={!control.canMutate || !goal}
+              onPress={clear}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              style={iconStyle}
+              accessibilityLabel="Edit goal"
+              testID="agent-goal-expand"
+              leftIcon={editIcon}
+              onPress={onExpand}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              style={iconStyle}
+              accessibilityLabel={action}
+              testID="agent-goal-pause-resume"
+              leftIcon={paused ? playIcon : pauseIcon}
+              disabled={!control.canMutate || !goal}
+              loading={control.pending}
+              onPress={toggle}
+            />
+          </View>
         </View>
-      </View>
+      </TaskCardHeader>
+
       <CollapsibleCardBody expanded={expanded} testID="agent-goal-body">
         <Text style={styles.objective} selectable>
           {goal?.objective}

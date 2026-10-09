@@ -1,6 +1,6 @@
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard } from "./task-card";
+import { TaskCard, TaskCardHeader } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
 import { taskCardStyles } from "./task-card-styles";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
@@ -1680,10 +1680,12 @@ function PermissionRequestCard({
       ]}
       testID="permission-request-card"
     >
-      <View style={taskCardStyles.headingRow}>
-        <TaskCardIcon kind="permission" />
-        <Text style={[permissionStyles.title, { flexShrink: 1 }]}>{title}</Text>
-      </View>
+      <TaskCardHeader>
+        <View style={taskCardStyles.headingRow}>
+          <TaskCardIcon kind="permission" />
+          <Text style={[permissionStyles.title, { flexShrink: 1 }]}>{title}</Text>
+        </View>
+      </TaskCardHeader>
 
       {description ? <Text style={permissionStyles.description}>{description}</Text> : null}
 
