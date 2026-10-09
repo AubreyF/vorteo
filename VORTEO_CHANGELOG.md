@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.215 - 2026-10-08
+
+### Fixed
+
+- Keep shared account synchronization pending when an included environment lacks an enabled Codex or Claude account binding. Continue applying unrelated settings and preserve explicit exclusions through recovery.
+- Clarify the pending account message and record the installation-wide connection contract for future implementation. This guard does not yet synchronize authentication or credential refresh.
+
 ## 0.11.0-beta.3.vorteo.214 - 2026-10-08
 
 ### Added

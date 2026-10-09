@@ -57,6 +57,10 @@ Never call daemon drain/restart RPCs directly or use launchctl, supervisorctl, D
 - In a handoff, include the objective, verified findings, relevant paths, changes already made, validation evidence, remaining work, acceptance checks and unresolved decisions. Tell the receiving agent to gather its own diagnostics and carry the task through completion.
 - Preserve existing authorization and restart boundaries. A handoff does not grant permission to interrupt running work. Prepare a concrete deployment and rollback plan before requesting any required restart approval. Keep machine-specific handoffs and deployment details outside Git; follow [host handoff guidance](docs/host-handoff.md).
 
+## Installation account connections
+
+Provider accounts connect to the installation and synchronize to Host and Dev by default. Do not add per-environment sign-in flows or another environment selector. Only an explicit post-connection environment exclusion may disable an account in one environment. Report synchronization pending until every non-excluded environment verifies the same account. Follow [installation account connections](docs/plans/execution-environments/provider-auth.md) for authentication, refresh and migration requirements; this is the required contract, not a claim that the current installation already implements it.
+
 ## Check your work
 
 - Run `npm run typecheck` and `npm run lint` after changes. Use npm scripts for linting and formatting; run `npm run format` before committing. For selected files, use `npm run format:files -- <paths>`.
