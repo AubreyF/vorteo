@@ -204,6 +204,8 @@ Claude authentication status review: Connection controls use the existing accoun
 
 ## Optional native macOS helper
 
+Legacy coordinator compatibility: an unavailable helper query is retried once per minute instead of every settings refresh. Owner lock checks still apply during the delay, and upgraded coordinators are discovered without reloading.
+
 Tracked helper maintenance uses the coordinator lifecycle journal, Host-scoped preparation and status commands, exact manual owner approval, artifact and signing checks, and interrupted-installation recovery without replay. The review exposes signing identities and rollback availability; locked controls retain public status counts. Coordinator plans bind helper configuration changes and retain the paired Docker identity. Isolated lifecycle, HTTP, client and desktop/phone checks pass. Production activation still requires a coordinator rollback release compatible with helper configuration and journal records, an approved signing route, tracked installation and live Safari acceptance.
 
 The source package provides a signed native identity and a scoped Safari adapter with private local IPC, explicit browser policy, stale-element checks and staged-bundle verification. It is not installed or enabled by source integration. Production signing, tracked installation support, owner Automation consent, Safari JavaScript enablement and changed-build permission persistence remain acceptance gates. See [permission helper](macos-permission-helper.md) and [signing setup](macos-signing.md). The README overview remains unchanged until live acceptance.

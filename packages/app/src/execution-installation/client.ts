@@ -43,6 +43,7 @@ export function hasInstallationConnections(
 }
 
 export interface InstallationClientPorts {
+  now?(): number;
   request(path: string, password: string, body: unknown): Promise<unknown>;
   register: Pick<HostRuntimeStore, "installExecutionEnvironments">;
 }
@@ -52,6 +53,7 @@ export class InstallationRouteUnavailable extends Error {}
 
 export class InstallationClient {
   private password: string | null = null;
+  private helperRetryAt = 0;
   sessionsSupported = false;
   passwordFile: string | null = null;
 
@@ -122,6 +124,9 @@ export class InstallationClient {
   }
 
   async listHelpers(): Promise<NativeHelperJob[]> {
+    if (this.password === null) throw new Error("Unlock installation controls first");
+    const now = this.ports.now ?? Date.now;
+    if (now() < this.helperRetryAt) return [];
     try {
       const result = z
         .strictObject({ jobs: z.array(NativeHelperJobSchema) })
@@ -129,7 +134,11 @@ export class InstallationClient {
       return result.jobs;
     } catch (error) {
       // COMPAT(nativeHelperMaintenance): old coordinators have no helper route.
-      if (error instanceof InstallationRouteUnavailable) return [];
+      if (error instanceof InstallationRouteUnavailable) {
+        // Keep discovering coordinator upgrades without probing an absent route every five seconds.
+        this.helperRetryAt = now() + 60_000;
+        return [];
+      }
       throw error;
     }
   }
