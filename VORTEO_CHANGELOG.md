@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.216 - 2026-10-08
+
+### Fixed
+
+- Let paired Linux managed workers load their existing private installation client when an older supervisor omitted its environment variable. Validate file ownership, permissions, credential scope and transport before starting.
+- Preserve explicit launcher configuration and exact coordinator admission checks. The repair uses a reviewed worker update without replacing the supervisor or changing Host and standalone launch behavior.
+
 ## 0.11.0-beta.3.vorteo.215 - 2026-10-08
 
 ### Fixed
