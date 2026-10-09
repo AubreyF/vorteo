@@ -780,7 +780,15 @@ test("task flowers stay bounded through 300 tasks and follow sidebar labels", as
       const menu = page.getByTestId("sidebar-menu-backdrop");
       await expect(menu).toBeVisible();
       const menuBox = (await menu.boundingBox())!;
-      expect(menuBox.x + menuBox.width).toBeLessThanOrEqual((await sidebar.boundingBox())!.x);
+      const flowerBox = (await sidebar.boundingBox())!;
+      expect(menuBox.x + menuBox.width).toBeCloseTo(flowerBox.x + flowerBox.width, 0);
+      const menuOwnsEdge = await menu.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return node.contains(
+          document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+        );
+      });
+      expect(menuOwnsEdge).toBe(true);
       await page.mouse.move(600, 20);
       await info.attach(`flowers-${index + 1}`, {
         body: await page.screenshot({ path: info.outputPath(`flowers-${index + 1}.png`) }),
