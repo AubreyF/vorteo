@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -5,10 +7,14 @@ import { describe, expect, test } from "vitest";
 
 import {
   loadPersistedConfig,
+  editPersistedConfig,
+  mutatePersistedConfig,
+  withPersistedConfigWriter,
   PersistedConfigSchema,
   readPersistedConfig,
   savePersistedConfig,
 } from "./persisted-config.js";
+import { ConfigWriterError } from "./config-writer.js";
 import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "./private-files.js";
 
 const MODE_MASK = 0o777;
@@ -16,6 +22,15 @@ const PERMISSIVE_FILE_MODE = 0o644;
 
 function createTempHome(): string {
   return mkdtempSync(path.join(tmpdir(), "paseo-config-"));
+}
+
+function captureConfigFailure(operation: () => unknown): unknown {
+  try {
+    operation();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected configuration operation to reject");
 }
 
 function modeOf(filePath: string): number {
@@ -840,6 +855,237 @@ describe.skipIf(process.platform === "win32")("persisted config file permissions
       expect(modeOf(path.join(home, "config.json"))).toBe(PRIVATE_FILE_MODE);
     } finally {
       rmSync(parent, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("persisted settings writer ownership", () => {
+  test("refuses initialization, ordinary saves and field edits while another writer owns the file", () => {
+    const home = createTempHome();
+    try {
+      function initialize() {
+        loadPersistedConfig(home);
+      }
+      function save() {
+        savePersistedConfig(home, {});
+      }
+      function edit() {
+        editPersistedConfig(home, "daemon.listen", { value: "127.0.0.1:9999" });
+      }
+      withPersistedConfigWriter(home, (writer) => {
+        expect(initialize).toThrow("busy");
+        expect(save).toThrow("busy");
+        expect(edit).toThrow("busy");
+        writer.save({ daemon: { listen: "127.0.0.1:6767" } });
+      });
+      expect(readPersistedConfig(home).daemon?.listen).toBe("127.0.0.1:6767");
+      expect(() => loadPersistedConfig(home)).not.toThrow();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a competing exported writer in a separate process", () => {
+    const home = createTempHome();
+    const modulePath = fileURLToPath(new URL("./persisted-config.ts", import.meta.url));
+    try {
+      withPersistedConfigWriter(home, (writer) => {
+        writer.save({ daemon: { listen: "127.0.0.1:6767" } });
+        const child = spawnSync(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "--input-type=module",
+            "-e",
+            `import {savePersistedConfig} from ${JSON.stringify(modulePath)}; try { savePersistedConfig(process.argv[1], {}); process.exitCode=1; } catch(error) { if(error.code !== "busy") throw error; }`,
+            home,
+          ],
+          { encoding: "utf8", timeout: 10000 },
+        );
+        expect({ status: child.status, stderr: child.stderr, error: child.error }).toEqual({
+          status: 0,
+          stderr: "",
+          error: undefined,
+        });
+      });
+      expect(readPersistedConfig(home).daemon?.listen).toBe("127.0.0.1:6767");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects stale exported read snapshots and rebases selected prompt fields on fresh settings", () => {
+    const home = createTempHome();
+    try {
+      savePersistedConfig(home, { daemon: { listen: "127.0.0.1:6767" } });
+      const stale = readPersistedConfig(home);
+      editPersistedConfig(home, "daemon.listen", { value: "127.0.0.1:9999" });
+      expect(() => savePersistedConfig(home, stale)).toThrow("stale_input");
+      mutatePersistedConfig(home, (fresh) => ({
+        ...fresh,
+        daemon: { ...fresh.daemon, relay: { enabled: false } },
+      }));
+      expect(readPersistedConfig(home).daemon).toEqual({
+        listen: "127.0.0.1:9999",
+        relay: { enabled: false },
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses rollback over an unfenced file change and retains that file", () => {
+    const home = createTempHome();
+    try {
+      savePersistedConfig(home, { daemon: { listen: "127.0.0.1:6767" } });
+      function interfere(writer: Parameters<Parameters<typeof withPersistedConfigWriter>[1]>[0]) {
+        const previous = writer.read();
+        writer.save({ daemon: { listen: "127.0.0.1:9999" } });
+        writeFileSync(
+          path.join(home, "config.json"),
+          JSON.stringify({ daemon: { listen: "127.0.0.1:8888" } }),
+        );
+        writer.save(previous);
+      }
+      expect(() => withPersistedConfigWriter(home, interfere)).toThrow("stale_input");
+      expect(readPersistedConfig(home).daemon?.listen).toBe("127.0.0.1:8888");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("revokes a retained writer and preserves a replacement lock on ownership loss", () => {
+    const home = createTempHome();
+    let retained: Parameters<Parameters<typeof withPersistedConfigWriter>[1]>[0] | undefined;
+    try {
+      withPersistedConfigWriter(home, (writer) => {
+        retained = writer;
+      });
+      expect(() => retained?.save({})).toThrow("ownership_lost");
+      function replaceLock() {
+        writeFileSync(path.join(home, ".config-writer.lock"), "replacement");
+      }
+      expect(() => withPersistedConfigWriter(home, replaceLock)).toThrow("ownership_lost");
+      expect(() => savePersistedConfig(home, {})).toThrow("busy");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("types arbitrary callback rejection after persistence and preserves its exact cause", () => {
+    const home = createTempHome();
+    const original = new Error("Callback failed after save");
+    function persistThenFail(
+      writer: Parameters<Parameters<typeof withPersistedConfigWriter>[1]>[0],
+    ) {
+      writer.save({ daemon: { listen: "127.0.0.1:9999" } });
+      throw original;
+    }
+    try {
+      const failure = captureConfigFailure(() => withPersistedConfigWriter(home, persistThenFail));
+      expect(failure).toBeInstanceOf(ConfigWriterError);
+      expect(failure).toMatchObject({ code: "uncertain", writeAttempted: true, cause: original });
+      expect(readPersistedConfig(home).daemon?.listen).toBe("127.0.0.1:9999");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves a callback rejection before any write", () => {
+    const home = createTempHome();
+    const original = new Error("Callback rejected before save");
+    function failBeforeWrite() {
+      throw original;
+    }
+    try {
+      expect(captureConfigFailure(() => withPersistedConfigWriter(home, failBeforeWrite))).toBe(
+        original,
+      );
+      expect(readPersistedConfig(home)).toEqual({});
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "types final reread failure after persistence and retains its filesystem cause",
+    () => {
+      const home = createTempHome();
+      function persistThenBlockRead(
+        writer: Parameters<Parameters<typeof withPersistedConfigWriter>[1]>[0],
+      ) {
+        writer.save({ daemon: { listen: "127.0.0.1:9999" } });
+        chmodSync(path.join(home, "config.json"), 0o000);
+      }
+      try {
+        const failure = captureConfigFailure(() =>
+          withPersistedConfigWriter(home, persistThenBlockRead),
+        );
+        expect(failure).toBeInstanceOf(ConfigWriterError);
+        expect(failure).toMatchObject({
+          code: "uncertain",
+          writeAttempted: true,
+          cause: { code: "EACCES" },
+        });
+        chmodSync(path.join(home, "config.json"), 0o600);
+        expect(readPersistedConfig(home).daemon?.listen).toBe("127.0.0.1:9999");
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports lock-release permission failure after persistence as potentially committed",
+    () => {
+      const home = createTempHome();
+      let failure: unknown;
+      function persist(writer: Parameters<Parameters<typeof withPersistedConfigWriter>[1]>[0]) {
+        writer.save({ daemon: { listen: "127.0.0.1:9999" } });
+        chmodSync(home, 0o500);
+      }
+      try {
+        try {
+          withPersistedConfigWriter(home, persist);
+        } catch (error) {
+          failure = error;
+        } finally {
+          chmodSync(home, 0o700);
+        }
+        expect(failure).toBeInstanceOf(ConfigWriterError);
+        expect(failure).toMatchObject({ code: "ownership_lost", writeAttempted: true });
+        expect(readPersistedConfig(home).daemon?.listen).toBe("127.0.0.1:9999");
+        expect(() => savePersistedConfig(home, {})).toThrow("busy");
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("reports a logger failure after persistence as potentially committed", () => {
+    const home = createTempHome();
+    try {
+      expect(() =>
+        savePersistedConfig(
+          home,
+          { daemon: { listen: "127.0.0.1:9999" } },
+          {
+            child() {
+              return this;
+            },
+            info() {
+              throw new Error("listener failed");
+            },
+          },
+        ),
+      ).toThrow("uncertain");
+      expect(readPersistedConfig(home).daemon?.listen).toBe("127.0.0.1:9999");
+      expect(() =>
+        editPersistedConfig(home, "daemon.listen", { value: "127.0.0.1:8888" }),
+      ).not.toThrow();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
     }
   });
 });

@@ -137,7 +137,7 @@ test("session-capable clients discard the password and restore verified connecti
     await client.unlock("recovery-password");
     await client.listRestarts();
     expect(calls.at(-1)).toEqual([
-      "restarts/query?sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1",
+      "restarts/query?sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1",
       "",
     ]);
     expect(await client.restoreSession()).toBe(true);
@@ -172,14 +172,16 @@ test("capable installation clients request extended restart details without chan
   await client.listRestarts();
   expect(calls).toEqual([
     "unlock",
-    "restarts/query?idleRestarts=1&sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1",
+    "restarts/query?idleRestarts=1&sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1",
   ]);
 });
 
 test("helper client preserves exact approval binding and reads old coordinators without requests", async () => {
   const calls: Array<{ path: string; body: unknown }> = [];
   let available = false;
+  let now = 1_000;
   const client = new InstallationClient(installation, {
+    now: () => now,
     request: async (path, _password, body) => {
       calls.push({ path, body });
       if (path === "unlock")
@@ -200,7 +202,16 @@ test("helper client preserves exact approval binding and reads old coordinators 
   await expect(client.listHelpers()).rejects.toThrow("Unlock");
   await client.unlock("fixture-owner");
   expect(await client.listHelpers()).toEqual([]);
+  const callsAfterUnavailable = calls.length;
+  now += 5_000;
+  expect(await client.listHelpers()).toEqual([]);
+  expect(calls).toHaveLength(callsAfterUnavailable);
+  await client.lock();
+  await expect(client.listHelpers()).rejects.toThrow("Unlock");
+  await client.unlock("fixture-owner");
   available = true;
+  now += 55_000;
+  expect(await client.listHelpers()).toEqual([helperReviewFixture]);
   expect(await client.listHelpers()).toEqual([helperReviewFixture]);
   await client.decideHelper(helperReviewFixture, "approve");
   expect(calls.at(-1)).toEqual({

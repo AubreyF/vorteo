@@ -35,6 +35,46 @@ function outboundMessage(type: SessionOutboundMessage["type"]): SessionOutboundM
 }
 
 describe("SessionAuthorization", () => {
+  test("origin inspection is read-only while admission requires daemon management", () => {
+    const inspect: SessionInboundMessage = {
+      type: "daemon.config.get_origin_admission.request",
+      requestId: "inspect",
+      expectedServerId: "srv_expected",
+    };
+    const admit: SessionInboundMessage = {
+      type: "daemon.config.admit_origin.request",
+      requestId: "admit",
+      expectedServerId: "srv_expected",
+      origin: "https://preview.example",
+      expectedPersistedOrigins: [],
+      expectedActiveOrigins: [],
+    };
+    const applied: SessionOutboundMessage = {
+      type: "daemon.config.admit_origin.response",
+      payload: {
+        requestId: "admit",
+        serverId: "srv_expected",
+        observedAt: "2026-10-09T00:00:00Z",
+        state: "applied",
+        origin: "https://preview.example",
+        addedToPersisted: true,
+        addedToActive: true,
+        persistedOrigins: ["https://preview.example"],
+        activeOrigins: ["https://preview.example"],
+      },
+    };
+    const reader = new SessionAuthorization(["daemon.read"]);
+    const manager = new SessionAuthorization(["daemon.manage"]);
+    const workspaceWriter = new SessionAuthorization(["workspace.write"]);
+    expect(reader.allowsInbound(inspect)).toBe(true);
+    expect(reader.allowsInbound(admit)).toBe(false);
+    expect(reader.allowsOutbound(applied)).toBe(false);
+    expect(manager.allowsInbound(admit)).toBe(true);
+    expect(manager.allowsOutbound(applied)).toBe(true);
+    expect(workspaceWriter.allowsInbound(inspect)).toBe(false);
+    expect(workspaceWriter.allowsInbound(admit)).toBe(false);
+  });
+
   test("quota observation requires provider read authority in both directions", () => {
     for (const permission of ["workspace.write", "automation.manage", "hub.execute"] as const) {
       const authorization = new SessionAuthorization([permission]);

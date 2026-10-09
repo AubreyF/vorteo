@@ -5,6 +5,136 @@ import { planProviderPreferencesMigration } from "../provider-preferences/migrat
 import { sharedWorkflowProfileId, sharedProfileId } from "@getpaseo/protocol/provider-preferences";
 import { ProviderDefaultsSchema } from "@getpaseo/protocol/provider-preferences";
 import { AgentProfileSchema } from "@getpaseo/protocol/messages";
+import { captureFactoryWorkerProfile } from "../../factory/capture-worker-profile.js";
+
+it("refuses Factory profile capture and session config when settings revoke the owner", () => {
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: true },
+    agentProfiles: [{ id: "worker", name: "Worker", provider: "selected", model: "sol" }],
+  });
+  let owned = true;
+  let revoke = true;
+  let reads = 0;
+  const input = {
+    provider: "selected",
+    profileId: "worker",
+    environment: "container" as const,
+    assertOwner() {
+      if (!owned) throw new Error("Owner lost");
+    },
+    readSettings() {
+      reads++;
+      if (revoke) owned = false;
+      return settings;
+    },
+  };
+  expect(() => captureFactoryWorkerProfile(input)).toThrow("Owner lost");
+  expect(reads).toBe(1);
+  owned = true;
+  revoke = false;
+  const worker = captureFactoryWorkerProfile(input);
+  const before = reads;
+  expect(worker.sessionConfig("/work").model).toBe("sol");
+  expect(reads - before).toBe(1);
+  revoke = true;
+  expect(() => worker.sessionConfig("/work")).toThrow("Owner lost");
+  expect(() => worker.assertCurrent()).toThrow("Owner lost");
+});
+
+it("captures a shared Factory worker profile through native account resolution", () => {
+  const profiles = [
+    {
+      id: "sol-worker",
+      name: "6.1 Sol",
+      provider: "selected",
+      model: "gpt-6.1-sol",
+      thinkingOptionId: "medium",
+      modeId: "full-access",
+    },
+  ];
+  const providers = { selected: { extends: "codex" }, other: { extends: "codex" } };
+  const { preferences } = planProviderPreferencesMigration({ profiles, providers });
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: true },
+    providers,
+    sharedProviderPreferences: preferences,
+  });
+  const input = {
+    provider: "selected",
+    profileId: sharedWorkflowProfileId("selected", "sol-worker"),
+    environment: "container" as const,
+    readSettings: () => settings,
+    assertOwner: () => {},
+  };
+  const worker = captureFactoryWorkerProfile(input);
+  expect(worker.sessionConfig("/work")).toMatchObject({
+    provider: "selected",
+    model: "gpt-6.1-sol",
+    thinkingOptionId: "medium",
+    modeId: "full-access",
+    profileLaunch: { providerType: "codex", workflowId: "sol-worker", configurationRevision: 1 },
+  });
+  input.readSettings = () => settings;
+  expect(() => worker.assertCurrent()).toThrow("profile or account changed");
+});
+
+it("captures the native Factory worker profile and refuses later profile or account drift", () => {
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: true },
+    agentProfiles: [
+      {
+        id: "factory-worker",
+        name: "6.1 Sol",
+        provider: "selected",
+        model: "gpt-6.1-sol",
+        thinkingOptionId: "medium",
+        modeId: "full-access",
+      },
+    ],
+    providers: { selected: { extends: "codex" } },
+  });
+  const worker = captureFactoryWorkerProfile({
+    provider: "selected",
+    profileId: "factory-worker",
+    environment: "container",
+    readSettings: () => settings,
+    assertOwner: () => {},
+  });
+  const config = worker.sessionConfig("/work");
+  expect(config).toMatchObject({
+    provider: "selected",
+    model: "gpt-6.1-sol",
+    thinkingOptionId: "medium",
+    modeId: "full-access",
+    cwd: "/work",
+    profileLaunch: { profile: { id: "factory-worker" } },
+  });
+  config.model = "caller-mutated";
+  expect(worker.sessionConfig("/other").model).toBe("gpt-6.1-sol");
+  settings.agentProfiles![0]!.model = "gpt-6-astra";
+  expect(() => worker.assertCurrent()).toThrow("profile or account changed");
+  settings.agentProfiles![0]!.model = "gpt-6.1-sol";
+  settings.providers!.selected = { extends: "codex", enabled: false };
+  expect(() => worker.sessionConfig("/work")).toThrow("profile or account changed");
+});
+
+it("refuses a Factory worker profile bound to another account or excluded environment", () => {
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: true },
+    agentProfiles: [{ id: "worker", name: "Worker", provider: "other", model: "sol" }],
+  });
+  const input = {
+    provider: "selected",
+    profileId: "worker",
+    environment: "container" as const,
+    readSettings: () => settings,
+    assertOwner: () => {},
+  };
+  expect(() => captureFactoryWorkerProfile(input)).toThrow("retained account");
+  settings.agentProfiles![0]!.provider = "selected";
+  settings.agentProfiles![0]!.excludedEnvironments = ["container"];
+  expect(() => captureFactoryWorkerProfile(input)).toThrow("excluded");
+});
 
 it("shares workflow permissions across accounts while freezing explicit reasoning and team selection", () => {
   const profiles = [

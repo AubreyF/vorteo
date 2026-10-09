@@ -138,6 +138,16 @@ export const QuotaGovernorPolicySchema = z.object({
       maxConsumedPoints: z.number().finite().positive().max(100),
     })
     .optional(),
+  // An owner-managed, account-bound exception for prepaid execution. Weekly
+  // occupancy and its estimate do not measure prepaid spending. Other limits stay enforced.
+  prepaidAuthorization: z
+    .object({
+      bucketId: z.string().min(1),
+      windowId: z.string().min(1),
+      startsAt: InstantSchema,
+      expiresAt: InstantSchema,
+    })
+    .optional(),
   recovery: z.literal("automatic_after_reconciliation"),
 });
 export type QuotaGovernorPolicy = z.infer<typeof QuotaGovernorPolicySchema>;
@@ -159,6 +169,20 @@ export function parseQuotaGovernorPolicy(input: unknown): QuotaGovernorPolicy {
     )
   ) {
     throw new Error("Estimated hourly policy requires its weekly allowance window.");
+  }
+  const prepaid = policy.prepaidAuthorization;
+  if (prepaid) {
+    const duration = Date.parse(prepaid.expiresAt) - Date.parse(prepaid.startsAt);
+    if (!Number.isFinite(duration) || duration <= 0 || duration > 86_400_000)
+      throw new Error("Prepaid authorization must have a positive duration of at most 24 hours.");
+    const weeklyWindow = policy.requiredWindows.some(
+      (window) =>
+        window.bucketId === prepaid.bucketId &&
+        window.windowId === prepaid.windowId &&
+        window.durationMinutes === 10080,
+    );
+    if (!weeklyWindow)
+      throw new Error("Prepaid authorization requires its exact weekly allowance window.");
   }
   const periods = new Set<string>();
   for (const limit of policy.consumptionLimits) {

@@ -5,7 +5,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { promises as fs } from "node:fs";
 
 import { createTestLogger } from "../../test-utils/test-logger.js";
-import { AgentStorage } from "./agent-storage.js";
+import { AgentStorage, parseStoredAgentRecord } from "./agent-storage.js";
 import { buildConfigOverrides, buildSessionConfig } from "../persistence-hooks.js";
 import type { ManagedAgent } from "./agent-manager.js";
 import type {
@@ -312,6 +312,52 @@ describe("AgentStorage", () => {
     const updatedRecord = await storage.get(agentId);
     expect(updatedRecord?.createdAt).toBe(firstTimestamp.toISOString());
     expect(updatedRecord?.lastStatus).toBe("running");
+  });
+
+  test("retained archive recovery preserves every other persisted field", async () => {
+    await storage.applySnapshot(createManagedAgent({ id: "retained", lifecycle: "closed" }));
+    const record = (await storage.get("retained"))!;
+    await storage.upsert({ ...record, archivedAt: "2026-10-07T00:00:00Z" });
+    const expected = structuredClone((await storage.get("retained"))!);
+    const restored = await storage.clearRetainedArchive(expected, () => {});
+    expect(restored).toEqual({ ...expected, archivedAt: null, updatedAt: expect.any(String) });
+    expect(expected.archivedAt).toBe("2026-10-07T00:00:00Z");
+    const reloaded = new AgentStorage(storagePath, logger);
+    expect(await reloaded.get("retained")).toEqual(
+      parseStoredAgentRecord(JSON.parse(JSON.stringify(restored))),
+    );
+  });
+
+  test("retained archive recovery rejects a queued full-record change", async () => {
+    await storage.applySnapshot(createManagedAgent({ id: "retained", lifecycle: "closed" }));
+    const record = (await storage.get("retained"))!;
+    await storage.upsert({ ...record, archivedAt: "2026-10-07T00:00:00Z" });
+    const expected = structuredClone((await storage.get("retained"))!);
+    const updated = { ...expected, title: "Changed by another writer" };
+    const write = storage.upsert(updated);
+    const rejected = expect(storage.clearRetainedArchive(expected, () => {})).rejects.toThrow(
+      "changed",
+    );
+    await write;
+    await rejected;
+    expect(await storage.get("retained")).toEqual(updated);
+  });
+
+  test("retained archive recovery refuses action drift, deletion and revoked custody", async () => {
+    await storage.applySnapshot(createManagedAgent({ id: "retained", lifecycle: "closed" }));
+    const active = structuredClone((await storage.get("retained"))!);
+    await expect(storage.clearRetainedArchive(active, () => {})).rejects.toThrow("changed");
+    await storage.upsert({ ...active, archivedAt: "2026-10-07T00:00:00Z" });
+    const archived = structuredClone((await storage.get("retained"))!);
+    await expect(
+      storage.clearRetainedArchive(archived, () => {
+        throw new Error("Custody revoked");
+      }),
+    ).rejects.toThrow("Custody revoked");
+    expect(await storage.get("retained")).toEqual(archived);
+    storage.beginDelete("retained");
+    await expect(storage.clearRetainedArchive(archived, () => {})).rejects.toThrow("being deleted");
+    expect(await storage.get("retained")).toEqual(archived);
   });
 
   test("applySnapshot preserves archivedAt (soft-delete) status", async () => {

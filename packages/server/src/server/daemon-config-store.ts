@@ -17,13 +17,16 @@ import {
 import { installationResourceRevision } from "./execution-installation/settings/resource-bindings.js";
 import {
   loadPersistedConfig,
-  savePersistedConfig,
+  withPersistedConfigWriter,
+  type PersistedConfigWriter,
   type PersistedConfig,
 } from "./persisted-config.js";
 import { ProviderOverrideSchema } from "./agent/provider-launch-config.js";
 import {
   MutableDaemonConfigSchema,
   MutableDaemonConfigPatchSchema,
+  DaemonOriginAdmissionInputSchema,
+  type DaemonOriginAdmissionState,
 } from "@getpaseo/protocol/messages";
 import type { AgentSkillSelection } from "@getpaseo/protocol/messages";
 import { parseQuotaReservePolicy } from "@getpaseo/protocol/quota-reserve";
@@ -32,6 +35,8 @@ import {
   defaultProviderAccountHomes,
 } from "../services/provider-login/removal.js";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { z } from "zod";
+import { ConfigWriterError } from "./config-writer.js";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { validateProviderPreferences } from "./agent/provider-preferences/validation.js";
@@ -83,6 +88,34 @@ interface LoggerLike {
 
 export interface DaemonConfigChangeDetails {
   removedProviders: readonly string[];
+}
+
+const OriginAdmissionSchema = DaemonOriginAdmissionInputSchema.extend({
+  origin: z.string().refine((value) => {
+    try {
+      const url = new URL(value);
+      const supported = url.protocol === "https:" || url.protocol === "http:";
+      return supported && url.origin === value && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  }, "Expected a canonical HTTP or HTTPS origin without credentials, path or query"),
+}).strict();
+
+export type OriginAdmissionInput = z.infer<typeof OriginAdmissionSchema>;
+
+export interface OriginAdmissionResult {
+  addedToPersisted: boolean;
+  addedToActive: boolean;
+  persistedOrigins: string[];
+  activeOrigins: string[];
+}
+
+export class OriginAdmissionUnavailableError extends Error {
+  constructor() {
+    super("Origin admission requires an active field owner and no launch override.");
+    this.name = "OriginAdmissionUnavailableError";
+  }
 }
 
 export interface DaemonConfigReloadResult {
@@ -371,6 +404,7 @@ export class DaemonConfigStore {
   private readonly changeListeners = new Set<ConfigListener>();
   private readonly applyListeners = new Set<ConfigApplyListener>();
   private readonly fieldChangeHandlers = new Map<string, Set<FieldChangeHandler>>();
+  private originOwnerRevision = 0;
   private readonly relayEnabledMutable: boolean;
   private readonly reloadSource: DaemonConfigReloadSource | undefined;
   private readonly startupPersisted: PersistedConfig;
@@ -410,6 +444,147 @@ export class DaemonConfigStore {
 
   public get(): MutableDaemonConfig {
     return this.current;
+  }
+
+  public hasOriginAdmissionOwner(): boolean {
+    return Boolean(this.reloadSource && this.fieldChangeHandlers.get("cors.allowedOrigins")?.size);
+  }
+
+  public inspectOriginAdmission(): DaemonOriginAdmissionState {
+    return withPersistedConfigWriter(
+      this.paseoHome,
+      (writer) => {
+        const persisted = writer.read();
+        const active = structuredClone(this.current);
+        let state: DaemonOriginAdmissionState["state"] = "ready";
+        let reason: string | null = null;
+        try {
+          this.captureOriginAdmissionOwner(persisted)();
+        } catch (error) {
+          if (!(error instanceof OriginAdmissionUnavailableError)) throw error;
+          state = "unavailable";
+          reason = error.message;
+        }
+        if (!active.cors) {
+          state = "unavailable";
+          reason = "Active origin configuration is unavailable.";
+        }
+        const activeMatches = isEqualValue(this.current, active);
+        const diskMatches = isEqualValue(writer.read(), persisted);
+        if (!activeMatches || !diskMatches) throw new ConfigWriterError("stale_input", false);
+        return {
+          state,
+          reason,
+          persistedOrigins: [...(persisted.daemon?.cors?.allowedOrigins ?? [])],
+          activeOrigins: active.cors ? [...active.cors.allowedOrigins] : null,
+        };
+      },
+      this.logger,
+    );
+  }
+
+  /** Change only the origin field; pending disk settings must not become active. */
+  public admitOrigin(input: OriginAdmissionInput): OriginAdmissionResult {
+    const captured = OriginAdmissionSchema.parse(input);
+    let activeAttempted = false;
+    try {
+      return withPersistedConfigWriter(
+        this.paseoHome,
+        (writer) => {
+          const persisted = writer.read();
+          const previous = structuredClone(this.current);
+          const persistedOrigins = persisted.daemon?.cors?.allowedOrigins ?? [];
+          if (!previous.cors) throw new OriginAdmissionUnavailableError();
+          const activeOrigins = previous.cors.allowedOrigins;
+          const persistedMatches = isEqualValue(
+            persistedOrigins,
+            captured.expectedPersistedOrigins,
+          );
+          const activeMatches = isEqualValue(activeOrigins, captured.expectedActiveOrigins);
+          if (!persistedMatches || !activeMatches)
+            throw new ConfigWriterError("stale_input", false);
+          const assertOwner = this.captureOriginAdmissionOwner(persisted);
+          if (!isEqualValue(this.current, previous))
+            throw new ConfigWriterError("stale_input", false);
+
+          const addedToPersisted = !persistedOrigins.includes(captured.origin);
+          const addedToActive = !activeOrigins.includes(captured.origin);
+          const nextPersistedOrigins = [...persistedOrigins];
+          const nextActiveOrigins = [...activeOrigins];
+          if (addedToPersisted) nextPersistedOrigins.push(captured.origin);
+          if (addedToActive) nextActiveOrigins.push(captured.origin);
+          const nextPersisted: PersistedConfig = {
+            ...persisted,
+            daemon: {
+              ...persisted.daemon,
+              cors: { ...persisted.daemon?.cors, allowedOrigins: nextPersistedOrigins },
+            },
+          };
+          const nextActive = {
+            ...previous,
+            cors: { ...previous.cors, allowedOrigins: nextActiveOrigins },
+          };
+          assertOwner();
+          if (addedToPersisted) writer.save(nextPersisted);
+          assertOwner();
+          if (addedToActive) {
+            activeAttempted = true;
+            this.applyReplacement(structuredClone(nextActive), { removedProviders: [] });
+            assertOwner();
+          }
+          const expectedPersisted = addedToPersisted ? nextPersisted : persisted;
+          const persistedVerified = isEqualValue(writer.read(), expectedPersisted);
+          const activeVerified = isEqualValue(this.current, nextActive);
+          if (!persistedVerified || !activeVerified)
+            throw new ConfigWriterError("uncertain", addedToPersisted);
+          assertOwner();
+          this.lastKnownPersisted = {
+            ...this.lastKnownPersisted,
+            daemon: {
+              ...this.lastKnownPersisted.daemon,
+              cors: {
+                ...this.lastKnownPersisted.daemon?.cors,
+                allowedOrigins: [...nextPersistedOrigins],
+              },
+            },
+          };
+          return {
+            addedToPersisted,
+            addedToActive,
+            persistedOrigins: [...nextPersistedOrigins],
+            activeOrigins: [...nextActiveOrigins],
+          };
+        },
+        this.logger,
+      );
+    } catch (cause) {
+      if (!activeAttempted) throw cause;
+      if (cause instanceof ConfigWriterError && cause.code === "uncertain") throw cause;
+      const writeAttempted = cause instanceof ConfigWriterError && cause.writeAttempted;
+      throw new ConfigWriterError("uncertain", writeAttempted, { cause });
+    }
+  }
+
+  private captureOriginAdmissionOwner(persisted: PersistedConfig): () => void {
+    const handlers = this.fieldChangeHandlers.get("cors.allowedOrigins");
+    if (!this.reloadSource || !handlers?.size) throw new OriginAdmissionUnavailableError();
+    const revision = this.originOwnerRevision;
+    const capturedHandlers = [...handlers];
+    const assertOwner = () => {
+      const current = this.fieldChangeHandlers.get("cors.allowedOrigins");
+      if (!current) throw new OriginAdmissionUnavailableError();
+      const identitiesMatch = capturedHandlers.every((handler) => current.has(handler));
+      const registrationMatches = current === handlers && this.originOwnerRevision === revision;
+      if (!registrationMatches || current.size !== capturedHandlers.length || !identitiesMatch)
+        throw new OriginAdmissionUnavailableError();
+    };
+    const overrides = this.reloadSource.resolve(structuredClone(persisted)).overrideControlledPaths;
+    assertOwner();
+    const overridden = overrides.some((owner) =>
+      pathBelongsTo("daemon.cors.allowedOrigins", owner),
+    );
+    if (overridden) throw new OriginAdmissionUnavailableError();
+    return assertOwner;
   }
 
   public patch(partial: MutableDaemonConfigPatch): MutableDaemonConfig {
@@ -689,24 +864,31 @@ export class DaemonConfigStore {
       return this.current;
     }
 
-    const { previous: persistedBeforePatch, knownNext } = this.persistConfig(
-      configPatch,
-      removedProviders,
+    return withPersistedConfigWriter(
+      this.paseoHome,
+      (writer) => {
+        const { previous: persistedBeforePatch, knownNext } = this.persistConfig(
+          writer,
+          configPatch,
+          removedProviders,
+        );
+        if (!configChanged) {
+          this.lastKnownPersisted = knownNext;
+          return this.current;
+        }
+
+        try {
+          this.applyReplacement(next, { removedProviders });
+          this.lastKnownPersisted = knownNext;
+        } catch (error) {
+          writer.save(persistedBeforePatch);
+          throw error;
+        }
+
+        return this.current;
+      },
+      this.logger,
     );
-    if (!configChanged) {
-      this.lastKnownPersisted = knownNext;
-      return this.current;
-    }
-
-    try {
-      this.applyReplacement(next, { removedProviders });
-      this.lastKnownPersisted = knownNext;
-    } catch (error) {
-      savePersistedConfig(this.paseoHome, persistedBeforePatch, this.logger);
-      throw error;
-    }
-
-    return this.current;
   }
 
   public reload(): DaemonConfigReloadResult {
@@ -846,13 +1028,15 @@ export class DaemonConfigStore {
     const handlers = this.fieldChangeHandlers.get(path) ?? new Set<FieldChangeHandler>();
     handlers.add(handler);
     this.fieldChangeHandlers.set(path, handlers);
+    if (path === "cors.allowedOrigins") this.originOwnerRevision += 1;
 
     return () => {
       const currentHandlers = this.fieldChangeHandlers.get(path);
       if (!currentHandlers) {
         return;
       }
-      currentHandlers.delete(handler);
+      const removed = currentHandlers.delete(handler);
+      if (removed && path === "cors.allowedOrigins") this.originOwnerRevision += 1;
       if (currentHandlers.size === 0) {
         this.fieldChangeHandlers.delete(path);
       }
@@ -877,10 +1061,11 @@ export class DaemonConfigStore {
   }
 
   private persistConfig(
+    writer: PersistedConfigWriter,
     patch: Omit<SupportedMutableConfigPatch, "removeProviders">,
     removeProviders: readonly string[],
   ): { previous: PersistedConfig; knownNext: PersistedConfig } {
-    const persisted = loadPersistedConfig(this.paseoHome, this.logger);
+    const persisted = writer.read({ defaultsIfMissing: true });
     const merge = (source: PersistedConfig) =>
       mergeMutablePatchIntoPersistedConfig({
         persisted: source,
@@ -890,7 +1075,7 @@ export class DaemonConfigStore {
       });
     const nextPersisted = merge(persisted);
     const knownNext = merge(this.lastKnownPersisted);
-    savePersistedConfig(this.paseoHome, nextPersisted, this.logger);
+    writer.save(nextPersisted);
     return { previous: persisted, knownNext };
   }
 }

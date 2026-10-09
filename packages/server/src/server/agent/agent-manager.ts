@@ -32,6 +32,7 @@ import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
 import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
 import type { PluginSessionOpenRequest } from "@getpaseo/plugin/server";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { countRunningWorkers } from "./worker-activity.js";
 import { basename, resolve } from "node:path";
 import { stat } from "node:fs/promises";
@@ -3391,6 +3392,62 @@ export class AgentManager {
     await this.cascadeArchiveChildren(agentId);
 
     return nextRecord;
+  }
+
+  /**
+   * Retained-owner recovery only. The caller fences native parent, custody and
+   * release admission; archive state alone cannot establish those permissions.
+   */
+  async unarchiveRetainedSnapshot(input: {
+    expected: StoredAgentRecord;
+    assertCurrent(): void;
+  }): Promise<StoredAgentRecord> {
+    const expected = structuredClone(input.expected);
+    const assertCurrent = input.assertCurrent;
+    return this.runLifecycleMutation(expected.id, async () => {
+      const registry = this.requireRegistry();
+      const assertRetained = () => {
+        assertCurrent();
+        if (this.agents.has(expected.id))
+          throw new Error("Retained recovery refuses a loaded agent runtime.");
+      };
+      assertRetained();
+      const current = await registry.get(expected.id);
+      assertRetained();
+      if (
+        !current?.archivedAt ||
+        !isDeepStrictEqual(current, expected) ||
+        current.lastStatus === "running" ||
+        current.lastStatus === "initializing" ||
+        current.owner?.kind === "daemon" ||
+        current.config?.controllerExecutionId ||
+        !current.persistence ||
+        !current.persistence.sessionId ||
+        current.persistence.provider !== current.provider ||
+        !this.clients.has(current.provider)
+      )
+        throw new Error("Retained agent identity or recovery action changed.");
+      const client = this.clients.get(current.provider);
+      const restoreNative = client?.unarchiveNativeSession;
+      if (!client || typeof restoreNative !== "function")
+        throw new Error("Retained agent provider does not support native archive restoration.");
+      const assertNative = () => {
+        assertRetained();
+        if (
+          this.clients.get(current.provider) !== client ||
+          client.unarchiveNativeSession !== restoreNative
+        )
+          throw new Error("Retained agent native restoration provider changed.");
+      };
+      // This changes native archive state only, without acquiring a session writer.
+      // Failure after this point can leave the native archive restored. Do not retry.
+      assertNative();
+      await restoreNative.call(client, current.persistence);
+      assertNative();
+      const restored = await registry.clearRetainedArchive(expected, assertNative);
+      assertNative();
+      return restored;
+    });
   }
 
   async unarchiveSnapshot(

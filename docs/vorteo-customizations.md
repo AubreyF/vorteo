@@ -54,6 +54,8 @@ Source batching preserves complete historical release-note entries, including du
 - **Profile skill selection.** Profiles can inherit defaults with exclusions, select specific packages or disable optional skills. Supported Claude and Codex runtimes freeze restricted selections for each task; unsupported restrictions fail rather than claiming enforcement. Selection limits discovery and invocation, not filesystem or tool access. See [profile policies](skill-library.md#profile-policies).
 - **Environment exclusions.** Disable a personal skill for one environment while retaining its shared definition and installed files. New tasks obey current installation policy; a profile cannot override an environment exclusion. Existing tasks retain their recorded selection. See [environment exceptions](skill-library.md#environment-exceptions).
 
+October 9, 2026: Integrated reviewed Factory runtime and client source with current main, preserving coordinator bootstrap, account setup and worker sidebar changes. Installation, browser authentication and retained controller custody remain separate acceptance gates.
+
 October 9, 2026: Integrated shared action footers with queue recovery containment. Both interface changes and their historical release notes remain preserved. README overview and onboarding are unchanged.
 
 ## Projects, devices and interface
@@ -89,6 +91,8 @@ October 9, 2026: Integrated shared action footers with queue recovery containmen
 
 ## Incomplete integrations
 
+- **Plugin version floors.** Explicit prerelease requirements enforce the authored minimum. Stable-only range branches retain prerelease compatibility, including caret, tilde and wildcard ranges.
+- **Bundled Factory.** Source provides bounded project snapshots, guarded setup and installation, native membership protection, managed workspace indicators and adapters for the existing qualification, delivery and Builds pipeline. Production startup requires retained native ownership, account policy and custody reconciliation. Source preparation does not establish live operation. See [Factory boundaries](factory.md).
 - **Quota reserve controls.** The daemon includes policy validation, frozen launch policy, admission, usage observation, persistence and restart reconciliation. The app still needs reserve controls, launch-policy selection, capability integration and end-to-end acceptance. Do not advertise Cruise Reserve or Redline as an available user workflow. See [implementation status](agent-presets.md#implementation-and-deployment-status).
 - **Acceptance across installations and devices.** Native host setup, real account sign-in, supervisor/Pi workflows, physical devices, dictation, accessibility and performance require environment-specific acceptance. A source test or responsive browser layout does not establish those results. See [host acceptance](host-handoff.md#acceptance). Keep deployment evidence private.
 
@@ -125,6 +129,8 @@ October 8, 2026: Bootstrap review now has optional session RPCs and client metho
 
 October 8, 2026: Coordinator bootstrap now has an inert request and authentication core with revision-bound decisions, private atomic storage, complete artifact hashing and writable-mount overlap checks. Isolated tests cover cancellation races, stale decisions, authentication changes and altered runtime files. Host API admission, visible controls, lifecycle execution and live acceptance remain unfinished; this core does not enable coordinator replacement.
 
+October 9, 2026: Composed current main with the reviewed Factory observer and guarded configuration writers. Native origin inspection and one-shot admission capture serving identity and separate persisted and active lists; transport loss requires reconciliation without replay. Supported writers share the ownership guard, but installation and exclusion of legacy or raw writers remain separate acceptance gates. Controller adoption and browser authentication are not established by this source preparation.
+
 October 8, 2026: Extended agent-message attribution through coordinator delegation and both creation transports. Isolated daemon coverage checks saved messages, replay and owner-evidence separation. This is a conversation navigation refinement; README overview and onboarding are unchanged.
 
 October 8, 2026: Agent creation accepts a revised draft only after a known failure before agent registration, with no active creation or existing agent and the same workspace. The reserved agent identity survives retry; completed and ambiguous requests retain conflict protection.
@@ -146,6 +152,14 @@ October 8, 2026: Compact tooltip triggers use touch interaction consistently so 
 
 October 8, 2026: Disabled restart actions expose their blocker and recovery steps through an accessible tooltip on hover, focus and touch. Tooltip interaction never submits approval.
 
+October 8, 2026: Refreshed Factory integration with current project-folder and profile-environment fixes; preserved reviewed one-shot install controls and authentic installed ancestry. Build evidence remains distinct from live installation and custody.
+
+October 8, 2026: Integrated current main and the actual installed Dev Git graph with independently reviewed Factory startup, CLI setup and guarded initial installation. Reviewed client installation controls capture the visible revision and invocation callbacks before asynchronous reads, refuse scope changes and hold uncertain attempts without replay. Retained owner reconciliation and live installation remain separate from source construction; no new controller or scheduler is started by loading the observer.
+
+October 8, 2026: Composed the read-only Factory setup client, native checkpoint protections and retained-owner installation transaction with current maintenance fixes. Partial installation preserves native protection and requires reconciliation. Startup attachment, installed source verification and live client acceptance remain separate gates.
+
+October 8, 2026: Tightened agent instructions so Host and Dev holds, restarts and supervisor maintenance must use visible coordinator requests and owner controls. Chat approval does not permit an untracked lifecycle operation. This instruction change does not add supervisor maintenance support to the coordinator.
+
 October 8, 2026: Agent instructions submit prepared restart requests directly and use the recorded owner button decision as approval. Coordinator maintenance has the same boundary; these instruction changes do not add a coordinator reload request capability.
 
 October 8, 2026: Workspace creation acceptance waits for both agent creation and project membership persistence before checking the destination group.
@@ -162,6 +176,7 @@ October 8, 2026: Tightened agent instructions so Host and Dev holds, restarts an
 
 October 8, 2026: Dev bootstrap now verifies the installation profile client binding in both the supervisor and worker before changing configuration. Regression checks cover missing and mismatched bindings. Existing launchers require a reviewed supervisor restart after repair; worker updates cannot repair the parent environment.
 
+October 8, 2026: Composed Factory source with current main, retaining Dev update build and running-release verification fixes. Explicit native startup binding resolves the configured profile, checks retained coordinator identity and preserves protection on partial persistence. Installation, controller adoption and client actions still require live acceptance.
 October 8, 2026: Host update preparation now fetches the exact approved commit into an independent repository. Native build fixtures cover source isolation, retained provenance and an unchanged live interface. Digest, bundle and ancestry validation still precede preparation; installation still requires exact owner approval.
 
 October 8, 2026: Reconciled preview recovery with managed Dev workers that preserve their process arguments. Broker identity checks require the selected worker entrypoint, Node executable, supervisor parent, process ownership and stable boot/start times. Regression coverage rejects stale selectors, ambiguous processes and PID reuse. This does not add Host metadata export or verified project delivery evidence.
@@ -205,6 +220,8 @@ Question form spacing review: forms keep 16px vertical insets and 12px between c
 Claude authentication status review: Connection controls use the existing account-scoped CLI authentication result. Usage availability and explicit credential rejection retain their separate meanings. Focused checks cover missing usage, account isolation and sign-out. No Keychain access or credential transfer was added. This source change awaits publication and installation; the README overview and onboarding are unchanged.
 
 ## Optional native macOS helper
+
+Legacy coordinator compatibility: an unavailable helper query is retried once per minute instead of every settings refresh. Owner lock checks still apply during the delay, and upgraded coordinators are discovered without reloading.
 
 Tracked helper maintenance uses the coordinator lifecycle journal, Host-scoped preparation and status commands, exact manual owner approval, artifact and signing checks, and interrupted-installation recovery without replay. The review exposes signing identities and rollback availability; locked controls retain public status counts. Coordinator plans bind helper configuration changes and retain the paired Docker identity. Isolated lifecycle, HTTP, client and desktop/phone checks pass. Production activation still requires a coordinator rollback release compatible with helper configuration and journal records, an approved signing route, tracked installation and live Safari acceptance.
 
@@ -253,3 +270,15 @@ October 8, 2026: Host bootstrap setup can be discovered beside the private Host 
 October 8, 2026: Coordinator artifact validation now accepts complete internal hard-link groups created by npm while rejecting external aliases. The digest includes link topology and rechecks file identity; individually prepared control files retain single-link validation. Live activation remains pending.
 
 October 9, 2026: Coordinator preparation, decisions and executor acknowledgement allow up to fifteen minutes for complete artifact checks. Observation timeout does not restart or replay an executor; the durable request remains authoritative.
+
+On October 9, 2026, the Factory integration was rebased on published GitHub main and prepared at version 253. GitHub is the owner-selected source coordination authority; unpublished installed code is not a required source input. Runtime identities, settings, credentials and live execution custody remain separately verified during managed deployment.
+
+Maintenance review (2026-10-09): the managed delivery correction preserves two older release-note entries without changing Factory implementation. GitHub remains the source coordination authority; compiled .253 validation is reused for unchanged code while normal metadata and commit checks cover the correction.
+
+Maintenance review: integrated the native helper query retry correction with published Factory source, retaining both feature sets and historical release entries.
+
+October 9, 2026: Restored the shared conversation accordion heading hover highlight after the geometry cleanup. The highlight uses the existing interaction color and keeps heading dimensions unchanged. Reused the reviewed Node timer typing correction for browser fixture typechecks. README overview and onboarding are unchanged.
+
+Maintenance review: retained the deployed accordion hover behavior and Node timer typing corrections in the helper query integration.
+
+October 9, 2026: Reconciled the blocked checklist contribution with published interface source and complete release-note history. Preserved the installed helper query, accordion hover and Factory implementation. The correction changes integration metadata and retains the existing checklist validation evidence.

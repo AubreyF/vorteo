@@ -17,6 +17,8 @@ import {
   type WorkspaceArchiveTarget,
 } from "@/workspace/workspace-archive";
 
+import { selectFactoryMembership } from "@/workspace/lifecycle/factory-membership";
+
 const SERVER_ID = "workspace-archive-test";
 const SECOND_SERVER_ID = "workspace-archive-test-2";
 
@@ -469,4 +471,223 @@ it("refreshes a stale scheduled companion before archiving any environment", asy
   expect(storedWorkspaceOn(SECOND_SERVER_ID, ordinary.id)).toEqual(ordinary);
   expect(storedWorkspaceOn(SECOND_SERVER_ID, scheduled.id)).toEqual(scheduled);
   expect(isWorkspaceArchivePending(target())).toBe(false);
+});
+
+describe("native Factory managed workspace protection", () => {
+  function seedFactory(input: Partial<WorkspaceDescriptor> = {}) {
+    const member = workspace({
+      protected: false,
+      factoryMembership: {
+        installationId: "installation",
+        serverId: SERVER_ID,
+        projectId: "project-1",
+        role: "factory",
+      },
+      ...input,
+    });
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [member]);
+    useSessionStore.getState().updateSessionServerInfo(SERVER_ID, {
+      serverId: SERVER_ID,
+      hostname: null,
+      version: null,
+      features: { factoryWorkspaceMembership: true },
+    });
+    return member;
+  }
+
+  it.each(["factory", "builds", "worker"] as const)(
+    "blocks ordinary archive for native %s membership without relying on protection labels",
+    async (role) => {
+      const member = seedFactory({
+        factoryMembership: {
+          installationId: "installation",
+          serverId: SERVER_ID,
+          projectId: "project-1",
+          role,
+        },
+      });
+      const archive = vi.fn(async (workspaceId: string) => archivePayload({ workspaceId }));
+      await expect(
+        archiveWorkspaceOptimistically({ client: createClient(archive), workspace: target() }),
+      ).rejects.toThrow("Turn Factory off");
+      expect(archive).not.toHaveBeenCalled();
+      expect(storedWorkspace(member.id)).toEqual(member);
+      expect(isWorkspaceArchivePending(target())).toBe(false);
+    },
+  );
+
+  it.each(["host", "project", "handshake", "capability", "unbound"])(
+    "does not infer management from a title or tag when %s is unverified",
+    (missing) => {
+      const member = seedFactory({
+        name: "Freed Factory",
+        labels: ["Factory", "Managed"],
+        protected: missing === "unbound",
+      });
+      if (missing === "host" && member.factoryMembership)
+        member.factoryMembership.serverId = SECOND_SERVER_ID;
+      if (missing === "project" && member.factoryMembership)
+        member.factoryMembership.projectId = "another-project";
+      if (missing === "unbound") member.factoryMembership = undefined;
+      getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [member]);
+      if (missing === "handshake" || missing === "capability") {
+        useSessionStore.getState().updateSessionServerInfo(SERVER_ID, {
+          serverId: missing === "handshake" ? SECOND_SERVER_ID : SERVER_ID,
+          hostname: null,
+          version: null,
+          features: { factoryWorkspaceMembership: missing !== "capability" },
+        });
+      }
+      expect(selectFactoryMembership(useSessionStore.getState(), SERVER_ID, member.id)).toBeNull();
+    },
+  );
+
+  it("keeps managed members visible while bulk archive proceeds for ordinary work", async () => {
+    const member = seedFactory();
+    const ordinary = workspace({ id: "workspace-2" });
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [ordinary]);
+    const archive = vi.fn(async (workspaceId: string) => archivePayload({ workspaceId }));
+    const failures = await archiveWorkspacesOptimistically({
+      getClient: () => createClient(archive),
+      workspaces: [target(), target({ workspaceId: ordinary.id })],
+    });
+    expect(archive).toHaveBeenCalledExactlyOnceWith(ordinary.id);
+    expect(failures.map((failure) => failure.workspaceId)).toEqual([member.id]);
+    expect(storedWorkspace(member.id)).toEqual(member);
+  });
+
+  it.each([true, false])(
+    "blocks project deletion before any ordinary member is archived (visible: %s)",
+    async (visible) => {
+      seedFactory();
+      const ordinary = workspace({ id: "workspace-2" });
+      getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [ordinary]);
+      const archiveWorkspace = vi.fn(async (workspaceId: string) =>
+        archivePayload({ workspaceId }),
+      );
+      const removeProject = vi.fn(async () => ({ removedWorkspaceIds: [] }));
+      await expect(
+        removeProjectFromHosts({
+          targets: [{ serverId: SERVER_ID, projectId: "project-1" }],
+          workspaces: visible
+            ? [target(), target({ workspaceId: ordinary.id })]
+            : [target({ workspaceId: ordinary.id })],
+          getClient: () => ({ archiveWorkspace, removeProject }),
+        }),
+      ).rejects.toThrow("Turn Factory off");
+      expect(archiveWorkspace).not.toHaveBeenCalled();
+      expect(removeProject).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("archive preflight lifecycle changes", () => {
+  function seedEnvironments() {
+    const owner = workspace();
+    const companion = workspace({
+      id: "workspace-2",
+      projectMembership: { key: "project-1", name: "Project", environmentOwner: target() },
+    });
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [owner]);
+    useSessionStore.getState().initializeSession(SECOND_SERVER_ID, null);
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SECOND_SERVER_ID, [companion]);
+    useSessionStore.getState().updateSessionServerInfo(SERVER_ID, {
+      serverId: SERVER_ID,
+      hostname: null,
+      version: null,
+      features: { factoryWorkspaceMembership: true },
+    });
+    return { owner, companion };
+  }
+
+  function protectOwner(owner: WorkspaceDescriptor, managed: boolean) {
+    const updated = workspace({
+      ...owner,
+      protected: true,
+      factoryMembership: managed
+        ? {
+            installationId: "installation",
+            serverId: SERVER_ID,
+            projectId: "project-1",
+            role: "factory",
+          }
+        : undefined,
+    });
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [updated]);
+    return updated;
+  }
+
+  it.each([true, false])(
+    "refuses with zero effects when companion refresh changes owner lifecycle (managed: %s)",
+    async (managed) => {
+      const { owner, companion } = seedEnvironments();
+      const refreshing = deferred<void>();
+      const refresh = deferred<ScheduleSummary[]>();
+      const archived: string[] = [];
+      let started = false;
+      const ownerClient = createClient(async (id) => {
+        archived.push(id);
+        return archivePayload({ workspaceId: id });
+      });
+      const companionClient: Pick<DaemonClient, "archiveWorkspace" | "scheduleList"> = {
+        archiveWorkspace: async (id) => {
+          archived.push(id);
+          return archivePayload({ workspaceId: id });
+        },
+        scheduleList: async () => {
+          refreshing.resolve();
+          const schedules = await refresh.promise;
+          return { schedules, error: null, requestId: "schedule-list" };
+        },
+      };
+      const result = archiveWorkspaceOptimistically({
+        client: ownerClient,
+        workspace: target(),
+        getCompanionClient: () => companionClient,
+        onArchiveStarted: () => {
+          started = true;
+        },
+      });
+      const rejected = expect(result).rejects.toThrow(/Turn Factory off|Unprotect to archive/);
+      await refreshing.promise;
+      const updated = protectOwner(owner, managed);
+      refresh.resolve([]);
+      await rejected;
+      expect(archived).toEqual([]);
+      expect(started).toBe(false);
+      expect(storedWorkspace(owner.id)).toEqual(updated);
+      expect(storedWorkspaceOn(SECOND_SERVER_ID, companion.id)).toEqual(companion);
+      expect(isWorkspaceArchivePending(target())).toBe(false);
+    },
+  );
+
+  it("refuses later owner dispatch when membership changes during companion archive", async () => {
+    const { owner, companion } = seedEnvironments();
+    const archiving = deferred<void>();
+    const completed = deferred<ArchiveWorkspacePayload>();
+    const archived: string[] = [];
+    const ownerClient = createClient(async (id) => {
+      archived.push(id);
+      return archivePayload({ workspaceId: id });
+    });
+    const companionClient = createClient(async (id) => {
+      archived.push(id);
+      archiving.resolve();
+      return completed.promise;
+    });
+    const result = archiveWorkspaceOptimistically({
+      client: ownerClient,
+      workspace: target(),
+      getCompanionClient: () => companionClient,
+    });
+    const rejected = expect(result).rejects.toThrow("Turn Factory off");
+    await archiving.promise;
+    const updated = protectOwner(owner, true);
+    completed.resolve(archivePayload({ workspaceId: companion.id }));
+    await rejected;
+    expect(archived).toEqual([companion.id]);
+    expect(storedWorkspace(owner.id)).toEqual(updated);
+    expect(storedWorkspaceOn(SECOND_SERVER_ID, companion.id)).toEqual(companion);
+    expect(isWorkspaceArchivePending(target())).toBe(false);
+  });
 });
