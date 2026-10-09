@@ -39,6 +39,8 @@ import {
 
 import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 
+import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
+
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -1033,3 +1035,90 @@ test("watchdog refuses uncertain executor death and changed ownership before any
   expect(result.execution?.stage).toBe("recovery_required");
   expect(resumes).toBe(0);
 });
+
+test.runIf(process.platform === "darwin").each([
+  ["freeze", "freeze_pending", ["kill", "SIGSTOP"]],
+  ["resumePrevious", "resume_pending", ["kill", "SIGCONT"]],
+  ["unload", "unload_pending", ["bootout"]],
+] as const)(
+  "native %s binds exact dispatch and verifies process observations",
+  async (operation, stage, args) => {
+    const f = fixture();
+    const configurationFile = "/protected/config.json";
+    f.plan.expectedProcess.bootId = randomUUID();
+    f.plan.expectedProcess.startIdentity = "123:456";
+    f.plan.expectedProcess.argumentsSha256 = createHash("sha256")
+      .update(
+        JSON.stringify([
+          f.plan.previous.node.path,
+          f.plan.previous.entrypoint.path,
+          configurationFile,
+        ]),
+      )
+      .digest("hex");
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const record = {
+      ...approved,
+      execution: { generation: randomUUID(), stage, updatedAt: new Date().toISOString() },
+    };
+    f.journal.replace([approved], [record]);
+    const identity = {
+      ...f.plan.expectedProcess,
+      parentPid: 1,
+      uid: process.getuid!(),
+      executable: f.plan.previous.node.path,
+    };
+    const calls: string[][] = [];
+    const observations: string[] = [];
+    let owned = true;
+    const reader = {
+      readService: async () => `${f.plan.service} = {\n\tpid = ${identity.pid}\n}`,
+      inspectProcess: async () => identity,
+      inspectStoppedProcess: async () => ({ ...identity, stopped: true as const, childPids: [] }),
+      inspectRunningProcess: async () => ({ ...identity, stopped: false as const }),
+      verifyProcessExited: async () => {
+        observations.push("exited");
+      },
+      verifyServiceAbsent: async () => {
+        observations.push("absent");
+      },
+    };
+    const actions = createBootstrapNativeLifecycle(
+      {
+        requests: f.service(),
+        reader,
+        configurationFile,
+        launcherFile: "/protected/selected.plist",
+        writableMountRoots: async () => [],
+        requireOwnership: async () => {
+          if (!owned) throw new Error("Ownership lost");
+        },
+      },
+      {
+        run: async (command) => {
+          calls.push([...command]);
+        },
+      },
+    );
+    await actions[operation](record);
+    expect(calls).toEqual([[...args, f.plan.service]]);
+    expect(observations).toEqual(operation === "unload" ? ["exited", "absent"] : []);
+    owned = false;
+    await expect(actions[operation](record)).rejects.toThrow("Ownership lost");
+    expect(calls).toHaveLength(1);
+    owned = true;
+    await expect(actions[operation]({ ...record, revision: randomUUID() })).rejects.toThrow(
+      "exact dispatch",
+    );
+    expect(calls).toHaveLength(1);
+  },
+);

@@ -2,6 +2,7 @@
 """Read a macOS process identity without returning argv or environment contents."""
 
 import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -52,7 +53,8 @@ def arguments_digest(data):
     return hashlib.sha256(encoded).hexdigest()
 
 
-def inspect(pid, require_stopped=False):
+def inspect(pid, mode="identity"):
+    require_stopped = mode == "--require-stopped"
     if sys.platform != "darwin" or pid <= 0:
         raise InspectionError("Native macOS process inspection required")
     library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
@@ -68,6 +70,14 @@ def inspect(pid, require_stopped=False):
     library.proc_listchildpids.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
     library.proc_listchildpids.restype = ctypes.c_int
 
+    if mode == "--require-exited":
+        result = BsdInfo()
+        ctypes.set_errno(0)
+        count = library.proc_pidinfo(pid, 3, 0, ctypes.byref(result), ctypes.sizeof(result))
+        if count == 0 and ctypes.get_errno() == errno.ESRCH:
+            return {"pid": pid, "exited": True}
+        raise InspectionError("Process exit is not proven")
+
     def read_info():
         result = BsdInfo()
         size = ctypes.sizeof(result)
@@ -77,6 +87,8 @@ def inspect(pid, require_stopped=False):
             raise InspectionError("Process owner does not match Host")
         if require_stopped and result.status != 4:  # SSTOP, sys/proc.h
             raise InspectionError("Process is not stopped")
+        if mode == "--require-running" and result.status not in (2, 3):  # SRUN, SSLEEP
+            raise InspectionError("Process is not running")
         return (result.pid, result.ppid, result.uid, result.start_seconds, result.start_microseconds)
 
     def named(name, capacity):
@@ -142,14 +154,16 @@ def inspect(pid, require_stopped=False):
     if require_stopped:
         result["stopped"] = True
         result["childPids"] = children
+    if mode == "--require-running":
+        result["stopped"] = False
     return result
 
 
 if __name__ == "__main__":
     try:
-        if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--require-stopped"):
+        if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] not in ("--require-stopped", "--require-running", "--require-exited")):
             raise InspectionError("Expected a process ID and optional stopped inspection")
-        print(json.dumps(inspect(int(sys.argv[1]), len(sys.argv) == 3), separators=(",", ":")))
+        print(json.dumps(inspect(int(sys.argv[1]), sys.argv[2] if len(sys.argv) == 3 else "identity"), separators=(",", ":")))
     except (InspectionError, ValueError, OSError):
         # Do not expose command arguments, environment values or raw system errors.
         print("Coordinator process identity could not be verified", file=sys.stderr)

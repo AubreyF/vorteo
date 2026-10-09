@@ -23,6 +23,14 @@ const ProcessObservationSchema = z.strictObject({
   executable: z.string().startsWith("/"),
 });
 
+const RunningProcessObservationSchema = ProcessObservationSchema.extend({
+  stopped: z.literal(false),
+});
+const ExitedProcessObservationSchema = z.strictObject({
+  pid: z.number().int().positive(),
+  exited: z.literal(true),
+});
+
 const FrozenProcessObservationSchema = ProcessObservationSchema.extend({
   stopped: z.literal(true),
   childPids: z
@@ -36,6 +44,9 @@ export interface BootstrapServiceReader {
 }
 
 export interface NativeBootstrapServiceReader extends BootstrapServiceReader {
+  inspectRunningProcess(pid: number): Promise<z.infer<typeof RunningProcessObservationSchema>>;
+  verifyProcessExited(pid: number): Promise<void>;
+  verifyServiceAbsent(service: string): Promise<void>;
   inspectStoppedProcess(pid: number): Promise<z.infer<typeof FrozenProcessObservationSchema>>;
 }
 
@@ -165,6 +176,44 @@ export async function createNativeBootstrapServiceReader(input: {
         throw new BootstrapRequestConflict("Coordinator service belongs to another Host account");
       const result = await execute("/bin/launchctl", ["print", label], options);
       return result.stdout;
+    },
+    async verifyServiceAbsent(service) {
+      const label = z
+        .string()
+        .regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+\.installation$/)
+        .parse(service);
+      if (!label.startsWith(`gui/${uid}/`))
+        throw new BootstrapRequestConflict("Coordinator service belongs to another Host account");
+      try {
+        await execute("/bin/launchctl", ["print", label], options);
+      } catch (error) {
+        const result = z.object({ code: z.literal(113), stderr: z.string() }).safeParse(error);
+        const serviceName = label.split("/").slice(2).join("/");
+        const missing = `Bad request.\nCould not find service "${serviceName}" in domain for user gui: ${uid}`;
+        if (result.success && result.data.stderr.trim() === missing) return;
+        throw new BootstrapRequestConflict("Coordinator service absence could not be verified");
+      }
+      throw new BootstrapRequestConflict("Coordinator service is still loaded");
+    },
+    async inspectRunningProcess(pid) {
+      z.number().int().positive().parse(pid);
+      const result = await execute(
+        "/usr/bin/python3",
+        ["-I", "-B", "-c", source, String(pid), "--require-running"],
+        options,
+      );
+      return RunningProcessObservationSchema.parse(JSON.parse(result.stdout));
+    },
+    async verifyProcessExited(pid) {
+      z.number().int().positive().parse(pid);
+      const result = await execute(
+        "/usr/bin/python3",
+        ["-I", "-B", "-c", source, String(pid), "--require-exited"],
+        options,
+      );
+      const observation = ExitedProcessObservationSchema.parse(JSON.parse(result.stdout));
+      if (observation.pid !== pid)
+        throw new BootstrapRequestConflict("Process exit identity changed");
     },
     async inspectStoppedProcess(pid) {
       z.number().int().positive().parse(pid);

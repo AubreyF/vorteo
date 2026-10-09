@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.240 - 2026-10-08
+
+### Maintenance
+
+- Bind native freeze, resume, unload, selection and startup adapters to exact bootstrap stages and ownership
+- Require explicit kernel process-exit and service-removal evidence before replacement startup
+- Atomically select verified launcher bytes without overwriting candidate or rollback artifacts; recheck release bytes before startup
+- Keep replacement readiness verification, native runner wiring and visible review controls pending before activation
+
 ## 0.11.0-beta.3.vorteo.239 - 2026-10-08
 
 ### Maintenance

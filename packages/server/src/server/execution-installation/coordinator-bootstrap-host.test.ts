@@ -32,6 +32,9 @@ import {
 import * as serviceCollector from "./coordinator-bootstrap-service.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 
+import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
+import { selectBootstrapLauncher } from "./coordinator-bootstrap-selection.js";
+
 const roots: string[] = [];
 
 test.runIf(process.platform === "darwin")(
@@ -125,6 +128,11 @@ test.runIf(process.platform === "darwin")(
       const reader = await createNativeBootstrapServiceReader(options);
       writeFileSync(helperPath, 'raise RuntimeError("unreviewed replacement")');
       expect(await reader.inspectProcess(child.pid!)).toEqual(identity);
+      expect(await reader.inspectRunningProcess(child.pid!)).toEqual({
+        ...identity,
+        stopped: false,
+      });
+      await expect(reader.verifyProcessExited(child.pid!)).rejects.toThrow();
       await expect(reader.inspectStoppedProcess(child.pid!)).rejects.toThrow();
       child.kill("SIGSTOP");
       await expect
@@ -146,6 +154,12 @@ test.runIf(process.platform === "darwin")(
       await closed;
     }
     await expect(inspect()).rejects.toThrow();
+    const exited = await execute("/usr/bin/python3", [
+      script,
+      String(child.pid),
+      "--require-exited",
+    ]);
+    expect(JSON.parse(exited.stdout)).toEqual({ pid: child.pid, exited: true });
   },
 );
 
@@ -520,6 +534,120 @@ test.runIf(process.platform === "darwin")(
         Mounts: [{ Type: "bind", Source: f.root, RW: true }],
       });
     await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("mounts changed");
+    const selectedLauncher = path.join(f.root, "selected.plist");
+    const previousBytes = readFileSync(previous.launcher.path);
+    writeFileSync(selectedLauncher, previousBytes, { mode: 0o600 });
+    const selection = {
+      plan,
+      launcherFile: selectedLauncher,
+      configurationFile: f.file,
+      writableMountRoots: [],
+      authorizeSelection: async () => {},
+    };
+    await expect(
+      selectBootstrapLauncher({ ...selection, launcherFile: previous.launcher.path }),
+    ).rejects.toThrow("rollback");
+    await expect(
+      selectBootstrapLauncher({
+        ...selection,
+        authorizeSelection: async () => {
+          throw new Error("Approval changed");
+        },
+      }),
+    ).rejects.toThrow("Approval changed");
+    expect(readFileSync(selectedLauncher)).toEqual(previousBytes);
+    await selectBootstrapLauncher(selection);
+    expect(readFileSync(selectedLauncher)).toEqual(readFileSync(candidate.launcher.path));
+    expect(readFileSync(previous.launcher.path)).toEqual(previousBytes);
+    await expect(selectBootstrapLauncher(selection)).rejects.toThrow("digest changed");
+    writeFileSync(selectedLauncher, previousBytes);
+    duringInspection = () => {};
+    save(mounts, { Id: host.containerId, State: { Running: true }, Mounts: [] });
+    const approved = await review.decide(
+      {
+        id: request.id,
+        revision: request.revision,
+        planSha256: request.planSha256,
+        decision: "approve",
+      },
+      "fixture-password",
+    );
+    let executing = await review.claimDispatch({
+      id: approved.id,
+      revision: approved.revision,
+      planSha256: approved.planSha256,
+    });
+    const advance = (
+      stage:
+        | "freeze_pending"
+        | "frozen"
+        | "unload_pending"
+        | "unloaded"
+        | "selection_pending"
+        | "selected"
+        | "start_pending",
+    ) => {
+      executing = review.advanceDispatch(
+        {
+          id: executing.id,
+          revision: executing.revision,
+          planSha256: executing.planSha256,
+          generation: executing.execution!.generation,
+        },
+        stage,
+      );
+    };
+    for (const stage of [
+      "freeze_pending",
+      "frozen",
+      "unload_pending",
+      "unloaded",
+      "selection_pending",
+    ] as const)
+      advance(stage);
+    const commands: string[][] = [];
+    const processIdentity = {
+      ...expectedProcess,
+      parentPid: 1,
+      uid: process.getuid!(),
+      executable: node,
+    };
+    const reader = {
+      readService: async () => `${service} = {\n\tpid = 123\n}`,
+      inspectProcess: async () => processIdentity,
+      inspectStoppedProcess: async () => ({
+        ...processIdentity,
+        stopped: true as const,
+        childPids: [],
+      }),
+      inspectRunningProcess: async () => ({ ...processIdentity, stopped: false as const }),
+      verifyProcessExited: async () => {},
+      verifyServiceAbsent: async () => {},
+    };
+    const actions = createBootstrapNativeLifecycle(
+      {
+        requests: review,
+        reader,
+        configurationFile: f.file,
+        launcherFile: selectedLauncher,
+        writableMountRoots: async () => [],
+        requireOwnership: async () => {},
+      },
+      {
+        run: async (args) => {
+          commands.push([...args]);
+        },
+      },
+    );
+    await actions.select(executing);
+    advance("selected");
+    advance("start_pending");
+    writeFileSync(candidate.entrypoint.path, "changed after selection");
+    await expect(actions.start(executing)).rejects.toThrow("digest changed");
+    expect(commands).toEqual([]);
+    writeFileSync(candidate.entrypoint.path, "export {};");
+    await actions.start(executing);
+    expect(commands).toEqual([["bootstrap", `gui/${process.getuid!()}`, selectedLauncher]]);
   },
 );
 
