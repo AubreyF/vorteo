@@ -307,3 +307,69 @@ export function verifyBootstrapServiceIdentity(input: {
   if (!matchesLauncher)
     throw new BootstrapRequestConflict("Running coordinator does not match the prepared launcher");
 }
+
+/** Readiness binds the fenced HTTP response to repeated native observations.
+ * A healthy endpoint alone cannot establish which executable owns the service. */
+export async function verifyBootstrapReplacement(input: {
+  plan: CoordinatorBootstrapPlan;
+  generation: string;
+  hostUid: number;
+  reader: BootstrapServiceReader;
+  readHealth(): Promise<unknown>;
+}): Promise<void> {
+  const healthSchema = z.strictObject({
+    installationId: z.literal(input.plan.installationId),
+    bootstrap: z.strictObject({
+      generation: z.literal(input.generation),
+      pid: z.number().int().positive(),
+      fenced: z.literal(true),
+    }),
+  });
+  const argumentsSha256 = createHash("sha256")
+    .update(
+      JSON.stringify([
+        input.plan.candidate.node.path,
+        input.plan.candidate.entrypoint.path,
+        input.plan.candidate.configuration.path,
+      ]),
+    )
+    .digest("hex");
+  let first: z.infer<typeof ProcessObservationSchema> | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const service = await input.reader.readService(input.plan.service);
+    const pid = loadedCoordinatorPid(input.plan.service, service);
+    if (pid === input.plan.expectedProcess.pid)
+      throw new BootstrapRequestConflict("Coordinator replacement still has the previous PID");
+    const observation = ProcessObservationSchema.parse(await input.reader.inspectProcess(pid));
+    const matchesCandidate =
+      observation.pid === pid &&
+      observation.parentPid === 1 &&
+      observation.uid === input.hostUid &&
+      observation.bootId === input.plan.expectedProcess.bootId &&
+      observation.executable === input.plan.candidate.node.path &&
+      observation.argumentsSha256 === argumentsSha256;
+    if (!matchesCandidate)
+      throw new BootstrapRequestConflict(
+        "Coordinator replacement does not match the approved candidate",
+      );
+    if (first && !isDeepStrictEqual(first, observation))
+      throw new BootstrapRequestConflict(
+        "Coordinator replacement changed during readiness verification",
+      );
+    first = observation;
+    const health = healthSchema.parse(await input.readHealth());
+    if (health.bootstrap.pid !== pid)
+      throw new BootstrapRequestConflict("Coordinator health belongs to another process");
+    const after = ProcessObservationSchema.parse(await input.reader.inspectProcess(pid));
+    if (
+      !isDeepStrictEqual(after, observation) ||
+      loadedCoordinatorPid(
+        input.plan.service,
+        await input.reader.readService(input.plan.service),
+      ) !== pid
+    )
+      throw new BootstrapRequestConflict(
+        "Coordinator replacement changed during readiness verification",
+      );
+  }
+}

@@ -8,6 +8,7 @@ import type {
 import { BootstrapRequestConflict, CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
 import {
   verifyLoadedBootstrapService,
+  verifyBootstrapReplacement,
   verifyBootstrapServiceIdentity,
   type NativeBootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
@@ -38,6 +39,7 @@ interface NativeLifecycleContext {
   reader: NativeBootstrapServiceReader;
   configurationFile: string;
   launcherFile: string;
+  readHealth(): Promise<unknown>;
   writableMountRoots(): Promise<readonly string[]>;
   /** Must verify the inherited native ownership lock before each operation. */
   requireOwnership(): Promise<void>;
@@ -107,6 +109,26 @@ export function createBootstrapNativeLifecycle(
     });
   };
   return {
+    async verifyReplacement(request: CoordinatorBootstrapRequest) {
+      await requireStage(request, "verifying");
+      const roots = await context.writableMountRoots();
+      await verifyBootstrapReleaseArtifacts(request.plan.candidate, roots);
+      await verifyBootstrapReplacement({
+        plan: request.plan,
+        generation: request.execution!.generation,
+        hostUid: uid,
+        reader: context.reader,
+        readHealth: context.readHealth,
+      });
+      await verifyBootstrapReleaseArtifacts(request.plan.candidate, roots);
+      await readBootstrapPreparedFile(
+        { path: context.launcherFile, sha256: request.plan.candidate.launcher.sha256 },
+        roots,
+      );
+      await requireStage(request, "verifying");
+      if (JSON.stringify(await context.writableMountRoots()) !== JSON.stringify(roots))
+        throw new BootstrapRequestConflict("Writable mounts changed during readiness verification");
+    },
     async select(request: CoordinatorBootstrapRequest) {
       await requireStage(request, "selection_pending");
       await context.reader.verifyProcessExited(request.plan.expectedProcess.pid);

@@ -21,6 +21,7 @@ import {
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
   loadedCoordinatorPid,
+  verifyBootstrapReplacement,
   verifyBootstrapServiceIdentity,
   verifyLoadedBootstrapService,
   verifyBootstrapLaunchers,
@@ -1099,6 +1100,9 @@ test.runIf(process.platform === "darwin").each([
         configurationFile,
         launcherFile: "/protected/selected.plist",
         writableMountRoots: async () => [],
+        readHealth: async () => {
+          throw new Error("Unexpected fixture health read");
+        },
         requireOwnership: async () => {
           if (!owned) throw new Error("Ownership lost");
         },
@@ -1122,3 +1126,96 @@ test.runIf(process.platform === "darwin").each([
     expect(calls).toHaveLength(1);
   },
 );
+
+test("replacement readiness binds fenced health to exact native candidate and stable process", async () => {
+  const { plan } = fixture();
+  const generation = randomUUID();
+  plan.expectedProcess.bootId = randomUUID();
+  const candidate = {
+    pid: plan.expectedProcess.pid + 1,
+    parentPid: 1,
+    uid: 501,
+    bootId: plan.expectedProcess.bootId,
+    startIdentity: "9999:123",
+    executable: plan.candidate.node.path,
+    argumentsSha256: createHash("sha256")
+      .update(
+        JSON.stringify([
+          plan.candidate.node.path,
+          plan.candidate.entrypoint.path,
+          plan.candidate.configuration.path,
+        ]),
+      )
+      .digest("hex"),
+  };
+  const health = {
+    installationId: plan.installationId,
+    bootstrap: { generation, pid: candidate.pid, fenced: true },
+  };
+  const reader = {
+    readService: async () => `${plan.service} = {\n\tpid = ${candidate.pid}\n}`,
+    inspectProcess: async () => candidate,
+  };
+  const input = { plan, generation, hostUid: 501, reader, readHealth: async () => health };
+  await expect(verifyBootstrapReplacement(input)).resolves.toBeUndefined();
+  for (const change of [
+    { uid: 502 },
+    { parentPid: 2 },
+    { bootId: randomUUID() },
+    { executable: "/unapproved/node" },
+    { argumentsSha256: "0".repeat(64) },
+    { pid: candidate.pid + 1 },
+  ]) {
+    await expect(
+      verifyBootstrapReplacement({
+        ...input,
+        reader: { ...reader, inspectProcess: async () => ({ ...candidate, ...change }) },
+      }),
+    ).rejects.toThrow("approved candidate");
+  }
+  for (const change of [{ generation: randomUUID() }, { fenced: false }]) {
+    await expect(
+      verifyBootstrapReplacement({
+        ...input,
+        readHealth: async () => ({ ...health, bootstrap: { ...health.bootstrap, ...change } }),
+      }),
+    ).rejects.toThrow();
+  }
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      readHealth: async () => ({ ...health, installationId: randomUUID() }),
+    }),
+  ).rejects.toThrow();
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      readHealth: async () => ({
+        ...health,
+        bootstrap: { ...health.bootstrap, pid: candidate.pid + 1 },
+      }),
+    }),
+  ).rejects.toThrow("another process");
+  let observations = 0;
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      reader: {
+        ...reader,
+        inspectProcess: async () => ({
+          ...candidate,
+          startIdentity: String(++observations) + ":123",
+        }),
+      },
+    }),
+  ).rejects.toThrow("changed during readiness");
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      reader: {
+        ...reader,
+        readService: async () => `${plan.service} = {\n\tpid = ${plan.expectedProcess.pid}\n}`,
+      },
+    }),
+  ).rejects.toThrow("previous PID");
+});

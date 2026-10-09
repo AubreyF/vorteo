@@ -631,6 +631,9 @@ test.runIf(process.platform === "darwin")(
         configurationFile: f.file,
         launcherFile: selectedLauncher,
         writableMountRoots: async () => [],
+        readHealth: async () => {
+          throw new Error("Unexpected fixture health read");
+        },
         requireOwnership: async () => {},
       },
       {
