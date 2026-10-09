@@ -2,7 +2,6 @@ import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { ChecklistProgressFlower } from "@/task-checklist/progress-flower";
 import { checklistProgress } from "@/task-checklist/progress";
-import { useVortonTouch } from "@/vorton-touch";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { memo, useMemo, useState, useCallback } from "react";
 import { View } from "react-native";
@@ -66,7 +65,6 @@ const styles = StyleSheet.create(() => ({
 /** Progress scrolls with the conversation, immediately before queued messages and goals. */
 function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   const { t } = useTranslation();
-  const touch = useVortonTouch();
   const { completed, active, total } = checklistProgress(tasks);
   const [expanded, setExpanded] = useState(true);
   const countBadge = useMemo(
@@ -82,16 +80,14 @@ function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   return (
     <TaskCard testID="agent-task-progress-card" bodyVisible={expanded}>
       <TaskCardHeader>
-        <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-          <ChecklistProgressFlower completed={completed} active={active} total={total} />
-          <CardDisclosure
-            title="Tasks"
-            expanded={expanded}
-            onPress={toggle}
-            count={countBadge}
-            testID="agent-task-list-toggle"
-          />
-        </View>
+        <ChecklistProgressFlower completed={completed} active={active} total={total} />
+        <CardDisclosure
+          title="Tasks"
+          expanded={expanded}
+          onPress={toggle}
+          count={countBadge}
+          testID="agent-task-list-toggle"
+        />
       </TaskCardHeader>
 
       {expanded ? (

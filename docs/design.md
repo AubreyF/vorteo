@@ -318,3 +318,9 @@ A dropped row stays at its destination while the order saves. Asynchronous `Drag
 ### Bounded card bodies
 
 Conversation cards stop growing at half the viewport height, including their heading and padding. Put the heading and its controls in `TaskCardHeader`, a direct child of `TaskCard`; only the remaining content scrolls. Preserve the heading when scrolling to the last row. Use `bodyVisible` when collapsed so hidden bodies keep their state without leaving a gap. Managed and provider sub-agent groups each own a card and fixed heading.
+
+### Shared heading geometry
+
+`TaskCard` owns a 12px inset on all four sides. `TaskCardHeader` owns a single centered row, 32px high on desktop and 44px on touch. A 20px icon footprint precedes the title by 8px. `CardDisclosure` keeps the title, arrow and optional count on one line; `TaskCardTitle` gives noncollapsible headings the same typography. Right-side buttons share that centerline. Clear finished therefore has equal top and right clearance. Do not add per-card inset, heading-height or action-margin overrides.
+
+Long question prompts and navigation belong in the body beneath the fixed Questions heading. Plan disclosures follow the same title, arrow order. Sub-agent rows have no dividers. Browser geometry checks compare icon and title columns, heading and action centers, disclosure order, equal button clearance, overflow and collapsed behavior at desktop and compact widths. Keep those checks and screenshot review part of any card change.

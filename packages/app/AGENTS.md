@@ -34,3 +34,10 @@ The app runs on iOS, Android, browser web and Electron. Default to cross-platfor
 - Verify the single product behavior on desktop and compact layouts, run focused tests and deliver authorized interface changes to the existing primary installation through [instance continuity](../../docs/instance-continuity.md). Respect the root restart-permission rule and the user's requested delivery stage.
 - Publish each coherent, validated interface revision while continuing queued work. Tell the owner when a reload will show it. Use static web publication without restarting Host or Dev; changes that require new daemon behavior must wait for their separately approved installation.
 - Ask for physical-device verification when emulation cannot prove behavior. Never launch macOS Playwright WebKit.
+
+## Conversation card layout contract
+
+- Use `TaskCard` and its direct `TaskCardHeader` child for every conversation card. The shared component owns the 12px outer inset, 20px heading icon column, 32px desktop or 44px touch heading, and vertical centering. Do not add card-specific header padding, top margins, wrapping or height overrides.
+- Use `TaskCardIcon` (or the same 20px task flower), then `CardDisclosure` for title, arrow and count, in that order. Use `TaskCardTitle` for headings without a disclosure. Put right-side controls in the shared header or `TaskCardActions`; never offset them independently. Keep long prompts and navigation in the scrollable body.
+- Sub-agent rows stay on one line with metadata immediately before their actions, without horizontal separators. Keep transient status in the heading and the fixed heading outside the scroll body.
+- UI changes to these cards must pass the rendered geometry checks in `e2e/browser/scrolling-agent-cards.spec.ts` at desktop and compact widths. Extend those checks when adding a card. Inspect screenshots before delivery; do not update expectations merely to accommodate drift.

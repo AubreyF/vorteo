@@ -1,6 +1,6 @@
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader, TaskCardActions } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { Text, View } from "react-native";
@@ -41,60 +41,52 @@ export function GoalBar({ control, onExpand, queueError }: GoalBarProps) {
   const label = goalBarLabel(control);
 
   return (
-    <TaskCard
-      contentContainerStyle={expanded ? styles.container : undefined}
-      testID="agent-goal-bar"
-      bodyVisible={expanded}
-    >
+    <TaskCard testID="agent-goal-bar" bodyVisible={expanded}>
       <TaskCardHeader>
-        <View
-          style={[
-            taskCardStyles.header,
-            touch && taskCardStyles.touchHeader,
-            !touch && styles.actionInset,
-          ]}
-        >
-          <TaskCardIcon kind="goal" />
-          <CardDisclosure
-            title={label}
-            expanded={expanded}
-            onPress={toggleExpanded}
-            testID="agent-goal-toggle"
+        <TaskCardIcon kind="goal" />
+        <CardDisclosure
+          title={label}
+          expanded={expanded}
+          onPress={toggleExpanded}
+          testID="agent-goal-toggle"
+        />
+        {goal ? (
+          <Text style={styles.elapsed} numberOfLines={1}>
+            {formatGoalElapsed(elapsed)}
+          </Text>
+        ) : null}
+        <TaskCardActions>
+          <Button
+            variant="ghost"
+            size="sm"
+            style={iconStyle}
+            accessibilityLabel="Clear goal"
+            testID="agent-goal-clear"
+            leftIcon={trashIcon}
+            disabled={!control.canMutate || !goal}
+            onPress={clear}
           />
-          {goal ? <Text style={styles.elapsed}>{formatGoalElapsed(elapsed)}</Text> : null}
-          <View style={[taskCardStyles.actions, styles.actions]}>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={iconStyle}
-              accessibilityLabel="Clear goal"
-              testID="agent-goal-clear"
-              leftIcon={trashIcon}
-              disabled={!control.canMutate || !goal}
-              onPress={clear}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              style={iconStyle}
-              accessibilityLabel="Edit goal"
-              testID="agent-goal-expand"
-              leftIcon={editIcon}
-              onPress={onExpand}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              style={iconStyle}
-              accessibilityLabel={action}
-              testID="agent-goal-pause-resume"
-              leftIcon={paused ? playIcon : pauseIcon}
-              disabled={!control.canMutate || !goal}
-              loading={control.pending}
-              onPress={toggle}
-            />
-          </View>
-        </View>
+          <Button
+            variant="ghost"
+            size="sm"
+            style={iconStyle}
+            accessibilityLabel="Edit goal"
+            testID="agent-goal-expand"
+            leftIcon={editIcon}
+            onPress={onExpand}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            style={iconStyle}
+            accessibilityLabel={action}
+            testID="agent-goal-pause-resume"
+            leftIcon={paused ? playIcon : pauseIcon}
+            disabled={!control.canMutate || !goal}
+            loading={control.pending}
+            onPress={toggle}
+          />
+        </TaskCardActions>
       </TaskCardHeader>
 
       <CollapsibleCardBody expanded={expanded} testID="agent-goal-body">
@@ -156,14 +148,11 @@ function editIcon(color: string) {
 }
 
 const styles = StyleSheet.create((theme) => ({
-  container: { paddingBottom: theme.spacing[4] },
-  actions: { alignSelf: "flex-start", marginTop: theme.spacing[2] },
   row: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
   copy: { flex: 1, minWidth: 0 },
   objective: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   elapsed: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   touch: { minWidth: 44, minHeight: 44 },
-  actionInset: { paddingRight: theme.spacing[1] },
   errorRow: { alignItems: "flex-start", gap: theme.spacing[1] },
   recoveryAction: { alignSelf: "flex-end" },
   error: { alignSelf: "stretch", color: theme.colors.destructive, fontSize: theme.fontSize.sm },

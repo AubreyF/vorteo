@@ -137,7 +137,6 @@ function SubagentsGroup({
   ...rowActions
 }: SubagentsGroupProps): ReactElement | null {
   const { t } = useTranslation();
-  const touch = useVortonTouch();
   const [expanded, setExpanded] = useState(true);
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const status = kind === "paseo" ? archiveFinishedStatus : IDLE_ARCHIVE_FINISHED_STATUS;
@@ -161,7 +160,7 @@ function SubagentsGroup({
   const canClear = kind === "provider" || Boolean(onArchiveFinished);
   const showClear = canClear && (countFinishedSubagents(rows) > 0 || status.kind !== "idle");
   const header = (
-    <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+    <>
       <TaskCardIcon kind="subagents" />
       <CardDisclosure
         title={title}
@@ -183,7 +182,7 @@ function SubagentsGroup({
           onPress={clearFinished}
         />
       ) : null}
-    </View>
+    </>
   );
   const body = expanded ? (
     <View style={styles.cardRows}>
@@ -201,14 +200,14 @@ function SubagentsGroup({
   return (
     <View testID={`subagents-group-${kind}`}>
       {inline ? (
-        <TaskCard bodyVisible={expanded} contentContainerStyle={styles.card} testID={cardTestID}>
+        <TaskCard bodyVisible={expanded} testID={cardTestID}>
           <TaskCardHeader>{header}</TaskCardHeader>
 
           {body}
         </TaskCard>
       ) : (
         <>
-          {header}
+          <TaskCardHeader>{header}</TaskCardHeader>
           {body}
         </>
       )}
@@ -528,7 +527,6 @@ function SubagentActionButton({
 const styles = StyleSheet.create((theme) => ({
   rowMetadata: { maxWidth: "50%", textAlign: "right" },
   groups: { gap: theme.spacing[3] },
-  card: { paddingLeft: theme.spacing[2] },
   cardRows: {
     marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
   },

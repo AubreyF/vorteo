@@ -1,7 +1,6 @@
-import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
-import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import { TaskCard, TaskCardHeader, TaskCardTitle } from "@/agent-stream/task-card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useState, useCallback, useMemo, useRef, type RefObject } from "react";
 import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
@@ -523,24 +522,21 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
   const showTextInput = activeQuestion ? questionShowsTextInput(activeQuestion) : false;
 
   return (
-    <TaskCard contentContainerStyle={styles.container} testID="question-form-card">
+    <TaskCard testID="question-form-card">
       <TaskCardHeader>
-        <View style={taskCardStyles.bodyContent}>
-          <QuestionNav
-            questions={questions}
-            activeIndex={resolvedActiveQuestionIndex}
-            isAnswered={navIsAnswered}
-            isResponding={isResponding}
-            onSelect={handleSelectQuestion}
-          />
-          <View style={styles.questionHeader}>
-            <TaskCardIcon kind="question" />
-            <Text testID="question-form-current-question" style={questionTextStyle}>
-              {activeQuestion?.question}
-            </Text>
-          </View>
-        </View>
+        <TaskCardIcon kind="question" />
+        <TaskCardTitle>Questions</TaskCardTitle>
       </TaskCardHeader>
+      <QuestionNav
+        questions={questions}
+        activeIndex={resolvedActiveQuestionIndex}
+        isAnswered={navIsAnswered}
+        isResponding={isResponding}
+        onSelect={handleSelectQuestion}
+      />
+      <Text testID="question-form-current-question" style={questionTextStyle}>
+        {activeQuestion?.question}
+      </Text>
 
       {activeQuestion ? (
         <View key={activeQuestion.question} style={styles.questionBlock}>
@@ -621,22 +617,10 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
 }
 
 const styles = StyleSheet.create((theme) => ({
-  container: {
-    paddingVertical: theme.spacing[4],
-    gap: theme.spacing[3],
-  },
   questionBlock: {
     gap: theme.spacing[2],
   },
-  questionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    flexShrink: 0,
-  },
   questionText: {
-    flex: 1,
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.normal,
     lineHeight: 22,
@@ -649,7 +633,6 @@ const styles = StyleSheet.create((theme) => ({
     flexWrap: "wrap",
     alignItems: "center",
     gap: theme.spacing[1],
-    paddingHorizontal: theme.spacing[3],
   },
   questionNavButton: {
     flexDirection: "row",
@@ -666,9 +649,9 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.normal,
   },
   optionItem: {
+    paddingHorizontal: theme.spacing[3],
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
     borderRadius: theme.borderRadius.md,
   },
@@ -714,9 +697,9 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: 999,
   },
   otherInput: {
+    paddingHorizontal: theme.spacing[3],
     borderWidth: 1,
     borderRadius: theme.borderRadius.lg,
-    paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[3],
     fontSize: theme.fontSize.base,
   },
@@ -728,8 +711,8 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
   },
   actionButton: {
-    paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
     borderRadius: theme.borderRadius.md,
     alignItems: "center",
     borderWidth: theme.borderWidth[1],

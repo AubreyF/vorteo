@@ -104,7 +104,7 @@ function QueueViewContent({
   });
   return (
     <TaskCard testID="shared-message-queue" bodyVisible={expanded}>
-      <TaskCardHeader>
+      <TaskCardHeader testID="message-queue-header">
         <QueueHeader control={control} expanded={expanded} toggleExpanded={toggleExpanded} />
       </TaskCardHeader>
 
@@ -178,10 +178,7 @@ function QueueHeader({
         .catch(() => {});
   }, [control, snapshot]);
   return (
-    <View
-      style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}
-      testID="message-queue-header"
-    >
+    <>
       <TaskCardIcon kind="messages" />
       <CardDisclosure
         title="Messages"
@@ -198,11 +195,11 @@ function QueueHeader({
         accessibilityLabel={snapshot?.paused ? "Resume queue" : "Pause queue"}
         testID="message-queue-pause-resume"
         leftIcon={snapshot?.paused ? Play : Pause}
-        style={touch && styles.touch}
+        style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
         disabled={!control.canMutate || !snapshot}
         onPress={toggle}
       />
-    </View>
+    </>
   );
 }
 

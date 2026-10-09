@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.242 - 2026-10-09
+
+### Fixed
+
+- Give conversation cards one shared inset, heading height, icon column, title typography and centered action row. Remove the sub-agent left offset and Goal action top margin; keep Clear finished equally inset from the top and right.
+- Put disclosure arrows after titles and before counts, including Plans. Keep question navigation and full prompts below a fixed Questions heading.
+- Prevent per-card content inset overrides. Document the layout contract in app instructions and the design guide, and check rendered alignment, visible titles, clearance, overflow and fixed headers at desktop and phone widths.
+
 ## 0.11.0-beta.3.vorteo.241 - 2026-10-09
 
 ### Fixed

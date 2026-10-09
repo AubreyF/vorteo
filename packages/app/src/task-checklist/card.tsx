@@ -108,32 +108,30 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     <>
       <TaskCard testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
         <TaskCardHeader>
-          <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-            <ChecklistProgressFlower {...progress} testID="checklist-progress" />
-            <CardDisclosure
-              title="Tasks"
-              expanded={expanded}
-              onPress={toggleExpanded}
-              count={countBadge}
-              testID="checklist-toggle"
-            />
-            <Button
-              size="sm"
-              variant="ghost"
-              style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
-              disabled={!canMutate}
-              onPress={add}
-              testID="checklist-add"
-              accessibilityLabel="Add task"
-              leftIcon={Plus}
-            />
-            <ClearCompletedButton
-              available={tasks.some(canClearTask)}
-              pending={clearMutation.isPending}
-              disabled={!canMutate}
-              onPress={clearCompleted}
-            />
-          </View>
+          <ChecklistProgressFlower {...progress} testID="checklist-progress" />
+          <CardDisclosure
+            title="Tasks"
+            expanded={expanded}
+            onPress={toggleExpanded}
+            count={countBadge}
+            testID="checklist-toggle"
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            style={[taskCardStyles.iconAction, touch && taskCardStyles.touchAction]}
+            disabled={!canMutate}
+            onPress={add}
+            testID="checklist-add"
+            accessibilityLabel="Add task"
+            leftIcon={Plus}
+          />
+          <ClearCompletedButton
+            available={tasks.some(canClearTask)}
+            pending={clearMutation.isPending}
+            disabled={!canMutate}
+            onPress={clearCompleted}
+          />
         </TaskCardHeader>
 
         {expanded && tasks.length > 0 ? (

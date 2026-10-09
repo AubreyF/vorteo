@@ -145,10 +145,11 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
       expect(geometry[0].frame[3]).toBe("8px");
-      expect(geometry[2].padding).toBe("8px");
+      expect(geometry[2].padding).toBe("12px");
       for (const card of geometry.slice(2)) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
+      await checkHeadingGeometry(stack, width);
       await checkDisclosures(stack, width, info);
       await checkSubagentRows(stack, width, info);
       const toggle = stack.getByTestId("subagents-group-paseo-toggle");
@@ -158,7 +159,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         if (!row) throw new Error("Subagent header row missing");
         return row.getBoundingClientRect().height;
       });
-      expect(headerHeight).toBe(rowHeight - 8);
+      expect(headerHeight).toBe(rowHeight);
       const clearFinished = stack.getByTestId("subagents-track-archive-finished");
       await expect(clearFinished).toBeVisible();
       expect((await clearFinished.boundingBox())?.height).toBe(headerHeight);
@@ -184,7 +185,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const subagentScrolls = await page
         .getByTestId("subagents-card-body-scroll")
         .evaluate((node) => node.scrollHeight > node.clientHeight);
-      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(8, 0);
+      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(12, 0);
       if (width === 1400) {
         const composerFrame = await page.getByTestId("message-input-surface").evaluate((node) => {
           const style = getComputedStyle(node);
@@ -194,9 +195,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       for (const card of geometry.slice(3)) {
         expect(card.frame).toEqual(geometry[2].frame);
-        const bottomPadding = card.id === "agent-goal-bar" ? 16 : 8;
-        const leftPadding = width === 390 ? 12 : 16;
-        expect(card.padding).toBe(`8px 8px ${bottomPadding}px ${leftPadding}px`);
+        expect(card.padding).toBe("12px");
         expect(card.width).toBe(geometry[2].width);
       }
       const goalActionInset = await stack.getByTestId("agent-goal-bar").evaluate((card) => {
@@ -205,7 +204,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         if (!header || !action) throw new Error("Goal controls missing");
         return action.getBoundingClientRect().top - header.getBoundingClientRect().top;
       });
-      expect(goalActionInset).toBe(8);
+      expect(goalActionInset).toBe(0);
       const movement = await stack.evaluate(async (element) => {
         let scroll = element.parentElement;
         while (
@@ -238,6 +237,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         contentType: "image/png",
       });
     }
+    await captureConsistentCards(page, stack, info);
     await checkFixedHeaders(page, info, client, agent.agentId);
     await page.setViewportSize({ width: 1400, height: 900 });
     await expect(stack.getByTestId("subagents-card")).toBeAttached();
@@ -256,6 +256,80 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await rm(pluginDirectory, { recursive: true, force: true });
   }
 });
+
+// Measure the rendered contract, not component-specific padding implementations.
+async function checkHeadingGeometry(stack: Locator, width: number) {
+  const ids = [
+    "subagents-card",
+    "agent-task-progress-card",
+    "shared-message-queue",
+    "agent-goal-bar",
+    "question-form-card",
+  ];
+  const geometry = await stack.evaluate(
+    (root, cardIds) =>
+      cardIds.map((id) => {
+        const card = root.querySelector(`[data-testid="${id}"]`)!;
+        const header = card.querySelector(`[data-testid="${id}-header"]`)!.firstElementChild!;
+        const icon = header.firstElementChild!;
+        const trigger = icon.nextElementSibling!;
+        const title =
+          trigger.getAttribute("role") === "button" ? trigger.firstElementChild! : trigger;
+        const box = header.getBoundingClientRect();
+        const center = (node: Element) => {
+          const rect = node.getBoundingClientRect();
+          return rect.y + rect.height / 2;
+        };
+        const marks = [
+          icon,
+          title,
+          ...header.querySelectorAll('[data-testid$="-arrow"], [role="button"]'),
+        ];
+        const count = header.querySelector('[data-testid$="-arrow"]')?.nextElementSibling;
+        if (count) marks.push(count);
+        const button = header.querySelector('[data-testid="subagents-track-archive-finished"]');
+        const buttonBox = button?.getBoundingClientRect();
+        const cardBox = card.getBoundingClientRect();
+        return {
+          id,
+          height: box.height,
+          iconX: icon.getBoundingClientRect().x - cardBox.x,
+          titleX: title.getBoundingClientRect().x - cardBox.x,
+          titleWidth: title.getBoundingClientRect().width,
+          offsets: marks.map((node) => center(node) - center(header)),
+          topClearance: buttonBox && buttonBox.top - cardBox.top,
+          rightClearance: buttonBox && cardBox.right - buttonBox.right,
+          overflow: header.scrollWidth > header.clientWidth,
+        };
+      }),
+    ids,
+  );
+  for (const card of geometry) {
+    expect(card.height, card.id).toBe(width === 390 ? 44 : 32);
+    expect(card.titleWidth, card.id).toBeGreaterThan(10);
+    expect(card.iconX, card.id).toBeCloseTo(geometry[0].iconX, 1);
+    expect(card.titleX, card.id).toBeCloseTo(geometry[0].titleX, 1);
+    for (const offset of card.offsets) expect(Math.abs(offset), card.id).toBeLessThanOrEqual(1);
+    expect(card.overflow, card.id).toBe(false);
+  }
+  expect(geometry[0].topClearance).toBeCloseTo(geometry[0].rightClearance!, 1);
+}
+
+async function captureConsistentCards(page: Page, stack: Locator, info: TestInfo) {
+  await page.setViewportSize({ width: 1400, height: 1600 });
+  for (const id of [
+    "subagents-card",
+    "agent-task-progress-card",
+    "shared-message-queue",
+    "agent-goal-bar",
+    "question-form-card",
+  ]) {
+    const card = stack.getByTestId(id);
+    await card.scrollIntoViewIfNeeded();
+    await page.mouse.move(0, 0);
+    await card.screenshot({ path: info.outputPath(`consistent-${id}.png`) });
+  }
+}
 
 async function checkSubagentRows(stack: Locator, width: number, info: TestInfo) {
   const rowLayout = await stack.getByTestId("subagents-card").evaluate((card) => {
@@ -292,6 +366,17 @@ async function checkSubagentRows(stack: Locator, width: number, info: TestInfo) 
     .screenshot({ path: info.outputPath(`single-line-subagents-${width}.png`) });
 }
 
+async function cardHeaderOffset(card: Locator) {
+  // Read both rectangles in one browser frame. Conversation scrolling can occur
+  // between separate boundingBox calls without moving the header inside its card.
+  return card.evaluate((node) => {
+    const header = node.querySelector(
+      `[data-testid="${node.getAttribute("data-testid")}-header"]`,
+    )!;
+    return header.getBoundingClientRect().top - node.getBoundingClientRect().top;
+  });
+}
+
 async function checkFixedHeaders(
   page: Page,
   info: TestInfo,
@@ -299,14 +384,21 @@ async function checkFixedHeaders(
   agentId: string,
 ) {
   for (let index = 0; index < 10; index++) {
-    await client.mutateMessageQueue(agentId, {
+    const result = await client.mutateMessageQueue(agentId, {
       kind: "enqueue",
       operationId: `scroll-queue-${index}`,
       messageId: `scroll-queue-${index}`,
       text: `Scroll queue row ${index}`,
       attachments: [],
     });
+    expect(result.error).toBeNull();
+    expect(result.snapshot?.items.some((item) => item.id === `scroll-queue-${index}`)).toBe(true);
   }
+
+  // Load the persisted overflow fixture before measuring layout. Queue push
+  // delivery is covered separately; this check needs all eleven rows present.
+  await page.reload();
+  await expect(page.getByTestId("shared-message-queue")).toContainText("Scroll queue row 9");
 
   for (const width of [1400, 390]) {
     await page.setViewportSize({ width, height: 400 });
@@ -319,7 +411,7 @@ async function checkFixedHeaders(
       const card = page.getByTestId(id);
       await card.scrollIntoViewIfNeeded();
       const header = page.getByTestId(`${id}-header`);
-      const before = (await header.boundingBox())!;
+      const before = await cardHeaderOffset(card);
       const result = await page.getByTestId(`${id}-body-scroll`).evaluate(async (node) => {
         const first = node.firstElementChild!;
         const contentTop = first.getBoundingClientRect().top;
@@ -333,7 +425,7 @@ async function checkFixedHeaders(
       expect((await card.boundingBox())!.height).toBeLessThanOrEqual(200);
       expect(result.offset).toBeGreaterThan(0);
       expect(result.movement).toBeGreaterThan(0);
-      expect((await header.boundingBox())!.y).toBeCloseTo(before.y, 0);
+      expect(await cardHeaderOffset(card)).toBeCloseTo(before, 0);
       await header.scrollIntoViewIfNeeded();
       await expect(header).toBeInViewport();
       await card.screenshot({ path: info.outputPath(`fixed-header-${id}-${width}.png`) });
