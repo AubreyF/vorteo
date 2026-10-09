@@ -166,3 +166,46 @@ test("late status cannot overwrite a cancellation decision", async () => {
     "separate reviewed request",
   );
 });
+
+test("recorded approval unlocks status and cancellation while a late decision response is ignored", async () => {
+  const item = request();
+  const approved: CoordinatorBootstrapRequest = {
+    ...item,
+    revision: randomUUID(),
+    status: "approved",
+  };
+  const canceled: CoordinatorBootstrapRequest = {
+    ...approved,
+    revision: randomUUID(),
+    status: "canceled",
+  };
+  let current = item;
+  let reject!: (error: Error) => void;
+  let calls = 0;
+  const pending = new Promise<CoordinatorBootstrapRequest[]>((_, fail) => {
+    reject = fail;
+  });
+  const model = new BootstrapPanelModel(() => ({
+    listCoordinatorBootstrapRequests: async () => [current],
+    decideCoordinatorBootstrap: async () => (++calls === 1 ? pending : [canceled]),
+  }));
+  await model.refresh();
+  model.setPassword("fixture");
+  const decision = model.decide(item, "approve");
+  await model.refresh(true);
+  expect(model.getState().busy).toBe(true);
+  await model.decide(item, "approve");
+  expect(calls).toBe(1);
+  current = approved;
+  await model.refresh(true);
+  expect(model.getState().requests).toEqual([approved]);
+  expect(model.getState().busy).toBe(false);
+  model.setPassword("fixture");
+  expect(bootstrapDecisionDisabledReason(approved, model.getState())).toBeNull();
+  await model.decide(approved, "cancel");
+  reject(new Error("Late transport timeout"));
+  await decision;
+  expect(model.getState().requests).toEqual([canceled]);
+  expect(model.getState().error).toBeNull();
+  expect(model.getState().busy).toBe(false);
+});

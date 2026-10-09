@@ -292,3 +292,5 @@ October 9, 2026: Preserved the already-accepted goal-edit source unchanged as an
 October 9, 2026: Completed Host live acceptance of discretionary blocked checklist status and integrated its validated source for public publication. Preserved all installed release entries and concurrent goal-edit and interface changes.
 
 Maintenance review: installation review delivery includes the exact deployed batch ancestry and preserves its release history.
+
+Maintenance review: coordinator review keeps polling during submission and reconciles the durable decision revision before waiting for artifact verification. Late decision responses cannot overwrite newer approval or cancellation state.
