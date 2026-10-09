@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.266 - 2026-10-09
+
+### Maintenance
+
+- Integrate the published card-header hover padding with automatic coordinator recovery, preserving both source histories and release notes.
+
+## 0.11.0-beta.3.vorteo.264 - 2026-10-09
+
+### Maintenance
+
+- Preserve the currently published installation controls and journal integration while delivering padded card heading hover backgrounds.
+
+## 0.11.0-beta.3.vorteo.261 - 2026-10-09
+
+### Fixed
+
+- Give card disclosure hover backgrounds horizontal padding while preserving title alignment with the other card headings.
+
 ## 0.11.0-beta.3.vorteo.265 - 2026-10-09
 
 ### Fixed
