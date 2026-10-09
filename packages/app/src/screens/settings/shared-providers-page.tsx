@@ -599,12 +599,10 @@ function ProviderCatalog({
     <View>
       <SettingsSection
         title="Shared providers"
+        status={change.isPending ? "Saving provider settings..." : null}
         info="Changes apply across environments. Manage exclusions in Environment exceptions."
       >
         {change.isError ? <Alert variant="error" description={change.error.message} /> : null}
-        {change.isPending ? (
-          <Text style={settingsStyles.rowHint}>Saving shared provider settings...</Text>
-        ) : null}
         <DraggableList
           data={families}
           keyExtractor={familyKey}

@@ -55,6 +55,8 @@ October 9, 2026: Integrated shared action footers with queue recovery containmen
 
 ## Projects, devices and interface
 
+- **Stable card status.** Queue control operations and edits report pending progress in the Messages heading, ahead of its action buttons, instead of adding temporary rows. Provider order, shared provider/plugin settings and host setting saves use heading status slots; compaction copy/export feedback stays in its action heading. Persistent errors and local recovery controls remain visible in the body.
+
 - **Consistent form and card actions.** Shared footer rows right-align ordinary actions with space above and wrapping on narrow screens. Task and label editors and host removal confirmations keep red delete actions at the far left. This covers app-rendered footers; operating-system confirmation dialogs retain platform layout. See [form footer rules](forms.md#footer-actions).
 
 - **PR merge activity in the sidebar.** The existing second-line PR link shows Awaiting merge when GitHub reports auto-merge or actual merge-queue membership, and Merging while a merge submitted through this client is pending. Confirmed merged or closed state takes precedence. Shell commands and merges submitted from other clients do not establish local pending activity. Missing or invalid facts retain the ordinary PR display.

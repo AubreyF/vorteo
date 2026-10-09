@@ -302,3 +302,7 @@ Vorteo uses the centered hidden-turn V signature. The approved color and white r
 Run `node scripts/generate-vorteo-icons.mjs` with ImageMagick and Potrace installed to regenerate app, browser status, website, Apple touch, PWA, Android and desktop assets. On macOS, the script also uses the system `iconutil` to package the desktop icon. Desktop backgrounds have rounded corners; mobile and web app backgrounds let the operating system apply its mask.
 
 Installed web app icons and the manifest use content-addressed filenames. Keep older public assets for open clients and the guarded publisher. The HTML template owns the initial favicon and Apple touch icon; Expo's asset pipeline owns the status favicons. A source update requires a rebuilt installation before its icon changes. Existing Safari web apps may need their icon refreshed or the web app added again.
+
+### Transient card status
+
+Brief progress messages belong at the right edge of the heading, immediately before its action buttons. Use `CardHeaderStatus` as a mounted single-line slot, including while idle, so status changes cannot add a row or change card height. Truncate long text visually while preserving its accessible label. Keep persistent errors and recovery controls in the body where users can read and act on them. Settings sections expose the same slot through `status`.

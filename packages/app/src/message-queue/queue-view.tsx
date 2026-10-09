@@ -1,3 +1,4 @@
+import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
 import { CountBadge } from "@/components/ui/count-badge";
@@ -95,7 +96,7 @@ function QueueViewContent({
     return null;
   const recovery = control.pending.filter((record) => {
     const operation = record.operation;
-    if (operation.kind !== "enqueue") return true;
+    if (operation.kind !== "enqueue") return !!record.error || !!record.dismissed;
     return !!record.error && !!snapshot?.items.some((item) => item.id === operation.messageId);
   });
   return (
@@ -109,7 +110,6 @@ function QueueViewContent({
           {edits.error.message}
         </Text>
       ) : null}
-      {control.loading ? <Text style={styles.secondary}>Loading queue...</Text> : null}
       {control.error ? (
         <View style={styles.row}>
           <Text style={styles.error} accessibilityRole="alert">
@@ -133,6 +133,19 @@ function QueueViewContent({
 function QueueHeader({ control }: { control: MessageQueueControl }) {
   const touch = useVortonTouch();
   const snapshot = control.snapshot;
+  const pending = control.pending.filter(
+    (record) => !record.error && !record.dismissed && record.operation.kind !== "enqueue",
+  );
+  const operation = pending[0];
+  let status: string | null = null;
+  if (snapshot?.paused) status = "Paused";
+  if (!control.connected) status = "Offline";
+  if (control.loading) status = "Loading queue...";
+  if (operation) {
+    status =
+      operation.operation.kind === "edit" ? "Saving message" : describePendingChange(operation);
+    if (pending.length > 1) status += ` (+${pending.length - 1})`;
+  }
   const toggle = useCallback(() => {
     if (snapshot)
       void control
@@ -144,13 +157,14 @@ function QueueHeader({ control }: { control: MessageQueueControl }) {
         .catch(() => {});
   }, [control, snapshot]);
   return (
-    <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+    <View
+      style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}
+      testID="message-queue-header"
+    >
       <TaskCardIcon kind="messages" />
       <Text style={taskCardStyles.heading}>Messages</Text>
       <QueueCountBadge control={control} />
-      <View style={styles.heading} />
-      {!control.connected ? <Text style={styles.secondary}>Offline</Text> : null}
-      {control.connected && snapshot?.paused ? <Text style={styles.secondary}>Paused</Text> : null}
+      <CardHeaderStatus text={status} testID="message-queue-header-status" />
       <Button
         variant="ghost"
         size="sm"

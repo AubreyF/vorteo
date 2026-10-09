@@ -1,3 +1,4 @@
+import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { ActionFooter } from "@/components/ui/action-footer";
 import React, { memo, useCallback, useMemo, useState } from "react";
 import { Text, View } from "react-native";
@@ -138,6 +139,7 @@ function SummaryContent({ text, timestamp }: { text: string; timestamp: Date }) 
   return (
     <>
       <ActionFooter style={styles.actions}>
+        <CardHeaderStatus text={action !== "idle" ? t(`message.compaction.${action}`) : null} />
         <Button variant="ghost" size="md" leftIcon={Copy} disabled={pending} onPress={copy}>
           {t("message.compaction.copy")}
         </Button>
@@ -145,11 +147,6 @@ function SummaryContent({ text, timestamp }: { text: string; timestamp: Date }) 
           {t("message.compaction.download")}
         </Button>
       </ActionFooter>
-      {action !== "idle" ? (
-        <Text accessibilityLiveRegion="polite" style={styles.metadata}>
-          {t(`message.compaction.${action}`)}
-        </Text>
-      ) : null}
       <Text selectable style={styles.summary} testID="compaction-summary">
         {text}
       </Text>

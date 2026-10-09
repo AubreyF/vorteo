@@ -1,3 +1,4 @@
+import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { ActionFooter, ActionFooterLeading } from "@/components/ui/action-footer";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -928,13 +929,8 @@ function useSettingsMutation(serverId: string) {
   return { config, mutation };
 }
 
-function SettingsSaveStatus({ pending, error }: { pending: boolean; error: Error | null }) {
-  return (
-    <>
-      {pending ? <Text style={settingsStyles.rowHint}>Saving settings...</Text> : null}
-      {error ? <InlineAlert variant="error" description={error.message} /> : null}
-    </>
-  );
+function SettingsSaveStatus({ error }: { error: Error | null }) {
+  return error ? <InlineAlert variant="error" description={error.message} /> : null;
 }
 
 function InjectPaseoToolsCard({ serverId }: { serverId: string }) {
@@ -955,9 +951,12 @@ function InjectPaseoToolsCard({ serverId }: { serverId: string }) {
     <View style={settingsStyles.card} testID="host-page-inject-mcp-card">
       <View style={settingsStyles.row}>
         <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>
-            {t("settings.host.orchestration.enableTools.title")}
-          </Text>
+          <View style={styles.savingHeader}>
+            <Text style={[settingsStyles.rowTitle, styles.savingTitle]} numberOfLines={1}>
+              {t("settings.host.orchestration.enableTools.title")}
+            </Text>
+            <CardHeaderStatus text={mutation.isPending ? "Saving..." : null} />
+          </View>
           <Text style={settingsStyles.rowHint}>
             {t("settings.host.orchestration.enableTools.hint")}
           </Text>
@@ -969,7 +968,7 @@ function InjectPaseoToolsCard({ serverId }: { serverId: string }) {
           accessibilityLabel={t("settings.host.orchestration.enableTools.accessibilityLabel")}
         />
       </View>
-      <SettingsSaveStatus pending={mutation.isPending} error={mutation.error} />
+      <SettingsSaveStatus error={mutation.error} />
     </View>
   );
 }
@@ -991,7 +990,12 @@ function AutoArchiveMergedWorkspacesCard({ serverId }: { serverId: string }) {
     <View style={settingsStyles.card} testID="host-page-auto-archive-merged-workspaces-card">
       <View style={settingsStyles.row}>
         <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>Archive merged PR workspaces</Text>
+          <View style={styles.savingHeader}>
+            <Text style={[settingsStyles.rowTitle, styles.savingTitle]} numberOfLines={1}>
+              Archive merged PR workspaces
+            </Text>
+            <CardHeaderStatus text={mutation.isPending ? "Saving..." : null} />
+          </View>
           <Text style={settingsStyles.rowHint}>
             Automatically archive clean Vorteo workspaces after their pull request is merged
           </Text>
@@ -1004,7 +1008,7 @@ function AutoArchiveMergedWorkspacesCard({ serverId }: { serverId: string }) {
           testID="host-page-auto-archive-merged-workspaces-switch"
         />
       </View>
-      <SettingsSaveStatus pending={mutation.isPending} error={mutation.error} />
+      <SettingsSaveStatus error={mutation.error} />
     </View>
   );
 }
@@ -1026,7 +1030,12 @@ function EnableTerminalAgentHooksCard({ serverId }: { serverId: string }) {
     <View style={settingsStyles.card} testID="host-page-terminal-agent-hooks-card">
       <View style={settingsStyles.row}>
         <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>Enable terminal agent hooks</Text>
+          <View style={styles.savingHeader}>
+            <Text style={[settingsStyles.rowTitle, styles.savingTitle]} numberOfLines={1}>
+              Enable terminal agent hooks
+            </Text>
+            <CardHeaderStatus text={mutation.isPending ? "Saving..." : null} />
+          </View>
           <Text style={settingsStyles.rowHint}>
             Get notifications and status from terminal agents. This installs hooks in your agent
             config files.
@@ -1040,7 +1049,7 @@ function EnableTerminalAgentHooksCard({ serverId }: { serverId: string }) {
           testID="host-page-terminal-agent-hooks-switch"
         />
       </View>
-      <SettingsSaveStatus pending={mutation.isPending} error={mutation.error} />
+      <SettingsSaveStatus error={mutation.error} />
     </View>
   );
 }
@@ -1127,7 +1136,7 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
             editable={!isSaving}
             placeholder={t("settings.host.orchestration.systemPrompt.placeholder")}
           />
-          <SettingsSaveStatus pending={isSaving} error={mutation.error} />
+          <SettingsSaveStatus error={mutation.error} />
           <ActionFooter style={styles.appendPromptActions}>
             <Button
               variant="ghost"
@@ -1727,6 +1736,8 @@ const terminalProfileStyles = StyleSheet.create((theme) => ({
 }));
 
 const styles = StyleSheet.create((theme) => ({
+  savingHeader: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
+  savingTitle: { maxWidth: "70%", flexShrink: 1 },
   updateFailure: {
     marginHorizontal: theme.spacing[4],
     marginBottom: theme.spacing[4],

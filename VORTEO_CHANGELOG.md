@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.235 - 2026-10-09
+
+### Fixed
+
+- Keep transient queue operations, settings saves and compaction action feedback in stable single-line heading slots before action buttons. Reordering no longer adds and removes a progress row beneath queued messages.
+- Preserve persistent errors and recovery controls. Add desktop and phone checks for unchanged queue card height, plus missing icon exports needed by browser test fixtures.
+
 ## 0.11.0-beta.3.vorteo.234 - 2026-10-09
 
 ### Maintenance

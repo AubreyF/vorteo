@@ -88,7 +88,9 @@ test("recovery stays in the Messages card and obsolete send controls retire on r
       expect(bounds!.height).toBeLessThanOrEqual(451);
       expect(bounds!.width).toBeLessThanOrEqual(width);
       await test.info().attach(`recovery-card-${width}`, {
-        body: await card.screenshot(),
+        body: await card.screenshot({
+          path: test.info().outputPath(`queue-heading-status-${width}.png`),
+        }),
         contentType: "image/png",
       });
     }
@@ -181,3 +183,95 @@ test("recovery stays in the Messages card and obsolete send controls retire on r
     await agent.cleanup();
   }
 });
+
+for (const width of [1440, 390]) {
+  test(`queue progress stays in the heading without height changes at ${width}px`, async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize({ width, height: 900 });
+    const agent = await seedMockAgentWorkspace({
+      repoPrefix: "queue-status-",
+      title: "Queue status",
+    });
+    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "queue-status" });
+    try {
+      const queue = await client.readMessageQueue(agent.agentId);
+      await client.mutateMessageQueue(agent.agentId, {
+        kind: "pause",
+        operationId: "pause-status",
+        paused: true,
+        expectedRevision: queue.snapshot!.revision,
+      });
+      for (const id of ["first", "second"]) {
+        await client.mutateMessageQueue(agent.agentId, {
+          kind: "enqueue",
+          operationId: `enqueue-${id}`,
+          messageId: id,
+          text: `Queued ${id}`,
+          attachments: [],
+        });
+      }
+      await openAgentRoute(page, agent);
+      const card = page.getByTestId("shared-message-queue");
+      const header = page.getByTestId("message-queue-header");
+      const status = page.getByTestId("message-queue-header-status");
+      await expect(card).toContainText("Queued second");
+      await expect(status).toHaveText("Paused");
+      await page.evaluate(() => {
+        const send = WebSocket.prototype.send;
+        const held: (() => void)[] = [];
+        WebSocket.prototype.send = function (data) {
+          if (
+            typeof data === "string" &&
+            JSON.parse(data).message?.type === "agent.queue.mutate.request"
+          ) {
+            held.push(() => send.call(this, data));
+          } else send.call(this, data);
+        };
+        Object.assign(window, {
+          releaseQueueStatus: () => held.splice(0).forEach((release) => release()),
+        });
+      });
+      const before = (await card.boundingBox())!;
+      const headerBefore = (await header.boundingBox())!;
+      const handle = card
+        .getByRole("button", { name: "Reorder queued message", exact: true })
+        .first();
+      await handle.focus();
+      await page.keyboard.press("Space");
+      await expect(handle).toHaveAttribute("aria-pressed", "true");
+      await page.keyboard.press("ArrowDown");
+      await expect(
+        page.getByRole("status").filter({ hasText: "Draggable item first" }),
+      ).toContainText("over droppable area second");
+      await page.keyboard.press("Space");
+      await expect(status).toHaveText("Reorder queued messages");
+      const during = (await card.boundingBox())!;
+      const headerDuring = (await header.boundingBox())!;
+      const statusBox = (await status.boundingBox())!;
+      const actionBox = (await page.getByTestId("message-queue-pause-resume").boundingBox())!;
+      expect(during.height).toBeCloseTo(before.height, 0);
+      expect(headerDuring.height).toBeCloseTo(headerBefore.height, 0);
+      expect(statusBox.x + statusBox.width).toBeLessThanOrEqual(actionBox.x);
+      expect(statusBox.y).toBeGreaterThanOrEqual(headerDuring.y);
+      expect(statusBox.y + statusBox.height).toBeLessThanOrEqual(
+        headerDuring.y + headerDuring.height,
+      );
+      await test.info().attach(`queue-heading-status-${width}`, {
+        body: await card.screenshot({
+          path: test.info().outputPath(`queue-heading-status-${width}.png`),
+        }),
+        contentType: "image/png",
+      });
+      await page.evaluate(() =>
+        (window as unknown as { releaseQueueStatus(): void }).releaseQueueStatus(),
+      );
+      await expect(status).toHaveText("Paused");
+      expect((await card.boundingBox())!.height).toBeCloseTo(before.height, 0);
+    } finally {
+      await client.close();
+      await agent.cleanup();
+    }
+  });
+}
