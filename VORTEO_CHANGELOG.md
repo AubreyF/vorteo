@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.219 - 2026-10-08
+
+### Fixed
+
+- Preserve agent-message attribution through coordinator delegation and task creation so conversation navigation can distinguish these prompts from owner messages. Delegated prompts no longer create owner-message evidence, and retries cannot change a saved message's attribution.
+
 ## 0.11.0-beta.3.vorteo.218 - 2026-10-08
 
 ### Fixed

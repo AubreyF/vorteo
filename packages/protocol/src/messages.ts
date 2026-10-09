@@ -1475,6 +1475,8 @@ export const SendAgentMessageRequestSchema = z.object({
   agentId: z.string(),
   text: z.string(),
   messageId: z.string().optional(), // Client-provided ID for deduplication
+  // Attribution only: this cannot assert owner identity or grant permissions.
+  origin: z.literal("agent").optional(),
   activeTurnBehavior: ActiveTurnBehaviorSchema.optional(),
   images: z.array(ImageAttachmentSchema).optional(),
   attachments: AgentAttachmentsSchema,
@@ -1832,6 +1834,8 @@ export const CreateAgentRequestMessageSchema = z.object({
   // Optional caller context lets managed CLI invocations use the same daemon-owned
   // workspace and parentage policy as agent-scoped MCP creation.
   callerAgentId: z.string().optional(),
+  // Attribution for delegation from an agent on another daemon.
+  origin: z.literal("agent").optional(),
   worktreeName: z.string().optional(),
   initialPrompt: z.string().optional(),
   initialGoal: AgentGoalSetInputSchema.optional(),

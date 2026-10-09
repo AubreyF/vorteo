@@ -288,6 +288,7 @@ test("delegated creation resolves a paginated workspace to its working directory
     workspaceId: request.workspaceId,
     title: request.title,
     initialPrompt: request.initialPrompt,
+    origin: "agent",
     idempotencyKey: request.idempotencyKey,
     model: undefined,
   });

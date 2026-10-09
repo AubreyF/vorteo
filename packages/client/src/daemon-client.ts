@@ -445,6 +445,7 @@ export interface DaemonClientTrace {
 }
 
 export interface SendMessageOptions {
+  origin?: SendAgentMessageRequest["origin"];
   messageId?: string;
   /** What happens when the agent is mid-turn. The daemon interrupts the turn when omitted. */
   activeTurnBehavior?: ActiveTurnBehavior;
@@ -471,6 +472,7 @@ export interface CreateAgentRequestOptions extends AgentConfigOverrides {
   env?: CreateAgentRequestMessage["env"];
   workspaceId?: string;
   callerAgentId?: string;
+  origin?: CreateAgentRequestMessage["origin"];
   initialPrompt?: string;
   initialGoal?: import("@getpaseo/protocol/agent-goals").AgentGoalSetInput;
   idempotencyKey?: string;
@@ -2906,6 +2908,7 @@ export class DaemonClient {
       ...(options.env ? { env: options.env } : {}),
       ...(options.workspaceId !== undefined ? { workspaceId: options.workspaceId } : {}),
       ...(options.callerAgentId !== undefined ? { callerAgentId: options.callerAgentId } : {}),
+      ...(options.origin ? { origin: options.origin } : {}),
       ...(options.initialPrompt ? { initialPrompt: options.initialPrompt } : {}),
       ...(options.initialGoal ? { initialGoal: options.initialGoal } : {}),
       idempotencyKey: options.idempotencyKey,
@@ -3533,6 +3536,7 @@ export class DaemonClient {
       text,
       ...(messageId ? { messageId } : {}),
       ...(options?.activeTurnBehavior ? { activeTurnBehavior: options.activeTurnBehavior } : {}),
+      ...(options?.origin ? { origin: options.origin } : {}),
       ...(options?.images ? { images: options.images } : {}),
       ...(options?.attachments ? { attachments: options.attachments } : {}),
     });
@@ -7415,6 +7419,7 @@ function resolveAgentConfig(options: CreateAgentRequestOptions): AgentSessionCon
     idempotencyKey: _idempotencyKey,
     clientMessageId: _clientMessageId,
     callerAgentId: _callerAgentId,
+    origin: _origin,
     outputSchema: _outputSchema,
     attachments: _attachments,
     worktree: _worktree,

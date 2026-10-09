@@ -4742,7 +4742,7 @@ export class Session {
           onCreated: async ({ agentId: registeredAgentId }) => {
             createdAgentId = registeredAgentId;
             await recordCreated?.(registeredAgentId);
-            if (initialPrompt && !msg.callerAgentId) {
+            if (initialPrompt && !msg.callerAgentId && !msg.origin) {
               await this.ownerEvidence.record({
                 taskId: registeredAgentId,
                 principalId: this.principalId,
@@ -4756,6 +4756,7 @@ export class Session {
           worktreeName,
           initialPrompt,
           initialGoal: msg.initialGoal,
+          origin: msg.callerAgentId ? "agent" : msg.origin,
           clientMessageId,
           outputSchema,
           images,
@@ -8803,13 +8804,17 @@ export class Session {
     try {
       const agentId = resolved.agentId;
 
-      await this.ownerEvidence.record({
-        taskId: agentId,
-        principalId: this.principalId,
-        clientId: this.clientId,
-        messageId: msg.messageId ?? msg.requestId,
-        text: msg.text,
-      });
+      const recordOwnerMessage = async () => {
+        if (!msg.origin) {
+          await this.ownerEvidence.record({
+            taskId: agentId,
+            principalId: this.principalId,
+            clientId: this.clientId,
+            messageId: msg.messageId ?? msg.requestId,
+            text: msg.text,
+          });
+        }
+      };
       const prompt = buildAgentPrompt(msg.text, msg.images, msg.attachments);
       this.sessionLogger.trace(
         {
@@ -8828,6 +8833,7 @@ export class Session {
           prompt,
           messageId: msg.messageId,
           activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
+          runOptions: msg.origin ? { origin: msg.origin } : undefined,
           clearPendingPermissions: true,
           logger: this.sessionLogger,
         });
@@ -8843,13 +8849,19 @@ export class Session {
         await this.messageReceipts.send({
           agentId,
           messageId: msg.messageId,
-          request: { prompt, activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt" },
+          request: {
+            prompt,
+            activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
+            ...(msg.origin ? { origin: msg.origin } : {}),
+          },
           prepare: async () => {
             await this.prepareAgentMessage(agentId, msg.text);
+            await recordOwnerMessage();
           },
           send,
         });
       } else {
+        await recordOwnerMessage();
         await send();
       }
 
