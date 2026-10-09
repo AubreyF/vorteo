@@ -93,7 +93,8 @@ export const ChatOutlineRail = memo(function ChatOutlineRail({
               index={index}
               seq={prompt.seq}
               preview={prompt.preview}
-              label={`${index + 1} of ${prompts.length}: ${prompt.preview}`}
+              isAgentMessage={prompt.origin === "agent"}
+              label={`${index + 1} of ${prompts.length}: ${prompt.origin === "agent" ? "Agent message: " : ""}${prompt.preview}`}
               isActive={prompt.seq === activeSeq}
               hasAttention={index === attentionIndex}
               magnification={
@@ -116,6 +117,7 @@ interface ChatOutlineTickProps {
   index: number;
   seq: number;
   preview: string;
+  isAgentMessage: boolean;
   label: string;
   isActive: boolean;
   hasAttention: boolean;
@@ -129,6 +131,7 @@ const ChatOutlineTick = memo(function ChatOutlineTick({
   index,
   seq,
   preview,
+  isAgentMessage,
   label,
   isActive,
   hasAttention,
@@ -152,6 +155,8 @@ const ChatOutlineTick = memo(function ChatOutlineTick({
   const pillHeight =
     RESTING_PILL_HEIGHT + magnification * (MAGNIFIED_PILL_HEIGHT - RESTING_PILL_HEIGHT);
 
+  const markWidth = isAgentMessage ? pillHeight + (isActive ? 2 : 0) : pillWidth;
+
   return (
     <View style={styles.slot} onPointerEnter={handlePointerEnter}>
       <Pressable
@@ -165,11 +170,12 @@ const ChatOutlineTick = memo(function ChatOutlineTick({
         testID={`chat-outline-tick-${seq}`}
       >
         <View
+          testID={`chat-outline-mark-${seq}`}
           style={[
             styles.pill,
             isActive && styles.pillActive,
             hasAttention && styles.pillAttention,
-            inlineUnistylesStyle({ width: pillWidth, height: pillHeight }),
+            inlineUnistylesStyle({ width: markWidth, height: pillHeight }),
           ]}
         />
       </Pressable>

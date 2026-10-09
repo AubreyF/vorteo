@@ -391,6 +391,8 @@ export type AgentTimelineItem =
       messageId?: string;
       clientMessageId?: string;
       intent?: "goal";
+      /** Set only by trusted agent dispatch, never inferred from prompt text. */
+      origin?: "agent";
       queue?: import("./message-queue.js").QueuePresentation;
     }
   | { type: "assistant_message"; text: string; messageId?: string }
