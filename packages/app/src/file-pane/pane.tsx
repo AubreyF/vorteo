@@ -457,6 +457,7 @@ function FilePanePresentation({
       {preview ? (
         <FilePanelBar
           size={preview.size}
+          textContent={preview.kind === "text" ? (preview.content ?? "") : undefined}
           lineCount={lineCount}
           mode={previewMode}
           onModeChange={onPreviewModeChange}
@@ -617,6 +618,7 @@ function EditableFilePane({
           snapshot.observedVersion.status === "ready" ? snapshot.observedVersion.size : preview.size
         }
         lineCount={snapshot.content.split("\n").length}
+        textContent={snapshot.content}
         editorStatus={snapshot.status}
         cursor={showSource ? cursor : undefined}
         vimMode={showSource ? vimMode : null}

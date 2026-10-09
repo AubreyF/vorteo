@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Added
+
+- Add Copy all to text-file toolbars, including current edits and empty files, with translated labels and responsive controls at compact widths.
+
 ## 0.11.0-beta.3.vorteo.269 - 2026-10-09
 
 ### Fixed

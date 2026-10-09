@@ -1872,6 +1872,7 @@ export const ko: TranslationResources = {
         cursor: "{{line}} 라인, {{column}} 열",
         preview: "미리보기",
         source: "소스",
+        copyAll: "모두 복사",
         deletedTitle: "디스크에서 파일이 삭제되었습니다.",
         checkFailedTitle: "디스크의 파일을 확인할 수 없습니다.",
         preservedDescription: "열린 복사본은 보존됩니다.",

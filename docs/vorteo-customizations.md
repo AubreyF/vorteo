@@ -85,7 +85,7 @@ October 9, 2026: Integrated shared action footers with queue recovery containmen
 - **Task visibility and navigation.** Sidebar activity badges show queued messages, managed workers and active goals, with a visibility preference. Search, History, Schedules and Settings remain accessible; configured search shortcuts appear in the tooltip. Archiving a workspace returns to the empty New workspace page. Usage stays beside account selection rather than in the sidebar.
 - **Unified settings navigation.** One installation navigation exposes shared settings and environment exceptions. Environment tabs stay visible above scrolling details. Settings tabs use a full-width baseline and rounded top corners. Agent profiles shows one provider family at a time; defaults use an available account catalog and provider-discovered skills. Navigation starts with General, Environments, Providers and Agent profiles; editor preferences explain Vim modes and basic commands.
 - **Repository access.** Settings and Open Project share one GitHub footer linking to `AubreyF/vorteo`, replacing the upstream Star, Sponsor and Community links.
-- **File downloads.** Binary previews offer a visible Download button, including files opened from conversation links.
+- **File copying and downloads.** Text-file toolbars offer Copy all beside Preview and Source, copying the full current text, including unsaved edits and empty files. Images and binary previews omit Copy all. Binary previews offer a visible Download button, including files opened from conversation links.
 
 ## Product identity and release tracking
 
@@ -306,3 +306,5 @@ Maintenance review: coordinator review keeps polling during submission and recon
 Maintenance review: journal integration preserves the deployed installation review and goal controls. The journal card remains gated by daemon support; Host and Dev runtime acceptance is required before closeout.
 
 October 9, 2026: Integrated the published card-header hover padding with coordinator recovery. Both source histories and complete release entries are retained; runtime journal acceptance remains pending.
+
+Maintenance review (2026-10-09): Copy all uses the shared clipboard utility and localized feedback. Preview and Source copy the current full text; image and binary views omit the action. Toolbar controls wrap together at compact widths. Real browser checks cover clipboard equality, unsaved edits, empty files, long files, and desktop and compact layouts.

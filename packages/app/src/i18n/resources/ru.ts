@@ -1894,6 +1894,7 @@ export const ru: TranslationResources = {
         cursor: "Строка {{line}}, столбец {{column}}",
         preview: "Предпросмотр",
         source: "Исходный текст",
+        copyAll: "Копировать всё",
         deletedTitle: "Файл удалён с диска",
         checkFailedTitle: "Не удалось проверить файл на диске",
         preservedDescription: "Открытая копия сохранена в редакторе.",
