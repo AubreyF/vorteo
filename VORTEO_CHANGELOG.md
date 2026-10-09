@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.227 - 2026-10-08
+
+### Maintenance
+
+- Add inert coordinator bootstrap request contracts, independent owner authentication, exact revision checks and durable private request storage
+- Validate complete prepared runtime artifacts, including dependencies, permissions and internal links, and reject paths overlapping writable container mounts
+- Cover stale approval, concurrent cancellation and preparation, credential changes and artifact integrity in isolated tests; Host API, interface and lifecycle activation remain unfinished
+
 ## 0.11.0-beta.3.vorteo.226 - 2026-10-08
 
 ### Maintenance

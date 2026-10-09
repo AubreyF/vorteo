@@ -95,6 +95,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Coordinator bootstrap now has an inert request and authentication core with revision-bound decisions, private atomic storage, complete artifact hashing and writable-mount overlap checks. Isolated tests cover cancellation races, stale decisions, authentication changes and altered runtime files. Host API admission, visible controls, lifecycle execution and live acceptance remain unfinished; this core does not enable coordinator replacement.
+
 October 8, 2026: Extended agent-message attribution through coordinator delegation and both creation transports. Isolated daemon coverage checks saved messages, replay and owner-evidence separation. This is a conversation navigation refinement; README overview and onboarding are unchanged.
 
 October 8, 2026: Agent creation accepts a revised draft only after a known failure before agent registration, with no active creation or existing agent and the same workspace. The reserved agent identity survives retry; completed and ambiguous requests retain conflict protection.

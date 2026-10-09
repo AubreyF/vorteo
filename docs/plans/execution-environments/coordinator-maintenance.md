@@ -1,6 +1,6 @@
 # Tracked coordinator bootstrap and maintenance
 
-Status: proposed bootstrap design. The first replacement is not implemented or authorized by this document. Routine Host automatic approval is implemented separately, but remains inactive until a coordinator that supports it is installed with the protected policy.
+Status: request contracts, independent owner authentication, private request storage and artifact validation are implemented as an inert core. Host API admission, interface controls, the lifecycle executor and live acceptance remain unfinished. The first replacement is not authorized by this document. Routine Host automatic approval is implemented separately, but remains inactive until a coordinator that supports it is installed with the protected policy.
 
 ## Required result
 
