@@ -667,6 +667,20 @@ for (const width of [1400, 390]) {
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 1");
       await page.reload();
       await expect(firstRow.getByText("Blocked", { exact: true })).toBeVisible();
+      const blockedControl = firstRow.getByRole("checkbox");
+      const blockedIcon = blockedControl.locator("svg");
+      await expect(blockedIcon.locator('circle[r="10"]')).toHaveCount(1);
+      await expect(blockedIcon.locator('line[y1="8"][y2="12"]')).toHaveCount(1);
+      await expect(blockedIcon.locator('line[y1="16"][y2="16"]')).toHaveCount(1);
+      const editIcon = firstRow
+        .getByRole("button", { name: "Details for First agent-created task" })
+        .locator("svg");
+      const stroke = (icon: Locator) => icon.evaluate((node) => getComputedStyle(node).stroke);
+      expect(await stroke(blockedIcon)).toBe(await stroke(editIcon));
+      await blockedControl.hover();
+      const hoveredStroke = await stroke(blockedIcon);
+      await editIcon.hover();
+      expect(hoveredStroke).toBe(await stroke(editIcon));
       await page.screenshot({ path: info.outputPath("blocked-task.png") });
       expect((await client.getAgentChecklist(agent.agentId))[0]).toMatchObject({
         status: "blocked",

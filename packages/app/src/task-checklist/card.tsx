@@ -2,7 +2,7 @@ import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { Check, Circle, CirclePause, Pencil, Plus } from "lucide-react-native";
+import { Check, Circle, CircleAlert, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -308,7 +308,7 @@ function ChecklistRow({
   }, [task, completed, mutate]);
   const details = useCallback(() => open(task), [open, task]);
   const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
-  const inactiveIcon = blocked ? CirclePause : Circle;
+  const inactiveIcon = blocked ? CircleAlert : Circle;
   const incompleteIcon = running ? TASK_RUNNING_ICON : inactiveIcon;
   const checkboxState = useMemo(
     () => ({ checked: completed, disabled: !managed || !canMutate }),
