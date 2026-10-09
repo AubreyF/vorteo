@@ -1,7 +1,12 @@
 import { expect, it } from "vitest";
 import { legacyImportOperationId } from "./legacy";
 import { QueueOutbox, type QueueOutboxPort } from "./outbox";
-import { encodeOutboxKey, type OutboxRecord, type OutboxStorage } from "./outbox-record";
+import {
+  canRequestImmediateDelivery,
+  encodeOutboxKey,
+  type OutboxRecord,
+  type OutboxStorage,
+} from "./outbox-record";
 import type { QueueOperation } from "@getpaseo/protocol/message-queue";
 
 function memoryStorage(): OutboxStorage {
@@ -26,7 +31,13 @@ const operation: QueueOperation = {
   text: "Continue",
   attachments: [],
 };
-const input = { serverId: "host", agentId: "agent", createdAt: 1, operation, localAttachments: [] };
+const input = {
+  serverId: "host",
+  agentId: "agent",
+  createdAt: 1,
+  operation,
+  localAttachments: [],
+};
 const snapshot = { agentId: "agent", revision: 1, paused: false, items: [] };
 const port: QueueOutboxPort = {
   upload: async () => {
@@ -36,6 +47,155 @@ const port: QueueOutboxPort = {
   changed: () => {},
 };
 
+it("blocks immediate delivery while state is unknown or another delivery is pending", () => {
+  const item = {
+    id: "message",
+    revision: 0,
+    createdAt: "2026-10-08T00:00:00Z",
+    text: "Keep",
+    attachments: [],
+    delivery: { status: "queued" as const },
+  };
+  const ready = { snapshot: { ...snapshot, items: [item] }, records: [], agentId: "agent" };
+  expect(canRequestImmediateDelivery(ready)).toBe(true);
+  expect(canRequestImmediateDelivery({ ...ready, snapshot: undefined })).toBe(false);
+  expect(canRequestImmediateDelivery({ ...ready, records: null })).toBe(false);
+  expect(canRequestImmediateDelivery({ ...ready, snapshot })).toBe(false);
+  for (const status of ["dispatching", "uncertain", "failed"] as const) {
+    expect(
+      canRequestImmediateDelivery({
+        ...ready,
+        snapshot: {
+          ...snapshot,
+          items: [
+            {
+              ...item,
+              delivery: {
+                status,
+                attemptId: "attempt",
+                startedAt: "2026-10-08T00:00:00Z",
+                reason: "Pending recovery",
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(false);
+  }
+});
+
+it("retires rejected send-now controls after their message leaves the queue without replaying content", async () => {
+  const storage = memoryStorage();
+  let mutations = 0;
+  const outbox = new QueueOutbox(storage, {
+    ...port,
+    mutate: async () => {
+      mutations += 1;
+      return {
+        snapshot,
+        error: { code: "delivery_conflict", message: "Pending delivery" },
+      };
+    },
+  });
+  await outbox.commit({
+    ...input,
+    operation: {
+      kind: "send_now",
+      operationId: "send",
+      messageId: "message",
+      expectedRevision: 0,
+      expectedTurnId: null,
+    },
+  });
+  await outbox.flush("host");
+  await outbox.commit({
+    ...input,
+    operation: { ...operation, kind: "edit", expectedRevision: 0 },
+  });
+  await outbox.reconcile("other-host", snapshot);
+  await outbox.reconcile("host", { ...snapshot, agentId: "other-agent" });
+  expect(await outbox.list()).toHaveLength(2);
+  await outbox.reconcile("host", {
+    ...snapshot,
+    items: [
+      {
+        id: "message",
+        revision: 1,
+        createdAt: "2026-10-08T00:00:00Z",
+        text: "Keep",
+        attachments: [],
+        delivery: { status: "queued" },
+      },
+    ],
+  });
+  expect(await outbox.list()).toHaveLength(2);
+  await outbox.reconcile("host", snapshot);
+  expect((await outbox.list()).map((record) => record.operation.kind)).toEqual(["edit"]);
+  expect(mutations).toBe(1);
+});
+
+it("cleans retained stale controls but preserves unacknowledged sends and message content", async () => {
+  const storage = memoryStorage();
+  const outbox = new QueueOutbox(storage, {
+    ...port,
+    mutate: async () => ({
+      snapshot,
+      error: { code: "missing", message: "Gone" },
+    }),
+  });
+  const send: QueueOperation = {
+    kind: "send_now",
+    operationId: "send",
+    messageId: "message",
+    expectedRevision: 0,
+    expectedTurnId: null,
+  };
+  await outbox.commit({ ...input, operation: send });
+  await outbox.reconcile("host", snapshot);
+  expect(await outbox.list()).toHaveLength(1);
+  await outbox.flush("host");
+  await outbox.keepRejectedCopy({
+    serverId: "host",
+    agentId: "agent",
+    operationId: "send",
+  });
+  await outbox.commit(input);
+  await outbox.reconcile("host", snapshot);
+  expect((await outbox.list()).map((record) => record.operation.kind)).toEqual(["enqueue"]);
+});
+
+it("does not erase a send-now retry committed by another tab during reconciliation", async () => {
+  const storage = memoryStorage();
+  const outbox = new QueueOutbox(storage, {
+    ...port,
+    mutate: async () => ({
+      snapshot,
+      error: { code: "missing", message: "Gone" },
+    }),
+  });
+  await outbox.commit({
+    ...input,
+    operation: {
+      kind: "send_now",
+      operationId: "send",
+      messageId: "message",
+      expectedRevision: 0,
+      expectedTurnId: null,
+    },
+  });
+  await outbox.flush("host");
+  const racingStorage: OutboxStorage = {
+    ...storage,
+    exchange: async (key, revision, value) => {
+      await outbox.retry(key);
+      return storage.exchange(key, revision, value);
+    },
+  };
+  await new QueueOutbox(racingStorage, port).reconcile("host", snapshot);
+  expect(await outbox.list()).toHaveLength(1);
+  expect((await outbox.list())[0].error).toBeNull();
+});
+
 it("keeps a rejected edit locally while allowing later messages to synchronize", async () => {
   const storage = memoryStorage();
   const outbox = new QueueOutbox(storage, {
@@ -44,11 +204,18 @@ it("keeps a rejected edit locally while allowing later messages to synchronize",
       request.kind === "edit"
         ? {
             snapshot: null,
-            error: { code: "revision_conflict", message: "Edited on another device" },
+            error: {
+              code: "revision_conflict",
+              message: "Edited on another device",
+            },
           }
         : { snapshot, error: null },
   });
-  const edit: QueueOperation = { ...operation, kind: "edit", expectedRevision: 0 };
+  const edit: QueueOperation = {
+    ...operation,
+    kind: "edit",
+    expectedRevision: 0,
+  };
   await outbox.commit({ ...input, operation: edit });
   await outbox.commit({
     ...input,
@@ -75,10 +242,17 @@ it("does not dismiss a change whose host outcome is uncertain", async () => {
       error: { code: "queue_unavailable", message: "Commit status unknown" },
     }),
   });
-  await outbox.commit({ ...input, operation: { ...operation, kind: "edit", expectedRevision: 0 } });
+  await outbox.commit({
+    ...input,
+    operation: { ...operation, kind: "edit", expectedRevision: 0 },
+  });
   await outbox.flush("host");
   await expect(
-    outbox.keepRejectedCopy({ serverId: "host", agentId: "agent", operationId: "op" }),
+    outbox.keepRejectedCopy({
+      serverId: "host",
+      agentId: "agent",
+      operationId: "op",
+    }),
   ).rejects.toThrow("Only a rejected change");
   expect(await outbox.list()).toHaveLength(1);
 });
@@ -177,7 +351,13 @@ it("competing tabs send only the winning persisted attachment IDs", async () => 
       const id = `upload-${++uploaded}`;
       if (uploaded === 2) release();
       await bothUploading;
-      return { id, kind: "image", fileName: "image.png", mimeType: "image/png", size: 4 };
+      return {
+        id,
+        kind: "image",
+        fileName: "image.png",
+        mimeType: "image/png",
+        size: 4,
+      };
     },
     mutate: async (_host, _agent, request) => {
       sent.push(request);
@@ -257,7 +437,11 @@ it("notifies after durable commit and does not request retries for delivery resu
   });
   await outbox.commit(input);
   expect(
-    await storage.read({ serverId: "host", agentId: "agent", operationId: "op" }),
+    await storage.read({
+      serverId: "host",
+      agentId: "agent",
+      operationId: "op",
+    }),
   ).not.toBeNull();
   expect(changes).toEqual([true]);
   await outbox.flush("host");
@@ -331,7 +515,10 @@ it("refreshes the shared queue on rejection without losing or replaying the loca
   const observed: unknown[] = [];
   let attempts = 0;
   let discarded = 0;
-  const rejected = { code: "missing", message: "The queued message no longer exists." };
+  const rejected = {
+    code: "missing",
+    message: "The queued message no longer exists.",
+  };
   const outbox = new QueueOutbox(storage, {
     ...port,
     mutate: async () => {
@@ -346,7 +533,11 @@ it("refreshes the shared queue on rejection without losing or replaying the loca
       discarded += 1;
     },
   });
-  const edit: QueueOperation = { ...operation, kind: "edit", expectedRevision: 0 };
+  const edit: QueueOperation = {
+    ...operation,
+    kind: "edit",
+    expectedRevision: 0,
+  };
   await outbox.commit({ ...input, operation: edit });
   await outbox.flush("host");
   expect(observed).toEqual([{ value: { ...snapshot, revision: 16 }, serverId: "host" }]);

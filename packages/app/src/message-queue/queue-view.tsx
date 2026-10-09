@@ -28,7 +28,9 @@ import { QueueEditDraftProvider, useQueueEditDrafts } from "./edit-draft-context
 import { reviewRejectedQueueEdit } from "./edit-draft-runtime";
 import { lazy, Suspense } from "react";
 const QueueEditEditor = lazy(() =>
-  import("./edit-editor").then((module) => ({ default: module.QueueEditEditor })),
+  import("./edit-editor").then((module) => ({
+    default: module.QueueEditEditor,
+  })),
 );
 import { type MessageQueueControl } from "./use-message-queue";
 import { canKeepRejectedChange, type OutboxRecord } from "./outbox-record";
@@ -91,16 +93,14 @@ function QueueViewContent({
     (!showSharedQueue(control, goalErrorHandled) && !edits.drafts.length && !edits.error)
   )
     return null;
-  const hasMessages = hasQueueMessages(control);
-  const Container = hasMessages ? TaskCard : View;
   const recovery = control.pending.filter((record) => {
     const operation = record.operation;
     if (operation.kind !== "enqueue") return true;
     return !!record.error && !!snapshot?.items.some((item) => item.id === operation.messageId);
   });
   return (
-    <Container testID={hasMessages ? "shared-message-queue" : "queue-recovery-status"}>
-      {hasMessages ? <QueueHeader control={control} /> : null}
+    <TaskCard testID="shared-message-queue">
+      <QueueHeader control={control} />
       {!(goalErrorHandled && isQueueGoalError(snapshot?.deliveryError)) ? (
         <QueueDeliveryError control={control} />
       ) : null}
@@ -126,7 +126,7 @@ function QueueViewContent({
           <PendingRow key={record.operation.operationId} record={record} control={control} />
         ))}
       </View>
-    </Container>
+    </TaskCard>
   );
 }
 
@@ -136,7 +136,11 @@ function QueueHeader({ control }: { control: MessageQueueControl }) {
   const toggle = useCallback(() => {
     if (snapshot)
       void control
-        .mutate({ kind: "pause", paused: !snapshot.paused, expectedRevision: snapshot.revision })
+        .mutate({
+          kind: "pause",
+          paused: !snapshot.paused,
+          expectedRevision: snapshot.revision,
+        })
         .catch(() => {});
   }, [control, snapshot]);
   return (
@@ -178,7 +182,10 @@ function QueueRows({
   agentId: string;
 }) {
   const snapshot = control.snapshot;
-  const [preview, setPreview] = useState<{ revision: number; items: QueueItem[] } | null>(null);
+  const [preview, setPreview] = useState<{
+    revision: number;
+    items: QueueItem[];
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const startedRevision = useRef<number | null>(null);
   const edits = useQueueEditDrafts();
@@ -281,15 +288,6 @@ function QueueCountBadge({ control }: { control: MessageQueueControl }) {
   );
 }
 
-function hasQueueMessages(control: MessageQueueControl): boolean {
-  return Boolean(
-    control.snapshot?.items.length ||
-    control.pending.some(
-      ({ operation }) => operation.kind === "enqueue" || operation.kind === "edit",
-    ),
-  );
-}
-
 function showSharedQueue(control: MessageQueueControl, goalErrorHandled: boolean): boolean {
   if (!control.visible || (!control.supported && !control.pending.length)) return false;
   const snapshot = control.snapshot;
@@ -307,7 +305,11 @@ function QueueDeliveryError({ control }: { control: MessageQueueControl }) {
   const retry = useCallback(() => {
     if (!snapshot) return;
     void control
-      .mutate({ kind: "pause", paused: false, expectedRevision: snapshot.revision })
+      .mutate({
+        kind: "pause",
+        paused: false,
+        expectedRevision: snapshot.revision,
+      })
       .catch(() => {});
   }, [control, snapshot]);
   if (!snapshot?.deliveryError) return null;
@@ -389,11 +391,13 @@ function PendingRecovery({
   }, [record, control]);
   return (
     <View>
-      {record.error ? <Text style={styles.secondary}>Could not synchronize</Text> : null}
+      {record.error && !record.dismissed ? (
+        <Text style={styles.secondary}>Could not synchronize</Text>
+      ) : null}
       {record.dismissed ? (
         <Text style={styles.secondary}>Kept locally. This change will not be sent.</Text>
       ) : null}
-      {record.error ? (
+      {record.error && !record.dismissed ? (
         <Text style={styles.error} accessibilityRole="alert">
           {record.error.message}
         </Text>
@@ -622,7 +626,11 @@ function QueueActions({
   const blocked = item.delivery.status === "uncertain" || item.delivery.status === "failed";
   const remove = useCallback(() => {
     void control
-      .mutate({ kind: "delete", messageId: item.id, expectedRevision: item.revision })
+      .mutate({
+        kind: "delete",
+        messageId: item.id,
+        expectedRevision: item.revision,
+      })
       .catch(() => {});
   }, [control, item]);
   const retry = useCallback(() => {
@@ -650,7 +658,7 @@ function QueueActions({
       <QueuePrimaryActions
         queued={queued}
         canMutate={control.canMutate}
-        sendRequested={!!item.sendNow}
+        sendRequested={!control.canSendNow}
         edit={edit}
         sendNow={sendNow}
       />
@@ -732,17 +740,35 @@ function QueuePrimaryActions({
 }
 
 const ThemedMore = withUnistyles(MoreHorizontal);
-const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const mutedIconMapping = (theme: Theme) => ({
+  color: theme.colors.foregroundMuted,
+});
 
 const styles = StyleSheet.create((theme) => ({
-  row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: theme.spacing[1] },
-  summary: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
+  row: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  summary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
   summaryText: { flex: 1, minWidth: 0 },
   heading: {
     flex: 1,
   },
-  secondary: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
-  error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm, flexShrink: 1 },
+  secondary: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+  },
+  error: {
+    color: theme.colors.destructive,
+    fontSize: theme.fontSize.sm,
+    flexShrink: 1,
+  },
   touch: { minHeight: 44, minWidth: 44 },
   inlineAction: { minHeight: 44, alignSelf: "flex-start" },
   menuTrigger: {
@@ -753,7 +779,11 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.full,
   },
   dragActive: { backgroundColor: theme.colors.surface2 },
-  editorActions: { flexDirection: "row", justifyContent: "flex-end", gap: theme.spacing[2] },
+  editorActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: theme.spacing[2],
+  },
   editor: { gap: theme.spacing[2], paddingTop: theme.spacing[2] },
   input: {
     color: theme.colors.foreground,
