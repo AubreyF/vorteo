@@ -17,6 +17,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
+import { waitForBootstrapWatchdog } from "./coordinator-bootstrap-runner.js";
 import { readBootstrapHealth } from "./coordinator-bootstrap-runtime.js";
 import { promisify } from "node:util";
 import { hashSync } from "bcryptjs";
@@ -686,10 +687,10 @@ test.runIf(process.platform === "darwin")(
       { mode: 0o600 },
     );
     const helper = path.resolve("../../scripts/run-coordinator-owner.py");
-    const launch = () =>
+    const launch = (role = "executor") =>
       spawn(
         "/usr/bin/python3",
-        [helper, lock, realpathSync(process.execPath), entry, setup, "executor", randomUUID()],
+        [helper, lock, realpathSync(process.execPath), entry, setup, role, randomUUID()],
         { stdio: ["pipe", "pipe", "pipe"] },
       );
     const first = launch();
@@ -730,8 +731,9 @@ finally:
       await firstClosed;
       throw error;
     }
-    const second = launch();
+    const second = launch("watchdog");
     const secondClosed = once(second, "close");
+    await waitForBootstrapWatchdog(second);
     const secondReady = once(second.stdout!, "data");
     let secondOwned = false;
     void secondReady.then(() => {
@@ -818,5 +820,22 @@ test("bootstrap readiness uses its local endpoint and refuses redirects and over
         resolve();
       }),
     );
+  }
+});
+
+test.each([
+  ["process.stdout.write('waiting\\n'); process.stdin.resume();", true],
+  ["process.stdout.write('invalid-handshake'); process.stdin.resume();", false],
+  ["process.exit(1)", false],
+] as const)("watchdog readiness observes the bounded child handshake: %s", async (code, ready) => {
+  const child = spawn(process.execPath, ["-e", code], { stdio: ["pipe", "pipe", "ignore"] });
+  const closed = once(child, "close");
+  try {
+    const result = waitForBootstrapWatchdog(child);
+    if (ready) await expect(result).resolves.toBeUndefined();
+    else await expect(result).rejects.toThrow("did not become ready");
+  } finally {
+    child.kill("SIGKILL");
+    await closed;
   }
 });

@@ -21,16 +21,19 @@ export async function createBootstrapNativeOperations(input: {
   descriptor: number;
   lockFile: string;
   ownershipVerifier: { path: string; sha256: string };
+  verifySetup(): Promise<void>;
   armWatchdog(request: CoordinatorBootstrapRequest): Promise<void>;
 }): Promise<BootstrapExecutorOperations> {
   const writableMountRoots = () => inspectBootstrapWritableMountRoots(input.host);
-  const requireOwnership = async () =>
-    requireBootstrapOwnership({
+  const requireOwnership = async () => {
+    await input.verifySetup();
+    await requireBootstrapOwnership({
       descriptor: input.descriptor,
       lockFile: input.lockFile,
       verifier: input.ownershipVerifier,
       writableMountRoots: await writableMountRoots(),
     });
+  };
   await requireOwnership();
   const roots = await writableMountRoots();
   const bytes = await readBootstrapPreparedFile(input.approved.plan.candidate.configuration, roots);

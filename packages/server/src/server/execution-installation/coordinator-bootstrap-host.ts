@@ -59,7 +59,7 @@ export interface BootstrapAdmissionHost {
   helperSha256: string;
 }
 
-const AdmissionSetupSchema = z.strictObject({
+export const BootstrapAdmissionSetupSchema = z.strictObject({
   configurationFile: z.string().startsWith("/"),
   launcherFile: z.string().startsWith("/"),
   docker: z.string().startsWith("/"),
@@ -79,7 +79,7 @@ export async function createBootstrapReviewService(
     throw new BootstrapRequestConflict("Coordinator bootstrap requires native macOS Host");
   const uid = process.getuid();
   const readSetup = () =>
-    AdmissionSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
+    BootstrapAdmissionSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
   const setup = readSetup();
   const host = { ...setup, daemonId };
   const initial = readBootstrapHostBinding(setup.configurationFile, daemonId);
@@ -329,7 +329,7 @@ export async function inspectBootstrapWritableMountRoots(input: {
   return bootstrapWritableMountRoots({ container, containerId: input.containerId, volumes });
 }
 
-function readPrivateBootstrapConfiguration(file: string, uid: number): unknown {
+export function readPrivateBootstrapConfiguration(file: string, uid: number): unknown {
   if (realpathSync(file) !== file)
     throw new BootstrapRequestConflict("Bootstrap configuration requires a canonical Host path");
   const parent = lstatSync(path.dirname(file));

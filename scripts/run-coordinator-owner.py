@@ -43,6 +43,8 @@ def main():
             raise ValueError("Unsafe ownership lock")
         # Never unlink this inode. Waiters and the current owner must lock the
         # same kernel object. Process exit releases flock even after SIGKILL.
+        if role == "watchdog":
+            print("waiting", flush=True)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         current = os.lstat(lock_path)
         if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
