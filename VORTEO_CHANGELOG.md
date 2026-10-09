@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.228 - 2026-10-08
+
+### Maintenance
+
+- Add optional coordinator bootstrap review RPCs and client methods, with daemon-management permissions, capability gating and sanitized errors
+- Bind private coordinator configuration to the actual Host daemon and fixed installation service; reject exposed configuration and state directories
+- Verify that disconnected approval requests are not replayed and owner proof does not enter client logs; production admission, plan verification and lifecycle execution remain unfinished
+
 ## 0.11.0-beta.3.vorteo.227 - 2026-10-08
 
 ### Maintenance

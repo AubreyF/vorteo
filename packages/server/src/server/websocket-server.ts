@@ -162,6 +162,7 @@ interface WebSocketConnectionIdentity {
 }
 
 interface WebSocketServerConfig {
+  coordinatorBootstrap?: SessionOptions["coordinatorBootstrap"];
   allowedOrigins?: Set<string>;
   hostnames?: HostnamesConfig;
   getAllowedOrigins?: () => Set<string>;
@@ -595,6 +596,7 @@ export class VoiceAssistantWebSocketServer {
     | ((workspaceId: string, oldBranch: string | null, newBranch: string | null) => void)
     | null;
   private serverCapabilities: ServerCapabilities | undefined;
+  private readonly coordinatorBootstrap: SessionOptions["coordinatorBootstrap"];
   private readonly runtimeMetrics = new WebSocketRuntimeMetricsWindow();
   private lastRuntimeMetricsSnapshot: WebSocketRuntimeDiagnosticPayload | null = null;
   private runtimeMetricsInterval: ReturnType<typeof setInterval> | null = null;
@@ -689,6 +691,7 @@ export class VoiceAssistantWebSocketServer {
   ) {
     this.logger = logger.child({ module: "websocket-server" });
     this.workspaceSetupRuntime = workspaceSetupRuntime;
+    this.coordinatorBootstrap = wsConfig.coordinatorBootstrap;
     this.advertiseDaemonStatusRpc = wsConfig.daemonStatusRpc !== false;
     this.advertiseRelayConfig = wsConfig.relayConfig !== false;
     this.connectionLifecycle = wsConfig.startPaused === true ? "starting" : "accepting";
@@ -1557,6 +1560,7 @@ export class VoiceAssistantWebSocketServer {
 
   private createSocketSession(options: SocketSessionOptions): Session {
     return new Session({
+      coordinatorBootstrap: this.coordinatorBootstrap,
       browserToolsBroker: this.browserToolsBroker,
       clientId: options.clientId,
       principalId: options.principalId,
@@ -2016,6 +2020,7 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: true,
         agentGoals: true,
+        ...(this.coordinatorBootstrap ? { coordinatorBootstrapReview: true } : {}),
         durableMessageQueue: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: true,

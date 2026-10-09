@@ -288,6 +288,7 @@ vi.mock("./worktree-bootstrap.js", async (importOriginal) => {
 });
 
 interface SessionForTestOptions {
+  coordinatorBootstrap?: SessionOptions["coordinatorBootstrap"];
   clientId?: string;
   permissions?: readonly DaemonPermission[];
   agentManager?: { [K in keyof SessionOptions["agentManager"]]?: unknown };
@@ -411,6 +412,7 @@ function createSessionForTest(options: SessionForTestOptions = {}): Session {
       get: vi.fn(),
       list: vi.fn().mockResolvedValue([]),
     },
+    coordinatorBootstrap: options.coordinatorBootstrap,
     workspaceLabelService: options.workspaceLabelService,
     scheduleService: asScheduleService(),
     checkoutDiffManager: asCheckoutDiffManager(checkoutDiffManager),
@@ -5886,4 +5888,79 @@ test("provider snapshots preserve versionless visibility while capabilities upda
     "plugin-provider",
   ]);
   expect(references.compactSnapshot!.entries[0]!.modes![0]!.icon).toBe("ShieldCheck");
+});
+
+test("bootstrap review requires daemon management permission before accessing Host records", async () => {
+  const messages: SessionOutboundMessage[] = [];
+  const list = vi.fn(() => []);
+  const session = createSessionForTest({
+    messages,
+    permissions: ["workspace.write"],
+    coordinatorBootstrap: { list, prepare: vi.fn(), decide: vi.fn() },
+  });
+  await session.handleMessage({
+    type: "installation.bootstrap.list_requests.request",
+    requestId: "bootstrap-denied",
+  });
+  expect(list).not.toHaveBeenCalled();
+  expect(messages).toContainEqual({
+    type: "rpc_error",
+    payload: {
+      requestId: "bootstrap-denied",
+      requestType: "installation.bootstrap.list_requests.request",
+      code: "access_denied",
+      error: "Session is not authorized for installation.bootstrap.list_requests.request",
+    },
+  });
+});
+
+test("bootstrap review refuses unconfigured daemons and returns only protected service results", async () => {
+  const messages: SessionOutboundMessage[] = [];
+  const unavailable = createSessionForTest({ messages });
+  await unavailable.handleMessage({
+    type: "installation.bootstrap.list_requests.request",
+    requestId: "bootstrap-unavailable",
+  });
+  expect(messages).toContainEqual({
+    type: "installation.bootstrap.list_requests.response",
+    payload: {
+      requestId: "bootstrap-unavailable",
+      requests: null,
+      error: "Coordinator bootstrap is unavailable on this daemon.",
+    },
+  });
+  const list = vi.fn(() => []);
+  const available = createSessionForTest({
+    messages,
+    coordinatorBootstrap: { list, prepare: vi.fn(), decide: vi.fn() },
+  });
+  await available.handleMessage({
+    type: "installation.bootstrap.list_requests.request",
+    requestId: "bootstrap-ready",
+  });
+  expect(messages).toContainEqual({
+    type: "installation.bootstrap.list_requests.response",
+    payload: {
+      requestId: "bootstrap-ready",
+      requests: [],
+      error: null,
+    },
+  });
+  list.mockImplementation(() => {
+    throw new Error("private configuration contents");
+  });
+  await available.handleMessage({
+    type: "installation.bootstrap.list_requests.request",
+    requestId: "bootstrap-private-error",
+  });
+  expect(messages).toContainEqual({
+    type: "installation.bootstrap.list_requests.response",
+    payload: {
+      requestId: "bootstrap-private-error",
+      requests: null,
+      error:
+        "Bootstrap validation failed. Inspect the prepared Host configuration before retrying.",
+    },
+  });
+  expect(JSON.stringify(messages)).not.toContain("private configuration contents");
 });

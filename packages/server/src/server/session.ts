@@ -1,3 +1,7 @@
+import {
+  handleBootstrapReview,
+  type BootstrapReviewService,
+} from "./execution-installation/coordinator-bootstrap-session.js";
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
 import { assertWorkspaceUnprotected, setWorkspaceLifecycle } from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
@@ -464,6 +468,7 @@ const nodeSessionFileSystem: SessionFileSystem = {
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
 export interface SessionOptions {
+  coordinatorBootstrap?: BootstrapReviewService;
   messageQueue?: MessageQueueService;
   browserToolsBroker?: BrowserToolsBroker | null;
   clientId: string;
@@ -851,7 +856,10 @@ export class Session {
   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
   private readonly creationService: Pick<CreationService, "create" | "subscribe">;
 
+  private readonly coordinatorBootstrap: BootstrapReviewService | undefined;
+
   constructor(options: SessionOptions) {
+    this.coordinatorBootstrap = options.coordinatorBootstrap;
     const {
       clientId,
       permissions,
@@ -3304,6 +3312,11 @@ export class Session {
 
   private async dispatchMiscMessage(msg: SessionInboundMessage): Promise<void> {
     switch (msg.type) {
+      case "installation.bootstrap.list_requests.request":
+      case "installation.bootstrap.prepare.request":
+      case "installation.bootstrap.decide.request":
+        this.emit(await handleBootstrapReview(msg, this.coordinatorBootstrap));
+        return;
       case "agent.queue.attachment.get.request":
         return this.handleQueueAttachmentRequest(msg);
       case "agent.queue.read.request":

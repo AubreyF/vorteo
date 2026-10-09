@@ -1,4 +1,9 @@
 import type {
+  CoordinatorBootstrapPreparation,
+  CoordinatorBootstrapDecision,
+  CoordinatorBootstrapRequest,
+} from "@getpaseo/protocol/coordinator-bootstrap";
+import type {
   PluginDirectoryBinding,
   ResolvedPluginSource,
 } from "@getpaseo/protocol/plugin-installation";
@@ -3739,6 +3744,53 @@ export class DaemonClient {
     if (this.lastServerInfoMessage?.features?.agentChecklistMutations !== true) {
       throw new Error("Update the daemon before editing thread checklists.");
     }
+  }
+
+  private assertCoordinatorBootstrapReview(): void {
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapReview !== true)
+      throw new Error("Coordinator bootstrap review is unavailable on this daemon.");
+  }
+
+  async listCoordinatorBootstrapRequests(): Promise<CoordinatorBootstrapRequest[]> {
+    this.assertCoordinatorBootstrapReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.list_requests.response">(
+        {
+          message: { type: "installation.bootstrap.list_requests.request" },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Bootstrap status unavailable");
+    return result.requests;
+  }
+
+  async prepareCoordinatorBootstrap(
+    input: CoordinatorBootstrapPreparation,
+  ): Promise<CoordinatorBootstrapRequest[]> {
+    this.assertCoordinatorBootstrapReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.prepare.response">({
+        message: { type: "installation.bootstrap.prepare.request", input },
+      });
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Bootstrap preparation unconfirmed");
+    return result.requests;
+  }
+
+  async decideCoordinatorBootstrap(
+    input: CoordinatorBootstrapDecision,
+    ownerPassword: string,
+  ): Promise<CoordinatorBootstrapRequest[]> {
+    this.assertCoordinatorBootstrapReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.decide.response">({
+        message: { type: "installation.bootstrap.decide.request", input, ownerPassword },
+      });
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Bootstrap decision unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
   }
 
   async getAgentGoal(

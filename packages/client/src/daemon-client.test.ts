@@ -7890,3 +7890,88 @@ test("canonical profile launches require account-independent profile support", a
   ).rejects.toThrow("account-independent profiles");
   expect(mock.sent).toEqual([]);
 });
+
+test("bootstrap review stays unavailable on older daemons without sending requests", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "bootstrap-client",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: {} });
+  await connecting;
+  await expect(client.listCoordinatorBootstrapRequests()).rejects.toThrow("unavailable");
+  await expect(
+    client.decideCoordinatorBootstrap(
+      {
+        id: "00000000-0000-4000-8000-000000000001",
+        revision: "00000000-0000-4000-8000-000000000002",
+        planSha256: "a".repeat(64),
+        decision: "approve",
+      },
+      "fixture-password",
+    ),
+  ).rejects.toThrow("unavailable");
+  expect(mock.sent).toEqual([]);
+});
+
+test("bootstrap review correlates decisions without logging owner proof or replaying on reconnect", async () => {
+  const mock = createMockTransport();
+  const logger = createMockLogger();
+  const trace = createTraceRecorder();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "bootstrap-client",
+    logger,
+    trace: trace.trace,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+  await connecting;
+  const listing = client.listCoordinatorBootstrapRequests();
+  const listed = parseSentFrame(mock.sent[0]);
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "installation.bootstrap.list_requests.response",
+      payload: { requestId: listed.requestId, requests: [], error: null },
+    }),
+  );
+  await expect(listing).resolves.toEqual([]);
+  const input = {
+    id: "00000000-0000-4000-8000-000000000001",
+    revision: "00000000-0000-4000-8000-000000000002",
+    planSha256: "a".repeat(64),
+    decision: "approve" as const,
+  };
+  const decision = client.decideCoordinatorBootstrap(input, "fixture-owner-proof");
+  const sent = parseSentFrame(mock.sent[1]);
+  expect(sent).toEqual({
+    type: "installation.bootstrap.decide.request",
+    requestId: expect.any(String),
+    input,
+    ownerPassword: "fixture-owner-proof",
+  });
+  const rejected = expect(decision).rejects.toThrow();
+  mock.triggerClose({ code: 1006 });
+  await rejected;
+  const reconnected = client.connect();
+  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+  await reconnected;
+  expect(mock.sent).toEqual([]);
+  expect(
+    JSON.stringify([
+      logger.debug.mock.calls,
+      logger.info.mock.calls,
+      logger.warn.mock.calls,
+      logger.error.mock.calls,
+      trace.records,
+    ]),
+  ).not.toContain("fixture-owner-proof");
+});

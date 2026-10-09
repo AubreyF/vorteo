@@ -61,3 +61,50 @@ export const CoordinatorBootstrapDecisionSchema = z.strictObject({
   planSha256: DigestSchema,
   decision: z.enum(["approve", "cancel"]),
 });
+export type CoordinatorBootstrapPreparation = z.infer<typeof CoordinatorBootstrapPreparationSchema>;
+export type CoordinatorBootstrapDecision = z.infer<typeof CoordinatorBootstrapDecisionSchema>;
+
+export const CoordinatorBootstrapListRequestSchema = z.strictObject({
+  type: z.literal("installation.bootstrap.list_requests.request"),
+  requestId: z.string(),
+});
+export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
+  type: z.literal("installation.bootstrap.prepare.request"),
+  requestId: z.string(),
+  input: CoordinatorBootstrapPreparationSchema,
+});
+export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
+  type: z.literal("installation.bootstrap.decide.request"),
+  requestId: z.string(),
+  input: CoordinatorBootstrapDecisionSchema,
+  // Transient owner proof. Never persist it with the request or decision.
+  ownerPassword: z.string().min(1).max(1024),
+});
+const BootstrapResultSchema = z.strictObject({
+  requestId: z.string(),
+  requests: z.array(CoordinatorBootstrapRequestSchema).nullable(),
+  error: z.string().nullable(),
+});
+export const CoordinatorBootstrapListResponseSchema = z.strictObject({
+  type: z.literal("installation.bootstrap.list_requests.response"),
+  payload: BootstrapResultSchema,
+});
+export const CoordinatorBootstrapPrepareResponseSchema = z.strictObject({
+  type: z.literal("installation.bootstrap.prepare.response"),
+  payload: BootstrapResultSchema,
+});
+export const CoordinatorBootstrapDecideResponseSchema = z.strictObject({
+  type: z.literal("installation.bootstrap.decide.response"),
+  payload: BootstrapResultSchema,
+});
+
+export type CoordinatorBootstrapInbound = z.infer<
+  | typeof CoordinatorBootstrapListRequestSchema
+  | typeof CoordinatorBootstrapPrepareRequestSchema
+  | typeof CoordinatorBootstrapDecideRequestSchema
+>;
+export type CoordinatorBootstrapOutbound = z.infer<
+  | typeof CoordinatorBootstrapListResponseSchema
+  | typeof CoordinatorBootstrapPrepareResponseSchema
+  | typeof CoordinatorBootstrapDecideResponseSchema
+>;
