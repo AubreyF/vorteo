@@ -47,6 +47,7 @@ export const ThreadGoalEditSchema = z
       updatedAt: true,
       tokenBudget: true,
     }).strict(),
+    expectedRevision: z.string().optional(),
     objective: z.string().trim().min(1).max(4000).optional(),
     status: z.enum(["active", "paused", "blocked", "complete"]).optional(),
   })
@@ -68,6 +69,8 @@ export async function editThreadGoal(input: {
   if (current.status !== "ready" || !current.goal)
     throw new Error("Read the current goal before editing it");
   const goal = current.goal;
+  if (edit.expectedRevision !== undefined && edit.expectedRevision !== current.editRevision)
+    throw new Error("The goal changed. Read it again before editing");
   for (const key of [
     "threadId",
     "objective",
@@ -76,6 +79,8 @@ export async function editThreadGoal(input: {
     "updatedAt",
     "tokenBudget",
   ] as const) {
+    // COMPAT(goalEditRevision): older tools retain strict native timestamp checking.
+    if (key === "updatedAt" && edit.expectedRevision !== undefined) continue;
     if (goal[key] !== edit.expectedGoal[key])
       throw new Error("The goal changed. Read it again before editing");
   }

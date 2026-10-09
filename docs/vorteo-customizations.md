@@ -278,3 +278,5 @@ Maintenance review: integrated the native helper query retry correction with pub
 October 9, 2026: Restored the shared conversation accordion heading hover highlight after the geometry cleanup. The highlight uses the existing interaction color and keeps heading dimensions unchanged. Reused the reviewed Node timer typing correction for browser fixture typechecks. README overview and onboarding are unchanged.
 
 Maintenance review: retained the deployed accordion hover behavior and Node timer typing corrections in the helper query integration.
+
+Maintenance review: goal editing uses an optional provider-owned revision independent of usage timestamps. Accounting preserves the revision; goal mutations, same-value owner writes and uncertain provider observations invalidate it. Older clients keep strict timestamp checks. Restart holds, queue holds, limits and caller isolation remain enforced.
