@@ -1,3 +1,5 @@
+import type { QueueSnapshot } from "@getpaseo/protocol/message-queue";
+import { isQueueGoalError, queueGoalRecoveryMessage } from "@/message-queue/goal-error";
 import type { AgentGoal, AgentGoalState } from "@getpaseo/protocol/agent-goals";
 
 export const GOAL_STATUS_LABELS: Record<AgentGoal["status"], string> = {
@@ -48,6 +50,63 @@ export function isGoalContinuationEnabled(state: AgentGoalState | undefined): bo
 export function goalStatusLabel(state: AgentGoalState | undefined): string {
   if (state?.status !== "ready") return "Goal state unconfirmed";
   if (state.restartContinuationHeld) return "Goal paused for restart";
-  if (state.queueContinuationHeld) return "Goal waiting for queue";
+  if (state.queueContinuationHeld) return "Goal (waiting for messages)";
   return state.goal ? GOAL_STATUS_LABELS[state.goal.status] : "No goal";
+}
+
+export interface GoalQueueNotice {
+  status: "waiting for messages" | "needs attention";
+  message: string;
+  action?: "goal" | "messages";
+}
+
+export function goalQueueNotice(
+  state: AgentGoalState | undefined,
+  queue: QueueSnapshot | null | undefined,
+  readError?: string | null,
+): GoalQueueNotice | null {
+  if (queue?.deliveryError && isQueueGoalError(queue.deliveryError)) {
+    return {
+      status: "needs attention",
+      message: queueGoalRecoveryMessage(queue.deliveryError),
+      action: "goal",
+    };
+  }
+  if (state?.status !== "ready" || state.restartContinuationHeld || !state.queueContinuationHeld)
+    return null;
+  if (readError) {
+    return {
+      status: "needs attention",
+      message: `Queued messages could not be synchronized: ${readError}`,
+      action: "messages",
+    };
+  }
+  // Only the head message controls delivery. A later failed item is not yet
+  // the reason this goal is waiting.
+  const delivery = queue?.items[0]?.delivery;
+  if (delivery?.status === "uncertain") {
+    return {
+      status: "needs attention",
+      message: `Message delivery could not be confirmed: ${delivery.reason}. Review the queued message before retrying; it may already have been sent.`,
+      action: "messages",
+    };
+  }
+  if (delivery?.status === "failed") {
+    return {
+      status: "needs attention",
+      message: `Message delivery failed: ${delivery.reason}`,
+      action: "messages",
+    };
+  }
+  if (queue?.deliveryError) {
+    return {
+      status: "needs attention",
+      message: `Message delivery stopped: ${queue.deliveryError}`,
+      action: "messages",
+    };
+  }
+  return {
+    status: "waiting for messages",
+    message: "Queued messages take priority. The goal will continue automatically afterward.",
+  };
 }
