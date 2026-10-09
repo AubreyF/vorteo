@@ -1,4 +1,4 @@
-import { createManagedBootstrapReview } from "./execution-installation/coordinator-bootstrap-launch.js";
+import { createConfiguredBootstrapReview } from "./execution-installation/coordinator-bootstrap-launch.js";
 import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
 import { ScheduleStore } from "./schedule/store.js";
 import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
@@ -668,10 +668,7 @@ export async function createPaseoDaemon(
   });
 
   const serverId = getOrCreateServerId(config.paseoHome, { logger });
-  const coordinatorBootstrap = await createManagedBootstrapReview(
-    process.env.VORTEO_COORDINATOR_BOOTSTRAP_SETUP,
-    serverId,
-  ).catch(() => {
+  const coordinatorBootstrap = await createConfiguredBootstrapReview(serverId).catch(() => {
     logger.warn("Coordinator bootstrap setup is unavailable; maintenance capability disabled");
     return undefined;
   });

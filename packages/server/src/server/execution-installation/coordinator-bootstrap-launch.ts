@@ -1,3 +1,5 @@
+import { lstatSync } from "node:fs";
+import { z } from "zod";
 import { spawn } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
@@ -23,6 +25,32 @@ import {
   BootstrapRunnerSetupSchema,
   waitForBootstrapWatchdog,
 } from "./coordinator-bootstrap-runner.js";
+
+/** Existing Host launchers already provide the private installation client.
+ * Discover only its fixed sibling, so routine worker delivery needs no plist reload. */
+export async function createConfiguredBootstrapReview(
+  daemonId: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<BootstrapReviewService | undefined> {
+  let setup = environment.VORTEO_COORDINATOR_BOOTSTRAP_SETUP;
+  const client = environment.VORTEO_INSTALLATION_CLIENT_CONFIG;
+  if (!setup && client) {
+    const uid = process.getuid?.();
+    if (process.platform !== "darwin" || uid === undefined) return undefined;
+    const identity = z
+      .object({ kind: z.string() })
+      .parse(readPrivateBootstrapConfiguration(client, uid));
+    if (identity.kind !== "host-agent") return undefined;
+    setup = path.join(path.dirname(client), "coordinator-bootstrap-runner.json");
+    try {
+      lstatSync(setup);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+      throw error;
+    }
+  }
+  return createManagedBootstrapReview(setup, daemonId);
+}
 
 /** Launcher configuration, never an RPC, supplies the runner setup. Existing
  * approvals are not scanned or replayed after a Host daemon restart. */

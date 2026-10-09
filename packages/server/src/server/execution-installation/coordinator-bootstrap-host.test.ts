@@ -1,4 +1,7 @@
-import { createManagedBootstrapReview } from "./coordinator-bootstrap-launch.js";
+import {
+  createManagedBootstrapReview,
+  createConfiguredBootstrapReview,
+} from "./coordinator-bootstrap-launch.js";
 import { afterEach, test, expect, vi } from "vitest";
 import {
   openSync,
@@ -869,3 +872,22 @@ test("bootstrap review stays unavailable without setup and rejects a different d
     process.platform === "darwin" ? "another daemon" : "Native Host",
   );
 });
+
+test.runIf(process.platform === "darwin")(
+  "bootstrap discovery uses only the private Host client sibling",
+  async () => {
+    const { root } = fixture();
+    const client = path.join(root, "client.json");
+    const environment = { VORTEO_INSTALLATION_CLIENT_CONFIG: client };
+    writeFileSync(client, JSON.stringify({ kind: "host-agent" }), { mode: 0o600 });
+    await expect(createConfiguredBootstrapReview("host-id", environment)).resolves.toBeUndefined();
+    const setup = path.join(root, "coordinator-bootstrap-runner.json");
+    writeFileSync(setup, "{}", { mode: 0o600 });
+    await expect(createConfiguredBootstrapReview("host-id", environment)).rejects.toThrow();
+    writeFileSync(client, JSON.stringify({ kind: "container-agent" }));
+    await expect(createConfiguredBootstrapReview("host-id", environment)).resolves.toBeUndefined();
+    writeFileSync(client, JSON.stringify({ kind: "host-agent" }));
+    chmodSync(client, 0o644);
+    await expect(createConfiguredBootstrapReview("host-id", environment)).rejects.toThrow();
+  },
+);
