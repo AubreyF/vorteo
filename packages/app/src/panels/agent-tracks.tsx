@@ -5,6 +5,7 @@ import { useHasPluginComposerPills } from "@/plugins";
 import { memo, useCallback, useMemo, type ReactElement } from "react";
 
 import { ChecklistCard } from "@/task-checklist/card";
+import { JournalCard } from "@/journal/card";
 
 import { supportsDesktopPaneSplits, useIsCompactFormFactor } from "@/constants/layout";
 import { usePaneContext } from "@/panels/pane-context";
@@ -104,29 +105,10 @@ export const AgentTracks = memo(function AgentTracks({
     [canSplit, isCompact, openInSidePane, openTab, tabId, workspaceKey],
   );
 
-  if (
-    !hasAgentTracks({
-      subagentRows,
-      tasks,
-      archiveFinishedStatus,
-      hasPluginComposerPills,
-    })
-  ) {
-    return null;
-  }
-
   return (
     <>
-      {hasPluginComposerPills ? (
-        <View style={styles.pills} testID="agent-history-plugin-pills">
-          <PluginComposerPills
-            serverId={serverId}
-            workspaceId={workspaceId}
-            agentId={agentId}
-            compact={isCompact}
-          />
-        </View>
-      ) : null}
+      <ChecklistCard serverId={serverId} agentId={agentId} tasks={tasks} />
+      <JournalCard key={agentId} serverId={serverId} agentId={agentId} />
       <SubagentsTrack
         inline
         serverId={serverId}
@@ -138,7 +120,16 @@ export const AgentTracks = memo(function AgentTracks({
         archiveFinishedStatus={archiveFinishedStatus}
         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
       />
-      <ChecklistCard serverId={serverId} agentId={agentId} tasks={tasks} />
+      {hasPluginComposerPills ? (
+        <View style={styles.pills} testID="agent-history-plugin-pills">
+          <PluginComposerPills
+            serverId={serverId}
+            workspaceId={workspaceId}
+            agentId={agentId}
+            compact={isCompact}
+          />
+        </View>
+      ) : null}
     </>
   );
 });

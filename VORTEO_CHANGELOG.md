@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.269 - 2026-10-09
+
+### Added
+
+- Split wide thread content into independently scrolling, resizable text and card columns. Cards stay pinned right, text stays centered in the remaining space, and preferred widths survive reloads. Both columns fade above the unchanged composer.
+
+### Changed
+
+- Choose the two-column layout from the primary region's width, so opening a sidebar or widening the left sidebar restores the existing single-column arrangement below 1,080 CSS pixels.
+- Order thread cards as Goal, Tasks, Journal, Subagents, then Messages in both layouts. Preserve card body scrolling, fixed headers and queue drag handling.
+- Update the README and customization inventory, and cover column geometry, saved widths, both sidebar transitions, nested scrolling and card interactions with focused unit and browser tests. Native touch behavior still needs physical-device acceptance.
+
 ## 0.11.0-beta.3.vorteo.268 - 2026-10-09
 
 ### Fixed

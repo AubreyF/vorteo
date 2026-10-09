@@ -89,6 +89,8 @@ export interface AppSettings {
   codeFontSize: number; // clamped px, default 12
   /** Max width of chat and markdown content in px; null follows the current default. */
   contentMaxWidth: number | null;
+  threadTextWidth: number | null;
+  threadCardsWidth: number;
   syntaxTheme: SyntaxThemeId; // default "one"
   workspaceTitleSource: WorkspaceTitleSource;
   sidebarWorkspaceTrailing: SidebarWorkspaceTrailing;
@@ -148,6 +150,8 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   contentFontSize: DEFAULT_CONTENT_FONT_SIZE,
   codeFontSize: DEFAULT_CODE_FONT_SIZE,
   contentMaxWidth: null,
+  threadTextWidth: null,
+  threadCardsWidth: 440,
   syntaxTheme: "one",
   workspaceTitleSource: "title",
   sidebarWorkspaceTrailing: "diff",
@@ -241,6 +245,8 @@ const StoredAppSettingsSchema = z
       .null()
       .or(clampedNumber(MIN_CONTENT_MAX_WIDTH, MAX_CONTENT_MAX_WIDTH))
       .catch(null),
+    threadTextWidth: z.null().or(clampedNumber(560, 1600)).catch(null),
+    threadCardsWidth: clampedNumber(440, 760).catch(440),
     syntaxTheme: z.string().refine(isSyntaxThemeId).catch("one"),
     workspaceTitleSource: z.enum(["title", "branch"]).catch("title"),
     sidebarWorkspaceTrailing: z.enum(["diff", "timestamp", "none"]).catch("diff"),
