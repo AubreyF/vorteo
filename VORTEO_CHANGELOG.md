@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.235 - 2026-10-08
+
+### Maintenance
+
+- Integrate Claude setup-token connections with the prepared coordinator bootstrap source, preserving both v227 histories and the browser icon test repairs
+- Keep coordinator activation and live Host/Dev subscription acceptance pending the tracked installation workflow
+
 ## 0.11.0-beta.3.vorteo.234 - 2026-10-08
 
 ### Maintenance
@@ -60,6 +67,24 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Add optional coordinator bootstrap review RPCs and client methods, with daemon-management permissions, capability gating and sanitized errors
 - Bind private coordinator configuration to the actual Host daemon and fixed installation service; reject exposed configuration and state directories
 - Verify that disconnected approval requests are not replayed and owner proof does not enter client logs; production admission, plan verification and lifecycle execution remain unfinished
+
+## 0.11.0-beta.3.vorteo.227 - 2026-10-08
+
+### Added
+
+- Connect Claude subscriptions once per managed installation through the official setup-token command, with private capture and authenticated delivery to Host and Dev
+- Persist credential generations and disconnect records, retry offline delivery, and honor explicit environment exclusions without copying refresh grants
+
+### Fixed
+
+- Isolate subscription credentials from native Claude grants while preserving existing account history and conversation IDs during renewal
+- Refuse incomplete or revoked credential delivery and environment-local sign-in on managed daemons
+- Keep usage and reset controls from reading another native account, and clear only inherited native-login warnings after setup-token transition
+
+### Maintenance
+
+- Add synthetic CLI/SDK compatibility evidence, focused authentication, recovery, HTTP and UI tests, and document token lifetime, identity and usage limitations
+- Installation delivery and live subscription acceptance remain pending; no private refresh endpoint or SDK callback is adopted
 
 ## 0.11.0-beta.3.vorteo.227 - 2026-10-08
 

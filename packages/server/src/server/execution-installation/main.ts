@@ -1,3 +1,4 @@
+import { createClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { createInstallationProfiles, startProfileSynchronization } from "./profiles/runtime.js";
 import pino from "pino";
 import { readInstallationConfig } from "./config.js";
@@ -13,12 +14,21 @@ const profiles = createInstallationProfiles(config);
 const stopProfileSynchronization = startProfileSynchronization(profiles, logger);
 const settings = createInstallationSettings(config);
 const stopSettingsReconciliation = startSettingsReconciliation(settings, logger);
+const claudeSetup = createClaudeSetupRuntime(config, settings);
+const claudeSetupTimer = setInterval(() => {
+  void claudeSetup
+    .reconcile()
+    .catch(() => logger.warn("Claude subscription synchronization is pending"));
+}, 5000);
+claudeSetupTimer.unref();
 const app = createInstallationServer(
   config,
   createInstallationRestartExecutor(config),
   logger,
   profiles,
   settings,
+  undefined,
+  claudeSetup,
 );
 const restartTimer = setInterval(() => {
   void app.drainRestarts();
@@ -34,6 +44,8 @@ server.on("error", (error) => {
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     clearInterval(restartTimer);
+    clearInterval(claudeSetupTimer);
+    void claudeSetup.dispose();
     stopProfileSynchronization();
     stopSettingsReconciliation();
     server.close();

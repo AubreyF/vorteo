@@ -1,3 +1,5 @@
+import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
+import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import {
   SkillSourceSchema,
   InstallationSkillSchema,
@@ -161,6 +163,7 @@ export function createInstallationServer(
   settings: InstallationSettingsService = createInstallationSettings(config),
   resolvePluginSource: InstallationPluginSourceResolver = (input) =>
     resolveInstallationPluginSource(config, input),
+  claudeSetup?: ClaudeSetupRuntime,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const journal = path.join(config.stateDir, "restart-jobs.json");
@@ -658,6 +661,7 @@ export function createInstallationServer(
       }
     })();
   });
+  if (claudeSetup) mountClaudeSetupRoutes(app, claudeSetup);
   app.post("/api/installation/owner/lock", (req, res) => {
     sessions.revoke(sessionToken(req));
     res.clearCookie(cookieName, cookieOptions);

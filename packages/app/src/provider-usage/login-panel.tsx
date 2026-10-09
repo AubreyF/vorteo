@@ -60,7 +60,7 @@ function LoginPanelContent({
   name: string;
   provider?: "codex" | "claude";
 }) {
-  const login = useProviderLogin(serverId, providerId);
+  const login = useProviderLogin(serverId, providerId, provider);
   const { state, connected } = login;
   const showRefresh = login.readFailed || login.actionFailed;
   return (
@@ -69,6 +69,12 @@ function LoginPanelContent({
         Sign in to the {provider === "claude" ? "Claude" : "ChatGPT"} account you want to use for{" "}
         {name}. Other account configurations and running tasks stay in place.
       </Text>
+      {login.sharedClaude ? (
+        <Text style={styles.text}>
+          Connect once for Host and Dev using your Claude subscription. Environment exclusions still
+          apply.
+        </Text>
+      ) : null}
       {!connected ? (
         <Text style={styles.warning}>
           Host connection lost. The sign-in attempt stays on the host; reconnect to see its result.
@@ -94,7 +100,29 @@ function LoginPanelContent({
       ) : (
         <Text style={styles.text}>Loading sign-in status…</Text>
       )}
+      {login.sharedClaude && Boolean(login.synchronization?.environments.length) ? (
+        <View style={styles.body}>
+          {login.synchronization?.environments.map((environment) => (
+            <Text key={environment.serverId} style={styles.text}>
+              {environment.serverId === serverId ? "This environment" : "Other environment"}:{" "}
+              {environment.status}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+      {login.synchronization?.environments.some(
+        (environment) => environment.status === "disconnecting",
+      ) ? (
+        <Text style={styles.text}>
+          Disconnect is saved. Offline environments still need to remove their local credential.
+        </Text>
+      ) : null}
       <LoginAction login={login} />
+      {login.sharedClaude && login.synchronization?.connected ? (
+        <Button variant="outline" onPress={login.signOut} disabled={login.busy}>
+          Disconnect subscription from this installation
+        </Button>
+      ) : null}
       {state?.status !== "succeeded" ? (
         <Text style={styles.muted}>
           You can close this panel while signing in. Reopen the account connection panel to resume.
@@ -107,11 +135,13 @@ function LoginPanelContent({
 
 function LoginAction({ login }: { login: ReturnType<typeof useProviderLogin> }) {
   const { state, connected, busy } = login;
-  if (state?.status === "succeeded") return null;
+  if (state?.status === "succeeded" && !login.sharedClaude) return null;
   const active =
     state?.status === "starting" || state?.status === "waiting" || state?.status === "verifying";
   const canStart = Boolean(state && !login.readFailed);
   const retry = state?.status === "failed" || state?.status === "cancelled";
+  let label = retry ? "Try sign-in again" : "Start sign-in";
+  if (state?.status === "succeeded") label = "Reconnect Claude subscription";
   return active ? (
     <Button
       variant="outline"
@@ -127,7 +157,7 @@ function LoginAction({ login }: { login: ReturnType<typeof useProviderLogin> }) 
       disabled={busy || !connected || !canStart}
       loading={login.actionPending}
     >
-      {retry ? "Try sign-in again" : "Start sign-in"}
+      {label}
     </Button>
   );
 }
@@ -149,7 +179,10 @@ function LoginProgress({
   if (state.status === "cancelled")
     message = "Sign-in cancelled. Your saved account credentials were not removed.";
   if (state.status === "failed") message = state.message;
-  if (state.status === "succeeded")
+  if (state.status === "succeeded" && login.sharedClaude)
+    message =
+      "Claude subscription connected. Credentials are saved for this installation; offline environments will synchronize when they reconnect.";
+  else if (state.status === "succeeded")
     message = state.accountLabel
       ? `Signed in as ${state.accountLabel}. Your account credentials are saved. You can close this panel and use this account.`
       : "Sign-in completed. Your account credentials are saved. You can close this panel and use this account.";

@@ -70,3 +70,34 @@ it("does not mistake transient failure or missing usage for an account disconnec
   expect(reading.authRecovery).toBeUndefined();
   expect(reading.statusLabel).toBe("Usage unavailable");
 });
+
+it("setup-token usage clears only the inherited native-login warning", () => {
+  const unavailable: ProviderUsageListPayload = {
+    ...healthy,
+    providers: [
+      {
+        ...healthy.providers[0]!,
+        status: "unavailable",
+        windows: [],
+        details: [{ id: "claude-setup-token", label: "Subscription", value: "Usage unavailable" }],
+      },
+    ],
+  };
+  expect(retainLastKnownUsage(unavailable, rejected).providers[0]!.authRecovery).toBeUndefined();
+  const unrelated: ProviderUsageListPayload = {
+    ...unavailable,
+    providers: [{ ...unavailable.providers[0]!, details: [] }],
+  };
+  expect(retainLastKnownUsage(unrelated, rejected).providers[0]!.authRecovery).toEqual(
+    rejected.providers[0]!.authRecovery,
+  );
+  const explicit: ProviderUsageListPayload = {
+    ...unavailable,
+    providers: [
+      { ...unavailable.providers[0]!, authRecovery: { instructions: "Current rejection" } },
+    ],
+  };
+  expect(retainLastKnownUsage(explicit, rejected).providers[0]!.authRecovery?.instructions).toBe(
+    "Current rejection",
+  );
+});
