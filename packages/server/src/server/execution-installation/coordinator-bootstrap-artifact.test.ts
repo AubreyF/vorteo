@@ -113,3 +113,20 @@ test("protected paths cannot overlap writable guest mounts through aliases or an
     assertBootstrapPathsProtected([release], [path.join(root, "missing")]),
   ).rejects.toThrow();
 });
+
+test("artifact accepts only complete internal hard-link groups and binds their topology", async () => {
+  const { root, release } = await fixture();
+  const entry = path.join(release, "entry.js");
+  const alias = path.join(release, "alias.js");
+  await link(entry, alias);
+  const linked = await digestBootstrapArtifact(release);
+  expect(await digestBootstrapArtifact(release)).toBe(linked);
+  const outside = path.join(root, "external.js");
+  await link(entry, outside);
+  await expect(digestBootstrapArtifact(release)).rejects.toThrow("escapes");
+  await rm(outside);
+  expect(await digestBootstrapArtifact(release)).toBe(linked);
+  await rm(alias);
+  await writeFile(alias, "export {};", { mode: 0o600 });
+  expect(await digestBootstrapArtifact(release)).not.toBe(linked);
+});

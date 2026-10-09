@@ -261,3 +261,5 @@ The native Host launcher may supply `VORTEO_COORDINATOR_BOOTSTRAP_SETUP` pointin
 An exact owner approval starts the fixed runner under its inherited kernel lock. The decision response waits for acknowledgement that dispatch is durably claimed and the watchdog is armed; this does not mean installation has completed. Refresh the recorded request to observe completion or recovery. A timeout or lost response never automatically relaunches the runner. Existing approvals are not replayed when Host starts. Cancellation remains available until dispatch claims the request.
 
 This source path still requires protected installation setup and live acceptance before it is available in an existing installation.
+
+Artifact verification accepts npm hard links only when every physical link is inside the release. It binds their paths as well as contents and rejects external aliases or changes during verification. Individually prepared executables, configuration and launcher files still require a single link.

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.250 - 2026-10-08
+
+### Fixed
+
+- Verify npm executable hard links within sealed coordinator releases while rejecting external aliases
+- Bind internal link topology and recheck file identities before accepting the artifact digest
+
 ## 0.11.0-beta.3.vorteo.249 - 2026-10-08
 
 ### Maintenance

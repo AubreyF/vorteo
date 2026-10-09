@@ -96,8 +96,12 @@ function requireOwned(stat: BigIntStats): void {
     throw new BootstrapRequestConflict("Prepared artifact is writable by another account");
 }
 
-async function digestFile(file: string, expected: BigIntStats): Promise<string> {
-  if (expected.nlink !== 1n)
+async function digestFile(
+  file: string,
+  expected: BigIntStats,
+  verifyLinksInTree = false,
+): Promise<string> {
+  if (!verifyLinksInTree && expected.nlink !== 1n)
     throw new BootstrapRequestConflict("Prepared artifact contains a hard-linked file");
   const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
@@ -156,6 +160,8 @@ export async function digestBootstrapArtifact(directory: string): Promise<string
   hash.update("vorteo-coordinator-artifact-v1\n");
   const observed = new Map<string, BigIntStats>();
 
+  const hardLinks = new Map<string, { count: bigint; paths: string[] }>();
+
   async function visit(relative: string): Promise<void> {
     const file = path.join(root, relative);
     const before = await lstat(file, { bigint: true });
@@ -166,7 +172,15 @@ export async function digestBootstrapArtifact(directory: string): Promise<string
       const entries = (await readdir(file)).sort();
       for (const entry of entries) await visit(path.join(relative, entry));
     } else if (before.isFile()) {
-      const digest = await digestFile(file, before);
+      if (before.nlink > 1n) {
+        const key = `${before.dev}:${before.ino}`;
+        const group = hardLinks.get(key) ?? { count: before.nlink, paths: [] };
+        if (group.count !== before.nlink)
+          throw new BootstrapRequestConflict("Prepared hard-linked artifact changed");
+        group.paths.push(relative);
+        hardLinks.set(key, group);
+      }
+      const digest = await digestFile(file, before, true);
       hash.update(JSON.stringify(["file", relative, String(before.mode), digest]) + "\n");
     } else if (before.isSymbolicLink()) {
       const target = await readlink(file);
@@ -183,6 +197,13 @@ export async function digestBootstrapArtifact(directory: string): Promise<string
   if (!(await lstat(root)).isDirectory())
     throw new BootstrapRequestConflict("Prepared artifact must be a directory");
   await visit("");
+  // npm links some executable packages within the release. Count every physical
+  // name, without following symlinks, so an alias outside this tree is refused.
+  for (const group of hardLinks.values()) {
+    if (BigInt(group.paths.length) !== group.count)
+      throw new BootstrapRequestConflict("Prepared hard-linked file escapes its release");
+    hash.update(JSON.stringify(["hard-links", group.paths.sort()]) + "\n");
+  }
   // A dependency visited earlier may change while another subtree is read.
   for (const [file, before] of observed)
     requireUnchanged(before, await lstat(file, { bigint: true }));
