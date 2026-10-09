@@ -113,6 +113,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+Sidebar update and maintenance notices share a single scroll area capped at 33% of the viewport height. Short stacks occupy their natural height. Cards share spacing, review action styling and equal top/right dismiss insets across workspace and settings sidebars.
+
 Installation review copy assigns source repairs to the requesting agent and distinguishes waiting from canceling an unwanted update. Compact sidebar actions retain exact review navigation and all approval guards.
 
 October 9, 2026: Added discretionary blocked checklist status, durable and cached state support, agent guidance, editor controls, and row badges. Focused checks cover transitions, dependencies, persistence, progress counts and older-client delivery. Explicit Node timer overloads also keep login service types valid when Expo route generation includes server-backed browser fixtures. README overview and onboarding are unchanged; this refines existing task controls.

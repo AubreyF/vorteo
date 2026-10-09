@@ -1,3 +1,4 @@
+import { SidebarCalloutStack } from "@/components/sidebar-callout";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { EnvironmentsSettingsPage } from "./settings/environments-page";
 import { SkillLibraryContent } from "@/agent-skills/library";
@@ -966,7 +967,9 @@ function SettingsSidebar({
           >
             {sidebarBody}
           </ScrollView>
-          <InstallationRestartBanner />
+          <SidebarCalloutStack>
+            <InstallationRestartBanner />
+          </SidebarCalloutStack>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${appVersionText}, ${t("settings.sections.general")}`}
@@ -1283,7 +1286,9 @@ export default function SettingsScreen({
             layout="mobile"
           />
         </ScrollView>
-        <InstallationRestartBanner />
+        <SidebarCalloutStack>
+          <InstallationRestartBanner />
+        </SidebarCalloutStack>
         {addHostModals}
       </View>
     );
@@ -1293,7 +1298,9 @@ export default function SettingsScreen({
     return (
       <View style={styles.container}>
         {detailPage}
-        <InstallationRestartBanner />
+        <SidebarCalloutStack>
+          <InstallationRestartBanner />
+        </SidebarCalloutStack>
         {addHostModals}
       </View>
     );
