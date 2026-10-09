@@ -73,7 +73,11 @@ export function CollapsibleCardBody({
   );
 }
 const styles = StyleSheet.create((theme) => ({
-  trigger: { borderRadius: theme.borderRadius.md },
+  trigger: {
+    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing[2],
+    marginLeft: -theme.spacing[2],
+  },
   hovered: { backgroundColor: theme.colors.interactionHighlight },
   compact: { flexGrow: 0, flexShrink: 1, flexBasis: "auto" },
   title: { flexShrink: 1, minWidth: 0 },
