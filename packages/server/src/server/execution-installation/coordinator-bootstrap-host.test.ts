@@ -12,9 +12,60 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { hashSync } from "bcryptjs";
-import { readBootstrapHostBinding } from "./coordinator-bootstrap-host.js";
+import {
+  readBootstrapHostBinding,
+  bootstrapWritableMountRoots,
+} from "./coordinator-bootstrap-host.js";
 
 const roots: string[] = [];
+
+test("bootstrap mount evidence distinguishes Host binds from verified local VM volumes", () => {
+  const containerId = "a".repeat(64);
+  const container = {
+    Id: containerId,
+    State: { Running: true },
+    Mounts: [
+      { Type: "bind", Source: "/private/guest", RW: true },
+      { Type: "bind", Source: "/private/read-only", RW: false },
+      { Type: "volume", Name: "state", RW: true },
+      { Type: "tmpfs", RW: true },
+    ],
+  };
+  const volumes = [{ Name: "state", Driver: "local", Scope: "local", Options: null }];
+  expect(bootstrapWritableMountRoots({ container, containerId, volumes })).toEqual([
+    "/private/guest",
+  ]);
+  expect(() =>
+    bootstrapWritableMountRoots({ container, containerId: "b".repeat(64), volumes }),
+  ).toThrow("identity changed");
+  expect(() => bootstrapWritableMountRoots({ container, containerId, volumes: [] })).toThrow(
+    "missing or ambiguous",
+  );
+  expect(() =>
+    bootstrapWritableMountRoots({ container, containerId, volumes: [...volumes, ...volumes] }),
+  ).toThrow("missing or ambiguous");
+  expect(() =>
+    bootstrapWritableMountRoots({
+      container,
+      containerId,
+      volumes: [{ ...volumes[0], Options: { type: "none", o: "bind", device: "/private" } }],
+    }),
+  ).toThrow("driver options");
+});
+
+test("bootstrap mount evidence fails closed on incomplete or unsupported Docker output", () => {
+  const containerId = "a".repeat(64);
+  const base = { Id: containerId, State: { Running: true } };
+  for (const container of [
+    base,
+    { ...base, State: { Running: false }, Mounts: [] },
+    { ...base, Mounts: [{ Type: "bind", Source: "/private" }] },
+    { ...base, Mounts: [{ Type: "bind", Source: "relative", RW: true }] },
+    { ...base, Mounts: [{ Type: "unknown", RW: true }] },
+  ]) {
+    expect(() => bootstrapWritableMountRoots({ container, containerId, volumes: [] })).toThrow();
+  }
+});
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });

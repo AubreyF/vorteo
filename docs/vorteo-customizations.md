@@ -95,6 +95,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Bootstrap mount inspection now uses an explicit local Docker socket and immutable container identity. It requires evidence for writable named volumes and rejects custom driver options. Focused tests cover incomplete inspection, changed identity and ambiguous volume records; read-only Host diagnostics verified protected configuration and state against actual writable binds. Production admission and lifecycle activation remain unfinished.
+
 October 8, 2026: Bootstrap review now has optional session RPCs and client methods, permission checks, safe error responses and private configuration validation against the actual Host identity. Tests cover old-client capability gating, disconnected decisions without replay and owner proof exclusion from logs. The production service remains unconfigured pending complete plan verification and lifecycle execution; no new maintenance operation is available yet.
 
 October 8, 2026: Coordinator bootstrap now has an inert request and authentication core with revision-bound decisions, private atomic storage, complete artifact hashing and writable-mount overlap checks. Isolated tests cover cancellation races, stale decisions, authentication changes and altered runtime files. Host API admission, visible controls, lifecycle execution and live acceptance remain unfinished; this core does not enable coordinator replacement.

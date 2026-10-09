@@ -4,6 +4,8 @@ Status: request contracts, independent owner authentication, private request sto
 
 ## Required result
 
+The Host mount inspector is implemented and validated independently of admission. It queries the configured immutable container through an explicit local Docker socket, verifies writable named-volume records and rejects custom driver options. Host setup must still pin the trusted Docker executable and endpoint, and admission must recheck mount evidence when validating the complete plan. The inspector alone does not enable the bootstrap capability.
+
 The owner can review an exact coordinator replacement in Installation controls, cancel before dispatch, and observe the result in both Settings and the sidebar. Host and Dev daemons keep running. Existing requests, owner sessions, credentials and settings survive. The replacement cannot race another lifecycle operation or replay an ambiguous interruption.
 
 This first upgrade needs a bounded Host bootstrap extension because the installed coordinator cannot represent its own maintenance. After that upgrade, the coordinator owns ordinary maintenance scheduling. The extension must not become another general restart queue or write `restart-jobs.json` alongside the coordinator.

@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.229 - 2026-10-08
+
+### Maintenance
+
+- Inspect bootstrap container mounts through an explicit local Docker socket, with bounded commands and exact container identity checks
+- Require named-volume evidence and reject driver options that could conceal Host bind mounts; reject incomplete inspection results
+- Verify Host configuration and state mount exclusion with read-only installation diagnostics; production bootstrap admission and activation remain unfinished
+
 ## 0.11.0-beta.3.vorteo.228 - 2026-10-08
 
 ### Maintenance
