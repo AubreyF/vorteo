@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.227 - 2026-10-09
+
+### Fixed
+
+- Show active task rows with a white foreground outline spinner, using the shared status-ring animation in managed and provider task lists. Keep the completion control clickable while a task is active.
+- Cover pending, active and completed row transitions at desktop and narrow widths.
+
 ## 0.11.0-beta.3.vorteo.226 - 2026-10-09
 
 ### Fixed

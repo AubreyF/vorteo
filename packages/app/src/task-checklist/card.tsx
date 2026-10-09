@@ -10,6 +10,7 @@ import type { ChecklistMutation } from "@getpaseo/protocol/task-checklist";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
+import { StatusRing } from "@/components/status-ring";
 import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
@@ -29,6 +30,7 @@ interface ChecklistCardProps {
 }
 type EditorState = { open: false } | { open: true; task: AgentTaskItem | null };
 const EMPTY_TASKS: AgentTaskItem[] = [];
+const TASK_RUNNING_ICON = <StatusRing variant="task" />;
 const taskKey = (task: AgentTaskItem, index: number) =>
   `${task.source ?? "provider"}:${task.id ?? index}`;
 
@@ -256,6 +258,7 @@ function ChecklistRow({
   }, [task, completed, mutate]);
   const details = useCallback(() => open(task), [open, task]);
   const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
+  const incompleteIcon = running ? TASK_RUNNING_ICON : Circle;
   const checkboxState = useMemo(
     () => ({ checked: completed, disabled: !managed || !canMutate }),
     [completed, managed, canMutate],
@@ -279,7 +282,7 @@ function ChecklistRow({
         accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
         disabled={!managed || !canMutate}
         onPress={toggle}
-        leftIcon={completed ? Check : Circle}
+        leftIcon={completed ? Check : incompleteIcon}
       />
       <Text
         numberOfLines={1}

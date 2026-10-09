@@ -378,6 +378,22 @@ for (const width of [1400, 390]) {
       });
       expect(bounds.x).toBeCloseTo(12, 1);
       expect(bounds.y).toBeCloseTo(12, 1);
+      const firstRow = page.getByTestId("checklist-row-first");
+      const spinner = firstRow.getByTestId("task-running-spinner");
+      await expect(spinner).not.toBeAttached();
+      for (const status of ["in_progress", "pending", "in_progress"] as const) {
+        await client.mutateAgentChecklist(agent.agentId, {
+          operation: "update",
+          id: "first",
+          status,
+        });
+        if (status === "in_progress") await expect(spinner).toBeVisible();
+        else await expect(spinner).not.toBeAttached();
+      }
+      await page.screenshot({ path: info.outputPath("active-task-spinner.png") });
+      await firstRow.getByRole("checkbox", { name: "Complete First agent-created task" }).click();
+      await expect(spinner).not.toBeAttached();
+      await expect(page.getByTestId("checklist-count")).toHaveText("1/1");
       await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "first" });
       await expect(page.getByTestId("agent-task-progress-card")).not.toBeAttached();
       await client.mutateAgentChecklist(agent.agentId, {
