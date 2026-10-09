@@ -21,6 +21,7 @@ import {
   bootstrapWritableMountRoots,
   verifyBootstrapConfiguration,
   verifyBootstrapPlan,
+  createBootstrapReviewService,
 } from "./coordinator-bootstrap-host.js";
 import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
@@ -415,6 +416,28 @@ test.runIf(process.platform === "darwin")(
     });
     await expect(verifyBootstrapPlan(plan, host)).resolves.toBeUndefined();
     expect(inspectProcess).toHaveBeenCalledTimes(4);
+    writeFileSync(host.helperPath, "fixture helper", { mode: 0o600 });
+    writeFileSync(host.socket, "fixture endpoint", { mode: 0o600 });
+    const { daemonId, ...setup } = host;
+    const setupFile = path.join(f.root, "bootstrap-setup.json");
+    save(setupFile, setup);
+    const review = await createBootstrapReviewService(setupFile, daemonId);
+    expect(review.list()).toEqual([]);
+    const request = await review.prepare({ id: randomUUID(), reason: "fixture bootstrap", plan });
+    expect(request.status).toBe("pending");
+    expect(review.list()).toHaveLength(1);
+    save(setupFile, { ...setup, containerId: "b".repeat(64) });
+    expect(() => review.list()).toThrow("setup changed");
+    save(setupFile, setup);
+    chmodSync(setupFile, 0o644);
+    await expect(createBootstrapReviewService(setupFile, daemonId)).rejects.toThrow(
+      "private owned file",
+    );
+    chmodSync(setupFile, 0o600);
+    await expect(createBootstrapReviewService(setupFile, "dev-id")).rejects.toThrow(
+      "configured Host",
+    );
+
     duringInspection = () => writeFileSync(candidate.entrypoint.path, "changed runtime");
     await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("digest changed");
     writeFileSync(candidate.entrypoint.path, "export {};");

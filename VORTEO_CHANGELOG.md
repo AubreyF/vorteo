@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.236 - 2026-10-08
+
+### Maintenance
+
+- Construct bootstrap review services from private Host setup, with fixed daemon identity and protected collector paths
+- Reject exposed setup, changed collector configuration and changed state locations; verify that prepared requests remain pending
+- Integrate this setup with the accepted Claude source while leaving production capability wiring and lifecycle activation pending
+
 ## 0.11.0-beta.3.vorteo.235 - 2026-10-08
 
 ### Maintenance

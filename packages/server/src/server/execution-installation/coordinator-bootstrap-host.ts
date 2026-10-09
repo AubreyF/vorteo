@@ -15,7 +15,12 @@ import {
   ExecutionInstallationSchema,
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
-import { BootstrapRequestConflict, type BootstrapHostBinding } from "./coordinator-bootstrap.js";
+import {
+  BootstrapRequestConflict,
+  CoordinatorBootstrapRequests,
+  type BootstrapHostBinding,
+} from "./coordinator-bootstrap.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { InstallationConfigSchema } from "./config.js";
 import {
@@ -52,6 +57,65 @@ export interface BootstrapAdmissionHost {
   containerId: string;
   helperPath: string;
   helperSha256: string;
+}
+
+const AdmissionSetupSchema = z.strictObject({
+  configurationFile: z.string().startsWith("/"),
+  launcherFile: z.string().startsWith("/"),
+  docker: z.string().startsWith("/"),
+  socket: z.string().startsWith("/"),
+  containerId: z.string().regex(/^[a-f0-9]{64}$/),
+  helperPath: z.string().startsWith("/"),
+  helperSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+/** Construct only from a private launcher-selected Host setup file. The caller
+ * must not advertise the capability until review and execution are available. */
+export async function createBootstrapReviewService(
+  setupFile: string,
+  daemonId: string,
+): Promise<CoordinatorBootstrapRequests> {
+  if (process.platform !== "darwin" || !process.getuid)
+    throw new BootstrapRequestConflict("Coordinator bootstrap requires native macOS Host");
+  const uid = process.getuid();
+  const readSetup = () =>
+    AdmissionSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
+  const setup = readSetup();
+  const host = { ...setup, daemonId };
+  const initial = readBootstrapHostBinding(setup.configurationFile, daemonId);
+  const roots = await inspectBootstrapWritableMountRoots(host);
+  await assertBootstrapPathsProtected(
+    [
+      setupFile,
+      setup.configurationFile,
+      setup.launcherFile,
+      setup.helperPath,
+      setup.docker,
+      setup.socket,
+      initial.stateDirectory,
+    ],
+    roots,
+  );
+  const readBinding = () => {
+    if (!isDeepStrictEqual(setup, readSetup()))
+      throw new BootstrapRequestConflict("Bootstrap Host setup changed. Reload its service.");
+    const current = readBootstrapHostBinding(setup.configurationFile, daemonId);
+    if (current.stateDirectory !== initial.stateDirectory)
+      throw new BootstrapRequestConflict("Bootstrap state location changed. Reload its service.");
+    return current.binding;
+  };
+  return new CoordinatorBootstrapRequests(
+    new FileBootstrapRequestJournal(initial.stateDirectory),
+    readBinding,
+    async (plan) => {
+      const currentRoots = await inspectBootstrapWritableMountRoots(host);
+      await assertBootstrapPathsProtected(
+        [setupFile, setup.helperPath, setup.docker, setup.socket],
+        currentRoots,
+      );
+      await verifyBootstrapPlan(plan, host);
+    },
+  );
 }
 
 /** Host setup supplies this context. Review requests cannot choose collectors,
