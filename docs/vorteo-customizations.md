@@ -92,6 +92,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 9, 2026: Dev checklist tools support a discretionary blocked status, independent of prerequisite links. Tasks remain incomplete and retain status through storage, provider refresh and cache reload. Client capability negotiation protects older readers. This Dev update retains its installed source base; shared interface controls are delivered by the separate Host update.
+
 October 9, 2026: Applied accepted task-status guidance to the installed Dev source. Shared launch guidance, checklist tool help and repo/skill instructions require in_progress before execution, accurate work transitions, and completion after acceptance checks. Preserved installed Factory code and complete historical release-note entries from both branches, including repeated version headings. No runtime installation or live acceptance is claimed. README overview and onboarding remain unchanged.
 
 October 8, 2026: Integrated safe retries of rejected agent drafts with installed source. A changed request can retry only with the same workspace, no active creation, no existing agent, and a confirmed failure before agent registration. Reserved identity and prior scheduled-history fixes remain intact.

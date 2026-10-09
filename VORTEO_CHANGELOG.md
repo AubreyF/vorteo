@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.214 - 2026-10-09
+
+### Added
+
+- Add discretionary blocked checklist status to Dev agent tools and persisted tasks, independent of prerequisite links.
+- Advertise blocked status support and deliver incomplete pending items to older clients without changing saved task state.
+
+### Changed
+
+- Update checklist instructions for blocked work and retain blocked status in client caches and task drafts. The shared interface is delivered by the separate Host update.
 
 ## 0.11.0-beta.3.vorteo.213 - 2026-10-09
 

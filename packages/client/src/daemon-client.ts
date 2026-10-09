@@ -3735,6 +3735,13 @@ export class DaemonClient {
     mutation: import("@getpaseo/protocol/task-checklist").ChecklistMutation,
   ): Promise<import("@getpaseo/protocol/agent-types").AgentTaskItem[]> {
     this.assertChecklistSupport();
+    if (
+      ((mutation.operation === "update" && mutation.status === "blocked") ||
+        ("expectedTask" in mutation && mutation.expectedTask?.status === "blocked")) &&
+      this.lastServerInfoMessage?.features?.checklistBlockedStatus !== true
+    ) {
+      throw new Error("Update the daemon before using blocked checklist status.");
+    }
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"agent.checklist.mutate.response">({
         message: { type: "agent.checklist.mutate.request", agentId, mutation },
