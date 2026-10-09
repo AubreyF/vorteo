@@ -219,6 +219,8 @@ Claude authentication status review: Connection controls use the existing accoun
 
 ## Optional native macOS helper
 
+Tracked helper maintenance uses the coordinator lifecycle journal, Host-scoped preparation and status commands, exact manual owner approval, artifact and signing checks, and interrupted-installation recovery without replay. The review exposes signing identities and rollback availability; locked controls retain public status counts. Coordinator plans bind helper configuration changes and retain the paired Docker identity. Isolated lifecycle, HTTP, client and desktop/phone checks pass. Production activation still requires a coordinator rollback release compatible with helper configuration and journal records, an approved signing route, tracked installation and live Safari acceptance.
+
 The source package provides a signed native identity and a scoped Safari adapter with private local IPC, explicit browser policy, stale-element checks and staged-bundle verification. It is not installed or enabled by source integration. Production signing, tracked installation support, owner Automation consent, Safari JavaScript enablement and changed-build permission persistence remain acceptance gates. See [permission helper](macos-permission-helper.md) and [signing setup](macos-signing.md). The README overview remains unchanged until live acceptance.
 
 Claude installation integration review: The shared interface uses the matching account and environment authentication snapshot when deciding whether Connect is needed. Previously installed behavior and release notes remain preserved. No daemon lifecycle or credential changes are included.
@@ -264,3 +266,5 @@ October 8, 2026: Host bootstrap setup can be discovered beside the private Host 
 October 8, 2026: Coordinator artifact validation now accepts complete internal hard-link groups created by npm while rejecting external aliases. The digest includes link topology and rechecks file identity; individually prepared control files retain single-link validation. Live activation remains pending.
 
 October 9, 2026: Coordinator preparation, decisions and executor acknowledgement allow up to fifteen minutes for complete artifact checks. Observation timeout does not restart or replay an executor; the durable request remains authoritative.
+
+On October 9, 2026, the Factory integration was rebased on published GitHub main and prepared at version 253. GitHub is the owner-selected source coordination authority; unpublished installed code is not a required source input. Runtime identities, settings, credentials and live execution custody remain separately verified during managed deployment.

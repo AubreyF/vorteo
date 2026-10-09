@@ -1,3 +1,4 @@
+import { parseLifecycleJournal } from "./lifecycle-journal.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import {
@@ -23,7 +24,6 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import {
   SourceUpdateSchema,
-  RestartJobSchema,
   type RestartJob,
   RestartRequestSchema,
   RestartDecisionSchema,
@@ -196,9 +196,7 @@ export function createInstallationServer(
   const restarts = new InstallationRestarts(
     {
       read: () =>
-        existsSync(journal)
-          ? z.array(RestartJobSchema).parse(JSON.parse(readFileSync(journal, "utf8")))
-          : [],
+        existsSync(journal) ? parseLifecycleJournal(JSON.parse(readFileSync(journal, "utf8"))) : [],
       write: (jobs) => {
         writePrivateFileAtomicSync(journal, JSON.stringify(jobs));
         // Finish the receipt and directory rename before dispatching a disruption.
@@ -349,6 +347,15 @@ export function createInstallationServer(
           targets,
           ownerApprovalRequired: !host || !automaticHost,
           hostAutomaticRestarts: automaticHost,
+          nativeHelper: {
+            available: Boolean(
+              host &&
+              executor.validateHelperPlan &&
+              executor.installHelper &&
+              executor.verifyHelperRecovery,
+            ),
+            ownerApprovalRequired: true,
+          },
           supervisorMaintenance: {
             available: Boolean(supervisorPlan && executor.restartSupervisor),
             ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
@@ -515,7 +522,18 @@ export function createInstallationServer(
   // Only counts are public. Reasons and task identities require owner access.
   app.get("/api/installation/restart-summary", (_req, res) => {
     const jobs = restarts.list();
+    const helpers = restarts.listHelpers();
     res.json({
+      ...(helpers.length
+        ? {
+            nativeHelper: {
+              requested: helpers.filter((job) => job.status === "pending").length,
+              queued: helpers.filter((job) => job.status === "approved").length,
+              running: helpers.filter((job) => job.status === "running").length,
+              recovery: helpers.filter((job) => job.stage === "recovery_required").length,
+            },
+          }
+        : {}),
       requested: jobs.filter((job) => job.status === "pending").length,
       queued: jobs.filter((job) => job.status === "approved").length,
       running: jobs.filter((job) => job.status === "running").length,
@@ -571,6 +589,34 @@ export function createInstallationServer(
   });
 
   // Request-only credentials never authorize login, approval, delegation, or another daemon.
+  app.get("/api/installation/helper-requests/:id", (req, res) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (!matchesToken(token, config.hostAgentTokenHash)) {
+      res.sendStatus(401);
+      return;
+    }
+    const job = restarts.listHelpers().find((entry) => entry.id === req.params.id);
+    if (!job) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(job);
+  });
+  app.post("/api/installation/helper-requests", (req, res, next) => {
+    const token = extractHttpBearerToken(req.header("authorization"));
+    if (!matchesToken(token, config.hostAgentTokenHash)) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!executor.validateHelperPlan || !executor.installHelper || !executor.verifyHelperRecovery) {
+      res.status(503).json({ error: "Native helper maintenance is unavailable" });
+      return;
+    }
+    void restarts
+      .prepareHelper(req.body, "host-agent")
+      .then((job) => res.status(201).json(job), next);
+  });
+
   app.post("/api/installation/restart-requests", (req, res) => {
     const token = extractHttpBearerToken(req.header("authorization"));
     let requestedBy: "host-agent" | "container-agent";
@@ -692,6 +738,17 @@ export function createInstallationServer(
         next(error);
       }
     })();
+  });
+  app.post("/api/installation/owner/helpers/query", (_req, res) => {
+    res.json({ jobs: restarts.listHelpers() });
+  });
+  app.post("/api/installation/owner/helpers/decision", (req, res) => {
+    const job = restarts.decideHelper(req.body);
+    res.json(job);
+    void restarts.drain().catch(() => logger.error("Helper lifecycle journal failed"));
+  });
+  app.post("/api/installation/owner/helpers/verify-installed", (req, res, next) => {
+    void restarts.verifyHelperRecovery(req.body).then((job) => res.json(job), next);
   });
   if (claudeSetup) mountClaudeSetupRoutes(app, claudeSetup);
   app.post("/api/installation/owner/lock", (req, res) => {

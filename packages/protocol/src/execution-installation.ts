@@ -51,6 +51,15 @@ export const RestartRequestSchema = z.strictObject({
 export type RestartRequest = z.infer<typeof RestartRequestSchema>;
 
 export const RestartSummarySchema = z.object({
+  // COMPAT(nativeHelperMaintenance): older clients ignore helper-only counts.
+  nativeHelper: z
+    .object({
+      requested: z.number().int().nonnegative(),
+      queued: z.number().int().nonnegative(),
+      running: z.number().int().nonnegative(),
+      recovery: z.number().int().nonnegative(),
+    })
+    .optional(),
   requested: z.number().int().nonnegative(),
   queued: z.number().int().nonnegative(),
   running: z.number().int().nonnegative(),

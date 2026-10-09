@@ -1,3 +1,5 @@
+import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
+import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
 import type {
   ProfileSharingStatus,
   RestartJob,
@@ -17,6 +19,8 @@ interface InstallationPanelState {
   error: string | null;
   notice: string | null;
   jobs: RestartJob[];
+  helperJobs: NativeHelperJob[];
+  helperError: string | null;
   pendingJobs: RestartJob[];
   profileSharing: ProfileSharingStatus | null;
   passwordFile: string | null;
@@ -35,6 +39,8 @@ export class InstallationPanelModel {
     error: null,
     notice: null,
     jobs: [],
+    helperJobs: [],
+    helperError: null,
     pendingJobs: [],
     profileSharing: null,
     passwordFile: null,
@@ -50,6 +56,8 @@ export class InstallationPanelModel {
       InstallationClient,
       | "unlock"
       | "listRestarts"
+      | "listHelpers"
+      | "decideHelper"
       | "restartSummary"
       | "decide"
       | "profileSharingStatus"
@@ -97,6 +105,8 @@ export class InstallationPanelModel {
         lastUpdatedAt: null,
         password: "",
         jobs: [],
+        helperJobs: [],
+        helperError: null,
         pendingJobs: [],
         profileSharing: null,
       });
@@ -146,9 +156,10 @@ export class InstallationPanelModel {
       const restartSummary = await this.client.restartSummary();
       this.publish({ restartSummary });
       if (!this.state.unlocked) return;
-      const [jobs, profileSharing] = await Promise.all([
+      const [jobs, profileSharing, helperJobs] = await Promise.all([
         this.client.listRestarts(),
         this.client.profileSharingStatus(),
+        this.client.listHelpers(),
       ]);
       if (generation !== this.accessGeneration) return;
       const targets = new Set(
@@ -165,6 +176,7 @@ export class InstallationPanelModel {
       });
       this.publish({
         jobs,
+        helperJobs,
         pendingJobs: pending,
         profileSharing,
         lastUpdatedAt: new Date().toISOString(),
@@ -174,6 +186,45 @@ export class InstallationPanelModel {
       this.fail(error);
     } finally {
       this.refreshing = false;
+    }
+  }
+
+  dismissHelperError(): void {
+    this.publish({ helperError: null });
+  }
+
+  async decideHelper(job: NativeHelperJob, action: HelperReviewAction): Promise<void> {
+    if (this.state.busy) return;
+    const current = this.state.helperJobs.find((item) => item.id === job.id);
+    if (!current || current.revision !== job.revision || current.planSha256 !== job.planSha256) {
+      this.publish({
+        helperError: "Helper request changed. Refresh and review the current artifact.",
+      });
+      return;
+    }
+    const reason = helperActionDisabledReason(current, action, this.state);
+    if (reason) {
+      this.publish({ helperError: reason });
+      return;
+    }
+    this.publish({ busy: true, error: null, helperError: null, notice: null });
+    try {
+      const result = await this.client.decideHelper(current, action);
+      this.publish({
+        helperJobs: this.state.helperJobs.map((item) => (item.id === result.id ? result : item)),
+      });
+      await this.refresh();
+    } catch (error) {
+      this.fail(error);
+      this.publish({
+        error: null,
+        helperError:
+          error instanceof Error
+            ? error.message
+            : "Helper decision unconfirmed. Refresh before retrying.",
+      });
+    } finally {
+      this.publish({ busy: false });
     }
   }
 
@@ -227,6 +278,8 @@ export class InstallationPanelModel {
         lastUpdatedAt: null,
         password: "",
         jobs: [],
+        helperJobs: [],
+        helperError: null,
         pendingJobs: [],
         profileSharing: null,
       });

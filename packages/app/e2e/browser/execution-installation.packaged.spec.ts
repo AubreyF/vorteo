@@ -1,3 +1,5 @@
+import { helperReviewFixture } from "../../src/execution-installation/helper-review.fixture";
+import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintenance";
 import { ProviderOverrideSchema } from "@getpaseo/protocol/provider-config";
 import { InstallationSkillPackages } from "../../../server/src/server/execution-installation/settings/skill-packages";
 import type { SkillFiles } from "../../../server/src/server/orchestration-skills/internal/inventory";
@@ -40,6 +42,9 @@ import type { InstallationConfig } from "../../../server/src/server/execution-in
 import { pluginRequirements } from "../support/helpers/plugin-fixture";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 
+const helperInstallations: string[] = [];
+const helperFailures = new Set<string>();
+const helperVerificationFailures = new Set<string>();
 let root: string;
 let origin: string;
 let listener: Server;
@@ -209,6 +214,19 @@ test.beforeAll(async () => {
     config,
     {
       ...createInstallationRestartExecutor(config),
+      // The browser exercises real owner routes; native installation has separate acceptance.
+      validateHelperPlan: async () => {},
+      installHelper: async (job) => {
+        helperInstallations.push(job.id);
+        if (helperFailures.has(job.id)) throw new Error("Fixture helper readiness failed");
+        return "Fixture helper verified";
+      },
+      verifyHelperRecovery: async (job) => {
+        if (helperVerificationFailures.has(job.id))
+          throw new Error("Fixture installed helper is not ready");
+        return "Fixture recovery verified";
+      },
+
       supervisorPlan: () => "a".repeat(64),
       restartSupervisor: async () => {
         throw new Error("The UI fixture must not dispatch supervisor maintenance");
@@ -3575,4 +3593,109 @@ test("disabled restart explains the correction on hover, focus and touch without
   }
   expect(decisions).toEqual([]);
   await expect(button).toBeDisabled();
+});
+
+test("native helper review binds approval and cancellation through real owner routes", async ({
+  page,
+}, info) => {
+  async function prepare(plan = helperReviewFixture.plan) {
+    const response = await request("helper-requests", hostToken, {
+      id: randomUUID(),
+      reason: "Review isolated helper fixture",
+      plan,
+    });
+    expect(response.status).toBe(201);
+    return NativeHelperJobSchema.parse(await response.json());
+  }
+  const canceled = await prepare();
+  await page.goto(`${origin}/settings/general?installation=1&restart=${canceled.id}`);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const first = page.getByTestId(`helper-request-${canceled.id}`);
+  await expect(first).toBeVisible();
+  expect(helperInstallations).toEqual([]);
+  await first.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(first).toContainText(canceled.planSha256);
+  await expect(first).toContainText(canceled.plan.candidate.sourceCommit);
+  await expect(first).toContainText("Signing: Local identity");
+  await expect(first).toContainText("Helper identity: helper");
+  await expect(first).toContainText("Client identity: client");
+  await expect(first).toContainText(
+    "First installation: no previous helper release is available for rollback.",
+  );
+  await first.screenshot({ path: info.outputPath("helper-exact-review.png") });
+  await first.getByTestId(`helper-${canceled.id}-cancel`).click();
+  await expect(first).toContainText("Helper installation was canceled.");
+  expect(helperInstallations).toEqual([]);
+  const previous = {
+    ...helperReviewFixture.plan.candidate,
+    sourceCommit: "c".repeat(40),
+    artifactSha256: "d".repeat(64),
+  };
+  const approved = await prepare({ ...helperReviewFixture.plan, previous });
+  const card = page.getByTestId(`helper-request-${approved.id}`);
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(card).toContainText(`Retained rollback source: ${previous.sourceCommit}`);
+  await expect(card).toContainText(`Rollback artifact: ${previous.artifactSha256}`);
+  await card.getByTestId(`helper-${approved.id}-approve`).click();
+  await expect(card).toContainText("The approved helper is installed and verified.");
+  expect(helperInstallations).toEqual([approved.id]);
+  await card.screenshot({ path: info.outputPath("helper-installed.png") });
+  await page.reload();
+  await expect(card).toContainText("The approved helper is installed and verified.");
+  expect(helperInstallations).toEqual([approved.id]);
+});
+
+test("native helper recovery remains visible through refresh and locked controls", async ({
+  page,
+}, info) => {
+  const id = randomUUID();
+  helperFailures.add(id);
+  helperVerificationFailures.add(id);
+  const response = await request("helper-requests", hostToken, {
+    id,
+    reason: "Review isolated failed helper fixture",
+    plan: helperReviewFixture.plan,
+  });
+  expect(response.status).toBe(201);
+  await page.goto(`${origin}/settings/general?installation=1&restart=${id}`);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const card = page.getByTestId(`helper-request-${id}`);
+  await card.getByTestId(`helper-${id}-approve`).click();
+  await expect(card).toContainText("Needs recovery");
+  await expect(card.getByTestId(`helper-${id}-approve`)).toHaveCount(0);
+  await card.getByTestId(`helper-${id}-verify-installed`).click();
+  const error = page.getByRole("alert").filter({ hasText: "Installation request failed" });
+  await expect(error).toBeVisible();
+  // Owner requests travel through the daemon socket. Cross the five-second
+  // background refresh interval to check that the error survives polling.
+  await page.waitForTimeout(6000);
+  await expect(error).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await expect(error).toHaveCount(0);
+  await page.getByTestId("installation-lock").click();
+  await expect
+    .poll(async () => {
+      const summary = await fetch(`${origin}/api/installation/restart-summary`);
+      return (await summary.json()).nativeHelper.recovery;
+    })
+    .toBe(1);
+  await expect(card).toHaveCount(0);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  await expect(card).toContainText("Needs recovery");
+  await card.screenshot({ path: info.outputPath("helper-needs-recovery.png") });
+  helperVerificationFailures.delete(id);
+  await card.getByTestId(`helper-${id}-verify-installed`).click();
+  await expect(card).toContainText(
+    "The installed helper is verified. The earlier failure remains in history.",
+  );
+  expect(helperInstallations.filter((value) => value === id)).toHaveLength(1);
+  await page.reload();
+  await expect(card).toContainText(
+    "The installed helper is verified. The earlier failure remains in history.",
+  );
+  expect(helperInstallations.filter((value) => value === id)).toHaveLength(1);
 });

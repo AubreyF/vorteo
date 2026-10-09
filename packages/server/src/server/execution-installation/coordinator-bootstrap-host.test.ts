@@ -371,6 +371,34 @@ test("bootstrap configuration preserves credentials, service targets and state w
   const verify = () =>
     verifyBootstrapConfiguration({ plan, configurationFile: f.file, daemonId: "host-id" });
   expect(verify).not.toThrow();
+  const helper = {
+    home: f.root,
+    docker: "/usr/local/bin/docker",
+    socket: "/private/docker.sock",
+    containerId: "a".repeat(64),
+  };
+  save(candidateFile, { ...f.config, nativeHelper: helper });
+  expect(verify).toThrow("outside its approved policy");
+  plan.nativeHelperConfiguration = helper;
+  expect(verify).not.toThrow();
+  await expect(
+    verifyBootstrapPlan(plan, {
+      daemonId: "host-id",
+      configurationFile: f.file,
+      launcherFile: "/nonexistent/launcher",
+      docker: helper.docker,
+      socket: helper.socket,
+      containerId: "b".repeat(64),
+      helperPath: "/nonexistent/helper",
+      helperSha256: "a".repeat(64),
+    }),
+  ).rejects.toThrow("paired Host Docker identity");
+  save(candidateFile, { ...f.config, nativeHelper: { ...helper, home: "/different" } });
+  expect(verify).toThrow("outside its approved policy");
+  plan.nativeHelperConfiguration = null;
+  save(candidateFile, f.config);
+  expect(verify).not.toThrow();
+  delete plan.nativeHelperConfiguration;
   const policy = { hostRequestsAfter: "2026-10-09T00:00:00.000Z" };
   save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
   expect(verify).toThrow("outside its approved policy");

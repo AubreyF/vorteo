@@ -1,4 +1,6 @@
 import { realpathSync } from "node:fs";
+import { createNativeHelperExecutor } from "./native-helper-executor.js";
+import { inspectBootstrapWritableMountRoots } from "./coordinator-bootstrap-host.js";
 import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js";
 import { createClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { createInstallationProfiles, startProfileSynchronization } from "./profiles/runtime.js";
@@ -19,6 +21,20 @@ const startupFence = loadCoordinatorStartupFence({
   entrypoint: realpathSync(process.argv[1]!),
   configuration: realpathSync(configFile),
 });
+const executor = createInstallationRestartExecutor(config);
+if (config.nativeHelper) {
+  if (process.platform !== "darwin")
+    throw new Error("Native helper maintenance requires macOS Host");
+  const helper = config.nativeHelper;
+  Object.assign(
+    executor,
+    createNativeHelperExecutor({
+      home: helper.home,
+      installationId: config.public.installationId,
+      writableMountRoots: () => inspectBootstrapWritableMountRoots(helper),
+    }),
+  );
+}
 const profiles = createInstallationProfiles(config);
 const settings = createInstallationSettings(config);
 let stopProfileSynchronization: (() => void) | undefined;
@@ -41,7 +57,7 @@ const claudeSetupTimer = setInterval(() => {
 claudeSetupTimer.unref();
 const app = createInstallationServer(
   config,
-  createInstallationRestartExecutor(config),
+  executor,
   logger,
   profiles,
   settings,

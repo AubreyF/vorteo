@@ -3907,7 +3907,7 @@ export const ServerInfoStatusPayloadSchema = z
         worktreeRestore: z.boolean().optional(),
         // COMPAT(workspaceRecovery): added in v0.1.105, remove after 2027-01-11 once daemon floor >= v0.1.105.
         workspaceRecovery: z.boolean().optional(),
-        // COMPAT(workspaceRecoveryGuard): introduced for v0.11.0-beta.3.vorteo.252; remove after 2027-04-08 only once the daemon floor enforces guarded recovery.
+        // COMPAT(workspaceRecoveryGuard): introduced for v0.11.0-beta.3.vorteo.253; remove after 2027-04-08 only once the daemon floor enforces guarded recovery.
         workspaceRecoveryGuard: z.boolean().optional(),
         // COMPAT(workspaceFileEditing): added in v0.2.0, remove after 2027-01-18 once daemon floor >= v0.2.0.
         workspaceFileEditing: z.boolean().optional(),

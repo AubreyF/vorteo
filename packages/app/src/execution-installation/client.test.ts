@@ -1,3 +1,5 @@
+import { helperReviewFixture } from "./helper-review.fixture";
+import { InstallationRouteUnavailable } from "./client";
 import { expect, test, vi } from "vitest";
 import { InstallationClient, hasInstallationConnections } from "./client";
 import type { HostProfile } from "@/types/host-connection";
@@ -172,4 +174,53 @@ test("capable installation clients request extended restart details without chan
     "unlock",
     "restarts/query?idleRestarts=1&sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1",
   ]);
+});
+
+test("helper client preserves exact approval binding and reads old coordinators without requests", async () => {
+  const calls: Array<{ path: string; body: unknown }> = [];
+  let available = false;
+  const client = new InstallationClient(installation, {
+    request: async (path, _password, body) => {
+      calls.push({ path, body });
+      if (path === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) =>
+            Object.assign({}, environment, { password: "fixture" }),
+          ),
+        };
+      if (path === "helpers/query") {
+        if (!available) throw new InstallationRouteUnavailable();
+        return { jobs: [helperReviewFixture] };
+      }
+      return helperReviewFixture;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.listHelpers()).rejects.toThrow("Unlock");
+  await client.unlock("fixture-owner");
+  expect(await client.listHelpers()).toEqual([]);
+  available = true;
+  expect(await client.listHelpers()).toEqual([helperReviewFixture]);
+  await client.decideHelper(helperReviewFixture, "approve");
+  expect(calls.at(-1)).toEqual({
+    path: "helpers/decision",
+    body: {
+      id: helperReviewFixture.id,
+      revision: helperReviewFixture.revision,
+      planSha256: helperReviewFixture.planSha256,
+      operation: "native-helper-install",
+      decision: "approve",
+    },
+  });
+  await client.decideHelper(helperReviewFixture, "verify-installed");
+  expect(calls.at(-1)).toEqual({
+    path: "helpers/verify-installed",
+    body: {
+      id: helperReviewFixture.id,
+      revision: helperReviewFixture.revision,
+      planSha256: helperReviewFixture.planSha256,
+      operation: "native-helper-verify-installed",
+    },
+  });
 });

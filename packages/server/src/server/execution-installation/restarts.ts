@@ -1,4 +1,16 @@
-import { randomUUID } from "node:crypto";
+import {
+  NativeHelperPreparationSchema,
+  NativeHelperRecoveryDecisionSchema,
+  NativeHelperInstallerExitSchema,
+  NativeHelperProcessIdentitySchema,
+  type NativeHelperProcessIdentity,
+  type NativeHelperInstallerExit,
+  NativeHelperDecisionSchema,
+  type NativeHelperJob,
+  type NativeHelperPlan,
+} from "@getpaseo/protocol/native-helper-maintenance";
+import type { LifecycleJob } from "./lifecycle-journal.js";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   RestartImpact,
   RestartDecision,
@@ -14,11 +26,21 @@ export interface RestartApprovalPolicy {
 }
 
 export interface RestartJournal {
-  read(): RestartJob[];
-  write(jobs: RestartJob[]): void;
+  read(): LifecycleJob[];
+  write(jobs: LifecycleJob[]): void;
 }
 
 export interface RestartExecutor {
+  validateHelperRollback?(job: NativeHelperJob, failed: NativeHelperJob): Promise<void>;
+  verifyHelperRecovery?(job: NativeHelperJob): Promise<string>;
+  validateHelperPlan?(plan: NativeHelperPlan): Promise<void>;
+  installHelper?(
+    job: NativeHelperJob,
+    reportPhase: (stage: "installing" | "verifying") => void,
+    recordInstaller: (pid: number) => void,
+    recordInstallerExit: (exit: NativeHelperInstallerExit) => void,
+    recordPrevious: (previous: NativeHelperProcessIdentity | null) => void,
+  ): Promise<string>;
   supervisorPlan?(): string | undefined;
   restartSupervisor?(job: RestartJob): Promise<string>;
   supportsUpdate?(target: RestartJob["target"]): boolean;
@@ -50,6 +72,8 @@ function validateSourceDecision(job: RestartJob, decision: RestartDecision, upda
 /** The coordinator owns this queue, so daemon restarts cannot destroy the receipt. */
 export class InstallationRestarts {
   private jobs: RestartJob[];
+  private helpers: NativeHelperJob[];
+  private snapshot: LifecycleJob[];
   private active = false;
   private running = false;
   private refreshingImpacts = false;
@@ -63,14 +87,18 @@ export class InstallationRestarts {
     private readonly approvalPolicy: RestartApprovalPolicy = {},
     startup: { fenced: boolean } = { fenced: false },
   ) {
-    this.jobs = journal.read();
+    this.snapshot = journal.read();
+    this.jobs = this.snapshot.filter((job): job is RestartJob => job.target !== "native-helper");
+    this.helpers = this.snapshot.filter(
+      (job): job is NativeHelperJob => job.target === "native-helper",
+    );
     if (!startup.fenced) this.activate();
   }
 
   /** Only the verified coordinator handoff releases this startup fence. */
   activate(): void {
     if (this.active) return;
-    if (JSON.stringify(this.journal.read()) !== JSON.stringify(this.jobs))
+    if (JSON.stringify(this.journal.read()) !== JSON.stringify(this.snapshot))
       throw new RestartRequestError("Restart journal changed while startup was fenced");
     // A coordinator crash leaves execution ambiguous. Never replay a disruptive action.
     const recovered = this.jobs.map((job): RestartJob => {
@@ -93,8 +121,23 @@ export class InstallationRestarts {
         detail: "Coordinator interrupted. Inspect target and request a new restart.",
       };
     });
-    this.journal.write(recovered);
-    this.jobs = recovered;
+    const helpers = this.helpers.map((job): NativeHelperJob => {
+      if (["approved", "running"].includes(job.status))
+        return {
+          ...job,
+          status: "failed",
+          stage: "recovery_required",
+          detail: "Coordinator interrupted. Inspect helper selection before preparing recovery.",
+        };
+      if (job.stage === "preparing" && job.status === "pending")
+        return {
+          ...job,
+          status: "failed",
+          detail: "Preparation interrupted. Prepare a new helper request.",
+        };
+      return job;
+    });
+    this.writeState(recovered, helpers);
     this.active = true;
     this.reconcilePending();
   }
@@ -109,6 +152,346 @@ export class InstallationRestarts {
     return structuredClone(
       this.jobs.map((job) => ({ ...job, impact: this.impactCache.get(job.target) })),
     );
+  }
+
+  listHelpers(): NativeHelperJob[] {
+    return structuredClone(this.helpers);
+  }
+
+  async prepareHelper(input: unknown, requestedBy: string): Promise<NativeHelperJob> {
+    this.requireActive();
+    if (requestedBy !== "host-agent")
+      throw new RestartRequestError("Helper preparation requires Host access");
+    if (!this.executor.validateHelperPlan || !this.executor.installHelper)
+      throw new RestartRequestError("Helper installation is unavailable");
+    const prepared = NativeHelperPreparationSchema.parse(input);
+    const planSha256 = createHash("sha256").update(JSON.stringify(prepared.plan)).digest("hex");
+    const existing = this.snapshot.find((job) => job.id === prepared.id);
+    if (existing) {
+      if (
+        existing.target !== "native-helper" ||
+        existing.planSha256 !== planSha256 ||
+        existing.reason !== prepared.reason
+      )
+        throw new RestartRequestError("Request identity already belongs to different work");
+      return structuredClone(existing);
+    }
+    const job: NativeHelperJob = {
+      ...prepared,
+      target: "native-helper",
+      operation: prepared.plan.operation,
+      revision: randomUUID(),
+      requestedBy: "host-agent",
+      createdAt: new Date(this.now()).toISOString(),
+      planSha256,
+      status: "pending",
+      stage: "preparing",
+      detail: "Verifying the prepared helper artifact",
+    };
+    this.replaceHelper(job);
+    try {
+      await this.executor.validateHelperPlan(structuredClone(job.plan));
+      const current = this.helpers.find((item) => item.id === job.id);
+      if (current?.status === "pending" && current.revision === job.revision)
+        this.replaceHelper({
+          ...job,
+          stage: "prepared",
+          detail: "Review this exact helper installation. Agent daemons stay running.",
+        });
+    } catch {
+      const current = this.helpers.find((item) => item.id === job.id);
+      if (current?.status === "pending" && current.revision === job.revision)
+        this.replaceHelper({
+          ...job,
+          status: "failed",
+          detail: "Helper preparation failed. Inspect the artifact and prepare a new request.",
+        });
+    }
+    return structuredClone(this.helpers.find((item) => item.id === job.id)!);
+  }
+
+  decideHelper(input: unknown): NativeHelperJob {
+    this.requireActive();
+    const decision = NativeHelperDecisionSchema.parse(input);
+    const job = this.helpers.find((item) => item.id === decision.id);
+    if (
+      !job ||
+      job.revision !== decision.revision ||
+      job.planSha256 !== decision.planSha256 ||
+      job.operation !== decision.operation
+    )
+      throw new RestartRequestError("Helper request changed. Review the exact prepared artifact.");
+    if (decision.decision === "cancel") {
+      if (!["pending", "approved"].includes(job.status))
+        throw new RestartRequestError("Helper operation already dispatched or decided");
+      this.replaceHelper({ ...job, status: "rejected", detail: "Helper installation canceled" });
+    } else {
+      this.assertHelperPlanUnchanged(job);
+      if (job.status !== "pending" || job.stage !== "prepared")
+        throw new RestartRequestError("Helper request is not ready for approval");
+      this.replaceHelper({
+        ...job,
+        status: "approved",
+        approvedAt: new Date(this.now()).toISOString(),
+        detail: "Helper installation approved",
+      });
+    }
+    return structuredClone(this.helpers.find((item) => item.id === job.id)!);
+  }
+
+  /** Owner-authenticated read-only recovery; never dispatches another install. */
+  async verifyHelperRecovery(input: unknown): Promise<NativeHelperJob> {
+    this.requireActive();
+    const decision = NativeHelperRecoveryDecisionSchema.parse(input);
+    if (this.running || this.preparing)
+      throw new RestartRequestError("Another lifecycle operation is active");
+    if (!this.executor.verifyHelperRecovery)
+      throw new RestartRequestError("Helper recovery verification is unavailable");
+    const job = this.helpers.find((item) => item.id === decision.id);
+    if (
+      !job ||
+      job.revision !== decision.revision ||
+      job.planSha256 !== decision.planSha256 ||
+      job.status !== "failed" ||
+      job.stage !== "recovery_required"
+    )
+      throw new RestartRequestError("Recovery request changed. Inspect the current receipt.");
+    this.assertHelperPlanUnchanged(job);
+    if (
+      this.helpers.some(
+        (candidate) =>
+          (candidate.stage === "recovery_required" || candidate.status === "running") &&
+          candidate.plan.recoveryOf?.id === job.id,
+      )
+    )
+      throw new RestartRequestError(
+        "Verify the latest failed recovery before its earlier requests",
+      );
+    const linked = this.recoveryChain(job);
+    const before = JSON.stringify(job);
+    this.running = true;
+    try {
+      const detail = await this.executor.verifyHelperRecovery(structuredClone(job));
+      const current = this.helpers.find((item) => item.id === job.id);
+      if (!current || JSON.stringify(current) !== before)
+        throw new RestartRequestError("Helper receipt changed during recovery verification");
+      this.recoveryChain(job);
+      const recovered: NativeHelperJob = {
+        ...current,
+        stage: "recovered",
+        recoveryVerifiedAt: new Date(this.now()).toISOString(),
+        detail,
+      };
+      this.writeState(
+        this.jobs,
+        this.helpers.map((item) => {
+          if (item.id === recovered.id) return recovered;
+          if (linked.some((failed) => item.id === failed.id))
+            return {
+              ...item,
+              stage: "recovered",
+              recoveredBy: recovered.id,
+              recoveryVerifiedAt: recovered.recoveryVerifiedAt,
+              detail: "Recovered by the verified separately approved helper rollback.",
+            };
+          return item;
+        }),
+      );
+      return structuredClone(this.helpers.find((item) => item.id === job.id)!);
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private replaceHelper(next: NativeHelperJob): void {
+    this.requireActive();
+    const exists = this.helpers.some((job) => job.id === next.id);
+    this.writeState(
+      this.jobs,
+      exists
+        ? this.helpers.map((job) => (job.id === next.id ? next : job))
+        : [...this.helpers, next],
+    );
+  }
+
+  private assertHelperPlanUnchanged(job: NativeHelperJob): void {
+    const digest = createHash("sha256").update(JSON.stringify(job.plan)).digest("hex");
+    if (digest !== job.planSha256 || job.operation !== job.plan.operation)
+      throw new RestartRequestError("Helper plan changed. Prepare and review a new request.");
+  }
+
+  private helperRecoveryRequired(): boolean {
+    return this.helpers.some(
+      (job) => job.stage === "recovery_required" || job.status === "running",
+    );
+  }
+
+  private linkedRecovery(job: NativeHelperJob): NativeHelperJob | undefined {
+    const reference = job.plan.recoveryOf;
+    if (!reference) return undefined;
+    const failed = this.helpers.find((item) => item.id === reference.id);
+    if (
+      job.operation !== "native-helper-rollback" ||
+      !failed ||
+      failed.status !== "failed" ||
+      failed.stage !== "recovery_required" ||
+      failed.revision !== reference.revision ||
+      failed.planSha256 !== reference.planSha256 ||
+      failed.plan.installationId !== job.plan.installationId ||
+      failed.plan.destination.application !== job.plan.destination.application ||
+      failed.plan.destination.runtime !== job.plan.destination.runtime ||
+      !failed.plan.previous ||
+      job.plan.candidate.artifactSha256 !== failed.plan.previous.artifactSha256 ||
+      job.plan.candidate.sourceCommit !== failed.plan.previous.sourceCommit
+    )
+      throw new RestartRequestError(
+        "Rollback must restore the exact failed request's retained release",
+      );
+    this.assertHelperPlanUnchanged(failed);
+    return failed;
+  }
+
+  private recoveryChain(job: NativeHelperJob): NativeHelperJob[] {
+    const chain: NativeHelperJob[] = [];
+    const seen = new Set([job.id]);
+    let failed = this.linkedRecovery(job);
+    while (failed) {
+      if (seen.has(failed.id))
+        throw new RestartRequestError("Helper recovery references form a cycle");
+      seen.add(failed.id);
+      chain.push(failed);
+      failed = this.linkedRecovery(failed);
+    }
+    return chain;
+  }
+
+  private async dispatchHelper(job: NativeHelperJob): Promise<void> {
+    if (!this.executor.validateHelperPlan || !this.executor.installHelper) return;
+    try {
+      this.assertHelperPlanUnchanged(job);
+      const chain = this.recoveryChain(job);
+      if (
+        this.helpers.some(
+          (item) =>
+            (item.stage === "recovery_required" || item.status === "running") &&
+            !chain.some((failed) => failed.id === item.id),
+        )
+      )
+        throw new RestartRequestError("Another helper failure requires separate recovery");
+      const failed = chain[0];
+      if (failed) {
+        if (!this.executor.validateHelperRollback)
+          throw new RestartRequestError("Interrupted helper rollback is unavailable");
+        await this.executor.validateHelperRollback(structuredClone(job), structuredClone(failed));
+        this.linkedRecovery(job);
+      }
+      await this.executor.validateHelperPlan(structuredClone(job.plan));
+      const current = this.helpers.find((item) => item.id === job.id);
+      if (current?.status !== "approved" || current.revision !== job.revision) return;
+      const dispatched: NativeHelperJob = {
+        ...job,
+        status: "running",
+        stage: "dispatch_pending",
+        detail: "Installing the approved native helper",
+      };
+      this.replaceHelper(dispatched);
+      const detail = await this.executor.installHelper(
+        structuredClone(dispatched),
+        (stage) => {
+          const executing = this.helpers.find((item) => item.id === job.id);
+          if (executing?.status !== "running" || executing.revision !== job.revision)
+            throw new RestartRequestError("Helper execution no longer owns its journal request");
+          if (executing.stage === "verifying" && stage === "installing")
+            throw new RestartRequestError(
+              "Helper execution cannot return to installation after verification",
+            );
+          this.replaceHelper({
+            ...executing,
+            stage,
+            detail:
+              stage === "installing"
+                ? "Installing the approved native helper"
+                : "Verifying the installed native helper",
+          });
+        },
+        (installerPid) => {
+          const executing = this.helpers.find((item) => item.id === job.id);
+          if (
+            executing?.status !== "running" ||
+            executing.revision !== job.revision ||
+            executing.installerPid !== undefined ||
+            !Number.isInteger(installerPid) ||
+            installerPid <= 0 ||
+            installerPid > 2147483647
+          )
+            throw new RestartRequestError("Helper installer process cannot claim this request");
+          this.replaceHelper({ ...executing, installerPid });
+        },
+        (exit) => {
+          const observed = this.helpers.find((item) => item.id === job.id);
+          if (
+            !observed ||
+            observed.revision !== job.revision ||
+            observed.installerPid === undefined ||
+            observed.installerExit !== undefined ||
+            !(observed.status === "running" || observed.stage === "recovery_required")
+          )
+            throw new RestartRequestError("Installer exit no longer belongs to this request");
+          this.replaceHelper({
+            ...observed,
+            installerExit: NativeHelperInstallerExitSchema.parse(exit),
+          });
+        },
+        (previous) => {
+          const observed = this.helpers.find((item) => item.id === job.id);
+          if (
+            observed?.status !== "running" ||
+            observed.stage !== "dispatch_pending" ||
+            observed.revision !== job.revision ||
+            observed.previousProcess !== undefined ||
+            observed.installerPid !== undefined
+          )
+            throw new RestartRequestError(
+              "Previous helper identity must be recorded before installation",
+            );
+          this.replaceHelper({
+            ...observed,
+            previousProcess: NativeHelperProcessIdentitySchema.nullable().parse(previous),
+          });
+        },
+      );
+      const completed: NativeHelperJob = {
+        ...this.helpers.find((item) => item.id === job.id)!,
+        status: "succeeded",
+        stage: "succeeded",
+        detail,
+      };
+      // Persist both outcomes together; a failed write must retain the fence.
+      this.writeState(
+        this.jobs,
+        this.helpers.map((item) => {
+          if (item.id === completed.id) return completed;
+          if (chain.some((ancestor) => item.id === ancestor.id))
+            return {
+              ...item,
+              stage: "recovered",
+              recoveredBy: completed.id,
+              recoveryVerifiedAt: new Date(this.now()).toISOString(),
+              detail: "Recovered by the separately approved helper rollback.",
+            };
+          return item;
+        }),
+      );
+    } catch {
+      const current = this.helpers.find((item) => item.id === job.id);
+      if (!current || !["approved", "running"].includes(current.status)) return;
+      this.replaceHelper({
+        ...current,
+        status: "failed",
+        stage: current.status === "running" ? "recovery_required" : "prepared",
+        detail: "Helper installation failed. Inspect the actual selection before recovery.",
+      });
+    }
   }
 
   request(
@@ -285,7 +668,7 @@ export class InstallationRestarts {
 
   async prepareBatches(): Promise<void> {
     if (!this.active) return;
-    if (this.preparing || !this.executor.prepareUpdate) return;
+    if (this.running || this.preparing || !this.executor.prepareUpdate) return;
     this.preparing = true;
     try {
       // Each target owns its pending batch. A Host conflict must not starve Dev.
@@ -553,11 +936,11 @@ export class InstallationRestarts {
 
   async drain(): Promise<void> {
     if (!this.active) return;
+    if (this.running || this.preparing) return;
     if (this.executor.prepareUpdate) await this.prepareBatches();
-    if (this.running) return;
+    if (this.running || this.preparing) return;
     this.running = true;
     try {
-      this.approveTrustedHostRequests();
       for (const job of this.jobs.filter(
         (candidate) =>
           candidate.finishCurrentTurns &&
@@ -576,8 +959,30 @@ export class InstallationRestarts {
           });
         }
       }
+      // Release completed holds above, but never start another lifecycle operation
+      // while the installed helper selection remains ambiguous.
+      if (this.helperRecoveryRequired()) {
+        const blocked = this.helpers.filter(
+          (job) => job.stage === "recovery_required" || job.status === "running",
+        );
+        const rollback = this.helpers.find(
+          (job) =>
+            job.status === "approved" &&
+            job.operation === "native-helper-rollback" &&
+            blocked.some((failed) => job.plan.recoveryOf?.id === failed.id),
+        );
+        if (rollback) await this.dispatchHelper(rollback);
+        return;
+      }
+      this.approveTrustedHostRequests();
       for (const job of this.jobs.filter((candidate) => candidate.status === "approved")) {
         await this.dispatch(job);
+      }
+      if (!this.jobs.some((job) => job.finishCurrentTurns && !job.holdReleased)) {
+        for (const job of this.helpers.filter((candidate) => candidate.status === "approved")) {
+          if (this.helperRecoveryRequired()) break;
+          await this.dispatchHelper(job);
+        }
       }
     } finally {
       this.running = false;
@@ -728,7 +1133,24 @@ export class InstallationRestarts {
 
   private commit(jobs: RestartJob[]): void {
     this.requireActive();
-    this.journal.write(jobs);
+    this.writeState(jobs, this.helpers);
+  }
+  private writeState(jobs: RestartJob[], helpers: NativeHelperJob[]): void {
+    const remaining = new Map<string, LifecycleJob>(
+      [...jobs, ...helpers].map((job) => [job.id, job]),
+    );
+    const next: LifecycleJob[] = [];
+    for (const previous of this.snapshot) {
+      const job = remaining.get(previous.id);
+      if (job) {
+        next.push(job);
+        remaining.delete(previous.id);
+      }
+    }
+    next.push(...remaining.values());
+    this.journal.write(next);
+    this.snapshot = next;
     this.jobs = jobs;
+    this.helpers = helpers;
   }
 }

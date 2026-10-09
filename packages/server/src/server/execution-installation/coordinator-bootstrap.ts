@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { compare } from "bcryptjs";
 import { z } from "zod";
-import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
+import { parseLifecycleJournal } from "./lifecycle-journal.js";
 import {
   CoordinatorBootstrapPlanSchema,
   CoordinatorBootstrapPreparationSchema,
@@ -32,13 +32,20 @@ export class BootstrapAuthenticationRequired extends Error {}
 /** Call only after verifying the exact coordinator is frozen and collecting its
  * children. A quiet journal from a running coordinator is not a dispatch fence. */
 export function assertFrozenCoordinatorIdle(journal: unknown, childPids: unknown): void {
-  const jobs = z.array(RestartJobSchema).parse(journal);
+  const jobs = parseLifecycleJournal(journal);
   const children = z.array(z.number().int().positive()).parse(childPids);
-  if (new Set(jobs.map((job) => job.id)).size !== jobs.length)
-    throw new BootstrapRequestConflict("Restart journal contains duplicate requests");
   if (children.length > 0)
     throw new BootstrapRequestConflict("Coordinator preparation children are still running");
   for (const job of jobs) {
+    if (job.target === "native-helper") {
+      if (
+        ["approved", "running"].includes(job.status) ||
+        (job.stage === "preparing" && job.status === "pending") ||
+        job.stage === "recovery_required"
+      )
+        throw new BootstrapRequestConflict("Coordinator has unresolved helper installation work");
+      continue;
+    }
     const active = job.status === "approved" || job.status === "running";
     const held = job.finishCurrentTurns === true && job.holdReleased !== true;
     const preparing = job.sourceBatch?.status === "preparing";
