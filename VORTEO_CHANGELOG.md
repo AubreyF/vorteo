@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.223 - 2026-10-08
+
+### Changed
+
+- Let agents read and revise their own existing goals, including authorized resumption of blocked work, while preserving usage, budgets and restart holds
+- Reject stale goal edits, foreign-thread selection and indirect limit bypasses; document the goal-tool extension in the README
+
 ## 0.11.0-beta.3.vorteo.222 - 2026-10-08
 
 ### Maintenance

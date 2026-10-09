@@ -33,7 +33,7 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 - **Inspect what survives compaction.** Expand a compaction marker to read, copy or export the saved summary and inspect available token counts. Providers that do not expose readable summaries say so. New summary capture requires the updated daemon; older saved events may have no summary.
 
-- **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene.
+- **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene. Vorteo also adds thread-scoped tools for agents to revise their own objective and resume authorized work, even when the provider’s native agent tools cannot edit or resume an existing goal. Goal editing requires the updated daemon and preserves usage, budgets and restart holds.
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
 
