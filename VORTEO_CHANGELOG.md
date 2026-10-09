@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.237 - 2026-10-08
+
+### Maintenance
+
+- Bind bootstrap dispatch to one durable generation and record operation intent before each execution step
+- Reject active installation work and preparation children before coordinator transfer; verify stopped native process observations in disposable fixtures
+- Resume the verified previous process after pre-transfer failures and require observed recovery after unload begins
+- Keep native executor adapters, watchdog, visible approval controls and production activation pending
+
 ## 0.11.0-beta.3.vorteo.236 - 2026-10-08
 
 ### Maintenance

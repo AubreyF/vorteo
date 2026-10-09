@@ -125,14 +125,86 @@ test.runIf(process.platform === "darwin")(
       const reader = await createNativeBootstrapServiceReader(options);
       writeFileSync(helperPath, 'raise RuntimeError("unreviewed replacement")');
       expect(await reader.inspectProcess(child.pid!)).toEqual(identity);
+      await expect(reader.inspectStoppedProcess(child.pid!)).rejects.toThrow();
+      child.kill("SIGSTOP");
+      await expect
+        .poll(async () => {
+          try {
+            return await reader.inspectStoppedProcess(child.pid!);
+          } catch {
+            return null;
+          }
+        })
+        .toEqual({ ...identity, stopped: true, childPids: [] });
+      child.kill("SIGCONT");
       await expect(
         reader.readService("gui/999999/local.vorteo.fixture.installation"),
       ).rejects.toThrow("another Host account");
     } finally {
+      child.kill("SIGCONT");
       child.kill();
       await closed;
     }
     await expect(inspect()).rejects.toThrow();
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "stopped inspection refuses running parents and captures their exact child inventory",
+  async () => {
+    const execute = promisify(execFile);
+    const script = path.resolve("../../scripts/inspect-coordinator-process.py");
+    // This fixture owns both processes. No installed service receives signals.
+    const parent = spawn(
+      process.execPath,
+      [
+        "-e",
+        `
+      const {spawn}=require('node:child_process');
+      const child=spawn('/bin/sleep',['30'],{stdio:'ignore'});
+      child.once('spawn',()=>process.stdout.write(String(child.pid)+'\\n'));
+      process.on('SIGTERM',()=>{child.kill();child.once('close',()=>process.exit(0));});
+      setInterval(()=>{},1000);
+    `,
+      ],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    const closed = once(parent, "close");
+    const [data] = await once(parent.stdout!, "data");
+    const childPid = Number(String(data).trim());
+    const inspect = () =>
+      execute("/usr/bin/python3", [script, String(parent.pid), "--require-stopped"], {
+        timeout: 5000,
+      });
+    try {
+      expect(childPid).toBeGreaterThan(0);
+      await expect(inspect()).rejects.toThrow();
+      parent.kill("SIGSTOP");
+      await expect
+        .poll(async () => {
+          try {
+            return JSON.parse((await inspect()).stdout);
+          } catch {
+            return null;
+          }
+        })
+        .toMatchObject({ pid: parent.pid, stopped: true, childPids: [childPid] });
+      parent.kill("SIGCONT");
+      await expect
+        .poll(async () => {
+          try {
+            await inspect();
+            return false;
+          } catch {
+            return true;
+          }
+        })
+        .toBe(true);
+    } finally {
+      parent.kill("SIGCONT");
+      parent.kill("SIGTERM");
+      await closed;
+    }
   },
 );
 

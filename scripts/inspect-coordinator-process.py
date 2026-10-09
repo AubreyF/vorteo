@@ -52,7 +52,7 @@ def arguments_digest(data):
     return hashlib.sha256(encoded).hexdigest()
 
 
-def inspect(pid):
+def inspect(pid, require_stopped=False):
     if sys.platform != "darwin" or pid <= 0:
         raise InspectionError("Native macOS process inspection required")
     library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
@@ -65,6 +65,9 @@ def inspect(pid):
     library.sysctl.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_uint, ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t]
     library.sysctl.restype = ctypes.c_int
 
+    library.proc_listchildpids.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    library.proc_listchildpids.restype = ctypes.c_int
+
     def read_info():
         result = BsdInfo()
         size = ctypes.sizeof(result)
@@ -72,6 +75,8 @@ def inspect(pid):
             raise InspectionError("Process identity is unavailable")
         if result.pid != pid or result.uid != os.getuid() or result.ruid != os.getuid():
             raise InspectionError("Process owner does not match Host")
+        if require_stopped and result.status != 4:  # SSTOP, sys/proc.h
+            raise InspectionError("Process is not stopped")
         return (result.pid, result.ppid, result.uid, result.start_seconds, result.start_microseconds)
 
     def named(name, capacity):
@@ -100,12 +105,32 @@ def inspect(pid):
             raise InspectionError("Process executable is unavailable")
         return executable.value.decode("utf-8", errors="strict")
 
+    def read_children():
+        # A stopped parent cannot fork. Refuse a full bounded buffer rather
+        # than treating a possibly truncated inventory as complete. libproc
+        # returns a PID count for this convenience API, not a byte count.
+        capacity = 65536
+        children = (ctypes.c_int * capacity)()
+        ctypes.set_errno(0)
+        count = library.proc_listchildpids(pid, children, ctypes.sizeof(children))
+        if count < 0 or count >= capacity or ctypes.get_errno() != 0:
+            raise InspectionError("Process children are unavailable")
+        values = list(children[:count])
+        if any(value <= 0 for value in values) or len(set(values)) != len(values):
+            raise InspectionError("Process children are invalid")
+        return sorted(values)
+
+    children = read_children() if require_stopped else None
     digest = read_arguments()
     executable = read_executable()
     # exec can change the executable and argv without changing PID or birth time.
     if read_arguments() != digest or read_executable() != executable or read_info() != before:
         raise InspectionError("Process identity changed during inspection")
-    return {
+    if require_stopped and read_children() != children:
+        raise InspectionError("Process children changed during inspection")
+    if read_info() != before:
+        raise InspectionError("Process identity changed after child inspection")
+    result = {
         "pid": pid,
         "parentPid": before[1],
         "uid": before[2],
@@ -114,13 +139,17 @@ def inspect(pid):
         "argumentsSha256": digest,
         "executable": executable,
     }
+    if require_stopped:
+        result["stopped"] = True
+        result["childPids"] = children
+    return result
 
 
 if __name__ == "__main__":
     try:
-        if len(sys.argv) != 2:
-            raise InspectionError("Expected one process ID")
-        print(json.dumps(inspect(int(sys.argv[1])), separators=(",", ":")))
+        if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--require-stopped"):
+            raise InspectionError("Expected a process ID and optional stopped inspection")
+        print(json.dumps(inspect(int(sys.argv[1]), len(sys.argv) == 3), separators=(",", ":")))
     except (InspectionError, ValueError, OSError):
         # Do not expose command arguments, environment values or raw system errors.
         print("Coordinator process identity could not be verified", file=sys.stderr)

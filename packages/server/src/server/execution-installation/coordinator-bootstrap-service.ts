@@ -23,9 +23,20 @@ const ProcessObservationSchema = z.strictObject({
   executable: z.string().startsWith("/"),
 });
 
+const FrozenProcessObservationSchema = ProcessObservationSchema.extend({
+  stopped: z.literal(true),
+  childPids: z
+    .array(z.number().int().positive())
+    .refine((pids) => new Set(pids).size === pids.length),
+});
+
 export interface BootstrapServiceReader {
   readService(service: string): Promise<string>;
   inspectProcess(pid: number): Promise<unknown>;
+}
+
+export interface NativeBootstrapServiceReader extends BootstrapServiceReader {
+  inspectStoppedProcess(pid: number): Promise<z.infer<typeof FrozenProcessObservationSchema>>;
 }
 
 export async function readBootstrapLauncher(
@@ -105,7 +116,7 @@ export async function createNativeBootstrapServiceReader(input: {
   helperPath: string;
   helperSha256: string;
   writableMountRoots: readonly string[];
-}): Promise<BootstrapServiceReader> {
+}): Promise<NativeBootstrapServiceReader> {
   if (process.platform !== "darwin" || !process.getuid)
     throw new BootstrapRequestConflict("Coordinator inspection requires native macOS Host");
   const uid = process.getuid();
@@ -154,6 +165,15 @@ export async function createNativeBootstrapServiceReader(input: {
         throw new BootstrapRequestConflict("Coordinator service belongs to another Host account");
       const result = await execute("/bin/launchctl", ["print", label], options);
       return result.stdout;
+    },
+    async inspectStoppedProcess(pid) {
+      z.number().int().positive().parse(pid);
+      const result = await execute(
+        "/usr/bin/python3",
+        ["-I", "-B", "-c", source, String(pid), "--require-stopped"],
+        options,
+      );
+      return FrozenProcessObservationSchema.parse(JSON.parse(result.stdout));
     },
     async inspectProcess(pid) {
       z.number().int().positive().parse(pid);

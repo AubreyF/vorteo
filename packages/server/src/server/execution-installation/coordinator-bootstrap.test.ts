@@ -13,7 +13,11 @@ import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { hashSync } from "bcryptjs";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
-import { CoordinatorBootstrapRequests, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
+import {
+  CoordinatorBootstrapRequests,
+  coordinatorPlanDigest,
+  assertFrozenCoordinatorIdle,
+} from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
   loadedCoordinatorPid,
@@ -22,12 +26,54 @@ import {
   verifyBootstrapLaunchers,
 } from "./coordinator-bootstrap-service.js";
 
+import {
+  executeCoordinatorBootstrap,
+  type BootstrapExecutorOperations,
+} from "./coordinator-bootstrap-executor.js";
+
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const ownerPassword = "fixture-installation-owner";
 const ownerHash = hashSync(ownerPassword, 4);
+
+test("frozen handoff refuses active jobs, preparations, unresolved holds and children", () => {
+  const pending = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "host",
+    reason: "fixture",
+    requestedBy: "host-agent",
+    createdAt: "2026-10-08T00:00:00.000Z",
+    expiresAt: "2026-10-09T00:00:00.000Z",
+    status: "pending",
+    detail: "fixture",
+  };
+  expect(() => assertFrozenCoordinatorIdle([pending], [])).not.toThrow();
+  expect(() => assertFrozenCoordinatorIdle([pending], [123])).toThrow("children");
+  expect(() => assertFrozenCoordinatorIdle([pending], undefined)).toThrow();
+  expect(() => assertFrozenCoordinatorIdle([pending, pending], [])).toThrow("duplicate");
+  for (const change of [
+    { status: "approved" },
+    { status: "running" },
+    { sourceBatch: { status: "preparing", contributions: [] } },
+    { status: "failed", finishCurrentTurns: true },
+    { status: "rejected", finishCurrentTurns: true, holdReleased: false },
+    { status: "succeeded", finishCurrentTurns: true },
+  ])
+    expect(() => assertFrozenCoordinatorIdle([{ ...pending, ...change }], [])).toThrow(
+      "unresolved",
+    );
+  expect(() =>
+    assertFrozenCoordinatorIdle(
+      [{ ...pending, status: "failed", finishCurrentTurns: true, holdReleased: true }],
+      [],
+    ),
+  ).not.toThrow();
+  expect(() => assertFrozenCoordinatorIdle([{ ...pending, status: "unknown" }], [])).toThrow();
+  expect(() => assertFrozenCoordinatorIdle(null, [])).toThrow();
+});
 
 test("bootstrap launchers preserve environment and lifetime settings with exact approved arguments", () => {
   const { plan } = fixture();
@@ -471,3 +517,277 @@ test("stored plan alteration and journal file symlinks are refused", async () =>
   expect(() => f.journal.read()).toThrow();
   expect(readFileSync(target, "utf8")).toBe(JSON.stringify(value));
 });
+
+test("dispatch claims exact approval once and preserves its generation across reopen", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  await expect(
+    f.service().claimDispatch({
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+    }),
+  ).rejects.toThrow("approval required");
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const identity = {
+    id: approved.id,
+    revision: approved.revision,
+    planSha256: approved.planSha256,
+  };
+  const results = await Promise.allSettled([
+    f.service().claimDispatch(identity),
+    f.service().claimDispatch(identity),
+  ]);
+  expect(results.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+  const claimed = f.service().list()[0]!;
+  expect(claimed.execution?.stage).toBe("claimed");
+  await expect(f.service().claimDispatch(identity)).rejects.toThrow("approval required");
+  await expect(
+    f.service().decide(
+      {
+        id: claimed.id,
+        revision: claimed.revision,
+        planSha256: claimed.planSha256,
+        decision: "cancel",
+      },
+      ownerPassword,
+    ),
+  ).rejects.toThrow("already claimed");
+  const progress = {
+    id: claimed.id,
+    revision: claimed.revision,
+    planSha256: claimed.planSha256,
+    generation: claimed.execution!.generation,
+  };
+  expect(() =>
+    f.service().advanceDispatch({ ...progress, generation: randomUUID() }, "freeze_pending"),
+  ).toThrow("ownership changed");
+  expect(() => f.service().advanceDispatch(progress, "succeeded")).toThrow("Invalid");
+  const freezing = f.service().advanceDispatch(progress, "freeze_pending");
+  expect(f.service().list()[0]).toEqual(freezing);
+  expect(() => f.service().advanceDispatch(progress, "freeze_pending")).toThrow(
+    "ownership changed",
+  );
+  const uncertain = f
+    .service()
+    .advanceDispatch({ ...progress, revision: freezing.revision }, "recovery_required");
+  expect(() =>
+    f.service().advanceDispatch({ ...progress, revision: uncertain.revision }, "freeze_pending"),
+  ).toThrow("Invalid");
+});
+
+test("cancellation during dispatch validation wins without a stored claim", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  let release!: () => void;
+  const validation = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.setVerify(() => validation);
+  const identity = {
+    id: approved.id,
+    revision: approved.revision,
+    planSha256: approved.planSha256,
+  };
+  const claim = f.service().claimDispatch(identity);
+  await f.service().decide({ ...identity, decision: "cancel" }, ownerPassword);
+  release();
+  await expect(claim).rejects.toThrow("request changed");
+  expect(f.service().list()[0]).toMatchObject({ status: "canceled" });
+  expect(f.service().list()[0]?.execution).toBeUndefined();
+});
+
+test("bootstrap executor persists intent before each operation and never replays a completed claim", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const calls: string[] = [];
+  const observe = async (name: string, stage: string) => {
+    expect(f.service().list()[0]?.execution?.stage).toBe(stage);
+    calls.push(name);
+  };
+  const operations: BootstrapExecutorOperations = {
+    withOwnership: async (_request, operation) => operation(),
+    armWatchdog: () => observe("watchdog", "claimed"),
+    freeze: () => observe("freeze", "freeze_pending"),
+    inspectFrozen: async () => {
+      await observe("inspect", "freeze_pending");
+      return { restartJournal: [], childPids: [] };
+    },
+    preserveTransfer: () => observe("preserve", "frozen"),
+    unload: () => observe("unload", "unload_pending"),
+    select: () => observe("select", "selection_pending"),
+    start: () => observe("start", "start_pending"),
+    verifyReplacement: () => observe("verify", "verifying"),
+    releaseReplacement: () => observe("release", "verifying"),
+    resumePrevious: async () => {
+      throw new Error("Unexpected resume");
+    },
+  };
+  const identity = {
+    id: approved.id,
+    revision: approved.revision,
+    planSha256: approved.planSha256,
+  };
+  const result = await executeCoordinatorBootstrap(f.service(), identity, operations);
+  expect(result.execution?.stage).toBe("succeeded");
+  expect(calls).toEqual([
+    "watchdog",
+    "freeze",
+    "inspect",
+    "preserve",
+    "unload",
+    "select",
+    "start",
+    "verify",
+    "release",
+  ]);
+  await expect(executeCoordinatorBootstrap(f.service(), identity, operations)).rejects.toThrow(
+    "undispatched",
+  );
+  expect(calls).toHaveLength(9);
+});
+
+test.each([
+  "freeze",
+  "inspectFrozen",
+  "preserveTransfer",
+  "unload",
+  "select",
+  "start",
+  "verifyReplacement",
+  "releaseReplacement",
+] as const)(
+  "bootstrap executor contains failure at %s without retrying the side effect",
+  async (failure) => {
+    const f = fixture();
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const calls: string[] = [];
+    const call = async (name: string) => {
+      calls.push(name);
+      if (name === failure) throw new Error("private diagnostic must not escape");
+    };
+    const operations: BootstrapExecutorOperations = {
+      withOwnership: async (_request, operation) => operation(),
+      armWatchdog: () => call("armWatchdog"),
+      freeze: () => call("freeze"),
+      inspectFrozen: async () => {
+        await call("inspectFrozen");
+        return { restartJournal: [], childPids: [] };
+      },
+      preserveTransfer: () => call("preserveTransfer"),
+      unload: () => call("unload"),
+      select: () => call("select"),
+      start: () => call("start"),
+      verifyReplacement: () => call("verifyReplacement"),
+      releaseReplacement: () => call("releaseReplacement"),
+      resumePrevious: () => call("resumePrevious"),
+    };
+    const result = await executeCoordinatorBootstrap(
+      f.service(),
+      { id: approved.id, revision: approved.revision, planSha256: approved.planSha256 },
+      operations,
+    );
+    const canResume = ["freeze", "inspectFrozen", "preserveTransfer"].includes(failure);
+    expect(result.execution?.stage).toBe(canResume ? "resumed" : "recovery_required");
+    const order = [
+      "armWatchdog",
+      "freeze",
+      "inspectFrozen",
+      "preserveTransfer",
+      "unload",
+      "select",
+      "start",
+      "verifyReplacement",
+      "releaseReplacement",
+    ];
+    expect(calls).toEqual([
+      ...order.slice(0, order.indexOf(failure) + 1),
+      ...(canResume ? ["resumePrevious"] : []),
+    ]);
+    expect(JSON.stringify(f.service().list())).not.toContain("private diagnostic");
+  },
+);
+
+test.each([false, true])(
+  "busy bootstrap resumes only the old process and records resume failure: %s",
+  async (resumeFails) => {
+    const f = fixture();
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const calls: string[] = [];
+    const forbidden = async () => {
+      calls.push("forbidden");
+      throw new Error("Unexpected transfer");
+    };
+    const operations: BootstrapExecutorOperations = {
+      withOwnership: async (_request, operation) => operation(),
+      armWatchdog: async () => {
+        calls.push("watchdog");
+      },
+      freeze: async () => {
+        calls.push("freeze");
+      },
+      inspectFrozen: async () => ({ restartJournal: [], childPids: [123] }),
+      preserveTransfer: forbidden,
+      unload: forbidden,
+      select: forbidden,
+      start: forbidden,
+      verifyReplacement: forbidden,
+      releaseReplacement: forbidden,
+      resumePrevious: async () => {
+        calls.push("resume");
+        if (resumeFails) throw new Error("Identity changed");
+      },
+    };
+    const result = await executeCoordinatorBootstrap(
+      f.service(),
+      { id: approved.id, revision: approved.revision, planSha256: approved.planSha256 },
+      operations,
+    );
+    expect(result.execution?.stage).toBe(resumeFails ? "recovery_required" : "resumed");
+    expect(calls).toEqual(["watchdog", "freeze", "resume"]);
+  },
+);

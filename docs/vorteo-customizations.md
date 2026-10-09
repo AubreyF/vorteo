@@ -209,3 +209,5 @@ Claude setup-token review: Added private command capture, owner-authenticated in
 October 8, 2026: Integrated Claude setup-token connections with coordinator bootstrap preparation, preserving both v227 entries. Source integration does not enable coordinator maintenance or prove live Host/Dev authentication; tracked installation and owner connection remain pending.
 
 October 8, 2026: Bootstrap review service construction now uses private Host setup and the complete plan verifier. Tests reject exposed or changed setup and foreign daemon identity; preparation remains inert. Production capability wiring and lifecycle activation remain pending.
+
+October 8, 2026: Bootstrap dispatch now claims one exact approved revision and persists generation-bound execution stages. Native inspection can require a stopped process and report its child inventory. The executor sequence rejects busy transfers and distinguishes pre-transfer resume from recovery after unload. Focused fixtures cover stage ordering, duplicate dispatch and failure boundaries. Native operation adapters, watchdog, approval UI and live activation remain unfinished.

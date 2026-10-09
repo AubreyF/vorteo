@@ -37,6 +37,24 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
 });
 export type CoordinatorBootstrapPlan = z.infer<typeof CoordinatorBootstrapPlanSchema>;
 
+export const CoordinatorBootstrapStageSchema = z.enum([
+  "claimed",
+  "freeze_pending",
+  "frozen",
+  "unload_pending",
+  "unloaded",
+  "selection_pending",
+  "selected",
+  "start_pending",
+  "started",
+  "verifying",
+  "succeeded",
+  "resume_pending",
+  "resumed",
+  "recovery_required",
+]);
+export type CoordinatorBootstrapStage = z.infer<typeof CoordinatorBootstrapStageSchema>;
+
 export const CoordinatorBootstrapRequestSchema = z.strictObject({
   id: z.string().uuid(),
   revision: z.string().uuid(),
@@ -47,6 +65,13 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
   planSha256: DigestSchema,
   status: z.enum(["pending", "approved", "canceled"]),
   decisionAt: z.string().datetime().optional(),
+  execution: z
+    .strictObject({
+      generation: z.string().uuid(),
+      stage: CoordinatorBootstrapStageSchema,
+      updatedAt: z.string().datetime(),
+    })
+    .optional(),
 });
 export type CoordinatorBootstrapRequest = z.infer<typeof CoordinatorBootstrapRequestSchema>;
 
