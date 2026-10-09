@@ -324,7 +324,7 @@ export function restartBannerTitle(job: RestartJob): string {
   if (job.status === "approved") return `${target} restart queued`;
   if (job.sourceBatch && job.sourceBatch.status !== "ready") {
     const labels = {
-      conflict: "update needs correction",
+      conflict: "update awaiting agent repair",
       preparing: "update is being checked",
       waiting: "update is waiting",
     };
@@ -339,6 +339,11 @@ export function restartBlockingReason(job: RestartJob): string | null {
     .filter((item) => item.status === "invalid" || item.status === "conflict")
     .map((item) => item.detail.split("\n")[0]!);
   return [...new Set(reasons)].join("; ") || job.detail;
+}
+
+export function restartRepairGuidance(job: RestartJob): string | null {
+  if (!restartBlockingReason(job)) return null;
+  return "The requesting agent must repair this update before you can approve it. Leave it queued for repair, or choose Cancel update if you no longer want it. Your running version is unchanged.";
 }
 
 export function restartActionDisabledReason(
@@ -359,7 +364,7 @@ export function restartActionDisabledReason(
     const remedy = /release notes/i.test(blocker)
       ? "The submitting agent must reconcile the release-note history and resubmit the corrected source. Open Details to identify the blocked contributions."
       : "The submitting agent must resolve the listed source errors and resubmit. Open Details to identify the blocked contributions.";
-    return `${blocker}. ${remedy}`;
+    return `${restartRepairGuidance(job)} ${remedy}`;
   }
   if (job.sourceBatch?.status === "preparing")
     return "The coordinator is checking and combining the submitted source. Wait for preparation to finish; this button enables when the update is ready.";

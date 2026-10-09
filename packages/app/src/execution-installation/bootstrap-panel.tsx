@@ -222,10 +222,8 @@ export function BootstrapBanner({ model }: { model: BootstrapPanelModel }) {
       <SidebarCallout
         title={`Coordinator: ${bootstrapStatus(request)}`}
         description={state.error ?? "Coordinator maintenance. Host and Dev tasks keep running."}
+        actions={[{ label: "Review update", onPress: open }]}
       />
-      <Button variant="outline" onPress={open}>
-        Review coordinator update
-      </Button>
     </View>
   );
 }

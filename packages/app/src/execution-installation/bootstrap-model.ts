@@ -34,6 +34,7 @@ export class BootstrapPanelModel {
   private password = "";
   private refreshing = false;
   private generation = 0;
+  private pendingDecision: { id: string; revision: string } | null = null;
   constructor(private readonly resolveClient: () => BootstrapReviewClient | null) {}
   getState = () => this.state;
   subscribe = (listener: () => void) => {
@@ -51,7 +52,7 @@ export class BootstrapPanelModel {
     this.publish({ hasPassword: value.length > 0 });
   }
   async refresh(automatic = false) {
-    if (this.refreshing || this.state.busy) return;
+    if (this.refreshing) return;
     const client = this.resolveClient();
     if (!client) {
       if (this.state.available)
@@ -64,8 +65,19 @@ export class BootstrapPanelModel {
     const generation = this.generation;
     try {
       const requests = await client.listCoordinatorBootstrapRequests();
-      if (generation === this.generation)
-        this.publish({ available: true, requests, error: automatic ? this.state.error : null });
+      if (generation === this.generation) {
+        const pending = this.pendingDecision;
+        const recorded = pending && requests.find((item) => item.id === pending.id);
+        // A durable revision supersedes the long-running decision response.
+        // Keep polling during verification so approval and cancellation stay visible.
+        if (pending && recorded && recorded.revision !== pending.revision) {
+          this.generation++;
+          this.pendingDecision = null;
+          this.publish({ available: true, requests, busy: false, error: null });
+        } else {
+          this.publish({ available: true, requests, error: automatic ? this.state.error : null });
+        }
+      }
     } catch {
       if (generation === this.generation)
         this.publish({
@@ -97,7 +109,8 @@ export class BootstrapPanelModel {
       this.publish({ error: "Reconnect Host before deciding this request." });
       return;
     }
-    this.generation++;
+    const generation = ++this.generation;
+    this.pendingDecision = { id: request.id, revision: request.revision };
     const password = this.password;
     this.password = "";
     this.publish({
@@ -111,14 +124,19 @@ export class BootstrapPanelModel {
         { id: request.id, revision: request.revision, planSha256: request.planSha256, decision },
         password,
       );
-      this.publish({ available: true, requests });
+      if (generation === this.generation) this.publish({ available: true, requests });
     } catch {
-      this.publish({
-        error:
-          "Decision unconfirmed. Refresh status before retrying, then check the owner password.",
-      });
+      if (generation === this.generation)
+        this.publish({
+          error:
+            "Decision unconfirmed. Refresh status before retrying, then check the owner password.",
+        });
     } finally {
-      this.publish({ busy: false });
+      if (generation === this.generation) {
+        this.generation++;
+        this.pendingDecision = null;
+        this.publish({ busy: false });
+      }
     }
   }
 }

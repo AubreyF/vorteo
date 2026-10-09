@@ -41,6 +41,7 @@ import {
   restartRequestSummary,
   restartBannerTitle,
   restartBlockingReason,
+  restartRepairGuidance,
   restartActionDisabledReason,
 } from "./panel-model";
 import type { ProfileSharingStatus, RestartJob } from "@getpaseo/protocol/execution-installation";
@@ -121,7 +122,7 @@ function restartStatus(job: RestartJob, historical = false) {
       const labels = {
         preparing: "Combining source",
         waiting: "Next batch",
-        conflict: "Needs correction",
+        conflict: "Awaiting agent repair",
       };
       return { label: labels[batchStatus], variant: "warning" as const };
     }
@@ -529,8 +530,7 @@ function RestartRequest({
           <StatusBadge {...status} />
         </View>
         <Text style={styles.text} testID={`restart-summary-${job.id}`}>
-          {restartRequestSummary(job)}
-          {restartBlockingReason(job) ? ` Needs correction: ${restartBlockingReason(job)}` : null}
+          {restartRepairGuidance(job) ?? restartRequestSummary(job)}
           {source && job.status === "pending" && !restartBlockingReason(job)
             ? ` Approval lets the submitted code and build scripts run on ${job.target === "host" ? "Host" : "Dev"} and may interrupt its tasks and terminals.`
             : null}
@@ -717,7 +717,7 @@ function RestartActions({
             Install update and restart
           </RestartActionButton>
           <Button variant="ghost" disabled={busy} onPress={cancel}>
-            Cancel
+            Cancel update
           </Button>
         </ActionFooter>
       ) : null}
@@ -1040,18 +1040,13 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
   const description = useMemo(
     () => (
       <View style={styles.details}>
-        <Text style={styles.text}>{restartBlockingReason(job) ?? restartRequestSummary(job)}</Text>
+        <Text style={styles.text}>{restartRepairGuidance(job) ?? restartRequestSummary(job)}</Text>
         {job.status === "approved" || job.status === "running" ? (
           <RestartActivity job={job} />
         ) : null}
-        <ActionFooter style={styles.actions}>
-          <Button variant="outline" onPress={open}>
-            Review restart
-          </Button>
-        </ActionFooter>
       </View>
     ),
-    [job, open],
+    [job],
   );
   const title = restartBannerTitle(job);
   const inProgress = job.status === "approved" || job.status === "running";
@@ -1067,6 +1062,12 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
   return (
     <SidebarCallout
       title={title}
+      actions={[
+        {
+          label: job.update || job.sourceBatch ? "Review update" : "Review restart",
+          onPress: open,
+        },
+      ]}
       icon={icon}
       description={description}
       showTopBorder={showTopBorder}

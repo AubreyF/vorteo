@@ -3574,6 +3574,15 @@ test("disabled restart explains the correction on hover, focus and touch without
   await page.goto(`${origin}/settings/general?installation=1&restart=${id}`);
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
+  const card = page.getByTestId(`restart-request-${id}`);
+  await expect(card).toContainText("Awaiting agent repair");
+  await expect(card).toContainText("The requesting agent must repair this update");
+  await expect(card).toContainText("Leave it queued for repair");
+  await expect(card.getByRole("button", { name: "Cancel update", exact: true })).toBeVisible();
+  await expect(
+    card.getByText("Existing release notes were edited; resolve explicitly", { exact: true }),
+  ).toHaveCount(0);
+  await card.screenshot({ path: info.outputPath("update-awaiting-agent-repair.png") });
   const button = page.getByTestId(`restart-install-${id}`);
   const explanation = page.getByTestId(`restart-install-${id}-explanation`);
   const tooltip = page.getByTestId(`restart-install-${id}-tooltip`);
