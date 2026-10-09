@@ -268,3 +268,5 @@ October 8, 2026: Coordinator artifact validation now accepts complete internal h
 October 9, 2026: Coordinator preparation, decisions and executor acknowledgement allow up to fifteen minutes for complete artifact checks. Observation timeout does not restart or replay an executor; the durable request remains authoritative.
 
 On October 9, 2026, the Factory integration was rebased on published GitHub main and prepared at version 253. GitHub is the owner-selected source coordination authority; unpublished installed code is not a required source input. Runtime identities, settings, credentials and live execution custody remain separately verified during managed deployment.
+
+Maintenance review (2026-10-09): the managed delivery correction preserves two older release-note entries without changing Factory implementation. GitHub remains the source coordination authority; compiled .253 validation is reused for unchanged code while normal metadata and commit checks cover the correction.

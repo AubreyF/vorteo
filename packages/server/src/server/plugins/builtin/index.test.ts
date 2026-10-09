@@ -1509,7 +1509,7 @@ async function fixture(root: string, id: string, client = false): Promise<string
 }
 
 test("bundled Factory observes serving identity without creating or adopting work", async () => {
-  const version = "0.11.0-beta.3.vorteo.253";
+  const version = "0.11.0-beta.3.vorteo.254";
   const root = await mkdtemp(path.join(os.tmpdir(), "factory-observation-"));
   roots.push(root);
   const daemon = await createTestPaseoDaemon({
