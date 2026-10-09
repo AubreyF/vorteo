@@ -15,7 +15,9 @@ import { hashSync } from "bcryptjs";
 import {
   readBootstrapHostBinding,
   bootstrapWritableMountRoots,
+  verifyBootstrapConfiguration,
 } from "./coordinator-bootstrap-host.js";
+import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 
 const roots: string[] = [];
 
@@ -87,13 +89,83 @@ function fixture() {
       ],
     },
     ownerPasswordHash: hashSync("fixture-password", 4),
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    listenPort: 6766,
+    webDistDir: path.join(root, "web"),
     stateDir,
-    host: { launchdService: `gui/${process.getuid!()}/local.vorteo.${installationId}.host` },
+    host: {
+      launchdService: `gui/${process.getuid!()}/local.vorteo.${installationId}.host`,
+      endpoint: "127.0.0.1:6768",
+      password: "host-fixture",
+    },
+    container: { endpoint: "127.0.0.1:6769", password: "dev-fixture" },
   };
   const save = () => writeFileSync(file, JSON.stringify(config), { mode: 0o600 });
   save();
   return { root, file, config, save };
 }
+
+test("bootstrap configuration preserves credentials, service targets and state with exact policy", () => {
+  const f = fixture();
+  const previousFile = path.join(f.root, "previous.json");
+  const candidateFile = path.join(f.root, "candidate.json");
+  const save = (file: string, value: unknown) =>
+    writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
+  save(previousFile, f.config);
+  save(candidateFile, f.config);
+  const file = { path: f.file, sha256: "a".repeat(64) };
+  const release = {
+    directory: f.root,
+    sourceCommit: "a".repeat(40),
+    artifactSha256: "a".repeat(64),
+    node: file,
+    entrypoint: file,
+    launcher: file,
+    configuration: file,
+  };
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: f.config.public.installationId,
+    service: f.config.host.launchdService.replace(/\.host$/, ".installation"),
+    expectedProcess: {
+      pid: 1,
+      bootId: "fixture",
+      startIdentity: "fixture",
+      argumentsSha256: "a".repeat(64),
+    },
+    previous: { ...release, configuration: { ...file, path: previousFile } },
+    candidate: { ...release, configuration: { ...file, path: candidateFile } },
+    state: {
+      directory: f.config.stateDir,
+      restartJournal: path.join(f.config.stateDir, "restart-jobs.json"),
+      ownerSessions: path.join(f.config.stateDir, "owner-sessions.json"),
+    },
+    hostRequestsAfter: null,
+  });
+  const verify = () =>
+    verifyBootstrapConfiguration({ plan, configurationFile: f.file, daemonId: "host-id" });
+  expect(verify).not.toThrow();
+  const policy = { hostRequestsAfter: "2026-10-09T00:00:00.000Z" };
+  save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
+  expect(verify).toThrow("outside its approved policy");
+  plan.hostRequestsAfter = policy.hostRequestsAfter;
+  expect(verify).not.toThrow();
+  save(candidateFile, {
+    ...f.config,
+    restartApprovalPolicy: policy,
+    container: { ...f.config.container, password: "changed" },
+  });
+  expect(verify).toThrow("outside its approved policy");
+  save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
+  plan.state.ownerSessions = path.join(f.root, "other-sessions.json");
+  expect(verify).toThrow("state paths changed");
+  plan.state.ownerSessions = path.join(f.config.stateDir, "owner-sessions.json");
+  f.config.host.password = "new-host-password";
+  f.save();
+  expect(verify).toThrow("no longer matches");
+});
 
 test("bootstrap binding pins Host daemon and service, and observes owner credential changes", () => {
   const f = fixture();

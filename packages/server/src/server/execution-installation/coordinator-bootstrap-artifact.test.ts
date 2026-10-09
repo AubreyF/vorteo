@@ -2,9 +2,11 @@ import { test, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, chmod, symlink, realpath, rm, link } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import {
   digestBootstrapArtifact,
   assertBootstrapPathsProtected,
+  verifyBootstrapReleaseArtifacts,
 } from "./coordinator-bootstrap-artifact.js";
 
 const roots: string[] = [];
@@ -19,6 +21,39 @@ async function fixture() {
   await writeFile(path.join(root, "release", "entry.js"), "export {};", { mode: 0o600 });
   return { root, release: path.join(root, "release") };
 }
+
+test("prepared release binds external dependencies and its complete runtime tree", async () => {
+  const { root, release } = await fixture();
+  const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+  const node = path.join(root, "node");
+  const configuration = path.join(root, "coordinator.json");
+  const launcher = path.join(root, "launcher.plist");
+  await writeFile(node, "fixture executable", { mode: 0o700 });
+  await writeFile(configuration, "{}", { mode: 0o600 });
+  await writeFile(launcher, "fixture launcher", { mode: 0o600 });
+  const candidate = {
+    sourceCommit: "a".repeat(40),
+    directory: release,
+    artifactSha256: await digestBootstrapArtifact(release),
+    node: { path: node, sha256: digest("fixture executable") },
+    entrypoint: { path: path.join(release, "entry.js"), sha256: digest("export {};") },
+    configuration: { path: configuration, sha256: digest("{}") },
+    launcher: { path: launcher, sha256: digest("fixture launcher") },
+  };
+  await expect(verifyBootstrapReleaseArtifacts(candidate, [])).resolves.toBeUndefined();
+  await expect(verifyBootstrapReleaseArtifacts(candidate, [root])).rejects.toThrow("mount");
+  await chmod(node, 0o600);
+  await expect(verifyBootstrapReleaseArtifacts(candidate, [])).rejects.toThrow("not executable");
+  await chmod(node, 0o700);
+  await writeFile(configuration, '{"changed":true}');
+  await expect(verifyBootstrapReleaseArtifacts(candidate, [])).rejects.toThrow("digest changed");
+  await writeFile(configuration, "{}");
+  await expect(
+    verifyBootstrapReleaseArtifacts({ ...candidate, entrypoint: candidate.node }, []),
+  ).rejects.toThrow("outside");
+  await writeFile(path.join(release, "dependency.js"), "new dependency", { mode: 0o600 });
+  await expect(verifyBootstrapReleaseArtifacts(candidate, [])).rejects.toThrow("artifact changed");
+});
 
 test("artifact approval binds dependencies, executable permissions and internal links", async () => {
   const { release } = await fixture();

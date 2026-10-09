@@ -95,6 +95,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 8, 2026: Prepared coordinator release verification now checks individual dependency hashes, Node execute permission, entrypoint containment and the complete artifact. Candidate configuration must match the current installation except for the exact planned restart policy; journal and session paths are fixed to the existing state directory. Focused fixtures cover changed dependencies, credentials, state paths and unapproved policy changes. Loaded-process verification, production admission and lifecycle activation remain unfinished.
+
 October 8, 2026: Bootstrap mount inspection now uses an explicit local Docker socket and immutable container identity. It requires evidence for writable named volumes and rejects custom driver options. Focused tests cover incomplete inspection, changed identity and ambiguous volume records; read-only Host diagnostics verified protected configuration and state against actual writable binds. Production admission and lifecycle activation remain unfinished.
 
 October 8, 2026: Bootstrap review now has optional session RPCs and client methods, permission checks, safe error responses and private configuration validation against the actual Host identity. Tests cover old-client capability gating, disconnected decisions without replay and owner proof exclusion from logs. The production service remains unconfigured pending complete plan verification and lifecycle execution; no new maintenance operation is available yet.

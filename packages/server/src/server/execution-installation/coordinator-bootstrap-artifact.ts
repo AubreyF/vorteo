@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { constants, type BigIntStats } from "node:fs";
 import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
+import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 
 function containsPath(directory: string, file: string): boolean {
@@ -25,6 +26,38 @@ export async function assertBootstrapPathsProtected(
         "Prepared bootstrap path overlaps a writable container mount",
       );
   }
+}
+
+/** Verifies prepared bytes only. Loaded service identity and configuration semantics
+ * are separate admission checks, and must be repeated before lifecycle dispatch. */
+export async function verifyBootstrapReleaseArtifacts(
+  release: CoordinatorBootstrapPlan["candidate"],
+  writableMountRoots: readonly string[],
+): Promise<void> {
+  const files = [release.node, release.entrypoint, release.configuration, release.launcher];
+  const observed = new Map<string, BigIntStats>();
+  await assertBootstrapPathsProtected(
+    [release.directory, ...files.map((file) => file.path)],
+    writableMountRoots,
+  );
+  if (!containsPath(release.directory, release.entrypoint.path))
+    throw new BootstrapRequestConflict("Coordinator entrypoint is outside its prepared release");
+  for (const file of files) {
+    if ((await realpath(file.path)) !== file.path)
+      throw new BootstrapRequestConflict("Prepared file requires a canonical path");
+    const stat = await lstat(file.path, { bigint: true });
+    observed.set(file.path, stat);
+    requireOwned(stat);
+    if (!stat.isFile())
+      throw new BootstrapRequestConflict("Prepared dependency must be a regular file");
+    if ((await digestFile(file.path, stat)) !== file.sha256)
+      throw new BootstrapRequestConflict("Prepared dependency digest changed");
+    if (file === release.node && (stat.mode & 0o100n) === 0n)
+      throw new BootstrapRequestConflict("Prepared Node executable is not executable");
+  }
+  if ((await digestBootstrapArtifact(release.directory)) !== release.artifactSha256)
+    throw new BootstrapRequestConflict("Prepared release artifact changed");
+  for (const [file, stat] of observed) requireUnchanged(stat, await lstat(file, { bigint: true }));
 }
 
 function identity(stat: BigIntStats): string {

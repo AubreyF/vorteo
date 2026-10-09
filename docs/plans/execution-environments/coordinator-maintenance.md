@@ -29,6 +29,8 @@ This first upgrade needs a bounded Host bootstrap extension because the installe
 
 ## Approval and transport
 
+Prepared release verification binds the Node executable, entrypoint, configuration, launcher and complete runtime tree. Configuration verification compares the current, rollback and candidate settings privately, preserving all settings except an explicitly planned Host restart policy. It requires the existing journal and owner-session paths. These checks remain separate from loaded-process and launcher verification; passing them alone does not admit a production bootstrap request.
+
 The Host daemon advertises bootstrap support only when it has a valid private Host-only configuration and verifies its pinned installation identity. Dev does not register the API. Add explicit namespaced query, prepare, decide and status messages rather than routing generic commands or shell text.
 
 Preparation and observation use the appropriate Host permissions. Approval additionally validates the installation owner password against the protected coordinator configuration and binds it to the exact request ID, revision and plan digest. Never infer approval from an unlocked label, a caller-supplied origin, Host request credentials, a relay role, or a successful status query. Passwords must not enter receipts, logs, queued payloads or the guest.

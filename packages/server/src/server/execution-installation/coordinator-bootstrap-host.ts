@@ -9,13 +9,15 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { promisify, isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
   ExecutionInstallationSchema,
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
 import { BootstrapRequestConflict, type BootstrapHostBinding } from "./coordinator-bootstrap.js";
+import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
+import { InstallationConfigSchema } from "./config.js";
 
 const execute = promisify(execFile);
 
@@ -29,6 +31,60 @@ const CoordinatorBindingSchema = z.object({
 export interface ProtectedBootstrapHost {
   binding: BootstrapHostBinding;
   stateDirectory: string;
+}
+
+/** Compare private values without returning them to the review transport. */
+export function verifyBootstrapConfiguration(input: {
+  plan: CoordinatorBootstrapPlan;
+  configurationFile: string;
+  daemonId: string;
+}): void {
+  const context = readBootstrapHostBinding(input.configurationFile, input.daemonId);
+  const uid = process.getuid!();
+  const current = InstallationConfigSchema.parse(
+    readPrivateBootstrapConfiguration(input.configurationFile, uid),
+  );
+  const previous = InstallationConfigSchema.parse(
+    readPrivateBootstrapConfiguration(input.plan.previous.configuration.path, uid),
+  );
+  const candidate = InstallationConfigSchema.parse(
+    readPrivateBootstrapConfiguration(input.plan.candidate.configuration.path, uid),
+  );
+  const expectedState = {
+    directory: context.stateDirectory,
+    restartJournal: path.join(context.stateDirectory, "restart-jobs.json"),
+    ownerSessions: path.join(context.stateDirectory, "owner-sessions.json"),
+  };
+  const matchingIdentity =
+    context.binding.installationId === input.plan.installationId &&
+    context.binding.service === input.plan.service;
+  if (!matchingIdentity || !isDeepStrictEqual(input.plan.state, expectedState))
+    throw new BootstrapRequestConflict("Bootstrap installation or state paths changed");
+  if (!isDeepStrictEqual(current, previous))
+    throw new BootstrapRequestConflict("Previous coordinator configuration no longer matches");
+  const expected = { ...current };
+  if (input.plan.hostRequestsAfter !== null)
+    expected.restartApprovalPolicy = { hostRequestsAfter: input.plan.hostRequestsAfter };
+  if (!isDeepStrictEqual(candidate, expected))
+    throw new BootstrapRequestConflict(
+      "Candidate changes configuration outside its approved policy",
+    );
+  const observations = [
+    { file: input.configurationFile, value: current },
+    { file: input.plan.previous.configuration.path, value: previous },
+    { file: input.plan.candidate.configuration.path, value: candidate },
+  ];
+  for (const observation of observations) {
+    const latest = InstallationConfigSchema.parse(
+      readPrivateBootstrapConfiguration(observation.file, uid),
+    );
+    if (!isDeepStrictEqual(observation.value, latest))
+      throw new BootstrapRequestConflict("Coordinator configuration changed during verification");
+  }
+  if (
+    !isDeepStrictEqual(context, readBootstrapHostBinding(input.configurationFile, input.daemonId))
+  )
+    throw new BootstrapRequestConflict("Bootstrap Host binding changed during verification");
 }
 
 const ContainerMountInspectionSchema = z.object({
