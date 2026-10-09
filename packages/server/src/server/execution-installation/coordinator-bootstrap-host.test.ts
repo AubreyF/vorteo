@@ -891,3 +891,38 @@ test.runIf(process.platform === "darwin")(
     await expect(createConfiguredBootstrapReview("host-id", environment)).rejects.toThrow();
   },
 );
+
+test("executor acknowledgement allows artifact verification beyond one minute", async () => {
+  const child = spawn(
+    process.execPath,
+    ["-e", "process.stdin.on('data', () => process.stdout.write('dispatched\\n'))"],
+    {
+      stdio: ["pipe", "pipe", "ignore"],
+    },
+  );
+  const closed = once(child, "close");
+  vi.useFakeTimers();
+  try {
+    const result = waitForBootstrapWatchdog(child, "executor");
+    let settled = false;
+    void result.then(
+      () => {
+        settled = true;
+        return settled;
+      },
+      () => {
+        settled = true;
+        return settled;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(settled).toBe(false);
+    vi.useRealTimers();
+    child.stdin!.write("ready");
+    await expect(result).resolves.toBeUndefined();
+  } finally {
+    vi.useRealTimers();
+    child.kill("SIGKILL");
+    await closed;
+  }
+});

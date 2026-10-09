@@ -247,3 +247,5 @@ October 8, 2026: Integrated the currently deployed interface and Host release an
 October 8, 2026: Host bootstrap setup can be discovered beside the private Host installation client, preserving the loaded launcher. Discovery rejects non-Host clients and invalid private configuration and retains artifact, daemon and mount validation. Tracked installation and live acceptance remain pending.
 
 October 8, 2026: Coordinator artifact validation now accepts complete internal hard-link groups created by npm while rejecting external aliases. The digest includes link topology and rechecks file identity; individually prepared control files retain single-link validation. Live activation remains pending.
+
+October 9, 2026: Coordinator preparation, decisions and executor acknowledgement allow up to fifteen minutes for complete artifact checks. Observation timeout does not restart or replay an executor; the durable request remains authoritative.

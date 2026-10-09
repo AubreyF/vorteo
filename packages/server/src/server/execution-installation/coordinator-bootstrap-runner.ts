@@ -55,7 +55,9 @@ export function waitForBootstrapWatchdog(
   const expected = role === "watchdog" ? "waiting\n" : "dispatched\n";
   return new Promise((resolve, reject) => {
     let bytes = "";
-    const timer = setTimeout(() => finish(false), role === "watchdog" ? 10_000 : 60_000);
+    // Full installed dependency trees can take minutes to verify. This bounds
+    // observation only; expiration never proves the executor stopped.
+    const timer = setTimeout(() => finish(false), role === "watchdog" ? 10_000 : 15 * 60_000);
     const failed = () => finish(false);
     const data = (chunk: Buffer) => {
       bytes += chunk.toString("utf8");

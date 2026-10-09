@@ -3771,6 +3771,7 @@ export class DaemonClient {
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.prepare.response">({
         message: { type: "installation.bootstrap.prepare.request", input },
+        timeout: 15 * 60_000,
       });
     if (result.error || !result.requests)
       throw new Error(result.error ?? "Bootstrap preparation unconfirmed");
@@ -3785,6 +3786,7 @@ export class DaemonClient {
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.decide.response">({
         message: { type: "installation.bootstrap.decide.request", input, ownerPassword },
+        timeout: 15 * 60_000,
       });
     if (result.error || !result.requests)
       throw new Error(
