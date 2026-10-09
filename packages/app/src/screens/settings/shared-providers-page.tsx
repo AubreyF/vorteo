@@ -553,7 +553,7 @@ function ProviderCatalog({
   const reorder = useCallback(
     (ordered: ProviderFamily[]) => {
       const rank = new Map(ordered.map((family, index) => [family.id, index]));
-      change.mutate({
+      return change.mutateAsync({
         expectedRevision: data.revision,
         settings: {
           providerDefinitions: data.settings.providerDefinitions.map((entry) => ({

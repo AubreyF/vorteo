@@ -606,10 +606,10 @@ function ProviderList({
 }: ProviderListProps) {
   const supportsProviderOrdering = useHostFeature(serverId, "providerOrdering");
   const canReorder = supportsProviderOrdering;
-  const { mutate: saveOrder } = reorder;
+  const { mutateAsync: saveOrder } = reorder;
   const reorderProviders = useCallback(
     (ordered: ProviderEntry[]) => {
-      saveOrder(ordered);
+      return saveOrder(ordered);
     },
     [saveOrder],
   );
@@ -659,7 +659,7 @@ function ProviderList({
     <View style={settingsStyles.card}>
       {canReorder ? (
         <DraggableList
-          data={reorder.isPending ? reorder.variables : entries}
+          data={entries}
           keyExtractor={providerKey}
           renderItem={renderProvider}
           onDragEnd={reorderProviders}

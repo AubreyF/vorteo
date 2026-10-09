@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.237 - 2026-10-09
+
+### Fixed
+
+- Preserve dropped task, message and provider order during asynchronous saves with a shared web/native handoff. Keep row content current and restore authoritative order on failure.
+- Remove routine message reorder status while preserving rejection and recovery controls. Detect retained queue operations instead of treating their flush as a confirmed reorder.
+- Add delayed-response, mouse rejection and desktop/phone frame checks for stable list positions; document the async drop contract.
+
 ## 0.11.0-beta.3.vorteo.236 - 2026-10-09
 
 ### Changed

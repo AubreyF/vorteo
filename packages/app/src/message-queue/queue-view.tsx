@@ -148,7 +148,11 @@ function QueueHeader({
   const touch = useVortonTouch();
   const snapshot = control.snapshot;
   const pending = control.pending.filter(
-    (record) => !record.error && !record.dismissed && record.operation.kind !== "enqueue",
+    (record) =>
+      !record.error &&
+      !record.dismissed &&
+      record.operation.kind !== "enqueue" &&
+      record.operation.kind !== "reorder",
   );
   const operation = pending[0];
   let status: string | null = null;
@@ -216,10 +220,7 @@ function QueueRows({
   agentId: string;
 }) {
   const snapshot = control.snapshot;
-  const [preview, setPreview] = useState<{
-    revision: number;
-    items: QueueItem[];
-  } | null>(null);
+  const [savingOrder, setSavingOrder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedRevision = useRef<number | null>(null);
   const edits = useQueueEditDrafts();
@@ -230,7 +231,7 @@ function QueueRows({
     control.canMutate &&
     !edits.drafts.length &&
     !control.pending.some((record) => record.operation.kind === "enqueue") &&
-    !preview &&
+    !savingOrder &&
     !!snapshot &&
     snapshot.items.length > 1 &&
     snapshot.items.every((item) => item.delivery.status === "queued");
@@ -247,11 +248,8 @@ function QueueRows({
       try {
         const action = queueReorderAction(snapshot, startedRevision.current, items);
         if (!action) return;
-        setPreview({ revision: snapshot.revision, items });
-        void control
-          .mutate(action)
-          .catch(() => {})
-          .finally(() => setPreview(null));
+        setSavingOrder(true);
+        return control.mutate(action).finally(() => setSavingOrder(false));
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : "Could not reorder the queue.");
       }
@@ -271,10 +269,7 @@ function QueueRows({
     ),
     [control, serverId, agentId, enabled],
   );
-  const queuedItems =
-    preview && preview.revision === snapshot?.revision
-      ? preview.items
-      : (snapshot?.items ?? EMPTY_QUEUE_ITEMS);
+  const queuedItems = snapshot?.items ?? EMPTY_QUEUE_ITEMS;
   const items = [...queuedItems];
   for (const draft of edits.drafts) {
     if (!items.some((item) => item.id === draft.original.id)) items.push(draft.original);

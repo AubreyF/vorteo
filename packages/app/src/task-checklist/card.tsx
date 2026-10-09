@@ -139,6 +139,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
             canMutate={canMutate}
             open={open}
             sendMutation={sendMutation}
+            reorder={mutation.mutateAsync}
           />
         ) : null}
         {error ? (
@@ -196,11 +197,13 @@ function ChecklistRows({
   canMutate,
   open,
   sendMutation,
+  reorder,
 }: {
   tasks: AgentTaskItem[];
   canMutate: boolean;
   open: (task: AgentTaskItem) => void;
   sendMutation: (input: ChecklistMutation) => void;
+  reorder: (input: ChecklistMutation) => Promise<unknown>;
 }) {
   const managed = useMemo(
     () => tasks.filter((task) => task.source === "vorteo" && task.id),
@@ -230,10 +233,10 @@ function ChecklistRows({
         .filter((task) => task.source === "vorteo")
         .flatMap((task) => (task.id ? [task.id] : []));
       if (ids.join("\n") !== managed.map((task) => task.id).join("\n")) {
-        sendMutation({ operation: "reorder", ids });
+        return reorder({ operation: "reorder", ids });
       }
     },
-    [release, canMutate, tasks, managed, sendMutation],
+    [release, canMutate, tasks, managed, reorder],
   );
   const renderRow = useCallback(
     (info: DraggableRenderItemInfo<AgentTaskItem>) => (

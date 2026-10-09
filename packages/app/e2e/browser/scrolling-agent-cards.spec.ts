@@ -474,6 +474,22 @@ for (const width of [1400, 390]) {
       await expect(
         page.getByRole("checkbox", { name: "Complete Agent revision", exact: true }),
       ).toBeVisible();
+      await page.evaluate(() => {
+        const send = WebSocket.prototype.send;
+        const held: (() => void)[] = [];
+        WebSocket.prototype.send = function (data) {
+          const message = typeof data === "string" ? JSON.parse(data).message : null;
+          if (
+            message?.type === "agent.checklist.mutate.request" &&
+            message.mutation?.operation === "reorder"
+          ) {
+            held.push(() => send.call(this, data));
+          } else send.call(this, data);
+        };
+        Object.assign(window, {
+          releaseTaskOrder: () => held.splice(0).forEach((release) => release()),
+        });
+      });
       const handle = page.getByTestId("checklist-drag-dependent");
       const checkbox = page.getByTestId("checklist-row-dependent").getByRole("checkbox");
       expect((await handle.boundingBox())!.x).toBeLessThan((await checkbox.boundingBox())!.x);
@@ -486,6 +502,20 @@ for (const width of [1400, 390]) {
         page.getByRole("status").filter({ hasText: "Draggable item vorteo:dependent" }),
       ).toContainText(`over droppable area vorteo:${api!.id!}`);
       await page.keyboard.press("Space");
+      const staysDropped = await page.evaluate(async () => {
+        for (let frame = 0; frame < 30; frame++) {
+          await new Promise(requestAnimationFrame);
+          const rows = [...document.querySelectorAll('[data-testid^="checklist-row-"]')];
+          if (rows[0]?.getAttribute("data-testid") !== "checklist-row-dependent") return false;
+          if (rows[0]!.getBoundingClientRect().top >= rows[1]!.getBoundingClientRect().top)
+            return false;
+        }
+        return true;
+      });
+      expect(staysDropped).toBe(true);
+      await page.evaluate(() =>
+        (window as unknown as { releaseTaskOrder(): void }).releaseTaskOrder(),
+      );
       await expect
         .poll(async () => (await client.getAgentChecklist(agent.agentId)).map((task) => task.id))
         .toEqual(["dependent", api!.id!]);

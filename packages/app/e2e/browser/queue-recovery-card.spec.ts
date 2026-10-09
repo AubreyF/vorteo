@@ -246,7 +246,25 @@ for (const width of [1440, 390]) {
         page.getByRole("status").filter({ hasText: "Draggable item first" }),
       ).toContainText("over droppable area second");
       await page.keyboard.press("Space");
-      await expect(status).toHaveText("Reorder queued messages");
+      await expect(status).toHaveText("Paused");
+      // Sample frames while the server has not received the reorder, catching a
+      // return animation even if the final acknowledged order would be correct.
+      const staysDropped = await card.evaluate(async (node) => {
+        for (let frame = 0; frame < 30; frame++) {
+          await new Promise(requestAnimationFrame);
+          const rows = [...node.querySelectorAll('[data-testid^="queue-message-"]')];
+          const first = rows.find((row) => row.textContent?.includes("Queued first"));
+          const second = rows.find((row) => row.textContent?.includes("Queued second"));
+          if (
+            !first ||
+            !second ||
+            first.getBoundingClientRect().top <= second.getBoundingClientRect().top
+          )
+            return false;
+        }
+        return true;
+      });
+      expect(staysDropped).toBe(true);
       const during = (await card.boundingBox())!;
       const headerDuring = (await header.boundingBox())!;
       const statusBox = (await status.boundingBox())!;
@@ -269,6 +287,42 @@ for (const width of [1440, 390]) {
       );
       await expect(status).toHaveText("Paused");
       expect((await card.boundingBox())!.height).toBeCloseTo(before.height, 0);
+
+      // A mouse drop follows the same path. Change only the remote revision
+      // while it is held, so rejection must explicitly undo the local preview.
+      const dragged = page.getByTestId("queue-drag-second");
+      const start = (await dragged.boundingBox())!;
+      const target = (await page.getByTestId("queue-drag-first").boundingBox())!;
+      await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(start.x + start.width / 2, target.y + target.height / 2, { steps: 12 });
+      await expect(dragged).toHaveAttribute("aria-pressed", "true");
+      await page.mouse.up();
+      await expect
+        .poll(async () => {
+          const first = (await page.getByTestId("queue-message-first").boundingBox())!;
+          const second = (await page.getByTestId("queue-message-second").boundingBox())!;
+          return first.y < second.y;
+        })
+        .toBe(true);
+      const current = await client.readMessageQueue(agent.agentId);
+      await client.mutateMessageQueue(agent.agentId, {
+        kind: "pause",
+        operationId: "invalidate-reorder",
+        paused: true,
+        expectedRevision: current.snapshot!.revision,
+      });
+      await page.evaluate(() =>
+        (window as unknown as { releaseQueueStatus(): void }).releaseQueueStatus(),
+      );
+      await expect(card.getByRole("alert").first()).toBeVisible();
+      await expect
+        .poll(async () => {
+          const first = (await page.getByTestId("queue-message-first").boundingBox())!;
+          const second = (await page.getByTestId("queue-message-second").boundingBox())!;
+          return second.y < first.y;
+        })
+        .toBe(true);
     } finally {
       await client.close();
       await agent.cleanup();

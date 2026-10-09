@@ -93,16 +93,32 @@ export function useMessageQueue(serverId: string, agentId: string) {
         throw new Error("Wait for the current queue operation before sending another message now.");
       if (immediate) sendingNow.current = true;
       try {
+        const operationId = generateMessageId();
         await messageOutbox.commit({
           serverId,
           agentId,
           createdAt: Date.now(),
-          operation: { ...action, operationId: generateMessageId() },
+          operation: { ...action, operationId },
           localAttachments: [],
         });
         await refreshMessageOutbox(serverId);
         await flushMessageOutbox(serverId);
         await queue.refetch();
+        if (action.kind === "reorder") {
+          // Flushing preserves rejected/uncertain operations for recovery instead
+          // of throwing. The list must still retire its optimistic order.
+          const retained = (await messageOutbox.list()).find(
+            (record) =>
+              record.serverId === serverId &&
+              record.agentId === agentId &&
+              record.operation.operationId === operationId,
+          );
+          if (retained)
+            throw new Error(
+              retained.error?.message ??
+                "Queue order is not confirmed. Reconnect and review the pending change.",
+            );
+        }
       } finally {
         if (immediate) sendingNow.current = false;
       }

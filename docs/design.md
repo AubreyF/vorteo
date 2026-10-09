@@ -310,3 +310,7 @@ Brief progress messages belong at the right edge of the heading, immediately bef
 ### Conversation card disclosures
 
 Tasks, Messages, Goals and sub-agent cards use `CardDisclosure`. The title comes first, followed by the collapse arrow and then any count badge. Header actions and transient status remain available while collapsed. Keep local draft state mounted when folding Messages or Goals; collapsing changes visibility, not queue delivery or goal execution.
+
+### Reorder persistence
+
+A dropped row stays at its destination while the order saves. Asynchronous `DraggableList` handlers return the save promise so the shared web/native handoff can preserve the order until authoritative data changes. Keep row content current during that interval, retire the preview on rejection, and show the existing error/recovery controls. Synchronous store owners update their data in the drop event. Tasks and Messages do not show routine reorder progress text or spinners.
