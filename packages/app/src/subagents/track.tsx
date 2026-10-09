@@ -184,10 +184,14 @@ function SubagentsGroup({
       </View>
       {expanded ? (
         <View style={styles.cardRows}>
-          {rows.map((row, index) => (
-            <View key={row.id} style={index > 0 ? taskCardStyles.separator : undefined}>
-              <SubagentsTrackRow inline={inline} row={row} serverId={serverId} {...rowActions} />
-            </View>
+          {rows.map((row) => (
+            <SubagentsTrackRow
+              key={row.id}
+              inline={inline}
+              row={row}
+              serverId={serverId}
+              {...rowActions}
+            />
           ))}
         </View>
       ) : null}
@@ -331,21 +335,27 @@ export function SubagentsTrackRow({
     ({ active }: { active: boolean }) => (
       <>
         <WorkspaceTabIcon presentation={presentation} backdrop={active ? "surface2" : "surface1"} />
-        <View style={styles.rowTextColumn}>
-          <Text style={[styles.rowLabel, inline && taskCardStyles.rowText]} numberOfLines={1}>
-            {displayLabel}
+        <Text
+          style={[styles.rowLabel, inline && taskCardStyles.rowText]}
+          numberOfLines={1}
+          testID={`subagents-track-label-${row.id}`}
+        >
+          {displayLabel}
+        </Text>
+        {row.kind === "provider" ? (
+          <StatusBadge label={t(`subagents.providerStatus.${row.status}`)} size="xs" />
+        ) : null}
+        {presentation.subtitle ? (
+          <Text
+            style={[styles.rowTrailing, styles.rowMetadata]}
+            numberOfLines={1}
+            accessibilityLabel={presentation.subtitle}
+            testID={`subagents-track-metadata-${row.id}`}
+            selectable
+          >
+            {presentation.subtitle}
           </Text>
-          {row.kind === "provider" ? (
-            <View style={styles.statusLine}>
-              <StatusBadge label={t(`subagents.providerStatus.${row.status}`)} size="xs" />
-            </View>
-          ) : null}
-          {presentation.subtitle ? (
-            <Text style={styles.rowTrailing} selectable>
-              {presentation.subtitle}
-            </Text>
-          ) : null}
-        </View>
+        ) : null}
         {canArchive ? (
           <SubagentRowActions
             inline={inline}
@@ -499,13 +509,7 @@ function SubagentActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  statusLine: { alignItems: "flex-start" },
-  rowTextColumn: {
-    flexGrow: 1,
-    flexShrink: 1,
-    minWidth: 0,
-    gap: theme.spacing[1],
-  },
+  rowMetadata: { maxWidth: "50%", textAlign: "right" },
   card: { paddingLeft: theme.spacing[2] },
   cardRows: {
     marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
@@ -528,12 +532,14 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
   },
   actionClusterVisible: {
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
     opacity: 1,
   },
   actionClusterHidden: {
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],

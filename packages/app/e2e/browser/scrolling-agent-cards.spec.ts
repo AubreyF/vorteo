@@ -150,6 +150,39 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         expect(card.frame).toEqual(geometry[0].frame);
       }
       await checkDisclosures(stack, width, info);
+      const rowLayout = await stack.getByTestId("subagents-card").evaluate((card) => {
+        return [...card.querySelectorAll('[data-testid^="subagents-track-row-"]')].map((row) => {
+          const label = row.querySelector('[data-testid^="subagents-track-label-"]')!;
+          const metadata = row.querySelector('[data-testid^="subagents-track-metadata-"]')!;
+          const action = row.querySelector('[data-testid^="subagents-track-detach-"]')!;
+          const a = label.getBoundingClientRect();
+          const b = metadata.getBoundingClientRect();
+          const c = action.getBoundingClientRect();
+          return {
+            centers: [a.y + a.height / 2, b.y + b.height / 2, c.y + c.height / 2],
+            labelRight: a.right,
+            metadataLeft: b.left,
+            metadataRight: b.right,
+            actionLeft: c.left,
+            whiteSpace: getComputedStyle(metadata).whiteSpace,
+            separator: getComputedStyle(row.parentElement!).borderTopWidth,
+            overflow: row.scrollWidth > row.clientWidth,
+          };
+        });
+      });
+      expect(rowLayout).toHaveLength(5);
+      for (const row of rowLayout) {
+        expect(Math.max(...row.centers) - Math.min(...row.centers)).toBeLessThanOrEqual(1);
+        expect(row.labelRight).toBeLessThanOrEqual(row.metadataLeft);
+        expect(row.metadataRight).toBeLessThanOrEqual(row.actionLeft);
+        expect(row.whiteSpace).toBe("nowrap");
+        expect(row.separator).toBe("0px");
+        expect(row.overflow).toBe(false);
+      }
+      await stack
+        .getByTestId("subagents-card")
+        .screenshot({ path: info.outputPath(`single-line-subagents-${width}.png`) });
+
       const toggle = stack.getByTestId("subagents-group-paseo-toggle");
       const headerHeight = await toggle.evaluate((node) => node.getBoundingClientRect().height);
       const rowHeight = await stack.getByTestId("subagents-card").evaluate((card) => {
