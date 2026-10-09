@@ -1,4 +1,5 @@
-import { Circle, CircleCheck } from "lucide-react-native";
+import { Circle, CircleCheck, CirclePause } from "lucide-react-native";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { StatusRing } from "@/components/status-ring";
 import { memo } from "react";
 import { Text, View } from "react-native";
@@ -8,16 +9,26 @@ import type { TodoEntry } from "@/types/stream";
 
 const ThemedCircle = withUnistyles(Circle);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
+const ThemedCirclePause = withUnistyles(CirclePause);
 
 const extraMutedIcon = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 
-function TaskStatusIcon({ isCompleted, isRunning }: { isCompleted: boolean; isRunning: boolean }) {
+function TaskStatusIcon({
+  isCompleted,
+  isRunning,
+  isBlocked,
+}: {
+  isCompleted: boolean;
+  isRunning: boolean;
+  isBlocked: boolean;
+}) {
   if (isCompleted) {
     return <ThemedCircleCheck size={16} uniProps={extraMutedIcon} />;
   }
   if (isRunning) {
     return <StatusRing variant="task" />;
   }
+  if (isBlocked) return <ThemedCirclePause size={16} uniProps={extraMutedIcon} />;
   // A pending task's ring is a status mark, not a checkbox. At the muted step it carries the
   // weight of an enabled control and invites a click that does nothing, so it sits one step back
   // from the text it marks.
@@ -32,12 +43,13 @@ export const TaskListRow = memo(function TaskListRow({
   compact?: boolean;
 }) {
   const isCompleted = task.completed || task.status === "completed";
+  const isBlocked = !isCompleted && task.status === "blocked";
   const isRunning = !isCompleted && task.status === "in_progress";
   const text = isRunning && task.activeForm ? task.activeForm : task.text;
 
   return (
     <View style={styles.row} accessibilityLabel={text}>
-      <TaskStatusIcon isCompleted={isCompleted} isRunning={isRunning} />
+      <TaskStatusIcon isCompleted={isCompleted} isRunning={isRunning} isBlocked={isBlocked} />
       <Text
         numberOfLines={1}
         style={[
@@ -49,6 +61,7 @@ export const TaskListRow = memo(function TaskListRow({
       >
         {text}
       </Text>
+      {isBlocked ? <StatusBadge label="Blocked" variant="warning" size="xs" /> : null}
     </View>
   );
 });

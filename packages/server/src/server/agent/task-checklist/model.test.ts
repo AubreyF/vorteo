@@ -1,5 +1,9 @@
+import { z } from "zod";
+import type { AgentTaskItem } from "@getpaseo/protocol/agent-types";
+import { AgentTaskItemSchema, type WSOutboundMessage } from "@getpaseo/protocol/messages";
+import { serializeLegacyChecklistMessage } from "./compatibility.js";
 import { describe, expect, test } from "vitest";
-import { mutateChecklist } from "./model.js";
+import { ChecklistMutationSchema, mutateChecklist } from "./model.js";
 
 describe("thread checklist mutations", () => {
   test("rejects stale editor updates and deletion without losing the agent's changes", () => {
@@ -164,4 +168,82 @@ describe("thread checklist mutations", () => {
       mutateChecklist(tasks, { operation: "create", id: "b", text: "Duplicate" }),
     ).toThrow("already exists");
   });
+});
+
+test("blocked is discretionary, incomplete, and independent of prerequisite edges", () => {
+  let tasks = mutateChecklist([], {
+    operation: "create",
+    id: "a",
+    text: "Waiting for review",
+    owner: "worker",
+    description: "Review accepted",
+    metadata: { keep: true },
+  });
+  for (const status of [
+    "in_progress",
+    "blocked",
+    "pending",
+    "blocked",
+    "completed",
+    "blocked",
+  ] as const) {
+    tasks = mutateChecklist(
+      tasks,
+      ChecklistMutationSchema.parse({ operation: "update", id: "a", status }),
+    );
+    expect(tasks[0]).toMatchObject({
+      status,
+      completed: status === "completed",
+      owner: "worker",
+      description: "Review accepted",
+      metadata: { keep: true },
+    });
+    expect(tasks[0].blockedBy).toBeUndefined();
+  }
+  tasks = mutateChecklist(tasks, {
+    operation: "create",
+    id: "b",
+    text: "Dependent",
+    blockedBy: ["a"],
+  });
+  tasks = mutateChecklist(tasks, { operation: "update", id: "b", status: "blocked" });
+  expect(() =>
+    mutateChecklist(tasks, { operation: "update", id: "b", status: "in_progress" }),
+  ).toThrow("Complete dependency a");
+  tasks = mutateChecklist(tasks, { operation: "update", id: "a", status: "completed" });
+  expect(tasks[1].status).toBe("blocked");
+  tasks = mutateChecklist(tasks, { operation: "update", id: "b", status: "in_progress" });
+  expect(tasks[1]).toMatchObject({ status: "in_progress", completed: false, blockedBy: ["a"] });
+});
+
+test("legacy serialization downgrades checklist status without touching metadata or source state", () => {
+  const arbitrary = { text: "Payload", status: "blocked", completed: false };
+  const task: AgentTaskItem = {
+    id: "a",
+    text: "Waiting",
+    status: "blocked",
+    completed: false,
+    metadata: { arbitrary },
+  };
+  const message: WSOutboundMessage = {
+    type: "session",
+    message: {
+      type: "agent_stream",
+      payload: {
+        agentId: "a",
+        timestamp: new Date().toISOString(),
+        event: { type: "timeline", provider: "codex", item: { type: "todo", items: [task] } },
+      },
+    },
+  };
+  const encoded = JSON.parse(serializeLegacyChecklistMessage(message));
+  const legacyTask = encoded.message.payload.event.item.items[0];
+  expect(legacyTask).toEqual({ ...task, status: "pending" });
+  expect(legacyTask.metadata.arbitrary.status).toBe("blocked");
+  expect(task.status).toBe("blocked");
+  expect(
+    AgentTaskItemSchema.extend({
+      status: z.enum(["pending", "in_progress", "completed"]).optional(),
+    }).safeParse(legacyTask).success,
+  ).toBe(true);
 });

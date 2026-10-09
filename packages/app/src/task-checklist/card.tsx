@@ -2,7 +2,7 @@ import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { Check, Circle, Pencil, Plus } from "lucide-react-native";
+import { Check, Circle, CirclePause, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -12,6 +12,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
 import { StatusRing } from "@/components/status-ring";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
@@ -44,12 +45,13 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   const [expanded, setExpanded] = useState(true);
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const [editor, setEditor] = useState<EditorState>({ open: false });
-  const { supported, readOnly } = useSessionStore(
+  const { supported, supportsBlocked, readOnly } = useSessionStore(
     useShallow((state) => {
       const session = state.sessions[serverId];
       const agent = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId);
       return {
         supported: session?.serverInfo?.features?.agentChecklistMutations === true,
+        supportsBlocked: session?.serverInfo?.features?.checklistBlockedStatus === true,
         readOnly: !agent || agent.archivedAt != null,
       };
     }),
@@ -151,6 +153,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
       </TaskCard>
       {editor.open ? (
         <ChecklistEditor
+          supportsBlocked={supportsBlocked}
           task={editor.task}
           tasks={tasks}
           canMutate={canMutate}
@@ -290,6 +293,7 @@ function ChecklistRow({
   const task = info.item;
   const touch = useVortonTouch();
   const completed = task.completed || task.status === "completed";
+  const blocked = !completed && task.status === "blocked";
   const running = !completed && task.status === "in_progress";
   const title = running && task.activeForm ? task.activeForm : task.text;
   const managed = task.source === "vorteo" && Boolean(task.id);
@@ -304,7 +308,8 @@ function ChecklistRow({
   }, [task, completed, mutate]);
   const details = useCallback(() => open(task), [open, task]);
   const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
-  const incompleteIcon = running ? TASK_RUNNING_ICON : Circle;
+  const inactiveIcon = blocked ? CirclePause : Circle;
+  const incompleteIcon = running ? TASK_RUNNING_ICON : inactiveIcon;
   const checkboxState = useMemo(
     () => ({ checked: completed, disabled: !managed || !canMutate }),
     [completed, managed, canMutate],
@@ -341,6 +346,7 @@ function ChecklistRow({
       >
         {title}
       </Text>
+      {blocked ? <StatusBadge label="Blocked" variant="warning" size="xs" /> : null}
       <Button
         variant="ghost"
         size="sm"

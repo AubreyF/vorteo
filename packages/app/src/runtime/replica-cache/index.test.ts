@@ -305,7 +305,14 @@ describe("ReplicaCache", () => {
     const storage = new MemoryStorage();
     const writer = createCache(storage);
     const state = directory();
-    const tasks = [{ id: "item-1", text: "Verify the unopened thread", completed: true }];
+    const tasks = [
+      {
+        id: "item-1",
+        text: "Verify the unopened thread",
+        completed: false,
+        status: "blocked" as const,
+      },
+    ];
     state.agents.get("agent-1")!.tasks = tasks;
     commitDirectory(writer, SERVER_ID, state);
     writer.commitTimeline(SERVER_ID, "agent-1", timeline());

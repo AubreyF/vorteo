@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.254 - 2026-10-09
+
+### Added
+
+- Add a discretionary blocked checklist status to agent tools and task editing. Retain blocked items as incomplete across saved state, history refresh and client reloads.
+- Show blocked task badges and preserve compatibility with older clients through capability negotiation.
+
+### Maintenance
+
+- Select Node timer overloads in login services so full workspace typechecking remains valid with generated Expo route types.
+
+### Changed
+
+- Teach agents to set and clear blocked status independently of prerequisite links and keep blocked work below completed and active items.
 
 ## 0.11.0-beta.3.vorteo.253 - 2026-10-09
 

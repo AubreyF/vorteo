@@ -13229,7 +13229,14 @@ test("Vorteo checklist mutations survive provider updates, history refresh, and 
       id: "api",
       status: "completed",
     });
+    await manager.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "ui",
+      status: "blocked",
+      description: "Awaiting review",
+    });
     const managed = manager.readChecklist(agent.id);
+    expect(managed[1]).toMatchObject({ status: "blocked", completed: false });
     const rejectedWrite = vi
       .spyOn(storage, "mutateChecklist")
       .mockRejectedValueOnce(new Error("Disk full"));

@@ -8,7 +8,7 @@ export const AgentTaskItemSchema = z.object({
   text: z.string(),
   completed: z.boolean(),
   id: z.string().optional(),
-  status: z.enum(["pending", "in_progress", "completed"]).optional(),
+  status: z.enum(["pending", "in_progress", "blocked", "completed"]).optional(),
   activeForm: z.string().optional(),
   description: z.string().optional(),
   owner: z.string().optional(),
@@ -41,7 +41,7 @@ export const ChecklistMutationSchema = z.discriminatedUnion("operation", [
       id: z.string().min(1),
       ...TaskFields,
       text: TaskFields.text.optional(),
-      status: z.enum(["pending", "in_progress", "completed"]).optional(),
+      status: z.enum(["pending", "in_progress", "blocked", "completed"]).optional(),
       addBlocks: z.array(z.string().min(1)).max(500).optional(),
       addBlockedBy: z.array(z.string().min(1)).max(500).optional(),
     })

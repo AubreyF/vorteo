@@ -1,3 +1,4 @@
+import { serializeLegacyChecklistMessage } from "./agent/task-checklist/compatibility.js";
 import { QueueAttachmentStore } from "./message-queue/attachments.js";
 import { createAgentQueueDelivery } from "./message-queue/agent-delivery.js";
 import { MessageQueueService } from "./message-queue/service.js";
@@ -1288,10 +1289,24 @@ export class VoiceAssistantWebSocketServer {
     }
 
     const payloadBytes = outboundFrameByteLength(payload);
+    let legacyPayload: string | undefined;
+    let legacyBytes = 0;
     for (const ws of writableSockets) {
-      this.sendFrameToClient(ws, payload, payloadBytes, () => {
-        this.runtimeMetrics.recordOutboundMessage(message, ws.bufferedAmount);
-      });
+      const supportsBlocked =
+        this.sessions.get(ws)?.session.supportsForSource(CLIENT_CAPS.checklistBlockedStatus, ws) ===
+        true;
+      if (!supportsBlocked && legacyPayload === undefined) {
+        legacyPayload = serializeLegacyChecklistMessage(message, payload);
+        legacyBytes = outboundFrameByteLength(legacyPayload);
+      }
+      this.sendFrameToClient(
+        ws,
+        supportsBlocked ? payload : legacyPayload!,
+        supportsBlocked ? payloadBytes : legacyBytes,
+        () => {
+          this.runtimeMetrics.recordOutboundMessage(message, ws.bufferedAmount);
+        },
+      );
     }
   }
 
@@ -2036,6 +2051,7 @@ export class VoiceAssistantWebSocketServer {
         providerSubagents: true,
         agentTaskSnapshots: true,
         agentChecklistMutations: true,
+        checklistBlockedStatus: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
         projectedSubagentTimeline: true,
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.

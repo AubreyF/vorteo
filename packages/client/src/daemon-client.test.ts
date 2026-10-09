@@ -1040,6 +1040,7 @@ test("advertises client capabilities in hello", async () => {
       timeline_notifications: true,
       plugin_timeline_items: true,
       workspace_setup_blocked: true,
+      checklist_blocked_status: true,
       hello_rejection: true,
       browser_host: {
         supportedCommands: ["list_tabs"],
@@ -7974,4 +7975,30 @@ test("bootstrap review correlates decisions without logging owner proof or repla
       trace.records,
     ]),
   ).not.toContain("fixture-owner-proof");
+});
+
+test("blocked checklist writes never reach an older daemon", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "blocked-checklist-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { agentChecklistMutations: true } });
+  await connected;
+  await expect(
+    client.mutateAgentChecklist("agent", { operation: "update", id: "task", status: "blocked" }),
+  ).rejects.toThrow("Update the daemon before using blocked");
+  await expect(
+    client.mutateAgentChecklist("agent", {
+      operation: "delete",
+      id: "task",
+      expectedTask: { id: "task", text: "Waiting", status: "blocked", completed: false },
+    }),
+  ).rejects.toThrow("Update the daemon before using blocked");
+  expect(mock.sent).toEqual([]);
 });

@@ -20,19 +20,26 @@ interface ChecklistEditorProps {
   task: AgentTaskItem | null;
   tasks: AgentTaskItem[];
   canMutate: boolean;
+  supportsBlocked: boolean;
   pending: boolean;
   error: string | null;
   mutate: (mutation: ChecklistMutation) => Promise<unknown>;
   onClose: () => void;
 }
 
-const statuses = ["pending", "in_progress", "completed"] as const;
-const statusLabels = { pending: "Pending", in_progress: "In progress", completed: "Completed" };
+const statuses = ["pending", "in_progress", "blocked", "completed"] as const;
+const statusLabels = {
+  pending: "Pending",
+  in_progress: "In progress",
+  completed: "Completed",
+  blocked: "Blocked",
+};
 
 export function ChecklistEditor({
   task,
   tasks,
   canMutate,
+  supportsBlocked,
   pending,
   error,
   mutate,
@@ -146,17 +153,19 @@ export function ChecklistEditor({
         {task ? (
           <Field label="Status">
             <View style={styles.actions}>
-              {statusChoices.map(({ status, onPress }) => (
-                <Button
-                  key={status}
-                  size={size}
-                  variant={form.status === status ? "secondary" : "ghost"}
-                  disabled={disabled}
-                  onPress={onPress}
-                >
-                  {statusLabels[status]}
-                </Button>
-              ))}
+              {statusChoices
+                .filter(({ status }) => status !== "blocked" || supportsBlocked)
+                .map(({ status, onPress }) => (
+                  <Button
+                    key={status}
+                    size={size}
+                    variant={form.status === status ? "secondary" : "ghost"}
+                    disabled={disabled}
+                    onPress={onPress}
+                  >
+                    {statusLabels[status]}
+                  </Button>
+                ))}
             </View>
           </Field>
         ) : null}

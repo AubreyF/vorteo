@@ -103,7 +103,7 @@ const TodoEntrySchema = z.strictObject({
   text: z.string(),
   completed: z.boolean(),
   id: z.string().optional(),
-  status: z.enum(["pending", "in_progress", "completed"]).optional(),
+  status: z.enum(["pending", "in_progress", "blocked", "completed"]).optional(),
   activeForm: z.string().optional(),
 });
 

@@ -577,6 +577,30 @@ for (const width of [1400, 390]) {
         else await expect(spinner).not.toBeAttached();
       }
       await page.screenshot({ path: info.outputPath("active-task-spinner.png") });
+      await firstRow.getByRole("button", { name: "Details for First agent-created task" }).click();
+      await page
+        .getByTestId("checklist-editor")
+        .getByRole("button", { name: "Blocked", exact: true })
+        .click();
+      await page.getByTestId("checklist-save").click();
+      await expect(firstRow.getByText("Blocked", { exact: true })).toBeVisible();
+      await expect(spinner).not.toBeAttached();
+      await expect(page.getByTestId("checklist-count")).toHaveText("0 / 1");
+      await page.reload();
+      await expect(firstRow.getByText("Blocked", { exact: true })).toBeVisible();
+      await page.screenshot({ path: info.outputPath("blocked-task.png") });
+      expect((await client.getAgentChecklist(agent.agentId))[0]).toMatchObject({
+        status: "blocked",
+        completed: false,
+      });
+      await firstRow.getByRole("button", { name: "Details for First agent-created task" }).click();
+      await page
+        .getByTestId("checklist-editor")
+        .getByRole("button", { name: "In progress", exact: true })
+        .click();
+      await page.getByTestId("checklist-save").click();
+      await expect(spinner).toBeVisible();
+      await expect(firstRow.getByText("Blocked", { exact: true })).not.toBeAttached();
       await firstRow.getByRole("checkbox", { name: "Complete First agent-created task" }).click();
       await expect(spinner).not.toBeAttached();
       await expect(page.getByTestId("checklist-count")).toHaveText("1 / 1");

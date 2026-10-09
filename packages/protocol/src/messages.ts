@@ -3886,6 +3886,7 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(agentTaskSnapshots): added October 2026; gate until the supported daemon floor includes it.
         agentTaskSnapshots: z.boolean().optional(),
         agentChecklistMutations: z.boolean().optional(),
+        checklistBlockedStatus: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
         projectedSubagentTimeline: z.boolean().optional(),
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.
@@ -7811,6 +7812,7 @@ export const WSHelloMessageSchema = z.object({
     .object({
       voice: z.boolean().optional(),
       [CLIENT_CAPS.helloRejection]: z.boolean().optional(),
+      [CLIENT_CAPS.checklistBlockedStatus]: z.boolean().optional(),
       pushNotifications: z.boolean().optional(),
       [CLIENT_CAPS.explicitEventSubscriptions]: z.boolean().optional(),
       [CLIENT_CAPS.allProviders]: z.boolean().optional(),
