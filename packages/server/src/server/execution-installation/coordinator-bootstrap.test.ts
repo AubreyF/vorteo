@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import {
+  chmodSync,
   mkdtempSync,
   realpathSync,
   readFileSync,
@@ -40,6 +41,7 @@ import {
 
 import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 
+import { preserveBootstrapState, verifyBootstrapState } from "./coordinator-bootstrap-state.js";
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
 
 const roots: string[] = [];
@@ -1045,6 +1047,11 @@ test.runIf(process.platform === "darwin").each([
   "native %s binds exact dispatch and verifies process observations",
   async (operation, stage, args) => {
     const f = fixture();
+    f.plan.state = {
+      directory: f.root,
+      restartJournal: path.join(f.root, "restart-jobs.json"),
+      ownerSessions: path.join(f.root, "owner-sessions.json"),
+    };
     const configurationFile = "/protected/config.json";
     f.plan.expectedProcess.bootId = randomUUID();
     f.plan.expectedProcess.startIdentity = "123:456";
@@ -1113,6 +1120,11 @@ test.runIf(process.platform === "darwin").each([
         },
       },
     );
+    await preserveBootstrapState({
+      request: { ...record, execution: { ...record.execution, stage: "frozen" } },
+      writableMountRoots: [],
+      childPids: [],
+    });
     await actions[operation](record);
     expect(calls).toEqual([[...args, f.plan.service]]);
     expect(observations).toEqual(operation === "unload" ? ["exited", "absent"] : []);
@@ -1218,4 +1230,93 @@ test("replacement readiness binds fenced health to exact native candidate and st
       },
     }),
   ).rejects.toThrow("previous PID");
+});
+
+test("bootstrap state preservation retains sessions and detects changed or missing journal without restoration", async () => {
+  const f = fixture();
+  f.plan.state = {
+    directory: f.root,
+    restartJournal: path.join(f.root, "restart-jobs.json"),
+    ownerSessions: path.join(f.root, "owner-sessions.json"),
+  };
+  const pending = await f.prepare();
+  const request = {
+    ...pending,
+    execution: {
+      generation: randomUUID(),
+      stage: "frozen" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const sessions = JSON.stringify([{ hash: "private-session-hash", expiresAt: 9999999999999 }]);
+  writeFileSync(f.plan.state.restartJournal, "[]", { mode: 0o600 });
+  writeFileSync(f.plan.state.ownerSessions, sessions, { mode: 0o600 });
+  const context = { request, writableMountRoots: [], childPids: [] };
+  await preserveBootstrapState(context);
+  await verifyBootstrapState(context);
+  expect(readFileSync(f.plan.state.ownerSessions, "utf8")).toBe(sessions);
+  const receipt = readFileSync(
+    path.join(f.root, `coordinator-transfer-${request.execution.generation}.json`),
+    "utf8",
+  );
+  expect(receipt).not.toContain("private-session-hash");
+  await expect(preserveBootstrapState(context)).rejects.toThrow();
+  writeFileSync(f.plan.state.restartJournal, "[ ]", { mode: 0o600 });
+  await expect(verifyBootstrapState(context)).rejects.toThrow("no longer matches");
+  expect(readFileSync(f.plan.state.restartJournal, "utf8")).toBe("[ ]");
+  writeFileSync(f.plan.state.restartJournal, "[]", { mode: 0o600 });
+  rmSync(f.plan.state.ownerSessions);
+  await expect(verifyBootstrapState(context)).rejects.toThrow("no longer matches");
+});
+
+test("bootstrap state preservation refuses active children and permits an absent initial session store", async () => {
+  const f = fixture();
+  f.plan.state = {
+    directory: f.root,
+    restartJournal: path.join(f.root, "restart-jobs.json"),
+    ownerSessions: path.join(f.root, "owner-sessions.json"),
+  };
+  const request = {
+    ...(await f.prepare()),
+    execution: {
+      generation: randomUUID(),
+      stage: "frozen" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const context = { request, writableMountRoots: [], childPids: [456] };
+  await expect(preserveBootstrapState(context)).rejects.toThrow("children");
+  await preserveBootstrapState({ ...context, childPids: [] });
+  await verifyBootstrapState(context);
+  writeFileSync(f.plan.state.ownerSessions, "[]", { mode: 0o600 });
+  await expect(verifyBootstrapState(context)).rejects.toThrow("no longer matches");
+});
+
+test("bootstrap state refuses exposed sessions and substituted state files", async () => {
+  const f = fixture();
+  f.plan.state = {
+    directory: f.root,
+    restartJournal: path.join(f.root, "restart-jobs.json"),
+    ownerSessions: path.join(f.root, "owner-sessions.json"),
+  };
+  const request = {
+    ...(await f.prepare()),
+    execution: {
+      generation: randomUUID(),
+      stage: "frozen" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const context = { request, writableMountRoots: [], childPids: [] };
+  writeFileSync(f.plan.state.ownerSessions, "[]", { mode: 0o644 });
+  await expect(preserveBootstrapState(context)).rejects.toThrow("private owned file");
+  chmodSync(f.plan.state.ownerSessions, 0o600);
+  writeFileSync(f.plan.state.ownerSessions, "{}");
+  await expect(preserveBootstrapState(context)).rejects.toThrow();
+  rmSync(f.plan.state.ownerSessions);
+  const target = path.join(f.root, "substitute.json");
+  writeFileSync(target, "[]", { mode: 0o600 });
+  symlinkSync(target, f.plan.state.ownerSessions);
+  await expect(preserveBootstrapState(context)).rejects.toThrow();
+  expect(readFileSync(target, "utf8")).toBe("[]");
 });

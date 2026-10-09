@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.242 - 2026-10-08
+
+### Maintenance
+
+- Preserve coordinator handoff state with a durable generation-bound hash receipt, without copying or restoring journals and owner sessions
+- Refuse transfer when requests are active, preparation children remain, state changes or files are not private and owned
+- Check preserved state again before unload and replacement readiness; retain absent initial stores without creating them
+- Keep native executor wiring, visible review controls and live activation pending
+
 ## 0.11.0-beta.3.vorteo.241 - 2026-10-08
 
 ### Maintenance

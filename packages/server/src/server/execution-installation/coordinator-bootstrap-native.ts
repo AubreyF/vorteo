@@ -13,6 +13,11 @@ import {
   type NativeBootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
 
+import {
+  inspectBootstrapState,
+  preserveBootstrapState,
+  verifyBootstrapState,
+} from "./coordinator-bootstrap-state.js";
 import { selectBootstrapLauncher } from "./coordinator-bootstrap-selection.js";
 import {
   readBootstrapPreparedFile,
@@ -109,6 +114,29 @@ export function createBootstrapNativeLifecycle(
     });
   };
   return {
+    async inspectFrozen(request: CoordinatorBootstrapRequest) {
+      await requireStage(request, "freeze_pending");
+      await verifyState(request, true);
+      const stopped = await context.reader.inspectStoppedProcess(request.plan.expectedProcess.pid);
+      const restartJournal = await inspectBootstrapState({
+        request,
+        writableMountRoots: await context.writableMountRoots(),
+      });
+      await verifyState(request, true);
+      return { restartJournal, childPids: stopped.childPids };
+    },
+    async preserveTransfer(request: CoordinatorBootstrapRequest) {
+      await requireStage(request, "frozen");
+      await verifyState(request, true);
+      const stopped = await context.reader.inspectStoppedProcess(request.plan.expectedProcess.pid);
+      await preserveBootstrapState({
+        request,
+        writableMountRoots: await context.writableMountRoots(),
+        childPids: stopped.childPids,
+      });
+      await requireStage(request, "frozen");
+      await verifyState(request, true);
+    },
     async verifyReplacement(request: CoordinatorBootstrapRequest) {
       await requireStage(request, "verifying");
       const roots = await context.writableMountRoots();
@@ -125,6 +153,7 @@ export function createBootstrapNativeLifecycle(
         { path: context.launcherFile, sha256: request.plan.candidate.launcher.sha256 },
         roots,
       );
+      await verifyBootstrapState({ request, writableMountRoots: roots });
       await requireStage(request, "verifying");
       if (JSON.stringify(await context.writableMountRoots()) !== JSON.stringify(roots))
         throw new BootstrapRequestConflict("Writable mounts changed during readiness verification");
@@ -183,6 +212,10 @@ export function createBootstrapNativeLifecycle(
       const stopped = await context.reader.inspectStoppedProcess(request.plan.expectedProcess.pid);
       if (stopped.childPids.length)
         throw new BootstrapRequestConflict("Coordinator still has preparation children");
+      await verifyBootstrapState({
+        request,
+        writableMountRoots: await context.writableMountRoots(),
+      });
       await requireStage(request, "unload_pending");
       await command.run(["bootout", request.plan.service]);
       await waitFor(async () => {
