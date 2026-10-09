@@ -1,3 +1,6 @@
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { StreamColumns, StreamColumnWidthContext, useStreamColumns } from "./columns/layout";
+import { COLUMN_FADE_HEIGHT } from "./columns/geometry";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "./task-card";
@@ -13,6 +16,7 @@ import React, {
   forwardRef,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -165,8 +169,8 @@ function renderLiveAuxiliaryNode(input: {
         style={[stylesheet.contentWrapper, stylesheet.bottomCardStack]}
         testID={input.taskCards ? "agent-history-task-cards" : undefined}
       >
-        {input.pendingPermissions}
         {input.taskCards}
+        {input.pendingPermissions}
       </View>
       {input.bottomOverlayInset > 0 ? (
         <BottomOverlayInset height={input.bottomOverlayInset} />
@@ -399,6 +403,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const toolCallDetailLevel = useSettings((settings) => settings.toolCallDetailLevel);
     const chatOutlineEnabled = useSettings((settings) => settings.chatOutlineEnabled);
     const contentMaxWidth = useSettings(resolveContentMaxWidth);
+    const columns = useStreamColumns({ showTaskCards, trailingCards }, contentMaxWidth);
+    const splitColumns = columns.split;
     const viewportRef = useRef<StreamViewportHandle | null>(null);
     const pendingClientMessageIds = useMemo(
       () => new Set(pendingMessageSubmissions.map((submission) => submission.clientMessageId)),
@@ -1105,38 +1111,48 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           renderStreamItem,
         }),
     );
+    const taskCards = useMemo(
+      () =>
+        trailingCards ??
+        (shouldRenderTaskCards(showTaskCards, serverId) ? (
+          <AgentTaskCards
+            serverId={serverId!}
+            agentId={agentId}
+            workspaceId={context.workspaceId}
+            cwd={context.cwd}
+          />
+        ) : null),
+      [trailingCards, showTaskCards, serverId, agentId, context.workspaceId, context.cwd],
+    );
+    const cards = useMemo(
+      () =>
+        renderLiveAuxiliaryNode({
+          pendingPermissions: auxiliary.pendingPermissions,
+          turnFooter: null,
+          taskCards,
+          bottomOverlayInset: 0,
+        }),
+      [auxiliary.pendingPermissions, taskCards],
+    );
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
         auxiliary.turnFooter && !auxiliary.pendingPermissions ? TURN_FOOTER_BOTTOM_SPACING : 0;
       const bottomOverlayInset = resolveBottomOverlayTailInset({
-        requiredTailClearance: bottomOverlayTailClearance,
+        requiredTailClearance: splitColumns ? COLUMN_FADE_HEIGHT : bottomOverlayTailClearance,
         existingTailSpacing,
       });
       return renderLiveAuxiliaryNode({
-        pendingPermissions: auxiliary.pendingPermissions,
+        pendingPermissions: splitColumns ? null : auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
-        taskCards:
-          trailingCards ??
-          (shouldRenderTaskCards(showTaskCards, serverId) ? (
-            <AgentTaskCards
-              serverId={serverId!}
-              agentId={agentId}
-              workspaceId={context.workspaceId}
-              cwd={context.cwd}
-            />
-          ) : null),
+        taskCards: splitColumns ? null : taskCards,
         bottomOverlayInset,
       });
     }, [
       auxiliary.pendingPermissions,
       auxiliary.turnFooter,
       bottomOverlayTailClearance,
-      showTaskCards,
-      trailingCards,
-      serverId,
-      agentId,
-      context.cwd,
-      context.workspaceId,
+      splitColumns,
+      taskCards,
     ]);
 
     const renderers = useMemo<StreamSegmentRenderers>(
@@ -1182,53 +1198,56 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <AssistantSelectionCopySurface style={stylesheet.container}>
-            <QueueDragScrollContext.Provider value={queueDragScroll.onDragActive}>
-              <MessageOuterSpacingProvider disableOuterSpacing>
-                {streamRenderStrategy.render({
-                  agentId,
-                  segments: renderModel.segments,
-                  historyRowRevision,
-                  liveHeadRowRevision: expandedToolCallGroupIds,
-                  boundary,
-                  renderers,
-                  listEmptyComponent,
-                  viewportRef,
-                  routeBottomAnchorRequest,
-                  isAuthoritativeHistoryReady,
-                  onNearBottomChange: setIsNearBottom,
-                  onReadingPositionChange: handleReadingPositionChange,
-                  onNearHistoryStart: loadOlder,
-                  isLoadingOlderHistory: isLoadingOlder,
-                  hasOlderHistory: hasOlder,
-                  olderHistoryProgressKey: progressKey,
-                  scrollEnabled: queueDragScroll.scrollEnabled,
-                  contentMaxWidth,
-                  imageContext: { serverId: resolvedServerId, workspaceRoot },
-                  listStyle: stylesheet.list,
-                  baseListContentContainerStyle: stylesheet.listContentContainer,
-                  forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
-                })}
-              </MessageOuterSpacingProvider>
-            </QueueDragScrollContext.Provider>
-            <ChatOutlineRail
-              prompts={chatOutline.prompts}
-              activePrompt={chatOutline.activePrompt}
-              onJumpToPrompt={chatOutline.jumpToPrompt}
-            />
-            {(!isNearBottom || isTimelineDetached) && (
-              <View style={scrollToBottomContainerStyle} pointerEvents="box-none">
-                <Animated.View entering={scrollIndicatorFadeIn} exiting={scrollIndicatorFadeOut}>
-                  <StreamJumpButton
-                    serverId={serverId}
-                    agentId={agentId}
-                    onPress={scrollToBottom}
-                    label={t("agentStream.scrollToBottom")}
-                  />
-                </Animated.View>
-              </View>
-            )}
-          </AssistantSelectionCopySurface>
+          <StreamColumns layout={columns}>
+            <AssistantSelectionCopySurface style={stylesheet.container}>
+              <QueueDragScrollContext.Provider value={queueDragScroll.onDragActive}>
+                <MessageOuterSpacingProvider disableOuterSpacing>
+                  {streamRenderStrategy.render({
+                    agentId,
+                    segments: renderModel.segments,
+                    historyRowRevision,
+                    liveHeadRowRevision: expandedToolCallGroupIds,
+                    boundary,
+                    renderers,
+                    listEmptyComponent,
+                    viewportRef,
+                    routeBottomAnchorRequest,
+                    isAuthoritativeHistoryReady,
+                    onNearBottomChange: setIsNearBottom,
+                    onReadingPositionChange: handleReadingPositionChange,
+                    onNearHistoryStart: loadOlder,
+                    isLoadingOlderHistory: isLoadingOlder,
+                    hasOlderHistory: hasOlder,
+                    olderHistoryProgressKey: progressKey,
+                    scrollEnabled: queueDragScroll.scrollEnabled,
+                    contentMaxWidth: columns.contentMaxWidth,
+                    imageContext: { serverId: resolvedServerId, workspaceRoot },
+                    listStyle: stylesheet.list,
+                    baseListContentContainerStyle: stylesheet.listContentContainer,
+                    forwardListContentContainerStyle: stylesheet.forwardListContentContainer,
+                  })}
+                </MessageOuterSpacingProvider>
+              </QueueDragScrollContext.Provider>
+              <ChatOutlineRail
+                prompts={chatOutline.prompts}
+                activePrompt={chatOutline.activePrompt}
+                onJumpToPrompt={chatOutline.jumpToPrompt}
+              />
+              {(!isNearBottom || isTimelineDetached) && (
+                <View style={scrollToBottomContainerStyle} pointerEvents="box-none">
+                  <Animated.View entering={scrollIndicatorFadeIn} exiting={scrollIndicatorFadeOut}>
+                    <StreamJumpButton
+                      serverId={serverId}
+                      agentId={agentId}
+                      onPress={scrollToBottom}
+                      label={t("agentStream.scrollToBottom")}
+                    />
+                  </Animated.View>
+                </View>
+              )}
+            </AssistantSelectionCopySurface>
+            {cards}
+          </StreamColumns>
         </ToolCallSheetProvider>
       </ChatFind>
     );
@@ -1854,9 +1873,14 @@ interface StreamItemWrapperProps {
 }
 
 function StreamItemWrapper({ gapBelow, children }: StreamItemWrapperProps) {
+  const columnWidth = useContext(StreamColumnWidthContext);
   const wrapperStyle = useMemo(
-    () => [stylesheet.streamItemWrapper, { marginBottom: gapBelow }],
-    [gapBelow],
+    () => [
+      stylesheet.streamItemWrapper,
+      { marginBottom: gapBelow },
+      columnWidth !== undefined && inlineUnistylesStyle({ maxWidth: columnWidth }),
+    ],
+    [gapBelow, columnWidth],
   );
   return <View style={wrapperStyle}>{children}</View>;
 }

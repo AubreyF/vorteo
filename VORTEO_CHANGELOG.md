@@ -4,6 +4,37 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.276 - 2026-10-09
+
+### Maintenance
+
+- Integrate reviewed conversation columns and shared heading hover regions with the deployed interface, preserving journal controls, Copy all, neutral blocked icons and workspace recovery. Retain both source histories and all release entries.
+
+## 0.11.0-beta.3.vorteo.271 - 2026-10-09
+
+### Changed
+
+- Clarify agent delivery instructions: prefer static interface publication, but submit a supported managed Host source update for exact approval when static publication is unavailable. Explain restart disruption, preserve preview scope, and require a concrete failure before handing delivery back to Host.
+
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Fixed
+
+- Give conversation card headings one consistent hover and click region, including the icon and all available whitespace before separate actions. Messages retains its passive status inside that region. Preserve heading alignment and touch target heights.
+- Verify heading geometry, matching hover colors, and disclosure clicks at both ends across desktop and compact layouts. Update the shared card contract and customization inventory.
+
+## 0.11.0-beta.3.vorteo.269 - 2026-10-09
+
+### Added
+
+- Split wide thread content into independently scrolling, resizable text and card columns. Cards stay pinned right, text stays centered in the remaining space, and preferred widths survive reloads. Both columns fade above the unchanged composer.
+
+### Changed
+
+- Choose the two-column layout from the primary region's width, so opening a sidebar or widening the left sidebar restores the existing single-column arrangement below 1,080 CSS pixels.
+- Order thread cards as Goal, Tasks, Journal, Subagents, then Messages in both layouts. Preserve card body scrolling, fixed headers and queue drag handling.
+- Update the README and customization inventory, and cover column geometry, saved widths, both sidebar transitions, nested scrolling and card interactions with focused unit and browser tests. Native touch behavior still needs physical-device acceptance.
+
 ## 0.11.0-beta.3.vorteo.274 - 2026-10-09
 
 ### Fixed
