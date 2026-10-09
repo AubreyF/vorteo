@@ -282,3 +282,7 @@ October 9, 2026: Restored the shared conversation accordion heading hover highli
 Maintenance review: retained the deployed accordion hover behavior and Node timer typing corrections in the helper query integration.
 
 October 9, 2026: Reconciled the blocked checklist contribution with published interface source and complete release-note history. Preserved the installed helper query, accordion hover and Factory implementation. The correction changes integration metadata and retains the existing checklist validation evidence.
+
+Maintenance review: goal editing uses an optional provider-owned revision independent of usage timestamps. Accounting preserves the revision; goal mutations, same-value owner writes and uncertain provider observations invalidate it. Older clients keep strict timestamp checks. Restart holds, queue holds, limits and caller isolation remain enforced.
+
+October 9, 2026: Preserved the already-accepted goal-edit source unchanged as an ancestor of the checklist correction, avoiding legacy coordinator history reconciliation. No coordinator code or other contribution receipt was changed.

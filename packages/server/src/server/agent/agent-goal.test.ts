@@ -210,3 +210,52 @@ it("cannot clear a budget limit indirectly through paused status", async () => {
   ).rejects.toThrow("cannot be resumed");
   expect(f.writes).toEqual([]);
 });
+
+it.each(["queueContinuationHeld", "restartContinuationHeld"] as const)(
+  "retains %s with a matching edit revision",
+  async (hold) => {
+    const f = fixture();
+    const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = f.state().goal!;
+    await expect(
+      editThreadGoal({
+        edit: {
+          expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+          expectedRevision: "revision",
+          status: "active",
+        },
+        read: async () => ({
+          ...f.state(),
+          status: "ready",
+          observedAt: new Date().toISOString(),
+          editRevision: "revision",
+          [hold]: true,
+        }),
+        set: (change) => f.manager.setAgentGoal("agent", change),
+      }),
+    ).rejects.toThrow("held");
+    expect(f.writes).toEqual([]);
+  },
+);
+
+it("still compares goal content when a revision is supplied", async () => {
+  const f = fixture();
+  const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = f.state().goal!;
+  f.change({ ...f.state().goal!, objective: "Owner changed this" });
+  await expect(
+    editThreadGoal({
+      edit: {
+        expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+        expectedRevision: "revision",
+        status: "active",
+      },
+      read: async () => ({
+        ...f.state(),
+        status: "ready",
+        observedAt: new Date().toISOString(),
+        editRevision: "revision",
+      }),
+      set: (change) => f.manager.setAgentGoal("agent", change),
+    }),
+  ).rejects.toThrow("goal changed");
+  expect(f.writes).toEqual([]);
+});
