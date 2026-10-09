@@ -1,3 +1,4 @@
+import { JournalCard } from "@/journal/card";
 import { AgentHistoryTracks } from "@/panels/agent-tracks";
 import { useCallback, useState } from "react";
 import { GoalBar } from "@/goals/goal-bar";
@@ -36,6 +37,7 @@ export function AgentTaskCards({
           cwd={cwd}
         />
       ) : null}
+      <JournalCard key={agentId} serverId={serverId} agentId={agentId} />
       <SharedQueueView
         serverId={serverId}
         agentId={agentId}

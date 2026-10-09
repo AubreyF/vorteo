@@ -1,3 +1,8 @@
+import path from "node:path";
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { AgentStorage } from "./agent/agent-storage.js";
+import { createTestLogger } from "../test-utils/test-logger.js";
 import { expect, test } from "vitest";
 import { createTestPaseoDaemon } from "./test-utils/paseo-daemon.js";
 import { createTestAgentClients } from "./test-utils/fake-agent-client.js";
@@ -104,6 +109,83 @@ test("checklist RPCs save edits, broadcast progress, reject dependencies and sur
   } finally {
     await legacy.close();
     await writer.close();
+    await reader.close();
+    await daemon.close();
+  }
+}, 30000);
+
+test("journal tools append durably, broadcast in order and reject edits and cross-thread calls", async () => {
+  const daemon = await createTestPaseoDaemon({
+    agentClients: createTestAgentClients(),
+    mcpEnabled: true,
+  });
+  const reader = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws`, appVersion: "0.7.2" });
+  const mcp = new McpClient({ name: "journal-test", version: "1.0.0" });
+  try {
+    await reader.connect();
+    await reader.fetchAgents({ subscribe: {} });
+    const agent = await reader.createAgent({
+      config: { provider: "codex", cwd: daemon.paseoHome },
+    });
+    await mcp.connect(
+      new StreamableHTTPClientTransport(
+        new URL(`http://127.0.0.1:${daemon.port}/mcp/agents?callerAgentId=${agent.id}`),
+        {
+          requestInit: {
+            headers: { Authorization: `Bearer ${daemon.daemon.agentManager.getMcpAuthToken()}` },
+          },
+        },
+      ),
+    );
+    const first = {
+      entryId: "11111111-1111-4111-8111-111111111111",
+      text: "Chose atomic persistence because journal entries must survive recovery.",
+    };
+    const second = {
+      entryId: "22222222-2222-4222-8222-222222222222",
+      text: "Validated the persisted result.",
+    };
+    const appended = await mcp.callTool({ name: "append_journal", arguments: first });
+    expect(appended.isError).not.toBe(true);
+    expect(
+      (await mcp.callTool({ name: "append_journal", arguments: first })).structuredContent,
+    ).toEqual(appended.structuredContent);
+    expect((await mcp.callTool({ name: "append_journal", arguments: second })).isError).not.toBe(
+      true,
+    );
+    const snapshot = await reader.waitForAgentUpsert(
+      agent.id,
+      (value) => value.journal?.length === 2,
+    );
+    expect(snapshot.journal?.map((entry) => entry.text)).toEqual([first.text, second.text]);
+    expect(snapshot.journal?.map((entry) => entry.sequence)).toEqual([1, 2]);
+    const read = await mcp.callTool({ name: "get_journal", arguments: {} });
+    expect(read.structuredContent).toEqual({ entries: snapshot.journal });
+    for (const args of [
+      { ...first, text: "Rewrite history" },
+      { ...first, agentId: "another-thread" },
+      { ...first, timestamp: "2000-01-01T00:00:00Z" },
+      { entryId: "33333333-3333-4333-8333-333333333333", text: " " },
+    ])
+      expect((await mcp.callTool({ name: "append_journal", arguments: args })).isError).toBe(true);
+    expect((await mcp.listTools()).tools.map((tool) => tool.name)).not.toContain("update_journal");
+    await daemon.daemon.agentManager.flush();
+    const storage = new AgentStorage(path.join(daemon.paseoHome, "agents"), createTestLogger());
+    expect((await storage.get(agent.id))?.journal).toEqual(snapshot.journal);
+    await reader.archiveAgent(agent.id);
+    expect(
+      (
+        await mcp.callTool({
+          name: "append_journal",
+          arguments: { entryId: "33333333-3333-4333-8333-333333333333", text: "After archive" },
+        })
+      ).isError,
+    ).toBe(true);
+    expect((await mcp.callTool({ name: "get_journal", arguments: {} })).structuredContent).toEqual({
+      entries: snapshot.journal,
+    });
+  } finally {
+    await mcp.close();
     await reader.close();
     await daemon.close();
   }

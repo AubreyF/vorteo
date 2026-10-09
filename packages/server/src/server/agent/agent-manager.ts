@@ -1,3 +1,4 @@
+import { JournalError } from "./journal/model.js";
 import { editThreadGoal, type ThreadGoalEdit } from "./agent-goal.js";
 import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
 import {
@@ -454,6 +455,7 @@ interface HandleStreamEventOptions {
 }
 
 interface ManagedAgentBase {
+  journal?: import("@getpaseo/protocol/agent-journal").AgentJournalEntry[];
   tasks?: import("./agent-sdk-types.js").AgentTaskItem[];
   queueGoalHold?: import("../message-queue/goal-hold.js").QueueGoalHold;
   goalSubmissions?: import("./agent-storage.js").GoalSubmission[];
@@ -3671,6 +3673,25 @@ export class AgentManager {
     return { seq: row.seq, epoch: this.timelineStore.getEpoch(agentId) };
   }
 
+  async readJournal(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-journal").AgentJournalEntry[]> {
+    const record = await this.requireRegistry().get(agentId);
+    if (!record) throw new JournalError("not_found", "Thread not found.");
+    return structuredClone(record.journal ?? []);
+  }
+
+  async appendJournal(
+    agentId: string,
+    input: import("@getpaseo/protocol/agent-journal").AppendJournalInput,
+  ) {
+    const agent = this.requireAgent(agentId);
+    const entry = await this.requireRegistry().appendJournal(agentId, input);
+    agent.journal = await this.readJournal(agentId);
+    this.emitState(agent, { persist: false });
+    return entry;
+  }
+
   readChecklist(agentId: string): AgentTaskItem[] {
     return structuredClone(this.requireAgent(agentId).tasks ?? []);
   }
@@ -4837,6 +4858,7 @@ export class AgentManager {
   private async restoreGoalPersistence(managed: ActiveManagedAgent): Promise<void> {
     const record = await this.registry?.get(managed.id);
     managed.tasks = record?.tasks;
+    managed.journal = record?.journal;
     const managedTasks = managed.tasks?.filter((task) => task.source === "vorteo") ?? [];
     for (const item of this.timelineStore.getItems(managed.id)) {
       if (item.type === "todo") {

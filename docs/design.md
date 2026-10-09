@@ -324,3 +324,7 @@ Conversation cards stop growing at half the viewport height, including their hea
 `TaskCard` owns a 12px inset on all four sides. `TaskCardHeader` owns a single centered row, 32px high on desktop and 44px on touch. A 20px icon footprint precedes the title by 8px. `CardDisclosure` keeps the title, arrow and optional count on one line; `TaskCardTitle` gives noncollapsible headings the same typography. Right-side buttons share that centerline. Clear finished therefore has equal top and right clearance. Do not add per-card inset, heading-height or action-margin overrides.
 
 Long question prompts and navigation belong in the body beneath the fixed Questions heading. Plan disclosures follow the same title, arrow order. Sub-agent rows have no dividers. Browser geometry checks compare icon and title columns, heading and action centers, disclosure order, equal button clearance, overflow and collapsed behavior at desktop and compact widths. Keep those checks and screenshot review part of any card change.
+
+### Journal cards
+
+Thread journals use the shared `TaskCard`, `TaskCardHeader`, `TaskCardIcon` and `CardDisclosure`. Show a narrow, muted timestamp column on the left and selectable entry text in the remaining width. Keep entries in server append order, oldest first, even if timestamps repeat or the clock moves backward. Do not add edit, delete, drag or clear controls. The card appears after its first entry; its fixed heading and bounded scrolling body follow the conversation card layout contract.

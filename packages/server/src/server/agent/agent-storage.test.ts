@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach } from "vitest";
+import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
@@ -137,6 +137,72 @@ describe("AgentStorage", () => {
   let storagePath: string;
   let storage: AgentStorage;
   const logger = createTestLogger();
+
+  test("journal appends preserve order, survive stale snapshots and retry without duplication", async () => {
+    const agent = createManagedAgent({ id: "journal" });
+    await storage.applySnapshot(agent);
+    const first = {
+      entryId: "11111111-1111-4111-8111-111111111111",
+      text: "Chose the durable store.",
+    };
+    const second = { entryId: "22222222-2222-4222-8222-222222222222", text: "Verified recovery." };
+    const entries = await Promise.all([
+      storage.appendJournal(agent.id, first),
+      storage.appendJournal(agent.id, second),
+    ]);
+    expect(entries.map((entry) => entry.sequence)).toEqual([1, 2]);
+    expect(entries.map((entry) => entry.text)).toEqual([first.text, second.text]);
+    expect(entries.every((entry) => Number.isFinite(Date.parse(entry.timestamp)))).toBe(true);
+    await storage.applySnapshot(agent);
+    expect(await storage.appendJournal(agent.id, first)).toEqual(entries[0]);
+    await expect(
+      storage.appendJournal(agent.id, { ...first, text: "Rewrite history" }),
+    ).rejects.toThrow("already used");
+    const reopened = new AgentStorage(storagePath, logger);
+    expect((await reopened.get(agent.id))?.journal).toEqual(entries);
+    await expect(storage.appendJournal("missing", first)).rejects.toThrow("active thread");
+  });
+
+  test("journal sequence follows append order when the clock moves backward", async () => {
+    const agent = createManagedAgent({ id: "journal-clock" });
+    await storage.applySnapshot(agent);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-09T12:00:00Z"));
+      const first = await storage.appendJournal(agent.id, {
+        entryId: "11111111-1111-4111-8111-111111111111",
+        text: "First",
+      });
+      vi.setSystemTime(new Date("2026-10-09T11:00:00Z"));
+      const second = await storage.appendJournal(agent.id, {
+        entryId: "22222222-2222-4222-8222-222222222222",
+        text: "Second",
+      });
+      expect(first.timestamp > second.timestamp).toBe(true);
+      expect((await storage.get(agent.id))?.journal).toEqual([first, second]);
+      expect(second.sequence).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("failed journal writes do not become visible and can be retried", async () => {
+    const agent = createManagedAgent({ id: "journal-write-failure" });
+    await storage.applySnapshot(agent);
+    const input = { entryId: "11111111-1111-4111-8111-111111111111", text: "Verified progress" };
+    await fs.rename(storagePath, `${storagePath}-backup`);
+    await fs.writeFile(storagePath, "not a directory");
+    try {
+      await expect(storage.appendJournal(agent.id, input)).rejects.toThrow();
+      expect((await storage.get(agent.id))?.journal).toBeUndefined();
+    } finally {
+      await fs.unlink(storagePath);
+      await fs.rename(`${storagePath}-backup`, storagePath);
+    }
+    const entry = await storage.appendJournal(agent.id, input);
+    expect(entry.sequence).toBe(1);
+    expect((await new AgentStorage(storagePath, logger).get(agent.id))?.journal).toEqual([entry]);
+  });
 
   test("checklist commits survive stale snapshots, deletion, and fresh storage instances", async () => {
     const agent = createManagedAgent({ id: "checklist" });

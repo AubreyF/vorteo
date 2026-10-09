@@ -146,3 +146,7 @@ Older clients receive blocked items as incomplete pending items in checklist rep
 agent snapshots and todo timelines. The stored status and task metadata remain unchanged.
 A stale edit using the downgraded snapshot fails its existing `expectedTask` check.
 The blocked status is discretionary and independent of `blockedBy` prerequisite edges.
+
+## Thread journals
+
+Daemons advertise `features.agentJournal`. The interface gates the journal card on that capability. Journal entries travel as an optional `journal` array in existing agent snapshots; older clients ignore the field, and newer clients still accept snapshots that omit it. No new WebSocket message type is sent to older clients. The caller-bound MCP tools assign append sequence and timestamp on the server, commit before broadcasting, and deduplicate retries by entry ID. Ordinary agent snapshot writes preserve the durable journal.
