@@ -104,7 +104,18 @@ export const SourceBatchSchema = z.strictObject({
 });
 export type SourceBatch = z.infer<typeof SourceBatchSchema>;
 
+// COMPAT(hostAutomaticRestarts): v224; returned only to clients opting into this receipt.
+export const AutomaticRestartApprovalSchema = z.strictObject({
+  policyActivatedAt: z.string().datetime(),
+  requestRevision: z.string().uuid(),
+  sourceSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+
 export const RestartJobSchema = RestartRequestSchema.extend({
+  automaticApproval: AutomaticRestartApprovalSchema.optional(),
   update: SourceUpdateSchema.optional(),
   sourceBatch: SourceBatchSchema.optional(),
   id: z.string().uuid(),

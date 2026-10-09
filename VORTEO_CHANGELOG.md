@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.224 - 2026-10-08
+
+### Changed
+
+- Add an opt-in protected policy for automatic approval of authenticated Host restart requests, using the existing finish-turns hold, durable journal and cancellation controls
+- Keep Dev requests and mixed-origin source batches under manual review; identify Dev origin and its reason in installation controls
+- Bind automatic approval to the exact request revision and source digest, preserve legacy client responses, and test repeated recovery without replay
+
 ## 0.11.0-beta.3.vorteo.223 - 2026-10-08
 
 ### Changed

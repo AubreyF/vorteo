@@ -9,6 +9,10 @@ import type {
   SourceUpdate,
 } from "@getpaseo/protocol/execution-installation";
 
+export interface RestartApprovalPolicy {
+  hostRequestsAfter?: string;
+}
+
 export interface RestartJournal {
   read(): RestartJob[];
   write(jobs: RestartJob[]): void;
@@ -35,7 +39,7 @@ export interface RestartExecutor {
 export class RestartRequestError extends Error {}
 
 function validateSourceDecision(job: RestartJob, decision: RestartDecision, updateSha256?: string) {
-  if ((job.update || job.sourceBatch) && decision !== "reject") {
+  if ((job.update || job.sourceBatch) && decision !== "reject" && decision !== "cancel") {
     if (decision !== "approve" || !job.update || updateSha256 !== job.update.sha256)
       throw new RestartRequestError(
         "Review and approve this exact source update. Idle updates are not supported.",
@@ -55,6 +59,7 @@ export class InstallationRestarts {
     private readonly journal: RestartJournal,
     private readonly executor: RestartExecutor,
     private readonly now: () => number = Date.now,
+    private readonly approvalPolicy: RestartApprovalPolicy = {},
   ) {
     this.jobs = journal.read();
     // A coordinator crash leaves execution ambiguous. Never replay a disruptive action.
@@ -370,6 +375,7 @@ export class InstallationRestarts {
         ...job,
         revision: randomUUID(),
         whenIdle: false,
+        automaticApproval: undefined,
         detail: "Owner approved an immediate restart, which may interrupt running tasks.",
       };
       this.replace(next);
@@ -422,7 +428,8 @@ export class InstallationRestarts {
 
   private validateDecision(job: RestartJob, decision: RestartDecision, updateSha256?: string) {
     validateSourceDecision(job, decision, updateSha256);
-    if (decision !== "reject" && job.sourceBatch) {
+    if (decision === "reject" || decision === "cancel") return;
+    if (job.sourceBatch) {
       if (
         job.sourceBatch.status !== "ready" ||
         !job.update ||
@@ -434,7 +441,6 @@ export class InstallationRestarts {
         );
     }
     if (
-      decision !== "reject" &&
       this.jobs.some(
         (other) =>
           other.id !== job.id &&
@@ -445,23 +451,34 @@ export class InstallationRestarts {
       throw new RestartRequestError("An earlier request is still active for this target");
   }
 
-  private approveFinish(job: RestartJob): RestartJob {
+  private approveFinish(job: RestartJob, policyActivatedAt?: string): RestartJob {
     if (!["pending", "approved"].includes(job.status))
       throw new RestartRequestError("Restart request is already dispatched or decided");
     if (
+      !this.executor.inspect ||
       !this.executor.holdCurrentTurns ||
       !this.executor.releaseCurrentTurns ||
       !this.executor.restartWhenIdle
     )
       throw new RestartRequestError("Update the coordinator to support finishing current turns");
+    const revision = randomUUID();
     const next: RestartJob = {
       ...job,
-      revision: randomUUID(),
+      revision,
+      automaticApproval: policyActivatedAt
+        ? {
+            policyActivatedAt,
+            requestRevision: revision,
+            ...(job.update ? { sourceSha256: job.update.sha256 } : {}),
+          }
+        : undefined,
       status: "approved",
       approvedAt: new Date(this.now()).toISOString(),
       whenIdle: true,
       finishCurrentTurns: true,
-      detail: "Holding new work while current turns finish. You can cancel before restart.",
+      detail: policyActivatedAt
+        ? "Automatically approved by Host policy. Finishing current turns before restart; cancellation remains available."
+        : "Holding new work while current turns finish. You can cancel before restart.",
     };
     this.replace(next);
     return { ...next };
@@ -476,11 +493,49 @@ export class InstallationRestarts {
     return this.executor.inspect(job.target);
   }
 
+  private approveTrustedHostRequests(): void {
+    const enabledAfter = this.approvalPolicy.hostRequestsAfter;
+    if (!enabledAfter) return;
+    const threshold = Date.parse(enabledAfter);
+    if (!Number.isFinite(threshold)) throw new RestartRequestError("Invalid Host approval policy");
+    if (
+      !this.executor.inspect ||
+      !this.executor.holdCurrentTurns ||
+      !this.executor.releaseCurrentTurns ||
+      !this.executor.restartWhenIdle
+    )
+      return;
+    for (const job of this.jobs) {
+      if (job.status !== "pending" || job.requestedBy !== "host-agent" || job.supervisorPlanSha256)
+        continue;
+      if (Date.parse(job.createdAt) < threshold) continue;
+      const batch = job.sourceBatch;
+      if (batch) {
+        if (batch.status !== "ready" || !job.update) continue;
+        const included = batch.contributions.filter((item) => item.status !== "superseded");
+        if (
+          !included.length ||
+          included.some((item) => item.requestedBy !== "host-agent" || item.status !== "included")
+        )
+          continue;
+      }
+      try {
+        this.validateDecision(job, "approve", job.update?.sha256);
+      } catch (error) {
+        if (error instanceof RestartRequestError) continue;
+        throw error;
+      }
+      // Use the normal durable approval and hold path, never an immediate restart.
+      this.approveFinish(job, enabledAfter);
+    }
+  }
+
   async drain(): Promise<void> {
     if (this.executor.prepareUpdate) await this.prepareBatches();
     if (this.running) return;
     this.running = true;
     try {
+      this.approveTrustedHostRequests();
       for (const job of this.jobs.filter(
         (candidate) =>
           candidate.finishCurrentTurns &&
@@ -565,6 +620,12 @@ export class InstallationRestarts {
   }
 
   private executeApproved(job: RestartJob): Promise<string | null> {
+    if (
+      job.automaticApproval &&
+      (job.automaticApproval.requestRevision !== job.revision ||
+        job.automaticApproval.sourceSha256 !== job.update?.sha256)
+    )
+      throw new RestartRequestError("Automatic approval no longer matches the prepared request");
     if (job.supervisorPlanSha256) {
       if (
         !this.executor.restartSupervisor ||

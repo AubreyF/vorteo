@@ -28,7 +28,7 @@ import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
 import {
   InstallationPanelModel,
-  restartExplanation,
+  restartRequestSummary,
   restartBannerTitle,
   restartBlockingReason,
   restartActionDisabledReason,
@@ -358,7 +358,7 @@ function InstallationOwnerAccess({
       {state.unlocked ? (
         <Text style={styles.text}>
           {state.lastUpdatedAt
-            ? `Updated ${new Date(state.lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Each restart requires your approval.`
+            ? `Updated ${new Date(state.lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Dev requests require your approval.`
             : "Loading restart status..."}
         </Text>
       ) : null}
@@ -504,7 +504,7 @@ function RestartRequest({
           <StatusBadge {...status} />
         </View>
         <Text style={styles.text} testID={`restart-summary-${job.id}`}>
-          {restartExplanation(job.reason).summary}
+          {restartRequestSummary(job)}
           {restartBlockingReason(job) ? ` Needs correction: ${restartBlockingReason(job)}` : null}
           {source && job.status === "pending" && !restartBlockingReason(job)
             ? ` Approval lets the submitted code and build scripts run on ${job.target === "host" ? "Host" : "Dev"} and may interrupt its tasks and terminals.`
@@ -890,9 +890,7 @@ function RestartBannerItem({ job, showTopBorder }: { job: RestartJob; showTopBor
   const description = useMemo(
     () => (
       <View style={styles.details}>
-        <Text style={styles.text}>
-          {restartBlockingReason(job) ?? restartExplanation(job.reason).summary}
-        </Text>
+        <Text style={styles.text}>{restartBlockingReason(job) ?? restartRequestSummary(job)}</Text>
         {job.status === "approved" || job.status === "running" ? (
           <RestartActivity job={job} />
         ) : null}

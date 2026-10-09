@@ -25,7 +25,10 @@ import { InstallationSettingsService } from "./settings/service.js";
 import { SettingsEnvironmentFake, SettingsJournalFake } from "./settings/fakes.js";
 import { InstallationSettingsSnapshotSchema } from "@getpaseo/protocol/installation-settings";
 import { MutableDaemonConfigSchema } from "@getpaseo/protocol/messages";
-import type { ExecutionEnvironmentKind } from "@getpaseo/protocol/execution-installation";
+import type {
+  RestartImpact,
+  ExecutionEnvironmentKind,
+} from "@getpaseo/protocol/execution-installation";
 import type { InstallationConfig } from "./config.js";
 import { delegateToContainer, type DelegationClient } from "./delegation.js";
 import {
@@ -321,6 +324,7 @@ async function fixture(
   settings?: InstallationSettingsService,
   resolvePluginSource?: InstallationPluginSourceResolver,
   sourceUpdates: boolean | "both" = false,
+  automaticHost = false,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
   writeFileSync(
@@ -352,6 +356,8 @@ async function fixture(
     },
     container: { endpoint: "127.0.0.1:6768", password: "guest-daemon-test-password" },
   };
+  if (automaticHost)
+    config.restartApprovalPolicy = { hostRequestsAfter: new Date(0).toISOString() };
   if (sourceUpdates) {
     const release = path.join(root, "release");
     mkdirSync(release);
@@ -401,6 +407,24 @@ async function fixture(
   const app = createInstallationServer(
     config,
     {
+      ...(automaticHost
+        ? {
+            inspect: async (target: RestartImpact["target"]): Promise<RestartImpact> => ({
+              target,
+              agents: [],
+              pendingStarts: 1,
+              checkedAt: new Date().toISOString(),
+              idleRestartSupported: true,
+            }),
+            holdCurrentTurns: async () => {
+              calls.push("hold");
+            },
+            releaseCurrentTurns: async () => {
+              calls.push("release");
+            },
+            restartWhenIdle: async () => null,
+          }
+        : {}),
       supervisorPlan: () => "a".repeat(64),
       restartSupervisor: async () => {
         calls.push("supervisor");
@@ -454,7 +478,13 @@ async function fixture(
       redirect: "manual",
     });
   }
-  return { request, root, calls, url: `http://127.0.0.1:${address.port}` };
+  return {
+    request,
+    root,
+    calls,
+    drain: app.drainRestarts,
+    url: `http://127.0.0.1:${address.port}`,
+  };
 }
 
 async function canonicalProfiles() {
@@ -1290,4 +1320,74 @@ test("supervisor capability is Host scoped and exact approval dispatches the mai
     "host-agent-test-token",
   );
   expect((await status.json()).status).toBe("succeeded");
+});
+
+test("automatic Host approval uses authenticated origin and hides metadata from legacy clients", async () => {
+  const { request, calls, drain } = await fixture(undefined, undefined, undefined, false, true);
+  const route = "/api/installation/restart-requests";
+  const capabilities = "/api/installation/capabilities";
+  expect(await (await request(capabilities, "host-agent-test-token")).json()).toMatchObject({
+    ownerApprovalRequired: false,
+    hostAutomaticRestarts: true,
+  });
+  expect(await (await request(capabilities, "guest-agent-test-token")).json()).toMatchObject({
+    ownerApprovalRequired: true,
+    hostAutomaticRestarts: true,
+  });
+  const guest = RestartJobSchema.parse(
+    await (
+      await request(route, "guest-agent-test-token", {
+        target: "host",
+        reason: "Dev update",
+        requester: "host-agent",
+      })
+    ).json(),
+  );
+  await drain();
+  expect(
+    RestartJobSchema.parse(
+      await (await request(`${route}/${guest.id}`, "guest-agent-test-token")).json(),
+    ).status,
+  ).toBe("pending");
+  expect(calls).toEqual([]);
+  expect(
+    (
+      await request(route, "guest-agent-test-token", {
+        target: "host",
+        reason: "Forged origin",
+        requestedBy: "host-agent",
+      })
+    ).status,
+  ).toBe(400);
+  const host = RestartJobSchema.parse(
+    await (
+      await request(route, "host-agent-test-token", {
+        target: "container-daemon",
+        reason: "Trusted Host request",
+      })
+    ).json(),
+  );
+  await drain();
+  const modern = RestartJobSchema.parse(
+    await (
+      await request(`${route}/${host.id}?hostAutomaticRestarts=1`, "host-agent-test-token")
+    ).json(),
+  );
+  expect(modern.status).toBe("approved");
+  expect(modern.requestedBy).toBe("host-agent");
+  expect(modern.automaticApproval?.requestRevision).toBe(modern.revision);
+  const legacy = await (await request(`${route}/${host.id}`, "host-agent-test-token")).json();
+  expect(legacy).not.toHaveProperty("automaticApproval");
+  expect(calls).toEqual(["hold"]);
+  const canceled = await request(
+    `/api/installation/owner/restarts/${host.id}/decision`,
+    "owner-test-password",
+    {
+      revision: modern.revision,
+      decision: "cancel",
+    },
+  );
+  expect(canceled.status).toBe(200);
+  await drain();
+  expect(calls).toEqual(["hold", "release"]);
 });

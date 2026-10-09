@@ -3,6 +3,7 @@ import { OwnerAccessExpired } from "./client";
 import {
   InstallationPanelModel,
   restartExplanation,
+  restartRequestSummary,
   restartBannerTitle,
   restartBlockingReason,
   restartActionDisabledReason,
@@ -378,4 +379,35 @@ test("disabled restart actions explain their blocker and recovery without enabli
       false,
     ),
   ).toBeNull();
+});
+
+test("restart summaries identify Dev requests and durable Host automatic approval", () => {
+  const job: RestartJob = {
+    id: "request",
+    revision: "revision",
+    target: "host",
+    requestedBy: "container-agent",
+    reason: "Install checklist recovery.",
+    createdAt: new Date(0).toISOString(),
+    expiresAt: new Date(60_000).toISOString(),
+    status: "pending",
+    detail: "Approval required",
+  };
+  expect(restartRequestSummary(job)).toBe(
+    "Requested by a Dev container; your approval is required. Install checklist recovery.",
+  );
+  expect(restartRequestSummary({ ...job, status: "succeeded" })).not.toContain(
+    "approval is required",
+  );
+  expect(
+    restartRequestSummary({
+      ...job,
+      requestedBy: "host-agent",
+      status: "approved",
+      automaticApproval: {
+        policyActivatedAt: new Date(0).toISOString(),
+        requestRevision: "revision",
+      },
+    }),
+  ).toBe("Automatically approved for a trusted Host thread. Install checklist recovery.");
 });

@@ -50,6 +50,8 @@ Use `get_thread_goal` and `update_thread_goal` to revise your existing goal with
 
 ### Required restart control path
 
+Where an owner has enabled the protected trusted Host approval policy and the installed coordinator advertises it, authenticated Host requests may receive automatic approval through this same tracked workflow. Inspect the recorded request decision rather than asking for a duplicate chat approval. Dev requests and mixed-origin batches still require the owner’s button approval. Do not enable the policy yourself, impersonate a Host requester, transfer Host credentials, or treat routine automatic approval as coordinator or supervisor maintenance authority. Until the updated coordinator and policy are installed, use the existing owner approval buttons.
+
 For authorized work, prepare and submit required restart or installation requests without asking permission in chat to create them. Present the exact request's review link and a short description of the target and interruption. The owner's click on the matching approval button in Installation controls is the approval; do not require a verbal reply before or after it. Observe the recorded decision and continue automatically when approved. Never click approval buttons on the owner's behalf. A changed source, plan or request revision requires its own button approval.
 
 This rule also applies to coordinator maintenance. If the installed system cannot represent an operation with a visible request and approval button, report that specific capability gap and prepare the missing managed workflow. Do not substitute chat approval, a plain daemon request or an untracked service operation. Instruction changes do not themselves add coordinator reload support.

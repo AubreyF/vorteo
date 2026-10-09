@@ -23,7 +23,7 @@ Connect multiple Codex and Claude accounts and distribute tasks across them. See
 
 <img width="400" alt="Server managed cross-device message queuing." src="https://github.com/user-attachments/assets/59dfdb03-e1ec-40d2-b66e-9683134e3811" />
 
-- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed; source installation requires separate approval. Host-prepared Dev supervisor repairs use the same visible review and cancellation controls. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
+- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed; Dev source installation requires your approval. An optional protected Host policy lets trusted Host threads approve their own routine updates through the same tracked controls; it requires an updated coordinator. Host-prepared Dev supervisor repairs use the same visible review and cancellation controls. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
 
 <img width="400" alt="Queued daemon upgrades" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
 

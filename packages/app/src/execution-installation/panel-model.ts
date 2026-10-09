@@ -316,3 +316,20 @@ export function restartActionDisabledReason(
     return "No validated installation artifact is ready. The submitting agent must finish preparation and resubmit the update.";
   return null;
 }
+
+export function restartRequestSummary(job: RestartJob): string {
+  const dev = job.sourceBatch?.contributions.find(
+    (item) => item.status !== "superseded" && item.requestedBy === "container-agent",
+  );
+  const reason = restartExplanation(dev?.reason ?? job.reason).summary;
+  if (dev || job.requestedBy === "container-agent") {
+    const origin =
+      dev && job.requestedBy !== "container-agent"
+        ? "Includes a Dev container request"
+        : "Requested by a Dev container";
+    const review = job.status === "pending" ? "; your approval is required" : "";
+    return `${origin}${review}. ${reason}`;
+  }
+  if (job.automaticApproval) return `Automatically approved for a trusted Host thread. ${reason}`;
+  return reason;
+}

@@ -80,7 +80,12 @@ function restartReply(
   sourceBatches = false,
   containerSourceUpdates = false,
   supervisorMaintenance = false,
+  hostAutomaticRestarts = false,
 ) {
+  if (!hostAutomaticRestarts) {
+    const { automaticApproval: _approval, ...compatible } = job;
+    job = compatible;
+  }
   // COMPAT(supervisorMaintenance): keep strict old clients readable, but never accept their approval.
   if (job.supervisorPlanSha256 && !supervisorMaintenance) {
     const { supervisorPlanSha256: _plan, ...compatible } = job;
@@ -199,6 +204,8 @@ export function createInstallationServer(
       },
     },
     restartExecutor,
+    Date.now,
+    config.restartApprovalPolicy,
   );
   const drainRestarts = () =>
     restarts
@@ -287,6 +294,13 @@ export function createInstallationServer(
       config.hostAgentTokenHash,
     );
     const supervisorPlan = host ? executor.supervisorPlan?.() : undefined;
+    const automaticHost = Boolean(
+      config.restartApprovalPolicy &&
+      executor.inspect &&
+      executor.holdCurrentTurns &&
+      executor.releaseCurrentTurns &&
+      executor.restartWhenIdle,
+    );
     void Promise.all(
       (["host", "container-daemon"] as const).map(async (target) => ({
         target,
@@ -298,7 +312,8 @@ export function createInstallationServer(
         res.json({
           version: 1,
           targets,
-          ownerApprovalRequired: true,
+          ownerApprovalRequired: !host || !automaticHost,
+          hostAutomaticRestarts: automaticHost,
           supervisorMaintenance: {
             available: Boolean(supervisorPlan && executor.restartSupervisor),
             ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
@@ -420,7 +435,19 @@ export function createInstallationServer(
           input.contributionId,
           input.replaces,
         );
-        res.status(201).json(receipt);
+        res.status(201).json({
+          ...receipt,
+          batch: restartReply(
+            receipt.batch,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            req.query.hostAutomaticRestarts === "1",
+          ),
+        });
         void drainRestarts();
       } else res.status(201).json(restarts.request(input.request, requester, input.update));
     },
@@ -431,7 +458,19 @@ export function createInstallationServer(
       res.sendStatus(404);
       return;
     }
-    res.json(receipt);
+    res.json({
+      ...receipt,
+      batch: restartReply(
+        receipt.batch,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        req.query.hostAutomaticRestarts === "1",
+      ),
+    });
   });
   app.use(express.json({ limit: "1mb" }));
   app.get("/api/installation/health", (_req, res) =>
@@ -507,7 +546,20 @@ export function createInstallationServer(
       return;
     }
     const job = restarts.request(RestartRequestSchema.parse(req.body), requestedBy);
-    res.status(201).json(job);
+    res
+      .status(201)
+      .json(
+        restartReply(
+          job,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          req.query.hostAutomaticRestarts === "1",
+        ),
+      );
   });
 
   app.get("/api/installation/restart-requests/:id", (req, res) => {
@@ -525,7 +577,18 @@ export function createInstallationServer(
       res.sendStatus(404);
       return;
     }
-    res.json(restartReply(job, true, true, true, req.query.sourceBatches === "1", true));
+    res.json(
+      restartReply(
+        job,
+        true,
+        true,
+        true,
+        req.query.sourceBatches === "1",
+        true,
+        true,
+        req.query.hostAutomaticRestarts === "1",
+      ),
+    );
   });
 
   app.post("/api/installation/container-agents", (req, res, next) => {
@@ -719,6 +782,7 @@ export function createInstallationServer(
             req.query.sourceBatches === "1",
             req.query.containerSourceUpdates === "1",
             req.query.supervisorMaintenance === "1",
+            req.query.hostAutomaticRestarts === "1",
           ),
         ),
     );
@@ -744,12 +808,18 @@ export function createInstallationServer(
       reviewed?.target === "container-daemon" &&
       (reviewed.update || reviewed.sourceBatch) &&
       req.query.containerSourceUpdates !== "1" &&
-      decision.decision !== "reject"
+      decision.decision !== "reject" &&
+      decision.decision !== "cancel"
     )
       throw new RestartRequestError(
         "Reload Vorteo to review Dev source installation before approval",
       );
-    if (reviewed?.sourceBatch && req.query.sourceBatches !== "1" && decision.decision !== "reject")
+    if (
+      reviewed?.sourceBatch &&
+      req.query.sourceBatches !== "1" &&
+      decision.decision !== "reject" &&
+      decision.decision !== "cancel"
+    )
       throw new RestartRequestError(
         "Reload Vorteo to review all source contributions before approval",
       );
@@ -769,6 +839,7 @@ export function createInstallationServer(
         req.query.sourceBatches === "1",
         req.query.containerSourceUpdates === "1",
         req.query.supervisorMaintenance === "1",
+        req.query.hostAutomaticRestarts === "1",
       ),
     );
     void restarts
