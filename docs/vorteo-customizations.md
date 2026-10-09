@@ -308,3 +308,5 @@ Maintenance review: coordinator review keeps polling during submission and recon
 Maintenance review: journal integration preserves the deployed installation review and goal controls. The journal card remains gated by daemon support; Host and Dev runtime acceptance is required before closeout.
 
 October 9, 2026: Integrated the published card-header hover padding with coordinator recovery. Both source histories and complete release entries are retained; runtime journal acceptance remains pending.
+
+Factory source integration maintenance: reconciled the accepted Dev blocked-checklist branch with published Factory history through a genuine merge. Current Factory safeguards, blocked-status compatibility and all historical release entries are retained. No runtime behavior changed.
