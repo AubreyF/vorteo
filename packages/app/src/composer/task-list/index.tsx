@@ -1,9 +1,13 @@
+import { TaskCard } from "@/agent-stream/task-card";
 import { ChecklistProgressRing } from "@/task-checklist/progress-ring";
 import { checklistProgress } from "@/task-checklist/progress";
 import { useVortonTouch } from "@/vorton-touch";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
-import { memo, useMemo } from "react";
-import { Text, View } from "react-native";
+import { memo, useMemo, useState, useCallback } from "react";
+import { View } from "react-native";
+import { ChevronDown, ChevronRight } from "lucide-react-native";
+import { Button } from "@/components/ui/button";
+import { CountBadge } from "@/components/ui/count-badge";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
 import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
@@ -65,24 +69,46 @@ function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   const { t } = useTranslation();
   const touch = useVortonTouch();
   const { completed, total } = checklistProgress(tasks);
+  const [expanded, setExpanded] = useState(true);
+  const countBadge = useMemo(
+    () => (
+      <CountBadge
+        label={`${completed}/${total}`}
+        accessibilityLabel={t("message.todo.tasksProgress", { completed, total })}
+      />
+    ),
+    [completed, total, t],
+  );
+  const expandedState = useMemo(() => ({ expanded }), [expanded]);
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
   return (
-    <View style={taskCardStyles.container} testID="agent-task-progress-card">
+    <TaskCard testID="agent-task-progress-card">
       <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
         <ChecklistProgressRing completed={completed} total={total} />
-        <Text style={taskCardStyles.heading}>
-          {t("message.todo.tasksProgress", { completed, total: tasks.length })}
-        </Text>
+        <Button
+          variant="ghost"
+          size="sm"
+          style={[taskCardStyles.accordionTrigger, touch && taskCardStyles.touchAccordionTrigger]}
+          textStyle={taskCardStyles.heading}
+          onPress={toggle}
+          accessibilityLabel="Tasks"
+          aria-expanded={expanded}
+          accessibilityState={expandedState}
+          trailing={countBadge}
+          leftIcon={expanded ? ChevronDown : ChevronRight}
+        >
+          Tasks
+        </Button>
       </View>
-      <View>
-        {tasks.map((task, index) => (
-          <View
-            key={task.id ?? `${index}:${task.text}`}
-            style={[taskCardStyles.item, index > 0 && taskCardStyles.separator]}
-          >
-            <TaskListRow compact task={task} />
-          </View>
-        ))}
-      </View>
-    </View>
+      {expanded ? (
+        <View>
+          {tasks.map((task, index) => (
+            <View key={task.id ?? `${index}:${task.text}`} style={taskCardStyles.item}>
+              <TaskListRow compact task={task} />
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </TaskCard>
   );
 }

@@ -1,3 +1,5 @@
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
+import { TaskCard } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
 import { taskCardStyles } from "./task-card-styles";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
@@ -1669,16 +1671,18 @@ function PermissionRequestCard({
   }
 
   return (
-    <View
-      style={[
-        taskCardStyles.surface,
+    <TaskCard
+      contentContainerStyle={[
         permissionStyles.container,
         taskCardStyles.contentInsets,
         permissionStyles.bottomCard,
       ]}
       testID="permission-request-card"
     >
-      <Text style={permissionStyles.title}>{title}</Text>
+      <View style={taskCardStyles.headingRow}>
+        <TaskCardIcon kind="permission" />
+        <Text style={[permissionStyles.title, { flexShrink: 1 }]}>{title}</Text>
+      </View>
 
       {description ? <Text style={permissionStyles.description}>{description}</Text> : null}
 
@@ -1696,7 +1700,7 @@ function PermissionRequestCard({
       ) : null}
 
       {footer}
-    </View>
+    </TaskCard>
   );
 }
 

@@ -4,6 +4,58 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.221 - 2026-10-08
+
+### Maintenance
+
+- Update queue component test fixtures for shared card scrolling and heading icons
+- Integrate the live conversation card refinements with published account readiness, saved history and delegated message attribution fixes; retain both branches’ release notes
+
+## 0.11.0-beta.3.vorteo.220 - 2026-10-09
+
+### Changed
+
+- Add distinct heading icons to conversation detail cards: messages, targets, subagents, plans, questions and permissions. Keep task progress charts and show a pie icon for an empty checklist.
+
+## 0.11.0-beta.3.vorteo.219 - 2026-10-09
+
+### Changed
+
+- Remove horizontal separators between queued messages and pending recovery rows.
+
+## 0.11.0-beta.3.vorteo.218 - 2026-10-09
+
+### Fixed
+
+- Center single-row and collapsed card headers with equal vertical padding. Remove the empty task list container and its trailing gap.
+
+## 0.11.0-beta.3.vorteo.217 - 2026-10-09
+
+### Changed
+
+- Rename the message queue card heading to Messages.
+
+## 0.11.0-beta.3.vorteo.216 - 2026-10-09
+
+### Changed
+
+- Collapse thread tasks into an accordion with a progress tag, an add icon, completion checkboxes, details icons and the same drag handles as queued messages. Keep task rows on one line without separators.
+- Limit task, goal, queue, subagent, plan, question and permission cards to half the viewport height and scroll their contents internally.
+- Let sortable drag handles own their keyboard controls instead of triggering the global voice shortcut.
+- Make guarded interface-only publication the default for validated UI revisions during ongoing work. Preserve daemon installation approvals for changes that require daemon updates.
+
+## 0.11.0-beta.3.vorteo.215 - 2026-10-09
+
+### Maintenance
+
+- Combine 6 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.214 - 2026-10-08
+
+### Changed
+
+- Integrate explicit sender provenance and shorter conversation rail marks for agent messages. Preserve previously deployed interface changes and historical release notes.
+
 ## 0.11.0-beta.3.vorteo.219 - 2026-10-08
 
 ### Fixed
@@ -51,51 +103,74 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Distinguish agent-sent prompts with shorter conversation navigation marks. Preserve explicit provenance for local agent tool sends, worker creation and steering without guessing the sender of older messages.
 - Cover optional protocol compatibility, saved history, dispatch and desktop navigation after reload. The README overview and onboarding are unchanged.
 
+## 0.11.0-beta.3.vorteo.212 - 2026-10-08
+
+### Fixed
+
+- Recognize verified Claude account authentication when quota reporting cannot read saved macOS credentials. Explicit authentication failures still show Reconnect.
+- Integrate desktop and compact sign-in, reload and sign-out coverage while preserving existing installation changes.
+
 ## 0.11.0-beta.3.vorteo.211 - 2026-10-08
 
 ### Fixed
 
-- Hide Connect for Claude accounts whose configured CLI has verified authentication, including macOS accounts with saved credentials that usage reporting cannot read. Keep explicit authentication recovery and unavailable quota separate.
-- Cover successful sign-in without a credential file, reload, and subsequent sign-out at desktop and compact widths. Document the account and environment boundaries.
+- Integrate reviewed goal padding, independently expandable subagent sections and right-aligned question actions while preserving installed project, history, task retry and queue refresh behavior.
 
 ## 0.11.0-beta.3.vorteo.210 - 2026-10-08
 
 ### Fixed
 
-- Add room below goal content and align its controls. Give managed and provider subagents independent sections and scoped cleanup actions.
-- Add vertical room to question forms and align wrapping Dismiss, Next and Submit actions to the right at desktop and compact widths.
-- Integrate the reviewed spacing commits while preserving project selection, saved history, agent retry and queue refresh fixes.
+- Integrate shared queue refresh after rejected operations while preserving local unsynchronized changes and attachment copies. Retain the installed project, history and creation retry fixes.
+
+## 0.11.0-beta.3.vorteo.209 - 2026-10-08
+
+### Fixed
+
+- Allow edited agent drafts to retry confirmed pre-creation failures with their reserved identity. Preserve conflict protection for ambiguous or completed attempts and retain installed source and prior history repairs.
 
 ## 0.11.0-beta.3.vorteo.208 - 2026-10-08
 
 ### Fixed
 
-- Refresh the shared message queue from rejected operation responses while retaining unsynchronized local changes and attachments. Do not replay a rejected operation automatically.
+- Preserve logical project selection when projects share a Host directory. List projects before their selected environment has a placement, and use existing folder mapping or folder selection at submission.
+- Keep saved threads and schedule associations visible after restart. Read saved history without starting an unavailable provider.
+- Integrate these repairs with the approved Host source and current interface.
 
 ## 0.11.0-beta.3.vorteo.207 - 2026-10-08
 
 ### Fixed
 
-- Allow an edited agent draft to retry after a confirmed pre-creation rejection while retaining its reserved agent identity. Keep changed requests blocked after execution, ambiguous failure, or workspace changes.
+- Keep restart explanations tappable by separating their hit target from the disabled approval button. Preserve the approved Host source and prior interface changes during integration.
 
 ## 0.11.0-beta.3.vorteo.206 - 2026-10-08
 
-### Fixed
+### Maintenance
 
-- Preserve logical project selection when projects share a Host directory. List projects before their selected environment has a placement, and use existing folder mapping or folder selection at submission.
-- Keep unarchived saved threads visible when their provider is unavailable, preserving workspace history and schedule badge associations after restart. Read saved history without starting an unavailable provider.
+- Preserve the approved Host update ancestry while integrating restart action explanations.
+
+## 0.11.0-beta.3.vorteo.203 - 2026-10-08
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.205 - 2026-10-08
 
-### Fixed
+### Maintenance
 
-- Keep restart explanations tappable by separating their hit target from the disabled approval button.
+- Integrate compact tooltip interaction with the deployed restart explanations.
 
 ## 0.11.0-beta.3.vorteo.204 - 2026-10-08
 
 ### Fixed
 
 - Keep tapped tooltips open on compact screens when synthetic hover events follow the tap. Verify restart explanations after keyboard focus transitions.
+
+## 0.11.0-beta.3.vorteo.204 - 2026-10-08
+
+### Maintenance
+
+- Integrate disabled restart explanations and button approval instructions with the deployed installation source.
 
 ## 0.11.0-beta.3.vorteo.203 - 2026-10-08
 
@@ -108,6 +183,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Documentation
 
 - Submit prepared maintenance requests without verbal approval prompts. Require the owner's exact button approval, including coordinator maintenance, and report unsupported request types without bypassing the managed workflow.
+
+## 0.11.0-beta.3.vorteo.202 - 2026-10-08
+
+### Maintenance
+
+- Integrate project environment selection and source batch corrections with the installed interface and pending checklist delivery ancestry.
 
 ## 0.11.0-beta.3.vorteo.201 - 2026-10-08
 
@@ -135,50 +216,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Merge divergent contributions from their verified shared ancestor instead of replaying changes since an older bundle prerequisite. Ambiguous ancestry still requires explicit integration.
 - Recheck pending source conflicts after coordinator recovery without approving or replaying installation. Show blocked update status and its cause in the sidebar.
 
+## 0.11.0-beta.3.vorteo.199 - 2026-10-08
+
+### Maintenance
+
+- Reconcile checklist installation ancestry with the live interface while preserving all published implementation and historical notes.
+
 ## 0.11.0-beta.3.vorteo.197 - 2026-10-08
 
-### Fixed
-
-- Keep supervisor repair requests separate from pending source-update batches, preserving both contributions and owner controls. Approvals for the same environment still execute one at a time.
-
-## 0.11.0-beta.3.vorteo.196 - 2026-10-08
-
-### Added
-
-- Add persistent, caller-scoped checklist read and mutation tools across providers, with stable task IDs, status, completion criteria, ownership, dependencies, metadata, deletion and ordering.
-- Add manual task creation, editing, completion, reopening, deletion and ordering to the thread checklist card, with blocked-task errors and stale-edit protection.
-
-### Fixed
-
-- Preserve managed tasks through native provider events, history refreshes, concurrent storage writes and agent reloads. Broadcast checklist changes only after persistence succeeds.
-- Retain Claude task details, dependency changes and metadata through native task updates and list refreshes; ignore failed tool writes and reconcile missing tasks.
-
-### Changed
-
-- Carry accepted pending checklist items and their completion criteria through planning, implementation and handoff instructions. Preserve native provider task ownership.
-- Gate manual controls and client mutations on daemon capability; older installations retain their native checklist display.
-
 ### Maintenance
 
-- Cover durable writes, lifecycle restoration, tool scope, live RPC updates and desktop and phone manual controls. Verify workspace completion across unopened threads and reloads. Updated daemon and interface installation remains required.
-
-## 0.11.0-beta.3.vorteo.195 - 2026-10-08
-
-### Fixed
-
-- Route Dev supervisor repairs through visible, cancellable installation requests with exact-plan approval and verified replacement readiness. Keep ordinary worker restarts separate and refuse guest maintenance requests.
-- Exclude inactive archived history from restart preparation while preserving active work, unknown failures and interruption safeguards.
-
-### Maintenance
-
-- Cover approval binding, cancellation, legacy clients, changed scripts and interrupted dispatch. Document protected Host preparation and the managed supervisor repair workflow.
-
-## 0.11.0-beta.3.vorteo.194 - 2026-10-08
-
-### Maintenance
-
-- Require coordinator-tracked, visible and cancellable workflows for all Host and Dev daemon holds, restarts and supervisor maintenance. Prohibit direct lifecycle RPCs and shell restart bypasses even when chat approval exists.
-- Require unsupported maintenance operations to be implemented in the managed workflow before draining or interrupting tasks.
+- Integrate persistent checklist delivery with installed source history, preserving historical release notes and the validated public implementation.
 
 ## 0.11.0-beta.3.vorteo.193 - 2026-10-08
 
@@ -208,6 +256,109 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ### Maintenance
 
+- Add regression coverage for managed and legacy worker identity, release changes, ambiguous matches and PID reuse.
+
+## 0.11.0-beta.3.vorteo.191 - 2026-10-08
+
+### Maintenance
+
+- Integrate managed Dev source updates with the installed release and accepted checklist contribution, preserving both source histories and prior release notes.
+
+## 0.11.0-beta.3.vorteo.198 - 2026-10-08
+
+### Maintenance
+
+- Integrate accepted checklist controls and independent supervisor requests while preserving the live interface history and queued source contributions.
+
+## 0.11.0-beta.3.vorteo.197 - 2026-10-08
+
+### Fixed
+
+- Keep supervisor repair requests separate from pending source-update batches, preserving both contributions and owner controls. Approvals for the same environment still execute one at a time.
+
+## 0.11.0-beta.3.vorteo.196 - 2026-10-08
+
+### Added
+
+- Add persistent, caller-scoped checklist read and mutation tools across providers, with stable task IDs, status, completion criteria, ownership, dependencies, metadata, deletion and ordering.
+- Add manual task creation, editing, completion, reopening, deletion and ordering to the thread checklist card, with blocked-task errors and stale-edit protection.
+
+### Fixed
+
+- Preserve managed tasks through native provider events, history refreshes, concurrent storage writes and agent reloads. Broadcast checklist changes only after persistence succeeds.
+- Retain Claude task details, dependency changes and metadata through native task updates and list refreshes; ignore failed tool writes and reconcile missing tasks.
+
+### Changed
+
+- Carry accepted pending checklist items and their completion criteria through planning, implementation and handoff instructions. Preserve native provider task ownership.
+- Gate manual controls and client mutations on daemon capability; older installations retain their native checklist display.
+
+### Maintenance
+
+- Cover durable writes, lifecycle restoration, tool scope, live RPC updates and desktop and phone manual controls. Verify workspace completion across unopened threads and reloads. Updated daemon and interface installation remains required.
+
+## 0.11.0-beta.3.vorteo.197 - 2026-10-08
+
+### Maintenance
+
+- Retain the live interface source in installation ancestry before building tracked supervisor controls. Preserve deployed implementation and release notes.
+
+## 0.11.0-beta.3.vorteo.196 - 2026-10-08
+
+### Maintenance
+
+- Integrate tracked supervisor maintenance and profile launcher validation with the installed source history, retaining preview recovery and Host build repairs.
+
+## 0.11.0-beta.3.vorteo.195 - 2026-10-08
+
+### Fixed
+
+- Route Dev supervisor repairs through visible, cancellable installation requests with exact-plan approval and verified replacement readiness. Keep ordinary worker restarts separate and refuse guest maintenance requests.
+- Exclude inactive archived history from restart preparation while preserving active work, unknown failures and interruption safeguards.
+
+### Maintenance
+
+- Cover approval binding, cancellation, legacy clients, changed scripts and interrupted dispatch. Document protected Host preparation and the managed supervisor repair workflow.
+
+## 0.11.0-beta.3.vorteo.194 - 2026-10-08
+
+### Maintenance
+
+- Require coordinator-tracked, visible and cancellable workflows for all Host and Dev daemon holds, restarts and supervisor maintenance. Prohibit direct lifecycle RPCs and shell restart bypasses even when chat approval exists.
+- Require unsupported maintenance operations to be implemented in the managed workflow before draining or interrupting tasks.
+
+## 0.11.0-beta.3.vorteo.193 - 2026-10-08
+
+### Fixed
+
+- Refuse Dev updater bootstrap when the managed supervisor or worker lacks the installation-owned profile client binding. Explain the required launcher repair and reviewed supervisor restart.
+
+### Maintenance
+
+- Cover missing and mismatched profile client paths and document acceptance of the inherited launcher environment.
+
+- Integrate managed preview recovery and exact-source Host build preparation with the installed Dev and interface histories. Retain their existing features and release notes.
+
+## 0.11.0-beta.3.vorteo.192 - 2026-10-08
+
+### Fixed
+
+- Prepare Host updates by transferring only the approved source commit into a fresh repository. Avoid local clone object-copy races and unrelated branch references while preserving bundle and ancestry checks.
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+- Verify that native build preparation retains no unrelated refs or shared object-store dependency and leaves the live interface unchanged.
+
+## 0.11.0-beta.3.vorteo.191 - 2026-10-08
+
+### Fixed
+
+- Recognize managed Dev workers during preview recovery without changing their process arguments. Verify the selected release, executable, supervisor, ownership and stable process identity.
+
+### Maintenance
+
+- Integrate managed Dev source updates with the installed release and accepted checklist contribution, preserving both source histories and prior release notes.
 - Add regression coverage for managed and legacy worker identity, release changes, ambiguous matches and PID reuse.
 
 ## 0.11.0-beta.3.vorteo.190 - 2026-10-08
@@ -255,12 +406,46 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
 
+## 0.11.0-beta.3.vorteo.190 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.189 - 2026-10-08
+
+### Fixed
+
+- Keep force restart out of initial approval and sidebar notices. Reveal it only after the operator marks an approved queued restart as stuck, with a separate interruption confirmation.
+
+### Maintenance
+
+- Integrate the restart escalation interface with the installed release, preserving restart recovery and source-update behavior.
+
+## 0.11.0-beta.3.vorteo.188 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.187 - 2026-10-07
+
+### Maintenance
+
+- Integrate restart recovery and compact review with the currently installed source, preserving both release histories.
+
 ## 0.11.0-beta.3.vorteo.186 - 2026-10-07
 
 ### Fixed
 
 - Keep restart review to a short paragraph with technical details collapsed, and label source installation Updating while builds are running.
 - Recover restart-held goals without queued messages and retain durable continuation for ordinary threads asked to finish. Preserve manual pauses, block new goal activation during a hold, and distinguish restart pauses in the interface.
+
+## 0.11.0-beta.3.vorteo.186 - 2026-10-08
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.185 - 2026-10-07
 
@@ -389,6 +574,21 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Require agents to check supported installation-maintenance and preview operations before preparing host continuity prompts, while preserving owner restart approval
 - Cover queued daemon labels and the stationary banner divider in the installation browser suite
+
+## 0.11.0-beta.3.vorteo.176 - 2026-10-08
+
+### Added
+
+- Show workspace checklist completion across all unarchived threads, including unopened threads, with a donut beside the workspace row and progress on each thread's bottom card.
+- Persist native checklist snapshots in daemon records and the client cache so completion survives reloads.
+
+### Changed
+
+- Prepare implementation checklist items with completion criteria in plans and carry accepted plans into new threads through launch and handoff instructions.
+
+### Maintenance
+
+- Cover aggregation, native task persistence, client cache recovery and browser reload behavior. Older threads populate snapshots when their history loads or a provider updates its checklist.
 
 ## 0.11.0-beta.3.vorteo.175 - 2026-10-07
 

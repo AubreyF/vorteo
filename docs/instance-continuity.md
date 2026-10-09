@@ -20,6 +20,8 @@ Builds from a Git checkout record HEAD as their source base. For source snapshot
 
 For interface requests, update the existing primary Vorteo installation in place unless the user names another destination. Publishing the tested web export is part of the requested work. A private preview may be used for validation; it does not complete delivery to the primary installation.
 
+Publish each coherent revision after validation, including during a longer queue of interface work. Verify the served release and tell the owner to reload. Static publication does not restart either daemon or place agents on hold. Use the installation coordinator only when the change also requires a daemon or protocol update, and retain its exact approval requirements. A mixed change may publish compatible interface work first; do not expose controls that depend on unavailable daemon behavior.
+
 Builds use unique directories under `~/.cache/paseo-instance-builds/`. Each build owns its source snapshot, installed dependencies, generated files and export. Only npm's download cache is shared. A failed build never produces a completed artifact manifest.
 
 Task worktrees can build preview artifacts with `node scripts/build-instance-web.mjs`. The publisher rejects preview artifacts. For primary publication, merge accepted work into one integration branch and commit it first. The checkout must be clean, and its commit must descend from the deployed commit. These checks preserve deployed source history; review and acceptance tests must still catch intentional or accidental feature reversions within that history.

@@ -95,6 +95,10 @@ vi.mock("./edit-draft-runtime", () => ({
   reviewRejectedQueueEdit: async () => undefined,
 }));
 vi.mock("./shared-attachments", () => ({ SharedQueueAttachments: () => null }));
+// Animation is covered separately; these checks exercise queue content and actions.
+vi.mock("./queue-indicator", () => ({
+  QueueMessageIndicator: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+}));
 vi.mock("@/components/ui/text-input", () => ({ EditingTextInput: () => null }));
 vi.mock("@/components/ui/button", () => ({
   Button: ({
@@ -133,6 +137,13 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuItem: () => null,
 }));
 vi.mock("lucide-react-native", () => ({
+  ChartPie: () => null,
+  FileText: () => null,
+  MessageCircleQuestion: () => null,
+  MessagesSquare: () => null,
+  ShieldCheck: () => null,
+  Target: () => null,
+  Users: () => null,
   Image: () => <span data-testid="media-icon" />,
   Paperclip: () => <span data-testid="file-icon" />,
   ArrowUp: () => null,
@@ -181,7 +192,10 @@ vi.mock("react-native", () => ({
       {children}
     </button>
   ),
-  ScrollView: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useWindowDimensions: () => ({ width: 1400, height: 900 }),
+  ScrollView: ({ children, testID }: { children: React.ReactNode; testID?: string }) => (
+    <div data-testid={testID}>{children}</div>
+  ),
 }));
 let root: Root;
 let container: HTMLDivElement;
@@ -264,7 +278,7 @@ it("labels the queue and keeps goal recovery within the goal card", async () => 
   await render();
   const queue = container.querySelector('[data-testid="shared-message-queue"]');
   const goal = container.querySelector('[data-testid="agent-goal-bar"]');
-  expect(queue?.textContent).toContain("Message queue");
+  expect(queue?.textContent).toContain("Messages");
   expect(queue?.querySelector('[data-testid="message-queue-card-count"]')?.textContent).toBe("2");
   expect(queue?.textContent).not.toContain("goal change");
   expect(container.textContent).not.toContain("Retry delivery");
