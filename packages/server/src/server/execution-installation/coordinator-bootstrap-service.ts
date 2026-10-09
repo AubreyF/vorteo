@@ -6,7 +6,10 @@ import { promisify, isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
-import { assertBootstrapPathsProtected } from "./coordinator-bootstrap-artifact.js";
+import {
+  assertBootstrapPathsProtected,
+  readBootstrapPreparedFile,
+} from "./coordinator-bootstrap-artifact.js";
 
 const execute = promisify(execFile);
 
@@ -23,6 +26,37 @@ const ProcessObservationSchema = z.strictObject({
 export interface BootstrapServiceReader {
   readService(service: string): Promise<string>;
   inspectProcess(pid: number): Promise<unknown>;
+}
+
+export async function readBootstrapLauncher(
+  file: CoordinatorBootstrapPlan["candidate"]["launcher"],
+  writableMountRoots: readonly string[],
+): Promise<unknown> {
+  if (process.platform !== "darwin")
+    throw new BootstrapRequestConflict("Coordinator launcher parsing requires native macOS Host");
+  const bytes = await readBootstrapPreparedFile(file, writableMountRoots);
+  // plutil receives only the verified bytes. Its diagnostic output may contain
+  // configuration values, so neither errors nor stdout escape on parse failure.
+  const output = await new Promise<string>((resolve, reject) => {
+    const fail = () =>
+      reject(new BootstrapRequestConflict("Prepared launcher is not a valid plist"));
+    const child = execFile(
+      "/usr/bin/plutil",
+      ["-convert", "json", "-o", "-", "--", "-"],
+      { env: { PATH: "/usr/bin:/bin" }, timeout: 10_000, maxBuffer: 1024 * 1024 },
+      (error, stdout) => {
+        if (error) fail();
+        else resolve(stdout);
+      },
+    );
+    child.stdin!.on("error", fail);
+    child.stdin!.end(bytes);
+  });
+  try {
+    return z.record(z.string(), z.unknown()).parse(JSON.parse(output));
+  } catch {
+    throw new BootstrapRequestConflict("Prepared launcher is not a plist dictionary");
+  }
 }
 
 /** Plists are decoded by the fixed Host parser. Preserve environment, logs and

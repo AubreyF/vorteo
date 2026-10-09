@@ -18,6 +18,16 @@ import {
 import { BootstrapRequestConflict, type BootstrapHostBinding } from "./coordinator-bootstrap.js";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { InstallationConfigSchema } from "./config.js";
+import {
+  verifyBootstrapReleaseArtifacts,
+  assertBootstrapPathsProtected,
+} from "./coordinator-bootstrap-artifact.js";
+import {
+  createNativeBootstrapServiceReader,
+  readBootstrapLauncher,
+  verifyBootstrapLaunchers,
+  verifyLoadedBootstrapService,
+} from "./coordinator-bootstrap-service.js";
 
 const execute = promisify(execFile);
 
@@ -31,6 +41,74 @@ const CoordinatorBindingSchema = z.object({
 export interface ProtectedBootstrapHost {
   binding: BootstrapHostBinding;
   stateDirectory: string;
+}
+
+export interface BootstrapAdmissionHost {
+  daemonId: string;
+  configurationFile: string;
+  launcherFile: string;
+  docker: string;
+  socket: string;
+  containerId: string;
+  helperPath: string;
+  helperSha256: string;
+}
+
+/** Host setup supplies this context. Review requests cannot choose collectors,
+ * Docker endpoints, the installed launcher or their own daemon identity. */
+export async function verifyBootstrapPlan(
+  plan: CoordinatorBootstrapPlan,
+  host: BootstrapAdmissionHost,
+): Promise<void> {
+  const initial = readBootstrapHostBinding(host.configurationFile, host.daemonId);
+  verifyBootstrapConfiguration({ plan, ...host });
+  const roots = await inspectBootstrapWritableMountRoots(host);
+  await assertBootstrapPathsProtected(
+    [host.configurationFile, host.launcherFile, initial.stateDirectory],
+    roots,
+  );
+  for (const release of [plan.previous, plan.candidate])
+    await verifyBootstrapReleaseArtifacts(release, roots);
+  const current = await readBootstrapLauncher(
+    { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
+    roots,
+  );
+  const previous = await readBootstrapLauncher(plan.previous.launcher, roots);
+  const candidate = await readBootstrapLauncher(plan.candidate.launcher, roots);
+  verifyBootstrapLaunchers({
+    plan,
+    configurationFile: host.configurationFile,
+    current,
+    previous,
+    candidate,
+  });
+  const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
+  await verifyLoadedBootstrapService({
+    plan,
+    hostUid: process.getuid!(),
+    configurationFile: host.configurationFile,
+    reader,
+  });
+  // Async collection is not a lock. Reject changed evidence before admitting the
+  // request, and repeat this entire check under the dispatch fence before acting.
+  const finalRoots = await inspectBootstrapWritableMountRoots(host);
+  if (!isDeepStrictEqual(roots, finalRoots))
+    throw new BootstrapRequestConflict("Writable container mounts changed during verification");
+  verifyBootstrapConfiguration({ plan, ...host });
+  for (const release of [plan.previous, plan.candidate])
+    await verifyBootstrapReleaseArtifacts(release, finalRoots);
+  await readBootstrapLauncher(
+    { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
+    finalRoots,
+  );
+  await verifyLoadedBootstrapService({
+    plan,
+    hostUid: process.getuid!(),
+    configurationFile: host.configurationFile,
+    reader,
+  });
+  if (!isDeepStrictEqual(initial, readBootstrapHostBinding(host.configurationFile, host.daemonId)))
+    throw new BootstrapRequestConflict("Bootstrap Host binding changed during verification");
 }
 
 /** Compare private values without returning them to the review transport. */

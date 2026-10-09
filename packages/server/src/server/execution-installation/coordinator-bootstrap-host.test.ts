@@ -1,4 +1,4 @@
-import { afterEach, test, expect } from "vitest";
+import { afterEach, test, expect, vi } from "vitest";
 import {
   mkdtempSync,
   mkdirSync,
@@ -20,11 +20,51 @@ import {
   readBootstrapHostBinding,
   bootstrapWritableMountRoots,
   verifyBootstrapConfiguration,
+  verifyBootstrapPlan,
 } from "./coordinator-bootstrap-host.js";
 import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
-import { createNativeBootstrapServiceReader } from "./coordinator-bootstrap-service.js";
+import {
+  createNativeBootstrapServiceReader,
+  readBootstrapLauncher,
+} from "./coordinator-bootstrap-service.js";
+
+import * as serviceCollector from "./coordinator-bootstrap-service.js";
+import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 
 const roots: string[] = [];
+
+test.runIf(process.platform === "darwin")(
+  "native launcher parser consumes reviewed bytes and rejects changed or exposed documents",
+  async () => {
+    const { root } = fixture();
+    const file = path.join(root, "service.plist");
+    const bytes = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Label</key><string>fixture</string>
+<key>KeepAlive</key><true/><key>ProgramArguments</key><array>
+<string>/fixture/node</string><string>a&amp;b</string></array></dict></plist>`);
+    writeFileSync(file, bytes, { mode: 0o600 });
+    const prepared = { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+    expect(await readBootstrapLauncher(prepared, [])).toEqual({
+      Label: "fixture",
+      KeepAlive: true,
+      ProgramArguments: ["/fixture/node", "a&b"],
+    });
+    await expect(readBootstrapLauncher(prepared, [root])).rejects.toThrow("mount");
+    await expect(
+      readBootstrapLauncher({ ...prepared, sha256: "f".repeat(64) }, []),
+    ).rejects.toThrow("digest");
+    chmodSync(file, 0o666);
+    await expect(readBootstrapLauncher(prepared, [])).rejects.toThrow("another account");
+    chmodSync(file, 0o600);
+    const invalid = Buffer.from("private-fixture-value is not a plist");
+    writeFileSync(file, invalid);
+    const invalidFile = { path: file, sha256: createHash("sha256").update(invalid).digest("hex") };
+    await expect(readBootstrapLauncher(invalidFile, [])).rejects.toThrow(
+      /^Prepared launcher is not a valid plist$/,
+    );
+    await expect(readBootstrapLauncher(prepared, [])).rejects.toThrow("digest");
+  },
+);
 
 test.runIf(process.platform === "darwin")(
   "native process inspection binds birth identity and hashes argv without exposing environment",
@@ -143,6 +183,7 @@ test("bootstrap mount evidence fails closed on incomplete or unsupported Docker 
   }
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixture() {
@@ -180,7 +221,7 @@ function fixture() {
   return { root, file, config, save };
 }
 
-test("bootstrap configuration preserves credentials, service targets and state with exact policy", () => {
+test("bootstrap configuration preserves credentials, service targets and state with exact policy", async () => {
   const f = fixture();
   const previousFile = path.join(f.root, "previous.json");
   const candidateFile = path.join(f.root, "candidate.json");
@@ -218,6 +259,18 @@ test("bootstrap configuration preserves credentials, service targets and state w
     },
     hostRequestsAfter: null,
   });
+  await expect(
+    verifyBootstrapPlan(plan, {
+      daemonId: "dev-id",
+      configurationFile: f.file,
+      launcherFile: "/nonexistent/launcher",
+      docker: "/nonexistent/docker",
+      socket: "/nonexistent/socket",
+      containerId: "a".repeat(64),
+      helperPath: "/nonexistent/helper",
+      helperSha256: "a".repeat(64),
+    }),
+  ).rejects.toThrow("configured Host");
   const verify = () =>
     verifyBootstrapConfiguration({ plan, configurationFile: f.file, daemonId: "host-id" });
   expect(verify).not.toThrow();
@@ -278,3 +331,99 @@ test("bootstrap binding rejects exposed or aliased configuration and invalid own
   f.save();
   expect(() => readBootstrapHostBinding(f.file, "host-id")).toThrow();
 });
+
+test.runIf(process.platform === "darwin")(
+  "complete admission verifies prepared releases and rejects changes during collection",
+  async () => {
+    const f = fixture();
+    const hash = (bytes: string) => createHash("sha256").update(bytes).digest("hex");
+    const save = (file: string, value: unknown) => {
+      const bytes = JSON.stringify(value);
+      writeFileSync(file, bytes, { mode: 0o600 });
+      return { path: file, sha256: hash(bytes) };
+    };
+    const node = path.join(f.root, "node");
+    writeFileSync(node, "fixture executable", { mode: 0o700 });
+    const service = f.config.host.launchdService.replace(/\.host$/, ".installation");
+    const makeRelease = async (name: string, configurationFile: string) => {
+      const directory = path.join(f.root, name);
+      mkdirSync(directory, { mode: 0o700 });
+      const entrypoint = path.join(directory, "entry.js");
+      writeFileSync(entrypoint, "export {};", { mode: 0o600 });
+      save(path.join(directory, ".installation-source.json"), { sourceCommit: "a".repeat(40) });
+      const configuration = save(path.join(f.root, name + ".json"), f.config);
+      const launcher = save(path.join(f.root, name + ".plist"), {
+        Label: service.split("/").slice(2).join("/"),
+        ProgramArguments: [node, entrypoint, configurationFile || configuration.path],
+        KeepAlive: true,
+      });
+      return {
+        directory,
+        sourceCommit: "a".repeat(40),
+        artifactSha256: await digestBootstrapArtifact(directory),
+        node: { path: node, sha256: hash("fixture executable") },
+        entrypoint: { path: entrypoint, sha256: hash("export {};") },
+        configuration,
+        launcher,
+      };
+    };
+    const previous = await makeRelease("previous", f.file);
+    const candidate = await makeRelease("candidate", "");
+    const expectedProcess = {
+      pid: 123,
+      bootId: randomUUID(),
+      startIdentity: "1234:5678",
+      argumentsSha256: hash(JSON.stringify([node, previous.entrypoint.path, f.file])),
+    };
+    const plan = CoordinatorBootstrapPlanSchema.parse({
+      version: 1,
+      operation: "coordinator-bootstrap",
+      installationId: f.config.public.installationId,
+      service,
+      expectedProcess,
+      previous,
+      candidate,
+      hostRequestsAfter: null,
+      state: {
+        directory: f.config.stateDir,
+        restartJournal: path.join(f.config.stateDir, "restart-jobs.json"),
+        ownerSessions: path.join(f.config.stateDir, "owner-sessions.json"),
+      },
+    });
+    const docker = path.join(f.root, "docker-fixture");
+    const mounts = path.join(f.root, "mounts.json");
+    save(mounts, { Id: "a".repeat(64), State: { Running: true }, Mounts: [] });
+    writeFileSync(docker, '#!/bin/sh\nexec /bin/cat "' + mounts + '"\n', { mode: 0o700 });
+    const host = {
+      daemonId: "host-id",
+      configurationFile: f.file,
+      launcherFile: previous.launcher.path,
+      docker,
+      socket: path.join(f.root, "fixture.sock"),
+      containerId: "a".repeat(64),
+      helperPath: path.join(f.root, "unused-inspector"),
+      helperSha256: "a".repeat(64),
+    };
+    let duringInspection = () => {};
+    const inspectProcess = vi.fn(async () => {
+      duringInspection();
+      return { ...expectedProcess, parentPid: 1, uid: process.getuid!(), executable: node };
+    });
+    vi.spyOn(serviceCollector, "createNativeBootstrapServiceReader").mockResolvedValue({
+      readService: async () => `${service} = {\n\tpid = 123\n}`,
+      inspectProcess,
+    });
+    await expect(verifyBootstrapPlan(plan, host)).resolves.toBeUndefined();
+    expect(inspectProcess).toHaveBeenCalledTimes(4);
+    duringInspection = () => writeFileSync(candidate.entrypoint.path, "changed runtime");
+    await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("digest changed");
+    writeFileSync(candidate.entrypoint.path, "export {};");
+    duringInspection = () =>
+      save(mounts, {
+        Id: host.containerId,
+        State: { Running: true },
+        Mounts: [{ Type: "bind", Source: f.root, RW: true }],
+      });
+    await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("mounts changed");
+  },
+);

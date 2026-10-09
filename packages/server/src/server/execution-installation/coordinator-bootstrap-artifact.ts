@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { constants, type BigIntStats } from "node:fs";
 import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 
@@ -55,6 +56,14 @@ export async function verifyBootstrapReleaseArtifacts(
     if (file === release.node && (stat.mode & 0o100n) === 0n)
       throw new BootstrapRequestConflict("Prepared Node executable is not executable");
   }
+  const receiptPath = path.join(release.directory, ".installation-source.json");
+  observed.set(receiptPath, await lstat(receiptPath, { bigint: true }));
+  const receiptBytes = await readProtectedDocument(receiptPath);
+  const receipt = z
+    .object({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/) })
+    .parse(JSON.parse(receiptBytes.toString("utf8")));
+  if (receipt.sourceCommit !== release.sourceCommit)
+    throw new BootstrapRequestConflict("Prepared source does not match its installation receipt");
   if ((await digestBootstrapArtifact(release.directory)) !== release.artifactSha256)
     throw new BootstrapRequestConflict("Prepared release artifact changed");
   for (const [file, stat] of observed) requireUnchanged(stat, await lstat(file, { bigint: true }));
@@ -90,7 +99,7 @@ function requireOwned(stat: BigIntStats): void {
 async function digestFile(file: string, expected: BigIntStats): Promise<string> {
   if (expected.nlink !== 1n)
     throw new BootstrapRequestConflict("Prepared artifact contains a hard-linked file");
-  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     requireUnchanged(expected, await handle.stat({ bigint: true }));
     const hash = createHash("sha256");
@@ -102,6 +111,36 @@ async function digestFile(file: string, expected: BigIntStats): Promise<string> 
     }
     requireUnchanged(expected, await handle.stat({ bigint: true }));
     return hash.digest("hex");
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Return the reviewed buffer so parsers never reopen a substitutable pathname. */
+export async function readBootstrapPreparedFile(
+  file: CoordinatorBootstrapPlan["candidate"]["launcher"],
+  writableMountRoots: readonly string[],
+): Promise<Buffer> {
+  await assertBootstrapPathsProtected([file.path], writableMountRoots);
+  const bytes = await readProtectedDocument(file.path);
+  if (createHash("sha256").update(bytes).digest("hex") !== file.sha256)
+    throw new BootstrapRequestConflict("Prepared document digest changed");
+  return bytes;
+}
+
+async function readProtectedDocument(file: string): Promise<Buffer> {
+  if ((await realpath(file)) !== file)
+    throw new BootstrapRequestConflict("Prepared file requires a canonical path");
+  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = await handle.stat({ bigint: true });
+    requireOwned(before);
+    if (!before.isFile() || before.nlink !== 1n || before.size > 1024n * 1024n)
+      throw new BootstrapRequestConflict("Prepared document must be a bounded regular file");
+    const bytes = await handle.readFile();
+    requireUnchanged(before, await handle.stat({ bigint: true }));
+    requireUnchanged(before, await lstat(file, { bigint: true }));
+    return bytes;
   } finally {
     await handle.close();
   }

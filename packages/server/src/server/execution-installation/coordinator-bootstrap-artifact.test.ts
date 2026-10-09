@@ -31,6 +31,11 @@ test("prepared release binds external dependencies and its complete runtime tree
   await writeFile(node, "fixture executable", { mode: 0o700 });
   await writeFile(configuration, "{}", { mode: 0o600 });
   await writeFile(launcher, "fixture launcher", { mode: 0o600 });
+  await writeFile(
+    path.join(release, ".installation-source.json"),
+    JSON.stringify({ sourceCommit: "a".repeat(40) }),
+    { mode: 0o600 },
+  );
   const candidate = {
     sourceCommit: "a".repeat(40),
     directory: release,
@@ -41,6 +46,9 @@ test("prepared release binds external dependencies and its complete runtime tree
     launcher: { path: launcher, sha256: digest("fixture launcher") },
   };
   await expect(verifyBootstrapReleaseArtifacts(candidate, [])).resolves.toBeUndefined();
+  await expect(
+    verifyBootstrapReleaseArtifacts({ ...candidate, sourceCommit: "b".repeat(40) }, []),
+  ).rejects.toThrow("installation receipt");
   await expect(verifyBootstrapReleaseArtifacts(candidate, [root])).rejects.toThrow("mount");
   await chmod(node, 0o600);
   await expect(verifyBootstrapReleaseArtifacts(candidate, [])).rejects.toThrow("not executable");
