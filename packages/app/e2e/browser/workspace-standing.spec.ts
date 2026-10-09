@@ -90,9 +90,9 @@ test("Standing follows schedules and protection, and failed changes can be retri
     await expect(page.getByTestId(`workspace-scheduled-${agent.workspaceId}`)).toHaveText("Paused");
     await expect(
       page.getByTestId(`workspace-subagent-count-${getServerId()}-${agent.workspaceId}`),
-    ).toHaveText("A1");
+    ).not.toBeAttached();
     const initialCountHeight = (await page
-      .getByTestId(`workspace-subagent-count-${getServerId()}-${agent.workspaceId}`)
+      .getByTestId(`workspace-scheduled-${agent.workspaceId}`)
       .boundingBox())!.height;
     expect((await page.getByTestId("workspace-label-chip-Review").boundingBox())?.height).toBe(
       initialCountHeight,
@@ -157,8 +157,9 @@ test("Standing follows schedules and protection, and failed changes can be retri
     const countBadge = page.getByTestId(
       `workspace-subagent-count-${getServerId()}-${agent.workspaceId}`,
     );
-    await expect(countBadge).toHaveText("A1");
-    const countHeight = (await countBadge.boundingBox())!.height;
+    await expect(countBadge).not.toBeAttached();
+    const countHeight = (await page.getByTestId("workspace-label-chip-Review").boundingBox())!
+      .height;
     expect((await scheduledBadge.boundingBox())?.height).toBe(countHeight);
     expect((await protectedBadge.boundingBox())?.height).toBe(countHeight);
     await expect(page.getByTestId("workspace-label-chip-Review")).toBeVisible();
@@ -591,4 +592,50 @@ test.describe("compact archive lock", () => {
       await agent.cleanup();
     }
   });
+});
+
+test("sidebar sub-agent badge counts active work and hides finished unarchived workers", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "active-workers-",
+    title: "Active worker counts",
+  });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "active-worker-count" });
+  try {
+    const child = await client.createAgent({
+      provider: "mock",
+      labels: { [PARENT_AGENT_ID_LABEL]: agent.agentId },
+      workspaceId: agent.workspaceId,
+      cwd: agent.cwd,
+      title: "Working child",
+      model: "ten-second-stream",
+      modeId: "load-test",
+    });
+    await client.createAgent({
+      provider: "mock",
+      labels: { [PARENT_AGENT_ID_LABEL]: agent.agentId },
+      workspaceId: agent.workspaceId,
+      cwd: agent.cwd,
+      title: "Idle child",
+      model: "e2e-fast-stream",
+      modeId: "load-test",
+    });
+    await openAgentRoute(page, agent);
+    const badge = page.getByTestId(
+      `workspace-subagent-count-${getServerId()}-${agent.workspaceId}`,
+    );
+    await expect(badge).not.toBeAttached();
+    await client.sendAgentMessage(child.id, "Work on the sidebar check.");
+    await expect(badge).toHaveText("A1");
+    await expect(badge).toHaveAttribute("aria-label", "1 active subagent");
+    await page.screenshot({ path: test.info().outputPath("active-subagent-badge.png") });
+    await expect(badge).not.toBeAttached({ timeout: 30_000 });
+    await page.reload();
+    await expect(badge).not.toBeAttached();
+  } finally {
+    await client.close();
+    await agent.cleanup();
+  }
 });

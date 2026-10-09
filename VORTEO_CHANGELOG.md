@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.231 - 2026-10-09
+
+### Changed
+
+- Remove the sidebar goal badge and show the sub-agent count only for active work. Managed workers count while their turn is open, including waiting for input; provider workers count while running. Finished unarchived workers no longer keep the badge visible.
+
 ## 0.11.0-beta.3.vorteo.230 - 2026-10-09
 
 ### Added
