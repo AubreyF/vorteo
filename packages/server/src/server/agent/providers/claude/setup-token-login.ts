@@ -1,3 +1,4 @@
+import { setTimeout, clearTimeout } from "node:timers";
 import * as pty from "node-pty";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,6 +11,9 @@ import { ensureNodePtySpawnHelperExecutableForCurrentPlatform } from "../../../.
 import { createProviderEnv, type ProviderRuntimeSettings } from "../../provider-launch-config.js";
 import { ClaudeSetupTokenError, ClaudeSetupTokenOutput } from "./setup-token-output.js";
 import type { ClaudeSetupToken } from "./setup-token-store.js";
+
+// React Native overloads global timers when browser fixtures import this Node-only module.
+const nodeTimeout = setTimeout as (callback: () => void, delay: number) => NodeJS.Timeout;
 
 export interface SetupTokenProcess {
   write(data: string): void;
@@ -119,7 +123,7 @@ export class ClaudeSetupTokenLoginSession implements ProviderLoginSession {
         completed = true;
         onComplete(success);
       };
-      const timeout = setTimeout(() => {
+      const timeout = nodeTimeout(() => {
         rejectChallenge();
         void this.dispose();
       }, 30_000);
@@ -189,7 +193,7 @@ export class ClaudeSetupTokenLoginSession implements ProviderLoginSession {
     if (this.process && !this.exited) {
       const child = this.process;
       child.kill("SIGTERM");
-      const force = setTimeout(() => {
+      const force = nodeTimeout(() => {
         if (!this.exited) child.kill("SIGKILL");
       }, 1000);
       force.unref();

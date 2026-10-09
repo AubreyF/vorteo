@@ -251,3 +251,5 @@ October 8, 2026: Host bootstrap setup can be discovered beside the private Host 
 October 8, 2026: Coordinator artifact validation now accepts complete internal hard-link groups created by npm while rejecting external aliases. The digest includes link topology and rechecks file identity; individually prepared control files retain single-link validation. Live activation remains pending.
 
 October 9, 2026: Coordinator preparation, decisions and executor acknowledgement allow up to fifteen minutes for complete artifact checks. Observation timeout does not restart or replay an executor; the durable request remains authoritative.
+
+October 9, 2026: Restored the shared conversation accordion heading hover highlight after the geometry cleanup. The highlight uses the existing interaction color and keeps heading dimensions unchanged. Reused the reviewed Node timer typing correction for browser fixture typechecks. README overview and onboarding are unchanged.
