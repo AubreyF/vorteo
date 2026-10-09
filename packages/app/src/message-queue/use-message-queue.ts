@@ -1,5 +1,5 @@
 import { useFetchQuery } from "@/data/query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import type { QueueOperation } from "@getpaseo/protocol/message-queue";
 import { useSessionStore } from "@/stores/session-store";
@@ -7,7 +7,7 @@ import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 
 import { generateMessageId } from "@/types/stream";
-import type { OutboxRecord } from "./outbox-record";
+import { canRequestImmediateDelivery, type OutboxRecord } from "./outbox-record";
 import {
   flushMessageOutbox,
   messageOutbox,
@@ -43,6 +43,7 @@ export function useMessageQueue(serverId: string, agentId: string) {
     return turn?.phase === "open" ? turn.turnId : null;
   });
   const enabled = active && supported && connected && !!agentId;
+  const sendingNow = useRef(false);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const reconnectError = useFetchQuery<string | null>({
     dataShape: "value",
@@ -79,30 +80,46 @@ export function useMessageQueue(serverId: string, agentId: string) {
     staleTimeMs: 0,
     retry: false,
   });
+  const immediateAllowed =
+    !outbox.data?.error &&
+    !outbox.error &&
+    canRequestImmediateDelivery({ snapshot: queue.data, records: outbox.data?.records, agentId });
   const mutation = useMutation({
     mutationFn: async (action: QueueAction) => {
       if (!enabled || archived)
         throw new Error("Connect to the host and restore the task to change its queue.");
-      await messageOutbox.commit({
-        serverId,
-        agentId,
-        createdAt: Date.now(),
-        operation: { ...action, operationId: generateMessageId() },
-        localAttachments: [],
-      });
-      await refreshMessageOutbox(serverId);
-      await flushMessageOutbox(serverId);
-      await queue.refetch();
+      const immediate = action.kind === "send_now";
+      if (immediate && (sendingNow.current || !immediateAllowed))
+        throw new Error("Wait for the current queue operation before sending another message now.");
+      if (immediate) sendingNow.current = true;
+      try {
+        await messageOutbox.commit({
+          serverId,
+          agentId,
+          createdAt: Date.now(),
+          operation: { ...action, operationId: generateMessageId() },
+          localAttachments: [],
+        });
+        await refreshMessageOutbox(serverId);
+        await flushMessageOutbox(serverId);
+        await queue.refetch();
+      } finally {
+        if (immediate) sendingNow.current = false;
+      }
     },
     retry: false,
   });
+  const pending = outbox.data?.records?.filter((record) => record.agentId === agentId) ?? [];
+  const canMutate = enabled && !archived && !mutation.isPending && !!queue.data;
+  const canSendNow = canMutate && immediateAllowed;
   return {
     visible: true,
     supported,
     connected,
     activeTurnId,
     snapshot: queue.data,
-    pending: outbox.data?.records?.filter((record) => record.agentId === agentId) ?? [],
+    pending,
+    canSendNow,
     error: firstQueueError(
       [mutation.error, queue.error, outbox.error],
       outbox.data?.error,
@@ -110,7 +127,7 @@ export function useMessageQueue(serverId: string, agentId: string) {
     ),
     loading: enabled && queue.isPending,
     busy: mutation.isPending,
-    canMutate: enabled && !archived && !mutation.isPending && !!queue.data,
+    canMutate,
     mutate: mutation.mutateAsync,
     refresh: () => {
       mutation.reset();
@@ -122,7 +139,11 @@ export function useMessageQueue(serverId: string, agentId: string) {
       void flushMessageOutbox(serverId);
     },
     retry: async (record: OutboxRecord) => {
-      await messageOutbox.retry({ serverId, agentId, operationId: record.operation.operationId });
+      await messageOutbox.retry({
+        serverId,
+        agentId,
+        operationId: record.operation.operationId,
+      });
       await flushMessageOutbox(serverId);
     },
     keepLocalCopy: async (record: OutboxRecord) => {
