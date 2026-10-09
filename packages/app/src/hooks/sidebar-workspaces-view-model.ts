@@ -434,17 +434,9 @@ export function collectManagedWorkspacePlacements(input: {
   return placements;
 }
 
-export function hasWorkspaceScriptSurface(
-  workspace: Pick<WorkspaceDescriptor, "scripts">,
-): boolean {
-  return workspace.scripts.some((script) => script.lifecycle === "running" || !!script.terminalId);
-}
-
 export function buildSidebarWorkspacePlacementModel(input: {
   projects: readonly HostProjectListItem[];
   managedWorkspaces?: readonly ManagedWorkspacePlacement[];
-  terminalPresence?: ReadonlyMap<string, boolean>;
-  preservedWorkspaceKeys?: ReadonlySet<string>;
 }): SidebarWorkspacePlacementModel {
   let projects = buildSidebarProjectsFromHostProjects({ projects: input.projects });
   const managed = input.managedWorkspaces ?? [];
@@ -467,24 +459,16 @@ export function buildSidebarWorkspacePlacementModel(input: {
       const children = descendants.get(placement.parentWorkspaceKey) ?? [];
       children.push(placement.workspace.id);
       descendants.set(placement.parentWorkspaceKey, children);
-      const hasOtherSurface = input.preservedWorkspaceKeys?.has(placement.workspaceKey) === true;
-      const canFold =
-        !placement.hasIndependentAgents &&
-        input.terminalPresence?.get(placement.workspaceKey) === false &&
-        !hasWorkspaceScriptSurface(placement.workspace) &&
-        !placement.workspace.archivingAt &&
-        !hasOtherSurface;
-      if (!canFold && source.viewKey === parent.viewKey) continue;
+      // Worker ownership groups projects; it must not hide an active workspace.
+      if (source.viewKey === parent.viewKey) continue;
       projectedKeys.add(placement.workspaceKey);
-      if (!canFold) {
-        const rows = added.get(parent.viewKey) ?? [];
-        rows.push({
-          ...workspace,
-          projectViewKey: parent.viewKey,
-          projectName: parent.projectName,
-        });
-        added.set(parent.viewKey, rows);
-      }
+      const rows = added.get(parent.viewKey) ?? [];
+      rows.push({
+        ...workspace,
+        projectViewKey: parent.viewKey,
+        projectName: parent.projectName,
+      });
+      added.set(parent.viewKey, rows);
     }
     projects = projects.flatMap((project) => {
       const retained = project.workspaces.filter(
