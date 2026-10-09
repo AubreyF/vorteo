@@ -1,3 +1,4 @@
+import { ActionFooter, ActionFooterLeading } from "@/components/ui/action-footer";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { readExecutionInstallation } from "@/execution-installation/policy";
@@ -509,27 +510,27 @@ function ConnectionsSection({ host }: { host: HostProfile }) {
               name: pendingRemoveConnection.title,
             })}
           </Text>
-          <View style={styles.confirmActions}>
+          <ActionFooter style={styles.confirmActions}>
+            <ActionFooterLeading>
+              <Button
+                variant="destructive"
+                size="sm"
+                onPress={handleConfirmRemove}
+                disabled={isRemovingConnection}
+                testID="remove-connection-confirm"
+              >
+                {t("settings.host.connections.removeAction")}
+              </Button>
+            </ActionFooterLeading>
             <Button
               variant="secondary"
               size="sm"
-              style={FLEX_1_STYLE}
               onPress={handleCancelConfirm}
               disabled={isRemovingConnection}
             >
               {t("common.actions.cancel")}
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              style={FLEX_1_STYLE}
-              onPress={handleConfirmRemove}
-              disabled={isRemovingConnection}
-              testID="remove-connection-confirm"
-            >
-              {t("settings.host.connections.removeAction")}
-            </Button>
-          </View>
+          </ActionFooter>
         </AdaptiveModalSheet>
       ) : null}
     </SettingsSection>
@@ -1127,7 +1128,7 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
             placeholder={t("settings.host.orchestration.systemPrompt.placeholder")}
           />
           <SettingsSaveStatus pending={isSaving} error={mutation.error} />
-          <View style={styles.appendPromptActions}>
+          <ActionFooter style={styles.appendPromptActions}>
             <Button
               variant="ghost"
               size="sm"
@@ -1148,7 +1149,7 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
                 ? t("settings.host.orchestration.systemPrompt.saving")
                 : t("settings.host.orchestration.systemPrompt.save")}
             </Button>
-          </View>
+          </ActionFooter>
         </AdaptiveModalSheet>
       ) : null}
     </>
@@ -1312,27 +1313,22 @@ function RemoveHostSection({
               ? t("settings.host.daemon.remove.localConfirmMessage")
               : t("settings.host.daemon.remove.confirmMessage", { name: host.label })}
           </Text>
-          <View style={styles.confirmActions}>
-            <Button
-              variant="secondary"
-              size="sm"
-              style={FLEX_1_STYLE}
-              onPress={handleCancel}
-              disabled={isRemoving}
-            >
+          <ActionFooter style={styles.confirmActions}>
+            <ActionFooterLeading>
+              <Button
+                variant="destructive"
+                size="sm"
+                onPress={handleConfirmRemove}
+                disabled={isRemoving}
+                testID="remove-host-confirm"
+              >
+                {t("settings.host.connections.removeAction")}
+              </Button>
+            </ActionFooterLeading>
+            <Button variant="secondary" size="sm" onPress={handleCancel} disabled={isRemoving}>
               {t("common.actions.cancel")}
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              style={FLEX_1_STYLE}
-              onPress={handleConfirmRemove}
-              disabled={isRemoving}
-              testID="remove-host-confirm"
-            >
-              {t("settings.host.connections.removeAction")}
-            </Button>
-          </View>
+          </ActionFooter>
         </AdaptiveModalSheet>
       ) : null}
     </SettingsSection>
@@ -1796,5 +1792,3 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
   },
 }));
-
-const FLEX_1_STYLE = { flex: 1 };

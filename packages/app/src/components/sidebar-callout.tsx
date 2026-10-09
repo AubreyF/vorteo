@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { X } from "lucide-react-native";
 import { useCallback, useMemo, type ReactNode } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
@@ -99,7 +100,7 @@ export function SidebarCallout({
         ) : null}
 
         {visibleActions.length > 0 ? (
-          <View style={styles.actionRow} testID={testID ? `${testID}-actions` : undefined}>
+          <ActionFooter style={styles.actionRow} testID={testID ? `${testID}-actions` : undefined}>
             {visibleActions.map((action, index) => (
               <SidebarCalloutActionButton
                 key={action.label}
@@ -107,7 +108,7 @@ export function SidebarCallout({
                 testID={action.testID ?? (testID ? `${testID}-action-${index}` : undefined)}
               />
             ))}
-          </View>
+          </ActionFooter>
         ) : null}
       </View>
     </View>
@@ -210,7 +211,7 @@ const styles = StyleSheet.create((theme) => ({
     marginTop: theme.spacing[2],
   },
   actionButton: {
-    flex: 1,
+    flexShrink: 0,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
     borderRadius: theme.borderRadius.md,

@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { Buffer } from "buffer";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
@@ -88,7 +89,7 @@ function SharedSkillForm({ skill, onClose }: { skill?: InstallationSkill; onClos
           <PackageReview current={state.review.current} next={state.review.next} />
         ) : null}
         {state.error ? <Alert variant="error" description={state.error} /> : null}
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button
             size={size}
             variant="outline"
@@ -106,7 +107,7 @@ function SharedSkillForm({ skill, onClose }: { skill?: InstallationSkill; onClos
           >
             {state.phase === "saving" ? "Saving..." : "Save shared skill"}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

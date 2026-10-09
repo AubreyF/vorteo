@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.233 - 2026-10-09
+
+### Changed
+
+- Standardize modal and card bottom actions with a shared right-aligned footer, spacing above and responsive wrapping. Keep task and label deletion and host removal red and on the far left, separated from ordinary actions.
+- Document footer conventions and check task editor alignment, spacing and delete color at desktop and phone widths. Keep Close and Save together when the task footer wraps, and update label/profile browser navigation to the current interface.
+
 ## 0.11.0-beta.3.vorteo.232 - 2026-10-09
 
 ### Maintenance

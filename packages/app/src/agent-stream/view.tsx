@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
@@ -1628,7 +1629,7 @@ function PermissionRequestCard({
         {t("agentStream.permission.question")}
       </Text>
 
-      <View style={optionsContainerStyle}>
+      <ActionFooter style={optionsContainerStyle}>
         {resolvedActions.map((action) => {
           const isPrimary = action.variant === "primary";
           const isRespondingAction = respondingActionId === action.id;
@@ -1652,7 +1653,7 @@ function PermissionRequestCard({
             />
           );
         })}
-      </View>
+      </ActionFooter>
     </>
   );
 

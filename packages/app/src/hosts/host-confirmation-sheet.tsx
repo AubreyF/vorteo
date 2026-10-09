@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useMemo } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -44,26 +45,14 @@ export function HostConfirmationSheet() {
           showBorder
         />
       </View>
-      <View style={styles.confirmActions}>
-        <Button
-          variant="secondary"
-          size="sm"
-          style={FLEX_1_STYLE}
-          onPress={cancel}
-          testID="host-confirmation-cancel"
-        >
+      <ActionFooter style={styles.confirmActions}>
+        <Button variant="secondary" size="sm" onPress={cancel} testID="host-confirmation-cancel">
           {t("common.actions.cancel")}
         </Button>
-        <Button
-          variant="default"
-          size="sm"
-          style={FLEX_1_STYLE}
-          onPress={connect}
-          testID="host-confirmation-connect"
-        >
+        <Button variant="default" size="sm" onPress={connect} testID="host-confirmation-connect">
           {t("pairing.hostConfirmation.connect")}
         </Button>
-      </View>
+      </ActionFooter>
     </AdaptiveModalSheet>
   );
 }
@@ -105,5 +94,3 @@ const styles = StyleSheet.create((theme) => ({
     marginTop: theme.spacing[4],
   },
 }));
-
-const FLEX_1_STYLE = { flex: 1 };

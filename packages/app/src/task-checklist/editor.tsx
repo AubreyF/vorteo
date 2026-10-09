@@ -1,3 +1,8 @@
+import {
+  ActionFooter,
+  ActionFooterLeading,
+  ActionFooterTrailing,
+} from "@/components/ui/action-footer";
 import { useCallback, useMemo, useReducer } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -177,28 +182,32 @@ export function ChecklistEditor({
             {error}
           </Text>
         ) : null}
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions} testID="checklist-editor-actions">
           {task && !readOnly ? (
-            <Button size={size} variant="outline" disabled={disabled} onPress={remove}>
-              Delete task
-            </Button>
+            <ActionFooterLeading>
+              <Button size={size} variant="destructive" disabled={disabled} onPress={remove}>
+                Delete task
+              </Button>
+            </ActionFooterLeading>
           ) : null}
-          <Button size={size} variant="ghost" onPress={onClose}>
-            Close
-          </Button>
-          {!readOnly ? (
-            <Button
-              size={size}
-              variant="default"
-              disabled={disabled || !form.text.trim()}
-              loading={pending}
-              onPress={save}
-              testID="checklist-save"
-            >
-              Save task
+          <ActionFooterTrailing>
+            <Button size={size} variant="ghost" onPress={onClose}>
+              Close
             </Button>
-          ) : null}
-        </View>
+            {!readOnly ? (
+              <Button
+                size={size}
+                variant="default"
+                disabled={disabled || !form.text.trim()}
+                loading={pending}
+                onPress={save}
+                testID="checklist-save"
+              >
+                Save task
+              </Button>
+            ) : null}
+          </ActionFooterTrailing>
+        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

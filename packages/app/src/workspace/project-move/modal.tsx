@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
@@ -76,7 +77,7 @@ function ProjectMoveModal({
   );
   const footer = useMemo(
     () => (
-      <View style={styles.actions}>
+      <ActionFooter style={styles.actions}>
         <Button variant="ghost" onPress={dismiss} disabled={isPending}>
           Cancel
         </Button>
@@ -87,7 +88,7 @@ function ProjectMoveModal({
         >
           {isPending ? "Moving..." : "Move workspace"}
         </Button>
-      </View>
+      </ActionFooter>
     ),
     [dismiss, isPending, submit, supported, selected],
   );

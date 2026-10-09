@@ -66,7 +66,9 @@ Header and toolbar controls use `interactionHighlight` for hovered, pressed, ope
 backgrounds. It is a translucent semantic fill so the same control works over the main surface and
 the sidebar. Apply it as `backgroundColor`; setting `opacity` on the control also fades its content.
 
-`destructive` is filled with `destructive`. It only appears inside a confirm. The button on the page is `outline`; the destructive button is the confirm button inside the dialog.
+`destructive` is filled with `destructive`. Delete buttons use this red treatment, including buttons that open a confirmation. Keep confirmation behavior for destructive operations.
+
+Modal and card bottom actions use `ActionFooter`: leave space above the row and right-align normal actions at their natural width. Place delete actions first inside `ActionFooterLeading`, at the far left, separated from Save and Close. On narrow layouts, actions may wrap while retaining their left or right alignment. Field choices, header controls and toolbars are not footers.
 
 Sizes: `xs` for ultra-tight inline triggers. `sm` for any button sitting in a row. `md` is the page default. `lg` is reserved for large standalone CTAs.
 
@@ -203,7 +205,7 @@ Inline errors are a single sentence in `palette.red[300]` `xs`, sitting under th
 
 Page-level alerts — informational notices, success confirmations, warnings, or recoverable errors that need a small visible block on the page — use `<Alert>` (`packages/app/src/components/ui/alert.tsx`). Variants: `default`, `info`, `success`, `warning`, `error`. The chrome is quiet by design: a 1px tinted border, transparent background, a small variant-tinted icon, the title in the variant accent, the description in `foregroundMuted`. Actions go in the `children` slot as `<Button variant="outline" size="sm">` — recovery actions are low-frequency and outline keeps them quiet alongside the alert's accent (`packages/app/src/screens/project-settings-screen.tsx`). One `<Alert>` at a time per region.
 
-Sidebar callouts — cross-cutting alerts that apply across the whole app, like worktree setup, Rosetta install, and desktop update available — register through `useSidebarCallouts()` and render in the left sidebar via `<SidebarCallout>` (`packages/app/src/components/sidebar-callout.tsx`). The chrome (top-border-only, full-width action buttons) is tuned for that ~280px column. Canonical sources: `packages/app/src/components/worktree-setup-callout-source.tsx`, `packages/app/src/desktop/updates/rosetta-callout-source.tsx`, `packages/app/src/desktop/updates/update-callout-source.tsx`. Never import `<SidebarCallout>` into a page — that's what `<Alert>` is for.
+Sidebar callouts — cross-cutting alerts that apply across the whole app, like worktree setup, Rosetta install, and desktop update available — register through `useSidebarCallouts()` and render in the left sidebar via `<SidebarCallout>` (`packages/app/src/components/sidebar-callout.tsx`). The chrome uses a top border in the narrow sidebar column; bottom actions use the shared right-aligned footer and may wrap. Canonical sources: `packages/app/src/components/worktree-setup-callout-source.tsx`, `packages/app/src/desktop/updates/rosetta-callout-source.tsx`, `packages/app/src/desktop/updates/update-callout-source.tsx`. Never import `<SidebarCallout>` into a page — that's what `<Alert>` is for.
 
 Imperative errors are `Alert.alert("Error", "Unable to ...")` (the React Native `Alert` API, not this component) for failures that interrupt the flow and have no place on the page.
 

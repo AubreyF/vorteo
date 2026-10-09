@@ -428,6 +428,32 @@ for (const width of [1400, 390]) {
       await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
       await expect(page.getByTestId("checklist-count")).toHaveText("2 / 2");
       await page.getByRole("button", { name: "Details for Build API", exact: true }).click();
+      const footer = page.getByTestId("checklist-editor-actions");
+      await footer.scrollIntoViewIfNeeded();
+      const deleteButton = footer.getByRole("button", { name: "Delete task", exact: true });
+      const closeButton = footer.getByRole("button", { name: "Close", exact: true });
+      const saveButton = footer.getByTestId("checklist-save");
+      const footerBox = (await footer.boundingBox())!;
+      const deleteBox = (await deleteButton.boundingBox())!;
+      const closeBox = (await closeButton.boundingBox())!;
+      const saveBox = (await saveButton.boundingBox())!;
+      expect(deleteBox.x).toBeCloseTo(footerBox.x, 0);
+      expect(saveBox.x + saveBox.width).toBeCloseTo(footerBox.x + footerBox.width, 0);
+      if (Math.abs(closeBox.y - deleteBox.y) < 1) {
+        expect(closeBox.x).toBeGreaterThan(deleteBox.x + deleteBox.width);
+      } else {
+        expect(closeBox.y).toBeGreaterThanOrEqual(deleteBox.y + deleteBox.height + 8);
+      }
+      expect(closeBox.y).toBeCloseTo(saveBox.y, 0);
+      expect(saveBox.x).toBeGreaterThan(closeBox.x + closeBox.width);
+      await expect(footer).toHaveCSS("padding-top", "16px");
+      const deleteColor = await deleteButton.evaluate(
+        (node) => getComputedStyle(node).backgroundColor,
+      );
+      const channels = deleteColor.match(/\d+/g)!.map(Number);
+      expect(channels[0]).toBeGreaterThan(channels[1]);
+      expect(channels[0]).toBeGreaterThan(channels[2]);
+      await page.screenshot({ path: info.outputPath("task-editor-footer.png") });
       await page.getByTestId("checklist-title").fill("My retained draft");
       await client.mutateAgentChecklist(agent.agentId, {
         operation: "update",

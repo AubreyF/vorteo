@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useMaintenanceTask } from "@/execution-installation/use-maintenance-task";
 import { useCallback, useEffect, useState } from "react";
 import { Text, View } from "react-native";
@@ -76,7 +77,7 @@ function UpstreamUpdatesContent() {
             Review and edit the suggested host task before sending it. Preparing a draft does not
             start an update or merge.
           </Text>
-          <View style={styles.actions}>
+          <ActionFooter style={styles.actions}>
             <Button size="md" onPress={prepareMerge} testID="prepare-upstream-task">
               Prepare host merge task
             </Button>
@@ -97,7 +98,7 @@ function UpstreamUpdatesContent() {
             >
               {t(`settings.about.upstreamUpdates.${showPrompt ? "hidePrompt" : "showPrompt"}`)}
             </Button>
-          </View>
+          </ActionFooter>
           {copy.isSuccess && (
             <Text style={settingsStyles.rowHint} accessibilityLiveRegion="polite">
               {t("settings.about.upstreamUpdates.copied")}

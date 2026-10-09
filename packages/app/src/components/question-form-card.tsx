@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard } from "@/agent-stream/task-card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -573,7 +574,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
         </View>
       ) : null}
 
-      <View style={styles.actionsContainer}>
+      <ActionFooter style={styles.actionsContainer}>
         <Pressable
           style={dismissButtonStyle}
           onPress={handleDeny}
@@ -609,7 +610,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
             </View>
           )}
         </Pressable>
-      </View>
+      </ActionFooter>
     </TaskCard>
   );
 }

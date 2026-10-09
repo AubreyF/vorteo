@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useRef, useState, useMemo } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -256,7 +257,7 @@ export function QueueEditEditor({
             Retry saving draft
           </Button>
         ) : null}
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           <Button
             size={size}
             variant="ghost"
@@ -281,7 +282,7 @@ export function QueueEditEditor({
               Save
             </Button>
           </View>
-        </View>
+        </ActionFooter>
         <AttachmentLightbox source={source} onClose={closePreview} />
       </View>
     </QueueEditMediaInput>
@@ -384,5 +385,10 @@ const styles = StyleSheet.create((theme) => ({
   media: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
   attachment: { flexDirection: "row", alignItems: "center" },
   actions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: theme.spacing[2] },
-  saveActions: { flexDirection: "row", marginLeft: "auto", gap: theme.spacing[2] },
+  saveActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: theme.spacing[2],
+  },
 }));

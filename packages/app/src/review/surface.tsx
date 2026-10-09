@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -511,7 +512,7 @@ export function InlineReviewEditor({
         onBlur={handleBlur}
         style={inputStyle}
       />
-      <View style={styles.editorActions}>
+      <ActionFooter style={styles.editorActions}>
         <Button
           accessibilityLabel={t("review.comment.cancelAccessibility")}
           testID={testID ? `${testID}-cancel` : undefined}
@@ -533,7 +534,7 @@ export function InlineReviewEditor({
         >
           {t("review.comment.save")}
         </Button>
-      </View>
+      </ActionFooter>
     </View>
   );
 }

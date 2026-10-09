@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { createDestinationWorkspace } from "./internal/destination-workspaces";
 import { generateMessageId } from "@/types/stream";
 import { useHostFeature } from "@/runtime/host-features";
@@ -120,14 +121,14 @@ export function ProfileHandoffModal({
   ]);
   const footer = useMemo(
     () => (
-      <View style={styles.actions}>
+      <ActionFooter style={styles.actions}>
         <Button variant="ghost" onPress={close} disabled={state.pending}>
           Cancel
         </Button>
         <Button onPress={submit} disabled={!canSubmit} testID="preset-handoff-confirm">
           {state.pending ? "Starting..." : confirmLabel}
         </Button>
-      </View>
+      </ActionFooter>
     ),
     [close, state.pending, submit, canSubmit, confirmLabel],
   );
