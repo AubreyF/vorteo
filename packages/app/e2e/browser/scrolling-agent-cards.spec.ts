@@ -211,6 +211,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         const text = node.lastElementChild!.getBoundingClientRect();
         return {
           timestampRight: timestamp.right,
+          timestampInset: timestamp.left - node.getBoundingClientRect().left,
+          textTopOffset: text.top - timestamp.top,
           textLeft: text.left,
           textWidth: text.width,
           timestampWidth: timestamp.width,
@@ -218,6 +220,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         };
       });
       expect(rowGeometry.timestampRight).toBeLessThan(rowGeometry.textLeft);
+      expect(rowGeometry.timestampInset).toBe(8);
+      expect(rowGeometry.textTopOffset).toBe(-2);
       expect(rowGeometry.textWidth).toBeGreaterThan(rowGeometry.timestampWidth);
       expect(rowGeometry.overflow).toBe(false);
 
@@ -314,6 +318,36 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await expect(entries.nth(1)).toContainText("Verified recovery and retry safety.");
     await captureConsistentCards(page, stack, info);
     await checkFixedHeaders(page, info, client, agent.agentId);
+    for (const width of [1400, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await stack.getByTestId("journal-clear").click();
+      await expect(entries).toHaveCount(0);
+      await expect(
+        stack.getByText("Journal cleared on this device. New entries will appear here."),
+      ).toBeVisible();
+      await page.reload();
+      await expect(stack.getByTestId("journal-show-history")).toBeVisible();
+      await expect(entries).toHaveCount(0);
+      await stack.getByTestId("journal-show-history").click();
+      await expect(entries).toHaveCount(2);
+    }
+    await stack.getByTestId("journal-clear").click();
+    await expect(entries).toHaveCount(0);
+    expect(
+      (
+        await journal.callTool({
+          name: "append_journal",
+          arguments: {
+            entryId: "33333333-3333-4333-8333-333333333333",
+            text: "New entry after clearing the card.",
+          },
+        })
+      ).isError,
+    ).not.toBe(true);
+    await expect(entries).toHaveCount(1);
+    await expect(entries.first()).toContainText("New entry after clearing the card.");
+    await stack.getByTestId("journal-show-history").click();
+    await expect(entries).toHaveCount(3);
     await page.setViewportSize({ width: 1400, height: 900 });
     await expect(stack.getByTestId("subagents-card")).toBeAttached();
     await pill.click();
