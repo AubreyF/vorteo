@@ -112,6 +112,7 @@ export {
 import { TerminalProfileSchema } from "./terminal-profile.js";
 export { TerminalProfileSchema, type TerminalProfile } from "./terminal-profile.js";
 import { z } from "zod";
+import { AgentJournalEntrySchema } from "./agent-journal.js";
 import {
   AgentGoalSetInputSchema,
   AgentGoalStateSchema,
@@ -991,6 +992,7 @@ const AgentActiveTurnPayloadSchema = z.object({
 });
 
 export const AgentSnapshotPayloadSchema = z.object({
+  journal: z.array(AgentJournalEntrySchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
@@ -3940,6 +3942,7 @@ export const ServerInfoStatusPayloadSchema = z
         agentTaskSnapshots: z.boolean().optional(),
         agentChecklistMutations: z.boolean().optional(),
         checklistBlockedStatus: z.boolean().optional(),
+        agentJournal: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
         projectedSubagentTimeline: z.boolean().optional(),
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.

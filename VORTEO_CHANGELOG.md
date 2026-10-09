@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.260 - 2026-10-09
+
+### Added
+
+- Add persistent thread journals for critical decisions and verified progress, with caller-scoped read and append tools, server timestamps, fixed append order and safe retries.
+- Show journal entries in a shared accordion card with compact left timestamps, selectable text and live updates. Preserve entries across reloads and reject edits, backdating and reordering.
+
 ## 0.11.0-beta.3.vorteo.259 - 2026-10-09
 
 ### Maintenance

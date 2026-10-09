@@ -1,3 +1,6 @@
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { getE2EDaemonPort } from "../support/helpers/daemon-port";
 import type { Locator, TestInfo } from "@playwright/test";
 import { pluginRequirements } from "../support/helpers/plugin-fixture";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
@@ -11,6 +14,8 @@ import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-
 import { expectAgentTabActive } from "../support/helpers/launcher";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 
+test.use({ e2eInjectPaseoTools: true });
+
 test("agents, tasks, plugin pills, queue and goals share the scrolling footer", async ({
   page,
 }, info) => {
@@ -23,6 +28,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "scrolling-cards" });
   const pluginDirectory = await mkdtemp(path.join(tmpdir(), "scrolling-cards-plugin-"));
   const pluginId = "scrolling-cards-test";
+  const journal = new McpClient({ name: "journal-card-test", version: "1.0.0" });
   const previous = await client.getDaemonConfig();
   try {
     const childIds: string[] = [];
@@ -93,9 +99,43 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await client.installDirectoryPlugin(pluginDirectory);
     await openAgentRoute(page, agent);
     const stack = page.getByTestId("agent-history-task-cards");
+    await expect(stack.getByTestId("agent-journal-card")).toHaveCount(0);
+    await journal.connect(
+      new StreamableHTTPClientTransport(
+        new URL(`http://127.0.0.1:${getE2EDaemonPort()}/mcp/agents?callerAgentId=${agent.agentId}`),
+      ),
+    );
+    const firstEntry = {
+      entryId: "11111111-1111-4111-8111-111111111111",
+      text: "Chose append-only storage to preserve the decision history.",
+    };
+    const secondEntry = {
+      entryId: "22222222-2222-4222-8222-222222222222",
+      text:
+        "Verified recovery and retry safety.\n" +
+        "Retained each saved entry in its original order. ".repeat(20),
+    };
+    expect(
+      (await journal.callTool({ name: "append_journal", arguments: firstEntry })).isError,
+    ).not.toBe(true);
+    await expect(stack.getByTestId(`journal-entry-${firstEntry.entryId}`)).toContainText(
+      firstEntry.text,
+    );
+    expect(
+      (await journal.callTool({ name: "append_journal", arguments: firstEntry })).isError,
+    ).not.toBe(true);
+    expect(
+      (await journal.callTool({ name: "append_journal", arguments: secondEntry })).isError,
+    ).not.toBe(true);
+    const entries = stack.getByTestId(/^journal-entry-/);
+    await expect(entries).toHaveCount(2);
+    await expect(entries.nth(0)).toContainText(firstEntry.text);
+    await expect(entries.nth(1)).toContainText("Verified recovery and retry safety.");
+
     const ids = [
       "subagents-card",
       "agent-task-progress-card",
+      "agent-journal-card",
       "shared-message-queue",
       "agent-goal-bar",
     ];
@@ -150,6 +190,37 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         expect(card.frame).toEqual(geometry[0].frame);
       }
       await checkHeadingGeometry(stack, width);
+      const journalCard = stack.getByTestId("agent-journal-card");
+      const toggleJournal = stack.getByTestId("agent-journal-toggle");
+      await toggleJournal.scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      const idle = await toggleJournal.evaluate((node) => getComputedStyle(node).backgroundColor);
+      await toggleJournal.hover();
+      await expect
+        .poll(() => toggleJournal.evaluate((node) => getComputedStyle(node).backgroundColor))
+        .not.toBe(idle);
+      const expandedHeight = (await journalCard.boundingBox())!.height;
+      await toggleJournal.click();
+      await expect(toggleJournal).toHaveAttribute("aria-expanded", "false");
+      await expect(entries).toHaveCount(0);
+      expect((await journalCard.boundingBox())!.height).toBeLessThan(expandedHeight);
+      await toggleJournal.click();
+      await expect(entries).toHaveCount(2);
+      const rowGeometry = await entries.first().evaluate((node) => {
+        const timestamp = node.firstElementChild!.getBoundingClientRect();
+        const text = node.lastElementChild!.getBoundingClientRect();
+        return {
+          timestampRight: timestamp.right,
+          textLeft: text.left,
+          textWidth: text.width,
+          timestampWidth: timestamp.width,
+          overflow: node.scrollWidth > node.clientWidth,
+        };
+      });
+      expect(rowGeometry.timestampRight).toBeLessThan(rowGeometry.textLeft);
+      expect(rowGeometry.textWidth).toBeGreaterThan(rowGeometry.timestampWidth);
+      expect(rowGeometry.overflow).toBe(false);
+
       await checkDisclosures(stack, width, info);
       await checkSubagentRows(stack, width, info);
       const toggle = stack.getByTestId("subagents-group-paseo-toggle");
@@ -237,6 +308,10 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         contentType: "image/png",
       });
     }
+    await page.reload();
+    await expect(entries).toHaveCount(2);
+    await expect(entries.nth(0)).toContainText(firstEntry.text);
+    await expect(entries.nth(1)).toContainText("Verified recovery and retry safety.");
     await captureConsistentCards(page, stack, info);
     await checkFixedHeaders(page, info, client, agent.agentId);
     await page.setViewportSize({ width: 1400, height: 900 });
@@ -252,6 +327,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await client.removePlugin(pluginId).catch(() => {});
     await client.patchDaemonConfig({ pluginsEnabled: previous.config.pluginsEnabled ?? false });
     await client.close();
+    await journal.close();
     await agent.cleanup();
     await rm(pluginDirectory, { recursive: true, force: true });
   }
@@ -262,6 +338,7 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
   const ids = [
     "subagents-card",
     "agent-task-progress-card",
+    "agent-journal-card",
     "shared-message-queue",
     "agent-goal-bar",
     "question-form-card",
@@ -320,6 +397,7 @@ async function captureConsistentCards(page: Page, stack: Locator, info: TestInfo
   for (const id of [
     "subagents-card",
     "agent-task-progress-card",
+    "agent-journal-card",
     "shared-message-queue",
     "agent-goal-bar",
     "question-form-card",
@@ -404,6 +482,7 @@ async function checkFixedHeaders(
     await page.setViewportSize({ width, height: 400 });
     for (const id of [
       "subagents-card",
+      "agent-journal-card",
       "shared-message-queue",
       "agent-goal-bar",
       "question-form-card",
@@ -927,6 +1006,7 @@ async function checkDisclosures(stack: Locator, width: number, info: TestInfo) {
     "checklist-toggle",
     "message-queue-toggle",
     "agent-goal-toggle",
+    "agent-journal-toggle",
   ]) {
     const arrow = stack.getByTestId(`${id}-arrow`);
     const order = await arrow.evaluate((node) => {

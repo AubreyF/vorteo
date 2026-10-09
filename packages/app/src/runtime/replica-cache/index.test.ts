@@ -313,6 +313,21 @@ describe("ReplicaCache", () => {
         status: "blocked" as const,
       },
     ];
+    const journal = [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        sequence: 1,
+        timestamp: "2026-10-09T12:00:00Z",
+        text: "First decision",
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        sequence: 2,
+        timestamp: "2026-10-09T11:00:00Z",
+        text: "Later progress",
+      },
+    ];
+    state.agents.get("agent-1")!.journal = journal;
     state.agents.get("agent-1")!.tasks = tasks;
     commitDirectory(writer, SERVER_ID, state);
     writer.commitTimeline(SERVER_ID, "agent-1", timeline());
@@ -324,6 +339,7 @@ describe("ReplicaCache", () => {
 
     expect(restoredDirectory.agents.get("agent-1")?.title).toBe("Cached agent");
     expect(restoredDirectory.agents.get("agent-1")?.tasks).toEqual(tasks);
+    expect(restoredDirectory.agents.get("agent-1")?.journal).toEqual(journal);
     expect(restoredDirectory.workspaces.get("workspace-1")?.name).toBe("main");
     expect(restoredDirectory.projects.get("project-1")?.projectDisplayName).toBe("Paseo");
     expect(restoredDirectory.checkpoint).toEqual({ agents: { generation: "g", afterSeq: 12 } });
