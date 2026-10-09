@@ -564,6 +564,12 @@ test("task flowers stay bounded through 300 tasks and follow sidebar labels", as
       const label = page.getByTestId("workspace-label-chip-Later");
       const labelBox = (await label.boundingBox())!;
       expect((await sidebar.boundingBox())!.x).toBeGreaterThan(labelBox.x + labelBox.width);
+      await sidebar.hover();
+      const menu = page.getByTestId("sidebar-menu-backdrop");
+      await expect(menu).toBeVisible();
+      const menuBox = (await menu.boundingBox())!;
+      expect(menuBox.x + menuBox.width).toBeLessThanOrEqual((await sidebar.boundingBox())!.x);
+      await page.mouse.move(600, 20);
       await info.attach(`flowers-${index + 1}`, {
         body: await page.screenshot({ path: info.outputPath(`flowers-${index + 1}.png`) }),
         contentType: "image/png",

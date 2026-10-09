@@ -158,7 +158,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   children?: ReactNode;
 }) {
   const {
-    settings: { workspaceTitleSource },
+    settings: { workspaceTitleSource, sidebarRowItems },
   } = useAppSettings();
   const workspaceLabel = resolveSidebarWorkspacePrimaryLabel({ workspace, workspaceTitleSource });
 
@@ -201,6 +201,12 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             </Text>
             <View style={[sidebarWorkspaceRowStyles.rowRight, styles.alignedActions]}>
               {children}
+              {sidebarRowItems.activityBadges ? (
+                <WorkspaceChecklistProgress
+                  serverId={workspace.serverId}
+                  workspaceId={workspace.workspaceId}
+                />
+              ) : null}
             </View>
           </View>
           <WorkspaceMetaRow
@@ -425,12 +431,6 @@ export function SidebarWorkspaceTrailingDetails({
         </View>
       ) : null}
       <WorkspaceLifecycleIndicators workspace={workspace} />
-      {sidebarRowItems.activityBadges ? (
-        <WorkspaceChecklistProgress
-          serverId={workspace.serverId}
-          workspaceId={workspace.workspaceId}
-        />
-      ) : null}
     </View>
   );
 }
