@@ -50,9 +50,6 @@ export const AgentTracks = memo(function AgentTracks({
   const canSplit = supportsDesktopPaneSplits() && !isCompact;
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
   const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
-  const canEditChecklist = useSessionStore(
-    (state) => state.sessions[serverId]?.serverInfo?.features?.agentChecklistMutations === true,
-  );
   const canDetachSubagents = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.agentDetach === true,
   );
@@ -108,7 +105,6 @@ export const AgentTracks = memo(function AgentTracks({
   );
 
   if (
-    !canEditChecklist &&
     !hasAgentTracks({
       subagentRows,
       tasks,

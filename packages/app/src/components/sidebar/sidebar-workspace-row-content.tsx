@@ -118,7 +118,6 @@ function WorkspaceActivityBadges({
       <WorkspaceQueueCount serverId={serverId} workspaceId={workspaceId} />
       <WorkspaceSubagentCount serverId={serverId} workspaceId={workspaceId} />
       <WorkspaceGoalBadge serverId={serverId} workspaceId={workspaceId} />
-      <WorkspaceChecklistProgress serverId={serverId} workspaceId={workspaceId} />
     </>
   );
 }
@@ -426,6 +425,12 @@ export function SidebarWorkspaceTrailingDetails({
         </View>
       ) : null}
       <WorkspaceLifecycleIndicators workspace={workspace} />
+      {sidebarRowItems.activityBadges ? (
+        <WorkspaceChecklistProgress
+          serverId={workspace.serverId}
+          workspaceId={workspace.workspaceId}
+        />
+      ) : null}
     </View>
   );
 }

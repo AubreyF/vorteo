@@ -377,6 +377,7 @@ export const ko: TranslationResources = {
       title: "작업",
       empty: "아직 작업이 없습니다.",
       tasksProgress: "작업 {{completed}}/{{total}}개",
+      activeCount: en.message.todo.activeCount,
       activity: {
         created: "작업 {{count}}개 생성",
         added: "추가됨",

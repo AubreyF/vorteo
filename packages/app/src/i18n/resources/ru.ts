@@ -380,6 +380,7 @@ export const ru: TranslationResources = {
       title: "Задачи",
       empty: "Задач пока нет.",
       tasksProgress: "Задачи: {{completed}}/{{total}}",
+      activeCount: en.message.todo.activeCount,
       activity: {
         created: "Создано задач: {{count}}",
         added: "Добавлена",

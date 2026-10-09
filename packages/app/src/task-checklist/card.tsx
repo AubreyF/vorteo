@@ -1,8 +1,7 @@
-import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { Check, Circle, ChevronDown, ChevronRight, Info, Plus } from "lucide-react-native";
+import { Check, Circle, ChevronDown, ChevronRight, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -19,7 +18,7 @@ import { QueueDragScrollContext } from "@/message-queue/drag-scroll";
 import { AgentTaskList } from "@/composer/task-list";
 import { TaskCard } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
-import { ChecklistProgressRing } from "./progress-ring";
+import { ChecklistProgressFlower } from "./progress-flower";
 import { checklistProgress } from "./progress";
 import { ChecklistEditor } from "./editor";
 
@@ -86,16 +85,13 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   );
   const close = useCallback(() => setEditor({ open: false }), []);
   const add = useCallback(() => open(null), [open]);
+  if (tasks.length === 0) return null;
   if (!supported) return <AgentTaskList inline tasks={tasks} />;
   return (
     <>
       <TaskCard testID="agent-task-progress-card">
         <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-          {progress.total > 0 ? (
-            <ChecklistProgressRing {...progress} />
-          ) : (
-            <TaskCardIcon kind="tasks" />
-          )}
+          <ChecklistProgressFlower {...progress} testID="checklist-progress" />
           <Button
             variant="ghost"
             size="sm"
@@ -266,6 +262,14 @@ function ChecklistRow({
   );
   return (
     <View style={[styles.row, info.isActive && styles.active]} testID={`checklist-row-${task.id}`}>
+      {managed ? (
+        <ListDragHandle
+          info={info}
+          disabled={!canReorder}
+          label={`Reorder ${task.text}`}
+          testID={`checklist-drag-${task.id}`}
+        />
+      ) : null}
       <Button
         variant="ghost"
         size="sm"
@@ -288,21 +292,13 @@ function ChecklistRow({
       >
         {title}
       </Text>
-      {managed ? (
-        <ListDragHandle
-          info={info}
-          disabled={!canReorder}
-          label={`Reorder ${task.text}`}
-          testID={`checklist-drag-${task.id}`}
-        />
-      ) : null}
       <Button
         variant="ghost"
         size="sm"
         style={iconStyle}
         accessibilityLabel={`Details for ${task.text}`}
         onPress={details}
-        leftIcon={Info}
+        leftIcon={Pencil}
       />
     </View>
   );

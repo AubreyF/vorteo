@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.225 - 2026-10-09
+
+### Changed
+
+- Replace task-completion donuts with smaller rounded flower petals in sidebar rows and task-card headers. Show green completion, blue activity with an outline halo, and gray pending work; cap the display at twelve petals and summarize larger checklists proportionally.
+- Center a single upright petal within its icon slot and keep sidebar flowers after all labels and badges.
+- Hide empty task cards, move reorder handles to the left, and use the message edit pencil for task details.
+- Expose exact completion and active counts on hover and keyboard focus. The new active-count text uses English fallback in other locales.
+
 ## 0.11.0-beta.3.vorteo.224 - 2026-10-08
 
 ### Fixed

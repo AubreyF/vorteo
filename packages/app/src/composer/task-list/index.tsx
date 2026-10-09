@@ -1,5 +1,5 @@
 import { TaskCard } from "@/agent-stream/task-card";
-import { ChecklistProgressRing } from "@/task-checklist/progress-ring";
+import { ChecklistProgressFlower } from "@/task-checklist/progress-flower";
 import { checklistProgress } from "@/task-checklist/progress";
 import { useVortonTouch } from "@/vorton-touch";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
@@ -68,7 +68,7 @@ const styles = StyleSheet.create(() => ({
 function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   const { t } = useTranslation();
   const touch = useVortonTouch();
-  const { completed, total } = checklistProgress(tasks);
+  const { completed, active, total } = checklistProgress(tasks);
   const [expanded, setExpanded] = useState(true);
   const countBadge = useMemo(
     () => (
@@ -84,7 +84,7 @@ function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   return (
     <TaskCard testID="agent-task-progress-card">
       <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-        <ChecklistProgressRing completed={completed} total={total} />
+        <ChecklistProgressFlower completed={completed} active={active} total={total} />
         <Button
           variant="ghost"
           size="sm"

@@ -288,7 +288,7 @@ async function mockGoalObservation(page: Page, agentId: string, goalState: unkno
   });
 }
 
-test("workspace checklist donut combines unopened threads and survives reload", async ({
+test("workspace checklist flower combines unopened threads and survives reload", async ({
   page,
 }, info) => {
   test.setTimeout(180_000);
@@ -311,21 +311,21 @@ test("workspace checklist donut combines unopened threads and survives reload", 
     await openAgentRoute(page, agent);
     const card = page.getByTestId("agent-task-progress-card");
     const ring = page.getByTestId(/^workspace-task-progress-/);
-    await expect(card).toContainText("0/1 tasks");
+    await expect(card.getByTestId("checklist-count")).toHaveText("0/1");
     await expect(card).toContainText("stress-update-1");
     await expect(ring).toHaveAttribute("aria-valuenow", "1");
     await expect(ring).toHaveAttribute("aria-valuemax", "2");
-    await expect(ring).toHaveAttribute("aria-label", "1/2 tasks (50%)");
+    await expect(ring).toHaveAttribute("aria-label", /1\/2 tasks \(50%\).*active/);
     await client.sendAgentMessage(sibling.id, "emit 2 agent stream updates");
     await expect(ring).toHaveAttribute("aria-valuenow", "0");
     await page.reload();
-    await expect(card).toContainText("0/1 tasks");
-    await expect(ring).toHaveAttribute("aria-label", "0/2 tasks (0%)");
+    await expect(card.getByTestId("checklist-count")).toHaveText("0/1");
+    await expect(ring).toHaveAttribute("aria-label", /0\/2 tasks \(0%\).*active/);
     await client.archiveAgent(sibling.id);
     await expect(ring).toHaveAttribute("aria-valuemax", "1");
     await client.sendAgentMessage(agent.agentId, "emit 1 agent stream updates");
-    await expect(card).toContainText("1/1 tasks");
-    await expect(ring).toHaveAttribute("aria-label", "1/1 tasks (100%)");
+    await expect(card.getByTestId("checklist-count")).toHaveText("1/1");
+    await expect(ring).toHaveAttribute("aria-label", /1\/1 tasks \(100%\).*active/);
     for (const width of [1400, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(card).toBeAttached();
@@ -361,12 +361,36 @@ for (const width of [1400, 390]) {
         });
         expect(clearance.top).toBeCloseTo(clearance.bottom, 0);
       };
-      await expectCenteredHeader();
+      await expect(page.getByTestId("agent-task-progress-card")).not.toBeAttached();
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id: "first",
+        text: "First agent-created task",
+      });
+      await expect(page.getByTestId("checklist-count")).toHaveText("0/1");
+      const single = page
+        .getByTestId("checklist-progress")
+        .locator("svg path[fill]:not([fill='none'])");
+      await expect(single).toHaveCount(1);
+      const bounds = await single.evaluate((node) => {
+        const box = (node as SVGGraphicsElement).getBBox();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      });
+      expect(bounds.x).toBeCloseTo(12, 1);
+      expect(bounds.y).toBeCloseTo(12, 1);
+      await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "first" });
+      await expect(page.getByTestId("agent-task-progress-card")).not.toBeAttached();
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id: "seed",
+        text: "Agent task",
+      });
       await page.getByTestId("checklist-add").click();
       await page.getByTestId("checklist-title").fill("Build API");
       await page.getByTestId("checklist-description").fill("Updates survive reload");
       await page.getByTestId("checklist-save").click();
       await expect(page.getByTestId("checklist-editor")).not.toBeAttached();
+      await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "seed" });
       const tasks = await client.getAgentChecklist(agent.agentId);
       const api = tasks.find((task) => task.text === "Build API");
       expect(api).toMatchObject({
@@ -407,6 +431,8 @@ for (const width of [1400, 390]) {
         page.getByRole("checkbox", { name: "Complete Agent revision", exact: true }),
       ).toBeVisible();
       const handle = page.getByTestId("checklist-drag-dependent");
+      const checkbox = page.getByTestId("checklist-row-dependent").getByRole("checkbox");
+      expect((await handle.boundingBox())!.x).toBeLessThan((await checkbox.boundingBox())!.x);
       await handle.click();
       await expect(handle).toBeFocused();
       await handle.press("Space");
@@ -460,6 +486,9 @@ for (const width of [1400, 390]) {
       const card = page.getByTestId("agent-task-progress-card");
       const lastTask = page.getByTestId("checklist-row-scroll-15");
       await expect(lastTask).toBeAttached();
+      await expect(
+        page.getByTestId("checklist-progress").locator("svg path[fill]:not([fill='none'])"),
+      ).toHaveCount(12);
       for (const height of [900, 400]) {
         await page.setViewportSize({ width, height });
         await card.scrollIntoViewIfNeeded();
@@ -495,3 +524,57 @@ for (const width of [1400, 390]) {
     }
   });
 }
+
+test("task flowers stay bounded through 300 tasks and follow sidebar labels", async ({
+  page,
+}, info) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  const agent = await seedMockAgentWorkspace({ repoPrefix: "task-flower-", title: "Task flowers" });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "task-flower" });
+  try {
+    await agent.client.setWorkspaceLabel({
+      workspaceId: agent.workspaceId,
+      label: { name: "Later", color: "red" },
+      assigned: true,
+    });
+    await openAgentRoute(page, agent);
+    const flower = page.getByTestId("checklist-progress");
+    const sidebar = page.getByTestId(/^workspace-task-progress-/);
+    for (let index = 0; index < 300; index++) {
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id: `petal-${index}`,
+        text: `Task ${index + 1}`,
+      });
+      if (![1, 2, 4, 8, 12, 33, 300].includes(index + 1)) continue;
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "update",
+        id: "petal-0",
+        status: "in_progress",
+      });
+      // Open the large snapshot after seeding to check a 300-task workspace without
+      // making this test depend on processing hundreds of intermediate UI states.
+      if (index + 1 === 300) await openAgentRoute(page, agent);
+      const count = Math.min(index + 1, 12);
+      await expect(flower.locator("svg path[fill]:not([fill='none'])")).toHaveCount(count);
+      await expect(sidebar.locator("svg path[fill]:not([fill='none'])")).toHaveCount(count);
+      await expect(flower.locator("svg path[fill='none']")).toHaveCount(1);
+      await expect(sidebar).toHaveAttribute("aria-valuemax", String(index + 1));
+      const label = page.getByTestId("workspace-label-chip-Later");
+      const labelBox = (await label.boundingBox())!;
+      expect((await sidebar.boundingBox())!.x).toBeGreaterThan(labelBox.x + labelBox.width);
+      await info.attach(`flowers-${index + 1}`, {
+        body: await page.screenshot({ path: info.outputPath(`flowers-${index + 1}.png`) }),
+        contentType: "image/png",
+      });
+      if (index + 1 === 33) await page.goto("about:blank");
+    }
+    await page.getByTestId("checklist-toggle").click();
+    await expect(page.getByTestId("checklist-row-petal-0")).not.toBeAttached();
+    await expect(flower.locator("svg path[fill]:not([fill='none'])")).toHaveCount(12);
+  } finally {
+    await client.close();
+    await agent.cleanup();
+  }
+});

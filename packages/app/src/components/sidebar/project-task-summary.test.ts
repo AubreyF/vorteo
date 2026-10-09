@@ -1,3 +1,4 @@
+import { taskPetals } from "@/task-checklist/flower";
 import { workspaceChecklistProgress, checklistProgress } from "@/task-checklist/progress";
 import { describe, expect, it } from "vitest";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
@@ -108,19 +109,70 @@ describe("workspace checklist completion", () => {
       { id: "pending", workspaceId: "w", tasks: [{ text: "Excluded", completed: true }] },
     ];
     expect(workspaceChecklistProgress(agents, "w", new Set(["pending"]))).toEqual({
+      active: 0,
       completed: 1,
       total: 4,
     });
   });
   it("counts status-only completion and preserves an empty checklist", () => {
     expect(checklistProgress([{ text: "Done", completed: false, status: "completed" }])).toEqual({
+      active: 0,
       completed: 1,
       total: 1,
     });
-    expect(checklistProgress([])).toEqual({ completed: 0, total: 0 });
+    expect(checklistProgress([])).toEqual({ completed: 0, active: 0, total: 0 });
     expect(workspaceChecklistProgress([{ id: "new", workspaceId: "w" }], "w", new Set())).toEqual({
+      active: 0,
       completed: 0,
       total: 0,
     });
+  });
+});
+
+describe("task flower progress", () => {
+  it("counts active provider and managed tasks without counting completed tasks twice", () => {
+    const progress = checklistProgress([
+      { text: "Provider active", completed: false, status: "in_progress" },
+      { text: "Managed active", completed: false, status: "in_progress" },
+      { text: "Done", completed: true, status: "in_progress" },
+      { text: "Pending", completed: false },
+    ]);
+    expect(progress).toEqual({ completed: 1, active: 2, total: 4 });
+    expect(taskPetals(progress)).toEqual(["completed", "active", "active", "pending"]);
+  });
+  it("renders no empty petals and one petal for a single task", () => {
+    expect(taskPetals({ completed: 0, active: 0, total: 0 })).toEqual([]);
+    expect(taskPetals({ completed: 0, active: 1, total: 1 })).toEqual(["active"]);
+    expect(taskPetals({ completed: 1, active: 0, total: 2 })).toEqual(["completed", "pending"]);
+  });
+  it("keeps individual active counts through twelve tasks", () => {
+    expect(taskPetals({ completed: 8, active: 3, total: 12 })).toEqual([
+      ...Array(8).fill("completed"),
+      ...Array(3).fill("active"),
+      "pending",
+    ]);
+  });
+  it("summarizes 33 and 300 tasks with twelve petals and one activity signal", () => {
+    for (const progress of [
+      { completed: 22, active: 4, total: 33 },
+      { completed: 200, active: 50, total: 300 },
+    ]) {
+      expect(taskPetals(progress)).toEqual([
+        ...Array(8).fill("completed"),
+        "active",
+        ...Array(3).fill("pending"),
+      ]);
+    }
+  });
+  it("never looks complete before the final task finishes", () => {
+    for (const total of [13, 33, 300]) {
+      expect(taskPetals({ completed: total - 1, active: 0, total })).toEqual([
+        ...Array(11).fill("completed"),
+        "pending",
+      ]);
+      expect(taskPetals({ completed: total, active: 0, total })).toEqual(
+        Array(12).fill("completed"),
+      );
+    }
   });
 });
