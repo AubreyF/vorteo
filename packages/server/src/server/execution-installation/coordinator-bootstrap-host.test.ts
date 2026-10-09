@@ -10,7 +10,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
+import { promisify } from "node:util";
 import { hashSync } from "bcryptjs";
 import {
   readBootstrapHostBinding,
@@ -20,6 +23,54 @@ import {
 import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 
 const roots: string[] = [];
+
+test.runIf(process.platform === "darwin")(
+  "native process inspection binds birth identity and hashes argv without exposing environment",
+  async () => {
+    const child = spawn("/bin/sleep", ["30"], {
+      env: { VORTEO_INSPECTION_SENTINEL: "fixture-environment-must-not-escape" },
+      stdio: "ignore",
+    });
+    const closed = once(child, "close");
+    await once(child, "spawn");
+    const execute = promisify(execFile);
+    const script = path.resolve("../../scripts/inspect-coordinator-process.py");
+    const inspect = () =>
+      execute("/usr/bin/python3", [script, String(child.pid)], { timeout: 5000 });
+    try {
+      const first = await inspect();
+      const second = await inspect();
+      const identity = JSON.parse(first.stdout);
+      expect(JSON.parse(second.stdout)).toEqual(identity);
+      expect(identity).toMatchObject({
+        pid: child.pid,
+        parentPid: process.pid,
+        uid: process.getuid!(),
+        executable: "/bin/sleep",
+        argumentsSha256: createHash("sha256")
+          .update(JSON.stringify(["/bin/sleep", "30"]))
+          .digest("hex"),
+      });
+      expect(identity.bootId).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(identity.startIdentity).toMatch(/^\d+:\d+$/);
+      expect(first.stderr).toBe("");
+      expect(first.stdout).not.toContain("fixture-environment-must-not-escape");
+      expect(Object.keys(identity).sort()).toEqual([
+        "argumentsSha256",
+        "bootId",
+        "executable",
+        "parentPid",
+        "pid",
+        "startIdentity",
+        "uid",
+      ]);
+    } finally {
+      child.kill();
+      await closed;
+    }
+    await expect(inspect()).rejects.toThrow();
+  },
+);
 
 test("bootstrap mount evidence distinguishes Host binds from verified local VM volumes", () => {
   const containerId = "a".repeat(64);

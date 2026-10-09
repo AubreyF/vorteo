@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.231 - 2026-10-08
+
+### Maintenance
+
+- Add a read-only macOS process inspector for coordinator bootstrap, reporting kernel boot/start identity, owner, executable and argument digest without exposing arguments or environment values
+- Recheck executable and arguments as well as process birth identity during inspection; reject missing processes with a sanitized failure
+- Validate a disposable process and the installed coordinator without lifecycle changes; trusted helper admission and loaded-service integration remain unfinished
+
 ## 0.11.0-beta.3.vorteo.230 - 2026-10-08
 
 ### Maintenance
