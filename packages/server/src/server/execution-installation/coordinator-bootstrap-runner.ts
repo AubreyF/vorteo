@@ -30,7 +30,7 @@ const FileSchema = z.strictObject({
   path: z.string().startsWith("/"),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
-const SetupSchema = z.strictObject({
+export const BootstrapRunnerSetupSchema = z.strictObject({
   admissionSetupFile: z.string().startsWith("/"),
   daemonId: z.string().min(1),
   node: FileSchema,
@@ -46,17 +46,21 @@ const ExecutorSchema = z.strictObject({
   pid: z.number().int().positive(),
 });
 
-/** Acknowledges only the fixed launcher's pre-lock wait. It is not approval or
- * proof that recovery ran. The child must remain alive until ownership passes. */
-export function waitForBootstrapWatchdog(child: ChildProcess): Promise<void> {
+/** The watchdog acknowledges its pre-lock wait; the executor acknowledges a
+ * durable claim with its watchdog armed. Neither message proves completion. */
+export function waitForBootstrapWatchdog(
+  child: ChildProcess,
+  role: "watchdog" | "executor" = "watchdog",
+): Promise<void> {
+  const expected = role === "watchdog" ? "waiting\n" : "dispatched\n";
   return new Promise((resolve, reject) => {
     let bytes = "";
-    const timer = setTimeout(() => finish(false), 10_000);
+    const timer = setTimeout(() => finish(false), role === "watchdog" ? 10_000 : 60_000);
     const failed = () => finish(false);
     const data = (chunk: Buffer) => {
       bytes += chunk.toString("utf8");
-      if (bytes === "waiting\n") finish(true);
-      else if (bytes.length >= 8) finish(false);
+      if (bytes === expected) finish(true);
+      else if (bytes.length >= expected.length) finish(false);
     };
     const finish = (ready: boolean) => {
       clearTimeout(timer);
@@ -64,7 +68,7 @@ export function waitForBootstrapWatchdog(child: ChildProcess): Promise<void> {
       child.removeListener("exit", failed);
       child.stdout?.removeListener("data", data);
       if (ready && child.exitCode === null && child.signalCode === null) resolve();
-      else reject(new BootstrapRequestConflict("Bootstrap watchdog did not become ready"));
+      else reject(new BootstrapRequestConflict("Bootstrap child did not become ready"));
     };
     if (!child.stdout || child.exitCode !== null || child.signalCode !== null) {
       finish(false);
@@ -88,7 +92,8 @@ export async function runNativeBootstrap(
   if (process.platform !== "darwin" || uid === undefined)
     throw new BootstrapRequestConflict("Native Host runner required");
   z.string().uuid().parse(identifier);
-  const readSetup = () => SetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
+  const readSetup = () =>
+    BootstrapRunnerSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
   const setup = readSetup();
   if (
     realpathSync(process.execPath) !== setup.node.path ||
@@ -254,6 +259,7 @@ export async function runNativeBootstrap(
     if (child.exitCode !== null || child.signalCode !== null)
       throw new BootstrapRequestConflict("Watchdog exited before dispatch");
     await requireOwnership();
+    process.stdout.write("dispatched\n");
   };
   const operations = await createBootstrapNativeOperations({
     requests,

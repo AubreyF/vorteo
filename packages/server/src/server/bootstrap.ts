@@ -1,3 +1,4 @@
+import { createManagedBootstrapReview } from "./execution-installation/coordinator-bootstrap-launch.js";
 import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
 import { ScheduleStore } from "./schedule/store.js";
 import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
@@ -667,6 +668,13 @@ export async function createPaseoDaemon(
   });
 
   const serverId = getOrCreateServerId(config.paseoHome, { logger });
+  const coordinatorBootstrap = await createManagedBootstrapReview(
+    process.env.VORTEO_COORDINATOR_BOOTSTRAP_SETUP,
+    serverId,
+  ).catch(() => {
+    logger.warn("Coordinator bootstrap setup is unavailable; maintenance capability disabled");
+    return undefined;
+  });
   const daemonKeyPair = await loadOrCreateDaemonKeyPair(config.paseoHome, logger);
   const managedProcesses = createBootstrapManagedProcessRegistry(config, logger);
   // Reconcile the helper-process ledger in the background so it never blocks the
@@ -1790,6 +1798,7 @@ export async function createPaseoDaemon(
               daemonConfigStore,
               mcpBaseUrl,
               {
+                coordinatorBootstrap,
                 getAllowedOrigins: () => allowedOrigins,
                 getHostnames: () => configuredHostnames,
                 daemonStatusRpc: dependencies.serverFeatureOverrides?.daemonStatusRpc,

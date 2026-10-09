@@ -253,3 +253,11 @@ Origin comes from the scoped credential, never the requester's display name. Dev
 This is coordinator functionality. Publishing the interface or updating a daemon does not activate it. An older coordinator without a tracked maintenance operation still needs the separately prepared, owner-approved bootstrap workflow. The [tracked coordinator bootstrap design](plans/execution-environments/coordinator-maintenance.md) specifies the first ownership transfer, authentication and acceptance gates. Never activate this policy through an untracked reload or replace a missing maintenance operation with a daemon restart.
 
 Restart recovery resumes only work held for the restart. It must preserve queued-message identity and order, attachments and goal usage, and leave manually paused, completed or blocked work alone. Sending a new continue message to every open thread is not a recovery mechanism. Isolated queue tests cover repeated journal recovery and changed-source refusal; installation acceptance must also verify actual replacement processes and resumed work on both environments.
+
+### Protected bootstrap runner admission
+
+The native Host launcher may supply `VORTEO_COORDINATOR_BOOTSTRAP_SETUP` pointing to a private runner setup file. This binds the daemon ID, admission setup, complete runtime digest, fixed Node executable, runner entrypoint, lock launcher and ownership verifier. Missing or invalid setup leaves `coordinatorBootstrapReview` unadvertised. Browser requests cannot choose these paths.
+
+An exact owner approval starts the fixed runner under its inherited kernel lock. The decision response waits for acknowledgement that dispatch is durably claimed and the watchdog is armed; this does not mean installation has completed. Refresh the recorded request to observe completion or recovery. A timeout or lost response never automatically relaunches the runner. Existing approvals are not replayed when Host starts. Cancellation remains available until dispatch claims the request.
+
+This source path still requires protected installation setup and live acceptance before it is available in an existing installation.

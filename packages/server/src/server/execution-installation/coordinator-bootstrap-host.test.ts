@@ -1,3 +1,4 @@
+import { createManagedBootstrapReview } from "./coordinator-bootstrap-launch.js";
 import { afterEach, test, expect, vi } from "vitest";
 import {
   openSync,
@@ -824,18 +825,47 @@ test("bootstrap readiness uses its local endpoint and refuses redirects and over
 });
 
 test.each([
-  ["process.stdout.write('waiting\\n'); process.stdin.resume();", true],
-  ["process.stdout.write('invalid-handshake'); process.stdin.resume();", false],
-  ["process.exit(1)", false],
-] as const)("watchdog readiness observes the bounded child handshake: %s", async (code, ready) => {
-  const child = spawn(process.execPath, ["-e", code], { stdio: ["pipe", "pipe", "ignore"] });
-  const closed = once(child, "close");
-  try {
-    const result = waitForBootstrapWatchdog(child);
-    if (ready) await expect(result).resolves.toBeUndefined();
-    else await expect(result).rejects.toThrow("did not become ready");
-  } finally {
-    child.kill("SIGKILL");
-    await closed;
-  }
+  ["process.stdout.write('waiting\\n'); process.stdin.resume();", true, "watchdog"],
+  ["process.stdout.write('invalid-handshake'); process.stdin.resume();", false, "watchdog"],
+  ["process.exit(1)", false, "watchdog"],
+  ["process.stdout.write('dispatched\\n'); process.stdin.resume();", true, "executor"],
+  ["process.stdout.write('waiting\\n'); process.stdout.end();", false, "executor"],
+] as const)(
+  "watchdog readiness observes the bounded child handshake: %s",
+  async (code, ready, role) => {
+    const child = spawn(process.execPath, ["-e", code], { stdio: ["pipe", "pipe", "ignore"] });
+    const closed = once(child, "close");
+    try {
+      const result = waitForBootstrapWatchdog(child, role);
+      if (ready) await expect(result).resolves.toBeUndefined();
+      else await expect(result).rejects.toThrow("did not become ready");
+    } finally {
+      child.kill("SIGKILL");
+      await closed;
+    }
+  },
+);
+
+test("bootstrap review stays unavailable without setup and rejects a different daemon binding", async () => {
+  await expect(createManagedBootstrapReview(undefined, "host-id")).resolves.toBeUndefined();
+  const { root } = fixture();
+  const setup = path.join(root, "runner.json");
+  const file = { path: path.join(root, "not-executed"), sha256: "a".repeat(64) };
+  writeFileSync(
+    setup,
+    JSON.stringify({
+      admissionSetupFile: path.join(root, "not-read.json"),
+      daemonId: "different-daemon",
+      node: file,
+      entrypoint: file,
+      ownerLauncher: file,
+      ownershipVerifier: file,
+      runtimeDirectory: root,
+      runtimeSha256: "b".repeat(64),
+    }),
+    { mode: 0o600 },
+  );
+  await expect(createManagedBootstrapReview(setup, "host-id")).rejects.toThrow(
+    process.platform === "darwin" ? "another daemon" : "Native Host",
+  );
 });
