@@ -629,7 +629,7 @@ test("sidebar sub-agent badge counts active work and hides finished unarchived w
     await expect(badge).not.toBeAttached();
     await client.sendAgentMessage(child.id, "Work on the sidebar check.");
     await expect(badge).toHaveText("A1");
-    await expect(badge).toHaveAttribute("aria-label", "1 active subagent");
+    await expect(badge.getByLabel("1 active subagent")).toHaveText("A1");
     await page.screenshot({ path: test.info().outputPath("active-subagent-badge.png") });
     await expect(badge).not.toBeAttached({ timeout: 30_000 });
     await page.reload();
