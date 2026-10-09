@@ -86,7 +86,7 @@ export function JournalCard({ serverId, agentId }: { serverId: string; agentId: 
           variant="ghost"
           size={buttonSize}
           disabled={cleared.isPending || cleared.isError || changeView.isPending}
-          accessibilityHint="Clears this device's view. Journal history is retained."
+          accessibilityHint="Changes this device's view. Journal history is retained."
           testID={count ? "journal-clear" : "journal-show-history"}
           onPress={count ? clearJournal : showHistory}
         >
