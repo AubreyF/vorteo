@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.214 - 2026-10-08
+
+### Added
+
+- Add an optional native macOS permission helper with authenticated local IPC and scoped Safari reads and interactions. Include signing, installation, rollback and diagnostics tooling without enabling them automatically.
+- Bind staged helper identity and content to the validated build before changing the installed helper. Add isolated installer, adapter and browser tests.
+- Document remaining production signing, managed installation, consent and permission-persistence acceptance. Source publication does not install the helper or establish live Safari access.
+
 ## 0.11.0-beta.3.vorteo.213 - 2026-10-08
 
 ### Changed

@@ -157,3 +157,7 @@ Goal and sub-agent card review: Goal cards retain 16 px below their content and 
 Question form spacing review: forms keep 16px vertical insets and 12px between content sections, with right-aligned actions on desktop and compact layouts. Focused browser coverage checks action placement and free-text submission. This source change does not establish primary installation delivery.
 
 Claude authentication status review: Connection controls use the existing account-scoped CLI authentication result. Usage availability and explicit credential rejection retain their separate meanings. Focused checks cover missing usage, account isolation and sign-out. No Keychain access or credential transfer was added. This source change awaits publication and installation; the README overview and onboarding are unchanged.
+
+## Optional native macOS helper
+
+The source package provides a signed native identity and a scoped Safari adapter with private local IPC, explicit browser policy, stale-element checks and staged-bundle verification. It is not installed or enabled by source integration. Production signing, tracked installation support, owner Automation consent, Safari JavaScript enablement and changed-build permission persistence remain acceptance gates. See [permission helper](macos-permission-helper.md) and [signing setup](macos-signing.md). The README overview remains unchanged until live acceptance.
