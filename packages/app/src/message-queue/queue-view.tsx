@@ -148,7 +148,7 @@ function QueueHeader({ control }: { control: MessageQueueControl }) {
   }, [control, snapshot]);
   return (
     <View style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
-      <Text style={taskCardStyles.heading}>Message queue</Text>
+      <Text style={taskCardStyles.heading}>Messages</Text>
       <QueueCountBadge control={control} />
       <View style={styles.heading} />
       {!control.connected ? <Text style={styles.secondary}>Offline</Text> : null}

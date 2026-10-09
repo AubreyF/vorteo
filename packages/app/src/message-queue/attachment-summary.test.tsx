@@ -264,7 +264,7 @@ it("labels the queue and keeps goal recovery within the goal card", async () => 
   await render();
   const queue = container.querySelector('[data-testid="shared-message-queue"]');
   const goal = container.querySelector('[data-testid="agent-goal-bar"]');
-  expect(queue?.textContent).toContain("Message queue");
+  expect(queue?.textContent).toContain("Messages");
   expect(queue?.querySelector('[data-testid="message-queue-card-count"]')?.textContent).toBe("2");
   expect(queue?.textContent).not.toContain("goal change");
   expect(container.textContent).not.toContain("Retry delivery");
