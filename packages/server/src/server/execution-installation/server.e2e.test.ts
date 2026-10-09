@@ -1,3 +1,4 @@
+import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { InstallationSkillPackages } from "./settings/skill-packages.js";
 import type { InstallationPluginSourceResolver } from "./settings/runtime.js";
 import { createInstallationSettingsReader } from "./settings/admission.js";
@@ -325,6 +326,7 @@ async function fixture(
   resolvePluginSource?: InstallationPluginSourceResolver,
   sourceUpdates: boolean | "both" = false,
   automaticHost = false,
+  claudeSetup?: ClaudeSetupRuntime,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
   writeFileSync(
@@ -439,6 +441,7 @@ async function fixture(
     profiles,
     settings,
     resolvePluginSource,
+    claudeSetup,
   );
   const server: Server = await new Promise((resolve) => {
     const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
@@ -1390,4 +1393,50 @@ test("automatic Host approval uses authenticated origin and hides metadata from 
   expect(canceled.status).toBe(200);
   await drain();
   expect(calls).toEqual(["hold", "release"]);
+});
+
+test("Claude setup login accepts only owner access and sanitizes code failures", async () => {
+  const runtime: ClaudeSetupRuntime = {
+    read: vi.fn(() => ({
+      login: { status: "idle" },
+      connection: { connected: false, environments: [] },
+    })),
+    start: vi.fn(async () => ({
+      status: "starting",
+      attemptId: "11111111-1111-4111-8111-111111111111",
+    })),
+    submit: vi.fn(async () => {
+      throw Error("synthetic-private-code");
+    }),
+    cancel: vi.fn(async () => ({ status: "idle" })),
+    signOut: vi.fn(async () => {}),
+    reconcile: vi.fn(async () => {}),
+    dispose: vi.fn(async () => {}),
+  };
+  const { request } = await fixture(undefined, undefined, undefined, false, false, runtime);
+  const root = "/api/installation/owner/claude/setup-token";
+  for (const credential of [undefined, "host-agent-test-token", "guest-agent-test-token"]) {
+    expect((await request(`${root}/start`, credential, { definitionId: "one" })).status).toBe(401);
+  }
+  expect(
+    (
+      await request(
+        `${root}/start`,
+        "owner-test-password",
+        { definitionId: "one" },
+        "https://foreign.example.test",
+      )
+    ).status,
+  ).toBe(403);
+  expect(runtime.start).not.toHaveBeenCalled();
+  expect(
+    (await request(`${root}/start`, "owner-test-password", { definitionId: "one" })).status,
+  ).toBe(200);
+  const rejected = await request(`${root}/submit`, "owner-test-password", {
+    definitionId: "one",
+    attemptId: "11111111-1111-4111-8111-111111111111",
+    code: "synthetic-private-code",
+  });
+  expect(rejected.status).toBe(409);
+  expect(JSON.stringify(await rejected.json())).not.toContain("synthetic-private-code");
 });
