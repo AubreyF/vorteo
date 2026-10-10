@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.280 - 2026-10-10
+
+### Added
+
+- Journal entries use red Spark markers on a gray timeline, with a count of unread entries. Viewing an entry briefly turns its Spark into a gray dot with a subtle contraction and halo; reduced motion skips the animation.
+- Seen state survives reload on the current device and stays separate from Clear journal. Entries skipped while scrolling or hidden in a collapsed card stay unread. Storage errors offer Retry.
+
+### Maintenance
+
+- Added focused visibility and persistence tests plus desktop and compact browser coverage for scrolling, reload, collapsed cards, background windows and storage recovery. Native physical-device acceptance remains pending.
 
 ## 0.11.0-beta.3.vorteo.279 - 2026-10-09
 
