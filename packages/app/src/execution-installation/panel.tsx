@@ -19,6 +19,7 @@ import { Text, View } from "react-native";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
+import { Field, FormTextInput } from "@/components/ui/form-field";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { usePathname, useRouter } from "expo-router";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
@@ -77,6 +78,63 @@ function getInstallationPanel(registryLoaded: boolean): InstallationPanelModel |
   return panelModel;
 }
 
+export function InstallationWelcome() {
+  const model = getInstallationPanel(useHostRegistryLoaded());
+  return model ? <InstallationWelcomeForm model={model} /> : null;
+}
+
+function InstallationWelcomeForm({ model }: { model: InstallationPanelModel }) {
+  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const setPassword = useCallback((value: string) => model.setPassword(value), [model]);
+  const connect = useCallback(() => {
+    if (model.getState().password.trim()) void model.unlock();
+  }, [model]);
+  if (!state.initialized) {
+    return <Text style={styles.text}>Checking owner access...</Text>;
+  }
+  if (state.unlocked) {
+    return (
+      <Text accessibilityLiveRegion="polite" style={styles.text}>
+        Signed in. Connecting to your environments. Keep Tailscale connected on this device.
+      </Text>
+    );
+  }
+  return (
+    <View style={styles.details} testID="installation-welcome">
+      <Field label="Owner password">
+        <FormTextInput
+          size="md"
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="current-password"
+          textContentType="password"
+          initialValue=""
+          onChangeText={setPassword}
+          onSubmitEditing={connect}
+          returnKeyType="go"
+          editable={!state.busy}
+          accessibilityLabel="Owner password"
+          testID="installation-password"
+        />
+      </Field>
+      {state.error ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {state.error}
+        </Text>
+      ) : null}
+      <Button
+        size="lg"
+        disabled={state.busy || !state.password.trim()}
+        onPress={connect}
+        testID="installation-unlock"
+      >
+        {state.busy ? "Connecting..." : "Connect"}
+      </Button>
+    </View>
+  );
+}
+
 export function InstallationControls({ requestId = null }: { requestId?: string | null }) {
   const registryLoaded = useHostRegistryLoaded();
   const model = getInstallationPanel(registryLoaded);
@@ -84,7 +142,7 @@ export function InstallationControls({ requestId = null }: { requestId?: string 
   return <InstallationPanel model={model} requestId={requestId} />;
 }
 
-// Session restoration stays app-wide. Setup routes to the inline controls once;
+// Session restoration stays app-wide. New devices sign in on the welcome page;
 // incoming restart requests never interrupt another screen or open a dialog.
 export function InstallationSessionHost() {
   const registryLoaded = useHostRegistryLoaded();
@@ -109,8 +167,8 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
     if (!state.initialized || state.busy || !state.visible) return;
     model.close();
     const inSettings = pathname === "/settings" || pathname.startsWith("/settings/");
-    if (!inSettings) router.replace("/settings/general");
-  }, [model, pathname, router, state.busy, state.initialized, state.visible]);
+    if (!inSettings) router.replace(state.unlocked ? "/settings/general" : "/welcome");
+  }, [model, pathname, router, state.busy, state.initialized, state.visible, state.unlocked]);
   return null;
 }
 
