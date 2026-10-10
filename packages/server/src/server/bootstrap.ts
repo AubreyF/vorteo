@@ -1,3 +1,4 @@
+import { BlockedTaskReviewService } from "./agent/task-checklist/review-service.js";
 import { createConfiguredBootstrapReview } from "./execution-installation/coordinator-bootstrap-launch.js";
 import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
 import { ScheduleStore } from "./schedule/store.js";
@@ -1574,6 +1575,7 @@ export async function createPaseoDaemon(
     createPaseoWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
     archiveWorkspace: archiveScheduleWorkspaceExternal,
   });
+  const blockedTaskReviews = new BlockedTaskReviewService({ agentManager, agentStorage, logger });
   quotaReservePolling.start();
   await scheduleService.start();
   factoryScheduleInspection.activate(scheduleService);
@@ -2005,7 +2007,9 @@ export async function createPaseoDaemon(
       // model loading doesn't block the server from accepting connections.
       speechService.start();
       scriptHealthMonitor.start();
+      blockedTaskReviews.start();
     } catch (error) {
+      blockedTaskReviews.stop();
       factoryScheduleInspection.revoke();
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
@@ -2046,6 +2050,7 @@ export async function createPaseoDaemon(
   };
 
   const stop = async () => {
+    blockedTaskReviews.stop();
     factoryScheduleInspection.revoke();
     quotaPreflight.stop();
     // Close ingress before waiting for metadata processes or other teardown.

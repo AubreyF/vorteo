@@ -136,6 +136,15 @@ export class MessageQueueStore {
     return this.serial(agentId, async () => (await this.load(agentId)).snapshot);
   }
 
+  /** Reserve ordinary automatic work only while no user queue operation can interleave. */
+  withIdleQueue<T>(agentId: string, operation: () => Promise<T>): Promise<T | null> {
+    return this.serial(agentId, async () => {
+      const { snapshot } = await this.load(agentId);
+      if (snapshot.paused || snapshot.items.length || snapshot.deliveryError) return null;
+      return operation();
+    });
+  }
+
   attachment(input: {
     agentId: string;
     messageId: string;

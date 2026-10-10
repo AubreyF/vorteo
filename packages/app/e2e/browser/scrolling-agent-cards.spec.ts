@@ -1604,3 +1604,60 @@ test("thread columns resize independently and follow primary-region width", asyn
     await agent.cleanup();
   }
 });
+
+for (const { width, interaction } of [
+  { width: 1400, interaction: "hover" },
+  { width: 1400, interaction: "keyboard" },
+  { width: 390, interaction: "tap" },
+]) {
+  test(`blocked task explanation is accessible by ${interaction} at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    const agent = await seedMockAgentWorkspace({
+      repoPrefix: "blocked-reason-",
+      title: "Blocked explanation",
+    });
+    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "blocked-reason" });
+    try {
+      await openAgentRoute(page, agent);
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id: "blocked-review",
+        text: "Verify Dev",
+        description: "Waiting for Dev to reconnect. Check its current connection before resuming.",
+      });
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "update",
+        id: "blocked-review",
+        status: "blocked",
+      });
+      const badge = page
+        .getByLabel(
+          "Blocked: Waiting for Dev to reconnect. Check its current connection before resuming.",
+        )
+        .last();
+      if (interaction === "tap") await badge.click();
+      else if (interaction === "keyboard") {
+        await badge.scrollIntoViewIfNeeded();
+        await expect(badge).toBeVisible();
+        await page.keyboard.press("Tab");
+        await badge.focus();
+        await expect(badge).toBeFocused();
+      } else await badge.hover();
+      await expect(
+        page
+          .getByText(
+            "Waiting for Dev to reconnect. Check its current connection before resuming.",
+            { exact: true },
+          )
+          .last(),
+      ).toBeVisible();
+      await page.screenshot({ path: info.outputPath("blocked-reason.png") });
+      expect((await client.getAgentChecklist(agent.agentId))[0].status).toBe("blocked");
+    } finally {
+      await client.close();
+      await agent.cleanup();
+    }
+  });
+}

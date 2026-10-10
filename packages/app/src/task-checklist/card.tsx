@@ -12,7 +12,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
 import { StatusRing } from "@/components/status-ring";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { BlockedTaskBadge } from "@/task-checklist/blocked-badge";
 import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
 import { DraggableList, type DraggableRenderItemInfo } from "@/components/draggable-list";
@@ -357,7 +357,7 @@ function ChecklistRow({
       >
         {title}
       </Text>
-      {blocked ? <StatusBadge label="Blocked" variant="warning" size="xs" /> : null}
+      {blocked ? <BlockedTaskBadge task={task} /> : null}
       <Button
         variant="ghost"
         size="sm"

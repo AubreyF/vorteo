@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.287 - 2026-10-10
+
+### Added
+
+- Explain blocked tasks on hover, keyboard focus and touch, and periodically reassess eligible idle threads using their retained sessions.
+
+### Fixed
+
+- Preserve queued messages, manual pauses, goal budgets and restart holds during automatic review preparation. Keep review cooldowns across daemon reloads.
+- Wait for an archive queued behind session restoration before returning a protected thread load.
+
+### Maintenance
+
+- Cover retained-session review, archive races, owner-action preemption and queue preservation with focused regressions. Document reassessment eligibility and limits.
+
 ## 0.11.0-beta.3.vorteo.286 - 2026-10-09
 
 ### Fixed

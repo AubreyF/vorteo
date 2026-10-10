@@ -1,3 +1,8 @@
+import {
+  blockedReviewDue,
+  hasReviewableBlockedTasks,
+  BLOCKED_REVIEW_PROMPT,
+} from "./task-checklist/blocked-review.js";
 import { JournalError } from "./journal/model.js";
 import { editThreadGoal, type ThreadGoalEdit } from "./agent-goal.js";
 import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
@@ -1189,16 +1194,19 @@ export class AgentManager {
   private onAgentAttention?: AgentAttentionCallback;
   private onAgentArchived?: AgentArchivedCallback;
   private onWorkspaceStateMayHaveChanged?: (params: { cwd: string }) => void;
-  private messageQueueControl: Pick<
-    MessageQueueService,
-    | "pause"
-    | "wake"
-    | "acceptedHistory"
-    | "recordProviderMessageId"
-    | "reconcileHistory"
-    | "suppressHistoryRestoration"
-    | "queueRestartContinuation"
-  > | null = null;
+  private messageQueueControl:
+    | (Pick<
+        MessageQueueService,
+        | "pause"
+        | "wake"
+        | "acceptedHistory"
+        | "recordProviderMessageId"
+        | "reconcileHistory"
+        | "suppressHistoryRestoration"
+        | "queueRestartContinuation"
+      > &
+        Partial<Pick<MessageQueueService, "withIdleQueue">>)
+    | null = null;
   private readonly queueGoalMutationTails = new Map<string, Promise<void>>();
   private logger: Logger;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
@@ -1425,9 +1433,72 @@ export class AgentManager {
       | "reconcileHistory"
       | "suppressHistoryRestoration"
       | "queueRestartContinuation"
-    >,
+    > &
+      Partial<Pick<MessageQueueService, "withIdleQueue">>,
   ): void {
     this.messageQueueControl = control;
+  }
+
+  /** Review one existing idle thread; never steer, replace, or resume a goal implicitly. */
+  async startBlockedTaskReview(
+    agentId: string,
+    canContinue: () => boolean,
+  ): Promise<AsyncGenerator<AgentStreamEvent> | null> {
+    const registry = this.registry;
+    const queue = this.messageQueueControl;
+    if (!registry || !queue?.withIdleQueue) return null;
+    return this.runForegroundMutation(agentId, (foregroundAllowsStart) =>
+      this.withQueueGoalMutation(agentId, async (goalAllowsStart) => {
+        const agent = this.agents.get(agentId);
+        if (!agent || !agent.session || agent.lifecycle !== "idle") return null;
+        const threadEligible = () => {
+          const record = registry.getLoadedRecord(agentId);
+          if (!record || !hasReviewableBlockedTasks(record)) return false;
+          if (!foregroundAllowsStart() || !goalAllowsStart()) return false;
+          if (!canContinue() || !this.acceptingAgentRegistrations || this.isRestartDraining())
+            return false;
+          if (
+            this.agents.get(agentId) !== agent ||
+            agent.lifecycle !== "idle" ||
+            agent.queueGoalHold
+          )
+            return false;
+          if (agent.activeTurnId || agent.pendingPermissions.size || this.runs.hasRun(agentId))
+            return false;
+          if (agent.config.quotaPausedAt || agent.owner || this.controllerSessions.has(agentId))
+            return false;
+          return true;
+        };
+        const eligible = () => {
+          if (!threadEligible()) return false;
+          const state = agent.session.goals?.state;
+          if (!state) return true;
+          if (
+            state.status !== "ready" ||
+            state.queueContinuationHeld ||
+            state.restartContinuationHeld
+          )
+            return false;
+          const goal = state.goal;
+          if (!goal) return true;
+          if (goal.status !== "blocked") return false;
+          return goal.tokenBudget === null || goal.tokensUsed < goal.tokenBudget;
+        };
+        if (!threadEligible()) return null;
+        if (agent.session.goals) await this.readAgentGoal(agentId);
+        const record = registry.getLoadedRecord(agentId);
+        if (!eligible() || !record || !blockedReviewDue(record, this.now())) return null;
+        return queue.withIdleQueue!(agentId, async (queueAllowsStart) => {
+          if (!eligible() || !queueAllowsStart()) return null;
+          if (!(await registry.claimBlockedReview(agentId, this.now()))) return null;
+          if (!eligible() || !queueAllowsStart()) return null;
+          // No await between the last admission check and synchronous run reservation.
+          return this.streamAgent(agentId, BLOCKED_REVIEW_PROMPT, {
+            origin: "agent",
+          });
+        });
+      }),
+    );
   }
 
   startQueuedMessage(
@@ -3022,10 +3093,15 @@ export class AgentManager {
     });
   }
 
-  private async withQueueGoalMutation<T>(agentId: string, operation: () => Promise<T>): Promise<T> {
+  private async withQueueGoalMutation<T>(
+    agentId: string,
+    operation: (isLatest: () => boolean) => Promise<T>,
+  ): Promise<T> {
     const previous = this.queueGoalMutationTails.get(agentId) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(operation);
-    const tail = run.then(
+    const run: Promise<T> = previous
+      .catch(() => undefined)
+      .then(() => operation(() => this.queueGoalMutationTails.get(agentId) === tail));
+    const tail: Promise<void> = run.then(
       () => undefined,
       () => undefined,
     );
@@ -4128,10 +4204,15 @@ export class AgentManager {
     });
   }
 
-  private async runForegroundMutation<T>(agentId: string, operation: () => Promise<T>): Promise<T> {
+  private async runForegroundMutation<T>(
+    agentId: string,
+    operation: (isLatest: () => boolean) => Promise<T>,
+  ): Promise<T> {
     const previous = this.foregroundMutationTails.get(agentId) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(operation);
-    const tail = run.then(
+    const run: Promise<T> = previous
+      .catch(() => undefined)
+      .then(() => operation(() => this.foregroundMutationTails.get(agentId) === tail));
+    const tail: Promise<void> = run.then(
       () => undefined,
       () => undefined,
     );
