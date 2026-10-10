@@ -69,7 +69,11 @@ import {
   createNativeFactoryInstallerResolver,
 } from "../../factory/native-install-startup.js";
 import { NativeFactorySetupService } from "../../factory/setup-service.js";
-import { createNativeFactoryInstallAdapter } from "../../factory/native-install-adapter.js";
+import {
+  createNativeFactoryInstallAdapter,
+  holdNativeFactoryInstallAdapter,
+  nativeFactoryInstallAdapterOrigin,
+} from "../../factory/native-install-adapter.js";
 import { writeJsonFileAtomic } from "../../atomic-file.js";
 import { AgentStorage } from "../../agent/agent-storage.js";
 import { FileBackedWorkspaceRegistry } from "../../workspace-registry.js";
@@ -735,6 +739,94 @@ test("native Factory installer persists the attempt, binds existing members and 
     revision: null,
     operations: { install: false },
   });
+});
+
+test("native Factory startup restores completed membership without rebinding or replaying installation", async () => {
+  const f = await nativeInstallFixture();
+  expect(await f.adapter.install(f.request)).toMatchObject({ outcome: "applied" });
+  const beforeProject = structuredClone(await f.deps.projects.get(f.request.projectId));
+  const beforeAgents = await f.deps.agents.list();
+  const runtime = attachmentFixture().runtime;
+  const adapter = createNativeFactoryInstallAdapter({ ...f.deps, runtime });
+  expect(await adapter.readSetup(f.request.projectId)).toMatchObject({ state: "held" });
+  await adapter.restore();
+  expect(await adapter.readSetup(f.request.projectId)).toMatchObject({ state: "installed" });
+  await adapter.restore();
+  expect(await f.deps.projects.get(f.request.projectId)).toEqual(beforeProject);
+  expect(await f.deps.agents.list()).toEqual(beforeAgents);
+  expect(runtime.factoryObservation).toBeDefined();
+  f.revoke();
+  await expect(adapter.restore()).rejects.toThrow("Retained custody changed");
+});
+
+test("native Factory restoration method replacement invalidates adapter provenance", async () => {
+  const f = await nativeInstallFixture();
+  expect(nativeFactoryInstallAdapterOrigin(f.adapter)).not.toBeNull();
+  f.adapter.restore = async () => {};
+  expect(nativeFactoryInstallAdapterOrigin(f.adapter)).toBeNull();
+});
+
+test.each(["before attachment", "during observation"] as const)(
+  "native Factory restoration rejects a reconciliation hold introduced %s",
+  async (phase) => {
+    const f = await nativeInstallFixture();
+    expect(await f.adapter.install(f.request)).toMatchObject({ outcome: "applied" });
+    const runtime = attachmentFixture().runtime;
+    let hold = () => {};
+    f.source.readLifecycle = async () => {
+      if (phase === "during observation") hold();
+      return f.lifecycle;
+    };
+    const adapter = createNativeFactoryInstallAdapter({
+      ...f.deps,
+      runtime,
+      readProfiles() {
+        if (phase === "before attachment") hold();
+        return f.deps.readProfiles();
+      },
+    });
+    hold = () => holdNativeFactoryInstallAdapter(adapter);
+    await expect(adapter.restore()).rejects.toThrow("requires reconciliation");
+    if (phase === "before attachment") expect(runtime.factoryObservation).toBeUndefined();
+    expect(await adapter.readSetup(f.request.projectId)).toMatchObject({
+      state: "held",
+      operations: { install: false },
+    });
+    await expect(adapter.restore()).rejects.toThrow("requires reconciliation");
+  },
+);
+
+test("native Factory restoration holds after configured profile changes during observation", async () => {
+  const f = await nativeInstallFixture();
+  expect(await f.adapter.install(f.request)).toMatchObject({ outcome: "applied" });
+  const runtime = attachmentFixture().runtime;
+  f.source.readLifecycle = async () => {
+    f.deps.readProfiles()[0].name = "Changed profile";
+    return f.lifecycle;
+  };
+  const adapter = createNativeFactoryInstallAdapter({ ...f.deps, runtime });
+  await expect(adapter.restore()).rejects.toThrow(/profile/);
+  expect(await adapter.readSetup(f.request.projectId)).toMatchObject({
+    state: "held",
+    operations: { install: false },
+  });
+  await expect(adapter.restore()).rejects.toThrow("requires reconciliation");
+});
+
+test("native Factory restoration refuses incomplete binding and never fills missing membership", async () => {
+  const f = await nativeInstallFixture("checkpoint_acknowledgment");
+  expect(await f.adapter.install(f.request)).toMatchObject({ outcome: "uncertain" });
+  const runtime = attachmentFixture().runtime;
+  const projects = new FileBackedProjectRegistry(
+    path.join(f.root, "projects.json"),
+    createTestLogger(),
+  );
+  const adapter = createNativeFactoryInstallAdapter({ ...f.deps, projects, runtime });
+  await expect(adapter.restore()).rejects.toThrow("exact completed");
+  expect(runtime.factoryObservation).toBeUndefined();
+  expect((await projects.get(f.request.projectId))?.factoryInstallation?.stage).toBe("binding");
+  for (const record of await f.deps.workspaces.list())
+    expect(record.factoryMembership).toBeUndefined();
 });
 
 test.each(["host", "project", "revision", "installation"] as const)(
@@ -1835,7 +1927,11 @@ test("native Factory startup refuses shape-compatible and foreign-runtime adapte
   const f = await nativeStartupInstallerFixture();
   const foreign = { ...f.runtime };
   expect(createNativeFactoryInstallerResolver(foreign, f.deps.serverId, () => true)()).toBeNull();
-  f.runtime.factoryInstallation = { readSetup: f.adapter.readSetup, install: f.adapter.install };
+  f.runtime.factoryInstallation = {
+    readSetup: f.adapter.readSetup,
+    install: f.adapter.install,
+    restore: f.adapter.restore,
+  };
   expect(createNativeFactoryInstallerResolver(f.runtime, f.deps.serverId, () => true)()).toBeNull();
   expect(() => f.installer()).toThrow("startup owner");
   expect((await f.deps.projects.get(f.request.projectId))?.factoryInstallation).toBeUndefined();

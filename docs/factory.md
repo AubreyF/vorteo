@@ -41,6 +41,13 @@ Retained uncertain execution custody must be reconciled before any owner replace
 Controller source packaging and installation are separate operations. A plugin reload must
 not revoke or replace the existing runtime owner merely to reconnect its interface.
 
+The native startup adapter can restore observation for an exact completed installation after
+a restart. It verifies the retained owner, checkpoint, configured profile and both coordinator
+identities without rebinding membership or admitting execution. Incomplete checkpoints and
+reconciliation holds refuse restoration. A hold raised during verification also rejects the
+operation. The private startup caller must supply the reconciled owner; this adapter does not
+make an unconfigured installation operational.
+
 The native source boundary accepts an optional read-only projection from that same startup-owned
 runtime. Only the loaded built-in Factory can delegate its two observation RPCs to it. The service
 checks captured owner generation, serving host, active native project, repository, persisted

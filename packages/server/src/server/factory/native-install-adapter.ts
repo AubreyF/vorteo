@@ -48,6 +48,7 @@ interface AdapterOrigin {
   projectId: string;
   readSetup: NativeFactoryInstallAdapter["readSetup"];
   install: NativeFactoryInstallAdapter["install"];
+  restore: NativeFactoryInstallAdapter["restore"];
 }
 const adapterOrigins = new WeakMap<object, AdapterOrigin>();
 
@@ -56,7 +57,12 @@ export function nativeFactoryInstallAdapterOrigin(
   adapter: NativeFactoryInstallAdapter,
 ): Readonly<AdapterOrigin> | null {
   const origin = adapterOrigins.get(adapter);
-  if (!origin || adapter.readSetup !== origin.readSetup || adapter.install !== origin.install)
+  if (
+    !origin ||
+    adapter.readSetup !== origin.readSetup ||
+    adapter.install !== origin.install ||
+    adapter.restore !== origin.restore
+  )
     return null;
   return { ...origin };
 }
@@ -359,13 +365,77 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
     }
   }
 
-  const adapter = { readSetup, install };
+  /** Startup-only restoration of a completed installation, never an RPC repair
+   * of partially persisted membership or an implicit execution admission. */
+  async function restore(): Promise<void> {
+    function assertRestorable(): void {
+      assertCurrent();
+      if (uncertain || reconciliationHolds.has(captured.runtime))
+        throw new Error("Factory installation requires reconciliation before restoration.");
+    }
+    assertRestorable();
+    const project = await captured.projects.get(binding.projectId);
+    assertRestorable();
+    const checkpoint = project?.factoryInstallation;
+    if (
+      !checkpoint ||
+      checkpoint.stage !== "attached" ||
+      checkpoint.serverId !== captured.serverId ||
+      checkpoint.projectId !== binding.projectId ||
+      checkpoint.installationId !== binding.installationId ||
+      !isDeepStrictEqual(checkpoint.coordinators, binding.coordinators)
+    )
+      throw new Error("Factory restoration requires the exact completed native installation.");
+    const profiles = captured.readProfiles().filter((entry) => entry.id === captured.profileId);
+    if (profiles.length !== 1) throw new Error("Factory configured profile is unavailable.");
+    const profile = structuredClone(profiles[0]);
+    const authorityInput = {
+      ...captured,
+      owner: { identity: source.authority.identity, assertCurrent: assertRestorable },
+      binding,
+      operationId: checkpoint.operationId,
+      profile,
+    };
+    const before = await captureFactoryCoordinatorAuthority(authorityInput);
+    assertRestorable();
+    if (!isDeepStrictEqual(captured.projects.getLoadedRecord(binding.projectId), project))
+      throw new Error("Factory installation changed during restoration.");
+    try {
+      const provider = attachFactoryControllerObservation({ runtime: captured.runtime, source });
+      expectedStop = captured.runtime.stop;
+      expectedObservation = provider;
+      const observation = new NativeFactoryObservationService(provider, captured);
+      await observation.invoke("factory.snapshot", { projectId: binding.projectId });
+      const after = await captureFactoryCoordinatorAuthority(authorityInput);
+      assertRestorable();
+      if (after.revision !== before.revision)
+        throw new Error("Factory native coordinator changed during restoration.");
+      if (
+        !isDeepStrictEqual(
+          captured.readProfiles().filter((entry) => entry.id === captured.profileId),
+          [profile],
+        )
+      )
+        throw new Error("Factory configured profile changed during restoration.");
+      if (!isDeepStrictEqual(captured.projects.getLoadedRecord(binding.projectId), project))
+        throw new Error("Factory installation changed after restoration.");
+      assertRestorable();
+      confirmed = provider;
+    } catch (error) {
+      uncertain = true;
+      reconciliationHolds.add(captured.runtime);
+      throw error;
+    }
+  }
+
+  const adapter = { readSetup, install, restore };
   adapterOrigins.set(adapter, {
     runtime: captured.runtime,
     serverId: captured.serverId,
     projectId: binding.projectId,
     readSetup,
     install,
+    restore,
   });
   return adapter;
 }
