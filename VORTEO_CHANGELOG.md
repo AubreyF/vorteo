@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.280 - 2026-10-09
+
+### Improved
+
+- Integrate clearer goal waiting and queued-message recovery controls while preserving conversation columns, heading hover regions and all release history.
 
 ## 0.11.0-beta.3.vorteo.279 - 2026-10-09
 
@@ -103,6 +108,14 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Added
 
 - Add Copy all to text-file toolbars, including current edits and empty files, with translated labels and responsive controls at compact widths.
+
+## 0.11.0-beta.3.vorteo.270 - 2026-10-09
+
+### Changed
+
+- Explain goal continuation while queued messages take priority, with a smaller parenthesized status, labeled goal time, and pause help available on desktop and touch layouts.
+- Keep the full goal status and touch controls readable on compact screens by placing goal time and Clear goal in the expanded card.
+- Name the message card Queued messages. Show delivery failures and uncertain delivery in the goal card with actions to review messages or recover the goal.
 
 ## 0.11.0-beta.3.vorteo.269 - 2026-10-09
 

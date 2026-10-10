@@ -14,6 +14,17 @@ import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-
 import { expectAgentTabActive } from "../support/helpers/launcher";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 
+async function verifyGoalPauseHelp(page: Page, goalCard: Locator, width: number) {
+  const pauseGoal = goalCard.getByRole("button", { name: "Pause goal", exact: true });
+  await expect(pauseGoal).toBeEnabled();
+  if (width === 390) return;
+  await pauseGoal.hover();
+  await expect(
+    page.getByText("Pause goal. Prevents the goal from continuing automatically.", { exact: true }),
+  ).toBeVisible();
+  await page.mouse.move(0, 0);
+}
+
 test.use({ e2eInjectPaseoTools: true });
 
 test("agents, tasks, plugin pills, queue and goals share the scrolling footer", async ({
@@ -61,6 +72,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     // agents, todo events, plugin registration and queue operations use the real daemon.
     const goalState = {
       status: "ready",
+      queueContinuationHeld: true,
       observedAt: new Date().toISOString(),
       goal: {
         threadId: agent.agentId,
@@ -68,7 +80,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         status: "paused",
         tokenBudget: null,
         tokensUsed: 0,
-        timeUsedSeconds: 0,
+        timeUsedSeconds: 53640,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
@@ -152,7 +164,59 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
 
     for (const width of [1200, 390]) {
       await page.setViewportSize({ width, height: 650 });
+      const goalCard = stack.getByTestId("agent-goal-bar");
+      await expect(goalCard.getByTestId("agent-goal-toggle")).toHaveAttribute(
+        "aria-label",
+        "Goal (waiting for messages)",
+      );
+      await expect(stack.getByTestId("message-queue-toggle")).toHaveAttribute(
+        "aria-label",
+        "Queued messages",
+      );
+      await expect(goalCard).toContainText("Goal time: 14h 54m");
+      await expect(goalCard).toContainText(
+        "Queued messages take priority. The goal will continue automatically afterward.",
+      );
+      await expect(goalCard).toContainText(
+        "Pause goal prevents the goal from continuing automatically.",
+      );
+      const statusSize = await goalCard
+        .getByTestId("agent-goal-toggle-status")
+        .evaluate((node) => ({
+          status: parseFloat(getComputedStyle(node).fontSize),
+          heading: parseFloat(
+            getComputedStyle(
+              node
+                .closest('[data-testid="agent-goal-toggle"]')!
+                .querySelector('[data-testid="agent-goal-toggle-title"]')!,
+            ).fontSize,
+          ),
+        }));
+      expect(statusSize.status).toBeLessThan(statusSize.heading);
+      await goalCard.screenshot({ path: info.outputPath(`goal-status-${width}.png`) });
+      await expect
+        .poll(async () =>
+          goalCard.getByTestId("agent-goal-toggle-status").evaluate((node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const bounds = node.parentElement!.getBoundingClientRect();
+            const text = range.getBoundingClientRect();
+            return Math.max(text.right - bounds.right, text.bottom - bounds.bottom);
+          }),
+        )
+        .toBeLessThanOrEqual(1);
+
+      await verifyGoalPauseHelp(page, goalCard, width);
+
       if (width === 390) {
+        await expect(
+          goalCard
+            .getByTestId("agent-goal-body")
+            .getByRole("button", { name: "Clear goal", exact: true }),
+        ).toBeAttached();
+        expect(
+          (await goalCard.getByTestId("agent-goal-clear").boundingBox())?.height,
+        ).toBeGreaterThanOrEqual(44);
         const actions = stack.getByTestId(/^subagents-track-(archive|detach)-/);
         for (const action of await actions.all()) {
           await expect
@@ -281,7 +345,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       const goalActionInset = await stack.getByTestId("agent-goal-bar").evaluate((card) => {
         const header = card.firstElementChild?.firstElementChild;
-        const action = card.querySelector('[data-testid="agent-goal-clear"]');
+        const action = card.querySelector('[data-testid="agent-goal-expand"]');
         if (!header || !action) throw new Error("Goal controls missing");
         return action.getBoundingClientRect().top - header.getBoundingClientRect().top;
       });

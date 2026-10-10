@@ -11,6 +11,7 @@ const Right = withUnistyles(ChevronRight, (theme) => ({ color: theme.colors.fore
 /** Consistent disclosure order: title, arrow, then the optional count. */
 export function CardDisclosure({
   title,
+  status,
   expanded,
   onPress,
   count,
@@ -19,6 +20,7 @@ export function CardDisclosure({
   trailing,
 }: {
   title: string;
+  status?: string;
   expanded: boolean;
   onPress: () => void;
   count?: ReactNode;
@@ -41,15 +43,25 @@ export function CardDisclosure({
           touch && taskCardStyles.touchAccordionTrigger,
         ]}
         accessibilityRole="button"
-        accessibilityLabel={title}
+        accessibilityLabel={status ? `${title} (${status})` : title}
         aria-expanded={expanded}
         accessibilityState={accessibilityState}
         onPress={onPress}
         testID={testID}
       >
         {icon}
-        <Text style={[taskCardStyles.heading, styles.title]} numberOfLines={1}>
+        <Text
+          style={[taskCardStyles.heading, styles.title]}
+          numberOfLines={1}
+          testID={`${testID}-title`}
+        >
           {title}
+          {status ? (
+            <Text style={styles.status} testID={`${testID}-status`}>
+              {" "}
+              ({status})
+            </Text>
+          ) : null}
         </Text>
         <View testID={`${testID}-arrow`} style={styles.arrow}>
           {expanded ? <Down size={16} /> : <Right size={16} />}
@@ -87,6 +99,11 @@ const styles = StyleSheet.create((theme) => ({
     paddingRight: theme.spacing[2],
   },
   hovered: { backgroundColor: theme.colors.interactionHighlight },
+  status: {
+    fontSize: Math.round(theme.fontSize.sm * 0.8),
+    fontWeight: theme.fontWeight.normal,
+    color: theme.colors.foregroundMuted,
+  },
   title: { flexShrink: 1, minWidth: 0 },
   arrow: { width: 16, height: 16, flexShrink: 0 },
   body: { gap: theme.spacing[1] },
