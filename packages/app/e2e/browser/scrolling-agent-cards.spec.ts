@@ -347,6 +347,16 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await agent.client.sendAgentMessage(agent.agentId, "Emit synthetic questions.");
     await expect(stack.getByTestId("question-form-card")).toBeAttached();
 
+    await page.setViewportSize({ width: 1900, height: 900 });
+    const rightColumn = page.getByTestId("thread-cards-column");
+    const leftColumn = page.getByTestId("thread-text-column");
+    await expect(rightColumn).toBeVisible();
+    await expect(leftColumn.getByTestId("question-form-card")).toBeAttached();
+    await expect(rightColumn.getByTestId("question-form-card")).toHaveCount(0);
+    await Promise.all(ids.map((id) => expect(rightColumn.getByTestId(id)).toBeAttached()));
+    await leftColumn.getByTestId("question-form-card").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath("questions-left-column.png") });
+
     for (const width of [1200, 390]) {
       await page.setViewportSize({ width, height: 650 });
       const goalCard = stack.getByTestId("agent-goal-bar");
@@ -581,7 +591,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await expect(entries).toHaveCount(2);
     await expect(entries.nth(0)).toContainText(firstEntry.text);
     await expect(entries.nth(1)).toContainText("Verified recovery and retry safety.");
-    await captureConsistentCards(page, stack, info);
+    await captureConsistentCards(page, info);
     await checkFixedHeaders(page, info, client, agent.agentId);
     for (const width of [1400, 390]) {
       await page.setViewportSize({ width, height: 900 });
@@ -747,7 +757,7 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
   expect(geometry[0].topClearance).toBeCloseTo(geometry[0].rightClearance!, 1);
 }
 
-async function captureConsistentCards(page: Page, stack: Locator, info: TestInfo) {
+async function captureConsistentCards(page: Page, info: TestInfo) {
   await page.setViewportSize({ width: 1400, height: 1600 });
   for (const id of [
     "subagents-card",
@@ -757,7 +767,7 @@ async function captureConsistentCards(page: Page, stack: Locator, info: TestInfo
     "agent-goal-bar",
     "question-form-card",
   ]) {
-    const card = stack.getByTestId(id);
+    const card = page.getByTestId(id);
     await card.scrollIntoViewIfNeeded();
     await page.mouse.move(0, 0);
     await card.screenshot({ path: info.outputPath(`consistent-${id}.png`) });

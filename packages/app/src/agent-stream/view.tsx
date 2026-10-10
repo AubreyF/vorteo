@@ -1003,6 +1003,26 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         }),
       [client, pendingPermissionItems],
     );
+    const pendingQuestionsNode = useMemo(
+      () =>
+        renderPendingPermissionsNode({
+          pendingPermissions: pendingPermissionItems.filter(
+            (item) => item.request.kind === "question",
+          ),
+          client,
+        }),
+      [client, pendingPermissionItems],
+    );
+    const pendingActionPermissionsNode = useMemo(
+      () =>
+        renderPendingPermissionsNode({
+          pendingPermissions: pendingPermissionItems.filter(
+            (item) => item.request.kind !== "question",
+          ),
+          client,
+        }),
+      [client, pendingPermissionItems],
+    );
     const turnFooterNode = useMemo(
       () =>
         isTurnActive || bottomTurnFooterHost ? (
@@ -1127,12 +1147,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const cards = useMemo(
       () =>
         renderLiveAuxiliaryNode({
-          pendingPermissions: auxiliary.pendingPermissions,
+          pendingPermissions: pendingActionPermissionsNode,
           turnFooter: null,
           taskCards,
           bottomOverlayInset: 0,
         }),
-      [auxiliary.pendingPermissions, taskCards],
+      [pendingActionPermissionsNode, taskCards],
     );
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
@@ -1142,7 +1162,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         existingTailSpacing,
       });
       return renderLiveAuxiliaryNode({
-        pendingPermissions: splitColumns ? null : auxiliary.pendingPermissions,
+        pendingPermissions: splitColumns ? pendingQuestionsNode : auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
         taskCards: splitColumns ? null : taskCards,
         bottomOverlayInset,
@@ -1150,6 +1170,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     }, [
       auxiliary.pendingPermissions,
       auxiliary.turnFooter,
+      pendingQuestionsNode,
       bottomOverlayTailClearance,
       splitColumns,
       taskCards,
