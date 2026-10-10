@@ -1695,8 +1695,12 @@ for (const { width, interaction } of [
         .last();
       if (interaction === "tap") await badge.click();
       else if (interaction === "keyboard") {
-        await badge.scrollIntoViewIfNeeded();
-        await expect(badge).toBeVisible();
+        // Column measurement can replace the first card node while scrolling.
+        // Reacquire it before testing keyboard focus, without changing tooltip assertions.
+        await expect(async () => {
+          await badge.scrollIntoViewIfNeeded();
+          await expect(badge).toBeInViewport();
+        }).toPass({ timeout: 10_000 });
         await page.keyboard.press("Tab");
         await badge.focus();
         await expect(badge).toBeFocused();

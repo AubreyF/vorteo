@@ -347,3 +347,5 @@ Card heading action review (2026-10-10): `TaskCardAction` owns outlined borders,
 Card heading integration review (2026-10-10): preserved the deployed workspace creation, installation controls and Factory changes while integrating bordered heading actions and inset hover backgrounds. Existing column centering and height sharing remain intact. README overview and onboarding are unchanged.
 
 October 10, 2026: Added blocked-reason tooltips and hourly existing-thread reassessment. Maintenance checks cover keyboard/touch explanations, durable cooldown, retained-session reload, archive races, owner pause preemption, queue preservation, goal limits and restart holds. Updated the protected loader to wait for an archive queued behind a shared resume.
+
+Blocked explanation integration review (2026-10-10): merged deployed card headings without changing the tooltip contract. Desktop hover, keyboard focus and compact tap checks passed. Keyboard setup reacquires a badge if column measurement replaces its DOM node during scrolling.
