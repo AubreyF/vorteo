@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.292 - 2026-10-10
+
+### Fixed
+
+- Connect managed Claude accounts through one shared panel without Host or Dev tabs. Show aggregate synchronization and disconnect status while retaining Models and profiles access.
+- Restrict owned legacy Claude account directories to private permissions during delivery without replacing history. Reject symbolic links and refuse permission widening.
+
+### Maintenance
+
+- Cover shared connection routing, pending delivery, retained history and desktop and compact management controls with focused checks. Live provider acceptance remains separate.
+
 ## 0.11.0-beta.3.vorteo.291 - 2026-10-10
 
 ### Maintenance
