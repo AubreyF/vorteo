@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { compare } from "bcryptjs";
 import { z } from "zod";
@@ -14,6 +15,8 @@ import {
 
 export interface BootstrapRequestJournal {
   read(): CoordinatorBootstrapRequest[];
+  /** Publish an exact protected claim only after independent recovery is armed. */
+  promote?(request: CoordinatorBootstrapRequest): void;
   /** Atomically compare against expected and persist next, or refuse the edit. */
   replace(expected: CoordinatorBootstrapRequest[], next: CoordinatorBootstrapRequest[]): void;
 }
@@ -28,6 +31,8 @@ export type BootstrapHostBinding = z.infer<typeof BindingSchema>;
 
 export class BootstrapRequestConflict extends Error {}
 export class BootstrapAuthenticationRequired extends Error {}
+/** Positive busy evidence only; parsing or identity failures must never use this type. */
+export class BootstrapCoordinatorBusy extends BootstrapRequestConflict {}
 
 /** Call only after verifying the exact coordinator is frozen and collecting its
  * children. A quiet journal from a running coordinator is not a dispatch fence. */
@@ -35,7 +40,7 @@ export function assertFrozenCoordinatorIdle(journal: unknown, childPids: unknown
   const jobs = parseLifecycleJournal(journal);
   const children = z.array(z.number().int().positive()).parse(childPids);
   if (children.length > 0)
-    throw new BootstrapRequestConflict("Coordinator preparation children are still running");
+    throw new BootstrapCoordinatorBusy("Coordinator preparation children are still running");
   for (const job of jobs) {
     if (job.target === "native-helper") {
       if (
@@ -43,14 +48,14 @@ export function assertFrozenCoordinatorIdle(journal: unknown, childPids: unknown
         (job.stage === "preparing" && job.status === "pending") ||
         job.stage === "recovery_required"
       )
-        throw new BootstrapRequestConflict("Coordinator has unresolved helper installation work");
+        throw new BootstrapCoordinatorBusy("Coordinator has unresolved helper installation work");
       continue;
     }
     const active = job.status === "approved" || job.status === "running";
     const held = job.finishCurrentTurns === true && job.holdReleased !== true;
     const preparing = job.sourceBatch?.status === "preparing";
     if (active || held || preparing)
-      throw new BootstrapRequestConflict("Coordinator has unresolved installation work");
+      throw new BootstrapCoordinatorBusy("Coordinator has unresolved installation work");
   }
 }
 
@@ -59,7 +64,9 @@ const dispatchIdentity = z.strictObject({
   revision: z.string().uuid(),
   planSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
-const progressIdentity = dispatchIdentity.extend({ generation: z.string().uuid() });
+const progressIdentity = dispatchIdentity.extend({
+  generation: z.string().uuid(),
+});
 const transitions: Record<CoordinatorBootstrapStage, readonly CoordinatorBootstrapStage[]> = {
   claimed: ["freeze_pending", "recovery_required"],
   freeze_pending: ["frozen", "resume_pending", "recovery_required"],
@@ -79,6 +86,14 @@ const transitions: Record<CoordinatorBootstrapStage, readonly CoordinatorBootstr
   rolled_back: [],
 };
 
+export function isCompletedBootstrap(request: CoordinatorBootstrapRequest): boolean {
+  return (
+    request.status === "approved" &&
+    request.execution !== undefined &&
+    ["succeeded", "resumed", "rolled_back"].includes(request.execution.stage)
+  );
+}
+
 /** A fresh review can follow verified restoration without rewriting failed history. */
 export function assertRecoveredBootstrapBase(
   plan: CoordinatorBootstrapPlan,
@@ -94,18 +109,21 @@ export function assertRecoveredBootstrapBase(
     ["recovery_required", "rolled_back", "resumed"].includes(previous.execution.stage);
   if (!previous || !sameFailure)
     throw new BootstrapRequestConflict("Recovered coordinator history changed");
-  const old = previous.plan.previous;
+  const old =
+    previous.execution?.stage === "rolled_back"
+      ? bootstrapRecoveryRelease(previous.plan)
+      : previous.plan.previous;
   const current = plan.previous;
+  const { configuration: oldConfiguration, launcher: oldLauncher, ...oldExecutable } = old;
+  const {
+    configuration: currentConfiguration,
+    launcher: currentLauncher,
+    ...currentExecutable
+  } = current;
   if (
-    old.directory !== current.directory ||
-    old.sourceCommit !== current.sourceCommit ||
-    old.artifactSha256 !== current.artifactSha256 ||
-    old.node.path !== current.node.path ||
-    old.node.sha256 !== current.node.sha256 ||
-    old.entrypoint.path !== current.entrypoint.path ||
-    old.entrypoint.sha256 !== current.entrypoint.sha256 ||
-    old.configuration.sha256 !== current.configuration.sha256 ||
-    old.launcher.sha256 !== current.launcher.sha256 ||
+    !isDeepStrictEqual(oldExecutable, currentExecutable) ||
+    oldConfiguration.sha256 !== currentConfiguration.sha256 ||
+    oldLauncher.sha256 !== currentLauncher.sha256 ||
     previous.plan.service !== plan.service ||
     previous.plan.installationId !== plan.installationId
   )
@@ -113,9 +131,21 @@ export function assertRecoveredBootstrapBase(
   return previous;
 }
 
+export function bootstrapRecoveryRelease(plan: CoordinatorBootstrapPlan) {
+  if (plan.automaticRecovery === "restore-compatible") {
+    if (!plan.compatibleRecovery)
+      throw new BootstrapRequestConflict("Compatible rollback requires an exact recovery release");
+    return plan.compatibleRecovery;
+  }
+  if (plan.compatibleRecovery)
+    throw new BootstrapRequestConflict("Recovery release requires compatible rollback approval");
+  return plan.previous;
+}
+
 export function coordinatorPlanDigest(value: unknown): string {
   // Zod emits the declared key order, independent of a caller's object key order.
   const plan = CoordinatorBootstrapPlanSchema.parse(value);
+  bootstrapRecoveryRelease(plan);
   return createHash("sha256").update(JSON.stringify(plan)).digest("hex");
 }
 
@@ -167,10 +197,20 @@ export class CoordinatorBootstrapRequests {
     }
     const recovered = assertRecoveredBootstrapBase(input.plan, expected);
     const superseded = new Set<string>();
-    for (let old = recovered; old; old = assertRecoveredBootstrapBase(old.plan, expected)) {
-      if (superseded.has(old.id))
-        throw new BootstrapRequestConflict("Cyclic bootstrap recovery history");
-      superseded.add(old.id);
+    const retainClosedChain = (first: CoordinatorBootstrapRequest | null) => {
+      const visited = new Set<string>();
+      for (let old = first; old; old = assertRecoveredBootstrapBase(old.plan, expected)) {
+        if (visited.has(old.id))
+          throw new BootstrapRequestConflict("Cyclic bootstrap recovery history");
+        visited.add(old.id);
+        superseded.add(old.id);
+      }
+    };
+    retainClosedChain(recovered);
+    // Completion closes admission ownership, not the audit record. A verified
+    // recovery also closes its exact failed ancestry; unrelated failures remain open.
+    for (const record of expected) {
+      if (isCompletedBootstrap(record)) retainClosedChain(record);
     }
     if (expected.some((item) => item.status !== "canceled" && !superseded.has(item.id)))
       throw new BootstrapRequestConflict("A coordinator bootstrap request is already open");
@@ -255,6 +295,13 @@ export class CoordinatorBootstrapRequests {
     return structuredClone(next);
   }
 
+  promoteDispatch(request: CoordinatorBootstrapRequest): void {
+    if (request.plan.automaticRecovery !== "restore-compatible") return;
+    if (!this.journal.promote)
+      throw new BootstrapRequestConflict("Bootstrap journal cannot protect compatible recovery");
+    this.journal.promote(request);
+  }
+
   advanceDispatch(value: unknown, stage: CoordinatorBootstrapStage): CoordinatorBootstrapRequest {
     const input = progressIdentity.parse(value);
     const expected = this.read();
@@ -271,8 +318,7 @@ export class CoordinatorBootstrapRequests {
       throw new BootstrapRequestConflict("Invalid bootstrap dispatch transition");
     if (
       stage === "rollback_pending" &&
-      (request.plan.automaticRecovery !== "restore-previous" ||
-        request.execution.rollbackAttemptedAt)
+      (!request.plan.automaticRecovery || request.execution.rollbackAttemptedAt)
     )
       throw new BootstrapRequestConflict("Automatic rollback requires unused exact plan approval");
     const updatedAt = new Date(this.now()).toISOString();

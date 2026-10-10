@@ -3,6 +3,10 @@ import {
   createConfiguredBootstrapReview,
 } from "./coordinator-bootstrap-launch.js";
 import { afterEach, test, expect, vi } from "vitest";
+import nativeFs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import { CoordinatorBootstrapRequestSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
   openSync,
   closeSync,
@@ -18,7 +22,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { waitForBootstrapWatchdog } from "./coordinator-bootstrap-runner.js";
@@ -42,8 +46,14 @@ import * as serviceCollector from "./coordinator-bootstrap-service.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
+import { CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
+import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
+import { preserveBootstrapState, verifyBootstrapState } from "./coordinator-bootstrap-state.js";
 import { requireBootstrapOwnership } from "./coordinator-bootstrap-ownership.js";
-import { selectBootstrapLauncher } from "./coordinator-bootstrap-selection.js";
+import {
+  selectBootstrapLauncher,
+  restoreBootstrapLauncher,
+} from "./coordinator-bootstrap-selection.js";
 
 const roots: string[] = [];
 
@@ -57,7 +67,10 @@ test.runIf(process.platform === "darwin")(
 <key>KeepAlive</key><true/><key>ProgramArguments</key><array>
 <string>/fixture/node</string><string>a&amp;b</string></array></dict></plist>`);
     writeFileSync(file, bytes, { mode: 0o600 });
-    const prepared = { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+    const prepared = {
+      path: file,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
     expect(await readBootstrapLauncher(prepared, [])).toEqual({
       Label: "fixture",
       KeepAlive: true,
@@ -72,7 +85,10 @@ test.runIf(process.platform === "darwin")(
     chmodSync(file, 0o600);
     const invalid = Buffer.from("private-fixture-value is not a plist");
     writeFileSync(file, invalid);
-    const invalidFile = { path: file, sha256: createHash("sha256").update(invalid).digest("hex") };
+    const invalidFile = {
+      path: file,
+      sha256: createHash("sha256").update(invalid).digest("hex"),
+    };
     await expect(readBootstrapLauncher(invalidFile, [])).rejects.toThrow(
       /^Prepared launcher is not a valid plist$/,
     );
@@ -84,7 +100,9 @@ test.runIf(process.platform === "darwin")(
   "native process inspection binds birth identity and hashes argv without exposing environment",
   async () => {
     const child = spawn("/bin/sleep", ["30"], {
-      env: { VORTEO_INSPECTION_SENTINEL: "fixture-environment-must-not-escape" },
+      env: {
+        VORTEO_INSPECTION_SENTINEL: "fixture-environment-must-not-escape",
+      },
       stdio: "ignore",
     });
     const closed = once(child, "close");
@@ -92,7 +110,9 @@ test.runIf(process.platform === "darwin")(
     const execute = promisify(execFile);
     const script = path.resolve("../../scripts/inspect-coordinator-process.py");
     const inspect = () =>
-      execute("/usr/bin/python3", [script, String(child.pid)], { timeout: 5000 });
+      execute("/usr/bin/python3", [script, String(child.pid)], {
+        timeout: 5000,
+      });
     try {
       const first = await inspect();
       const second = await inspect();
@@ -130,10 +150,16 @@ test.runIf(process.platform === "darwin")(
         writableMountRoots: [],
       };
       await expect(
-        createNativeBootstrapServiceReader({ ...options, helperSha256: "f".repeat(64) }),
+        createNativeBootstrapServiceReader({
+          ...options,
+          helperSha256: "f".repeat(64),
+        }),
       ).rejects.toThrow("bytes changed");
       await expect(
-        createNativeBootstrapServiceReader({ ...options, writableMountRoots: [root] }),
+        createNativeBootstrapServiceReader({
+          ...options,
+          writableMountRoots: [root],
+        }),
       ).rejects.toThrow("mount");
       const reader = await createNativeBootstrapServiceReader(options);
       const audited = await reader.inspectAuditedProcess(child.pid!);
@@ -216,7 +242,11 @@ test.runIf(process.platform === "darwin")(
             return null;
           }
         })
-        .toMatchObject({ pid: parent.pid, stopped: true, childPids: [childPid] });
+        .toMatchObject({
+          pid: parent.pid,
+          stopped: true,
+          childPids: [childPid],
+        });
       parent.kill("SIGCONT");
       await expect
         .poll(async () => {
@@ -253,19 +283,32 @@ test("bootstrap mount evidence distinguishes Host binds from verified local VM v
     "/private/guest",
   ]);
   expect(() =>
-    bootstrapWritableMountRoots({ container, containerId: "b".repeat(64), volumes }),
+    bootstrapWritableMountRoots({
+      container,
+      containerId: "b".repeat(64),
+      volumes,
+    }),
   ).toThrow("identity changed");
   expect(() => bootstrapWritableMountRoots({ container, containerId, volumes: [] })).toThrow(
     "missing or ambiguous",
   );
   expect(() =>
-    bootstrapWritableMountRoots({ container, containerId, volumes: [...volumes, ...volumes] }),
+    bootstrapWritableMountRoots({
+      container,
+      containerId,
+      volumes: [...volumes, ...volumes],
+    }),
   ).toThrow("missing or ambiguous");
   expect(() =>
     bootstrapWritableMountRoots({
       container,
       containerId,
-      volumes: [{ ...volumes[0], Options: { type: "none", o: "bind", device: "/private" } }],
+      volumes: [
+        {
+          ...volumes[0],
+          Options: { type: "none", o: "bind", device: "/private" },
+        },
+      ],
     }),
   ).toThrow("driver options");
 });
@@ -300,8 +343,18 @@ function fixture() {
       installationId,
       origin: "https://installation.example.test",
       environments: [
-        { kind: "host", serverId: "host-id", endpoint: "127.0.0.1:6768", useTls: false },
-        { kind: "container", serverId: "dev-id", endpoint: "127.0.0.1:6769", useTls: false },
+        {
+          kind: "host",
+          serverId: "host-id",
+          endpoint: "127.0.0.1:6768",
+          useTls: false,
+        },
+        {
+          kind: "container",
+          serverId: "dev-id",
+          endpoint: "127.0.0.1:6769",
+          useTls: false,
+        },
       ],
     },
     ownerPasswordHash: hashSync("fixture-password", 4),
@@ -373,7 +426,11 @@ test("bootstrap configuration preserves credentials, service targets and state w
     }),
   ).rejects.toThrow("configured Host");
   const verify = () =>
-    verifyBootstrapConfiguration({ plan, configurationFile: f.file, daemonId: "host-id" });
+    verifyBootstrapConfiguration({
+      plan,
+      configurationFile: f.file,
+      daemonId: "host-id",
+    });
   expect(verify).not.toThrow();
   const helper = {
     home: f.root,
@@ -397,7 +454,10 @@ test("bootstrap configuration preserves credentials, service targets and state w
       helperSha256: "a".repeat(64),
     }),
   ).rejects.toThrow("paired Host Docker identity");
-  save(candidateFile, { ...f.config, nativeHelper: { ...helper, home: "/different" } });
+  save(candidateFile, {
+    ...f.config,
+    nativeHelper: { ...helper, home: "/different" },
+  });
   expect(verify).toThrow("outside its approved policy");
   plan.nativeHelperConfiguration = null;
   save(candidateFile, f.config);
@@ -504,7 +564,9 @@ test.runIf(process.platform === "darwin")(
       mkdirSync(directory, { mode: 0o700 });
       const entrypoint = path.join(directory, "entry.js");
       writeFileSync(entrypoint, "export {};", { mode: 0o600 });
-      save(path.join(directory, ".installation-source.json"), { sourceCommit: "a".repeat(40) });
+      save(path.join(directory, ".installation-source.json"), {
+        sourceCommit: "a".repeat(40),
+      });
       const configuration = save(path.join(f.root, name + ".json"), f.config);
       const launcher = save(path.join(f.root, name + ".plist"), {
         Label: service.split("/").slice(2).join("/"),
@@ -547,7 +609,9 @@ test.runIf(process.platform === "darwin")(
     const docker = path.join(f.root, "docker-fixture");
     const mounts = path.join(f.root, "mounts.json");
     save(mounts, { Id: "a".repeat(64), State: { Running: true }, Mounts: [] });
-    writeFileSync(docker, '#!/bin/sh\nexec /bin/cat "' + mounts + '"\n', { mode: 0o700 });
+    writeFileSync(docker, '#!/bin/sh\nexec /bin/cat "' + mounts + '"\n', {
+      mode: 0o700,
+    });
     const host = {
       daemonId: "host-id",
       configurationFile: f.file,
@@ -561,7 +625,12 @@ test.runIf(process.platform === "darwin")(
     let duringInspection = () => {};
     const inspectProcess = vi.fn(async () => {
       duringInspection();
-      return { ...expectedProcess, parentPid: 1, uid: process.getuid!(), executable: node };
+      return {
+        ...expectedProcess,
+        parentPid: 1,
+        uid: process.getuid!(),
+        executable: node,
+      };
     });
     vi.spyOn(serviceCollector, "createNativeBootstrapServiceReader").mockResolvedValue({
       readService: async () => `${service} = {\n\tpid = 123\n}`,
@@ -569,6 +638,39 @@ test.runIf(process.platform === "darwin")(
     });
     await expect(verifyBootstrapPlan(plan, host)).resolves.toBeUndefined();
     expect(inspectProcess).toHaveBeenCalledTimes(4);
+    const compatibleRecovery = await makeRelease("compatible-recovery", "");
+    const compatiblePlan = {
+      ...plan,
+      automaticRecovery: "restore-compatible" as const,
+      compatibleRecovery,
+    };
+    await expect(verifyBootstrapPlan(compatiblePlan, host)).resolves.toBeUndefined();
+    const selectedRecovery = path.join(f.root, "selected-recovery.plist");
+    writeFileSync(selectedRecovery, readFileSync(previous.launcher.path), {
+      mode: 0o600,
+    });
+    await restoreBootstrapLauncher({
+      plan: compatiblePlan,
+      launcherFile: selectedRecovery,
+      configurationFile: f.file,
+      writableMountRoots: [],
+      authorizeSelection: async () => {},
+    });
+    expect(readFileSync(selectedRecovery)).toEqual(readFileSync(compatibleRecovery.launcher.path));
+    const recoveryConfigBytes = readFileSync(compatibleRecovery.configuration.path);
+    save(compatibleRecovery.configuration.path, {
+      ...f.config,
+      listen: { host: "127.0.0.1", port: 9999 },
+    });
+    expect(() =>
+      verifyBootstrapConfiguration({
+        plan: compatiblePlan,
+        configurationFile: f.file,
+        daemonId: "host-id",
+      }),
+    ).toThrow();
+    writeFileSync(compatibleRecovery.configuration.path, recoveryConfigBytes);
+
     writeFileSync(host.helperPath, "fixture helper", { mode: 0o600 });
     writeFileSync(host.socket, "fixture endpoint", { mode: 0o600 });
     const { daemonId, ...setup } = host;
@@ -576,7 +678,11 @@ test.runIf(process.platform === "darwin")(
     save(setupFile, setup);
     const review = await createBootstrapReviewService(setupFile, daemonId);
     expect(review.list()).toEqual([]);
-    const request = await review.prepare({ id: randomUUID(), reason: "fixture bootstrap", plan });
+    const request = await review.prepare({
+      id: randomUUID(),
+      reason: "fixture bootstrap",
+      plan,
+    });
     expect(request.status).toBe("pending");
     expect(review.list()).toHaveLength(1);
     save(setupFile, { ...setup, containerId: "b".repeat(64) });
@@ -612,7 +718,10 @@ test.runIf(process.platform === "darwin")(
       authorizeSelection: async () => {},
     };
     await expect(
-      selectBootstrapLauncher({ ...selection, launcherFile: previous.launcher.path }),
+      selectBootstrapLauncher({
+        ...selection,
+        launcherFile: previous.launcher.path,
+      }),
     ).rejects.toThrow("rollback");
     await expect(
       selectBootstrapLauncher({
@@ -629,7 +738,11 @@ test.runIf(process.platform === "darwin")(
     await expect(selectBootstrapLauncher(selection)).rejects.toThrow("digest changed");
     writeFileSync(selectedLauncher, previousBytes);
     duringInspection = () => {};
-    save(mounts, { Id: host.containerId, State: { Running: true }, Mounts: [] });
+    save(mounts, {
+      Id: host.containerId,
+      State: { Running: true },
+      Mounts: [],
+    });
     const approved = await review.decide(
       {
         id: request.id,
@@ -690,7 +803,10 @@ test.runIf(process.platform === "darwin")(
         stopped: true as const,
         childPids: [],
       }),
-      inspectRunningProcess: async () => ({ ...processIdentity, stopped: false as const }),
+      inspectRunningProcess: async () => ({
+        ...processIdentity,
+        stopped: false as const,
+      }),
       verifyProcessExited: async () => {},
       verifyServiceAbsent: async () => {},
     };
@@ -743,7 +859,9 @@ test.runIf(process.platform === "darwin")(
     import {spawnSync} from 'node:child_process';
     const fd=Number(process.env.VORTEO_BOOTSTRAP_LOCK_FD);
     if(!Number.isInteger(fd)||!fs.fstatSync(fd).isFile())process.exit(2);
-    const verified=spawnSync('/usr/bin/python3',['-I','-B',${JSON.stringify(verifierPath)},${JSON.stringify(lock)}],{stdio:['ignore','ignore','pipe',fd]});
+    const verified=spawnSync('/usr/bin/python3',['-I','-B',${JSON.stringify(
+      verifierPath,
+    )},${JSON.stringify(lock)}],{stdio:['ignore','ignore','pipe',fd]});
     if(verified.status!==0)process.exit(3);
     process.stdout.write('owned\\n');
     process.stdin.resume();
@@ -896,7 +1014,9 @@ test.each([
 ] as const)(
   "watchdog readiness observes the bounded child handshake: %s",
   async (code, ready, role) => {
-    const child = spawn(process.execPath, ["-e", code], { stdio: ["pipe", "pipe", "ignore"] });
+    const child = spawn(process.execPath, ["-e", code], {
+      stdio: ["pipe", "pipe", "ignore"],
+    });
     const closed = once(child, "close");
     try {
       const result = waitForBootstrapWatchdog(child, role);
@@ -913,7 +1033,10 @@ test("bootstrap review stays unavailable without setup and rejects a different d
   await expect(createManagedBootstrapReview(undefined, "host-id")).resolves.toBeUndefined();
   const { root } = fixture();
   const setup = path.join(root, "runner.json");
-  const file = { path: path.join(root, "not-executed"), sha256: "a".repeat(64) };
+  const file = {
+    path: path.join(root, "not-executed"),
+    sha256: "a".repeat(64),
+  };
   writeFileSync(
     setup,
     JSON.stringify({
@@ -939,7 +1062,9 @@ test.runIf(process.platform === "darwin")(
     const { root } = fixture();
     const client = path.join(root, "client.json");
     const environment = { VORTEO_INSTALLATION_CLIENT_CONFIG: client };
-    writeFileSync(client, JSON.stringify({ kind: "host-agent" }), { mode: 0o600 });
+    writeFileSync(client, JSON.stringify({ kind: "host-agent" }), {
+      mode: 0o600,
+    });
     await expect(createConfiguredBootstrapReview("host-id", environment)).resolves.toBeUndefined();
     const setup = path.join(root, "coordinator-bootstrap-runner.json");
     writeFileSync(setup, "{}", { mode: 0o600 });
@@ -1035,3 +1160,509 @@ finally:
     expect(result.stdout.trim()).toBe("verified");
   },
 );
+
+test.runIf(process.platform === "darwin")(
+  "independent watchdog reads a pre-promotion claim and follows main after progress",
+  async () => {
+    const f = fixture();
+    const id = randomUUID();
+    const generation = randomUUID();
+    const plan = { automaticRecovery: "restore-compatible" };
+    const planSha256 = createHash("sha256").update(JSON.stringify(plan)).digest("hex");
+    const request = {
+      id,
+      status: "approved",
+      plan,
+      planSha256,
+      execution: { generation, stage: "claimed" },
+    };
+    const pendingFile = path.join(f.root, "coordinator-bootstrap-pending.json");
+    writeFileSync(
+      pendingFile,
+      JSON.stringify({ version: 1, requests: [request], promotions: [] }),
+      { mode: 0o600 },
+    );
+    const script = path.resolve("../../scripts/run-coordinator-owner.py");
+    const record = JSON.stringify({ id, generation, planSha256 });
+    const read = () =>
+      promisify(execFile)("/usr/bin/python3", [
+        "-c",
+        "import runpy,sys,json; m=runpy.run_path(sys.argv[1]); print(m['read_executor_stage'](sys.argv[2],json.loads(sys.argv[3])))",
+        script,
+        f.root,
+        record,
+      ]);
+    expect((await read()).stdout.trim()).toBe("claimed");
+    const mainFile = path.join(f.root, "coordinator-bootstrap.json");
+    writeFileSync(
+      mainFile,
+      JSON.stringify({
+        version: 1,
+        requests: [{ ...request, execution: { generation, stage: "frozen" } }],
+      }),
+      { mode: 0o600 },
+    );
+    expect((await read()).stdout.trim()).toBe("frozen");
+    writeFileSync(
+      mainFile,
+      JSON.stringify({
+        version: 1,
+        requests: [
+          {
+            ...request,
+            execution: { generation: randomUUID(), stage: "frozen" },
+          },
+        ],
+      }),
+    );
+    await expect(read()).rejects.toThrow("Watchdog generation changed");
+  },
+);
+
+test("uncertain main-directory sync refuses promotion until durable reconciliation", () => {
+  const f = fixture();
+  const journal = new FileBootstrapRequestJournal(f.root);
+  const identity = { path: "/fixture/file", sha256: "a".repeat(64) };
+  const release = {
+    sourceCommit: "b".repeat(40),
+    directory: "/fixture/release",
+    artifactSha256: "c".repeat(64),
+    node: identity,
+    entrypoint: identity,
+    configuration: identity,
+    launcher: identity,
+  };
+  const request = CoordinatorBootstrapRequestSchema.parse({
+    id: randomUUID(),
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "fixture",
+    createdAt: new Date(0).toISOString(),
+    decisionAt: new Date(1).toISOString(),
+    status: "approved",
+    planSha256: "a".repeat(64),
+    plan: {
+      version: 1,
+      operation: "coordinator-bootstrap",
+      installationId: randomUUID(),
+      service: "gui/501/local.vorteo.fixture.installation",
+      expectedProcess: {
+        pid: 123,
+        bootId: "fixture",
+        startIdentity: "fixture",
+        argumentsSha256: "d".repeat(64),
+      },
+      previous: release,
+      candidate: release,
+      compatibleRecovery: release,
+      automaticRecovery: "restore-compatible",
+      state: {
+        directory: f.root,
+        restartJournal: f.root + "/restart-jobs.json",
+        ownerSessions: f.root + "/owner-sessions.json",
+      },
+      hostRequestsAfter: null,
+    },
+    execution: {
+      generation: randomUUID(),
+      stage: "claimed",
+      updatedAt: new Date(2).toISOString(),
+    },
+  });
+  const { compatibleRecovery: _recovery, ...legacyPlan } = request.plan;
+  const legacy = {
+    ...request,
+    id: randomUUID(),
+    plan: { ...legacyPlan, automaticRecovery: "restore-previous" as const },
+  };
+  journal.replace([], [legacy]);
+  const mainFile = path.join(f.root, "coordinator-bootstrap.json");
+  const retainedMain = readFileSync(mainFile);
+  journal.replace([legacy], [legacy, request]);
+  expect(readFileSync(mainFile)).toEqual(retainedMain);
+  const sync = nativeFs.fsyncSync;
+  const fault = vi.spyOn(nativeFs, "fsyncSync").mockImplementation((descriptor) => {
+    if (
+      JSON.parse(readFileSync(mainFile, "utf8")).requests.some(
+        (item: { id: string }) => item.id === request.id,
+      ) &&
+      nativeFs.fstatSync(descriptor).isDirectory()
+    ) {
+      expect(() =>
+        execFileSync(
+          "/usr/bin/python3",
+          [
+            "-I",
+            "-B",
+            "-c",
+            "import fcntl,sys; f=open(sys.argv[1]); fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)",
+            path.join(f.root, "coordinator-bootstrap.lock"),
+          ],
+          { stdio: "pipe" },
+        ),
+      ).toThrow();
+      throw new Error("fixture directory sync failure");
+    }
+    sync(descriptor);
+  });
+  syncBuiltinESMExports();
+  try {
+    expect(() => journal.promote(request)).toThrow("fixture directory sync failure");
+    expect(journal.read()).toEqual([legacy, request]);
+  } finally {
+    fault.mockRestore();
+    syncBuiltinESMExports();
+  }
+  journal.promote(request);
+  expect(journal.readPromoted()).toEqual([legacy, request]);
+});
+
+test.runIf(process.platform === "darwin")(
+  "journal writer death releases exclusion without replacing its inode",
+  async () => {
+    const f = fixture();
+    const journal = new FileBootstrapRequestJournal(f.root);
+    journal.replace([], []);
+    const lock = path.join(f.root, "coordinator-bootstrap.lock");
+    const inode = nativeFs.statSync(lock).ino;
+    const child = spawn(
+      "/usr/bin/python3",
+      [
+        "-I",
+        "-B",
+        "-u",
+        "-c",
+        "import fcntl,sys,time; f=open(sys.argv[1]); fcntl.flock(f,fcntl.LOCK_EX); print('held',flush=True); time.sleep(60)",
+        lock,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const closed = once(child, "close");
+    try {
+      const [ready] = await once(child.stdout!, "data");
+      expect(String(ready).trim()).toBe("held");
+      expect(() => journal.replace([], [])).toThrow("storage is busy");
+    } finally {
+      // Only this disposable fixture process receives a signal.
+      child.kill("SIGKILL");
+      await closed;
+    }
+    journal.replace([], []);
+    expect(nativeFs.statSync(lock).ino).toBe(inode);
+  },
+);
+
+test
+  .runIf(process.platform === "darwin")
+  .each([
+    "before-freeze",
+    "after-freeze",
+    "during-preservation",
+    "after-preservation",
+    "busy-children",
+    "busy-journal",
+    "busy-during-freeze",
+    "invalid-journal",
+    "busy-ownership-lost",
+  ])("compatible native recovery completes the early handoff after %s", async (interruption) => {
+  const f = fixture();
+  const hash = (bytes: string) => createHash("sha256").update(bytes).digest("hex");
+  const save = (file: string, value: unknown) => {
+    const bytes = JSON.stringify(value);
+    writeFileSync(file, bytes, { mode: 0o600 });
+    return { path: file, sha256: hash(bytes) };
+  };
+  const node = path.join(f.root, "node");
+  writeFileSync(node, "fixture executable", { mode: 0o700 });
+  const serviceName = f.config.host.launchdService.replace(/\.host$/, ".installation");
+  const release = async (name: string, selectedConfiguration: string | null) => {
+    const directory = path.join(f.root, name);
+    mkdirSync(directory, { mode: 0o700 });
+    const entrypoint = path.join(directory, "entry.js");
+    writeFileSync(entrypoint, name, { mode: 0o600 });
+    save(path.join(directory, ".installation-source.json"), {
+      sourceCommit: "a".repeat(40),
+    });
+    const configuration = save(path.join(f.root, name + ".json"), f.config);
+    const launcher = save(path.join(f.root, name + ".plist"), {
+      Label: serviceName.split("/").slice(2).join("/"),
+      ProgramArguments: [node, entrypoint, selectedConfiguration ?? configuration.path],
+      KeepAlive: true,
+    });
+    return {
+      directory,
+      sourceCommit: "a".repeat(40),
+      artifactSha256: await digestBootstrapArtifact(directory),
+      node: { path: node, sha256: hash("fixture executable") },
+      entrypoint: { path: entrypoint, sha256: hash(name) },
+      configuration,
+      launcher,
+    };
+  };
+  const previous = await release("previous", f.file);
+  const recovery = await release("recovery", null);
+  const launcherFile = path.join(f.root, "selected.plist");
+  writeFileSync(launcherFile, readFileSync(previous.launcher.path), {
+    mode: 0o600,
+  });
+  const expectedProcess = {
+    pid: 123,
+    bootId: randomUUID(),
+    startIdentity: "1234:5678",
+    argumentsSha256: hash(JSON.stringify([node, previous.entrypoint.path, f.file])),
+  };
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: f.config.public.installationId,
+    service: serviceName,
+    expectedProcess,
+    previous,
+    candidate: recovery,
+    compatibleRecovery: recovery,
+    automaticRecovery: "restore-compatible",
+    hostRequestsAfter: null,
+    state: {
+      directory: f.config.stateDir,
+      restartJournal: path.join(f.config.stateDir, "restart-jobs.json"),
+      ownerSessions: path.join(f.config.stateDir, "owner-sessions.json"),
+    },
+  });
+  const journal = new FileBootstrapRequestJournal(f.config.stateDir);
+  const requests = new CoordinatorBootstrapRequests(
+    journal,
+    () => ({
+      environment: "host",
+      installationId: plan.installationId,
+      service: serviceName,
+      ownerPasswordHash: f.config.ownerPasswordHash,
+    }),
+    async () => {},
+  );
+  const pending = await requests.prepare({
+    id: randomUUID(),
+    reason: "fixture recovery",
+    plan,
+  });
+  const approved = await requests.decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    "fixture-password",
+  );
+  let record = await requests.claimDispatch({
+    id: approved.id,
+    revision: approved.revision,
+    planSha256: approved.planSha256,
+  });
+  requests.promoteDispatch(record);
+  record = requests.advanceDispatch(
+    {
+      id: record.id,
+      revision: record.revision,
+      planSha256: record.planSha256,
+      generation: record.execution!.generation,
+    },
+    "freeze_pending",
+  );
+  if (interruption.endsWith("preservation"))
+    record = requests.advanceDispatch(
+      {
+        id: record.id,
+        revision: record.revision,
+        planSha256: record.planSha256,
+        generation: record.execution!.generation,
+      },
+      "frozen",
+    );
+  if (interruption === "after-preservation")
+    await preserveBootstrapState({
+      request: record,
+      writableMountRoots: [],
+      childPids: [],
+    });
+  if (interruption === "during-preservation") {
+    const failure = vi.spyOn(nativeFs, "renameSync").mockImplementation(() => {
+      throw new Error("fixture interrupted receipt");
+    });
+    syncBuiltinESMExports();
+    try {
+      await expect(
+        preserveBootstrapState({
+          request: {
+            ...record,
+            execution: { ...record.execution!, stage: "frozen" },
+          },
+          writableMountRoots: [],
+          childPids: [],
+        }),
+      ).rejects.toThrow("fixture interrupted receipt");
+    } finally {
+      failure.mockRestore();
+      syncBuiltinESMExports();
+    }
+  }
+  if (interruption === "busy-journal")
+    save(plan.state.restartJournal, [
+      {
+        id: randomUUID(),
+        revision: randomUUID(),
+        target: "host",
+        reason: "fixture",
+        requestedBy: "host-agent",
+        createdAt: "2026-10-08T00:00:00.000Z",
+        expiresAt: "2026-10-09T00:00:00.000Z",
+        status: "approved",
+        detail: "fixture",
+      },
+    ]);
+  if (interruption === "invalid-journal") save(plan.state.restartJournal, { invalid: true });
+  const busy = interruption.startsWith("busy-");
+  let observedBusy = false;
+  let stopped = interruption !== "before-freeze" && interruption !== "busy-during-freeze";
+  let loaded = true;
+  let oldExited = false;
+  let identity = {
+    ...expectedProcess,
+    parentPid: 1,
+    uid: process.getuid!(),
+    executable: node,
+  };
+  const effects: string[][] = [];
+  const native = createBootstrapNativeLifecycle(
+    {
+      requests,
+      configurationFile: f.file,
+      launcherFile,
+      writableMountRoots: async () => [],
+      requireOwnership: async () => {
+        if (observedBusy && interruption === "busy-ownership-lost")
+          throw new Error("lost ownership");
+      },
+      readHealth: async () => ({ installationId: plan.installationId }),
+      reader: {
+        readService: async () => {
+          if (!loaded) throw new Error("absent");
+          return `${serviceName} = {\n\tpid = ${identity.pid}\n}`;
+        },
+        inspectProcess: async () => identity,
+        inspectAuditedProcess: async () => {
+          throw new Error("Unexpected audit");
+        },
+        inspectStoppedProcess: async () => {
+          if (!stopped) throw new Error("running");
+          observedBusy = busy;
+          return {
+            ...identity,
+            stopped: true as const,
+            childPids:
+              interruption === "busy-children" || interruption === "busy-ownership-lost"
+                ? [999]
+                : [],
+          };
+        },
+        inspectRunningProcess: async () => {
+          if (stopped) throw new Error("stopped");
+          return { ...identity, stopped: false as const };
+        },
+        verifyProcessExited: async () => {
+          if (!oldExited) throw new Error("old still running");
+        },
+        verifyServiceAbsent: async () => {
+          if (loaded) throw new Error("still loaded");
+        },
+      },
+    },
+    {
+      run: async (args) => {
+        effects.push([...args]);
+        if (args[0] === "kill") {
+          expect(["SIGSTOP", "SIGCONT"]).toContain(args[1]);
+          if (args[1] === "SIGSTOP" && interruption === "busy-during-freeze") {
+            save(plan.state.restartJournal, [
+              {
+                id: randomUUID(),
+                revision: randomUUID(),
+                target: "host",
+                reason: "fixture race",
+                requestedBy: "host-agent",
+                createdAt: "2026-10-08T00:00:00.000Z",
+                expiresAt: "2026-10-09T00:00:00.000Z",
+                status: "running",
+                detail: "fixture",
+              },
+            ]);
+          }
+          stopped = args[1] === "SIGSTOP";
+        } else if (args[0] === "bootout") {
+          loaded = false;
+          oldExited = true;
+        } else if (args[0] === "bootstrap") {
+          loaded = true;
+          stopped = false;
+          identity = {
+            ...identity,
+            pid: 124,
+            startIdentity: "1234:9999",
+            argumentsSha256: hash(
+              JSON.stringify([node, recovery.entrypoint.path, recovery.configuration.path]),
+            ),
+          };
+        } else throw new Error("Unexpected native command");
+      },
+    },
+  );
+  const result = await recoverAbandonedBootstrap(
+    requests,
+    { id: record.id, generation: record.execution!.generation },
+    {
+      withOwnership: async (operation) => operation(),
+      verifyExecutorExited: async () => {},
+      resumePrevious: async () => {
+        throw new Error("Must not resume previous");
+      },
+      restorePrevious: native.restorePrevious,
+    },
+  );
+  if (busy || interruption === "invalid-journal") {
+    expect(result.execution!.stage).toBe("recovery_required");
+    expect(result.execution!.rollbackAttemptedAt).toBeTruthy();
+    const resumed =
+      interruption === "busy-children" ||
+      interruption === "busy-journal" ||
+      interruption === "busy-during-freeze";
+    expect(effects).toEqual([
+      ...(interruption === "busy-during-freeze" ? [["kill", "SIGSTOP", serviceName]] : []),
+      ...(resumed ? [["kill", "SIGCONT", serviceName]] : []),
+    ]);
+    expect(stopped).toBe(!resumed);
+    expect(readFileSync(launcherFile)).toEqual(readFileSync(previous.launcher.path));
+    const retry = vi.fn();
+    await recoverAbandonedBootstrap(
+      requests,
+      {
+        id: record.id,
+        generation: record.execution!.generation,
+      },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        resumePrevious: retry,
+        restorePrevious: retry,
+      },
+    );
+    expect(retry).not.toHaveBeenCalled();
+    return;
+  }
+  expect(result.execution!.stage).toBe("rolled_back");
+  expect(effects).toEqual([
+    ...(interruption === "before-freeze" ? [["kill", "SIGSTOP", serviceName]] : []),
+    ["bootout", serviceName],
+    ["bootstrap", `gui/${process.getuid!()}`, launcherFile],
+  ]);
+  expect(readFileSync(launcherFile)).toEqual(readFileSync(recovery.launcher.path));
+  await verifyBootstrapState({ request: result, writableMountRoots: [] });
+});

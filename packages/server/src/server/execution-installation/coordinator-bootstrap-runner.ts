@@ -31,7 +31,7 @@ import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
 
 function watchdogRecoveryArguments(request: CoordinatorBootstrapRequest): string[] {
-  return request.plan.automaticRecovery === "restore-previous" ? ["automatic-recovery"] : [];
+  return request.plan.automaticRecovery !== undefined ? ["automatic-recovery"] : [];
 }
 
 function findRunnerRequest(

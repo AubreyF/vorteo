@@ -8,6 +8,8 @@ import {
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
   assertRecoveredBootstrapBase,
+  bootstrapRecoveryRelease,
+  isCompletedBootstrap,
   BootstrapRequestConflict,
   coordinatorPlanDigest,
 } from "./coordinator-bootstrap.js";
@@ -63,7 +65,11 @@ export function coordinatorStartupAdmission(
       throw new BootstrapRequestConflict("Bootstrap startup evidence does not match installation");
   }
   const replaced = replacedBootstrapRequests(requests);
-  const dispatched = requests.filter((request) => request.execution && !replaced.has(request.id));
+  // Retain completed generations as audit evidence without counting them as
+  // active owners of the next handoff. Unresolved unrelated failures still fence startup.
+  const dispatched = requests.filter(
+    (request) => request.execution && !replaced.has(request.id) && !isCompletedBootstrap(request),
+  );
   if (dispatched.length > 1)
     throw new BootstrapRequestConflict("Multiple bootstrap ownership generations require recovery");
   const request = dispatched[0];
@@ -72,10 +78,6 @@ export function coordinatorStartupAdmission(
     current.node === release.node.path &&
     current.entrypoint === release.entrypoint.path &&
     current.configuration === release.configuration.path;
-  // Completed history cannot pin all future routine coordinator releases to
-  // this one-time candidate. A waiting process still checks its generation.
-  if (["resumed", "succeeded", "rolled_back"].includes(request.execution.stage))
-    return { kind: "ordinary" };
   const previousArguments = createHash("sha256")
     .update(JSON.stringify([current.node, current.entrypoint, current.configuration]))
     .digest("hex");
@@ -83,7 +85,11 @@ export function coordinatorStartupAdmission(
     current.node === request.plan.previous.node.path &&
     current.entrypoint === request.plan.previous.entrypoint.path &&
     previousArguments === request.plan.expectedProcess.argumentsSha256;
-  if (request.execution.stage === "rollback_pending" && matchesPrevious)
+  const matchesRecovery =
+    request.plan.automaticRecovery === "restore-compatible"
+      ? matches(bootstrapRecoveryRelease(request.plan))
+      : matchesPrevious;
+  if (request.execution.stage === "rollback_pending" && matchesRecovery)
     return { kind: "ordinary" };
   if (!matches(request.plan.candidate))
     throw new BootstrapRequestConflict("Coordinator startup does not match selected candidate");
@@ -123,12 +129,12 @@ export function loadCoordinatorStartupFence(identity: CoordinatorStartupIdentity
     throw error;
   }
   const journal = new FileBootstrapRequestJournal(current.stateDirectory);
-  const admission = coordinatorStartupAdmission(journal.read(), current);
+  const admission = coordinatorStartupAdmission(journal.readPromoted(), current);
   if (admission.kind === "ordinary") return undefined;
   const expected = admission.request;
   if (!expected.execution) throw new BootstrapRequestConflict("Startup generation is missing");
   return {
     generation: expected.execution.generation,
-    released: () => coordinatorStartupReleased(journal.read(), current, expected),
+    released: () => coordinatorStartupReleased(journal.readPromoted(), current, expected),
   };
 }

@@ -3786,10 +3786,19 @@ export class DaemonClient {
       throw new Error("Coordinator bootstrap review is unavailable on this daemon.");
   }
 
-  private bootstrapReviewCapabilities(): { factoryRuntimeAdoption?: true } {
-    return this.lastServerInfoMessage?.features?.coordinatorBootstrapFactoryAdoption === true
-      ? { factoryRuntimeAdoption: true }
-      : {};
+  private bootstrapReviewCapabilities(): {
+    factoryRuntimeAdoption?: true;
+    compatibleRecovery?: true;
+  } {
+    const features = this.lastServerInfoMessage?.features;
+    return {
+      ...(features?.coordinatorBootstrapFactoryAdoption === true
+        ? { factoryRuntimeAdoption: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapCompatibleRecovery === true
+        ? { compatibleRecovery: true as const }
+        : {}),
+    };
   }
 
   async listCoordinatorBootstrapRequests(): Promise<CoordinatorBootstrapRequest[]> {
@@ -3812,6 +3821,11 @@ export class DaemonClient {
     input: CoordinatorBootstrapPreparation,
   ): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
+    if (
+      input.plan.compatibleRecovery &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapCompatibleRecovery !== true
+    )
+      throw new Error("Update the Host before preparing compatible coordinator recovery.");
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.prepare.response">({
         message: {

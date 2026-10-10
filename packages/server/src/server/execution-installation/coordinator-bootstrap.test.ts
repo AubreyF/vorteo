@@ -17,6 +17,7 @@ import {
   CoordinatorBootstrapRequestSchema,
   CoordinatorBootstrapPlanSchema,
   type CoordinatorBootstrapPlan,
+  type CoordinatorBootstrapRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { handleBootstrapReview } from "./coordinator-bootstrap-session.js";
 import {
@@ -357,6 +358,105 @@ test("preparation is idempotent and rejects another open request or changed requ
   );
   await expect(f.prepare()).rejects.toThrow("already open");
   expect(f.service().list()).toEqual([first]);
+});
+
+test.each(["succeeded", "resumed", "rolled_back"] as const)(
+  "a %s bootstrap retains history and permits a new pending review",
+  async (stage) => {
+    const f = fixture();
+    const first = await f.prepare();
+    const completed = {
+      ...first,
+      status: "approved" as const,
+      execution: { generation: randomUUID(), stage, updatedAt: new Date().toISOString() },
+    };
+    f.journal.replace([first], [completed]);
+    let verified = false;
+    f.setVerify(async () => {
+      verified = true;
+    });
+    const next = await f.prepare();
+    expect(verified).toBe(true);
+    expect(next.status).toBe("pending");
+    expect(next.execution).toBeUndefined();
+    expect(f.service().list()).toEqual([completed, next]);
+    await expect(f.prepare()).rejects.toThrow("already open");
+  },
+);
+
+test("successful recovery closes only its exact failed ancestry for later maintenance", async () => {
+  const f = fixture();
+  const first = await f.prepare();
+  const failed = {
+    ...first,
+    status: "approved" as const,
+    execution: {
+      generation: randomUUID(),
+      stage: "recovery_required" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([first], [failed]);
+  const plan = {
+    ...f.plan,
+    recoveredFrom: {
+      id: failed.id,
+      revision: failed.revision,
+      planSha256: failed.planSha256,
+      generation: failed.execution.generation,
+    },
+  };
+  const pending = await f.service().prepare({ id: randomUUID(), reason: "Recovery", plan });
+  const completed = {
+    ...pending,
+    status: "approved" as const,
+    execution: {
+      generation: randomUUID(),
+      stage: "succeeded" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([failed, pending], [failed, completed]);
+  const next = await f.prepare();
+  expect(f.service().list()).toEqual([failed, completed, next]);
+  const active = {
+    ...next,
+    status: "approved" as const,
+    execution: {
+      generation: randomUUID(),
+      stage: "start_pending" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.plan.state.directory,
+    node: next.plan.candidate.node.path,
+    entrypoint: next.plan.candidate.entrypoint.path,
+    configuration: next.plan.candidate.configuration.path,
+  };
+  expect(coordinatorStartupAdmission([failed, completed, active], identity)).toEqual({
+    kind: "fenced",
+    request: active,
+  });
+  expect(coordinatorStartupReleased([failed, completed, active], identity, active)).toBe(false);
+  const finished = { ...active, execution: { ...active.execution, stage: "succeeded" as const } };
+  expect(coordinatorStartupReleased([failed, completed, finished], identity, active)).toBe(true);
+  // A separate unresolved failure must still fence the next review.
+  const unrelated = { ...failed, id: randomUUID() };
+  f.journal.replace([failed, completed, next], [failed, completed, unrelated]);
+  await expect(f.prepare()).rejects.toThrow("already open");
+  expect(() =>
+    coordinatorStartupAdmission([failed, completed, unrelated, active], identity),
+  ).toThrow("Multiple bootstrap");
+  // A terminal label cannot cover a changed recovery generation.
+  const stale = {
+    ...completed,
+    plan: { ...completed.plan, recoveredFrom: { ...plan.recoveredFrom, generation: randomUUID() } },
+  };
+  stale.planSha256 = coordinatorPlanDigest(stale.plan);
+  f.journal.replace([failed, completed, unrelated], [failed, stale]);
+  await expect(f.prepare()).rejects.toThrow("history changed");
 });
 
 test("approval rechecks artifacts and rejects stale revision or installation selection", async () => {
@@ -1691,4 +1791,198 @@ test("failed approval verification is never reused by a later attempt", async ()
   expect(service.list()[0]?.status).toBe("pending");
   await expect(service.decide(input, ownerPassword)).resolves.toMatchObject({ status: "approved" });
   expect(checks).toBe(2);
+});
+
+function pickDecision(request: CoordinatorBootstrapRequest) {
+  return { id: request.id, revision: request.revision, planSha256: request.planSha256 };
+}
+
+test("compatible recovery keeps review and claim out of legacy startup until protected promotion", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  expect(f.journal.readPromoted()).toEqual([]);
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  expect(f.journal.readPromoted()).toEqual([]);
+  f.service().promoteDispatch(claimed);
+  expect(f.journal.readPromoted()).toEqual([claimed]);
+  const advanced = f
+    .service()
+    .advanceDispatch(
+      { ...pickDecision(claimed), generation: claimed.execution!.generation },
+      "freeze_pending",
+    );
+  expect(f.journal.read()).toEqual([advanced]);
+  expect(() => f.service().promoteDispatch(claimed)).toThrow("ownership changed");
+  expect(() => f.journal.replace([claimed], [claimed])).toThrow("changed");
+});
+
+test.each(["reason", "decisionAt", "revision", "generation"])(
+  "promotion refuses changed pre-claim evidence: %s",
+  async (field) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-compatible";
+    f.plan.compatibleRecovery = f.plan.candidate;
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const claimed = await f.service().claimDispatch(pickDecision(approved));
+    f.service().promoteDispatch(claimed);
+    const file = path.join(f.root, "coordinator-bootstrap-pending.json");
+    const sidecar = JSON.parse(readFileSync(file, "utf8"));
+    if (field === "generation") sidecar.requests[0].execution.generation = randomUUID();
+    else
+      sidecar.requests[0][field] =
+        field === "decisionAt" ? new Date(0).toISOString() : randomUUID();
+    writeFileSync(file, JSON.stringify(sidecar));
+    expect(() => f.service().list()).toThrow("source changed");
+  },
+);
+
+test("promotion intent without main commit requires reconciliation and cannot be canceled", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const file = path.join(f.root, "coordinator-bootstrap-pending.json");
+  writeFileSync(file, JSON.stringify({ version: 1, requests: [claimed], promotions: [claimed] }));
+  expect(f.journal.readPromoted()).toEqual([]);
+  expect(() =>
+    f
+      .service()
+      .advanceDispatch(
+        { ...pickDecision(claimed), generation: claimed.execution!.generation },
+        "recovery_required",
+      ),
+  ).toThrow("reconciliation");
+  await expect(
+    f.service().decide({ ...pickDecision(claimed), decision: "cancel" }, ownerPassword),
+  ).rejects.toThrow("claimed");
+  f.service().promoteDispatch(claimed);
+  expect(f.journal.readPromoted()).toEqual([claimed]);
+});
+
+test.each(["claimed", "freeze_pending", "frozen"] as const)(
+  "compatible watchdog never records resumed after promotion at %s",
+  async (stage) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-compatible";
+    f.plan.compatibleRecovery = f.plan.candidate;
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    let record = await f.service().claimDispatch(pickDecision(approved));
+    f.service().promoteDispatch(record);
+    if (stage !== "claimed")
+      record = f
+        .service()
+        .advanceDispatch(
+          { ...pickDecision(record), generation: record.execution!.generation },
+          "freeze_pending",
+        );
+    if (stage === "frozen")
+      record = f
+        .service()
+        .advanceDispatch(
+          { ...pickDecision(record), generation: record.execution!.generation },
+          "frozen",
+        );
+    const effects: string[] = [];
+    const result = await recoverAbandonedBootstrap(
+      f.service(),
+      { id: record.id, generation: record.execution!.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {
+          effects.push("exit verified");
+        },
+        resumePrevious: async () => {
+          effects.push("resume");
+        },
+        restorePrevious: async () => {
+          effects.push("compatible restoration");
+        },
+      },
+    );
+    expect(effects).toEqual(["exit verified", "compatible restoration"]);
+    expect(result.execution!.stage).toBe("rolled_back");
+  },
+);
+
+test("compatible executor promotes only after watchdog readiness and leaves early failure unresolved", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const effects: string[] = [];
+  const unexpected = async () => {
+    throw new Error("Unexpected lifecycle effect");
+  };
+  const result = await executeCoordinatorBootstrap(f.service(), pickDecision(approved), {
+    withOwnership: async (_request, operation) => {
+      effects.push("ownership");
+      return operation();
+    },
+    armWatchdog: async () => {
+      expect(f.journal.readPromoted()).toEqual([]);
+      effects.push("watchdog ready");
+    },
+    freeze: async (request) => {
+      expect(f.journal.readPromoted()[0]!.id).toBe(request.id);
+      effects.push("freeze");
+      throw new Error("freeze uncertain");
+    },
+    inspectFrozen: async () => {
+      throw new Error("Unexpected inspection");
+    },
+    preserveTransfer: unexpected,
+    unload: unexpected,
+    select: unexpected,
+    start: unexpected,
+    verifyReplacement: unexpected,
+    releaseReplacement: unexpected,
+    resumePrevious: unexpected,
+  });
+  expect(effects).toEqual(["ownership", "watchdog ready", "freeze"]);
+  expect(result.execution!.stage).toBe("recovery_required");
+});
+
+test("legacy clients cannot approve a hidden compatible recovery executable", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  const projected = legacy.payload.requests![0]!;
+  expect(projected.plan.compatibleRecovery).toBeUndefined();
+  expect(projected.plan.automaticRecovery).toBeUndefined();
+  expect(projected.planSha256).toBe(pending.planSha256);
+  const decision = {
+    type: "installation.bootstrap.decide.request" as const,
+    requestId: "decision",
+    ownerPassword,
+    input: { ...pickDecision(pending), decision: "approve" as const },
+  };
+  expect((await handleBootstrapReview(decision, f.service())).payload.error).toContain("Reload");
+  expect(f.service().list()[0]!.status).toBe("pending");
+  expect(
+    (await handleBootstrapReview({ ...decision, compatibleRecovery: true }, f.service())).payload
+      .error,
+  ).toBeNull();
 });

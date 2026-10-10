@@ -17,6 +17,7 @@ import {
 } from "@getpaseo/protocol/execution-installation";
 import {
   assertRecoveredBootstrapBase,
+  bootstrapRecoveryRelease,
   BootstrapRequestConflict,
   CoordinatorBootstrapRequests,
   type BootstrapHostBinding,
@@ -142,7 +143,7 @@ export async function verifyBootstrapPlan(
     [host.configurationFile, host.launcherFile, initial.stateDirectory],
     roots,
   );
-  for (const release of [plan.previous, plan.candidate])
+  for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)]))
     await verifyBootstrapReleaseArtifacts(release, roots);
   const current = await readBootstrapLauncher(
     { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
@@ -157,6 +158,15 @@ export async function verifyBootstrapPlan(
     previous,
     candidate,
   });
+  if (plan.compatibleRecovery) {
+    verifyBootstrapLaunchers({
+      plan: { ...plan, candidate: plan.compatibleRecovery },
+      configurationFile: host.configurationFile,
+      current,
+      previous,
+      candidate: await readBootstrapLauncher(plan.compatibleRecovery.launcher, roots),
+    });
+  }
   const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
   await verifyLoadedBootstrapService({
     plan,
@@ -186,7 +196,7 @@ export async function verifyBootstrapPlan(
   if (!isDeepStrictEqual(roots, finalRoots))
     throw new BootstrapRequestConflict("Writable container mounts changed during verification");
   verifyBootstrapConfiguration({ plan, ...host });
-  for (const release of [plan.previous, plan.candidate])
+  for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)]))
     await verifyBootstrapReleaseArtifacts(release, finalRoots);
   await readBootstrapLauncher(
     { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
@@ -245,7 +255,16 @@ export function verifyBootstrapConfiguration(input: {
     throw new BootstrapRequestConflict(
       "Candidate changes configuration outside its approved policy",
     );
+  const recovery = bootstrapRecoveryRelease(input.plan);
+  const recoveryConfiguration = InstallationConfigSchema.parse(
+    readPrivateBootstrapConfiguration(recovery.configuration.path, uid),
+  );
+  if (!isDeepStrictEqual(recoveryConfiguration, current))
+    throw new BootstrapRequestConflict(
+      "Recovery must preserve the previous coordinator configuration",
+    );
   const observations = [
+    { file: recovery.configuration.path, value: recoveryConfiguration },
     { file: input.configurationFile, value: current },
     { file: input.plan.previous.configuration.path, value: previous },
     { file: input.plan.candidate.configuration.path, value: candidate },

@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.288 - 2026-10-10
+
+### Fixed
+
+- Preserve completed coordinator maintenance history while allowing the next reviewed update.
+- Bind compatible recovery to a separately reviewed executable and keep pending requests readable by the previous coordinator.
+- Protect journal promotion with independent recovery, crash-released locking and durable state preservation.
+- Leave busy-state recovery explicitly unresolved after one verified resume, with no automatic retry and visible legacy restart limitations.
+
+### Maintenance
+
+- Add recovery, journal durability, legacy-client and native lifecycle regressions; installed activation remains pending.
+
 ## 0.11.0-beta.3.vorteo.287 - 2026-10-10
 
 ### Added
