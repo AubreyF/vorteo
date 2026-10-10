@@ -100,9 +100,11 @@ export function useStreamColumns(
 
 export function StreamColumns({
   layout,
+  outline,
   children,
 }: {
   layout: ReturnType<typeof useStreamColumns>;
+  outline: ReactNode;
   children: [ReactNode, ReactNode];
 }) {
   const { split, widths, onLayout } = layout;
@@ -134,6 +136,7 @@ export function StreamColumns({
           </StreamColumnWidthContext.Provider>
           {split ? <ColumnResizeHandle column="text" {...layout} /> : null}
         </View>
+        {outline}
         {split ? <ColumnFade /> : null}
       </View>
       {split ? (

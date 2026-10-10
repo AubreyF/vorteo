@@ -1187,6 +1187,16 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       () => [...effectiveStreamItems, ...(effectiveStreamHead ?? [])],
       [effectiveStreamItems, effectiveStreamHead],
     );
+    const outline = useMemo(
+      () => (
+        <ChatOutlineRail
+          prompts={chatOutline.prompts}
+          activePrompt={chatOutline.activePrompt}
+          onJumpToPrompt={chatOutline.jumpToPrompt}
+        />
+      ),
+      [chatOutline.prompts, chatOutline.activePrompt, chatOutline.jumpToPrompt],
+    );
     return (
       <ChatFind
         agentId={agentId}
@@ -1198,7 +1208,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <StreamColumns layout={columns}>
+          <StreamColumns layout={columns} outline={outline}>
             <AssistantSelectionCopySurface style={stylesheet.container}>
               <QueueDragScrollContext.Provider value={queueDragScroll.onDragActive}>
                 <MessageOuterSpacingProvider disableOuterSpacing>
@@ -1228,11 +1238,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                   })}
                 </MessageOuterSpacingProvider>
               </QueueDragScrollContext.Provider>
-              <ChatOutlineRail
-                prompts={chatOutline.prompts}
-                activePrompt={chatOutline.activePrompt}
-                onJumpToPrompt={chatOutline.jumpToPrompt}
-              />
               {(!isNearBottom || isTimelineDetached) && (
                 <View style={scrollToBottomContainerStyle} pointerEvents="box-none">
                   <Animated.View entering={scrollIndicatorFadeIn} exiting={scrollIndicatorFadeOut}>

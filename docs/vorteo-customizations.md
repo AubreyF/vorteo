@@ -329,3 +329,5 @@ Coordinator review maintenance: concurrent approvals of one exact request share 
 Maintenance review (2026-10-09): clarified goal and queued-message status, elapsed time and pause behavior without changing daemon scheduling. The existing README goal and queue overview still applies; this refinement does not change onboarding. Primary interface publication remains a separate delivery step.
 
 Goal presentation integration review: retained the shared heading icon and full-width hover region, conversation card order and existing journal controls while adding goal queue explanations and compact actions. Scheduling and message delivery are unchanged.
+
+Conversation navigation maintenance review (2026-10-09): the rail measures the available transcript region rather than the selected text width. Narrow text preferences no longer hide navigation on wide screens. Agent provenance, jump behavior and the compact-screen threshold remain unchanged. README overview and onboarding are unaffected.

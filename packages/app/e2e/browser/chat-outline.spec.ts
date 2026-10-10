@@ -1,3 +1,5 @@
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
@@ -70,14 +72,24 @@ test.describe("desktop chat outline", () => {
     page,
   }) => {
     const agent = await seedLongMockAgentTimeline({ turns: 16 });
+    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "outline-columns" });
     try {
       await markSecondPromptAsAgent(page, agent.agentId);
-      await page.setViewportSize(WIDE_VIEWPORT);
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        text: "Keep the task column visible",
+      });
+      await page.setViewportSize({ width: 2400, height: 900 });
       await openAgentTimeline(page, agent);
       for (const reload of [false, true]) {
         if (reload) await page.reload({ waitUntil: "domcontentloaded" });
         await movePointerOffChatOutline(page);
         await expectChatOutlinePrompts(page, 16);
+        await expect(page.getByTestId("thread-cards-column")).toBeVisible();
+        const textColumn = await page.getByTestId("thread-text-column").boundingBox();
+        const textRegion = await page.getByTestId("thread-text-region").boundingBox();
+        expect(textColumn!.width).toBeLessThan(918);
+        expect(textRegion!.width).toBeGreaterThan(918);
         const rail = chatOutlineRail(page);
         const agentTick = rail.getByRole("tab").nth(1);
         await expect(agentTick).toHaveAttribute("aria-label", /Agent message:/);
@@ -101,7 +113,12 @@ test.describe("desktop chat outline", () => {
         await agentTick.click();
         await expectTimelinePromptLandedBelowTop(page, agent.prompts[1]);
       }
+      await page.setViewportSize({ width: 390, height: 850 });
+      await expectNoChatOutline(page);
+      await page.setViewportSize({ width: 2400, height: 900 });
+      await expectChatOutlinePrompts(page, 16);
     } finally {
+      await client.close();
       await agent.cleanup();
     }
   });
