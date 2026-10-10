@@ -351,3 +351,7 @@ Card heading integration review (2026-10-10): preserved the deployed workspace c
 October 10, 2026: Added blocked-reason tooltips and hourly existing-thread reassessment. Maintenance checks cover keyboard/touch explanations, durable cooldown, retained-session reload, archive races, owner pause preemption, queue preservation, goal limits and restart holds. Updated the protected loader to wait for an archive queued behind a shared resume.
 
 October 10, 2026 integration review: combined reviewed coordinator recovery with deployed card headings, workspace fixes and blocked-task reassessment. Kept both source histories; coordinator activation and Factory operating acceptance remain pending. README overview and onboarding are unchanged.
+
+Blocked explanation integration review (2026-10-10): merged deployed card headings without changing the tooltip contract. Desktop hover, keyboard focus and compact tap checks passed. Keyboard setup reacquires a badge if column measurement replaces its DOM node during scrolling.
+
+October 10, 2026 publication review: incorporated the published browser-test readiness correction and preserved both v291 histories. Production recovery code is unchanged; installed activation remains pending.
