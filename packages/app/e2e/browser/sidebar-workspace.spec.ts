@@ -594,3 +594,49 @@ test.describe("Half-screen desktop layout", () => {
     }
   });
 });
+
+test("new workspace stays in its intended project from the first visible row", async ({ page }) => {
+  const intended = await seedWorkspace({ repoPrefix: "intended-project-" });
+  const directory = await seedWorkspace({ repoPrefix: "host-directory-" });
+  let createdWorkspaceId: string | null = null;
+  try {
+    await gotoAppShell(page);
+    await expectSidebarWorkspaces(page, [intended.workspaceId, directory.workspaceId]);
+    await page.evaluate(() => {
+      const projects: Array<string | null> = [];
+      const observe = () => {
+        for (const row of document.querySelectorAll('[data-testid^="sidebar-workspace-row-"]')) {
+          if (!row.textContent?.includes("Atomic Host task")) continue;
+          projects.push(row.closest('[role="group"]')?.getAttribute("aria-label") ?? null);
+        }
+        document.documentElement.dataset.observedWorkspaceProjects = JSON.stringify(projects);
+      };
+      new MutationObserver(observe).observe(document.body, { childList: true, subtree: true });
+      observe();
+    });
+    const created = await directory.client.createWorkspace({
+      source: { kind: "directory", path: directory.repoPath },
+      projectMembership: { key: intended.projectKey, name: intended.projectDisplayName },
+      title: "Atomic Host task",
+    });
+    if (!created.workspace) throw new Error(created.error ?? "Missing workspace");
+    createdWorkspaceId = created.workspace.id;
+    const row = page.getByTestId(getWorkspaceRowTestId(created.workspace.id));
+    await expect(row).toBeVisible();
+    const expectedProject = intended.projectDisplayName;
+    await expect(
+      page
+        .getByRole("group", { name: expectedProject, exact: true })
+        .getByTestId(getWorkspaceRowTestId(created.workspace.id)),
+    ).toBeVisible();
+    const observed = await page.evaluate(() =>
+      JSON.parse(document.documentElement.dataset.observedWorkspaceProjects ?? "[]"),
+    );
+    expect(observed.length).toBeGreaterThan(0);
+    expect(new Set(observed)).toEqual(new Set([expectedProject]));
+  } finally {
+    if (createdWorkspaceId) await directory.client.archiveWorkspace(createdWorkspaceId);
+    await directory.cleanup();
+    await intended.cleanup();
+  }
+});

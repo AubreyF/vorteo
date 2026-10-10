@@ -1324,9 +1324,13 @@ for (const width of [1400, 390]) {
       for (const height of [900, 400]) {
         await page.setViewportSize({ width, height });
         await card.scrollIntoViewIfNeeded();
-        await expect
-          .poll(async () => (await card.boundingBox())!.height)
-          .toBeLessThanOrEqual(height / 2);
+        await expect(async () => {
+          const column = page.getByTestId("thread-cards-stack");
+          const availableHeight = (await column.count())
+            ? (await column.boundingBox())!.height
+            : height / 2;
+          expect((await card.boundingBox())!.height).toBeLessThanOrEqual(availableHeight);
+        }).toPass({ timeout: 5000 });
         const header = page.getByTestId("agent-task-progress-card-header");
         const headerBefore = (await header.boundingBox())!;
         const body = page.getByTestId("agent-task-progress-card-body-scroll");

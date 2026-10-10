@@ -41,6 +41,7 @@ export interface ImportWorkspaceResult<T> {
 export interface CreateWorktreeWorkspaceInput {
   sourceCwd: string;
   projectId?: string;
+  projectMembership?: PersistedWorkspaceRecord["projectMembership"];
   workspaceId?: string;
   repoRoot: string;
   cwd: string;
@@ -63,7 +64,11 @@ export interface WorkspaceProvisioningService {
     cwd: string,
     title?: string | null,
     projectId?: string,
-    context?: { expectsInitialAgent?: boolean; workspaceId?: string },
+    context?: {
+      expectsInitialAgent?: boolean;
+      workspaceId?: string;
+      projectMembership?: PersistedWorkspaceRecord["projectMembership"];
+    },
   ): Promise<PersistedWorkspaceRecord>;
   createWorkspaceForWorktree(
     input: CreateWorktreeWorkspaceInput,
@@ -219,7 +224,11 @@ export function createWorkspaceProvisioningService(deps: {
     cwd: string,
     title?: string | null,
     projectId?: string,
-    context?: { expectsInitialAgent?: boolean; workspaceId?: string },
+    context?: {
+      expectsInitialAgent?: boolean;
+      workspaceId?: string;
+      projectMembership?: PersistedWorkspaceRecord["projectMembership"];
+    },
   ): Promise<PersistedWorkspaceRecord> {
     const normalizedCwd = resolve(cwd);
     const checkout = await workspaceGitService.getCheckout(normalizedCwd);
@@ -230,6 +239,7 @@ export function createWorkspaceProvisioningService(deps: {
     const timestamp = new Date().toISOString();
     const workspace = createPersistedWorkspaceRecord({
       workspaceId: context?.workspaceId ?? generateWorkspaceId(),
+      projectMembership: context?.projectMembership,
       projectId: project.projectId,
       ...initialWorkspacePlacement({ source: "checkout", cwd: normalizedCwd, checkout }),
       title: title?.trim() || null,
@@ -256,6 +266,7 @@ export function createWorkspaceProvisioningService(deps: {
     const timestamp = new Date().toISOString();
     const workspace = createPersistedWorkspaceRecord({
       workspaceId: input.workspaceId ?? generateWorkspaceId(),
+      projectMembership: input.projectMembership,
       projectId: project.projectId,
       ...initialWorkspacePlacement({
         source: "created_worktree",

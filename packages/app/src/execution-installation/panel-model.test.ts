@@ -303,6 +303,7 @@ test("pending supervisor repair remains visible alongside an active source updat
   const jobs: RestartJob[] = [
     base,
     { ...base, id: "supervisor", status: "pending", supervisorPlanSha256: "a".repeat(64) },
+    { ...base, id: "factory", status: "pending", factoryRuntimePlanSha256: "c".repeat(64) },
   ];
   const model = new InstallationPanelModel({
     restartSummary: async () => null,
@@ -321,8 +322,12 @@ test("pending supervisor repair remains visible alongside an active source updat
     decide: async () => {},
   });
   await model.initialize();
-  expect(model.getState().pendingJobs.map((job) => job.id)).toEqual(["supervisor"]);
+  expect(model.getState().pendingJobs.map((job) => job.id)).toEqual(["factory", "supervisor"]);
   expect(model.getState().jobs).toEqual(jobs);
+  expect(restartBannerTitle(jobs[2]!)).toBe("Factory startup adoption needs review");
+  expect(restartBannerTitle({ ...jobs[2]!, status: "running" })).toBe(
+    "Adopting Factory startup on Dev",
+  );
 });
 
 test("sidebar distinguishes blocked source updates from owner approval", () => {

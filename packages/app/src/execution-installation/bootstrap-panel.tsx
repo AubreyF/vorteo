@@ -65,6 +65,18 @@ export function BootstrapReview({ model }: { model: BootstrapPanelModel }) {
   );
 }
 
+function FactoryAdoptionConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const configuration = plan.factoryRuntimeAdoptionConfiguration;
+  if (configuration === undefined) return null;
+  return (
+    <Text selectable style={styles.text}>
+      {configuration === null
+        ? "Disable new Factory startup adoption requests. Existing recovery requirements remain."
+        : `Configure Factory startup adoption plan ${configuration.sha256}. Adopting startup still requires a separate approval.`}
+    </Text>
+  );
+}
+
 function BootstrapRequestCard({
   request,
   model,
@@ -132,6 +144,7 @@ function BootstrapRequestCard({
                 : "Enable native helper maintenance for Host requests. Each helper installation still requires its own approval."}
             </Text>
           ) : null}
+          <FactoryAdoptionConfiguration plan={request.plan} />
           <Text selectable style={styles.text}>
             Source: {request.plan.candidate.sourceCommit}
           </Text>

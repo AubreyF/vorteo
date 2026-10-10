@@ -84,6 +84,7 @@ interface PluginServiceDependencies {
   factoryObservation?: () => Pick<NativeFactoryObservationService, "invoke"> | null;
   factorySetup?: () => Pick<NativeFactorySetupService, "read"> | null;
   factoryInstallation?: () => Pick<NativeFactorySetupService, "install"> | null;
+  factoryControls?: () => Pick<NativeFactorySetupService, "readControls" | "control"> | null;
   usageAgents?: AgentUsageLookup;
   settingsDirectory?: string;
   runtime?: PluginRuntimePort;
@@ -383,7 +384,11 @@ export class PluginService {
           });
         } catch (restoreError) {
           throw new Error(
-            `Binding failed: ${error instanceof Error ? error.message : String(error)}; restoring the previous plugin also failed: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+            `Binding failed: ${
+              error instanceof Error ? error.message : String(error)
+            }; restoring the previous plugin also failed: ${
+              restoreError instanceof Error ? restoreError.message : String(restoreError)
+            }`,
             { cause: restoreError },
           );
         } finally {
@@ -681,31 +686,22 @@ export class PluginService {
   }
 
   async invokePluginRpc(pluginId: string, method: string, input: unknown): Promise<unknown> {
-    if (
-      pluginId === "factory" &&
-      method === "factory.install" &&
-      this.isBuiltinPluginLoaded(pluginId)
-    ) {
-      const installer = this.dependencies.factoryInstallation?.();
-      if (installer) return installer.install(input);
-    }
-    if (
-      pluginId === "factory" &&
-      method === "factory.setup" &&
-      this.builtinPluginIds.has(pluginId) &&
-      this.runtime.isBuiltinPluginLoaded?.(pluginId) === true
-    ) {
-      const setup = this.dependencies.factorySetup?.();
-      if (setup) return setup.read(input);
-    }
-    if (
-      pluginId === "factory" &&
-      this.builtinPluginIds.has(pluginId) &&
-      NativeFactoryObservationService.supports(method) &&
-      this.runtime.isBuiltinPluginLoaded?.(pluginId) === true
-    ) {
-      const observer = this.dependencies.factoryObservation?.();
-      if (observer) return observer.invoke(method, input);
+    if (pluginId === "factory" && this.isBuiltinPluginLoaded(pluginId)) {
+      const controls = this.dependencies.factoryControls?.();
+      if (controls && method === "factory.controls") return controls.readControls(input);
+      if (controls && method === "factory.control") return controls.control(input);
+      if (method === "factory.install") {
+        const installer = this.dependencies.factoryInstallation?.();
+        if (installer) return installer.install(input);
+      }
+      if (method === "factory.setup") {
+        const setup = this.dependencies.factorySetup?.();
+        if (setup) return setup.read(input);
+      }
+      if (NativeFactoryObservationService.supports(method)) {
+        const observer = this.dependencies.factoryObservation?.();
+        if (observer) return observer.invoke(method, input);
+      }
     }
     return this.runtime.invoke(pluginId, method, input);
   }
@@ -1002,7 +998,11 @@ export class PluginService {
         }
         if (recoveryError)
           throw new Error(
-            `Update failed: ${error instanceof Error ? error.message : String(error)}; restoring previous plugin also failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`,
+            `Update failed: ${
+              error instanceof Error ? error.message : String(error)
+            }; restoring previous plugin also failed: ${
+              recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
+            }`,
             { cause: error },
           );
         throw error;
@@ -1021,7 +1021,9 @@ export class PluginService {
     try {
       await managedSources.removeVersion(pluginId, source.path);
     } catch (error) {
-      warning = `Plugin updated, but previous installation cleanup failed: ${error instanceof Error ? error.message : String(error)}`;
+      warning = `Plugin updated, but previous installation cleanup failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
     }
     return {
       id: pluginId,

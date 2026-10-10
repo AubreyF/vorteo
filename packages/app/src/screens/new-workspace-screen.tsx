@@ -828,6 +828,9 @@ async function createMultiplicityWorkspace(input: {
   createFailedMessage: string;
 }): Promise<WorkspaceCreationResult> {
   const projectId = getHostProjectId(input.project, input.serverId);
+  const membership =
+    input.project.membership ??
+    (!projectId ? { key: input.project.viewKey, name: input.project.projectName } : null);
 
   const isWorktree = input.isolation === "worktree";
   const firstAgentContext = buildFirstAgentContext({
@@ -835,6 +838,7 @@ async function createMultiplicityWorkspace(input: {
     attachments: input.attachments,
   });
   const payload = await input.client.createWorkspace({
+    ...(membership ? { projectMembership: membership } : {}),
     idempotencyKey: input.idempotencyKey,
     agent: input.agent,
     onEvent: input.onEvent,
@@ -855,16 +859,6 @@ async function createMultiplicityWorkspace(input: {
   });
   if (payload.error || !payload.workspace) {
     throw new Error(payload.error ?? input.createFailedMessage);
-  }
-  const membership =
-    input.project.membership ??
-    (!projectId ? { key: input.project.viewKey, name: input.project.projectName } : null);
-  if (membership) {
-    await input.client.setWorkspaceProject({
-      workspaceId: payload.workspace.id,
-      membership,
-    });
-    payload.workspace.projectMembership = membership;
   }
   const normalizedWorkspace = normalizeWorkspaceDescriptor(payload.workspace);
   const workspaceForInitialMerge = input.withInitialAgent

@@ -131,6 +131,7 @@ export interface PaseoToolHostDependencies {
     cwd: string,
     title?: string | null,
     projectId?: string,
+    context?: { projectMembership?: PersistedWorkspaceRecord["projectMembership"] },
   ) => Promise<PersistedWorkspaceRecord>;
   workspaceScripts?: Pick<WorkspaceScriptsService, "list" | "launch" | "stop">;
   markWorkspaceArchiving?: ArchiveDependencies["markWorkspaceArchiving"];
@@ -1373,7 +1374,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         if (!options.createDirectoryWorkspace) {
           throw new Error("Workspace provisioning is not configured");
         }
-        workspace = await options.createDirectoryWorkspace(cwd, title, ownerProjectId);
+        workspace = await options.createDirectoryWorkspace(cwd, title, ownerProjectId, {
+          projectMembership: inheritedMembership,
+        });
       } else {
         let cwd =
           path !== undefined || !projectId ? resolveScopedCwd(path, { required: true }) : null;
@@ -1401,6 +1404,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           {
             cwd,
             ...(ownerProjectId ? { projectId: ownerProjectId } : {}),
+            projectMembership: inheritedMembership,
             ...(worktreeSlug ? { worktreeSlug } : {}),
             ...worktreeTarget,
             ...(title ? { title } : {}),
@@ -1410,12 +1414,6 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           throw result.cause;
         }
         workspace = result.createdWorktree.workspace;
-      }
-
-      if (inheritedMembership) {
-        if (!options.workspaceRegistry) throw new Error("Workspace registry is not configured");
-        workspace = { ...workspace, projectMembership: inheritedMembership };
-        await options.workspaceRegistry.upsert(workspace);
       }
 
       return {
