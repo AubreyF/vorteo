@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { getE2EDaemonPort } from "../support/helpers/daemon-port";
@@ -26,6 +27,190 @@ async function verifyGoalPauseHelp(page: Page, goalCard: Locator, width: number)
 }
 
 test.use({ e2eInjectPaseoTools: true });
+
+for (const width of [1400, 390]) {
+  test(`journal Spark tracks visible entries across reload at ${width}px`, async ({
+    page,
+  }, info) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({
+      colorScheme: "dark",
+      reducedMotion: width === 390 ? "reduce" : "no-preference",
+    });
+    const agent = await seedMockAgentWorkspace({
+      repoPrefix: "journal-spark-",
+      title: "Journal Spark visibility",
+      initialPrompt: "emit 2 agent stream updates",
+    });
+    const journal = new McpClient({ name: "journal-spark-test", version: "1.0.0" });
+    try {
+      await journal.connect(
+        new StreamableHTTPClientTransport(
+          new URL(
+            `http://127.0.0.1:${getE2EDaemonPort()}/mcp/agents?callerAgentId=${agent.agentId}`,
+          ),
+        ),
+      );
+      const ids = Array.from({ length: 12 }, () => randomUUID());
+      for (const [index, id] of ids.entries()) {
+        expect(
+          (
+            await journal.callTool({
+              name: "append_journal",
+              arguments: {
+                entryId: id,
+                text:
+                  `Journal observation ${index + 1}. ` +
+                  "Verified the change and retained the decision history. ".repeat(3),
+              },
+            })
+          ).isError,
+        ).not.toBe(true);
+      }
+      await openAgentRoute(page, agent);
+      const card = page.getByTestId("agent-journal-card");
+      await expect(async () => {
+        await card.scrollIntoViewIfNeeded();
+        await expect(card).toBeVisible();
+      }).toPass();
+      const status = (index: number) => page.getByTestId(`journal-status-${ids[index]}`);
+      await expect(status(0)).toHaveAttribute("aria-label", "Seen journal entry");
+      await expect(status(11)).toHaveAttribute("aria-label", "Unread journal entry");
+      await expect(card.getByTestId("journal-unread-count")).toBeVisible();
+      await card.screenshot({ path: info.outputPath(`spark-${width}.png`) });
+
+      // Keep the app in the background while exposing unread entries.
+      const focusSession = await page.context().newCDPSession(page);
+      await focusSession.send("Emulation.setFocusEmulationEnabled", { enabled: false });
+      const { windowId } = await focusSession.send("Browser.getWindowForTarget");
+      await focusSession.send("Browser.setWindowBounds", {
+        windowId,
+        bounds: { windowState: "minimized" },
+      });
+      await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(false);
+      // Jump past the middle. A high-water mark would incorrectly mark these skipped entries.
+      await card.getByTestId("agent-journal-card-body-scroll").evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await page.waitForTimeout(1100);
+      await expect(status(11)).toHaveAttribute("aria-label", "Unread journal entry");
+      await card.screenshot({ path: info.outputPath(`spark-unread-${width}.png`) });
+      const transition = status(11).evaluate(
+        (node) =>
+          new Promise<boolean>((resolve) => {
+            const parent = node.querySelector("svg")?.parentElement;
+            if (!parent) throw new Error("Missing Spark glyph");
+            const spark: Element = parent;
+            let moved = false;
+            const started = performance.now();
+            function sample() {
+              let opacity = 1;
+              let element: Element | null = spark;
+              while (element && element !== node) {
+                opacity *= Number(getComputedStyle(element).opacity);
+                element = element.parentElement;
+              }
+              moved ||= opacity > 0 && opacity < 1;
+              const settled =
+                node.getAttribute("aria-label") === "Seen journal entry" && opacity === 0;
+              const timedOut = performance.now() - started > 5000;
+              if (settled || timedOut) {
+                resolve(moved);
+                return;
+              }
+              requestAnimationFrame(sample);
+            }
+            requestAnimationFrame(sample);
+          }),
+      );
+      await focusSession.send("Browser.setWindowBounds", {
+        windowId,
+        bounds: { windowState: "normal" },
+      });
+      await page.bringToFront();
+      await focusSession.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+      await focusSession.detach();
+      await expect(status(11)).toHaveAttribute("aria-label", "Seen journal entry");
+      expect(await transition).toBe(width === 1400);
+      await expect(status(5)).toHaveAttribute("aria-label", "Unread journal entry");
+      await page.reload();
+      await expect(card).toBeVisible();
+      await expect(status(11)).toHaveAttribute("aria-label", "Seen journal entry");
+      await expect(status(5)).toHaveAttribute("aria-label", "Unread journal entry");
+
+      await card.getByTestId("agent-journal-toggle").click();
+      const appended = randomUUID();
+      expect(
+        (
+          await journal.callTool({
+            name: "append_journal",
+            arguments: {
+              entryId: appended,
+              text: "Appended while the journal was collapsed.",
+            },
+          })
+        ).isError,
+      ).not.toBe(true);
+      await expect(page.getByTestId(`journal-status-${appended}`)).toHaveCount(0);
+      await page.waitForTimeout(1100);
+      await card.getByTestId("agent-journal-toggle").click();
+      await expect(page.getByTestId(`journal-status-${appended}`)).toHaveAttribute(
+        "aria-label",
+        "Unread journal entry",
+      );
+
+      await card.getByTestId("journal-clear").click();
+      await expect(card).toContainText("Journal cleared on this device");
+      await card.getByTestId("journal-show-history").click();
+      await expect(status(11)).toHaveAttribute("aria-label", "Seen journal entry");
+      await expect(status(5)).toHaveAttribute("aria-label", "Unread journal entry");
+      const row = page.getByTestId(`journal-entry-${ids[0]}`);
+      expect(await row.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+
+      // Exercise an actual browser storage failure, then recover through the visible Retry.
+      await page.evaluate(() => {
+        let size = 64 * 1024;
+        let index = 0;
+        while (size >= 1) {
+          try {
+            localStorage.setItem(`journal-quota-fixture-${index++}`, "x".repeat(size));
+          } catch (error) {
+            if (!(error instanceof DOMException) || error.name !== "QuotaExceededError")
+              throw error;
+            size = Math.floor(size / 2);
+          }
+        }
+      });
+      await card.getByTestId("agent-journal-card-body-scroll").evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await expect(
+        card.getByText("Could not save or load seen entries on this device."),
+      ).toBeVisible();
+      await expect(page.getByTestId(`journal-status-${appended}`)).toHaveAttribute(
+        "aria-label",
+        "Unread journal entry",
+      );
+      await page.evaluate(() => {
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith("journal-quota-fixture-")) localStorage.removeItem(key);
+        }
+      });
+      await card.getByRole("button", { name: "Retry", exact: true }).click();
+      await card.getByTestId("agent-journal-card-body-scroll").evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await expect(page.getByTestId(`journal-status-${appended}`)).toHaveAttribute(
+        "aria-label",
+        "Seen journal entry",
+      );
+    } finally {
+      await journal.close();
+      await agent.cleanup();
+    }
+  });
+}
 
 test("agents, tasks, plugin pills, queue and goals share the scrolling footer", async ({
   page,
@@ -277,9 +462,17 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       await toggleJournal.click();
       await expect(entries).toHaveCount(2);
       const rowGeometry = await entries.first().evaluate((node) => {
-        const timestamp = node.firstElementChild!.getBoundingClientRect();
-        const text = node.lastElementChild!.getBoundingClientRect();
+        const timestamp = node
+          .querySelector('[data-testid="journal-timestamp"]')!
+          .getBoundingClientRect();
+        const text = node.querySelector('[data-testid="journal-text"]')!.getBoundingClientRect();
+        const marker = node
+          .querySelector('[data-testid^="journal-status-"]')!
+          .getBoundingClientRect();
         return {
+          markerInset: marker.left - node.getBoundingClientRect().left,
+          markerRight: marker.right,
+          timestampLeft: timestamp.left,
           timestampRight: timestamp.right,
           timestampInset: timestamp.left - node.getBoundingClientRect().left,
           textTopOffset: text.top - timestamp.top,
@@ -290,7 +483,9 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         };
       });
       expect(rowGeometry.timestampRight).toBeLessThan(rowGeometry.textLeft);
-      expect(rowGeometry.timestampInset).toBe(8);
+      expect(rowGeometry.markerInset).toBe(8);
+      expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
+      expect(rowGeometry.timestampInset).toBe(36);
       expect(rowGeometry.textTopOffset).toBe(-2);
       expect(rowGeometry.textWidth).toBeGreaterThan(rowGeometry.timestampWidth);
       expect(rowGeometry.overflow).toBe(false);
