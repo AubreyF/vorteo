@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.287 - 2026-10-10
+
+### Added
+
+- Expose pause, resume and stop through the installed native Factory adapter and built-in interface. Bind actions to the selected host, project, installation and revision; show refused or uncertain outcomes without automatic retries. Startup-owned control ports and live operating acceptance remain required.
+- Cover native control provenance, changed identities, lost responses and desktop/compact control rendering through the plugin loaders and isolated daemon.
+
 ## 0.11.0-beta.3.vorteo.286 - 2026-10-10
 
 ### Added

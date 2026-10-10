@@ -647,7 +647,10 @@ function attachmentFixture() {
   return { ...f, runtime, stop };
 }
 
-async function nativeInstallFixture(failure: "none" | "checkpoint_acknowledgment" = "none") {
+async function nativeInstallFixture(
+  failure: "none" | "checkpoint_acknowledgment" = "none",
+  controls?: Parameters<typeof createNativeFactoryInstallAdapter>[0]["controls"],
+) {
   const f = attachmentFixture();
   const root = await mkdtemp(path.join(os.tmpdir(), "factory-install-"));
   roots.push(root);
@@ -684,6 +687,7 @@ async function nativeInstallFixture(failure: "none" | "checkpoint_acknowledgment
     readProfiles: () => [profile],
     runtime: f.runtime,
     source: f.source,
+    controls,
     assertReconciled() {
       if (!reconciled) throw new Error("Retained custody changed");
     },
@@ -1848,8 +1852,10 @@ test("directory, Git, and npm installs reject a built-in ID", async () => {
   }
 }, 60_000);
 
-async function nativeStartupInstallerFixture() {
-  const f = await nativeInstallFixture();
+async function nativeStartupInstallerFixture(
+  controls?: Parameters<typeof createNativeFactoryInstallAdapter>[0]["controls"],
+) {
+  const f = await nativeInstallFixture("none", controls);
   let dispatchable = true;
   const contract = createAccountingContract(f.source.policy);
   const store = { accountingContract: vi.fn(async () => contract) };
@@ -1869,6 +1875,7 @@ async function nativeStartupInstallerFixture() {
     provider: f.deps.provider,
     profileId: f.deps.profileId,
     assertReconciled: f.deps.assertReconciled,
+    controls,
   };
   const adapter = await create(options);
   f.runtime.factoryInstallation = adapter;
@@ -1891,6 +1898,84 @@ async function nativeStartupInstallerFixture() {
     },
   };
 }
+
+test.each(["applied", "lost response", "foreign response"] as const)(
+  "native Factory owner controls preserve installed authority and report %s",
+  async (outcome) => {
+    let binding = {
+      serverId: "pending",
+      projectId: "pending",
+      installationId: "pending",
+    };
+    const calls: string[] = [];
+    const controls: NonNullable<
+      Parameters<typeof createNativeFactoryInstallAdapter>[0]["controls"]
+    > = {
+      read: () => ({
+        schemaVersion: 1,
+        ...binding,
+        revision: "controls-revision",
+        state: "paused",
+        desiredState: "paused",
+        reason: null,
+        operations: { pause: true, resume: true, stop: true },
+        operationId: null,
+      }),
+      async execute(request) {
+        calls.push(request.action);
+        if (outcome === "lost response") throw new Error("private controller diagnostic");
+        return {
+          schemaVersion: 1,
+          ...binding,
+          serverId: outcome === "foreign response" ? "foreign" : binding.serverId,
+          operationId: request.operationId,
+          outcome: "applied",
+          revision: "next-revision",
+        };
+      },
+    };
+    const f = await nativeStartupInstallerFixture(controls);
+    binding = f.source.binding;
+    expect(await f.service.readControls({ projectId: binding.projectId })).toMatchObject({
+      state: "unavailable",
+      operations: { pause: false, resume: false, stop: false },
+    });
+    const setup = await f.service.read({ projectId: binding.projectId });
+    expect(
+      await f.service.install({
+        ...f.request,
+        expectedRevision: setup.revision,
+      }),
+    ).toMatchObject({ outcome: "applied" });
+    expect(await f.service.readControls({ projectId: binding.projectId })).toMatchObject({
+      state: "paused",
+    });
+    const request = {
+      projectId: binding.projectId,
+      expectedServerId: binding.serverId,
+      expectedInstallationId: binding.installationId,
+      expectedRevision: "controls-revision",
+      operationId: "owner-pause",
+      action: "pause",
+    };
+    expect(await f.service.control({ ...request, expectedServerId: "foreign" })).toMatchObject({
+      outcome: "refused",
+    });
+    expect(calls).toEqual([]);
+    const result = await f.service.control(request);
+    expect(result).toMatchObject({
+      outcome: outcome === "applied" ? "applied" : "uncertain",
+      operationId: "owner-pause",
+    });
+    expect(JSON.stringify(result)).not.toContain("private controller diagnostic");
+    expect(calls).toEqual(["pause"]);
+    f.setDispatchable(false);
+    expect(await f.service.control(request)).toMatchObject({
+      outcome: "refused",
+    });
+    expect(calls).toEqual(["pause"]);
+  },
+);
 
 test("native Factory startup dispatches only the account-wrapped branded owner and preserves RPC identity", async () => {
   const f = await nativeStartupInstallerFixture();
@@ -1931,6 +2016,8 @@ test("native Factory startup refuses shape-compatible and foreign-runtime adapte
     readSetup: f.adapter.readSetup,
     install: f.adapter.install,
     restore: f.adapter.restore,
+    readControls: f.adapter.readControls,
+    control: f.adapter.control,
   };
   expect(createNativeFactoryInstallerResolver(f.runtime, f.deps.serverId, () => true)()).toBeNull();
   expect(() => f.installer()).toThrow("startup owner");
@@ -4528,7 +4615,9 @@ test("bundled recovery records reject receipt drift and owner loss after externa
 
 function parkingFixture() {
   const f = retirementFixture();
-  const body = `(AI Generated).\n\n<!-- factory:status:v1:${randomUUID()} -->\n\`\`\`json\n${JSON.stringify({ attemptId: f.receipt.attemptId, issueNumber: 4, stage: "blocked" })}\n\`\`\``;
+  const body = `(AI Generated).\n\n<!-- factory:status:v1:${randomUUID()} -->\n\`\`\`json\n${JSON.stringify(
+    { attemptId: f.receipt.attemptId, issueNumber: 4, stage: "blocked" },
+  )}\n\`\`\``;
   const receipt: FactoryParkedRetirement = {
     ...f.receipt,
     reason: "blocked",

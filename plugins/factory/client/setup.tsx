@@ -149,7 +149,6 @@ export function FactorySetupStatus({
           <Text style={styles.muted}>Installation ...{setup.installationId.slice(-8)}</Text>
         ) : null}
         <Text style={styles.muted}>{observed}</Text>
-        <Text style={styles.muted}>Lifecycle actions remain unavailable.</Text>
       </>
     );
   } else if (state.kind === "identity_mismatch") {

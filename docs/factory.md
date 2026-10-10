@@ -101,6 +101,20 @@ and upgrade reconcile ownership before replacing or shutting down coordination. 
 must use native schedule, account and execution mechanisms; they do not add a scheduler, quota
 polling loop or merge cap.
 
+### Native owner controls
+
+The built-in interface reads `factory.controls` and dispatches `factory.control` through the
+same installed native adapter. Optional startup-owned control ports provide pause, resume and
+stop. Without those ports or completed membership, the interface reports controls unavailable.
+The legacy setup response keeps its existing false lifecycle flags.
+
+Each action binds the serving host, project, installation, revision and operation identity.
+The interface refreshes state before dispatch. Resume requires the displayed revision; pause
+and stop can interrupt an outstanding resume using the fresh revision. Lost responses remain
+visible and are never retried automatically. Private diagnostics are not returned to clients.
+The retained owner must persist intent and reconcile interrupted operations before resuming;
+these ports do not create another controller or renew account authorization.
+
 ### Guarded CLI installation
 
 `paseo factory setup <project-id>` reports the serving identity, native revision, setup state
