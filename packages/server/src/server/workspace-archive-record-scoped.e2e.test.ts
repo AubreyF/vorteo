@@ -693,3 +693,43 @@ test.each(["completed", "expired-active", "expired-paused"] as const)(
     expect(await activeWorkspaceIds()).not.toContain(workspaceId);
   },
 );
+
+test.each(["directory", "worktree"] as const)(
+  "%s creation publishes project membership before any workspace becomes observable",
+  async (kind) => {
+    const cwd = kind === "directory" ? makeTempDir("workspace-initial-project-") : createGitRepo();
+    const membership = { key: "logical-project", name: "Logical project" };
+    const observed: unknown[] = [];
+    const subscription = ctx.client.observeWorkspaces();
+    subscription.subscribe({
+      snapshot: () => {},
+      update: (message) => {
+        if (message.type === "workspace_update" && message.payload.kind === "upsert")
+          observed.push(message.payload.workspace.projectMembership);
+      },
+    });
+    await subscription.ready;
+    const input = {
+      source:
+        kind === "directory"
+          ? { kind, path: cwd }
+          : { kind, cwd, branchName: "membership-test", baseBranch: "main" },
+      title: "Host task",
+      projectMembership: membership,
+      idempotencyKey: "initial-membership",
+    };
+    const created = await ctx.client.createWorkspace(input);
+    expect(created.error).toBeNull();
+    expect(created.workspace?.projectMembership).toEqual(membership);
+    const listed = await ctx.client.fetchWorkspaces();
+    expect(listed.entries.map((entry) => entry.projectMembership)).toEqual([membership]);
+    expect(observed.length).toBeGreaterThan(0);
+    expect(observed.every((value) => JSON.stringify(value) === JSON.stringify(membership))).toBe(
+      true,
+    );
+    const retried = await ctx.client.createWorkspace(input);
+    expect(retried.workspace?.id).toBe(created.workspace?.id);
+    expect(retried.workspace?.projectMembership).toEqual(membership);
+    await subscription.release();
+  },
+);

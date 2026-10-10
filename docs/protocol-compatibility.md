@@ -150,3 +150,12 @@ The blocked status is discretionary and independent of `blockedBy` prerequisite 
 ## Thread journals
 
 Daemons advertise `features.agentJournal`. The interface gates the journal card on that capability. Journal entries travel as an optional `journal` array in existing agent snapshots; older clients ignore the field, and newer clients still accept snapshots that omit it. No new WebSocket message type is sent to older clients. The caller-bound MCP tools assign append sequence and timestamp on the server, commit before broadcasting, and deduplicate retries by entry ID. Ordinary agent snapshot writes preserve the durable journal.
+
+## Workspace project membership at creation
+
+Clients require `workspaceCreateProjectMembership` before including optional
+`projectMembership` in `workspace.create.request`. The daemon persists membership
+before publishing the workspace and retains it in creation receipts and retries.
+Requests without membership retain directory-based project placement. Older
+clients remain compatible; newer clients refuse project-bound creation on older
+daemons rather than creating a workspace under the wrong project.
