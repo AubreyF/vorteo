@@ -309,29 +309,6 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const handleContentRef = useCallback((node: HTMLElement | null) => {
     contentRef.current = node;
   }, []);
-  useEffect(() => {
-    const viewport = scrollContainerRef.current;
-    const content = contentRef.current;
-    if (!viewport || !content) return;
-    function updateFades() {
-      if (!viewport) return;
-      const top = Math.min(COLUMN_FADE_HEIGHT, Math.max(0, viewport.scrollTop));
-      const bottom = Math.min(
-        COLUMN_FADE_HEIGHT,
-        Math.max(0, viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop),
-      );
-      viewport.style.maskImage = `linear-gradient(to bottom, transparent, black ${top}px, black calc(100% - ${bottom}px), transparent)`;
-    }
-    const observer = new ResizeObserver(updateFades);
-    observer.observe(viewport);
-    observer.observe(content);
-    viewport.addEventListener("scroll", updateFades, { passive: true });
-    updateFades();
-    return () => {
-      observer.disconnect();
-      viewport.removeEventListener("scroll", updateFades);
-    };
-  }, []);
   const [followOutput, setFollowOutputr] = useState(true);
   const followOutputRef = useRef(followOutput);
   const setFollowOutput = (value: boolean) => {
@@ -705,6 +682,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       onNearBottomChange(true);
       return;
     }
+    const topFade = Math.min(COLUMN_FADE_HEIGHT, Math.max(0, scrollContainer.scrollTop));
+    const bottomFade = Math.min(
+      COLUMN_FADE_HEIGHT,
+      Math.max(
+        0,
+        scrollContainer.scrollHeight - scrollContainer.clientHeight - scrollContainer.scrollTop,
+      ),
+    );
+    scrollContainer.style.maskImage = `linear-gradient(to bottom, transparent, black ${topFade}px, black calc(100% - ${bottomFade}px), transparent)`;
     syncNearBottom(scrollContainer, onNearBottomChange);
     reportReadingPosition();
   }, [onNearBottomChange, reportReadingPosition]);
