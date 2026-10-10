@@ -2040,7 +2040,9 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: true,
         agentGoals: true,
-        ...(this.coordinatorBootstrap ? { coordinatorBootstrapReview: true } : {}),
+        ...(this.coordinatorBootstrap
+          ? { coordinatorBootstrapReview: true, coordinatorBootstrapFactoryAdoption: true }
+          : {}),
         durableMessageQueue: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: true,

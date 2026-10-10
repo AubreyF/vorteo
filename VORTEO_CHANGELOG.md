@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.285 - 2026-10-10
+
+### Added
+
+- Add an exact-plan Factory startup adoption request to Installation controls, with Host-only submission, owner approval, cancellation, staged-source verification and no automatic replay.
+- Allow trusted controller startup to reuse its retained native accounting directory without changing the daemon home.
+- Bind adoption configuration changes to a reviewed coordinator maintenance plan. Preserve failed-adoption recovery fences and require a fresh linked approval before lifecycle dispatch; shared errors omit private script diagnostics.
+
 ## 0.11.0-beta.3.vorteo.284 - 2026-10-09
 
 ### Fixed

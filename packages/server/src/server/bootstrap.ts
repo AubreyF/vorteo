@@ -159,7 +159,10 @@ import { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import { ScheduleService } from "./schedule/service.js";
 import { QuotaSchedulePreflight } from "./schedule/quota-preflight.js";
 import { ProviderQuotaObservationService } from "../services/quota-fetcher/governor-service.js";
-import type { CreateGovernedScheduleRuntime } from "./schedule/governed-runtime.js";
+import {
+  resolveGovernorDirectory,
+  type CreateGovernedScheduleRuntime,
+} from "./schedule/governed-runtime.js";
 import { createGovernedPlacementValidator } from "./schedule/governed-placement.js";
 import { QuotaGovernorStore } from "./agent/quota-reserve/governor-store.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
@@ -1481,7 +1484,12 @@ export async function createPaseoDaemon(
   const governorObservations = new ProviderQuotaObservationService({
     getClient: (provider) => agentManager.getQuotaObservationClient(provider),
   });
-  const governorStore = new QuotaGovernorStore(path.join(config.paseoHome, "quota-governor"));
+  // Adoption retains the old ledger without relocating the daemon's identity or agent state.
+  const governorDirectory = resolveGovernorDirectory(
+    dependencies.createGovernedScheduleRuntime,
+    config.paseoHome,
+  );
+  const governorStore = new QuotaGovernorStore(governorDirectory);
   const loadedBuiltin = pluginRuntime.isBuiltinPluginLoaded;
   const canDispatchFactory = () =>
     pluginRuntime.isBuiltinPluginLoaded === loadedBuiltin &&
@@ -1491,6 +1499,7 @@ export async function createPaseoDaemon(
     hostId: serverId,
     paseoHome: config.paseoHome,
     store: governorStore,
+    governorDirectory,
     factoryStage: createFactoryStageNativeRuntime(governorStore),
     factoryProfiles: {
       capture: (input) =>

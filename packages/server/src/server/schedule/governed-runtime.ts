@@ -2,7 +2,7 @@ import type { QuotaObservation } from "@getpaseo/protocol/quota-governor";
 import type { CapturedQuotaExecutionClient } from "../agent/agent-sdk-types.js";
 import type { QuotaGovernorStore } from "../agent/quota-reserve/governor-store.js";
 import type { QuotaScheduleExecution } from "./quota-preflight.js";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { lstat, realpath } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import type { NativeFactoryObservationProvider } from "../factory/observation-service.js";
@@ -20,6 +20,8 @@ import type { createFactoryCoordinatorBinder } from "../factory/create-coordinat
 export interface GovernedScheduleRuntimeContext {
   hostId: string;
   paseoHome: string;
+  /** Actual native accounting directory, distinct from the daemon's identity and agent home. */
+  governorDirectory?: string;
   store: QuotaGovernorStore;
   /** Constructors from this daemon build, bound to this same governor store. */
   factoryStage?: FactoryStageNativeRuntime;
@@ -65,9 +67,11 @@ export interface GovernedScheduleRuntime extends QuotaScheduleExecution {
   stop(): Promise<void>;
 }
 
-export type CreateGovernedScheduleRuntime = (
-  context: GovernedScheduleRuntimeContext,
-) => Promise<GovernedScheduleRuntime>;
+export interface CreateGovernedScheduleRuntime {
+  (context: GovernedScheduleRuntimeContext): Promise<GovernedScheduleRuntime>;
+  /** Selected by the trusted startup module, never by worker configuration or RPC. */
+  readonly governorDirectory?: string;
+}
 
 function isFactory(value: unknown): value is CreateGovernedScheduleRuntime {
   return typeof value === "function";
@@ -107,9 +111,43 @@ export async function loadGovernedScheduleRuntimeFactory(
       ? Reflect.get(loaded, "createGovernedScheduleRuntime")
       : undefined;
   if (!isFactory(factory)) throw new Error("Governed runtime factory export is missing.");
-  return async (context) => {
+  const directory = await readRetainedGovernorDirectory(loaded, owner);
+  const create: CreateGovernedScheduleRuntime = async (context) => {
     const runtime: unknown = await factory(context);
     if (!isRuntime(runtime)) throw new Error("Governed runtime lifecycle contract is incomplete.");
     return runtime;
   };
+  if (directory !== undefined)
+    Object.defineProperty(create, "governorDirectory", { value: directory });
+  return create;
+}
+
+async function readRetainedGovernorDirectory(
+  loaded: unknown,
+  owner: number,
+): Promise<string | undefined> {
+  const directory: unknown =
+    typeof loaded === "object" && loaded !== null
+      ? Reflect.get(loaded, "quotaGovernorDirectory")
+      : undefined;
+  if (directory !== undefined) {
+    if (typeof directory !== "string" || !isAbsolute(directory))
+      throw new Error("Retained governor directory must be an absolute path");
+    const state = await lstat(directory);
+    if (
+      !state.isDirectory() ||
+      state.uid !== owner ||
+      (state.mode & 0o077) !== 0 ||
+      (await realpath(directory)) !== directory
+    )
+      throw new Error("Retained governor directory must be an owner-private physical directory");
+  }
+  return directory;
+}
+
+export function resolveGovernorDirectory(
+  factory: CreateGovernedScheduleRuntime | undefined,
+  paseoHome: string,
+): string {
+  return factory?.governorDirectory ?? join(paseoHome, "quota-governor");
 }

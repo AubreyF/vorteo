@@ -438,6 +438,11 @@ async function fixture(
           }
         : {}),
       ...helperExecutor,
+      factoryRuntimePlan: () => "c".repeat(64),
+      adoptFactoryRuntime: async () => {
+        calls.push("factory-adoption");
+        return "verified Factory adoption";
+      },
       supervisorPlan: () => "a".repeat(64),
       restartSupervisor: async () => {
         calls.push("supervisor");
@@ -1257,6 +1262,89 @@ test("capability discovery reports the Dev bootstrap blocker without exposing co
       )
     ).status,
   ).toBe(503);
+});
+
+test("Factory adoption rejects guest requests and legacy approvals while preserving cancellation", async () => {
+  const { request, calls } = await fixture();
+  const plan = "c".repeat(64);
+  const guest = await request("/api/installation/capabilities", "guest-agent-test-token");
+  expect((await guest.json()).factoryRuntimeAdoption).toEqual({
+    available: false,
+    ownerApprovalRequired: true,
+  });
+  const input = {
+    target: "container-daemon",
+    reason: "Reviewed Factory startup",
+    factoryRuntimePlanSha256: plan,
+  };
+  expect(
+    (await request("/api/installation/restart-requests", "guest-agent-test-token", input)).status,
+  ).toBe(409);
+  const created = await request(
+    "/api/installation/restart-requests",
+    "host-agent-test-token",
+    input,
+  );
+  expect(created.status).toBe(201);
+  const job = RestartJobSchema.parse(await created.json());
+  expect(job.factoryRuntimePlanSha256).toBe(plan);
+  const old = await request("/api/installation/owner/restarts/query", "owner-test-password", {});
+  const visible = JSON.stringify(await old.json());
+  expect(visible).toContain("Reload Vorteo");
+  expect(visible).not.toContain("factoryRuntimePlanSha256");
+  const route = `/api/installation/owner/restarts/${job.id}/decision`;
+  expect(
+    (await request(route, "owner-test-password", { revision: job.revision, decision: "approve" }))
+      .status,
+  ).toBe(409);
+  expect(
+    (await request(route, "owner-test-password", { revision: job.revision, decision: "reject" }))
+      .status,
+  ).toBe(200);
+  expect(calls).toEqual([]);
+});
+
+test("Factory adoption dispatches only the exact reviewed operation through the owner route", async () => {
+  const { request, calls } = await fixture();
+  const plan = "c".repeat(64);
+  const host = await request("/api/installation/capabilities", "host-agent-test-token");
+  expect((await host.json()).factoryRuntimeAdoption).toEqual({
+    available: true,
+    sha256: plan,
+    ownerApprovalRequired: true,
+  });
+  const created = await request("/api/installation/restart-requests", "host-agent-test-token", {
+    target: "container-daemon",
+    reason: "Reviewed Factory startup",
+    factoryRuntimePlanSha256: plan,
+  });
+  const job = RestartJobSchema.parse(await created.json());
+  const review = await request(
+    "/api/installation/owner/restarts/query?factoryRuntimeAdoption=1",
+    "owner-test-password",
+    {},
+  );
+  expect(review.status).toBe(200);
+  expect((await review.json()).find((entry: { id: string }) => entry.id === job.id)).toMatchObject({
+    factoryRuntimePlanSha256: plan,
+    revision: job.revision,
+  });
+  const response = await request(
+    `/api/installation/owner/restarts/${job.id}/decision?factoryRuntimeAdoption=1`,
+    "owner-test-password",
+    {
+      revision: job.revision,
+      decision: "approve",
+      factoryRuntimePlanSha256: plan,
+    },
+  );
+  expect(response.status).toBe(200);
+  await expect.poll(() => calls).toEqual(["factory-adoption"]);
+  const status = await request(
+    `/api/installation/restart-requests/${job.id}`,
+    "host-agent-test-token",
+  );
+  expect((await status.json()).status).toBe("succeeded");
 });
 
 test("supervisor maintenance stays visible to old clients but requires exact owner review", async () => {

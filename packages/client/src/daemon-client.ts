@@ -3786,12 +3786,21 @@ export class DaemonClient {
       throw new Error("Coordinator bootstrap review is unavailable on this daemon.");
   }
 
+  private bootstrapReviewCapabilities(): { factoryRuntimeAdoption?: true } {
+    return this.lastServerInfoMessage?.features?.coordinatorBootstrapFactoryAdoption === true
+      ? { factoryRuntimeAdoption: true }
+      : {};
+  }
+
   async listCoordinatorBootstrapRequests(): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.list_requests.response">(
         {
-          message: { type: "installation.bootstrap.list_requests.request" },
+          message: {
+            type: "installation.bootstrap.list_requests.request",
+            ...this.bootstrapReviewCapabilities(),
+          },
         },
       );
     if (result.error || !result.requests)
@@ -3805,7 +3814,11 @@ export class DaemonClient {
     this.assertCoordinatorBootstrapReview();
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.prepare.response">({
-        message: { type: "installation.bootstrap.prepare.request", input },
+        message: {
+          type: "installation.bootstrap.prepare.request",
+          input,
+          ...this.bootstrapReviewCapabilities(),
+        },
         timeout: 15 * 60_000,
       });
     if (result.error || !result.requests)
@@ -3820,7 +3833,12 @@ export class DaemonClient {
     this.assertCoordinatorBootstrapReview();
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.decide.response">({
-        message: { type: "installation.bootstrap.decide.request", input, ownerPassword },
+        message: {
+          type: "installation.bootstrap.decide.request",
+          input,
+          ownerPassword,
+          ...this.bootstrapReviewCapabilities(),
+        },
         timeout: 15 * 60_000,
       });
     if (result.error || !result.requests)
