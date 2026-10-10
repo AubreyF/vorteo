@@ -32,6 +32,14 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     separator: { borderTopWidth: theme.borderWidth[1], borderTopColor: theme.colors.border },
     rowText: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
     actions: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1], flexShrink: 0 },
+    headingAction: { borderRadius: theme.borderRadius.full, flexShrink: 0 },
+    headingInfoText: {
+      color: theme.colors.foreground,
+      fontSize: theme.fontSize.base,
+      maxWidth: 280,
+      lineHeight: theme.fontSize.base * 1.4,
+    },
+    headingActionText: { fontSize: theme.fontSize.sm },
     actionInset: { paddingRight: theme.spacing[1] },
     iconAction: {
       width: 32,

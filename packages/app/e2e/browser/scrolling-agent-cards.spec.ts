@@ -216,6 +216,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
   page,
 }, info) => {
   test.setTimeout(180_000);
+  // This test checks settled geometry; the responsive column test exercises card motion.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const agent = await seedMockAgentWorkspace({
     repoPrefix: "scrolling-cards-",
     title: "Scrolling card parent",
@@ -454,6 +456,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         expect(card.frame).toEqual(geometry[0].frame);
       }
       await checkHeadingGeometry(stack, width);
+      await checkHeadingActions(stack, width);
       await checkHeadingHover(page, stack, width, info);
       const journalCard = stack.getByTestId("agent-journal-card");
       const toggleJournal = stack.getByTestId("agent-journal-toggle");
@@ -471,34 +474,36 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       expect((await journalCard.boundingBox())!.height).toBeLessThan(expandedHeight);
       await toggleJournal.click();
       await expect(entries).toHaveCount(2);
-      const rowGeometry = await entries.first().evaluate((node) => {
-        const timestamp = node
-          .querySelector('[data-testid="journal-timestamp"]')!
-          .getBoundingClientRect();
-        const text = node.querySelector('[data-testid="journal-text"]')!.getBoundingClientRect();
-        const marker = node
-          .querySelector('[data-testid^="journal-status-"]')!
-          .getBoundingClientRect();
-        return {
-          markerInset: marker.left - node.getBoundingClientRect().left,
-          markerRight: marker.right,
-          timestampLeft: timestamp.left,
-          timestampRight: timestamp.right,
-          timestampInset: timestamp.left - node.getBoundingClientRect().left,
-          textTopOffset: text.top - timestamp.top,
-          textLeft: text.left,
-          textWidth: text.width,
-          timestampWidth: timestamp.width,
-          overflow: node.scrollWidth > node.clientWidth,
-        };
-      });
-      expect(rowGeometry.timestampRight).toBeLessThan(rowGeometry.textLeft);
-      expect(rowGeometry.markerInset).toBe(8);
-      expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
-      expect(rowGeometry.timestampInset).toBe(36);
-      expect(rowGeometry.textTopOffset).toBe(-2);
-      expect(rowGeometry.textWidth).toBeGreaterThan(rowGeometry.timestampWidth);
-      expect(rowGeometry.overflow).toBe(false);
+      await expect(async () => {
+        const rowGeometry = await entries.first().evaluate((node) => {
+          const timestamp = node
+            .querySelector('[data-testid="journal-timestamp"]')!
+            .getBoundingClientRect();
+          const text = node.querySelector('[data-testid="journal-text"]')!.getBoundingClientRect();
+          const marker = node
+            .querySelector('[data-testid^="journal-status-"]')!
+            .getBoundingClientRect();
+          return {
+            markerInset: marker.left - node.getBoundingClientRect().left,
+            markerRight: marker.right,
+            timestampLeft: timestamp.left,
+            timestampRight: timestamp.right,
+            timestampInset: timestamp.left - node.getBoundingClientRect().left,
+            textTopOffset: text.top - timestamp.top,
+            textLeft: text.left,
+            textWidth: text.width,
+            timestampWidth: timestamp.width,
+            overflow: node.scrollWidth > node.clientWidth,
+          };
+        });
+        expect(rowGeometry.timestampRight).toBeLessThan(rowGeometry.textLeft);
+        expect(rowGeometry.markerInset).toBe(8);
+        expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
+        expect(rowGeometry.timestampInset).toBe(36);
+        expect(rowGeometry.textTopOffset).toBe(-2);
+        expect(rowGeometry.textWidth).toBeGreaterThan(rowGeometry.timestampWidth);
+        expect(rowGeometry.overflow).toBe(false);
+      }).toPass({ timeout: 5000 });
 
       await checkDisclosures(stack, width, info);
       await checkSubagentRows(stack, width, info);
@@ -674,8 +679,8 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
       };
     });
     expect(geometry.height, id).toBe(width === 390 ? 44 : 32);
-    expect(geometry.leftInset, id).toBeCloseTo(1, 0);
-    expect(geometry.iconInset, id).toBeCloseTo(12, 0);
+    expect(geometry.leftInset, id).toBeCloseTo(9, 0);
+    expect(geometry.iconInset, id).toBeCloseTo(4, 0);
     expect(geometry.rightGap, id).toBeLessThanOrEqual(8);
     await toggle.hover({ position: { x: 4, y: geometry.height / 2 } });
     await expect
@@ -696,6 +701,34 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await toggle.click({ position: { x: geometry.width - 4, y: geometry.height / 2 } });
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  }
+}
+
+// Check every action in each rendered header so newly added controls inherit the contract.
+async function checkHeadingActions(root: Locator, width: number) {
+  const actions = await root.locator('[data-testid$="-header"]').evaluateAll((headers) =>
+    headers.flatMap((header) =>
+      [...header.querySelectorAll('[role="button"]')]
+        .filter((button) => !button.hasAttribute("aria-expanded"))
+        .map((button) => {
+          const style = getComputedStyle(button);
+          return {
+            id: button.getAttribute("data-testid"),
+            height: button.getBoundingClientRect().height,
+            borderWidth: style.borderWidth,
+            borderColor: style.borderColor,
+            borderRadius: style.borderRadius,
+          };
+        }),
+    ),
+  );
+  expect(actions.length).toBeGreaterThan(0);
+  for (const action of actions) {
+    expect(action.height, action.id ?? "heading action").toBe(width === 390 ? 44 : 32);
+    expect(action.borderWidth).toBe("1px");
+    expect(action.borderColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(action.borderColor).toBe(actions[0].borderColor);
+    expect(action.borderRadius).toBe(actions[0].borderRadius);
   }
 }
 
@@ -976,6 +1009,7 @@ for (const width of [1400, 390]) {
   }, info) => {
     test.setTimeout(180_000);
     await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
     const agent = await seedMockAgentWorkspace({
       repoPrefix: "manual-checklist-",
       title: "Manual checklist",
@@ -1088,12 +1122,21 @@ for (const width of [1400, 390]) {
         text: "Build card",
         blockedBy: [api!.id!],
       });
-      await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
+      await page
+        .getByTestId("agent-task-progress-card")
+        .getByRole("checkbox", { name: "Complete Build card", exact: true })
+        .click();
       await expect(
         page.getByTestId("agent-task-progress-card").getByRole("alert").first(),
       ).toContainText("Complete dependency");
-      await page.getByRole("checkbox", { name: "Complete Build API", exact: true }).click();
-      await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
+      await page
+        .getByTestId("agent-task-progress-card")
+        .getByRole("checkbox", { name: "Complete Build API", exact: true })
+        .click();
+      await page
+        .getByTestId("agent-task-progress-card")
+        .getByRole("checkbox", { name: "Complete Build card", exact: true })
+        .click();
       await expect(page.getByTestId("checklist-count")).toHaveText("2 / 2");
       await page.getByRole("button", { name: "Details for Build API", exact: true }).click();
       const footer = page.getByTestId("checklist-editor-actions");
@@ -1134,11 +1177,16 @@ for (const width of [1400, 390]) {
       );
       await expect(page.getByTestId("checklist-title")).toHaveValue("My retained draft");
       await page.getByRole("button", { name: "Close", exact: true }).last().click();
-      await page.getByRole("checkbox", { name: "Reopen Agent revision", exact: true }).click();
+      await page
+        .getByTestId("agent-task-progress-card")
+        .getByRole("checkbox", { name: "Reopen Agent revision", exact: true })
+        .click();
       await expect(page.getByTestId("checklist-count")).toHaveText("1 / 2");
       await page.reload();
       await expect(
-        page.getByRole("checkbox", { name: "Complete Agent revision", exact: true }),
+        page
+          .getByTestId("agent-task-progress-card")
+          .getByRole("checkbox", { name: "Complete Agent revision", exact: true }),
       ).toBeVisible();
       await page.evaluate(() => {
         const send = WebSocket.prototype.send;
@@ -1211,7 +1259,10 @@ for (const width of [1400, 390]) {
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
       await expectCenteredHeader();
       await page.getByTestId("checklist-toggle").click();
-      await page.getByRole("checkbox", { name: "Complete Build card", exact: true }).click();
+      await page
+        .getByTestId("agent-task-progress-card")
+        .getByRole("checkbox", { name: "Complete Build card", exact: true })
+        .click();
       await info.attach(`manual-checklist-${width}`, {
         body: await page.screenshot({ path: info.outputPath("manual-checklist.png") }),
         contentType: "image/png",
@@ -1245,6 +1296,7 @@ for (const width of [1400, 390]) {
       });
       const clear = page.getByTestId("checklist-clear-completed");
       await expect(clear).toBeVisible();
+      await checkHeadingActions(page.getByTestId("agent-task-progress-card"), width);
       await page.screenshot({ path: info.outputPath("clear-completed-tasks.png") });
       await clear.click();
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");

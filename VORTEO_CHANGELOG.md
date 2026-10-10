@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.287 - 2026-10-10
+
+### Fixed
+
+- Inset conversation card heading hover backgrounds from the card border while keeping the icon inside the target and preserving heading alignment.
+- Standardize every conversation card heading action on a shared bordered button, including journal clearing, task controls, goals, queue controls and sub-agent info/cleanup. Preserve common desktop and touch sizes and verify rendered border consistency.
+
 ## 0.11.0-beta.3.vorteo.286 - 2026-10-09
 
 ### Fixed

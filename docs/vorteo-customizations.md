@@ -337,3 +337,7 @@ Conversation navigation maintenance review (2026-10-09): the rail measures the a
 Journal integration maintenance review (2026-10-09): preserved Spark visibility tracking, per-device seen IDs and storage retry while retaining the published goal controls and rail placement. Both parent release histories remain intact. README overview and onboarding are unchanged.
 
 Welcome maintenance review (2026-10-09): managed installations now collect the owner password on the welcome page, reuse the protected session, and register both environments. The misleading Tailscale action is removed from this flow. Direct server setup remains for standalone clients. README onboarding now describes owner sign-in.
+
+Card heading hover review (2026-10-10): shared disclosure highlights retain 8px of the card’s left padding and include 4px before the icon. Icon and text positions, trailing actions and desktop/touch target heights remain unchanged. README overview and onboarding are unchanged.
+
+Card heading action review (2026-10-10): `TaskCardAction` owns outlined borders, rounded shape, text size and 32px desktop / 44px touch targets for all heading actions. Tasks, Journal, Goals, queue and both sub-agent groups use it, including info controls. Questions, permissions, read-only task progress and plans have no separate heading actions. Callers cannot override visual styles; app guidance and rendered cross-card checks enforce the shared contract.
