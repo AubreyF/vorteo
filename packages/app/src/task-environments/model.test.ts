@@ -26,7 +26,7 @@ function fixture() {
   let failMembership = false;
   let membership: typeof workspace.projectMembership;
   const client: DestinationWorkspaceClient &
-    Pick<DaemonClient, "browseProjectDirectories" | "createWorkspace" | "setWorkspaceProject"> = {
+    Pick<DaemonClient, "browseProjectDirectories" | "createWorkspace"> = {
     async fetchWorkspaces() {
       return {
         requestId: "fetch",
@@ -38,14 +38,12 @@ function fixture() {
     async browseProjectDirectories() {
       return { requestId: "browse", roots: [], directory: null, error: null, errorCode: null };
     },
-    async createWorkspace() {
+    async createWorkspace(input) {
       creationCount++;
-      return { requestId: "create", workspace, error: null, setupTerminalId: null };
-    },
-    async setWorkspaceProject(input) {
       if (failMembership) throw new Error("Connection lost while associating workspace");
-      membership = input.membership;
+      membership = input.projectMembership;
       entries = [{ ...workspace, projectMembership: membership }];
+      return { requestId: "create", workspace: entries[0], error: null, setupTerminalId: null };
     },
   };
   const model = openTaskEnvironment({

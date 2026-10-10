@@ -501,6 +501,7 @@ export interface CreateAgentRequestOptions extends AgentConfigOverrides {
 }
 
 export interface CreateWorkspaceRequestOptions {
+  projectMembership?: WorkspaceCreateRequest["projectMembership"];
   source: WorkspaceCreateRequest["source"];
   title?: string;
   idempotencyKey?: string;
@@ -3786,12 +3787,21 @@ export class DaemonClient {
       throw new Error("Coordinator bootstrap review is unavailable on this daemon.");
   }
 
+  private bootstrapReviewCapabilities(): { factoryRuntimeAdoption?: true } {
+    return this.lastServerInfoMessage?.features?.coordinatorBootstrapFactoryAdoption === true
+      ? { factoryRuntimeAdoption: true }
+      : {};
+  }
+
   async listCoordinatorBootstrapRequests(): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.list_requests.response">(
         {
-          message: { type: "installation.bootstrap.list_requests.request" },
+          message: {
+            type: "installation.bootstrap.list_requests.request",
+            ...this.bootstrapReviewCapabilities(),
+          },
         },
       );
     if (result.error || !result.requests)
@@ -3805,7 +3815,11 @@ export class DaemonClient {
     this.assertCoordinatorBootstrapReview();
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.prepare.response">({
-        message: { type: "installation.bootstrap.prepare.request", input },
+        message: {
+          type: "installation.bootstrap.prepare.request",
+          input,
+          ...this.bootstrapReviewCapabilities(),
+        },
         timeout: 15 * 60_000,
       });
     if (result.error || !result.requests)
@@ -3820,7 +3834,12 @@ export class DaemonClient {
     this.assertCoordinatorBootstrapReview();
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.decide.response">({
-        message: { type: "installation.bootstrap.decide.request", input, ownerPassword },
+        message: {
+          type: "installation.bootstrap.decide.request",
+          input,
+          ownerPassword,
+          ...this.bootstrapReviewCapabilities(),
+        },
         timeout: 15 * 60_000,
       });
     if (result.error || !result.requests)
@@ -4836,6 +4855,14 @@ export class DaemonClient {
     input: CreateWorkspaceRequestOptions,
     requestId?: string,
   ): Promise<WorkspaceCreatePayload> {
+    // COMPAT(workspaceCreateProjectMembership): added in v0.11.0-beta.3.vorteo.280; retain until all supported daemons assign membership atomically.
+    if (
+      input.projectMembership &&
+      this.lastServerInfoMessage?.features?.workspaceCreateProjectMembership !== true
+    )
+      throw new Error(
+        "Update this environment before creating a workspace in the selected project.",
+      );
     const resolvedRequestId = this.createRequestId(requestId ?? input.requestId);
     if (input.agent) this.requireWorkflowLaunchSupport(resolveAgentConfig(input.agent).profileId);
     const result = await this.creations.createWorkspace({
@@ -4863,6 +4890,7 @@ export class DaemonClient {
       message: {
         type: "workspace.create.request",
         source: input.source,
+        ...(input.projectMembership ? { projectMembership: input.projectMembership } : {}),
         // COMPAT(workspaceRequestReceipts): added in v0.8.0; remove after 2027-03-15 once the daemon floor supports workspace receipts.
         ...(this.lastServerInfoMessage?.features?.workspaceRequestReceipts &&
         input.idempotencyKey !== undefined

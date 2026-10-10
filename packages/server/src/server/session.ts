@@ -6389,6 +6389,7 @@ export class Session {
     return {
       id: result.workspace.workspaceId,
       projectId: result.workspace.projectId,
+      projectMembership: result.workspace.projectMembership,
       projectDisplayName: projectRecord
         ? resolveProjectDisplayName(projectRecord)
         : result.workspace.projectId,
@@ -7432,7 +7433,11 @@ export class Session {
       cwd,
       explicitTitle ?? promptTitle,
       request.source.projectId,
-      { expectsInitialAgent: Boolean(request.firstAgentContext), workspaceId },
+      {
+        expectsInitialAgent: Boolean(request.firstAgentContext),
+        workspaceId,
+        projectMembership: request.projectMembership,
+      },
     );
     await this.syncWorkspaceGitObserverForWorkspace(workspace);
     const descriptor = await this.describeWorkspaceRecord(workspace);
@@ -7486,6 +7491,7 @@ export class Session {
         cwd: sourceCwd,
         workspaceId,
         projectId: source.projectId,
+        projectMembership: request.projectMembership,
         worktreeSlug: source.worktreeSlug,
         action: source.action,
         refName: source.refName,

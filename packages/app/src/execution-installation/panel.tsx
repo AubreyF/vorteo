@@ -781,7 +781,7 @@ function RestartActions({
       ) : null}
       {pending && !source ? (
         <ActionFooter style={styles.actions}>
-          {!job.supervisorPlanSha256 ? (
+          {!job.supervisorPlanSha256 && !job.factoryRuntimePlanSha256 ? (
             <RestartActionButton
               variant="outline"
               disabledReason={restartActionDisabledReason(
@@ -807,7 +807,9 @@ function RestartActions({
             onPress={finish}
             testID={`restart-finish-${job.id}`}
           >
-            Finish turns and restart
+            {job.factoryRuntimePlanSha256
+              ? "Finish turns and adopt Factory startup"
+              : "Finish turns and restart"}
           </RestartActionButton>
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
@@ -827,6 +829,7 @@ function RestartActions({
 }
 
 function restartTargetLabel(job: RestartJob): string {
+  if (job.factoryRuntimePlanSha256) return "Factory startup on Dev";
   if (job.supervisorPlanSha256) return "Dev supervisor";
   return job.target === "host" ? "Host" : "Dev container";
 }
@@ -854,6 +857,23 @@ function RestartDetails({ job }: { job: RestartJob }) {
           {job.supervisorPlanSha256 ? (
             <Text selectable style={styles.text}>
               Reviewed supervisor plan: {job.supervisorPlanSha256}
+            </Text>
+          ) : null}
+          {job.factoryRuntimePlanSha256 ? (
+            <Text selectable style={styles.text}>
+              Select the reviewed Factory runtime and restart Dev. Existing Factory state is
+              retained. Reviewed adoption plan: {job.factoryRuntimePlanSha256}
+            </Text>
+          ) : null}
+          {job.factoryRuntimeRecoveryOf ? (
+            <Text selectable style={styles.text}>
+              Recover the unresolved startup selection from request {job.factoryRuntimeRecoveryOf}.
+              This plan must reconcile the retained selection before restarting Dev.
+            </Text>
+          ) : null}
+          {job.factoryRuntimeRecoveredBy ? (
+            <Text selectable style={styles.text}>
+              Recovery verified by request {job.factoryRuntimeRecoveredBy}.
             </Text>
           ) : null}
           {job.status === "failed" ? <Text style={styles.error}>{job.detail}</Text> : null}

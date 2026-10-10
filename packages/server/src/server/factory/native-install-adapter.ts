@@ -7,6 +7,12 @@ import {
   FactorySetupSchema,
   type FactoryInstallResult,
   type FactorySetup,
+  FactoryControlStateSchema,
+  FactoryControlInputSchema,
+  FactoryControlResultSchema,
+  type FactoryControlState,
+  type FactoryControlInput,
+  type FactoryControlResult,
 } from "@getpaseo/server/factory-operations";
 import type { AgentStorage } from "../agent/agent-storage.js";
 import type { GovernedScheduleRuntime } from "../schedule/governed-runtime.js";
@@ -37,6 +43,10 @@ interface InstallDependencies {
   source: FactoryControllerObservationSource;
   /** Startup-owned custody, singleton and lifecycle permit; never an RPC argument. */
   assertReconciled(): void;
+  controls?: {
+    read(): unknown | Promise<unknown>;
+    execute(request: FactoryControlInput): Promise<unknown>;
+  };
 }
 
 const reconciliationHolds = new WeakSet<GovernedScheduleRuntime>();
@@ -48,6 +58,9 @@ interface AdapterOrigin {
   projectId: string;
   readSetup: NativeFactoryInstallAdapter["readSetup"];
   install: NativeFactoryInstallAdapter["install"];
+  restore: NativeFactoryInstallAdapter["restore"];
+  readControls: NativeFactoryInstallAdapter["readControls"];
+  control: NativeFactoryInstallAdapter["control"];
 }
 const adapterOrigins = new WeakMap<object, AdapterOrigin>();
 
@@ -56,7 +69,14 @@ export function nativeFactoryInstallAdapterOrigin(
   adapter: NativeFactoryInstallAdapter,
 ): Readonly<AdapterOrigin> | null {
   const origin = adapterOrigins.get(adapter);
-  if (!origin || adapter.readSetup !== origin.readSetup || adapter.install !== origin.install)
+  if (
+    !origin ||
+    adapter.readSetup !== origin.readSetup ||
+    adapter.install !== origin.install ||
+    adapter.restore !== origin.restore ||
+    adapter.readControls !== origin.readControls ||
+    adapter.control !== origin.control
+  )
     return null;
   return { ...origin };
 }
@@ -95,6 +115,7 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
   let expectedObservation = captured.runtime.factoryObservation;
   let uncertain = false;
   let confirmed: NativeFactoryObservationProvider | null = null;
+  const controlMethods = captured.controls && { ...captured.controls };
 
   function assertNativeMethods(): void {
     if (
@@ -113,6 +134,12 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
 
   function assertCurrent(): void {
     assertNativeMethods();
+    if (
+      captured.controls &&
+      (captured.controls.read !== controlMethods?.read ||
+        captured.controls.execute !== controlMethods?.execute)
+    )
+      throw new Error("Factory owner control methods changed.");
     captured.assertReconciled();
     assertOwner.call(source.authority);
     assertAuthentication.call(source.authentication);
@@ -359,13 +386,140 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
     }
   }
 
-  const adapter = { readSetup, install };
+  /** Startup-only restoration of a completed installation, never an RPC repair
+   * of partially persisted membership or an implicit execution admission. */
+  async function restore(): Promise<void> {
+    function assertRestorable(): void {
+      assertCurrent();
+      if (uncertain || reconciliationHolds.has(captured.runtime))
+        throw new Error("Factory installation requires reconciliation before restoration.");
+    }
+    assertRestorable();
+    const project = await captured.projects.get(binding.projectId);
+    assertRestorable();
+    const checkpoint = project?.factoryInstallation;
+    if (
+      !checkpoint ||
+      checkpoint.stage !== "attached" ||
+      checkpoint.serverId !== captured.serverId ||
+      checkpoint.projectId !== binding.projectId ||
+      checkpoint.installationId !== binding.installationId ||
+      !isDeepStrictEqual(checkpoint.coordinators, binding.coordinators)
+    )
+      throw new Error("Factory restoration requires the exact completed native installation.");
+    const profiles = captured.readProfiles().filter((entry) => entry.id === captured.profileId);
+    if (profiles.length !== 1) throw new Error("Factory configured profile is unavailable.");
+    const profile = structuredClone(profiles[0]);
+    const authorityInput = {
+      ...captured,
+      owner: { identity: source.authority.identity, assertCurrent: assertRestorable },
+      binding,
+      operationId: checkpoint.operationId,
+      profile,
+    };
+    const before = await captureFactoryCoordinatorAuthority(authorityInput);
+    assertRestorable();
+    if (!isDeepStrictEqual(captured.projects.getLoadedRecord(binding.projectId), project))
+      throw new Error("Factory installation changed during restoration.");
+    try {
+      const provider = attachFactoryControllerObservation({ runtime: captured.runtime, source });
+      expectedStop = captured.runtime.stop;
+      expectedObservation = provider;
+      const observation = new NativeFactoryObservationService(provider, captured);
+      await observation.invoke("factory.snapshot", { projectId: binding.projectId });
+      const after = await captureFactoryCoordinatorAuthority(authorityInput);
+      assertRestorable();
+      if (after.revision !== before.revision)
+        throw new Error("Factory native coordinator changed during restoration.");
+      if (
+        !isDeepStrictEqual(
+          captured.readProfiles().filter((entry) => entry.id === captured.profileId),
+          [profile],
+        )
+      )
+        throw new Error("Factory configured profile changed during restoration.");
+      if (!isDeepStrictEqual(captured.projects.getLoadedRecord(binding.projectId), project))
+        throw new Error("Factory installation changed after restoration.");
+      assertRestorable();
+      confirmed = provider;
+    } catch (error) {
+      uncertain = true;
+      reconciliationHolds.add(captured.runtime);
+      throw error;
+    }
+  }
+
+  async function readControls(projectId: string): Promise<FactoryControlState> {
+    const setup = await readSetup(projectId);
+    assertCurrent();
+    if (setup.state !== "installed" || !captured.controls)
+      return {
+        schemaVersion: 1,
+        serverId: captured.serverId,
+        projectId,
+        installationId: setup.installationId,
+        revision: null,
+        state: "unavailable",
+        desiredState: null,
+        reason: "A reconciled native Factory owner control is unavailable.",
+        operations: { pause: false, resume: false, stop: false },
+        operationId: null,
+      };
+    const result = FactoryControlStateSchema.parse(await captured.controls.read());
+    assertCurrent();
+    if (
+      result.serverId !== captured.serverId ||
+      result.projectId !== projectId ||
+      result.installationId !== binding.installationId
+    )
+      throw new Error("Factory owner control belongs to another installation.");
+    return result;
+  }
+
+  async function control(value: FactoryControlInput): Promise<FactoryControlResult> {
+    const request = FactoryControlInputSchema.parse(value);
+    const current = await readControls(request.projectId);
+    assertCurrent();
+    const identity = {
+      schemaVersion: 1 as const,
+      serverId: captured.serverId,
+      projectId: request.projectId,
+      installationId: binding.installationId,
+      operationId: request.operationId,
+    };
+    if (
+      !captured.controls ||
+      request.expectedServerId !== captured.serverId ||
+      request.expectedInstallationId !== binding.installationId ||
+      !current.operations[request.action]
+    )
+      return {
+        ...identity,
+        outcome: "refused",
+        reason: "Factory control is unavailable or its identity changed.",
+      };
+    const result = FactoryControlResultSchema.parse(await captured.controls.execute(request));
+    assertCurrent();
+    if (
+      result.serverId !== identity.serverId ||
+      result.projectId !== identity.projectId ||
+      result.installationId !== identity.installationId ||
+      result.operationId !== identity.operationId
+    )
+      throw new Error("Factory control result differs from its request.");
+    return result;
+  }
+
+  const adapter = { readSetup, install, restore, readControls, control };
   adapterOrigins.set(adapter, {
     runtime: captured.runtime,
     serverId: captured.serverId,
     projectId: binding.projectId,
     readSetup,
     install,
+    restore,
+    readControls,
+    control,
   });
   return adapter;
 }

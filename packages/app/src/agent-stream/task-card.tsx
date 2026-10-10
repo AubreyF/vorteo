@@ -9,6 +9,7 @@ import {
   useMemo,
   useState,
   type ReactNode,
+  type ComponentProps,
   type Ref,
 } from "react";
 import {
@@ -29,6 +30,9 @@ import Animated, {
 } from "react-native-reanimated";
 import { withUnistyles } from "react-native-unistyles";
 import { CardColumnContext } from "./columns/card-column";
+import { Button } from "@/components/ui/button";
+import { Info } from "lucide-react-native";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { taskCardStyles } from "./task-card-styles";
 
 /** Bound the entire card, including its header, as the viewport resizes. */
@@ -152,6 +156,52 @@ export function TaskCardTitle({ children }: { children: string }) {
 
 export function TaskCardActions({ children }: { children: ReactNode }) {
   return <View style={taskCardStyles.actions}>{children}</View>;
+}
+
+interface TaskCardActionProps extends Omit<
+  ComponentProps<typeof Button>,
+  "variant" | "size" | "style" | "textStyle"
+> {
+  iconOnly?: boolean;
+}
+
+/** Heading actions share one visual contract; callers supply behavior and content only. */
+export function TaskCardAction({ iconOnly = false, ...props }: TaskCardActionProps) {
+  const touch = useVortonTouch();
+  return (
+    <Button
+      {...props}
+      variant="outline"
+      size={touch ? "md" : "sm"}
+      style={[
+        taskCardStyles.headingAction,
+        iconOnly && taskCardStyles.iconAction,
+        iconOnly && touch && taskCardStyles.touchAction,
+      ]}
+      textStyle={taskCardStyles.headingActionText}
+    />
+  );
+}
+
+export function TaskCardInfo({
+  label,
+  testID,
+  children,
+}: {
+  label: string;
+  testID?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile>
+      <TooltipTrigger asChild>
+        <TaskCardAction iconOnly leftIcon={Info} accessibilityLabel={label} testID={testID} />
+      </TooltipTrigger>
+      <TooltipContent side="top" align="start" offset={8}>
+        <Text style={taskCardStyles.headingInfoText}>{children}</Text>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 // Ease-out exponential approximation supported by both native and web layout transitions.

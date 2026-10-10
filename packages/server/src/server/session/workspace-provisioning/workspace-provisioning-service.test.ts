@@ -920,3 +920,41 @@ test("a directory that goes away while the git read is in flight keeps its place
     branch: "feature/vanishing",
   });
 });
+
+test.each(["directory", "worktree"] as const)(
+  "publishes %s membership in the first registry mutation",
+  async (kind) => {
+    const cwd = path.join(tmpDir, "repo");
+    mkdirSync(cwd);
+    const membership = {
+      key: "intended-project",
+      name: "Intended project",
+      environmentOwner: { serverId: "dev", workspaceId: "owner" },
+    };
+    const observed: unknown[] = [];
+    const unsubscribe = workspaceRegistry.subscribeToMutations((mutation) => {
+      observed.push(mutation.workspace?.projectMembership);
+    });
+    const workspace =
+      kind === "directory"
+        ? await provisioning.createWorkspaceForDirectory(cwd, "Task", undefined, {
+            projectMembership: membership,
+          })
+        : await provisioning.createWorkspaceForWorktree({
+            sourceCwd: cwd,
+            repoRoot: cwd,
+            cwd,
+            worktreeRoot: cwd,
+            branch: "task",
+            baseBranch: "main",
+            title: "Task",
+            projectMembership: membership,
+          });
+    unsubscribe();
+    expect(observed).toEqual([membership]);
+    expect(workspace.projectMembership).toEqual(membership);
+    expect((await workspaceRegistry.get(workspace.workspaceId))?.projectMembership).toEqual(
+      membership,
+    );
+  },
+);

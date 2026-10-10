@@ -10,7 +10,7 @@ import {
 type InstallDependencies = Parameters<typeof createNativeFactoryInstallAdapter>[0];
 export type FactoryInstallStartupOptions = Pick<
   InstallDependencies,
-  "runtime" | "source" | "provider" | "profileId" | "assertReconciled"
+  "runtime" | "source" | "provider" | "profileId" | "assertReconciled" | "controls"
 >;
 interface StartupDependencies extends Omit<
   InstallDependencies,
@@ -42,6 +42,7 @@ export function createNativeFactoryInstallStartup(deps: StartupDependencies) {
       provider: options.provider,
       profileId: options.profileId,
       assertReconciled: options.assertReconciled,
+      controls: options.controls,
     };
     const source = await createFactoryControllerObservationSource({
       source: owner.source,
