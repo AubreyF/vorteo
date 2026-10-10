@@ -2009,6 +2009,7 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(workspaceMultiplicity): added in v0.1.97, drop the gate when floor >= v0.1.97
         workspaceMultiplicity: true,
         workspaceProjectMembership: true,
+        workspaceCreateProjectMembership: true,
         workspaceTaskEnvironments: true,
         idleRestart: true,
         gracefulRestart: true,

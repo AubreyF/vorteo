@@ -501,6 +501,7 @@ export interface CreateAgentRequestOptions extends AgentConfigOverrides {
 }
 
 export interface CreateWorkspaceRequestOptions {
+  projectMembership?: WorkspaceCreateRequest["projectMembership"];
   source: WorkspaceCreateRequest["source"];
   title?: string;
   idempotencyKey?: string;
@@ -4868,6 +4869,14 @@ export class DaemonClient {
     input: CreateWorkspaceRequestOptions,
     requestId?: string,
   ): Promise<WorkspaceCreatePayload> {
+    // COMPAT(workspaceCreateProjectMembership): added in v0.11.0-beta.3.vorteo.280; retain until all supported daemons assign membership atomically.
+    if (
+      input.projectMembership &&
+      this.lastServerInfoMessage?.features?.workspaceCreateProjectMembership !== true
+    )
+      throw new Error(
+        "Update this environment before creating a workspace in the selected project.",
+      );
     const resolvedRequestId = this.createRequestId(requestId ?? input.requestId);
     if (input.agent) this.requireWorkflowLaunchSupport(resolveAgentConfig(input.agent).profileId);
     const result = await this.creations.createWorkspace({
@@ -4895,6 +4904,7 @@ export class DaemonClient {
       message: {
         type: "workspace.create.request",
         source: input.source,
+        ...(input.projectMembership ? { projectMembership: input.projectMembership } : {}),
         // COMPAT(workspaceRequestReceipts): added in v0.8.0; remove after 2027-03-15 once the daemon floor supports workspace receipts.
         ...(this.lastServerInfoMessage?.features?.workspaceRequestReceipts &&
         input.idempotencyKey !== undefined

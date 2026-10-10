@@ -3,8 +3,8 @@ import { Text, View, type LayoutChangeEvent } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
-import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
-import { ScrollView } from "@/components/ui/scroll-view";
+import { isNative } from "@/constants/platform";
+import { CardColumn } from "./card-column";
 import { persistAppSettings, useSettings } from "@/hooks/use-settings";
 import type { Theme } from "@/styles/theme";
 import { ColumnResizeHandle } from "./resize-handle";
@@ -14,6 +14,7 @@ import {
   COLUMN_GAP,
   COLUMN_MARGIN,
   resolveColumnWidths,
+  resolveTextOffset,
   type ColumnWidths,
 } from "./geometry";
 
@@ -108,10 +109,13 @@ export function StreamColumns({
   children: [ReactNode, ReactNode];
 }) {
   const { split, widths, onLayout } = layout;
-  const queueDragScroll = useQueueDragScroll(true);
+  const textOffset = resolveTextOffset(layout.containerWidth, widths);
   const textStyle = useMemo(
-    () => [styles.text, split && inlineUnistylesStyle({ width: widths.text })],
-    [split, widths.text],
+    () => [
+      styles.text,
+      split && inlineUnistylesStyle({ width: widths.text, marginLeft: textOffset }),
+    ],
+    [split, widths.text, textOffset],
   );
   const cardsStyle = useMemo(
     () => [styles.cards, inlineUnistylesStyle({ width: widths.cards })],
@@ -129,7 +133,7 @@ export function StreamColumns({
           Could not save column widths. Drag a handle to retry.
         </Text>
       ) : null}
-      <View style={styles.left} testID="thread-text-region">
+      <View style={[styles.left, split && styles.leftSplit]} testID="thread-text-region">
         <View style={textStyle} testID="thread-text-column">
           <StreamColumnWidthContext.Provider value={columnWidth}>
             {children[0]}
@@ -137,22 +141,11 @@ export function StreamColumns({
           {split ? <ColumnResizeHandle column="text" {...layout} /> : null}
         </View>
         {outline}
-        {split ? <ColumnFade /> : null}
+        {split && isNative ? <ColumnFade /> : null}
       </View>
       {split ? (
         <View style={cardsStyle} testID="thread-cards-column">
-          <QueueDragScrollContext.Provider value={queueDragScroll.onDragActive}>
-            <ScrollView
-              scrollEnabled={queueDragScroll.scrollEnabled}
-              style={styles.scroll}
-              contentContainerStyle={styles.cardContent}
-              nestedScrollEnabled
-              testID="thread-cards-scroll"
-            >
-              {children[1]}
-            </ScrollView>
-          </QueueDragScrollContext.Provider>
-          <ColumnFade />
+          <CardColumn>{children[1]}</CardColumn>
           <ColumnResizeHandle column="cards" {...layout} />
         </View>
       ) : null}
@@ -194,14 +187,10 @@ const styles = StyleSheet.create((theme) => ({
     padding: theme.spacing[2],
   },
   root: { flex: 1, minHeight: 0, flexDirection: "row", backgroundColor: theme.colors.surface0 },
-  split: { paddingHorizontal: COLUMN_MARGIN, gap: COLUMN_GAP },
+  split: { paddingRight: COLUMN_MARGIN, gap: COLUMN_GAP },
   left: { flex: 1, minWidth: 0, alignItems: "center" },
+  leftSplit: { alignItems: "flex-start" },
   text: { flex: 1, width: "100%", minHeight: 0 },
-  cards: { flexShrink: 0, minHeight: 0 },
-  scroll: { flex: 1 },
-  cardContent: {
-    paddingTop: theme.spacing[4],
-    paddingBottom: COLUMN_FADE_HEIGHT + theme.spacing[4],
-  },
+  cards: { flexShrink: 0, minHeight: 0, paddingVertical: COLUMN_MARGIN },
   fade: { position: "absolute", left: 0, right: 0, bottom: 0, height: COLUMN_FADE_HEIGHT },
 }));

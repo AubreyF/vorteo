@@ -246,7 +246,7 @@ const StoredAppSettingsSchema = z
       .or(clampedNumber(MIN_CONTENT_MAX_WIDTH, MAX_CONTENT_MAX_WIDTH))
       .catch(null),
     threadTextWidth: z.null().or(clampedNumber(560, 1600)).catch(null),
-    threadCardsWidth: clampedNumber(440, 760).catch(440),
+    threadCardsWidth: clampedNumber(220, 760).catch(440),
     syntaxTheme: z.string().refine(isSyntaxThemeId).catch("one"),
     workspaceTitleSource: z.enum(["title", "branch"]).catch("title"),
     sidebarWorkspaceTrailing: z.enum(["diff", "timestamp", "none"]).catch("diff"),

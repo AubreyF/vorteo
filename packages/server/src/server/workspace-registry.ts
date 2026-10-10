@@ -886,6 +886,7 @@ export function resolveProjectDisplayName(record: PersistedProjectRecord): strin
 }
 
 export function createPersistedWorkspaceRecord(input: {
+  projectMembership?: PersistedWorkspaceRecord["projectMembership"];
   workspaceId: string;
   projectId: string;
   cwd: string;

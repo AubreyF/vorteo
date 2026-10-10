@@ -7,7 +7,7 @@ import type { WorkspaceDescriptorPayload } from "@getpaseo/protocol/messages";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 
 export interface NewDestinationWorkspace {
-  client: Pick<DaemonClient, "createWorkspace" | "setWorkspaceProject">;
+  client: Pick<DaemonClient, "createWorkspace">;
   project: NonNullable<WorkspaceDescriptorPayload["projectMembership"]>;
   directory: string;
   title: string;
@@ -17,15 +17,12 @@ export interface NewDestinationWorkspace {
 export async function createDestinationWorkspace(input: NewDestinationWorkspace) {
   const result = await input.client.createWorkspace({
     source: { kind: "directory", path: input.directory },
+    projectMembership: input.project,
     title: input.title.trim() || "New workspace",
     idempotencyKey: input.idempotencyKey,
   });
   if (result.error) throw new Error(result.error);
   if (!result.workspace) throw new Error("Workspace creation is incomplete. Retry to recover it.");
-  await input.client.setWorkspaceProject({
-    workspaceId: result.workspace.id,
-    membership: input.project,
-  });
   return result.workspace;
 }
 

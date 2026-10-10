@@ -8390,3 +8390,25 @@ test("guarded workspace recovery transmits exact guard while legacy requests rem
   );
   await legacy;
 });
+
+test("rejects project-bound workspace creation before sending to an older daemon", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "workspace-membership",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { workspaceProjectMembership: true, creationLifecycle: true } });
+  await connected;
+  await expect(
+    client.createWorkspace({
+      source: { kind: "directory", path: "/host/repo" },
+      projectMembership: { key: "intended", name: "Intended" },
+    }),
+  ).rejects.toThrow("Update this environment");
+  expect(mock.sent).toEqual([]);
+});

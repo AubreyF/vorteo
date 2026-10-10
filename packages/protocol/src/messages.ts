@@ -2827,6 +2827,7 @@ export const ArchiveWorkspaceRequestSchema = z.object({
 // directory: it always produces a fresh workspace. The source discriminates
 // between an existing local directory and a newly created paseo worktree.
 export const WorkspaceCreateRequestSchema = z.object({
+  projectMembership: WorkspaceProjectMembershipSchema.optional(),
   type: z.literal("workspace.create.request"),
   workspaceId: z
     .string()
@@ -3895,6 +3896,8 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceMultiplicity: z.boolean().optional(),
         // COMPAT(workspaceProjectMembership): added in v0.11.0-beta.3.vorteo.124; retain the gate for older daemons.
         workspaceProjectMembership: z.boolean().optional(),
+        // COMPAT(workspaceCreateProjectMembership): added in v0.11.0-beta.3.vorteo.280; retain until all supported daemons assign membership atomically.
+        workspaceCreateProjectMembership: z.boolean().optional(),
         // COMPAT(workspaceTaskEnvironments): gate bindings on daemons that persist them.
         workspaceTaskEnvironments: z.boolean().optional(),
         // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; retain until the daemon floor supports the admission barrier.
