@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.285 - 2026-10-09
+
+### Changed
+
+- Center conversation text against the full content region until it reaches a 32px card gutter. Match the right edge inset to the 16px card gap and allow the cards column to shrink to 220px.
+- Share available vertical space among open cards, keeping short cards at their content height and long card bodies scrollable. Animate card appearance, removal and resizing with exponential easing and reduced-motion support.
+- Hide the web conversation scrollbar and fade only the scroll edges with more content. Preserve compact footer cards, column width persistence and action approvals.
+
+### Maintenance
+
+- Cover centering, height allocation, narrow width persistence and responsive card behavior in focused tests; document the revised column behavior.
+
 ## 0.11.0-beta.3.vorteo.284 - 2026-10-09
 
 ### Fixed

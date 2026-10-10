@@ -1144,16 +1144,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         ) : null),
       [trailingCards, showTaskCards, serverId, agentId, context.workspaceId, context.cwd],
     );
-    const cards = useMemo(
-      () =>
-        renderLiveAuxiliaryNode({
-          pendingPermissions: pendingActionPermissionsNode,
-          turnFooter: null,
-          taskCards,
-          bottomOverlayInset: 0,
-        }),
-      [pendingActionPermissionsNode, taskCards],
-    );
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
         auxiliary.turnFooter && !auxiliary.pendingPermissions ? TURN_FOOTER_BOTTOM_SPACING : 0;
@@ -1272,7 +1262,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 </View>
               )}
             </AssistantSelectionCopySurface>
-            {cards}
+            <>
+              {taskCards}
+              {pendingActionPermissionsNode}
+            </>
           </StreamColumns>
         </ToolCallSheetProvider>
       </ChatFind>

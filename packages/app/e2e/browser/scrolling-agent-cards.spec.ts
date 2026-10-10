@@ -1439,6 +1439,7 @@ test("thread columns resize independently and follow primary-region width", asyn
   });
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "thread-columns" });
   try {
+    await client.addProject(agent.cwd);
     await client.mutateMessageQueue(agent.agentId, {
       kind: "pause",
       paused: true,
@@ -1468,23 +1469,24 @@ test("thread columns resize independently and follow primary-region width", asyn
     await openAgentRoute(page, agent);
     const cards = page.getByTestId("thread-cards-column");
     const text = page.getByTestId("thread-text-column");
-    const remaining = page.getByTestId("thread-text-region");
     const region = page.getByTestId("thread-content-region");
     await expect(cards).toBeVisible();
     await expect(cards.getByTestId("shared-message-queue")).toBeAttached();
-    await expect(page.getByTestId("thread-column-fade")).toHaveCount(2);
+    await expect(page.getByTestId("thread-cards-scroll")).toHaveCount(0);
     const box = async (locator: Locator) => {
       const result = await locator.boundingBox();
       if (!result) throw new Error("Missing column geometry");
       return result;
     };
     const centered = async () => {
-      const t = await box(text);
-      const r = await box(remaining);
-      expect(t.x + t.width / 2).toBeCloseTo(r.x + r.width / 2, 0);
-      const c = await box(cards);
-      const all = await box(region);
-      expect(all.x + all.width - c.x - c.width).toBeCloseTo(28, 0);
+      await expect(async () => {
+        const t = await box(text);
+        const c = await box(cards);
+        const all = await box(region);
+        expect(all.x + all.width - c.x - c.width).toBeCloseTo(16, 0);
+        const expectedLeft = Math.min(all.x + (all.width - t.width) / 2, c.x - 32 - t.width);
+        expect(t.x).toBeCloseTo(expectedLeft, 0);
+      }).toPass({ timeout: 5000 });
     };
     const drag = async (id: string, delta: number) => {
       const handle = page.getByTestId(id);
@@ -1516,47 +1518,47 @@ test("thread columns resize independently and follow primary-region width", asyn
     await centered();
     expect(await box(composer)).toEqual(composerBefore);
 
+    const queueCard = page.getByTestId("shared-message-queue");
+    const expandedHeight = (await box(queueCard)).height;
+    await page.getByTestId("message-queue-toggle").click();
+    await expect.poll(async () => (await box(queueCard)).height).toBeLessThan(80);
+    await page.getByTestId("message-queue-toggle").click();
+    await expect.poll(async () => (await box(queueCard)).height).toBeCloseTo(expandedHeight, 0);
+
     const queueBody = page.getByTestId("shared-message-queue-body-scroll");
     const headerBefore = await box(page.getByTestId("shared-message-queue-header"));
-    const parentBefore = await page
-      .getByTestId("thread-cards-scroll")
-      .evaluate((node) => node.scrollTop);
     const innerOffset = await queueBody.evaluate((node) => {
       node.scrollTop = node.scrollHeight;
       return node.scrollTop;
     });
     expect(innerOffset).toBeGreaterThan(0);
-    expect(await box(page.getByTestId("shared-message-queue-header"))).toEqual(headerBefore);
-    expect(await page.getByTestId("thread-cards-scroll").evaluate((node) => node.scrollTop)).toBe(
-      parentBefore,
-    );
-    const independent = await region.evaluate(async (root) => {
-      const left = root.querySelector('[data-testid="thread-text-column"]')!;
-      const transcript = [...left.querySelectorAll<HTMLElement>("*")].find(
-        (el) =>
-          /auto|scroll/.test(getComputedStyle(el).overflowY) &&
-          el.scrollHeight > el.clientHeight + 50,
-      );
-      const right = root.querySelector<HTMLElement>('[data-testid="thread-cards-scroll"]')!;
-      if (!transcript) throw new Error("Conversation is not scrollable");
-      transcript.scrollTop = 0;
-      right.scrollTop = right.scrollHeight;
-      await new Promise(requestAnimationFrame);
-      const leftStayed = transcript.scrollTop;
-      const rightPosition = right.scrollTop;
-      transcript.scrollTop = transcript.scrollHeight;
-      await new Promise(requestAnimationFrame);
-      return {
-        leftStayed,
-        rightPosition,
-        rightStayed: right.scrollTop,
-        leftMoved: transcript.scrollTop,
-      };
+    const headerAfter = await box(page.getByTestId("shared-message-queue-header"));
+    expect(headerAfter.y).toBeCloseTo(headerBefore.y, 0);
+    expect(headerAfter.height).toBeCloseTo(headerBefore.height, 0);
+    const stack = page.getByTestId("thread-cards-stack");
+    const stackBox = await box(stack);
+    const queueBox = await box(page.getByTestId("shared-message-queue"));
+    expect(queueBox.y + queueBox.height).toBeLessThanOrEqual(stackBox.y + stackBox.height + 1);
+    expect(
+      await stack.evaluate((node) => node.scrollHeight - node.clientHeight),
+    ).toBeLessThanOrEqual(1);
+    const transcript = page.locator('[data-testid="agent-chat-scroll"]');
+    await expect(transcript).toHaveCSS("scrollbar-width", "none");
+    await transcript.evaluate((node) => {
+      node.scrollTop = 100;
     });
-    expect(independent.leftStayed).toBe(0);
-    expect(independent.rightPosition).toBeGreaterThan(0);
-    expect(independent.rightStayed).toBe(independent.rightPosition);
-    expect(independent.leftMoved).toBeGreaterThan(0);
+    await expect.poll(() => transcript.evaluate((node) => node.style.maskImage)).toContain("64px");
+    await page.setViewportSize({ width: 2800, height: 850 });
+    await expect
+      .poll(async () => {
+        const t = await box(text);
+        const c = await box(composer);
+        return Math.abs(t.x + t.width / 2 - c.x - c.width / 2);
+      })
+      .toBeLessThan(1);
+    await centered();
+    await page.setViewportSize({ width: 1900, height: 850 });
+    await centered();
     await info.attach("thread-columns-wide", {
       body: await page.screenshot({ path: info.outputPath("columns-wide.png") }),
       contentType: "image/png",
@@ -1565,6 +1567,11 @@ test("thread columns resize independently and follow primary-region width", asyn
     await expect(cards).toBeVisible();
     await expect.poll(async () => (await box(text)).width).toBeCloseTo(resizedText, 0);
     await expect.poll(async () => (await box(cards)).width).toBeCloseTo(cardsBefore.width + 70, 0);
+    await drag("thread-cards-resize", 1000);
+    await expect.poll(async () => (await box(cards)).width).toBeCloseTo(220, 0);
+    await centered();
+    await page.reload();
+    await expect.poll(async () => (await box(cards)).width).toBeCloseTo(220, 0);
     await page.setViewportSize({ width: 1500, height: 850 });
     await expect(cards).toBeVisible();
     await page.getByTestId("workspace-explorer-toggle").first().click();
