@@ -85,17 +85,26 @@ def executor_audit_record(parent, generation):
 
 
 def read_executor_stage(parent, record):
-    journal = os.path.join(parent, "coordinator-bootstrap.json")
-    private_path(journal)
-    with open(journal, "r", encoding="utf-8") as stream:
-        requests = json.load(stream)["requests"]
-    matches = [item for item in requests if item.get("id") == record["id"]]
+    matches = []
+    # Main wins after promotion, including after its execution stage advances.
+    # Only the Node journal reader reconciles promotion evidence before effects.
+    for name in ("coordinator-bootstrap.json", "coordinator-bootstrap-pending.json"):
+        journal = os.path.join(parent, name)
+        try:
+            private_path(journal)
+        except FileNotFoundError:
+            continue
+        with open(journal, "r", encoding="utf-8") as stream:
+            requests = json.load(stream)["requests"]
+        matches = [item for item in requests if item.get("id") == record["id"]]
+        if matches:
+            break
     if len(matches) != 1 or matches[0].get("status") != "approved":
         raise ValueError("Watchdog approval is unavailable")
     request = matches[0]
     plan = request.get("plan", {})
     digest = hashlib.sha256(json.dumps(plan, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
-    if (plan.get("automaticRecovery") != "restore-previous"
+    if (plan.get("automaticRecovery") not in ("restore-previous", "restore-compatible")
             or digest != record.get("planSha256") or request.get("planSha256") != digest):
         raise ValueError("Watchdog recovery plan changed")
     execution = request.get("execution", {})
@@ -129,6 +138,8 @@ def main():
         # same kernel object. Process exit releases flock even after SIGKILL.
         if role == "watchdog":
             record = executor_audit_record(parent, generation) if automatic else None
+            if record is not None:
+                read_executor_stage(parent, record)
             print("waiting", flush=True)
         if automatic:
             wait_for_executor(descriptor, record["auditToken"],

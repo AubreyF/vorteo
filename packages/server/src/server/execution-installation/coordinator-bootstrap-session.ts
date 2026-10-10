@@ -49,11 +49,20 @@ export async function handleBootstrapReview(
         throw new BootstrapRequestConflict(
           "Reload the client to review this Factory startup configuration before approval.",
         );
+      if (
+        message.input.decision === "approve" &&
+        request?.plan.compatibleRecovery &&
+        message.compatibleRecovery !== true
+      )
+        throw new BootstrapRequestConflict(
+          "Reload the client to review the compatible recovery executable before approval.",
+        );
       await service.decide(message.input, message.ownerPassword);
     }
     const requests = service
       .list()
-      .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true));
+      .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true))
+      .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true));
     return { type, payload: { requestId, requests, error: null } };
   } catch (error) {
     // Filesystem, schema and verifier failures can carry private configuration.
@@ -80,5 +89,21 @@ function bootstrapReviewReply(
     plan,
     reason:
       "Reload the client to review this Factory startup configuration. Cancellation remains available.",
+  };
+}
+
+// COMPAT(bootstrapCompatibleRecovery): introduced after .287; retain until all
+// supported clients can review the separately approved recovery executable.
+function compatibleRecoveryReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || !request.plan.compatibleRecovery) return request;
+  const { compatibleRecovery: _recovery, automaticRecovery: _policy, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason:
+      "Reload the client to review the compatible recovery executable. Cancellation remains available.",
   };
 }

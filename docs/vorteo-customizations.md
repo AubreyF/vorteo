@@ -340,6 +340,8 @@ Journal integration maintenance review (2026-10-09): preserved Spark visibility 
 
 Welcome maintenance review (2026-10-09): managed installations now collect the owner password on the welcome page, reuse the protected session, and register both environments. The misleading Tailscale action is removed from this flow. Direct server setup remains for standalone clients. README onboarding now describes owner sign-in.
 
+October 10, 2026: Coordinator maintenance preparation preserves completed history and adds separately reviewed compatible recovery. New-format pending requests remain outside the legacy startup journal until independent recovery is armed; durable promotion preserves the entire claim and makes main authoritative. Old clients cannot approve hidden recovery artifacts. Compatible recovery refuses to call a resumed legacy process a durable result. Focused journal, execution, configuration, launcher and client tests cover this source path; exact artifact preparation and live installation acceptance remain pending. README overview and onboarding are unchanged.
+
 Card heading hover review (2026-10-10): shared disclosure highlights retain 8px of the card’s left padding and include 4px before the icon. Icon and text positions, trailing actions and desktop/touch target heights remain unchanged. README overview and onboarding are unchanged.
 
 Card heading action review (2026-10-10): `TaskCardAction` owns outlined borders, rounded shape, text size and 32px desktop / 44px touch targets for all heading actions. Tasks, Journal, Goals, queue and both sub-agent groups use it, including info controls. Questions, permissions, read-only task progress and plans have no separate heading actions. Callers cannot override visual styles; app guidance and rendered cross-card checks enforce the shared contract.
@@ -348,6 +350,12 @@ Card heading integration review (2026-10-10): preserved the deployed workspace c
 
 October 10, 2026: Added blocked-reason tooltips and hourly existing-thread reassessment. Maintenance checks cover keyboard/touch explanations, durable cooldown, retained-session reload, archive races, owner pause preemption, queue preservation, goal limits and restart holds. Updated the protected loader to wait for an archive queued behind a shared resume.
 
+October 10, 2026 integration review: combined reviewed coordinator recovery with deployed card headings, workspace fixes and blocked-task reassessment. Kept both source histories; coordinator activation and Factory operating acceptance remain pending. README overview and onboarding are unchanged.
+
 Blocked explanation integration review (2026-10-10): merged deployed card headings without changing the tooltip contract. Desktop hover, keyboard focus and compact tap checks passed. Keyboard setup reacquires a badge if column measurement replaces its DOM node during scrolling.
 
 Claude connection maintenance review (2026-10-10): managed Claude sign-in uses one connection panel with automatic binding selection, preserving Models and profiles access. Missing deliveries remain pending; explicit exclusions are distinguished from absent delivery records. Owned legacy account homes are restricted to mode 0700 through a no-follow descriptor without replacing history; linked homes are rejected. Live provider authentication and guarded delivery remain separate acceptance steps.
+
+October 10, 2026 publication review: incorporated the published browser-test readiness correction and preserved both v291 histories. Production recovery code is unchanged; installed activation remains pending.
+
+Claude integration review (2026-10-10): integrated the published coordinator recovery source without changing its implementation. Both release histories remain intact; Claude interface delivery and daemon migration acceptance remain separate. README overview and onboarding are unchanged by this management-panel refinement.

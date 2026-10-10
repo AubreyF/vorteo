@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.293 - 2026-10-10
+
+### Maintenance
+
+- Integrate the shared Claude connection panel and retained-home synchronization fix with published coordinator recovery, preserving both complete release histories.
+
 ## 0.11.0-beta.3.vorteo.292 - 2026-10-10
 
 ### Fixed
@@ -14,6 +20,18 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Cover shared connection routing, pending delivery, retained history and desktop and compact management controls with focused checks. Live provider acceptance remains separate.
+
+## 0.11.0-beta.3.vorteo.292 - 2026-10-10
+
+### Maintenance
+
+- Preserve both v291 histories while integrating the published browser-test readiness correction with reviewed coordinator recovery.
+
+## 0.11.0-beta.3.vorteo.291 - 2026-10-10
+
+### Maintenance
+
+- Integrate reviewed coordinator recovery with deployed interface ancestry and blocked-task reassessment, retaining both source histories and release notes.
 
 ## 0.11.0-beta.3.vorteo.291 - 2026-10-10
 
@@ -39,6 +57,19 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Combine 4 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.288 - 2026-10-10
+
+### Fixed
+
+- Preserve completed coordinator maintenance history while allowing the next reviewed update.
+- Bind compatible recovery to a separately reviewed executable and keep pending requests readable by the previous coordinator.
+- Protect journal promotion with independent recovery, crash-released locking and durable state preservation.
+- Leave busy-state recovery explicitly unresolved after one verified resume, with no automatic retry and visible legacy restart limitations.
+
+### Maintenance
+
+- Add recovery, journal durability, legacy-client and native lifecycle regressions; installed activation remains pending.
 
 ## 0.11.0-beta.3.vorteo.287 - 2026-10-10
 

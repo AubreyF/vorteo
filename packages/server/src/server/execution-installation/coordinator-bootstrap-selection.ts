@@ -3,7 +3,7 @@ import { lstat, open, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
-import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
+import { BootstrapRequestConflict, bootstrapRecoveryRelease } from "./coordinator-bootstrap.js";
 import {
   assertBootstrapPathsProtected,
   readBootstrapPreparedFile,
@@ -82,7 +82,11 @@ export async function restoreBootstrapLauncher(input: BootstrapLauncherSelection
     (parentStat.mode & 0o022) !== 0
   )
     throw new BootstrapRequestConflict("Rollback launcher parent is not protected");
-  const bytes = await readBootstrapPreparedFile(plan.previous.launcher, writableMountRoots);
+  const recovery = bootstrapRecoveryRelease(plan);
+  if (launcherFile === recovery.launcher.path)
+    throw new BootstrapRequestConflict("Rollback cannot overwrite preserved recovery launcher");
+  await verifyBootstrapReleaseArtifacts(recovery, writableMountRoots);
+  const bytes = await readBootstrapPreparedFile(recovery.launcher, writableMountRoots);
   let current = { path: launcherFile, sha256: plan.previous.launcher.sha256 };
   try {
     await readBootstrapPreparedFile(current, writableMountRoots);
