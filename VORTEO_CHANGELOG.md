@@ -4,11 +4,25 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.299 - 2026-10-11
+
+### Maintenance
+
+- Preserve installed workspace profile defaults while integrating compact card headers.
+
 ## 0.11.0-beta.3.vorteo.298 - 2026-10-11
 
 ### Changed
 
 - Compact conversation card headers with flush ghost buttons, shared card corner radii and preserved touch targets.
+
+## 0.11.0-beta.3.vorteo.298 - 2026-10-11
+
+### Changed
+
+- Show a compact profile chooser above the new workspace message field and apply draft selections without a separate activation button
+- Add General preferences for the default workspace environment and account, with a separate default profile for each account
+- Preserve the installed Factory sidebar and full-height conversation layout while integrating workspace preferences
 
 ## 0.11.0-beta.3.vorteo.297 - 2026-10-11
 

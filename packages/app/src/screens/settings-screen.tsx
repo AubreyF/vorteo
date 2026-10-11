@@ -1,5 +1,7 @@
 import { SidebarCalloutStack } from "@/components/sidebar-callout";
 import { ActionFooter } from "@/components/ui/action-footer";
+import { WorkspaceDefaultsSection } from "@/screens/settings/general/workspace-defaults-section";
+
 import { EnvironmentsSettingsPage } from "./settings/environments-page";
 import { SkillLibraryContent } from "@/agent-skills/library";
 import { InstallationControls, InstallationRestartBanner } from "@/execution-installation/panel";
@@ -1199,6 +1201,7 @@ export default function SettingsScreen({
             <>
               {installationRequested ? <InstallationControls requestId={restartRequestId} /> : null}
               <GeneralSection settings={settings} handleLanguageChange={handleLanguageChange} />
+              <WorkspaceDefaultsSection />
               <SendingSection />
               <AboutSection
                 showInstallation={!installationRequested}

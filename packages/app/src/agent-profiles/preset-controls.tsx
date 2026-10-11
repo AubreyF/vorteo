@@ -48,6 +48,7 @@ function PresetStatusIcon({
 }
 
 interface PresetControlsProps {
+  inline?: boolean;
   serverId: string | null;
   profiles: AgentProfilePicker;
   selectedProfileId?: string;
@@ -68,6 +69,7 @@ export function activePresetPicker(input: {
   return input.enabled && input.supported ? input.picker : null;
 }
 export function PresetControls({
+  inline = false,
   serverId,
   profiles,
   selectedProfileId: storedProfileId,
@@ -162,6 +164,28 @@ export function PresetControls({
     [disabled, profiles],
   );
   const closeMenu = useCallback(() => setOpen(false), []);
+  if (inline)
+    return (
+      <View
+        style={isCompact ? styles.inlineCompact : styles.inline}
+        testID="new-workspace-profile-selector"
+      >
+        <EnvironmentPresetMenu
+          inline
+          now={now}
+          serverId={serverId}
+          profiles={profiles}
+          selectedId={selectedProfileId}
+          compact={isCompact}
+          disabled={selectionDisabled}
+          onApply={select}
+          onClose={closeMenu}
+          currentProvider={currentProvider}
+          currentModel={currentModel}
+          currentThinkingOptionId={currentThinkingOptionId}
+        />
+      </View>
+    );
   return (
     <View ref={controlsRef} style={controlsStyle} testID="preset-controls">
       <View ref={anchorRef} collapsable={false} style={styles.trigger}>
@@ -229,6 +253,8 @@ export function PresetControls({
   );
 }
 const styles = StyleSheet.create((theme) => ({
+  inline: { height: 260, width: "100%" },
+  inlineCompact: { height: 340, width: "100%" },
   touchControls: { flex: 1, flexWrap: "nowrap" },
   centerControls: { justifyContent: "center", marginHorizontal: 8 },
   controls: {

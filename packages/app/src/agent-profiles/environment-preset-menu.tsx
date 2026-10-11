@@ -1,3 +1,7 @@
+import { useAppSettings } from "@/hooks/use-settings";
+import { installationProviderReference } from "@getpaseo/protocol/installation-settings";
+import { sharedChoiceState } from "./shared-choices";
+import { defaultProfile } from "./internal/default-profile";
 import {
   isSharedWorkflowProfile,
   sharedWorkflowProfileId,
@@ -26,6 +30,7 @@ import type { LaunchChoices } from "./shared-choices";
 import { useHostRuntimeConnectionStatuses } from "@/runtime/host-runtime";
 
 interface EnvironmentPresetMenuProps {
+  inline?: boolean;
   serverId: string | null;
   profiles: AgentProfilePicker;
   selectedId?: string;
@@ -40,6 +45,7 @@ interface EnvironmentPresetMenuProps {
   onClose: () => void;
 }
 export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
+  const { settings } = useAppSettings();
   const [inspectedServerId, setServerId] = useState(props.serverId);
   const serverId = props.profiles.selectEnvironment ? props.serverId : inspectedServerId;
   const selectEnvironment = useCallback(
@@ -130,21 +136,6 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
   const inspectedId = inspectedByServer[serverId ?? ""] ?? selectedId;
   const inspectedProvider =
     accountByServer[serverId ?? ""] ?? (sameEnvironment ? props.currentProvider : undefined);
-  const inspectAccount = useCallback(
-    (provider: string) => {
-      setAccountByServer((current) => ({ ...current, [serverId ?? ""]: provider }));
-      if (!accountIndependent) {
-        const account = accounts.find((item) => item.provider === provider);
-        const matchingId =
-          inspectedId && isSharedWorkflowProfile(inspectedId)
-            ? sharedWorkflowProfileId(provider, decodeURIComponent(inspectedId.split("/")[2]))
-            : undefined;
-        const row = account?.rows.find((item) => item.id === matchingId) ?? account?.rows[0];
-        if (row) setInspectedByServer((current) => ({ ...current, [serverId ?? ""]: row.id }));
-      }
-    },
-    [serverId, accounts, accountIndependent, inspectedId],
-  );
   const inspect = useCallback(
     (id: string) => setInspectedByServer((current) => ({ ...current, [serverId ?? ""]: id })),
     [serverId],
@@ -162,6 +153,52 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       }
     },
     [sameEnvironment, props, definitions, serverId],
+  );
+  const inspectAccount = useCallback(
+    (provider: string) => {
+      setAccountByServer((current) => ({ ...current, [serverId ?? ""]: provider }));
+      if (props.inline) {
+        const account = accounts.find((item) => item.provider === provider);
+        const entry = entries?.find((item) => item.provider === provider);
+        const compatible = (definitions ?? []).filter(
+          (profile) =>
+            account?.rows.some((row) => row.id === profile.id) &&
+            !sharedChoiceState({ profile, choices: {}, entry }).unavailable,
+        );
+        const reference = installationProviderReference(provider, config?.providers ?? {});
+        const preferredId = settings.workspaceDefaults.profilesByAccount[reference];
+        const profile = defaultProfile(compatible, preferredId);
+        if (profile) apply(profile.id, { provider });
+      } else if (!accountIndependent) {
+        const account = accounts.find((item) => item.provider === provider);
+        const matchingId =
+          inspectedId && isSharedWorkflowProfile(inspectedId)
+            ? sharedWorkflowProfileId(provider, decodeURIComponent(inspectedId.split("/")[2]))
+            : undefined;
+        const row = account?.rows.find((item) => item.id === matchingId) ?? account?.rows[0];
+        if (row) setInspectedByServer((current) => ({ ...current, [serverId ?? ""]: row.id }));
+      }
+    },
+    [
+      serverId,
+      accounts,
+      accountIndependent,
+      inspectedId,
+      props.inline,
+      entries,
+      definitions,
+      config,
+      settings,
+      apply,
+    ],
+  );
+  const inspectProfile = useCallback(
+    (id: string) => {
+      if (props.disabled) return;
+      if (props.inline) apply(id, { provider: inspectedProvider ?? accounts[0]?.provider });
+      else inspect(id);
+    },
+    [props.disabled, props.inline, apply, inspectedProvider, accounts, inspect],
   );
   const { onClose } = props;
   const manage = useCallback(() => {
@@ -232,6 +269,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
     availabilityError = "This environment does not support profiles";
   return (
     <AccountPresetMenu
+      inline={props.inline}
       serverId={serverId}
       environments={environments}
       onEnvironment={selectEnvironment}
@@ -250,7 +288,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       currentProvider={sameEnvironment ? props.currentProvider : undefined}
       currentModel={sameEnvironment ? props.currentModel : undefined}
       currentThinkingOptionId={sameEnvironment ? props.currentThinkingOptionId : undefined}
-      onInspect={inspect}
+      onInspect={inspectProfile}
       onApply={apply}
       onManage={manage}
       onRetry={retry}

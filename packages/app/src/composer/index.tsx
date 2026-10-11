@@ -2400,6 +2400,7 @@ function ComposerContentImpl({
               />
             ) : null}
 
+            {agentControls ? leftContent : null}
             <View ref={messageInputContainerRef} style={styles.messageInputContainer}>
               <ComposerAutocompleteBinding
                 text={textSource}
@@ -2445,7 +2446,7 @@ function ComposerContentImpl({
                   autoFocus={messageInputAutoFocus}
                   autoFocusKey={`${serverId}:${agentId}:${autoFocusKey ?? ""}`}
                   disabled={isSubmitLoading}
-                  leftContent={leftContent}
+                  leftContent={agentControls ? null : leftContent}
                   beforeVoiceContent={beforeVoiceContent}
                   rightContent={rightContent}
                   activeActionContent={activeActionContent}
