@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.306 - 2026-10-11
+
+### Added
+
+- Prepare and review exact preview-monitor replacements through the installation coordinator, retaining displaced bytes and fencing uncertain outcomes.
+- Negotiate monitor configuration review with older clients while preserving cancellation and exact approval checks.
+
+### Fixed
+
+- Recognize managed supervisor and Node worker identity when the preview monitor checks the Dev daemon.
+
 ## 0.11.0-beta.3.vorteo.305 - 2026-10-11
 
 ### Fixed

@@ -1,3 +1,4 @@
+import { PreviewMonitorConfigurationSchema } from "./preview-monitor-maintenance.js";
 import { NativeHelperConfigurationSchema } from "./native-helper-maintenance.js";
 import { FactoryRuntimeAdoptionConfigurationSchema } from "./execution-installation.js";
 import { z } from "zod";
@@ -47,6 +48,7 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
   automaticRecovery: z.enum(["restore-previous", "restore-compatible"]).optional(),
   compatibleRecovery: ReleaseIdentitySchema.optional(),
   nativeHelperConfiguration: NativeHelperConfigurationSchema.nullable().optional(),
+  previewMonitorConfiguration: PreviewMonitorConfigurationSchema.nullable().optional(),
   // COMPAT(factoryRuntimeAdoption): added in v0.11.0-beta.3.vorteo.285.
   factoryRuntimeAdoptionConfiguration:
     FactoryRuntimeAdoptionConfigurationSchema.nullable().optional(),
@@ -113,12 +115,14 @@ export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   requestId: z.string(),
   factoryRuntimeAdoption: z.literal(true).optional(),
   compatibleRecovery: z.literal(true).optional(),
+  previewMonitor: z.literal(true).optional(),
 });
 export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.prepare.request"),
   requestId: z.string(),
   factoryRuntimeAdoption: z.literal(true).optional(),
   compatibleRecovery: z.literal(true).optional(),
+  previewMonitor: z.literal(true).optional(),
   input: CoordinatorBootstrapPreparationSchema,
 });
 export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
@@ -126,6 +130,7 @@ export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   requestId: z.string(),
   factoryRuntimeAdoption: z.literal(true).optional(),
   compatibleRecovery: z.literal(true).optional(),
+  previewMonitor: z.literal(true).optional(),
   input: CoordinatorBootstrapDecisionSchema,
   // Transient owner proof. Never persist it with the request or decision.
   ownerPassword: z.string().min(1).max(1024),

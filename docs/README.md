@@ -63,3 +63,5 @@ Host and container setup, trust boundaries, restart requests and removal: [Host 
 - [Skill library](skill-library.md): inventory, ownership, reviewed changes, and profile selection.
 
 Factory worker retention and deferred configurable cleanup: [Factory follow-on updates](factory-future-updates.md).
+
+- [Managed preview monitor replacement](preview-monitor-maintenance.md): exact review, retained bytes and uncertain-outcome handling.

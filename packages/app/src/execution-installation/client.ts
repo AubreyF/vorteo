@@ -2,6 +2,11 @@ import {
   NativeHelperJobSchema,
   type NativeHelperJob,
 } from "@getpaseo/protocol/native-helper-maintenance";
+import {
+  PreviewMonitorJobSchema,
+  type PreviewMonitorJob,
+} from "@getpaseo/protocol/preview-monitor-maintenance";
+import type { MonitorAction } from "./preview-monitor-review";
 import type { HelperReviewAction } from "./helper-review";
 import { z } from "zod";
 import {
@@ -54,6 +59,7 @@ export class InstallationRouteUnavailable extends Error {}
 export class InstallationClient {
   private password: string | null = null;
   private helperRetryAt = 0;
+  private monitorRetryAt = 0;
   sessionsSupported = false;
   passwordFile: string | null = null;
 
@@ -123,6 +129,40 @@ export class InstallationClient {
     return RestartSummarySchema.parse(await response.json());
   }
 
+  async listMonitors(): Promise<PreviewMonitorJob[]> {
+    if (this.password === null) throw new Error("Unlock installation controls first");
+    const now = this.ports.now ?? Date.now;
+    if (now() < this.monitorRetryAt) return [];
+    try {
+      return z
+        .strictObject({ jobs: z.array(PreviewMonitorJobSchema) })
+        .parse(await this.request("monitors/query", {})).jobs;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable) {
+        this.monitorRetryAt = now() + 60_000;
+        return [];
+      }
+      throw error;
+    }
+  }
+  async decideMonitor(job: PreviewMonitorJob, decision: MonitorAction): Promise<PreviewMonitorJob> {
+    const result = PreviewMonitorJobSchema.parse(
+      await this.request("monitors/decision", {
+        operation: job.operation,
+        id: job.id,
+        revision: job.revision,
+        planSha256: job.planSha256,
+        decision,
+      }),
+    );
+    if (
+      result.id !== job.id ||
+      result.revision !== job.revision ||
+      result.planSha256 !== job.planSha256
+    )
+      throw new Error("Monitor receipt changed. Refresh before another action.");
+    return result;
+  }
   async listHelpers(): Promise<NativeHelperJob[]> {
     if (this.password === null) throw new Error("Unlock installation controls first");
     const now = this.ports.now ?? Date.now;

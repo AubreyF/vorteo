@@ -2047,6 +2047,7 @@ export class VoiceAssistantWebSocketServer {
               coordinatorBootstrapReview: true,
               coordinatorBootstrapFactoryAdoption: true,
               coordinatorBootstrapCompatibleRecovery: true,
+              coordinatorBootstrapPreviewMonitor: true,
             }
           : {}),
         durableMessageQueue: true,

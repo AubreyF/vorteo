@@ -1,4 +1,10 @@
 import {
+  PreviewMonitorPreparationSchema,
+  PreviewMonitorDecisionSchema,
+  type PreviewMonitorJob,
+  type PreviewMonitorPlan,
+} from "@getpaseo/protocol/preview-monitor-maintenance";
+import {
   NativeHelperPreparationSchema,
   NativeHelperRecoveryDecisionSchema,
   NativeHelperInstallerExitSchema,
@@ -31,6 +37,12 @@ export interface RestartJournal {
 }
 
 export interface RestartExecutor {
+  inspectMonitor?(): Promise<
+    import("@getpaseo/protocol/preview-monitor-maintenance").PreviewMonitorSelection
+  >;
+  monitorCompatible?(): Promise<boolean>;
+  validateMonitorPlan?(plan: PreviewMonitorPlan): Promise<void>;
+  installMonitor?(job: PreviewMonitorJob): Promise<string>;
   factoryRuntimePlan?(): string | undefined;
   adoptFactoryRuntime?(job: RestartJob): Promise<string>;
   validateHelperRollback?(job: NativeHelperJob, failed: NativeHelperJob): Promise<void>;
@@ -75,6 +87,7 @@ function validateSourceDecision(job: RestartJob, decision: RestartDecision, upda
 export class InstallationRestarts {
   private jobs: RestartJob[];
   private helpers: NativeHelperJob[];
+  private monitors: PreviewMonitorJob[];
   private snapshot: LifecycleJob[];
   private active = false;
   private running = false;
@@ -90,9 +103,14 @@ export class InstallationRestarts {
     startup: { fenced: boolean } = { fenced: false },
   ) {
     this.snapshot = journal.read();
-    this.jobs = this.snapshot.filter((job): job is RestartJob => job.target !== "native-helper");
+    this.jobs = this.snapshot.filter(
+      (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
+    );
     this.helpers = this.snapshot.filter(
       (job): job is NativeHelperJob => job.target === "native-helper",
+    );
+    this.monitors = this.snapshot.filter(
+      (job): job is PreviewMonitorJob => job.target === "preview-monitor",
     );
     if (!startup.fenced) this.activate();
   }
@@ -142,7 +160,24 @@ export class InstallationRestarts {
         };
       return job;
     });
-    this.writeState(recovered, helpers);
+    const monitors = this.monitors.map((job): PreviewMonitorJob => {
+      if (job.status === "approved" || job.status === "running")
+        return {
+          ...job,
+          status: "failed",
+          stage: "recovery_required",
+          detail:
+            "Coordinator interrupted. Inspect retained monitor receipt; never replay or roll back automatically.",
+        };
+      if (job.status === "pending" && job.stage === "preparing")
+        return {
+          ...job,
+          status: "failed",
+          detail: "Preparation interrupted. Prepare a new monitor request.",
+        };
+      return job;
+    });
+    this.writeState(recovered, helpers, monitors);
     this.active = true;
     this.reconcilePending();
   }
@@ -157,6 +192,159 @@ export class InstallationRestarts {
     return structuredClone(
       this.jobs.map((job) => ({ ...job, impact: this.impactCache.get(job.target) })),
     );
+  }
+
+  listMonitors(): PreviewMonitorJob[] {
+    return structuredClone(this.monitors);
+  }
+
+  private replaceMonitor(next: PreviewMonitorJob): void {
+    this.requireActive();
+    this.writeState(
+      this.jobs,
+      this.helpers,
+      this.monitors.some((job) => job.id === next.id)
+        ? this.monitors.map((job) => (job.id === next.id ? next : job))
+        : [...this.monitors, next],
+    );
+  }
+
+  async prepareMonitor(input: unknown, requestedBy: string): Promise<PreviewMonitorJob> {
+    this.requireActive();
+    if (requestedBy !== "host-agent")
+      throw new RestartRequestError("Monitor preparation requires Host access");
+    if (
+      !this.executor.validateMonitorPlan ||
+      !this.executor.installMonitor ||
+      !(await this.executor.monitorCompatible?.())
+    )
+      throw new RestartRequestError(
+        "Monitor maintenance requires compatible selected and recovery coordinators",
+      );
+    const prepared = PreviewMonitorPreparationSchema.parse(input);
+    const planSha256 = createHash("sha256").update(JSON.stringify(prepared.plan)).digest("hex");
+    const existing = this.snapshot.find((job) => job.id === prepared.id);
+    if (existing) {
+      if (
+        existing.target !== "preview-monitor" ||
+        existing.planSha256 !== planSha256 ||
+        existing.reason !== prepared.reason
+      )
+        throw new RestartRequestError("Request identity belongs to different work");
+      return structuredClone(existing);
+    }
+    const job: PreviewMonitorJob = {
+      ...prepared,
+      target: "preview-monitor",
+      operation: prepared.plan.operation,
+      revision: randomUUID(),
+      requestedBy: "host-agent",
+      createdAt: new Date(this.now()).toISOString(),
+      planSha256,
+      status: "pending",
+      stage: "preparing",
+      detail: "Verifying reviewed monitor bytes and selected ancestry",
+    };
+    this.replaceMonitor(job);
+    try {
+      await this.executor.validateMonitorPlan(structuredClone(job.plan));
+      if (this.monitors.find((item) => item.id === job.id)?.status === "pending")
+        this.replaceMonitor({
+          ...job,
+          stage: "prepared",
+          detail: "Review this exact monitor replacement. Host and Dev agents keep running.",
+        });
+    } catch {
+      if (this.monitors.find((item) => item.id === job.id)?.status === "pending")
+        this.replaceMonitor({
+          ...job,
+          status: "failed",
+          detail: "Monitor preparation failed. Inspect artifacts and prepare a new request.",
+        });
+    }
+    return this.listMonitors().find((item) => item.id === job.id)!;
+  }
+
+  decideMonitor(input: unknown): PreviewMonitorJob {
+    this.requireActive();
+    const decision = PreviewMonitorDecisionSchema.parse(input);
+    const job = this.monitors.find((item) => item.id === decision.id);
+    if (
+      !job ||
+      job.revision !== decision.revision ||
+      job.planSha256 !== decision.planSha256 ||
+      createHash("sha256").update(JSON.stringify(job.plan)).digest("hex") !== job.planSha256
+    )
+      throw new RestartRequestError(
+        "Monitor request changed. Review its exact revision and bytes.",
+      );
+    if (decision.decision === "cancel") {
+      if (!["pending", "approved"].includes(job.status))
+        throw new RestartRequestError("Monitor request already dispatched or decided");
+      this.replaceMonitor({
+        ...job,
+        status: "rejected",
+        detail: "Monitor replacement canceled",
+      });
+    } else {
+      if (job.status !== "pending" || job.stage !== "prepared")
+        throw new RestartRequestError("Monitor is not ready for approval");
+      this.replaceMonitor({
+        ...job,
+        status: "approved",
+        approvedAt: new Date(this.now()).toISOString(),
+        detail: "Exact monitor replacement approved",
+      });
+    }
+    return this.listMonitors().find((item) => item.id === job.id)!;
+  }
+
+  private monitorRecoveryRequired(): boolean {
+    return this.monitors.some(
+      (job) => job.status === "running" || job.stage === "recovery_required",
+    );
+  }
+
+  private async dispatchMonitor(job: PreviewMonitorJob): Promise<void> {
+    try {
+      if (
+        !this.executor.validateMonitorPlan ||
+        !this.executor.installMonitor ||
+        !(await this.executor.monitorCompatible?.())
+      )
+        throw new Error("Monitor execution unavailable");
+      if (createHash("sha256").update(JSON.stringify(job.plan)).digest("hex") !== job.planSha256)
+        throw new Error("Monitor plan changed");
+      await this.executor.validateMonitorPlan(structuredClone(job.plan));
+      const current = this.monitors.find((item) => item.id === job.id);
+      if (current?.status !== "approved" || current.revision !== job.revision) return;
+      const dispatched: PreviewMonitorJob = {
+        ...current,
+        status: "running",
+        stage: "dispatch_pending",
+        detail: "Replacing approved monitor and verifying selected pathname",
+      };
+      this.replaceMonitor(dispatched); // Durable dispatch intent before any write.
+      const detail = await this.executor.installMonitor(structuredClone(dispatched));
+      this.replaceMonitor({
+        ...dispatched,
+        status: "succeeded",
+        stage: "succeeded",
+        detail,
+      });
+    } catch {
+      const current = this.monitors.find((item) => item.id === job.id)!;
+      if (current.status === "rejected") return;
+      this.replaceMonitor({
+        ...current,
+        status: "failed",
+        stage: current.status === "running" ? "recovery_required" : "prepared",
+        detail:
+          current.status === "running"
+            ? "Monitor outcome is uncertain. Inspect retained bytes and receipt. Never replay or roll back automatically."
+            : "Monitor validation failed before dispatch. Prepare a new request.",
+      });
+    }
   }
 
   listHelpers(): NativeHelperJob[] {
@@ -1074,6 +1262,22 @@ export class InstallationRestarts {
     );
   }
 
+  private async drainMonitors(): Promise<void> {
+    // Factory recovery fences apply to all target maintenance, including monitor writes.
+    const factoryUncertain = this.jobs.some(
+      (job) => job.factoryRuntimeRecoveryRequired && !job.factoryRuntimeRecoveredBy,
+    );
+    if (
+      !factoryUncertain &&
+      !this.jobs.some((job) => job.finishCurrentTurns && !job.holdReleased)
+    ) {
+      for (const job of this.monitors.filter((item) => item.status === "approved")) {
+        if (this.monitorRecoveryRequired()) break;
+        await this.dispatchMonitor(job);
+      }
+    }
+  }
+
   async drain(): Promise<void> {
     if (!this.active) return;
     if (this.running || this.preparing) return;
@@ -1102,6 +1306,7 @@ export class InstallationRestarts {
       }
       // Release completed holds above, but never start another lifecycle operation
       // while the installed helper selection remains ambiguous.
+      if (this.monitorRecoveryRequired()) return;
       if (this.helperRecoveryRequired()) {
         const blocked = this.helpers.filter(
           (job) => job.stage === "recovery_required" || job.status === "running",
@@ -1115,6 +1320,8 @@ export class InstallationRestarts {
         if (rollback) await this.dispatchHelper(rollback);
         return;
       }
+      if (this.monitors.some((job) => job.status === "approved")) await this.drainMonitors();
+      if (this.monitorRecoveryRequired()) return;
       this.approveTrustedHostRequests();
       for (const job of this.jobs.filter((candidate) => candidate.status === "approved")) {
         await this.dispatch(job);
@@ -1311,9 +1518,13 @@ export class InstallationRestarts {
     this.requireActive();
     this.writeState(jobs, this.helpers);
   }
-  private writeState(jobs: RestartJob[], helpers: NativeHelperJob[]): void {
+  private writeState(
+    jobs: RestartJob[],
+    helpers: NativeHelperJob[],
+    monitors: PreviewMonitorJob[] = this.monitors,
+  ): void {
     const remaining = new Map<string, LifecycleJob>(
-      [...jobs, ...helpers].map((job) => [job.id, job]),
+      [...jobs, ...helpers, ...monitors].map((job) => [job.id, job]),
     );
     const next: LifecycleJob[] = [];
     for (const previous of this.snapshot) {
@@ -1328,6 +1539,7 @@ export class InstallationRestarts {
     this.snapshot = next;
     this.jobs = jobs;
     this.helpers = helpers;
+    this.monitors = monitors;
   }
 }
 
