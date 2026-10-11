@@ -26,6 +26,39 @@ async function verifyGoalPauseHelp(page: Page, goalCard: Locator, width: number)
   await page.mouse.move(0, 0);
 }
 
+async function expectJournalRowGeometry(row: Locator) {
+  await expect(async () => {
+    const rowGeometry = await row.evaluate((node) => {
+      const timestamp = node
+        .querySelector('[data-testid="journal-timestamp"]')!
+        .getBoundingClientRect();
+      const text = node.querySelector('[data-testid="journal-text"]')!.getBoundingClientRect();
+      const marker = node
+        .querySelector('[data-testid^="journal-status-"]')!
+        .getBoundingClientRect();
+      return {
+        markerInset: marker.left - node.getBoundingClientRect().left,
+        markerRight: marker.right,
+        timestampLeft: timestamp.left,
+        timestampBottom: timestamp.bottom,
+        timestampInset: timestamp.left - node.getBoundingClientRect().left,
+        textTop: text.top,
+        textLeft: text.left,
+        textWidth: text.width,
+        rowWidth: node.getBoundingClientRect().width,
+        overflow: node.scrollWidth > node.clientWidth,
+      };
+    });
+    expect(rowGeometry.timestampLeft).toBe(rowGeometry.textLeft);
+    expect(rowGeometry.timestampBottom).toBeLessThanOrEqual(rowGeometry.textTop);
+    expect(rowGeometry.markerInset).toBe(8);
+    expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
+    expect(rowGeometry.timestampInset).toBe(36);
+    expect(rowGeometry.textWidth).toBe(rowGeometry.rowWidth - 36);
+    expect(rowGeometry.overflow).toBe(false);
+  }).toPass({ timeout: 5000 });
+}
+
 test.use({ e2eInjectPaseoTools: true });
 
 for (const width of [1400, 390]) {
@@ -62,7 +95,7 @@ for (const width of [1400, 390]) {
                 entryId: id,
                 text:
                   `Journal observation ${index + 1}. ` +
-                  "Verified the change and retained the decision history. ".repeat(3),
+                  "Verified the change and retained the decision history. ".repeat(6),
               },
             })
           ).isError,
@@ -78,6 +111,7 @@ for (const width of [1400, 390]) {
       await expect(status(0)).toHaveAttribute("aria-label", "Seen journal entry");
       await expect(status(11)).toHaveAttribute("aria-label", "Unread journal entry");
       await expect(card.getByTestId("journal-unread-count")).toBeVisible();
+      await expectJournalRowGeometry(page.getByTestId(`journal-entry-${ids[0]}`));
       await card.screenshot({ path: info.outputPath(`spark-${width}.png`) });
 
       // Keep the app in the background while exposing unread entries.
@@ -474,36 +508,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       expect((await journalCard.boundingBox())!.height).toBeLessThan(expandedHeight);
       await toggleJournal.click();
       await expect(entries).toHaveCount(2);
-      await expect(async () => {
-        const rowGeometry = await entries.first().evaluate((node) => {
-          const timestamp = node
-            .querySelector('[data-testid="journal-timestamp"]')!
-            .getBoundingClientRect();
-          const text = node.querySelector('[data-testid="journal-text"]')!.getBoundingClientRect();
-          const marker = node
-            .querySelector('[data-testid^="journal-status-"]')!
-            .getBoundingClientRect();
-          return {
-            markerInset: marker.left - node.getBoundingClientRect().left,
-            markerRight: marker.right,
-            timestampLeft: timestamp.left,
-            timestampRight: timestamp.right,
-            timestampInset: timestamp.left - node.getBoundingClientRect().left,
-            textTopOffset: text.top - timestamp.top,
-            textLeft: text.left,
-            textWidth: text.width,
-            timestampWidth: timestamp.width,
-            overflow: node.scrollWidth > node.clientWidth,
-          };
-        });
-        expect(rowGeometry.timestampRight).toBeLessThan(rowGeometry.textLeft);
-        expect(rowGeometry.markerInset).toBe(8);
-        expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
-        expect(rowGeometry.timestampInset).toBe(36);
-        expect(rowGeometry.textTopOffset).toBe(-2);
-        expect(rowGeometry.textWidth).toBeGreaterThan(rowGeometry.timestampWidth);
-        expect(rowGeometry.overflow).toBe(false);
-      }).toPass({ timeout: 5000 });
+      await expectJournalRowGeometry(entries.first());
 
       await checkDisclosures(stack, width, info);
       await checkSubagentRows(stack, width, info);

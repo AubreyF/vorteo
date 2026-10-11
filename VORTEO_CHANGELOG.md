@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.304 - 2026-10-11
+
+### Maintenance
+
+- Preserve the published compact journal alongside native Factory grouping and Review tasks. Verify Review editing, persistence and completion at desktop and phone widths.
+
 ## 0.11.0-beta.3.vorteo.303 - 2026-10-11
 
 ### Added
@@ -20,17 +26,35 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Preserve the published compact conversation headers alongside native Factory sidebar grouping and both release histories.
 
+## 0.11.0-beta.3.vorteo.302 - 2026-10-11
+
+### Maintenance
+
+- Verify compact journal row geometry directly in the desktop and phone visibility checks.
+
 ## 0.11.0-beta.3.vorteo.301 - 2026-10-11
 
 ### Fixed
 
 - Use native Factory membership for the Factory sidebar section and protected icon-only marker. Custom labels no longer determine Factory membership or grouping.
 
+## 0.11.0-beta.3.vorteo.301 - 2026-10-11
+
+### Maintenance
+
+- Keep journal visibility test entries outside the viewport after widening the text area.
+
 ## 0.11.0-beta.3.vorteo.300 - 2026-10-11
 
 ### Maintenance
 
 - Preserve the installed conversation layout and complete release histories alongside accurate legacy update outcomes.
+
+## 0.11.0-beta.3.vorteo.300 - 2026-10-11
+
+### Changed
+
+- Move journal timestamps above entry text and narrow the left gutter to the timeline and markers.
 
 ## 0.11.0-beta.3.vorteo.299 - 2026-10-11
 
