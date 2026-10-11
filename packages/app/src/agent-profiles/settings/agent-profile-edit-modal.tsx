@@ -66,6 +66,11 @@ export interface AgentProfileEditModalProps {
  */
 const UNSET_VALUE = "";
 
+function usesSharedCatalog(scope: AgentProfileEditModalProps["sharedScope"]): boolean {
+  if (!scope) return false;
+  return readExecutionInstallation() !== null;
+}
+
 function openKey(props: AgentProfileEditModalProps): string {
   if (props.mode === "edit") {
     return `edit:${props.profile?.id ?? ""}`;
@@ -469,13 +474,14 @@ function OpenAgentProfileEditModal({
 }: AgentProfileEditModalProps & { onDismiss: () => void }): ReactElement {
   const { t } = useTranslation();
   const controlSize: FieldControlSize = useIsCompactFormFactor() ? "md" : "sm";
+  const sharedCatalog = usesSharedCatalog(sharedScope);
   const snapshot = useMemo(
-    () => ({ mode, ...(profile ? { profile } : {}), ...(seed ? { seed } : {}) }),
-    [mode, profile, seed],
+    () => ({ mode, sharedCatalog, ...(profile ? { profile } : {}), ...(seed ? { seed } : {}) }),
+    [mode, profile, seed, sharedCatalog],
   );
   const model = useAgentProfileFormModel(snapshot);
   const state = useAgentProfileFormState(model);
-  useAgentProfileFormCatalog({ serverId, model });
+  useAgentProfileFormCatalog({ serverId, model, sharedScope });
   useAgentProfileFormFeatures({ serverId, model, state });
 
   const editingDefaults = sharedScope?.kind === "defaults";
@@ -617,6 +623,7 @@ function OpenAgentProfileEditModal({
         {state.disclosure.showModelField ? (
           <SelectField
             label={t("settings.host.agentProfiles.modelLabel")}
+            hint={state.compatibilityWarnings.join(" ")}
             value={state.modelId || UNSET_VALUE}
             selectedDisplay={state.modelDisplay}
             options={modelOptions}
