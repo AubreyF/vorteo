@@ -130,6 +130,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 11, 2026: Nova managed-startup source verifies protected bundle/configuration commitments and reports authenticated startup identity and draining state. Thirty-eight focused tests, build, full typecheck and lint passed. Managed activation and account/resource revocation acceptance remain incomplete; README overview and onboarding are unchanged.
+
 October 11, 2026: Guarded publication can bind a destination to protected source storage, retain complete commit history before selection and verify a fresh reader. Binding setup is explicit and durable; older pinned publishers must be upgraded before enforcement is established. Standalone unbound publication remains compatible. README overview and onboarding are unchanged.
 
 October 11, 2026: Integrated workspace menu parity with shared sidebar state, outbox lifetime protection and creation fixture isolation. Both release histories and existing Review and Nova source remain intact. This source integration does not establish installed runtime acceptance.

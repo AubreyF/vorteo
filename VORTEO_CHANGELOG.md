@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.320 - 2026-10-11
+
+### Added
+
+- Verify protected Nova bridge release manifests against the selected standalone bundle and consumed configuration before startup.
+- Report authenticated release commitments, startup identity and draining status; reject new MCP work while shutting down.
+- Test file substitution, ownership, size bounds, readiness identity and draining. Managed activation and account revocation acceptance remain separate work.
+
 ## 0.11.0-beta.3.vorteo.319 - 2026-10-11
 
 ### Fixed
