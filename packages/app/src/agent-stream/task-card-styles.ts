@@ -10,16 +10,11 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     borderWidth: theme.borderWidth[1],
     borderRadius: theme.borderRadius.lg,
   };
-  const contentInsets = {
-    padding: theme.spacing[3],
-    gap: theme.spacing[3],
-  };
   return {
     surface,
-    contentInsets,
-    // Equal outer insets keep header-only and collapsed cards vertically centered.
-    scrollContent: contentInsets,
-    bodyContent: { gap: theme.spacing[1] },
+    // Headers meet the card boundary; only scrollable content owns an outer inset.
+    scrollContent: { minHeight: 0, flexShrink: 1 },
+    bodyContent: { padding: theme.spacing[3], gap: theme.spacing[1] },
     fixedHeader: { flexShrink: 0 },
     scrollBody: { minHeight: 0, flexShrink: 1, flexGrow: 0 },
     hiddenBody: { display: "none" },
@@ -31,8 +26,8 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     },
     separator: { borderTopWidth: theme.borderWidth[1], borderTopColor: theme.colors.border },
     rowText: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
-    actions: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1], flexShrink: 0 },
-    headingAction: { borderRadius: theme.borderRadius.full, flexShrink: 0 },
+    actions: { flexDirection: "row", alignItems: "center", gap: 0, flexShrink: 0 },
+    headingAction: { borderRadius: theme.borderRadius.lg, flexShrink: 0 },
     headingInfoText: {
       color: theme.colors.foreground,
       fontSize: theme.fontSize.base,
@@ -47,16 +42,17 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       minHeight: 32,
       paddingHorizontal: 0,
       paddingVertical: 0,
-      borderRadius: theme.borderRadius.full,
+      borderRadius: theme.borderRadius.lg,
     },
     touchAction: { width: 44, height: 44, minWidth: 44, minHeight: 44 },
     header: {
       flexDirection: "row",
       alignItems: "center",
       height: 32,
-      gap: theme.spacing[2],
+      gap: 0,
       flexShrink: 0,
     },
+    staticHeader: { paddingHorizontal: theme.spacing[3], gap: theme.spacing[2] },
     touchHeader: { height: 44 },
     touchAccordionTrigger: { height: 44 },
     accordionTrigger: {

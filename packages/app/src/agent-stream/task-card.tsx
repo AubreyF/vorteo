@@ -38,7 +38,6 @@ import { taskCardStyles } from "./task-card-styles";
 /** Bound the entire card, including its header, as the viewport resizes. */
 function TaskCardView({
   insets = 0,
-  bodyGap = 0,
   bodyVisible = true,
   bodyRef,
   notice,
@@ -47,7 +46,6 @@ function TaskCardView({
   style,
 }: {
   insets?: number;
-  bodyGap?: number;
   bodyVisible?: boolean;
   bodyRef?: Ref<ScrollView>;
   notice?: ReactNode;
@@ -60,7 +58,7 @@ function TaskCardView({
   const [headerHeight, setHeaderHeight] = useState(32);
   const [bodyHeight, setBodyHeight] = useState(0);
   const measure = column?.measure;
-  const bodySpace = bodyVisible ? bodyHeight + bodyGap : 0;
+  const bodySpace = bodyVisible ? bodyHeight : 0;
   const naturalHeight = headerHeight + insets + bodySpace;
   useLayoutEffect(() => {
     measure?.(id, naturalHeight);
@@ -102,7 +100,7 @@ function TaskCardView({
         testID={testID}
         style={[taskCardStyles.surface, style, { minHeight: 0, flexShrink: 1, overflow: "hidden" }]}
       >
-        <View style={[taskCardStyles.scrollContent, { minHeight: 0, flexShrink: 1 }]}>
+        <View style={taskCardStyles.scrollContent}>
           <View
             testID={testID ? `${testID}-header` : undefined}
             style={taskCardStyles.fixedHeader}
@@ -132,15 +130,23 @@ function TaskCardView({
 }
 
 export const TaskCard = withUnistyles(TaskCardView, (theme) => ({
-  insets: theme.spacing[3] * 2 + theme.borderWidth[1] * 2,
-  bodyGap: theme.spacing[3],
+  insets: theme.borderWidth[1] * 2,
 }));
 
 /** Explicit heading slot, rendered outside the card's body scroll region. */
 export function TaskCardHeader({ children, testID }: { children: ReactNode; testID?: string }) {
   const touch = useVortonTouch();
   return (
-    <View testID={testID} style={[taskCardStyles.header, touch && taskCardStyles.touchHeader]}>
+    <View
+      testID={testID}
+      style={[
+        taskCardStyles.header,
+        Children.toArray(children).some(
+          (child) => isValidElement(child) && child.type === TaskCardTitle,
+        ) && taskCardStyles.staticHeader,
+        touch && taskCardStyles.touchHeader,
+      ]}
+    >
       {children}
     </View>
   );
@@ -171,7 +177,7 @@ export function TaskCardAction({ iconOnly = false, ...props }: TaskCardActionPro
   return (
     <Button
       {...props}
-      variant="outline"
+      variant="ghost"
       size={touch ? "md" : "sm"}
       style={[
         taskCardStyles.headingAction,

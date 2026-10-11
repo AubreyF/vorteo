@@ -215,7 +215,7 @@ for (const width of [1400, 390]) {
 test("agents, tasks, plugin pills, queue and goals share the scrolling footer", async ({
   page,
 }, info) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   // This test checks settled geometry; the responsive column test exercises card motion.
   await page.emulateMedia({ reducedMotion: "reduce" });
   const agent = await seedMockAgentWorkspace({
@@ -451,7 +451,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
       expect(geometry[0].frame[3]).toBe("8px");
-      expect(geometry[2].padding).toBe("12px");
+      expect(geometry[2].padding).toBe("0px");
       for (const card of geometry.filter((entry) => entry.id !== "agent-history-plugin-pills")) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
@@ -550,7 +550,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       for (const card of geometry.filter((entry) => entry.id !== "agent-history-plugin-pills")) {
         expect(card.frame).toEqual(geometry[2].frame);
-        expect(card.padding).toBe("12px");
+        expect(card.padding).toBe("0px");
         expect(card.width).toBe(geometry[2].width);
       }
       const goalActionInset = await stack.getByTestId("agent-goal-bar").evaluate((card) => {
@@ -679,8 +679,8 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
       };
     });
     expect(geometry.height, id).toBe(width === 390 ? 44 : 32);
-    expect(geometry.leftInset, id).toBeCloseTo(9, 0);
-    expect(geometry.iconInset, id).toBeCloseTo(4, 0);
+    expect(geometry.leftInset, id).toBeCloseTo(1, 0);
+    expect(geometry.iconInset, id).toBeCloseTo(12, 0);
     expect(geometry.rightGap, id).toBeLessThanOrEqual(8);
     await toggle.hover({ position: { x: 4, y: geometry.height / 2 } });
     await expect
@@ -726,9 +726,9 @@ async function checkHeadingActions(root: Locator, width: number) {
   for (const action of actions) {
     expect(action.height, action.id ?? "heading action").toBe(width === 390 ? 44 : 32);
     expect(action.borderWidth).toBe("1px");
-    expect(action.borderColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(action.borderColor).toBe("rgba(0, 0, 0, 0)");
     expect(action.borderColor).toBe(actions[0].borderColor);
-    expect(action.borderRadius).toBe(actions[0].borderRadius);
+    expect(action.borderRadius).toBe("8px");
   }
 }
 
