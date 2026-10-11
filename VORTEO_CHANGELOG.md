@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.296 - 2026-10-11
+
+### Fixed
+
+- Keep the message field beneath the conversation as columns resize and let floating cards extend alongside it to the bottom of the view.
+
+### Maintenance
+
+- Record the current preference to deliver Vorteo changes to the existing instance for reload and owner review.
+
 ## 0.11.0-beta.3.vorteo.295 - 2026-10-11
 
 ### Maintenance
