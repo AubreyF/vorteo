@@ -4,6 +4,26 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.298 - 2026-10-11
+
+### Maintenance
+
+- Integrate accurate legacy update outcomes with workspace defaults and the installed Factory sidebar, preserving both release histories.
+
+## 0.11.0-beta.3.vorteo.297 - 2026-10-11
+
+### Changed
+
+- Show a compact profile chooser above the new workspace message field and apply draft selections without a separate activation button
+- Add General preferences for the default workspace environment and account, with a separate default profile for each account
+- Preserve the installed Factory sidebar update when integrating workspace preferences
+
+## 0.11.0-beta.3.vorteo.296 - 2026-10-11
+
+### Changed
+
+- Group explicitly tagged Factory workspaces in Factory before runtime adoption and show an icon-only Factory marker. Preserve lifecycle protection and match keyboard navigation to section order.
+
 ## 0.11.0-beta.3.vorteo.296 - 2026-10-11
 
 ### Fixed

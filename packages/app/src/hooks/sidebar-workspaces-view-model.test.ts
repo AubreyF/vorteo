@@ -1453,3 +1453,26 @@ it("suppresses ambiguous installations and unavailable Factory overview surfaces
   expect(factoryOverviewTargets(members, entries, new Set(["one"]))).toEqual([]);
   expect(factoryOverviewTargets([members[0]!], entries, new Set())).toEqual([]);
 });
+
+it("places explicitly tagged Factory work in Factory without granting membership", () => {
+  const base = workspaceWithForge(undefined, "https://github.com/acme/repo/pull/42");
+  const tagged = createSidebarWorkspaceEntry({
+    serverId: "one",
+    workspace: {
+      ...base,
+      labels: [" factory "],
+      standing: true,
+      protected: true,
+    },
+  });
+  const entries = new Map([[tagged.workspaceKey, tagged]]);
+  expect(splitFactoryWorkspaces([tagged], entries, new Map())).toEqual({
+    factory: [tagged],
+    standing: [],
+    work: [],
+  });
+  expect(tagged.factoryMembership).toBeUndefined();
+  expect(tagged.protected).toBe(true);
+  tagged.labels = ["Factory research"];
+  expect(splitFactoryWorkspaces([tagged], entries, new Map()).factory).toEqual([]);
+});

@@ -27,3 +27,13 @@ describe("default configuration", () => {
     expect(ensureDefaultProfile([])).toEqual([]);
   });
 });
+
+it("prefers the account default and falls back when it was removed or excluded", () => {
+  const profiles = [
+    { id: "one", name: "One", provider: "codex", isDefault: true },
+    { id: "two", name: "Two", provider: "codex" },
+  ];
+  expect(defaultProfile(profiles, "two")?.id).toBe("two");
+  expect(defaultProfile(profiles, "deleted")?.id).toBe("one");
+  expect(defaultProfile([], "two")).toBeUndefined();
+});
