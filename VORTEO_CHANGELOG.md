@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.310 - 2026-10-11
+
+### Maintenance
+
+- Integrate workspace chooser geometry with shared-profile compatibility and timeline recovery, preserving both complete release histories.
+
 ## 0.11.0-beta.3.vorteo.309 - 2026-10-11
 
 ### Maintenance
@@ -16,11 +22,23 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Integrate validated shared-model compatibility and timeline catch-up with the published interface, monitor workflow and private bridge, preserving every historical release entry.
 
+## 0.11.0-beta.3.vorteo.308 - 2026-10-11
+
+### Maintenance
+
+- Give the profile column a distinct browser test identifier so workspace geometry checks preserve existing profile-card checks
+
 ## 0.11.0-beta.3.vorteo.307 - 2026-10-11
 
 ### Maintenance
 
 - Preserve the published Factory and Review interface alongside tracked monitor maintenance, the private Nova bridge and both source histories.
+
+## 0.11.0-beta.3.vorteo.307 - 2026-10-11
+
+### Changed
+
+- Remove the new workspace profile header, align the selector and message card edges, and use matching card gaps and desktop heights
 
 ## 0.11.0-beta.3.vorteo.306 - 2026-10-11
 

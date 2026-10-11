@@ -38,7 +38,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { NEW_WORKSPACE_CARD_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { useHasFinePointer } from "@/hooks/use-fine-pointer";
 import { useShallow } from "zustand/shallow";
@@ -2257,6 +2257,17 @@ function ComposerContentImpl({
     [githubSearchItems, selectedAttachments, handleToggleGithubItem],
   );
 
+  const draftInputWrapperStyle = useMemo(
+    () =>
+      agentControls && !isCompactLayout
+        ? {
+            minHeight: NEW_WORKSPACE_CARD_HEIGHT,
+            justifyContent: "space-between" as const,
+            ...inputWrapperStyle,
+          }
+        : inputWrapperStyle,
+    [agentControls, isCompactLayout, inputWrapperStyle],
+  );
   const mobileComposer = useMobileComposerLayout();
   const columnWidth = useContext(StreamColumnWidthContext);
   const inputAreaContainerStyle = useMemo(
@@ -2460,7 +2471,7 @@ function ComposerContentImpl({
                   onSelectionChange={handleSelectionChange}
                   onFocusChange={handleFocusChange}
                   onHeightChange={onComposerHeightChange}
-                  inputWrapperStyle={inputWrapperStyle}
+                  inputWrapperStyle={draftInputWrapperStyle}
                   attachmentSlot={attachmentTray}
                   inputMode={inputMode}
                   readOnly={readOnly}
