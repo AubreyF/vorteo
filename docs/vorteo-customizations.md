@@ -119,6 +119,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 11, 2026: Fresh-home checklist and goal RPC suites clear inherited installation launcher configuration within each test and restore it afterward. All three tests pass without changing production admission guards. Coverage verifies reconnect snapshots and persistence, not daemon restart continuity. Product behavior and README onboarding are unchanged.
+
 Questions remain with the conversation in the left column while goals, tasks, journals, subagents, queued messages and action approvals stay on the right. Desktop and compact browser checks cover placement and retain shared card geometry.
 
 Sidebar update and maintenance notices share a single scroll area capped at 33% of the viewport height. Short stacks occupy their natural height. Cards share spacing, review action styling and equal top/right dismiss insets across workspace and settings sidebars.

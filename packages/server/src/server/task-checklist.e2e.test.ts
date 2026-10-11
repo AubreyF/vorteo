@@ -3,10 +3,14 @@ import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { AgentStorage } from "./agent/agent-storage.js";
 import { createTestLogger } from "../test-utils/test-logger.js";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createTestPaseoDaemon } from "./test-utils/paseo-daemon.js";
 import { createTestAgentClients } from "./test-utils/fake-agent-client.js";
 import { DaemonClient } from "./test-utils/daemon-client.js";
+
+// These standalone test homes must not inherit the installed daemon launcher binding.
+beforeEach(() => vi.stubEnv("VORTEO_INSTALLATION_CLIENT_CONFIG", undefined));
+afterEach(() => vi.unstubAllEnvs());
 
 test("checklist RPCs save edits, broadcast progress, reject dependencies and survive reconnect", async () => {
   const daemon = await createTestPaseoDaemon({ agentClients: createTestAgentClients() });
