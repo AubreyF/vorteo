@@ -1,5 +1,6 @@
 import { TrailingActionScrim } from "@/components/ui/trailing-action-scrim";
 import { WorkspaceLifecycleIndicators } from "@/workspace/lifecycle/indicators";
+import { isFactoryLabel } from "@/workspace/lifecycle/factory-tag";
 import {
   ExecutionEnvironmentIcon,
   useHasExecutionEnvironment,
@@ -405,7 +406,9 @@ export function SidebarWorkspaceTrailingDetails({
     settings: { sidebarRowItems },
   } = useAppSettings();
   const service = selectWorkspaceServiceSummary(workspace.scripts);
-  const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
+  const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels).filter(
+    (label) => !isFactoryLabel(label.name),
+  );
   return (
     <View style={styles.trailingDetails}>
       <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />

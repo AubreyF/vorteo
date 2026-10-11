@@ -119,7 +119,7 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
-October 11, 2026: New workspace uses an inline profile chooser with direct draft selection. General preferences store environment, account and account-specific profile defaults on the client; account references survive renames. Focused checks cover preference persistence and environment hydration. README overview and onboarding are unchanged.
+October 11, 2026: New workspace uses an inline profile chooser with direct draft selection. General preferences store environment, account and account-specific profile defaults on the client; account references survive renames. Focused checks cover preference persistence and environment hydration. Integration preserves the installed Factory sidebar grouping and icon tags. README overview and onboarding are unchanged.
 
 Questions remain with the conversation in the left column while goals, tasks, journals, subagents, queued messages and action approvals stay on the right. Desktop and compact browser checks cover placement and retain shared card geometry.
 
@@ -365,3 +365,5 @@ Claude integration review (2026-10-10): integrated the published coordinator rec
 October 11, 2026: Reviewed optional project icon persistence during startup. Cache restoration has a two-second limit so unavailable browser storage cannot prevent the host registry from becoming ready. Normal cache restoration remains supported; timed-out reads do not delete persisted data or overwrite fresh icons. Focused checks cover stalled, rejected and late storage reads.
 
 October 11, 2026: Integration review retained the installed Host update and both v294 release entries. The cache startup behavior and validation remain unchanged.
+
+Factory workspace presentation uses its own collapsible sidebar section. An explicit Factory label also places a workspace there before runtime adoption. Rows show a factory icon without a text badge. Labeling changes presentation only; native membership and archive protection keep their existing authority checks.

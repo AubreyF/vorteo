@@ -2,6 +2,7 @@ import type {
   SidebarWorkspaceEntry,
   SidebarWorkspacePlacement,
 } from "@/hooks/sidebar-workspaces-view-model";
+import { hasFactoryTag } from "./factory-tag";
 
 export function splitStandingWorkspaces(
   workspaces: readonly SidebarWorkspacePlacement[],
@@ -26,7 +27,8 @@ export function splitFactoryWorkspaces(
   for (const workspace of workspaces) {
     const entry = entries.get(workspace.workspaceKey);
     const supported = supportedHosts.get(workspace.serverId) === true;
-    if (supported && entry?.factoryMembership) factory.push(workspace);
+    if (hasFactoryTag(entry?.labels) || (supported && entry?.factoryMembership))
+      factory.push(workspace);
     else remaining.push(workspace);
   }
   return { ...splitStandingWorkspaces(remaining, entries), factory };
