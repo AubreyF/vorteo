@@ -1,4 +1,5 @@
 import { useWorkspaceScheduleStates } from "@/workspace/lifecycle/scheduled";
+import { useHostFeatureMap } from "@/runtime/host-features";
 import { useProjectExpansion } from "./use-project-expansion";
 import React, { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import {
@@ -102,7 +103,10 @@ export function SidebarModelProvider({
   const workspaceEntriesByKey = useMemo(() => {
     const entries = new Map<string, SidebarWorkspaceEntry>();
     for (const [key, entry] of rawWorkspaceEntries) {
-      entries.set(key, { ...entry, standing: entry.protected === true || scheduleStates.has(key) });
+      entries.set(key, {
+        ...entry,
+        standing: entry.protected === true || scheduleStates.has(key),
+      });
     }
     return entries;
   }, [rawWorkspaceEntries, scheduleStates]);
@@ -111,7 +115,10 @@ export function SidebarModelProvider({
       workspaces: [...workspaceEntriesByKey.values()],
       projectFilters: resolvedProjectFilters,
     });
-    const filtered = filterWorkspacesByLabels({ workspaces: byProject, ...labelFilter });
+    const filtered = filterWorkspacesByLabels({
+      workspaces: byProject,
+      ...labelFilter,
+    });
     return new Map(filtered.map((workspace) => [workspace.workspaceKey, workspace]));
   }, [labelFilter, resolvedProjectFilters, workspaceEntriesByKey]);
   const visibleWorkspaceKeys = useMemo(
@@ -145,6 +152,14 @@ export function SidebarModelProvider({
     visibleWorkspaceKeys,
   ]);
   const pinnedKeys = usePinnedSidebarKeys(filteredProjects);
+  const factoryHostIds = useMemo(
+    () =>
+      Array.from(
+        new Set(Array.from(filteredWorkspaceEntriesByKey.values(), (entry) => entry.serverId)),
+      ),
+    [filteredWorkspaceEntriesByKey],
+  );
+  const factorySupportedHosts = useHostFeatureMap(factoryHostIds, "factoryWorkspaceMembership");
   const projectionInput = useMemo(
     () => ({
       projects: filteredProjects,
@@ -156,6 +171,7 @@ export function SidebarModelProvider({
       pinnedCollapsed,
       collapsedProjectKeys,
       collapsedWorkspaceGroupKeys,
+      factorySupportedHosts,
     }),
     [
       collapsedProjectKeys,
@@ -167,6 +183,7 @@ export function SidebarModelProvider({
       pinnedKeys,
       pinnedWorkspaceOrder,
       filteredWorkspaceEntriesByKey,
+      factorySupportedHosts,
     ],
   );
   const projection = useMemo(() => buildSidebarProjection(projectionInput), [projectionInput]);

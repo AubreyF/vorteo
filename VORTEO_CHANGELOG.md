@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.297 - 2026-10-11
+
+### Maintenance
+
+- Preserve the published Factory sidebar grouping while integrating the aligned composer and full-height card column.
+
 ## 0.11.0-beta.3.vorteo.296 - 2026-10-11
 
 ### Fixed
@@ -13,6 +19,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Record the current preference to deliver Vorteo changes to the existing instance for reload and owner review.
+
+## 0.11.0-beta.3.vorteo.296 - 2026-10-11
+
+### Changed
+
+- Group explicitly tagged Factory workspaces in Factory before runtime adoption and show an icon-only Factory marker. Preserve lifecycle protection and match keyboard navigation to section order.
 
 ## 0.11.0-beta.3.vorteo.295 - 2026-10-11
 
