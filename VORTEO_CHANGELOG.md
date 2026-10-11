@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.295 - 2026-10-11
+
+### Added
+
+- Synchronize project order, workspace and pinned order, expanded sidebar sections, grouping and filters across connected devices through the Host daemon.
+- Retain offline sidebar edits until reconnect, preserve unrelated changes from other devices, and show synchronization failures with Retry.
+
+### Maintenance
+
+- Validate durable shared state, first-device initialization, stale-cache reconnects, queued edits, and independent client updates. Keep automatic local reconciliation out of shared user edits.
 
 ## 0.11.0-beta.3.vorteo.294 - 2026-10-10
 

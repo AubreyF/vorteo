@@ -70,6 +70,8 @@ October 9, 2026: Integrated shared action footers with queue recovery containmen
 
 ## Projects, devices and interface
 
+- **Shared sidebar state.** Connected devices share project order, workspace order within each project, pinned order, expanded project and group sections, grouping, and host, project and label filters. The Host daemon owns the installation copy; standalone clients use the first capable daemon by stable server ID. The first client initializes an empty shared copy from its saved sidebar. Later clients load that copy without uploading stale local state. Changes address individual fields and projects, so unrelated edits survive. Offline edits persist locally until reconnect. Clients refresh once per second while active and show pending synchronization failures with Retry. Sidebar width and selected workspace remain local. This requires a daemon advertising `sidebarState`.
+
 - **Consistent collapsible cards.** Messages and Goals fold from their headings, preserving mounted draft and row state while leaving header actions visible. Tasks, Messages, Goals and sub-agents share title, arrow, count ordering. Folding a card does not pause its agent, queue or goal.
 
 - **Stable card status.** Queue control operations and edits report pending progress in the Messages heading, ahead of its action buttons, instead of adding temporary rows. Provider order, shared provider/plugin settings and host setting saves use heading status slots; compaction copy/export feedback stays in its action heading. Persistent errors and local recovery controls remain visible in the body.

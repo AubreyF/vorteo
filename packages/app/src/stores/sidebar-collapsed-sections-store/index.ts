@@ -1,3 +1,4 @@
+import { recordSidebarChange } from "@/sidebar-state/changes";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -28,12 +29,34 @@ export const useSidebarCollapsedSectionsStore = create<SidebarCollapsedSectionsS
       collapsedWorkspaceGroupKeys: new Set(),
       collapsedPinned: false,
       toggleProjectCollapsed: (projectKey) =>
-        set((state) => toggleProjectCollapsed(state, projectKey)),
+        set((state) => {
+          const next = toggleProjectCollapsed(state, projectKey);
+          recordSidebarChange({
+            collapsedProjects: { [projectKey]: next.collapsedProjectKeys.has(projectKey) },
+          });
+          return next;
+        }),
       setProjectCollapsed: (projectKey, collapsed) =>
-        set((state) => setProjectCollapsed(state, projectKey, collapsed)),
+        set((state) => {
+          recordSidebarChange({ collapsedProjects: { [projectKey]: collapsed } });
+          return setProjectCollapsed(state, projectKey, collapsed);
+        }),
       toggleWorkspaceGroupCollapsed: (workspaceGroupKey) =>
-        set((state) => toggleWorkspaceGroupCollapsed(state, workspaceGroupKey)),
-      togglePinnedCollapsed: () => set((state) => togglePinnedCollapsed(state)),
+        set((state) => {
+          const next = toggleWorkspaceGroupCollapsed(state, workspaceGroupKey);
+          recordSidebarChange({
+            collapsedWorkspaceGroups: {
+              [workspaceGroupKey]: next.collapsedWorkspaceGroupKeys.has(workspaceGroupKey),
+            },
+          });
+          return next;
+        }),
+      togglePinnedCollapsed: () =>
+        set((state) => {
+          const next = togglePinnedCollapsed(state);
+          recordSidebarChange({ collapsedPinned: next.collapsedPinned });
+          return next;
+        }),
     }),
     {
       name: "sidebar-collapsed-sections",

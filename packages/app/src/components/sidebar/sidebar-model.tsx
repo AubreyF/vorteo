@@ -1,6 +1,7 @@
+import { useSidebarSync } from "@/sidebar-state/use-sidebar-sync";
 import { useWorkspaceScheduleStates } from "@/workspace/lifecycle/scheduled";
 import { useProjectExpansion } from "./use-project-expansion";
-import React, { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import React, { createContext, useContext, useMemo, type ReactNode } from "react";
 import {
   useSidebarWorkspacesList,
   type SidebarProjectEntry,
@@ -21,10 +22,6 @@ import { buildSidebarProjection } from "./sidebar-projection";
 import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model";
 import { filterWorkspacesByLabels, type SidebarWorkspaceGroup } from "./sidebar-labels";
 import { filterWorkspacesByProjects, resolveActiveProjectFilters } from "./sidebar-project-filter";
-import {
-  hasAuthoritativeWorkspaceLabelCatalog,
-  useWorkspaceLabelProjection,
-} from "@/workspace-labels";
 
 interface SidebarModel extends SidebarWorkspacesListResult {
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
@@ -56,12 +53,11 @@ export function SidebarModelProvider({
   active?: boolean;
   children: ReactNode;
 }) {
+  useSidebarSync();
   const list = useSidebarWorkspacesList({ enabled: active });
   const groupMode = useSidebarViewStore((state) => state.groupMode);
   const labelFilter = useSidebarViewStore((state) => state.labelFilter);
   const projectFilters = useSidebarViewStore((state) => state.projectFilters);
-  const reconcileLabelFilter = useSidebarViewStore((state) => state.reconcileLabelFilter);
-  const { hosts: labelHosts } = useWorkspaceLabelProjection();
   const { collapsedProjectKeys, toggleProjectCollapsed } = useProjectExpansion();
   const collapsedWorkspaceGroupKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedWorkspaceGroupKeys,
@@ -69,15 +65,6 @@ export function SidebarModelProvider({
   const pinnedCollapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedPinned);
   const pinnedWorkspaceOrder = useSidebarOrderStore((state) => state.pinnedWorkspaceOrder);
 
-  const availableLabelNames = useMemo(
-    () => labelHosts.flatMap((host) => host.labels.map((label) => label.name)),
-    [labelHosts],
-  );
-  const hasAuthoritativeLabelCatalog = hasAuthoritativeWorkspaceLabelCatalog(labelHosts);
-  useEffect(() => {
-    if (!hasAuthoritativeLabelCatalog) return;
-    reconcileLabelFilter(availableLabelNames);
-  }, [availableLabelNames, hasAuthoritativeLabelCatalog, reconcileLabelFilter]);
   const hasActiveLabelFilter = hasActiveSidebarLabelFilter(labelFilter);
   const resolvedProjectFilters = useMemo(
     () =>

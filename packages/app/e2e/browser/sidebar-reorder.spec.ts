@@ -62,11 +62,15 @@ async function quickDragFirstRowAfterSecond(
   await expect.poll(() => rowTestIds(rows)).toEqual([before[1], before[0]]);
 }
 
-test("projects, workspaces, and pinned chats reorder with an immediate mouse drag", async ({
+test("projects, workspaces, pinned chats and expansion synchronize between devices", async ({
   page,
+  browser,
 }) => {
+  test.setTimeout(120_000);
   const firstProject = await seedWorkspace({ repoPrefix: "sidebar-reorder-first-" });
   const secondProject = await seedWorkspace({ repoPrefix: "sidebar-reorder-second-" });
+  const peerContext = await browser.newContext();
+  const peer = await peerContext.newPage();
 
   try {
     const secondWorkspace = await firstProject.client.createWorkspace({
@@ -83,6 +87,20 @@ test("projects, workspaces, and pinned chats reorder with an immediate mouse dra
 
     await gotoAppShell(page);
     await waitForSidebarHydration(page);
+    await expect
+      .poll(async () => (await firstProject.client.readSidebarState()).snapshot.state !== null)
+      .toBe(true);
+    const storage = await page.context().storageState();
+    await peerContext.addInitScript((origins) => {
+      for (const origin of origins) {
+        if (origin.origin !== window.location.origin) continue;
+        for (const entry of origin.localStorage) {
+          if (entry.name !== "@paseo:client-id-v1") localStorage.setItem(entry.name, entry.value);
+        }
+      }
+    }, storage.origins);
+    await peer.goto(page.url());
+    await waitForSidebarHydration(peer);
 
     const firstProjectTestId = `sidebar-project-row-${projectEquivalenceViewKey(firstProject.projectKey)}`;
     const secondProjectTestId = `sidebar-project-row-${projectEquivalenceViewKey(secondProject.projectKey)}`;
@@ -90,6 +108,21 @@ test("projects, workspaces, and pinned chats reorder with an immediate mouse dra
       page.locator(`[data-testid="${firstProjectTestId}"], [data-testid="${secondProjectTestId}"]`),
       pressProjectRow,
     );
+    await expect
+      .poll(() =>
+        rowTestIds(
+          peer.locator(
+            `[data-testid="${firstProjectTestId}"], [data-testid="${secondProjectTestId}"]`,
+          ),
+        ),
+      )
+      .toEqual(
+        await rowTestIds(
+          page.locator(
+            `[data-testid="${firstProjectTestId}"], [data-testid="${secondProjectTestId}"]`,
+          ),
+        ),
+      );
     const firstWorkspaceTestId = `sidebar-workspace-row-${getServerId()}:${firstProject.workspaceId}`;
     const secondWorkspaceTestId = `sidebar-workspace-row-${getServerId()}:${secondWorkspace.workspace.id}`;
     await quickDragFirstRowAfterSecond(
@@ -98,6 +131,38 @@ test("projects, workspaces, and pinned chats reorder with an immediate mouse dra
       ),
       pressWorkspaceRow,
     );
+
+    await expect
+      .poll(() =>
+        rowTestIds(
+          peer.locator(
+            `[data-testid="${firstWorkspaceTestId}"], [data-testid="${secondWorkspaceTestId}"]`,
+          ),
+        ),
+      )
+      .toEqual(
+        await rowTestIds(
+          page.locator(
+            `[data-testid="${firstWorkspaceTestId}"], [data-testid="${secondWorkspaceTestId}"]`,
+          ),
+        ),
+      );
+    await peer.getByTestId(firstProjectTestId).click();
+    await expect(page.getByTestId(firstWorkspaceTestId)).toHaveCount(0);
+    await peer.reload();
+    await waitForSidebarHydration(peer);
+    await expect(peer.getByTestId(firstWorkspaceTestId)).toHaveCount(0);
+    await page.getByTestId(firstProjectTestId).click();
+    await expect(peer.getByTestId(firstWorkspaceTestId)).toBeVisible();
+
+    await peerContext.setOffline(true);
+    await peer.getByTestId(firstProjectTestId).click();
+    await expect(peer.getByTestId("sidebar-sync-error")).toBeVisible({ timeout: 20000 });
+    await peerContext.setOffline(false);
+    await expect(page.getByTestId(firstWorkspaceTestId)).toHaveCount(0);
+    await expect(peer.getByTestId("sidebar-sync-error")).toHaveCount(0);
+    await page.getByTestId(firstProjectTestId).click();
+    await expect(peer.getByTestId(firstWorkspaceTestId)).toBeVisible();
 
     await firstProject.client.setWorkspacePinned(firstProject.workspaceId, true);
     await secondProject.client.setWorkspacePinned(secondProject.workspaceId, true);
@@ -108,9 +173,33 @@ test("projects, workspaces, and pinned chats reorder with an immediate mouse dra
       ),
       pressWorkspaceRow,
     );
+    await expect
+      .poll(() =>
+        rowTestIds(
+          peer.locator(
+            `[data-testid="${firstWorkspaceTestId}"], [data-testid="${secondProjectWorkspaceTestId}"]`,
+          ),
+        ),
+      )
+      .toEqual(
+        await rowTestIds(
+          page.locator(
+            `[data-testid="${firstWorkspaceTestId}"], [data-testid="${secondProjectWorkspaceTestId}"]`,
+          ),
+        ),
+      );
+    await peer.screenshot({ path: "test-results/sidebar-state-synced.png" });
+    await peer.setViewportSize({ width: 390, height: 844 });
+    await peer.getByRole("button", { name: "Open menu", exact: true }).click();
+    await waitForSidebarHydration(peer);
+    await page.getByTestId(firstProjectTestId).click();
+    await expect(peer.getByTestId(secondWorkspaceTestId)).toHaveCount(0);
+    await peer.getByTestId(firstProjectTestId).click();
+    await expect(page.getByTestId(secondWorkspaceTestId)).toBeVisible();
+    await peer.screenshot({ path: "test-results/sidebar-state-compact.png" });
   } finally {
-    await firstProject.cleanup();
-    await secondProject.cleanup();
+    await Promise.all([firstProject.cleanup(), secondProject.cleanup()]);
+    await peerContext.close();
   }
 });
 

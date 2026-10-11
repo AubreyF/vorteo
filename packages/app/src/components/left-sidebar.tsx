@@ -1,3 +1,4 @@
+import { SidebarSyncNotice } from "@/sidebar-state/status";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useOpenNewWorkspace } from "@/hooks/use-open-new-workspace";
 import { useVortonTouch } from "@/vorton-touch";
@@ -869,6 +870,7 @@ function DesktopSidebar({
         )}
 
         <SidebarCalloutStack>
+          <SidebarSyncNotice />
           <InstallationRestartBanner />
           <SidebarCalloutSlot />
         </SidebarCalloutStack>
