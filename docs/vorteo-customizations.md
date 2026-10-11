@@ -128,6 +128,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+Creation fixture review: fake-client callbacks expose session config so creation counters and readiness gating exclude internal metadata helpers. Exact-one, replay and conflict assertions remain; production workspace naming is unchanged.
+
 October 11, 2026: Delegated container creation accepts an exact profile reference and retains destination account checks, workspace resolution, idempotency and agent provenance. Focused disposable-daemon tests cover the resolved profile, conflicting retries and invalid targets. Installation acceptance remains separate. README overview and onboarding are unchanged.
 
 October 11, 2026: Integrated workspace chooser geometry with shared-model alias compatibility and timeline catch-up. Both source histories and all release entries are retained; README overview and onboarding are unchanged.

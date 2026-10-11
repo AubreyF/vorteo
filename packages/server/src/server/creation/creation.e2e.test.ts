@@ -50,11 +50,14 @@ test("creation progresses before agent readiness and continues after the disconn
       },
     ),
     agentClients: createTestAgentClients({
-      beforeCreateSession: async () => {
+      // Workspace naming uses internal sessions through the same fake clients.
+      beforeCreateSession: async (config) => {
+        if (config.internal) return;
         agents++;
         await provider.promise;
       },
-      onStartTurn: () => {
+      onStartTurn: (_prompt, config) => {
+        if (config.internal) return;
         prompts++;
       },
     }),
