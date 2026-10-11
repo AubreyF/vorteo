@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.318 - 2026-10-11
+
+### Fixed
+
+- Retain exact interface source history in the configured protected repository before selecting a bound web release, and verify it through an independent reader.
+- Add explicit durable publication binding setup with failure and retry checks. Existing publishers must be upgraded before this protection can be claimed for an installation.
+
 ## 0.11.0-beta.3.vorteo.317 - 2026-10-11
 
 ### Maintenance

@@ -4,9 +4,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { compressFile } from "./compress-web-asset.mjs";
-import { digest, hashFiles, manifestName, readLiveState } from "./instance-web-artifact.mjs";
+import {
+  digest,
+  hashFiles,
+  manifestName,
+  readLiveState,
+  readPublicationBinding,
+  verifyPublicationSource,
+  retainPublicationSource,
+} from "./instance-web-artifact.mjs";
 
 const [sourceArg, destinationArg] = process.argv.slice(2);
 if (!sourceArg || !destinationArg || process.argv.length !== 4) {
@@ -57,17 +64,16 @@ try {
   ) {
     throw new Error("Integration branch does not match the live release.");
   }
-  // Verify ancestry again at publication, without requiring the checkout to remain unchanged.
-  execFileSync("git", ["cat-file", "-e", `${manifest.sourceCommit}^{commit}`], {
-    cwd: manifest.deployment.repository,
+  const binding = await readPublicationBinding(destination);
+  if (binding && binding.integrationRef !== manifest.deployment.integrationRef)
+    throw new Error("Integration branch does not match the protected publication binding");
+  // Verify ancestry again without requiring the checkout to remain unchanged.
+  await verifyPublicationSource({
+    repository: manifest.deployment.repository,
+    sourceCommit: manifest.sourceCommit,
+    previousCommit: live.release?.sourceCommit,
+    requireComplete: Boolean(binding),
   });
-  if (live.release?.sourceCommit) {
-    execFileSync(
-      "git",
-      ["merge-base", "--is-ancestor", live.release.sourceCommit, manifest.sourceCommit],
-      { cwd: manifest.deployment.repository },
-    );
-  }
   await fs.cp(source, staging, { recursive: true, dereference: false });
   const files = await hashFiles(staging);
   if (JSON.stringify(files) !== JSON.stringify(manifest.files))
@@ -102,6 +108,13 @@ try {
     if ([".js", ".css", ".json", ".svg", ".map"].includes(path.extname(name))) {
       await compressFile(path.join(staging, name));
     }
+  }
+  if (binding) {
+    await retainPublicationSource({
+      binding,
+      repository: manifest.deployment.repository,
+      sourceCommit: manifest.sourceCommit,
+    });
   }
   const release = {
     publishedAt: new Date().toISOString(),

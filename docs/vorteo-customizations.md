@@ -128,6 +128,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 11, 2026: Guarded publication can bind a destination to protected source storage, retain complete commit history before selection and verify a fresh reader. Binding setup is explicit and durable; older pinned publishers must be upgraded before enforcement is established. Standalone unbound publication remains compatible. README overview and onboarding are unchanged.
+
 October 11, 2026: Integrated workspace menu parity with shared sidebar state, outbox lifetime protection and creation fixture isolation. Both release histories and existing Review and Nova source remain intact. This source integration does not establish installed runtime acceptance.
 
 October 11, 2026: Merged public main into workspace menu source while retaining the Nova bridge package, Review checklist coverage, native Factory grouping and both release histories. This is source reconciliation only; replacement submission and installation remain separate. README overview and onboarding are unchanged.
