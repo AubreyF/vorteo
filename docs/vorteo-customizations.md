@@ -359,3 +359,5 @@ Claude connection maintenance review (2026-10-10): managed Claude sign-in uses o
 October 10, 2026 publication review: incorporated the published browser-test readiness correction and preserved both v291 histories. Production recovery code is unchanged; installed activation remains pending.
 
 Claude integration review (2026-10-10): integrated the published coordinator recovery source without changing its implementation. Both release histories remain intact; Claude interface delivery and daemon migration acceptance remain separate. README overview and onboarding are unchanged by this management-panel refinement.
+
+October 11, 2026: Reviewed optional project icon persistence during startup. Cache restoration has a two-second limit so unavailable browser storage cannot prevent the host registry from becoming ready. Normal cache restoration remains supported; timed-out reads do not delete persisted data or overwrite fresh icons. Focused checks cover stalled, rejected and late storage reads.
