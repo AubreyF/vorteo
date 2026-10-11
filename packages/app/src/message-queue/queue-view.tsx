@@ -11,7 +11,7 @@ import { QueueDragScrollContext } from "./drag-scroll";
 import { queueReorderAction } from "./reorder";
 import { SharedQueueAttachments } from "./shared-attachments";
 import { QueueAttachmentSummary } from "./attachment-summary";
-import { ArrowUp, Pencil, RotateCw, Play, Pause, MoreHorizontal } from "lucide-react-native";
+import { ArrowUp, Pencil, RotateCw, Play, Pause, MoreVertical } from "lucide-react-native";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   DropdownMenu,
@@ -774,7 +774,7 @@ function QueuePrimaryActions({
   );
 }
 
-const ThemedMore = withUnistyles(MoreHorizontal);
+const ThemedMore = withUnistyles(MoreVertical);
 const mutedIconMapping = (theme: Theme) => ({
   color: theme.colors.foregroundMuted,
 });

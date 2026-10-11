@@ -8,7 +8,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useCallback, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { Pressable, Text, View, useWindowDimensions } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { AlertCircle, ChevronDown, MoreHorizontal } from "lucide-react-native";
+import { AlertCircle, ChevronDown, MoreVertical } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import {
   MenuRoot,
@@ -57,7 +57,7 @@ const ROOT_PATH: readonly string[] = [];
 const pluginThemeMapping = (theme: Theme) => ({ theme: toPluginTheme(theme) });
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const errorIconMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
-const ThemedMoreIcon = withUnistyles(MoreHorizontal);
+const ThemedMoreIcon = withUnistyles(MoreVertical);
 const ThemedErrorIcon = withUnistyles(AlertCircle);
 
 function headerButtonStyle(compact: boolean, state: IconButtonChromeState, disabled = false) {

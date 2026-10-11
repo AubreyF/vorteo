@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.299 - 2026-10-11
+
+### Changed
+
+- Hide workspace row overflow buttons on touch devices and use vertical overflow icons throughout the app.
+- Share workspace management actions between sidebar and title menus, retaining Factory controls, protection, labels, import and setup actions.
+- Explain Dev delivery options in agent instructions and invite owners to move build tasks to Host for live interface previews.
+
+### Maintenance
+
+- Exercise desktop menu parity and compact title actions, and restore pane viewing before the read-state test checks ordinary completion on departure.
+
 ## 0.11.0-beta.3.vorteo.298 - 2026-10-11
 
 ### Changed

@@ -1,5 +1,7 @@
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
 import { splitFactoryWorkspaces, factoryOverviewTargets } from "@/workspace/lifecycle/grouping";
+import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
+import { useWorkspaceMenuActions } from "@/workspace/use-workspace-menu-actions";
 import {
   ProjectMoveProvider,
   ProjectDropTarget,
@@ -49,7 +51,6 @@ import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import { getSidebarRowBackdrop } from "@/components/sidebar/sidebar-row-backdrop";
 import { type GestureType } from "react-native-gesture-handler";
 import { WorkspaceRenameModal } from "@/components/workspace-rename-modal";
-import { useWorkspaceClipboardActions } from "@/hooks/use-workspace-clipboard-actions";
 import { ExternalLink, Settings, MoreVertical, Plus, Trash2, Factory } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
@@ -101,7 +102,6 @@ import {
 import { ProjectLeadingVisual } from "@/components/sidebar/project-leading-visual";
 import { useToast } from "@/contexts/toast-context";
 import { getForgePresentation, normalizeForge } from "@/git/forge";
-import { toWorktreeArchiveRisk } from "@/git/worktree-archive-warning";
 import { hasVisibleOrderChanged, mergeWithRemainder } from "@/utils/sidebar-reorder";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
@@ -141,7 +141,6 @@ import { Shortcut } from "@/components/ui/shortcut";
 import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
-import { useWorkspaceReadState } from "@/hooks/use-workspace-read-state";
 import type { PrHint } from "@/git/use-pr-status-query";
 import {
   buildSidebarProjectRowModel,
@@ -149,9 +148,7 @@ import {
   type SidebarProjectHostTarget,
   type SidebarProjectIconTarget,
 } from "@/utils/sidebar-project-row-model";
-import { redirectIfArchivingActiveWorkspace } from "@/utils/sidebar-workspace-archive-redirect";
 import { openExternalUrl } from "@/utils/open-external-url";
-import { useWorkspaceArchive } from "@/workspace/use-workspace-archive";
 import {
   getCurrentProjectRemoveReadiness,
   removeProjectFromHosts,
@@ -218,13 +215,6 @@ function isProjectSelectedByRoute(input: {
 
 function activeWorkspaceSelectionKey(selection: ActiveWorkspaceSelection | null): string {
   return selection ? `${selection.serverId}:${selection.workspaceId}` : "";
-}
-
-function selectionForSelectedWorkspace(
-  selected: boolean,
-  workspace: SidebarWorkspaceEntry,
-): ActiveWorkspaceSelection | null {
-  return selected ? { serverId: workspace.serverId, workspaceId: workspace.workspaceId } : null;
 }
 
 interface SidebarWorkspaceListProps {
@@ -739,6 +729,7 @@ function WorkspaceRowRightGroup({
   isPinned?: boolean;
   onTogglePin?: () => void;
 }) {
+  const sessionMenu = useWorkspaceSessionMenu(workspace.serverId, workspace.workspaceId);
   const workspacePath = workspace.workspaceDirectory ?? workspace.projectRootPath;
   const { t } = useTranslation();
   const trailing = useSidebarWorkspaceTrailing();
@@ -759,6 +750,7 @@ function WorkspaceRowRightGroup({
 
   return (
     <>
+      {sessionMenu.sheet}
       {isCreating ? (
         <Text style={styles.workspaceCreatingText}>{t("sidebar.workspace.status.creating")}</Text>
       ) : null}
@@ -771,6 +763,7 @@ function WorkspaceRowRightGroup({
           <SidebarWorkspaceMenuReveal visible={kebab.showKebab} backdrop={backdrop}>
             {onArchive ? (
               <SidebarWorkspaceMenu
+                {...sessionMenu}
                 {...kebab.menuProps}
                 backdrop={backdrop}
                 workspaceKey={workspace.workspaceKey}
@@ -1385,79 +1378,28 @@ function WorkspaceRowWithMenu({
   isCreating?: boolean;
 }) {
   const { t } = useTranslation();
-  const toast = useToast();
-  const [isHidingWorkspace, setIsHidingWorkspace] = useState(false);
-  const [isRenameOpen, setIsRenameOpen] = useState(false);
-  const isArchiving = workspace.archivingAt !== null || isHidingWorkspace;
-  const redirectAfterArchive = useCallback(() => {
-    redirectIfArchivingActiveWorkspace({
-      serverId: workspace.serverId,
-      workspaceId: workspace.workspaceId,
-      activeWorkspaceSelection: selectionForSelectedWorkspace(selected, workspace),
-    });
-  }, [selected, workspace]);
-
-  const archiveController = useWorkspaceArchive({
-    serverId: workspace.serverId,
-    workspaceId: workspace.workspaceId,
-    workspaceKind: workspace.workspaceKind,
-    name: workspace.name,
-    ...toWorktreeArchiveRisk(workspace),
-    onArchiveStarted: redirectAfterArchive,
-    onSetHiding: setIsHidingWorkspace,
-  });
-
-  const handleArchive = useCallback(() => {
-    if (isArchiving) {
-      return;
-    }
-    archiveController.archive();
-  }, [archiveController, isArchiving]);
-
-  const clipboard = useWorkspaceClipboardActions();
-  const handleCopyPath = useCallback(() => {
-    clipboard.copyPath(workspace);
-  }, [clipboard, workspace]);
-
-  const handleCopyBranchName = useCallback(() => {
-    clipboard.copyBranchName(workspace);
-  }, [clipboard, workspace]);
-
-  const handleOpenRename = useCallback(() => {
-    setIsRenameOpen(true);
-  }, []);
-
-  const handleCloseRename = useCallback(() => {
-    setIsRenameOpen(false);
-  }, []);
-
-  const isPinned = workspace.pinnedAt != null;
-  const handleTogglePin = useCallback(() => {
-    onToggleWorkspacePin(workspace);
-  }, [onToggleWorkspacePin, workspace]);
-  const onTogglePin = canPin ? handleTogglePin : undefined;
-
-  const archiveShortcutKeys = useShortcutKeys("archive-workspace");
-  const { hasClearableAttention, canMarkUnread, clearAttention, markUnread } =
-    useWorkspaceReadState({
-      serverId: workspace.serverId,
-      workspaceId: workspace.workspaceId,
-    });
-  const handleMarkAsRead = useCallback(() => {
-    void clearAttention().catch((error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to mark workspace as read");
-    });
-  }, [clearAttention, toast]);
-  const handleMarkAsUnread = useCallback(() => {
-    void markUnread().catch((error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to mark workspace as unread");
-    });
-  }, [markUnread, toast]);
+  const {
+    isArchiving,
+    archiveProtected,
+    isRenameOpen,
+    handleArchive,
+    handleCopyPath,
+    handleCopyBranchName,
+    handleOpenRename,
+    handleCloseRename,
+    isPinned,
+    onTogglePin,
+    archiveShortcutKeys,
+    hasClearableAttention,
+    canMarkUnread,
+    handleMarkAsRead,
+    handleMarkAsUnread,
+  } = useWorkspaceMenuActions({ workspace, selected, canPin, onToggleWorkspacePin });
 
   useKeyboardActionHandler({
     handlerId: `workspace-archive-${workspace.workspaceKey}`,
     actions: ["workspace.archive"],
-    enabled: selected && !isArchiving && !archiveController.archiveProtected,
+    enabled: selected && !isArchiving && !archiveProtected,
     priority: 0,
     handle: () => {
       handleArchive();

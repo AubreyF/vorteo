@@ -35,6 +35,10 @@ carries new-tab actions, while wide leaves those to the strip's `+` menu and lis
 actions only. Items both surfaces share live in one component that each menu renders, from the same
 callbacks, so the two can't drift.
 
+Workspace management items are shared by the title menu, sidebar overflow menu and sidebar
+context menu. Touch layouts omit the workspace row overflow button and retain the title menu.
+Use vertical three-dot icons for overflow triggers.
+
 ## Selecting an item on iOS
 
 An item that closes the menu runs its action after a fixed grace period on iOS, not immediately:

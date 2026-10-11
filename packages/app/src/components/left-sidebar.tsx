@@ -13,7 +13,7 @@ import {
   Settings2,
   GitBranch,
   Settings,
-  MoreHorizontal,
+  MoreVertical,
   CircleHelp,
 } from "lucide-react-native";
 import { useSidebarNavItems } from "@/sidebar-nav/use-sidebar-nav-items";
@@ -480,7 +480,7 @@ function SidebarToolbar({
                 accessibilityRole="button"
                 testID="sidebar-footer-overflow"
               >
-                <MoreHorizontal size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
+                <MoreVertical size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="end" width={240}>
                 <DropdownMenuItem

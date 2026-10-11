@@ -382,10 +382,9 @@ export function resolveTrailingActionVisibility({
   renderSlot: boolean;
 } {
   const hasTrailing = hasSidebarWorkspaceTrailing({ workspace, trailing });
-  const showKebab = Boolean(hasArchiveAction && (isHovered || isTouchPlatform)) && !showShortcut;
-  const hasContent = hasTrailing;
+  const showKebab = hasArchiveAction && isHovered && !isTouchPlatform && !showShortcut;
   let trailingPresentation: SidebarWorkspaceTrailingPresentation = "absent";
-  if (hasContent) trailingPresentation = showShortcut ? "hidden" : "visible";
+  if (hasTrailing) trailingPresentation = showShortcut ? "hidden" : "visible";
   return {
     trailingPresentation,
     showKebab,

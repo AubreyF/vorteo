@@ -19,7 +19,7 @@ import {
   RotateCw,
   Columns2,
   Rows2,
-  Ellipsis,
+  MoreVertical,
   Maximize,
   Minimize,
   Plus,
@@ -127,7 +127,7 @@ const ThemedPencil = withUnistyles(Pencil);
 const ThemedPlus = withUnistyles(Plus);
 const ThemedColumns2 = withUnistyles(Columns2);
 const ThemedRows2 = withUnistyles(Rows2);
-const ThemedEllipsis = withUnistyles(Ellipsis);
+const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedMaximize = withUnistyles(Maximize);
 const ThemedMinimize = withUnistyles(Minimize);
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
@@ -348,7 +348,7 @@ function WorkspacePaneToolbarActions({
             label={t("workspace.git.actions.moreActions")}
             testID="workspace-split-pane-menu"
           >
-            <ThemedEllipsis size={14} uniProps={extraMutedColorMapping} />
+            <ThemedMoreVertical size={14} uniProps={extraMutedColorMapping} />
           </ToolbarButton>
           <DropdownMenuContent
             side="bottom"
