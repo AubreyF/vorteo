@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.321 - 2026-10-11
+
+### Fixed
+
+- Resolve Factory installation and coordinator binding through native shared-profile selection on the retained account, without requiring local profile copies.
+- Preserve exact coordinator snapshots and reject missing, ambiguous, changed or mismatched profiles. Cover shared-profile installation and restoration with focused regressions.
+
 ## 0.11.0-beta.3.vorteo.320 - 2026-10-11
 
 ### Added

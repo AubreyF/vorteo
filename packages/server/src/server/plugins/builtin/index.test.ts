@@ -1,3 +1,7 @@
+import { MutableDaemonConfigSchema } from "@getpaseo/protocol/messages";
+import { sharedProfileId } from "@getpaseo/protocol/provider-preferences";
+import { planProviderPreferencesMigration } from "../../agent/provider-preferences/migration.js";
+import { readFactoryConfiguredProfiles } from "../../factory/capture-worker-profile.js";
 import {
   recoverFactoryAccount,
   reconcileFactoryExecutionOwner,
@@ -7161,4 +7165,41 @@ test("Factory native recovery retains typed uncertainty after transition persist
   });
   expect(f.transition).toHaveBeenCalledTimes(1);
   expect(f.finalize).toHaveBeenCalledTimes(0);
+});
+
+test("native Factory installs and restores the exact shared profile without local profile copies", async () => {
+  const f = await nativeInstallFixture();
+  const profileId = sharedProfileId("codex", "factory");
+  const settings = MutableDaemonConfigSchema.parse({
+    mcp: { injectIntoAgents: false },
+    sharedProviderPreferences: planProviderPreferencesMigration({
+      profiles: [{ id: "factory", name: "Factory", provider: "codex", model: "sol" }],
+      providers: {},
+    }).preferences,
+  });
+  expect(settings.agentProfiles ?? []).toEqual([]);
+  const readProfiles = (provider: string, id: string) =>
+    readFactoryConfiguredProfiles(settings, provider, id);
+  const [profile] = readProfiles("codex", profileId);
+  for (const agent of await f.deps.agents.list())
+    await f.deps.agents.upsert({ ...agent, config: { profileLaunch: { profile } } });
+  const deps = { ...f.deps, profileId, readProfiles };
+  const adapter = createNativeFactoryInstallAdapter(deps);
+  const setup = await adapter.readSetup(f.request.projectId);
+  if (!setup.revision) throw new Error("Shared Factory setup revision missing");
+  expect(await adapter.install({ ...f.request, expectedRevision: setup.revision })).toMatchObject({
+    outcome: "applied",
+    setup: { state: "installed" },
+  });
+  const restored = createNativeFactoryInstallAdapter({
+    ...deps,
+    runtime: attachmentFixture().runtime,
+  });
+  await restored.restore();
+  expect(await restored.readSetup(f.request.projectId)).toMatchObject({ state: "installed" });
+  settings.sharedProviderPreferences = planProviderPreferencesMigration({
+    profiles: [{ id: "factory", name: "Factory", provider: "codex", model: "changed" }],
+    providers: {},
+  }).preferences;
+  await expect(restored.readSetup(f.request.projectId)).rejects.toThrow(/profile/);
 });

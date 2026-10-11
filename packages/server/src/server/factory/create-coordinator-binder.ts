@@ -25,7 +25,7 @@ interface BinderDependencies {
   projects: FileBackedProjectRegistry;
   workspaces: FileBackedWorkspaceRegistry;
   agents: AuthorityInput["agents"];
-  readProfiles(): AgentProfile[];
+  readProfiles(provider: string, profileId: string): AgentProfile[];
 }
 
 export class FactoryCoordinatorBindingError extends Error {
@@ -49,7 +49,9 @@ export function createFactoryCoordinatorBinder(deps: BinderDependencies) {
     if (binding.serverId !== deps.serverId)
       throw new Error("Factory coordinator binding belongs to another daemon.");
     const readProfiles = deps.readProfiles;
-    const configured = readProfiles().filter((profile) => profile.id === profileId);
+    const configured = readProfiles(provider, profileId).filter(
+      (profile) => profile.id === profileId,
+    );
     if (configured.length !== 1)
       throw new Error("Factory coordinator profile is unavailable or ambiguous.");
     const profile = structuredClone(configured[0]);
@@ -59,7 +61,9 @@ export function createFactoryCoordinatorBinder(deps: BinderDependencies) {
       identity: originalOwner.identity,
       assertCurrent() {
         assertOwner.call(originalOwner);
-        const current = readProfiles().filter((entry) => entry.id === profile.id);
+        const current = readProfiles(provider, profileId).filter(
+          (entry) => entry.id === profile.id,
+        );
         if (
           (Object.keys(captured) as Array<keyof BindingInput>).some(
             (key) => input[key] !== captured[key],
