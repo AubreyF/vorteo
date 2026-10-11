@@ -1121,15 +1121,14 @@ test.each(["succeeded", "failed"] as const)(
       const read = async () => (await request(receiptPath, "guest-agent-test-token")).json();
       // Run the coordinator drain that retries preparation invalidated by the second upload.
       await drain();
-      await vi.waitFor(async () => {
-        const response = await request(
-          "/api/installation/owner/restarts/query?sourceUpdates=1&sourceBatches=1",
-          "owner-test-password",
-          {},
-        );
-        const jobs = await response.json();
-        expect(jobs[0].sourceBatch.contributions).toHaveLength(2);
-      });
+      const batchResponse = await request(
+        "/api/installation/owner/restarts/query?sourceUpdates=1&sourceBatches=1",
+        "owner-test-password",
+        {},
+      );
+      const batchJobs = await batchResponse.json();
+      expect(batchResponse.status).toBe(200);
+      expect(batchJobs[0]?.sourceBatch?.contributions, JSON.stringify(batchJobs)).toHaveLength(2);
       // Trigger the same durable preparation path used by the coordinator's interval.
       const old = await read();
       if (old.batch.sourceBatch.status !== "ready") {
