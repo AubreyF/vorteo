@@ -1,3 +1,4 @@
+import { StreamColumnWidthContext } from "@/agent-stream/columns/layout";
 import { KeyboardTranslateView } from "@/keyboard/shift";
 import { ProfilePermissionWarning } from "@/agent-profiles/permission-warning";
 import { commitComposerQueue } from "@/message-queue/commit-composer";
@@ -23,6 +24,7 @@ import {
 import type { TFunction } from "i18next";
 import {
   useState,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -2256,13 +2258,15 @@ function ComposerContentImpl({
   );
 
   const mobileComposer = useMobileComposerLayout();
+  const columnWidth = useContext(StreamColumnWidthContext);
   const inputAreaContainerStyle = useMemo(
     () => [
       styles.inputAreaContainer,
+      columnWidth !== undefined && styles.columnInputArea,
       mobileComposer.enabled && styles.mobileInputArea,
       isComposerLocked && styles.inputAreaLocked,
     ],
-    [isComposerLocked, mobileComposer.enabled],
+    [columnWidth, isComposerLocked, mobileComposer.enabled],
   );
 
   const attachmentTray = useMemo(
@@ -2370,7 +2374,13 @@ function ComposerContentImpl({
         <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
         {/* Input area */}
         <View style={inputAreaContainerStyle} testID="composer-input-area">
-          <View style={[styles.inputAreaContent, styles.bottomCardStack]}>
+          <View
+            style={[
+              styles.inputAreaContent,
+              styles.bottomCardStack,
+              columnWidth !== undefined && styles.columnInputContent,
+            ]}
+          >
             {sendErrorNode}
             {!agentControls && agentId ? (
               <ProfilePermissionWarning serverId={serverId} agentId={agentId} />
@@ -2512,6 +2522,8 @@ const styles = StyleSheet.create((theme: Theme) => ({
     paddingHorizontal: theme.spacing[4],
     paddingBottom: theme.spacing[4],
   },
+  columnInputArea: { paddingHorizontal: theme.spacing[2] },
+  columnInputContent: { maxWidth: "100%" },
   mobileQueueArea: {
     paddingHorizontal: MOBILE_COMPOSER_MARGIN,
     paddingBottom: 12,

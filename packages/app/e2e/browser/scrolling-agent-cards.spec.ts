@@ -1560,7 +1560,21 @@ test("thread columns resize independently and follow primary-region width", asyn
       contentType: "image/png",
     });
     const composer = page.getByTestId("message-input-surface");
-    const composerBefore = await box(composer);
+    const alignedComposer = async () => {
+      await expect(async () => {
+        const t = await box(text);
+        const input = await box(composer);
+        const transcript = await box(page.getByTestId("thread-transcript-region"));
+        const c = await box(cards);
+        const all = await box(region);
+        expect(input.x).toBeCloseTo(t.x + 8, 0);
+        expect(input.width).toBeCloseTo(t.width - 16, 0);
+        expect(input.y).toBeGreaterThanOrEqual(transcript.y + transcript.height - 1);
+        expect(c.y + c.height).toBeCloseTo(all.y + all.height, 0);
+        expect(c.y + c.height).toBeGreaterThan(input.y + input.height);
+      }).toPass({ timeout: 5000 });
+    };
+    await alignedComposer();
     const textBefore = await box(text);
     const cardsBefore = await box(cards);
     await drag("thread-text-resize", -60);
@@ -1572,7 +1586,7 @@ test("thread columns resize independently and follow primary-region width", asyn
     await expect.poll(async () => (await box(cards)).width).toBeCloseTo(cardsBefore.width + 70, 0);
     expect((await box(text)).width).toBeCloseTo(resizedText, 0);
     await centered();
-    expect(await box(composer)).toEqual(composerBefore);
+    await alignedComposer();
 
     const queueCard = page.getByTestId("shared-message-queue");
     const expandedHeight = (await box(queueCard)).height;
@@ -1613,6 +1627,7 @@ test("thread columns resize independently and follow primary-region width", asyn
       })
       .toBeLessThan(1);
     await centered();
+    await alignedComposer();
     await page.setViewportSize({ width: 1900, height: 850 });
     await centered();
     await info.attach("thread-columns-wide", {
