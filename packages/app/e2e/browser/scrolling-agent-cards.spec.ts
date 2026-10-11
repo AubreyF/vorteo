@@ -487,21 +487,21 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
             markerInset: marker.left - node.getBoundingClientRect().left,
             markerRight: marker.right,
             timestampLeft: timestamp.left,
-            timestampRight: timestamp.right,
+            timestampBottom: timestamp.bottom,
             timestampInset: timestamp.left - node.getBoundingClientRect().left,
-            textTopOffset: text.top - timestamp.top,
+            textTop: text.top,
             textLeft: text.left,
             textWidth: text.width,
-            timestampWidth: timestamp.width,
+            rowWidth: node.getBoundingClientRect().width,
             overflow: node.scrollWidth > node.clientWidth,
           };
         });
-        expect(rowGeometry.timestampRight).toBeLessThan(rowGeometry.textLeft);
+        expect(rowGeometry.timestampLeft).toBe(rowGeometry.textLeft);
+        expect(rowGeometry.timestampBottom).toBeLessThanOrEqual(rowGeometry.textTop);
         expect(rowGeometry.markerInset).toBe(8);
         expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
         expect(rowGeometry.timestampInset).toBe(36);
-        expect(rowGeometry.textTopOffset).toBe(-2);
-        expect(rowGeometry.textWidth).toBeGreaterThan(rowGeometry.timestampWidth);
+        expect(rowGeometry.textWidth).toBe(rowGeometry.rowWidth - 36);
         expect(rowGeometry.overflow).toBe(false);
       }).toPass({ timeout: 5000 });
 
