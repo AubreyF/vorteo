@@ -45,6 +45,8 @@ export type InstallationUnlock = z.infer<typeof InstallationUnlockSchema>;
 
 export const RestartTargetSchema = z.enum(["host", "container-daemon"]);
 export const RestartRequestSchema = z.strictObject({
+  // COMPAT(requireOwnerApproval): optional in v311; project out for clients until 2027-04-11.
+  requireOwnerApproval: z.boolean().optional(),
   factoryRuntimeRecoveryOf: z.string().uuid().optional(),
   // COMPAT(factoryRuntimeAdoption): optional in v285; remove legacy projection after 2027-04-10.
   factoryRuntimePlanSha256: z
@@ -112,6 +114,7 @@ export type SourceUpdate = z.infer<typeof SourceUpdateSchema>;
 
 // COMPAT(sourceBatches): opt-in metadata; old strict clients receive legacy job fields only.
 export const SourceContributionSchema = z.strictObject({
+  requireOwnerApproval: z.boolean().optional(),
   id: z.string().uuid(),
   update: SourceUpdateSchema,
   reason: z.string(),
@@ -232,7 +235,11 @@ export const ProfileSharingStatusSchema = z.object({
       error: z.string().nullable(),
       conflicts: z.array(z.string()),
       conflictValues: z.array(
-        z.object({ field: z.string(), sharedValue: z.string(), environmentValue: z.string() }),
+        z.object({
+          field: z.string(),
+          sharedValue: z.string(),
+          environmentValue: z.string(),
+        }),
       ),
     }),
   ),

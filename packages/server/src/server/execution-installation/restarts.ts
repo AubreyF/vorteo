@@ -687,12 +687,43 @@ export class InstallationRestarts {
     }
   }
 
+  private validateOwnerApprovalOrigin(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+  ) {
+    if (!input.requireOwnerApproval) return;
+    if (requestedBy !== "host-agent")
+      throw new RestartRequestError("Explicit owner approval requires trusted Host provenance");
+    if (
+      input.supervisorPlanSha256 ||
+      input.factoryRuntimePlanSha256 ||
+      input.factoryRuntimeRecoveryOf
+    )
+      throw new RestartRequestError(
+        "Explicit owner approval is limited to plain restarts and source updates; maintenance already requires exact owner review",
+      );
+  }
+
+  private sharePlainRequest(active: RestartJob, requireOwnerApproval: boolean): RestartJob {
+    if (requireOwnerApproval && (!active.requireOwnerApproval || active.automaticApproval)) {
+      if (active.status !== "pending")
+        throw new RestartRequestError(
+          "An approved request cannot gain an owner-review requirement. Cancel it or wait for its result before submitting a new request.",
+        );
+      const reviewed = { ...active, requireOwnerApproval: true, revision: randomUUID() };
+      this.replace(reviewed);
+      return { ...reviewed };
+    }
+    return { ...active };
+  }
+
   request(
     input: RestartRequest,
     requestedBy: RestartJob["requestedBy"],
     update?: RestartJob["update"],
   ): RestartJob {
     this.requireActive();
+    this.validateOwnerApprovalOrigin(input, requestedBy);
     this.validateSupervisorRequest(input, requestedBy, update);
     this.validateFactoryRuntimeRequest(input, requestedBy, update);
     if (update && !this.supportsUpdate(input.target))
@@ -718,7 +749,7 @@ export class InstallationRestarts {
         "A different restart scope or Factory adoption plan already owns this target",
       );
     // Only plain restart requests share a target approval. Source approvals stay exact.
-    if (active) return { ...active };
+    if (active) return this.sharePlainRequest(active, input.requireOwnerApproval === true);
     const job: RestartJob = {
       ...input,
       ...(update ? { update } : {}),
@@ -754,6 +785,7 @@ export class InstallationRestarts {
     replaces?: string,
   ) {
     this.requireActive();
+    this.validateOwnerApprovalOrigin(input, requestedBy);
     if (input.factoryRuntimePlanSha256 || input.factoryRuntimeRecoveryOf)
       throw new RestartRequestError(
         "Factory adoption cannot be submitted as a source contribution",
@@ -766,14 +798,15 @@ export class InstallationRestarts {
       throw new RestartRequestError("Source batching unavailable");
     const existing = this.contribution(id);
     if (existing) {
-      const original = existing.contribution;
       if (
         existing.batch.target !== input.target ||
-        JSON.stringify(original.update) !== JSON.stringify(update) ||
-        original.reason !== input.reason ||
-        original.requester !== input.requester ||
-        original.requestedBy !== requestedBy ||
-        original.replaces !== replaces
+        !this.matchesContributionRequest(
+          existing.contribution,
+          input,
+          requestedBy,
+          update,
+          replaces,
+        )
       )
         throw new RestartRequestError("Contribution ID already belongs to a different submission");
       return existing;
@@ -798,6 +831,9 @@ export class InstallationRestarts {
       reason: input.reason,
       requester: input.requester,
       requestedBy,
+      ...(this.contributionRequiresOwnerApproval(input, replaces)
+        ? { requireOwnerApproval: true }
+        : {}),
       createdAt: new Date(this.now()).toISOString(),
       replaces,
       status: "queued",
@@ -811,6 +847,9 @@ export class InstallationRestarts {
         createdAt: new Date(this.now()).toISOString(),
         expiresAt: "9999-12-31T23:59:59.999Z",
       }),
+      requireOwnerApproval:
+        contributions.some((item) => item.status !== "superseded" && item.requireOwnerApproval) ||
+        undefined,
       revision: randomUUID(),
       status: "pending",
       update: undefined,
@@ -820,6 +859,36 @@ export class InstallationRestarts {
     if (this.jobs.some((item) => item.id === job.id)) this.replace(job);
     else this.commit([...this.jobs, job]);
     return this.contribution(id)!;
+  }
+
+  private contributionRequiresOwnerApproval(
+    input: RestartRequest,
+    replaces: string | undefined,
+  ): boolean {
+    // Repairs inherit the durable requirement, including across replacement chains.
+    // Retry matching uses the same effective value when the submitted field was omitted.
+    return Boolean(
+      input.requireOwnerApproval ||
+      (replaces && this.contribution(replaces)?.contribution.requireOwnerApproval),
+    );
+  }
+
+  private matchesContributionRequest(
+    original: SourceContribution,
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update: SourceUpdate,
+    replaces: string | undefined,
+  ): boolean {
+    return (
+      JSON.stringify(original.update) === JSON.stringify(update) &&
+      original.reason === input.reason &&
+      original.requester === input.requester &&
+      original.requestedBy === requestedBy &&
+      original.replaces === replaces &&
+      Boolean(original.requireOwnerApproval) ===
+        this.contributionRequiresOwnerApproval(input, replaces)
+    );
   }
 
   private replaceContribution(input: {
@@ -1238,7 +1307,12 @@ export class InstallationRestarts {
         const included = batch.contributions.filter((item) => item.status !== "superseded");
         if (
           !included.length ||
-          included.some((item) => item.requestedBy !== "host-agent" || item.status !== "included")
+          included.some(
+            (item) =>
+              item.requireOwnerApproval ||
+              item.requestedBy !== "host-agent" ||
+              item.status !== "included",
+          )
         )
           continue;
       }
@@ -1257,6 +1331,7 @@ export class InstallationRestarts {
     return (
       job.status === "pending" &&
       job.requestedBy === "host-agent" &&
+      !job.requireOwnerApproval &&
       !this.factoryRecoveryRequired(job.target) &&
       !requiresExactMaintenanceApproval(job)
     );

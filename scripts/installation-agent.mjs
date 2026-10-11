@@ -12,6 +12,7 @@ const { values, positionals } = parseArgs({
     config: { type: "string" },
     target: { type: "string" },
     update: { type: "boolean" },
+    "require-owner-approval": { type: "boolean" },
     "supervisor-plan": { type: "string" },
     "factory-runtime-plan": { type: "string" },
     "factory-runtime-recovery-of": { type: "string" },
@@ -36,6 +37,27 @@ const base = new URL(config.origin);
 const local = base.hostname === "127.0.0.1" || base.hostname === "localhost";
 if (base.protocol !== "https:" && !(base.protocol === "http:" && local))
   throw new Error("TLS is required");
+if (values["require-owner-approval"]) {
+  if (
+    config.kind !== "host-agent" ||
+    positionals[0] !== "request-restart" ||
+    values["supervisor-plan"] ||
+    values["factory-runtime-plan"] ||
+    !["host", "container-daemon"].includes(values.target)
+  )
+    throw new Error(
+      "--require-owner-approval requires a trusted Host plain restart or source update",
+    );
+  const response = await fetch(new URL("/api/installation/capabilities", base), {
+    headers: { Authorization: `Bearer ${config.token}` },
+    redirect: "error",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok || (await response.json()).requireOwnerApproval !== true)
+    throw new Error(
+      "Coordinator does not advertise explicit owner approval. No request or upload submitted.",
+    );
+}
 if (values["factory-runtime-plan"]) {
   if (
     config.kind !== "host-agent" ||
@@ -133,6 +155,7 @@ switch (positionals[0]) {
     resource = "/api/installation/restart-requests";
     body = {
       target: values.target,
+      ...(values["require-owner-approval"] ? { requireOwnerApproval: true } : {}),
       ...(values["supervisor-plan"] ? { supervisorPlanSha256: values["supervisor-plan"] } : {}),
       ...(values["factory-runtime-plan"]
         ? { factoryRuntimePlanSha256: values["factory-runtime-plan"] }
@@ -260,7 +283,10 @@ if (values.update) {
 let requestBody;
 if (upload) requestBody = upload;
 else if (body) requestBody = JSON.stringify(body);
-const response = await fetch(new URL(resource, base), {
+const requestUrl = new URL(resource, base);
+if (["request-restart", "restart-status", "contribution-status"].includes(positionals[0]))
+  requestUrl.searchParams.set("requireOwnerApproval", "1");
+const response = await fetch(requestUrl, {
   method: body ? "POST" : "GET",
   headers: {
     Authorization: `Bearer ${config.token}`,
