@@ -1,3 +1,4 @@
+import { PreviewMonitorJobSchema } from "@getpaseo/protocol/preview-monitor-maintenance";
 import { z } from "zod";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintenance";
@@ -7,6 +8,7 @@ import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintena
 const LifecycleJobSchema = z.discriminatedUnion("target", [
   RestartJobSchema,
   NativeHelperJobSchema,
+  PreviewMonitorJobSchema,
 ]);
 const LifecycleJournalSchema = z.array(LifecycleJobSchema);
 export type LifecycleJob = z.infer<typeof LifecycleJobSchema>;

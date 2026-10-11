@@ -56,9 +56,15 @@ export function lockedMaintenanceSummary(summary: RestartSummary): string | null
   const helperCount = helper
     ? helper.requested + helper.queued + helper.running + helper.recovery
     : 0;
-  if (!summary.requested && !summary.queued && !summary.running && !helperCount) return null;
+  const monitor = summary.previewMonitor;
+  const monitorCount = monitor
+    ? monitor.requested + monitor.queued + monitor.running + monitor.recovery
+    : 0;
+  if (!summary.requested && !summary.queued && !summary.running && !helperCount && !monitorCount)
+    return null;
   let description = `${summary.requested} requested · ${summary.queued} queued · ${summary.running} restarting.`;
   if (helperCount) description += ` ${helperCount} helper maintenance requests need attention.`;
+  if (monitorCount) description += ` ${monitorCount} preview monitor requests need attention.`;
   return description + " Unlock controls to review details.";
 }
 

@@ -2000,9 +2000,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         agentId,
         prompt,
         sessionMode,
-        ...(callerAgentId
-          ? { messageId: randomUUID(), runOptions: { origin: "agent" as const } }
-          : {}),
+        // MCP submissions are agent-mediated even without a caller thread.
+        messageId: randomUUID(),
+        runOptions: { origin: "agent" },
         logger: childLogger,
       });
 

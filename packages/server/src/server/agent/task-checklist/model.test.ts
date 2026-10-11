@@ -247,3 +247,46 @@ test("legacy serialization downgrades checklist status without touching metadata
     }).safeParse(legacyTask).success,
   ).toBe(true);
 });
+
+test("Review stays incomplete, retains dependencies and cannot be edited through a legacy projection", () => {
+  let tasks = mutateChecklist([], { operation: "create", id: "approval", text: "Approve" });
+  tasks = mutateChecklist(tasks, {
+    operation: "create",
+    id: "delivery",
+    text: "Deliver",
+    blockedBy: ["approval"],
+  });
+  tasks = mutateChecklist(
+    tasks,
+    ChecklistMutationSchema.parse({ operation: "update", id: "approval", status: "review" }),
+  );
+  expect(tasks[0]).toMatchObject({ status: "review", completed: false });
+  expect(() =>
+    mutateChecklist(tasks, { operation: "update", id: "delivery", status: "in_progress" }),
+  ).toThrow("Complete dependency");
+  const message: WSOutboundMessage = {
+    type: "session",
+    message: {
+      type: "agent.checklist.get.response",
+      payload: { agentId: "agent", requestId: "request", tasks, error: null },
+    },
+  };
+  const projected = JSON.parse(
+    serializeLegacyChecklistMessage(message, undefined, { blocked: true, review: false }),
+  );
+  const legacy = projected.message.payload.tasks[0];
+  expect(legacy).toMatchObject({ status: "pending", completed: false });
+  expect(() =>
+    mutateChecklist(tasks, {
+      operation: "update",
+      id: "approval",
+      expectedTask: legacy,
+      status: "completed",
+    }),
+  ).toThrow("changed while");
+  expect(
+    JSON.parse(serializeLegacyChecklistMessage(message, undefined, { blocked: true, review: true }))
+      .message.payload.tasks[0].status,
+  ).toBe("review");
+  expect(tasks[0].status).toBe("review");
+});

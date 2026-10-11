@@ -25,6 +25,7 @@ import { z } from "zod";
 import {
   SourceUpdateSchema,
   type RestartJob,
+  type SourceContribution,
   RestartRequestSchema,
   RestartDecisionSchema,
   InstallationProfilesPatchSchema,
@@ -90,6 +91,30 @@ function factoryAdoptionReply(job: RestartJob, enabled: boolean | undefined): Re
   };
 }
 
+function pendingUpdateDetail(job: RestartJob, pendingDetail: string) {
+  return job.status === "pending" ? pendingDetail : job.detail;
+}
+
+// COMPAT(requireOwnerApproval): v311; legacy strict contribution decoders omit this field until 2027-04-11.
+function contributionReply(contribution: SourceContribution, requireOwnerApproval: boolean) {
+  if (requireOwnerApproval) return contribution;
+  const { requireOwnerApproval: _required, ...legacy } = contribution;
+  return legacy;
+}
+
+// COMPAT(requireOwnerApproval): v311; legacy strict receipts omit requirements until 2027-04-11.
+function ownerApprovalReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
+  if (enabled) return job;
+  const { requireOwnerApproval: _requirement, ...compatible } = job;
+  if (job.sourceBatch) {
+    compatible.sourceBatch = {
+      ...job.sourceBatch,
+      contributions: job.sourceBatch.contributions.map((item) => contributionReply(item, false)),
+    };
+  }
+  return compatible;
+}
+
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
 function restartReply(
   job: RestartJob,
@@ -101,7 +126,9 @@ function restartReply(
   supervisorMaintenance = false,
   hostAutomaticRestarts = false,
   factoryRuntimeAdoption?: boolean,
+  requireOwnerApproval?: boolean,
 ) {
+  job = ownerApprovalReply(job, requireOwnerApproval);
   job = factoryAdoptionReply(job, factoryRuntimeAdoption);
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
@@ -130,7 +157,10 @@ function restartReply(
     return restartReply(
       {
         ...compatible,
-        detail: "Dev source update pending. Reload Vorteo to review and approve its installation.",
+        detail: pendingUpdateDetail(
+          job,
+          "Dev source update pending. Reload Vorteo to review and approve its installation.",
+        ),
       },
       details,
       graceful,
@@ -139,7 +169,13 @@ function restartReply(
   if (job.sourceBatch && !sourceBatches) {
     const { sourceBatch: _batch, ...compatible } = job;
     return restartReply(
-      { ...compatible, detail: "Source batch pending. Reload Vorteo to review contributions." },
+      {
+        ...compatible,
+        detail: pendingUpdateDetail(
+          job,
+          "Source batch pending. Reload Vorteo to review contributions.",
+        ),
+      },
       details,
       graceful,
       sourceUpdates,
@@ -151,7 +187,10 @@ function restartReply(
     return restartReply(
       {
         ...restart,
-        detail: "Source update pending. Reload Vorteo to review installation details.",
+        detail: pendingUpdateDetail(
+          job,
+          "Source update pending. Reload Vorteo to review installation details.",
+        ),
       },
       details,
       graceful,
@@ -354,40 +393,53 @@ export function createInstallationServer(
       executor.releaseCurrentTurns &&
       executor.restartWhenIdle,
     );
-    void Promise.all(
-      (["host", "container-daemon"] as const).map(async (target) => ({
-        target,
-        restart: true,
-        sourceUpdate: await updateCapability(target),
-      })),
-    ).then(
-      (targets) =>
-        res.json({
-          version: 1,
-          targets,
-          ownerApprovalRequired: !host || !automaticHost,
-          hostAutomaticRestarts: automaticHost,
-          nativeHelper: {
-            available: Boolean(
-              host &&
-              executor.validateHelperPlan &&
-              executor.installHelper &&
-              executor.verifyHelperRecovery,
-            ),
-            ownerApprovalRequired: true,
-          },
-          supervisorMaintenance: {
-            available: Boolean(supervisorPlan && executor.restartSupervisor),
-            ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
-          },
-          factoryRuntimeAdoption: {
-            available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
-            ownerApprovalRequired: true,
-            ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
-          },
-        }),
-      next,
-    );
+    void (async () => {
+      const monitorCompatible = host ? ((await executor.monitorCompatible?.()) ?? false) : false;
+      return Promise.all(
+        (["host", "container-daemon"] as const).map(async (target) => ({
+          target,
+          restart: true,
+          sourceUpdate: await updateCapability(target),
+        })),
+      ).then(
+        (targets) =>
+          res.json({
+            version: 1,
+            targets,
+            ownerApprovalRequired: !host || !automaticHost,
+            hostAutomaticRestarts: automaticHost,
+            requireOwnerApproval: host,
+            previewMonitor: {
+              available: Boolean(
+                host &&
+                executor.validateMonitorPlan &&
+                executor.installMonitor &&
+                monitorCompatible,
+              ),
+              ownerApprovalRequired: true,
+            },
+            nativeHelper: {
+              available: Boolean(
+                host &&
+                executor.validateHelperPlan &&
+                executor.installHelper &&
+                executor.verifyHelperRecovery,
+              ),
+              ownerApprovalRequired: true,
+            },
+            supervisorMaintenance: {
+              available: Boolean(supervisorPlan && executor.restartSupervisor),
+              ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
+            },
+            factoryRuntimeAdoption: {
+              available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
+              ownerApprovalRequired: true,
+              ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
+            },
+          }),
+        next,
+      );
+    })().then(undefined, next);
   });
   const updateTarget = (req: Request) => RestartTargetSchema.parse(req.query.target ?? "host");
   function requireUpdate(req: Request, res: Response, next: NextFunction) {
@@ -504,6 +556,10 @@ export function createInstallationServer(
         );
         res.status(201).json({
           ...receipt,
+          contribution: contributionReply(
+            receipt.contribution,
+            req.query.requireOwnerApproval === "1",
+          ),
           batch: restartReply(
             receipt.batch,
             true,
@@ -514,10 +570,27 @@ export function createInstallationServer(
             true,
             req.query.hostAutomaticRestarts === "1",
             req.query.factoryRuntimeAdoption === "1",
+            req.query.requireOwnerApproval === "1",
           ),
         });
         void drainRestarts();
-      } else res.status(201).json(restarts.request(input.request, requester, input.update));
+      } else
+        res
+          .status(201)
+          .json(
+            restartReply(
+              restarts.request(input.request, requester, input.update),
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              req.query.hostAutomaticRestarts === "1",
+              true,
+              req.query.requireOwnerApproval === "1",
+            ),
+          );
     },
   );
   app.get("/api/installation/source-contributions/:id", authenticateUpdate, (req, res) => {
@@ -528,6 +601,7 @@ export function createInstallationServer(
     }
     res.json({
       ...receipt,
+      contribution: contributionReply(receipt.contribution, req.query.requireOwnerApproval === "1"),
       batch: restartReply(
         receipt.batch,
         true,
@@ -537,6 +611,8 @@ export function createInstallationServer(
         true,
         true,
         req.query.hostAutomaticRestarts === "1",
+        undefined,
+        req.query.requireOwnerApproval === "1",
       ),
     });
   });
@@ -549,7 +625,18 @@ export function createInstallationServer(
   app.get("/api/installation/restart-summary", (_req, res) => {
     const jobs = restarts.list();
     const helpers = restarts.listHelpers();
+    const monitors = restarts.listMonitors();
     res.json({
+      ...(monitors.length
+        ? {
+            previewMonitor: {
+              requested: monitors.filter((j) => j.status === "pending").length,
+              queued: monitors.filter((j) => j.status === "approved").length,
+              running: monitors.filter((j) => j.status === "running").length,
+              recovery: monitors.filter((j) => j.stage === "recovery_required").length,
+            },
+          }
+        : {}),
       ...(helpers.length
         ? {
             nativeHelper: {
@@ -614,6 +701,48 @@ export function createInstallationServer(
     });
   });
 
+  app.get("/api/installation/monitor-selection", (req, res, next) => {
+    if (
+      !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
+    ) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!executor.inspectMonitor) {
+      res.status(503).json({ error: "Monitor preparation inspection unavailable" });
+      return;
+    }
+    void executor.inspectMonitor().then((state) => res.json(state), next);
+  });
+  app.get("/api/installation/monitor-requests/:id", (req, res) => {
+    if (
+      !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
+    ) {
+      res.sendStatus(401);
+      return;
+    }
+    const job = restarts.listMonitors().find((j) => j.id === req.params.id);
+    if (!job) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(job);
+  });
+  app.post("/api/installation/monitor-requests", (req, res, next) => {
+    if (
+      !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
+    ) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!executor.validateMonitorPlan || !executor.installMonitor || !executor.monitorCompatible) {
+      res.status(503).json({ error: "Preview monitor maintenance unavailable" });
+      return;
+    }
+    void restarts
+      .prepareMonitor(req.body, "host-agent")
+      .then((job) => res.status(201).json(job), next);
+  });
   // Request-only credentials never authorize login, approval, delegation, or another daemon.
   app.get("/api/installation/helper-requests/:id", (req, res) => {
     const token = extractHttpBearerToken(req.header("authorization"));
@@ -666,6 +795,7 @@ export function createInstallationServer(
           true,
           req.query.hostAutomaticRestarts === "1",
           true,
+          req.query.requireOwnerApproval === "1",
         ),
       );
   });
@@ -696,6 +826,7 @@ export function createInstallationServer(
         true,
         req.query.hostAutomaticRestarts === "1",
         true,
+        req.query.requireOwnerApproval === "1",
       ),
     );
   });
@@ -766,6 +897,14 @@ export function createInstallationServer(
         next(error);
       }
     })();
+  });
+  app.post("/api/installation/owner/monitors/query", (_req, res) =>
+    res.json({ jobs: restarts.listMonitors() }),
+  );
+  app.post("/api/installation/owner/monitors/decision", (req, res) => {
+    const job = restarts.decideMonitor(req.body);
+    res.json(job);
+    void restarts.drain().catch(() => logger.error("Monitor lifecycle journal failed"));
   });
   app.post("/api/installation/owner/helpers/query", (_req, res) => {
     res.json({ jobs: restarts.listHelpers() });
@@ -905,6 +1044,7 @@ export function createInstallationServer(
             req.query.supervisorMaintenance === "1",
             req.query.hostAutomaticRestarts === "1",
             req.query.factoryRuntimeAdoption === "1",
+            req.query.requireOwnerApproval === "1",
           ),
         ),
     );
@@ -964,6 +1104,7 @@ export function createInstallationServer(
         req.query.supervisorMaintenance === "1",
         req.query.hostAutomaticRestarts === "1",
         req.query.factoryRuntimeAdoption === "1",
+        req.query.requireOwnerApproval === "1",
       ),
     );
     void restarts

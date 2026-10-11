@@ -1376,7 +1376,7 @@ function appendTodoList(
 
 function taskStatus(task: TodoEntry): NonNullable<TodoEntry["status"]> {
   if (task.completed || task.status === "completed") return "completed";
-  return task.status === "in_progress" ? "in_progress" : "pending";
+  return task.status ?? "pending";
 }
 
 function taskKey(task: TodoEntry, index: number): string {

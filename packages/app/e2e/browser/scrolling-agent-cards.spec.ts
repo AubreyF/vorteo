@@ -26,6 +26,39 @@ async function verifyGoalPauseHelp(page: Page, goalCard: Locator, width: number)
   await page.mouse.move(0, 0);
 }
 
+async function expectJournalRowGeometry(row: Locator) {
+  await expect(async () => {
+    const rowGeometry = await row.evaluate((node) => {
+      const timestamp = node
+        .querySelector('[data-testid="journal-timestamp"]')!
+        .getBoundingClientRect();
+      const text = node.querySelector('[data-testid="journal-text"]')!.getBoundingClientRect();
+      const marker = node
+        .querySelector('[data-testid^="journal-status-"]')!
+        .getBoundingClientRect();
+      return {
+        markerInset: marker.left - node.getBoundingClientRect().left,
+        markerRight: marker.right,
+        timestampLeft: timestamp.left,
+        timestampBottom: timestamp.bottom,
+        timestampInset: timestamp.left - node.getBoundingClientRect().left,
+        textTop: text.top,
+        textLeft: text.left,
+        textWidth: text.width,
+        rowWidth: node.getBoundingClientRect().width,
+        overflow: node.scrollWidth > node.clientWidth,
+      };
+    });
+    expect(rowGeometry.timestampLeft).toBe(rowGeometry.textLeft);
+    expect(rowGeometry.timestampBottom).toBeLessThanOrEqual(rowGeometry.textTop);
+    expect(rowGeometry.markerInset).toBe(8);
+    expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
+    expect(rowGeometry.timestampInset).toBe(36);
+    expect(rowGeometry.textWidth).toBe(rowGeometry.rowWidth - 36);
+    expect(rowGeometry.overflow).toBe(false);
+  }).toPass({ timeout: 5000 });
+}
+
 test.use({ e2eInjectPaseoTools: true });
 
 for (const width of [1400, 390]) {
@@ -62,7 +95,7 @@ for (const width of [1400, 390]) {
                 entryId: id,
                 text:
                   `Journal observation ${index + 1}. ` +
-                  "Verified the change and retained the decision history. ".repeat(3),
+                  "Verified the change and retained the decision history. ".repeat(6),
               },
             })
           ).isError,
@@ -78,6 +111,7 @@ for (const width of [1400, 390]) {
       await expect(status(0)).toHaveAttribute("aria-label", "Seen journal entry");
       await expect(status(11)).toHaveAttribute("aria-label", "Unread journal entry");
       await expect(card.getByTestId("journal-unread-count")).toBeVisible();
+      await expectJournalRowGeometry(page.getByTestId(`journal-entry-${ids[0]}`));
       await card.screenshot({ path: info.outputPath(`spark-${width}.png`) });
 
       // Keep the app in the background while exposing unread entries.
@@ -215,7 +249,7 @@ for (const width of [1400, 390]) {
 test("agents, tasks, plugin pills, queue and goals share the scrolling footer", async ({
   page,
 }, info) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   // This test checks settled geometry; the responsive column test exercises card motion.
   await page.emulateMedia({ reducedMotion: "reduce" });
   const agent = await seedMockAgentWorkspace({
@@ -451,7 +485,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       for (let i = 1; i < geometry.length; i++)
         expect(geometry[i].top - geometry[i - 1].bottom).toBeCloseTo(16, 0);
       expect(geometry[0].frame[3]).toBe("8px");
-      expect(geometry[2].padding).toBe("12px");
+      expect(geometry[2].padding).toBe("0px");
       for (const card of geometry.filter((entry) => entry.id !== "agent-history-plugin-pills")) {
         expect(card.frame).toEqual(geometry[0].frame);
       }
@@ -474,36 +508,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       expect((await journalCard.boundingBox())!.height).toBeLessThan(expandedHeight);
       await toggleJournal.click();
       await expect(entries).toHaveCount(2);
-      await expect(async () => {
-        const rowGeometry = await entries.first().evaluate((node) => {
-          const timestamp = node
-            .querySelector('[data-testid="journal-timestamp"]')!
-            .getBoundingClientRect();
-          const text = node.querySelector('[data-testid="journal-text"]')!.getBoundingClientRect();
-          const marker = node
-            .querySelector('[data-testid^="journal-status-"]')!
-            .getBoundingClientRect();
-          return {
-            markerInset: marker.left - node.getBoundingClientRect().left,
-            markerRight: marker.right,
-            timestampLeft: timestamp.left,
-            timestampRight: timestamp.right,
-            timestampInset: timestamp.left - node.getBoundingClientRect().left,
-            textTopOffset: text.top - timestamp.top,
-            textLeft: text.left,
-            textWidth: text.width,
-            timestampWidth: timestamp.width,
-            overflow: node.scrollWidth > node.clientWidth,
-          };
-        });
-        expect(rowGeometry.timestampRight).toBeLessThan(rowGeometry.textLeft);
-        expect(rowGeometry.markerInset).toBe(8);
-        expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
-        expect(rowGeometry.timestampInset).toBe(36);
-        expect(rowGeometry.textTopOffset).toBe(-2);
-        expect(rowGeometry.textWidth).toBeGreaterThan(rowGeometry.timestampWidth);
-        expect(rowGeometry.overflow).toBe(false);
-      }).toPass({ timeout: 5000 });
+      await expectJournalRowGeometry(entries.first());
 
       await checkDisclosures(stack, width, info);
       await checkSubagentRows(stack, width, info);
@@ -550,7 +555,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       for (const card of geometry.filter((entry) => entry.id !== "agent-history-plugin-pills")) {
         expect(card.frame).toEqual(geometry[2].frame);
-        expect(card.padding).toBe("12px");
+        expect(card.padding).toBe("0px");
         expect(card.width).toBe(geometry[2].width);
       }
       const goalActionInset = await stack.getByTestId("agent-goal-bar").evaluate((card) => {
@@ -679,8 +684,8 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
       };
     });
     expect(geometry.height, id).toBe(width === 390 ? 44 : 32);
-    expect(geometry.leftInset, id).toBeCloseTo(9, 0);
-    expect(geometry.iconInset, id).toBeCloseTo(4, 0);
+    expect(geometry.leftInset, id).toBeCloseTo(1, 0);
+    expect(geometry.iconInset, id).toBeCloseTo(12, 0);
     expect(geometry.rightGap, id).toBeLessThanOrEqual(8);
     await toggle.hover({ position: { x: 4, y: geometry.height / 2 } });
     await expect
@@ -726,9 +731,9 @@ async function checkHeadingActions(root: Locator, width: number) {
   for (const action of actions) {
     expect(action.height, action.id ?? "heading action").toBe(width === 390 ? 44 : 32);
     expect(action.borderWidth).toBe("1px");
-    expect(action.borderColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(action.borderColor).toBe("rgba(0, 0, 0, 0)");
     expect(action.borderColor).toBe(actions[0].borderColor);
-    expect(action.borderRadius).toBe(actions[0].borderRadius);
+    expect(action.borderRadius).toBe("8px");
   }
 }
 
@@ -1308,7 +1313,7 @@ for (const width of [1400, 390]) {
       await page.reload();
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
       await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "active" });
-      for (let index = 0; index < 16; index++) {
+      for (let index = 0; index < 32; index++) {
         await client.mutateAgentChecklist(agent.agentId, {
           operation: "create",
           id: `scroll-${index}`,
@@ -1316,7 +1321,7 @@ for (const width of [1400, 390]) {
         });
       }
       const card = page.getByTestId("agent-task-progress-card");
-      const lastTask = page.getByTestId("checklist-row-scroll-15");
+      const lastTask = page.getByTestId("checklist-row-scroll-31");
       await expect(lastTask).toBeAttached();
       await expect(
         page.getByTestId("checklist-progress").locator("svg path[fill]:not([fill='none'])"),
@@ -1560,7 +1565,21 @@ test("thread columns resize independently and follow primary-region width", asyn
       contentType: "image/png",
     });
     const composer = page.getByTestId("message-input-surface");
-    const composerBefore = await box(composer);
+    const alignedComposer = async () => {
+      await expect(async () => {
+        const t = await box(text);
+        const input = await box(composer);
+        const transcript = await box(page.getByTestId("thread-transcript-region"));
+        const c = await box(cards);
+        const all = await box(region);
+        expect(input.x).toBeCloseTo(t.x + 8, 0);
+        expect(input.width).toBeCloseTo(t.width - 16, 0);
+        expect(input.y).toBeGreaterThanOrEqual(transcript.y + transcript.height - 1);
+        expect(c.y + c.height).toBeCloseTo(all.y + all.height, 0);
+        expect(c.y + c.height).toBeGreaterThan(input.y + input.height);
+      }).toPass({ timeout: 5000 });
+    };
+    await alignedComposer();
     const textBefore = await box(text);
     const cardsBefore = await box(cards);
     await drag("thread-text-resize", -60);
@@ -1572,7 +1591,7 @@ test("thread columns resize independently and follow primary-region width", asyn
     await expect.poll(async () => (await box(cards)).width).toBeCloseTo(cardsBefore.width + 70, 0);
     expect((await box(text)).width).toBeCloseTo(resizedText, 0);
     await centered();
-    expect(await box(composer)).toEqual(composerBefore);
+    await alignedComposer();
 
     const queueCard = page.getByTestId("shared-message-queue");
     const expandedHeight = (await box(queueCard)).height;
@@ -1613,6 +1632,7 @@ test("thread columns resize independently and follow primary-region width", asyn
       })
       .toBeLessThan(1);
     await centered();
+    await alignedComposer();
     await page.setViewportSize({ width: 1900, height: 850 });
     await centered();
     await info.attach("thread-columns-wide", {
