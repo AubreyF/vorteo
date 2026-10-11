@@ -90,6 +90,10 @@ function factoryAdoptionReply(job: RestartJob, enabled: boolean | undefined): Re
   };
 }
 
+function pendingUpdateDetail(job: RestartJob, pendingDetail: string) {
+  return job.status === "pending" ? pendingDetail : job.detail;
+}
+
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
 function restartReply(
   job: RestartJob,
@@ -130,7 +134,10 @@ function restartReply(
     return restartReply(
       {
         ...compatible,
-        detail: "Dev source update pending. Reload Vorteo to review and approve its installation.",
+        detail: pendingUpdateDetail(
+          job,
+          "Dev source update pending. Reload Vorteo to review and approve its installation.",
+        ),
       },
       details,
       graceful,
@@ -139,7 +146,13 @@ function restartReply(
   if (job.sourceBatch && !sourceBatches) {
     const { sourceBatch: _batch, ...compatible } = job;
     return restartReply(
-      { ...compatible, detail: "Source batch pending. Reload Vorteo to review contributions." },
+      {
+        ...compatible,
+        detail: pendingUpdateDetail(
+          job,
+          "Source batch pending. Reload Vorteo to review contributions.",
+        ),
+      },
       details,
       graceful,
       sourceUpdates,
@@ -151,7 +164,10 @@ function restartReply(
     return restartReply(
       {
         ...restart,
-        detail: "Source update pending. Reload Vorteo to review installation details.",
+        detail: pendingUpdateDetail(
+          job,
+          "Source update pending. Reload Vorteo to review installation details.",
+        ),
       },
       details,
       graceful,
