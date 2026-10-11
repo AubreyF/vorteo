@@ -391,7 +391,7 @@ Checklist maintenance: browser coverage verifies Review editing, reload persiste
 
 Preview monitor maintenance review (2026-10-11): integrated the reviewed monitor workflow with native Factory grouping and checklist Review, preserving the legacy terminal-outcome correction. Independent filesystem, queue and compatibility regressions pass. A previously timing-out source-batching fixture passed unchanged; its intermittent cause remains unresolved. README overview and onboarding are unchanged.
 
-Maintenance review: registered the private Nova bridge workspace and build, reviewed its operation and event boundaries, and verified top-level MCP provenance separately from owner WebSocket messages. Live account and managed service acceptance remain pending.
+Maintenance review: registered the private Nova bridge workspace and build, reviewed its operation and event boundaries, and verified top-level MCP provenance separately from owner WebSocket messages. Callback verification caching and signing-key overlap are bounded, complete UTF-8 webhook bodies are size-checked, and event data contains facts rather than behavioral instructions. Cancellation invalidates pending subscription generations before cache or subscription writes, including cached refreshes. Focused race tests, full typecheck and lint pass. Live account and managed service acceptance remain pending; README overview and onboarding are unchanged.
 
 Maintenance review: combined monitor and Nova source with the published Factory and Review interface. Both source histories and all historical release entries remain intact; runtime activation remains separate.
 

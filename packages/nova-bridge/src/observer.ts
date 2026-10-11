@@ -196,7 +196,7 @@ export class WorkspaceObserver {
         threadId: null,
         kind: "gap",
         summary:
-          "Legacy observation cursors were not bound to server identity. A fresh baseline is being established; inspect retained get_changes history for earlier events.",
+          "Legacy observation cursors were not bound to server identity. A fresh baseline is being established; earlier events remain in retained history.",
         occurredAt: this.startedAt,
       });
     }
@@ -275,7 +275,7 @@ export class WorkspaceObserver {
     if (!this.online)
       this.environmentEvent(
         "recovered",
-        "Vorteo inventory reconciled. Inspect get_bridge_status for per-thread history gaps.",
+        "Vorteo inventory reconciled. Per-thread history gaps may remain.",
       );
     this.online = true;
   }
@@ -415,14 +415,14 @@ export class WorkspaceObserver {
         "gap",
         [saved?.cursor, history.cursor],
         agent.updatedAt,
-        "Retained timeline has a gap or reset. Read current state; missed transitions are unknown.",
+        "Retained timeline has a gap or reset. Missed transitions are unknown.",
       );
     for (const error of history.errors)
       publish(
         "failed",
         error.cursor,
         error.timestamp,
-        "Retained timeline contains an error. Read that evidence; current task state may have changed.",
+        "Retained timeline contains an error. Current task state may have changed.",
         error.cursor,
       );
     const timestamp = agent.attentionTimestamp ?? null;
@@ -442,7 +442,7 @@ export class WorkspaceObserver {
         attentionKind(agent.attentionReason, false),
         [agent.attentionReason, timestamp],
         timestamp ?? agent.updatedAt,
-        `Thread has ${attentionKind(agent.attentionReason, false)} activity. Inspect its native timeline before acting.`,
+        `Thread has ${attentionKind(agent.attentionReason, false)} activity.`,
       );
     }
     if (evidenceChanged(agent, saved, evidence, this.startedAt))
@@ -450,14 +450,14 @@ export class WorkspaceObserver {
         "changed",
         evidence,
         agent.updatedAt,
-        "Thread checklist, journal or pending input changed. Read native state for the decision and its authority.",
+        "Thread checklist, journal or pending input changed.",
       );
     if (history.changed && (recovering || !saved || agent.status !== "running"))
       publish(
         "changed",
         history.cursor,
         history.lastTimestamp ?? agent.updatedAt,
-        "Work changed during catch-up. Timeline rows do not replay every lifecycle transition; inspect evidence before inferring outcomes.",
+        "Work changed during catch-up. Timeline rows do not record every lifecycle transition.",
       );
     return results;
   }
