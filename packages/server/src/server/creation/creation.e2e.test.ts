@@ -303,6 +303,34 @@ test("delegated creation and messages retain attribution without becoming owner 
       source: { kind: "directory", path: directory },
     });
     expect(workspace.error).toBeNull();
+    const ownerCreated = await client.createAgent({
+      provider: "codex",
+      cwd: directory,
+      workspaceId: workspace.workspace!.id,
+      initialPrompt: "Owner initial instruction",
+      clientMessageId: randomUUID(),
+    });
+    const evidence = new TaskOwnerEvidenceStore(daemon.paseoHome);
+    await expect
+      .poll(async () => {
+        const timeline = await client.fetchAgentTimeline(ownerCreated.id, {
+          limit: 0,
+          projection: "canonical",
+        });
+        return timeline.entries
+          .filter((entry) => entry.item.type === "user_message")
+          .map((entry) => entry.item);
+      })
+      .toEqual([expect.objectContaining({ text: "Owner initial instruction" })]);
+    const ownerTimeline = await client.fetchAgentTimeline(ownerCreated.id, {
+      limit: 0,
+      projection: "canonical",
+    });
+    const ownerMessage = ownerTimeline.entries.find((entry) => entry.item.type === "user_message");
+    expect(ownerMessage?.item).not.toHaveProperty("origin");
+    expect(await evidence.list(ownerCreated.id)).toEqual([
+      expect.objectContaining({ text: "Owner initial instruction" }),
+    ]);
     const created = await delegateToContainer(client, {
       operation: "create",
       workspaceId: workspace.workspace!.id,
@@ -312,7 +340,6 @@ test("delegated creation and messages retain attribution without becoming owner 
       idempotencyKey: randomUUID(),
     });
     const agentId = (created as { id: string }).id;
-    const evidence = new TaskOwnerEvidenceStore(daemon.paseoHome);
     const messages = async () => {
       const timeline = await client.fetchAgentTimeline(agentId, {
         limit: 0,

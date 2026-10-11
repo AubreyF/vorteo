@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.301 - 2026-10-11
+
+### Added
+
+- Add a private Nova bridge package for scoped Host and Dev tools, durable operation receipts and proactive event delivery. Runtime activation and account acceptance remain separate.
+
+### Fixed
+
+- Record top-level agent-tool prompts with canonical machine origin and message IDs while preserving owner-authored message evidence.
+
 ## 0.11.0-beta.3.vorteo.300 - 2026-10-11
 
 ### Maintenance

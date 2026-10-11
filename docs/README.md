@@ -63,3 +63,5 @@ Host and container setup, trust boundaries, restart requests and removal: [Host 
 - [Skill library](skill-library.md): inventory, ownership, reviewed changes, and profile selection.
 
 Factory worker retention and deferred configurable cleanup: [Factory follow-on updates](factory-future-updates.md).
+
+- [Nova integration](nova-integration.md): private bridge source, operation and event contracts, and live acceptance requirements.

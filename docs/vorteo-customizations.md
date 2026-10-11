@@ -101,6 +101,8 @@ October 9, 2026: Integrated shared action footers with queue recovery containmen
 
 ## Incomplete integrations
 
+- **Nova bridge.** A private Node package exposes scoped Host and Dev tools, durable write receipts, bounded inventory and proactive event delivery. Machine-origin prompts remain distinct from owner evidence. Source tests and builds do not establish account support, managed activation or delivery in the existing Nova conversation. See [Nova integration](nova-integration.md).
+
 - **Plugin version floors.** Explicit prerelease requirements enforce the authored minimum. Stable-only range branches retain prerelease compatibility, including caret, tilde and wildcard ranges.
 - **Bundled Factory.** Source provides bounded project snapshots, guarded setup and installation, native membership protection, managed workspace indicators and adapters for the existing qualification, delivery and Builds pipeline. A reconciled startup owner can restore observation for completed membership without rebinding coordinators or admitting work. Optional controls from that same owner expose native pause, resume and stop through identity-bound requests, with visible failures and no automatic transport retry. Production startup requires retained native ownership, account policy and custody reconciliation. Source preparation does not establish live operation. See [Factory boundaries](factory.md).
 - **Quota reserve controls.** The daemon includes policy validation, frozen launch policy, admission, usage observation, persistence and restart reconciliation. The app still needs reserve controls, launch-policy selection, capability integration and end-to-end acceptance. Do not advertise Cruise Reserve or Redline as an available user workflow. See [implementation status](agent-presets.md#implementation-and-deployment-status).
@@ -369,3 +371,5 @@ October 11, 2026: Integration review retained the installed Host update and both
 Factory workspace presentation uses its own collapsible sidebar section. An explicit Factory label also places a workspace there before runtime adoption. Rows show a factory icon without a text badge. Labeling changes presentation only; native membership and archive protection keep their existing authority checks.
 
 Conversation layout delivery review (2026-10-11): retain the published Factory sidebar grouping while integrating composer alignment and full-height cards. README overview and onboarding are unchanged.
+
+Maintenance review: registered the private Nova bridge workspace and build, reviewed its operation and event boundaries, and verified top-level MCP provenance separately from owner WebSocket messages. Live account and managed service acceptance remain pending.
