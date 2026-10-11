@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.308 - 2026-10-11
+
+### Maintenance
+
+- Give the profile column a distinct browser test identifier so workspace geometry checks preserve existing profile-card checks
+
 ## 0.11.0-beta.3.vorteo.307 - 2026-10-11
 
 ### Changed

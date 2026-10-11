@@ -235,7 +235,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
             <ColumnHeading section="account" label="Account" />
             <ScrollView keyboardShouldPersistTaps="handled">{list}</ScrollView>
           </View>
-          <View style={styles.profileCard} testID="preset-profile-card">
+          <View style={styles.profileCard} testID="preset-profile-column">
             {details}
           </View>
         </View>

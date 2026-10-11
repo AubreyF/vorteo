@@ -606,7 +606,7 @@ test("new workspace shows compact inline profiles and restores the account defau
     expect(environment!.x).toBe(surface!.x);
     expect(environment!.height).toBe(surface!.height);
     const accountCard = await page.getByTestId("preset-account-card").boundingBox();
-    const profileCard = await page.getByTestId("preset-profile-card").boundingBox();
+    const profileCard = await page.getByTestId("preset-profile-column").boundingBox();
     expect(accountCard!.x - (environment!.x + environment!.width)).toBeCloseTo(16, 1);
     expect(profileCard!.x - (accountCard!.x + accountCard!.width)).toBeCloseTo(16, 1);
     expect(profileCard!.x + profileCard!.width).toBeCloseTo(surface!.x + surface!.width, 1);
