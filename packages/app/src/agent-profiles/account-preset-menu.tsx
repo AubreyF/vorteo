@@ -187,19 +187,21 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
   );
   return (
     <View style={styles.root} testID="account-preset-menu">
-      <View style={styles.header}>
-        <Text style={styles.menuTitle}>Choose profile</Text>
-        {!compact ? (
-          <Button
-            variant="ghost"
-            size={headerSize}
-            onPress={props.onManage}
-            testID="preset-manage-profiles"
-          >
-            Manage profiles
-          </Button>
-        ) : null}
-      </View>
+      {!props.inline ? (
+        <View style={styles.header}>
+          <Text style={styles.menuTitle}>Choose profile</Text>
+          {!compact ? (
+            <Button
+              variant="ghost"
+              size={headerSize}
+              onPress={props.onManage}
+              testID="preset-manage-profiles"
+            >
+              Manage profiles
+            </Button>
+          ) : null}
+        </View>
+      ) : null}
       {compact ? (
         <CompactSelector
           inline={props.inline}
@@ -214,7 +216,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           details={details}
         />
       ) : (
-        <View style={styles.split}>
+        <View style={[styles.split, props.inline && styles.inlineSplit]}>
           <View
             style={[
               settingsStyles.card,
@@ -228,11 +230,14 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           </View>
           <View
             style={[settingsStyles.card, styles.accountCard, props.inline && styles.inlineColumn]}
+            testID="preset-account-card"
           >
             <ColumnHeading section="account" label="Account" />
             <ScrollView keyboardShouldPersistTaps="handled">{list}</ScrollView>
           </View>
-          <View style={styles.profileCard}>{details}</View>
+          <View style={styles.profileCard} testID="preset-profile-card">
+            {details}
+          </View>
         </View>
       )}
     </View>
@@ -313,7 +318,7 @@ function CompactSelector({
 }) {
   const ListScrollView = inline ? ScrollView : BottomSheetScrollView;
   return (
-    <View style={styles.compactBody}>
+    <View style={[styles.compactBody, inline && styles.inlineCompactBody]}>
       <View style={settingsStyles.card}>
         <SectionButton
           section="environment"
@@ -755,6 +760,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingTop: 0,
     gap: theme.spacing[2],
   },
+  inlineSplit: { padding: 0, gap: theme.spacing[4] },
   environmentCard: { flex: 0.9, minWidth: 240 },
   accountCard: { flex: 1.3, minWidth: 320 },
   inlineColumn: { minWidth: 0 },
@@ -800,6 +806,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[3],
     lineHeight: Math.ceil(theme.fontSize.base * 1.5),
   },
+  inlineCompactBody: { padding: 0, gap: theme.spacing[4] },
   compactBody: { flex: 1, minHeight: 0, padding: theme.spacing[3], gap: theme.spacing[2] },
   compactList: { maxHeight: 220 },
   compactProfile: { flex: 1, minHeight: 0 },

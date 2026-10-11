@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.307 - 2026-10-11
+
+### Changed
+
+- Remove the new workspace profile header, align the selector and message card edges, and use matching card gaps and desktop heights
+
 ## 0.11.0-beta.3.vorteo.306 - 2026-10-11
 
 ### Added
